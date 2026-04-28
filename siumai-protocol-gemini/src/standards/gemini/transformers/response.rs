@@ -102,6 +102,62 @@ mod tests_gemini_metadata {
 
         let resp = tx.transform_chat_response(&raw).expect("transform");
         assert_eq!(resp.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(resp.raw_finish_reason.as_deref(), Some("STOP"));
+    }
+
+    #[test]
+    fn gemini_response_preserves_raw_finish_reason_for_content_filter() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.0-flash-exp".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": { "parts": [ { "text": "blocked" } ] },
+                    "finishReason": "PROHIBITED_CONTENT"
+                }
+            ],
+            "modelVersion": "gemini-2.0-flash-exp"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+
+        assert_eq!(resp.finish_reason, Some(FinishReason::ContentFilter));
+        assert_eq!(
+            resp.raw_finish_reason.as_deref(),
+            Some("PROHIBITED_CONTENT")
+        );
+    }
+
+    #[test]
+    fn gemini_response_maps_unknown_finish_reason_to_raw_other() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.0-flash-exp".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": { "parts": [ { "text": "future" } ] },
+                    "finishReason": "FUTURE_STOP_REASON"
+                }
+            ],
+            "modelVersion": "gemini-2.0-flash-exp"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+
+        assert_eq!(
+            resp.finish_reason,
+            Some(FinishReason::Other("FUTURE_STOP_REASON".to_string()))
+        );
+        assert_eq!(
+            resp.raw_finish_reason.as_deref(),
+            Some("FUTURE_STOP_REASON")
+        );
     }
 
     #[test]
@@ -396,6 +452,19 @@ impl ResponseTransformer for GeminiResponseTransformer {
             }
         }
 
+        fn raw_candidate_finish_reason(raw: &serde_json::Value) -> Option<String> {
+            raw.get("candidates")
+                .and_then(|value| value.as_array())
+                .and_then(|candidates| candidates.first())
+                .and_then(|candidate| {
+                    candidate
+                        .get("finishReason")
+                        .or_else(|| candidate.get("finish_reason"))
+                })
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        }
+
         fn thought_signature_provider_metadata(
             provider_key: &str,
             sig: Option<&String>,
@@ -423,6 +492,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
         let provider_key = provider_metadata_key(&self.config);
 
         let candidate = &response.candidates[0];
+        let raw_finish_reason = raw_candidate_finish_reason(raw);
         let content = candidate
             .content
             .as_ref()
@@ -741,10 +811,18 @@ impl ResponseTransformer for GeminiResponseTransformer {
             | types::FinishReason::ProhibitedContent
             | types::FinishReason::Spii => FinishReason::ContentFilter,
             types::FinishReason::MalformedFunctionCall => FinishReason::Error,
-            types::FinishReason::Language => FinishReason::Other("language".to_string()),
+            types::FinishReason::Language => FinishReason::Other(
+                raw_finish_reason
+                    .clone()
+                    .unwrap_or_else(|| "language".to_string()),
+            ),
             types::FinishReason::Unspecified
             | types::FinishReason::Other
-            | types::FinishReason::Unknown => FinishReason::Other("other".to_string()),
+            | types::FinishReason::Unknown => FinishReason::Other(
+                raw_finish_reason
+                    .clone()
+                    .unwrap_or_else(|| "other".to_string()),
+            ),
         });
         let service_tier = raw
             .get("serviceTier")
@@ -851,7 +929,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
             model: response.model_version.clone(),
             usage,
             finish_reason,
-            raw_finish_reason: None,
+            raw_finish_reason,
             audio: None, // Gemini doesn't support audio output in this format
             system_fingerprint: None,
             service_tier,

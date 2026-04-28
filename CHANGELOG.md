@@ -1041,6 +1041,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- Gemini GenerateContent response parsing and protocol reserialization now preserve provider-native
+  `finishReason` strings on the non-streaming path and prefer those raw values when replaying JSON
+  or SSE responses, matching the existing streaming raw-finish fidelity and avoiding lossy
+  `PROHIBITED_CONTENT` -> `SAFETY` style round-trips.
 - AI SDK-style video polling controls are now honored by the shared high-level video helper:
   `siumai::video::generate(...)` consumes provider-owned `pollIntervalMs` / `pollTimeoutMs` from
   Vertex, Gemini/Google, and xAI video provider options through a new `VideoPollingOptions`

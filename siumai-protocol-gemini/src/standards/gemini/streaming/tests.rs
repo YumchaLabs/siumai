@@ -1221,6 +1221,41 @@ async fn gemini_stream_proxy_serializes_stream_end_finish_reason() {
     );
 }
 
+#[tokio::test]
+async fn gemini_stream_proxy_prefers_raw_stream_end_finish_reason() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::StreamEnd {
+            response: ChatResponse {
+                id: None,
+                model: None,
+                content: MessageContent::Text(String::new()),
+                usage: Some(
+                    Usage::builder()
+                        .prompt_tokens(3)
+                        .completion_tokens(5)
+                        .total_tokens(8)
+                        .build(),
+                ),
+                finish_reason: Some(FinishReason::ContentFilter),
+                raw_finish_reason: Some("PROHIBITED_CONTENT".to_string()),
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
+                warnings: None,
+                provider_metadata: None,
+            },
+        })
+        .expect("serialize ok");
+
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(
+        frames[0]["candidates"][0]["finishReason"],
+        serde_json::json!("PROHIBITED_CONTENT")
+    );
+}
+
 #[test]
 fn gemini_serializes_direct_finish_part_once_even_if_stream_end_follows() {
     let converter = GeminiEventConverter::new(create_test_config());
@@ -1455,7 +1490,7 @@ fn gemini_serializes_v3_finish_part_as_finish_reason_chunk() {
                     "inputTokens": { "total": 3 },
                     "outputTokens": { "total": 5 }
                 },
-                "finishReason": { "unified": "stop" }
+                "finishReason": { "unified": "content-filter", "raw": "PROHIBITED_CONTENT" }
             }),
         })
         .expect("serialize v3 finish");
@@ -1463,7 +1498,7 @@ fn gemini_serializes_v3_finish_part_as_finish_reason_chunk() {
     let frames = parse_sse_json_frames(&bytes);
     assert_eq!(
         frames[0]["candidates"][0]["finishReason"],
-        serde_json::json!("STOP")
+        serde_json::json!("PROHIBITED_CONTENT")
     );
     assert_eq!(
         frames[0]["usageMetadata"]["totalTokenCount"],

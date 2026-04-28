@@ -915,7 +915,7 @@ fn finish_reason_to_stream_payload(
             raw: finish_reason.raw.or(Some(value)),
         },
         crate::types::FinishReason::Unknown => LanguageModelV3FinishReason {
-            unified: "other".to_string(),
+            unified: "unknown".to_string(),
             raw: finish_reason.raw,
         },
     }
@@ -2513,6 +2513,34 @@ mod tests {
             value.pointer("/finishReason/unified"),
             Some(&serde_json::json!("tool-calls"))
         );
+    }
+
+    #[test]
+    fn stream_part_finish_reason_preserves_unknown_unified_value() {
+        let usage = crate::types::Usage::unknown();
+        let part = LanguageModelV3StreamPart::from_runtime_part(ChatStreamPart::Finish {
+            usage,
+            finish_reason: ChatStreamFinishInfo {
+                unified: crate::types::FinishReason::Unknown,
+                raw: None,
+            },
+            provider_metadata: None,
+        });
+
+        let value = serde_json::to_value(&part).expect("serialize stream part");
+        assert_eq!(
+            value.pointer("/finishReason/unified"),
+            Some(&serde_json::json!("unknown"))
+        );
+
+        let runtime = part.to_runtime_part();
+        match runtime {
+            ChatStreamPart::Finish { finish_reason, .. } => {
+                assert_eq!(finish_reason.unified, crate::types::FinishReason::Unknown);
+                assert_eq!(finish_reason.raw, None);
+            }
+            other => panic!("unexpected runtime part: {other:?}"),
+        }
     }
 
     #[test]

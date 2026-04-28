@@ -28,6 +28,14 @@ fn gemini_finish_reason(reason: Option<&FinishReason>) -> Option<GeminiFinishRea
     }
 }
 
+fn raw_finish_reason(response: &ChatResponse) -> Option<&str> {
+    response
+        .raw_finish_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
 fn usage_json(usage: &Usage) -> UsageMetadata {
     let normalized_input = usage.normalized_input_tokens();
     let normalized_output = usage.normalized_output_tokens();
@@ -249,6 +257,24 @@ impl JsonResponseConverter for GeminiGenerateContentJsonResponseConverter {
             model_version: response.model.clone(),
             response_id: response.id.clone(),
         };
+        let mut body = serde_json::to_value(body).map_err(|error| {
+            LlmError::JsonError(format!(
+                "Failed to serialize Gemini GenerateContent response shape: {error}"
+            ))
+        })?;
+
+        if let Some(raw_finish_reason) = raw_finish_reason(response)
+            && let Some(candidate) = body
+                .get_mut("candidates")
+                .and_then(Value::as_array_mut)
+                .and_then(|candidates| candidates.first_mut())
+                .and_then(Value::as_object_mut)
+        {
+            candidate.insert(
+                "finishReason".to_string(),
+                Value::String(raw_finish_reason.to_string()),
+            );
+        }
 
         if opts.pretty {
             serde_json::to_writer_pretty(out, &body).map_err(|error| {
@@ -350,6 +376,24 @@ mod tests {
         assert_eq!(
             value["usageMetadata"]["trafficType"],
             serde_json::json!("ON_DEMAND")
+        );
+    }
+
+    #[test]
+    fn gemini_encoder_prefers_raw_finish_reason() {
+        let mut response = ChatResponse::new(MessageContent::Text("blocked".to_string()));
+        response.finish_reason = Some(FinishReason::ContentFilter);
+        response.raw_finish_reason = Some("PROHIBITED_CONTENT".to_string());
+
+        let mut out = Vec::new();
+        GeminiGenerateContentJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["candidates"][0]["finishReason"],
+            serde_json::json!("PROHIBITED_CONTENT")
         );
     }
 

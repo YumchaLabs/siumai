@@ -28,6 +28,17 @@ pub(super) fn serialize_event(
         }
     }
 
+    fn finish_reason_payload(
+        finish_reason: &FinishReason,
+        raw_finish_reason: Option<&str>,
+    ) -> String {
+        raw_finish_reason
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| map_finish_reason(finish_reason).to_string())
+    }
+
     fn serialize_error_payload(error: &serde_json::Value) -> serde_json::Value {
         match error {
             serde_json::Value::String(message) => serde_json::json!({
@@ -227,6 +238,7 @@ pub(super) fn serialize_event(
     fn serialize_terminal_chunk(
         this: &GeminiEventConverter,
         finish_reason: &FinishReason,
+        raw_finish_reason: Option<&str>,
         usage: Option<&Usage>,
     ) -> Result<Vec<u8>, LlmError> {
         let mut out = flush_pending_reasoning_chunk(this)?;
@@ -296,7 +308,7 @@ pub(super) fn serialize_event(
 
         let payload = serde_json::json!({
             "candidates": [
-                { "finishReason": map_finish_reason(finish_reason) }
+                { "finishReason": finish_reason_payload(finish_reason, raw_finish_reason) }
             ],
             "usageMetadata": usage
                 .map(usage_metadata_payload)
@@ -434,7 +446,12 @@ pub(super) fn serialize_event(
                 .finish_reason
                 .as_ref()
                 .unwrap_or(&FinishReason::Stop);
-            serialize_terminal_chunk(this, reason, response.usage.as_ref())
+            serialize_terminal_chunk(
+                this,
+                reason,
+                response.raw_finish_reason.as_deref(),
+                response.usage.as_ref(),
+            )
         }
         ChatStreamEvent::Error { error } => {
             let mut out = flush_pending_reasoning_chunk(this)?;
@@ -471,7 +488,12 @@ pub(super) fn serialize_event(
                     finish_reason,
                     ..
                 } => {
-                    return serialize_terminal_chunk(this, &finish_reason.unified, Some(usage));
+                    return serialize_terminal_chunk(
+                        this,
+                        &finish_reason.unified,
+                        finish_reason.raw.as_deref(),
+                        Some(usage),
+                    );
                 }
                 ChatStreamPart::Error { error } => {
                     let mut out = flush_pending_reasoning_chunk(this)?;
@@ -638,14 +660,22 @@ pub(super) fn serialize_event(
                     ..
                 } => {
                     let mut out = flush_pending_reasoning_chunk(this)?;
-                    let unified = finish_reason.unified.to_ascii_lowercase();
-                    let reason = if unified.contains("length") || unified.contains("max") {
-                        "MAX_TOKENS"
-                    } else if unified.contains("safety") || unified.contains("content") {
-                        "SAFETY"
-                    } else {
-                        "STOP"
-                    };
+                    let reason = finish_reason
+                        .raw
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| {
+                            let unified = finish_reason.unified.to_ascii_lowercase();
+                            if unified.contains("length") || unified.contains("max") {
+                                "MAX_TOKENS".to_string()
+                            } else if unified.contains("safety") || unified.contains("content") {
+                                "SAFETY".to_string()
+                            } else {
+                                "STOP".to_string()
+                            }
+                        });
 
                     let prompt = usage.input_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
                     let completion =
