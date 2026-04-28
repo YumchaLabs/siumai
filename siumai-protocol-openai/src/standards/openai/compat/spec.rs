@@ -663,6 +663,37 @@ fn apply_mistral_json_object_instruction(
     );
 }
 
+fn apply_perplexity_response_format(
+    provider_id: &str,
+    req: &crate::types::ChatRequest,
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    if provider_id != "perplexity" {
+        return;
+    }
+
+    let Some(response_format) = req.response_format.as_ref() else {
+        return;
+    };
+
+    let json_schema = match response_format {
+        crate::types::chat::ResponseFormat::JsonObject { .. } => serde_json::Map::new(),
+        crate::types::chat::ResponseFormat::Json { schema, .. } => {
+            let mut json_schema = serde_json::Map::new();
+            json_schema.insert("schema".to_string(), schema.clone());
+            json_schema
+        }
+    };
+
+    body_obj.insert(
+        "response_format".to_string(),
+        serde_json::json!({
+            "type": "json_schema",
+            "json_schema": json_schema,
+        }),
+    );
+}
+
 fn provider_options_map_merge_hook(
     provider_id: &str,
     map: &crate::types::ProviderOptionsMap,
@@ -714,6 +745,7 @@ fn chat_request_settings_hook(
                     supports_stream_usage_hints,
                     request_uses_structured_outputs,
                 );
+                apply_perplexity_response_format(&provider_id, &req, body_obj);
             }
 
             if let Some(transformer) = settings.request_body_transformer.as_ref() {
@@ -2853,6 +2885,109 @@ mod tests {
         assert!(body.get("searchMode").is_none());
         assert!(body.get("returnImages").is_none());
         assert!(body.get("webSearchOptions").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_perplexity_json_object_uses_empty_json_schema_response_format() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "perplexity".to_string(),
+                name: "Perplexity".to_string(),
+                base_url: "https://api.perplexity.ai".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "perplexity".to_string(),
+            "https://api.perplexity.ai".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = crate::types::ChatRequest::builder()
+            .model("sonar")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_object())
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {}
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_perplexity_json_schema_omits_openai_only_schema_options() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "perplexity".to_string(),
+                name: "Perplexity".to_string(),
+                base_url: "https://api.perplexity.ai".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "perplexity".to_string(),
+            "https://api.perplexity.ai".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+        let req = crate::types::ChatRequest::builder()
+            .model("sonar")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(
+                ResponseFormat::json_schema(schema.clone())
+                    .with_name("custom")
+                    .with_description("ignored by Perplexity")
+                    .with_strict(false),
+            )
+            .build()
+            .with_provider_option(
+                "perplexity",
+                serde_json::json!({ "strictJsonSchema": true, "structuredOutputs": false }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": { "schema": schema }
+            }))
+        );
     }
 
     #[test]
