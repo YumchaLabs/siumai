@@ -295,6 +295,11 @@ impl DeepSeekConfig {
         }
         let adapter: Arc<dyn ProviderAdapter> = Arc::from(adapter);
 
+        let mut model_middlewares = self.model_middlewares.clone();
+        model_middlewares.push(Arc::new(
+            super::middleware::DeepSeekWarningsMiddleware::new(),
+        ));
+
         let mut config = OpenAiCompatibleConfig::new(
             "deepseek",
             self.api_key.expose_secret(),
@@ -305,7 +310,11 @@ impl DeepSeekConfig {
         .with_model(&self.common_params.model)
         .with_http_config(self.http_config.clone())
         .with_http_interceptors(self.http_interceptors.clone())
-        .with_model_middlewares(self.model_middlewares.clone());
+        .with_model_middlewares(model_middlewares)
+        .with_request_body_transformer(Arc::new(
+            super::middleware::DeepSeekRequestBodyTransformer::new(),
+        ))
+        .with_supports_structured_outputs(true);
 
         if let Some(transport) = self.http_transport.clone() {
             config = config.with_http_transport(transport);

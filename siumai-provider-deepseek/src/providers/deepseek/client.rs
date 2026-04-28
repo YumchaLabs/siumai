@@ -116,7 +116,7 @@ mod tests {
         HttpTransportStreamResponse,
     };
     use crate::provider_metadata::deepseek::DeepSeekChatResponseExt;
-    use crate::types::chat::ResponseFormat;
+    use crate::types::{Warning, chat::ResponseFormat};
     use async_trait::async_trait;
     use futures_util::StreamExt;
     use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -345,14 +345,69 @@ mod tests {
         assert!(captured.body["thinking"].get("budget_tokens").is_none());
         assert_eq!(
             captured.body.get("response_format"),
-            Some(&serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
-                }
-            }))
+            Some(&serde_json::json!({ "type": "json_object" }))
+        );
+        assert_eq!(
+            captured.body["messages"][0],
+            serde_json::json!({
+                "role": "system",
+                "content": format!(
+                    "Return JSON that conforms to the following schema: {}",
+                    serde_json::to_string(&schema).expect("schema string")
+                )
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn deepseek_client_warns_when_json_schema_is_injected_into_system_message() {
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl-deepseek-json",
+            "object": "chat.completion",
+            "created": 1_741_392_000,
+            "model": "deepseek-chat",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"answer\":\"ok\"}"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+                "total_tokens": 2
+            }
+        }));
+        let cfg = super::super::config::DeepSeekConfig::new("test-key")
+            .with_base_url("https://example.com/v1")
+            .with_model("deepseek-chat")
+            .with_http_transport(Arc::new(transport.clone()));
+        let client = DeepSeekClient::from_config(cfg)
+            .await
+            .expect("from_config ok");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema))
+            .build();
+
+        let response = client.chat_request(request).await.expect("response ok");
+
+        assert_eq!(
+            response.warnings,
+            Some(vec![Warning::compatibility(
+                "responseFormat JSON schema",
+                Some("JSON response schema is injected into the system message."),
+            )])
         );
     }
 
@@ -426,13 +481,16 @@ mod tests {
         assert_eq!(captured.body["tool_choice"], serde_json::json!("none"));
         assert_eq!(
             captured.body["response_format"],
+            serde_json::json!({ "type": "json_object" })
+        );
+        assert_eq!(
+            captured.body["messages"][0],
             serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
-                }
+                "role": "system",
+                "content": format!(
+                    "Return JSON that conforms to the following schema: {}",
+                    serde_json::to_string(&schema).expect("schema string")
+                )
             })
         );
     }

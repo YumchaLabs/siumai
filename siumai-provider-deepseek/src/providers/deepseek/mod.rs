@@ -30,6 +30,7 @@ pub mod builder;
 mod client;
 pub mod config;
 pub mod ext;
+mod middleware;
 pub mod models;
 pub mod settings;
 pub mod spec;

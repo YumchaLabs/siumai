@@ -1,7 +1,7 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
-use crate::types::ChatRequest;
+use crate::types::{ChatRequest, ResponseFormat};
 use reqwest::header::HeaderMap;
 use serde_json::{Map, Value};
 use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleRequestSettings;
@@ -44,32 +44,77 @@ fn normalize_deepseek_options(value: &Value) -> Option<Map<String, Value>> {
     Some(obj)
 }
 
-fn deepseek_provider_options_name(provider_id: &str) -> &str {
-    provider_id.split('.').next().unwrap_or(provider_id).trim()
-}
-
-fn deepseek_provider_options_hook(
+fn custom_deepseek_provider_options(
     req: &ChatRequest,
     provider_id: &str,
-) -> Option<crate::execution::executors::BeforeSendHook> {
-    let provider_options_key = deepseek_provider_options_name(provider_id);
-    let normalized =
-        normalize_deepseek_options(req.provider_options_map.get(provider_options_key)?)?;
-    let hook = move |body: &Value| -> Result<Value, LlmError> {
-        let mut out = body.clone();
-        if let Some(body_obj) = out.as_object_mut() {
-            for (key, value) in &normalized {
-                if matches!(key.as_str(), "response_format" | "tool_choice")
-                    && body_obj.contains_key(key)
-                {
-                    continue;
-                }
-                body_obj.insert(key.clone(), value.clone());
-            }
-        }
-        Ok(out)
+) -> Option<Map<String, Value>> {
+    let key = provider_id.split('.').next().unwrap_or(provider_id).trim();
+    if key.is_empty() || key.eq_ignore_ascii_case("deepseek") {
+        return None;
+    }
+
+    normalize_deepseek_options(req.provider_options_map.get(key)?)
+}
+
+fn merge_custom_deepseek_options(
+    body_obj: &mut Map<String, Value>,
+    options: &Option<Map<String, Value>>,
+) {
+    let Some(options) = options.as_ref() else {
+        return;
     };
-    Some(Arc::new(hook))
+
+    body_obj.remove("enableReasoning");
+    body_obj.remove("enable_reasoning");
+    body_obj.remove("reasoningBudget");
+    body_obj.remove("reasoning_budget");
+
+    for (key, value) in options {
+        if matches!(key.as_str(), "response_format" | "tool_choice") && body_obj.contains_key(key) {
+            continue;
+        }
+        body_obj.insert(key.clone(), value.clone());
+    }
+}
+
+fn deepseek_json_response_prompt(response_format: &ResponseFormat) -> String {
+    match response_format {
+        ResponseFormat::JsonObject { .. } => "Return JSON.".to_string(),
+        ResponseFormat::Json { schema, .. } => {
+            let schema = serde_json::to_string(schema).unwrap_or_else(|_| schema.to_string());
+            format!("Return JSON that conforms to the following schema: {schema}")
+        }
+    }
+}
+
+fn apply_deepseek_response_format_body(
+    body: &mut serde_json::Value,
+    response_format: Option<&ResponseFormat>,
+) {
+    let Some(response_format) = response_format else {
+        return;
+    };
+    let Some(body_obj) = body.as_object_mut() else {
+        return;
+    };
+
+    body_obj.insert(
+        "response_format".to_string(),
+        serde_json::json!({ "type": "json_object" }),
+    );
+
+    if let Some(messages) = body_obj
+        .get_mut("messages")
+        .and_then(|value| value.as_array_mut())
+    {
+        messages.insert(
+            0,
+            serde_json::json!({
+                "role": "system",
+                "content": deepseek_json_response_prompt(response_format),
+            }),
+        );
+    }
 }
 
 /// `DeepSeek` ProviderSpec implementation.
@@ -135,8 +180,39 @@ impl ProviderSpec for DeepSeekSpec {
         req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        deepseek_provider_options_hook(req, &ctx.provider_id)
-            .or_else(|| self.inner.chat_before_send(req, ctx))
+        let inner_hook = self.inner.chat_before_send(req, ctx);
+        let custom_options = custom_deepseek_provider_options(req, &ctx.provider_id);
+        let Some(response_format) = req.response_format.clone() else {
+            let Some(custom_options) = custom_options else {
+                return inner_hook;
+            };
+            return Some(Arc::new(
+                move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+                    let mut out = match inner_hook.as_ref() {
+                        Some(hook) => hook(body)?,
+                        None => body.clone(),
+                    };
+                    if let Some(body_obj) = out.as_object_mut() {
+                        merge_custom_deepseek_options(body_obj, &Some(custom_options.clone()));
+                    }
+                    Ok(out)
+                },
+            ));
+        };
+
+        Some(Arc::new(
+            move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+                let mut out = match inner_hook.as_ref() {
+                    Some(hook) => hook(body)?,
+                    None => body.clone(),
+                };
+                if let Some(body_obj) = out.as_object_mut() {
+                    merge_custom_deepseek_options(body_obj, &custom_options);
+                }
+                apply_deepseek_response_format_body(&mut out, Some(&response_format));
+                Ok(out)
+            },
+        ))
     }
 }
 
@@ -236,14 +312,17 @@ mod tests {
         assert!(body["thinking"].get("budget_tokens").is_none());
         assert_eq!(
             body.get("response_format"),
-            Some(&serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
-                }
-            }))
+            Some(&serde_json::json!({ "type": "json_object" }))
+        );
+        assert_eq!(
+            body["messages"][0],
+            serde_json::json!({
+                "role": "system",
+                "content": format!(
+                    "Return JSON that conforms to the following schema: {}",
+                    serde_json::to_string(&schema).expect("schema string")
+                )
+            })
         );
     }
 
