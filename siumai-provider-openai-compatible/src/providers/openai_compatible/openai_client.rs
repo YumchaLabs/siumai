@@ -2917,7 +2917,7 @@ mod tests {
             model: Some("black-forest-labs/FLUX.1-schnell".to_string()),
             quality: None,
             style: None,
-            seed: None,
+            seed: Some(7),
             steps: None,
             guidance_scale: None,
             enhance_prompt: None,
@@ -2942,9 +2942,15 @@ mod tests {
             captured.body["prompt"],
             serde_json::json!("a tiny purple robot")
         );
-        assert_eq!(captured.body["size"], serde_json::json!("1024x1024"));
-        assert_eq!(captured.body["n"], serde_json::json!(1));
-        assert_eq!(captured.body["response_format"], serde_json::json!("url"));
+        assert_eq!(captured.body["width"], serde_json::json!(1024));
+        assert_eq!(captured.body["height"], serde_json::json!(1024));
+        assert_eq!(captured.body["seed"], serde_json::json!(7));
+        assert_eq!(
+            captured.body["response_format"],
+            serde_json::json!("base64")
+        );
+        assert!(captured.body.get("size").is_none());
+        assert!(captured.body.get("n").is_none());
     }
 
     #[tokio::test]
@@ -3036,10 +3042,14 @@ mod tests {
         assert_eq!(response.images.len(), 1);
         assert_eq!(captured.body["user"], serde_json::json!("provider-user"));
         assert_eq!(captured.body["quality"], serde_json::json!("hd"));
+        assert_eq!(
+            captured.body["response_format"],
+            serde_json::json!("base64")
+        );
     }
 
     #[tokio::test]
-    async fn generate_images_runtime_seed_emits_ai_sdk_warning() {
+    async fn generate_images_runtime_together_seed_is_sent_without_warning() {
         let transport = JsonResponseTransport::new(serde_json::json!({
             "data": [{ "b64_json": "image-1" }]
         }));
@@ -3050,7 +3060,7 @@ mod tests {
             make_together_image_adapter(),
         )
         .with_model("black-forest-labs/FLUX.1-schnell")
-        .with_http_transport(Arc::new(transport));
+        .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
             .await
@@ -3067,11 +3077,10 @@ mod tests {
             .generate_images(request)
             .await
             .expect("image response");
+        let captured = transport.take().expect("captured request");
 
-        assert_eq!(
-            response.warnings,
-            Some(vec![Warning::unsupported("seed", Option::<String>::None)])
-        );
+        assert_eq!(captured.body["seed"], serde_json::json!(7));
+        assert!(response.warnings.is_none());
     }
 
     #[tokio::test]

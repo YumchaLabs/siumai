@@ -349,6 +349,57 @@ fn compat_image_provider_options(
     (!merged.is_empty()).then_some(merged)
 }
 
+fn is_togetherai_provider(provider_id: &str) -> bool {
+    matches!(provider_id, "together" | "togetherai")
+}
+
+fn parse_image_size(size: &str) -> Option<(u32, u32)> {
+    let (width, height) = size.split_once('x').or_else(|| size.split_once('X'))?;
+    Some((width.trim().parse().ok()?, height.trim().parse().ok()?))
+}
+
+fn normalize_togetherai_image_generation_request(
+    req: &ImageGenerationRequest,
+    body: &mut serde_json::Value,
+    provider_options: Option<&serde_json::Map<String, serde_json::Value>>,
+) {
+    let Some(obj) = body.as_object_mut() else {
+        return;
+    };
+
+    let provider_has = |key: &str| {
+        provider_options
+            .as_ref()
+            .is_some_and(|options| options.contains_key(key))
+    };
+
+    if let Some((width, height)) = req.size.as_deref().and_then(parse_image_size) {
+        obj.insert("width".to_string(), serde_json::json!(width));
+        obj.insert("height".to_string(), serde_json::json!(height));
+    }
+    if !provider_has("size") {
+        obj.remove("size");
+    }
+
+    if req.count <= 1 && !provider_has("n") {
+        obj.remove("n");
+    }
+
+    if let Some(seed) = req.seed {
+        obj.insert("seed".to_string(), serde_json::json!(seed));
+    }
+
+    if !provider_has("response_format") {
+        obj.insert("response_format".to_string(), serde_json::json!("base64"));
+    }
+    if !provider_has("quality") {
+        obj.remove("quality");
+    }
+    if !provider_has("style") {
+        obj.remove("style");
+    }
+}
+
 fn normalize_provider_options(
     provider_id: &str,
     value: Option<&serde_json::Value>,
@@ -794,6 +845,7 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         _ctx: &ProviderContext,
     ) -> Option<Vec<Warning>> {
         let mut warnings = Vec::new();
+        let provider_id = self.adapter.provider_id();
 
         if req.aspect_ratio.is_some() {
             warnings.push(Warning::unsupported(
@@ -802,7 +854,7 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
             ));
         }
 
-        if req.seed.is_some() {
+        if req.seed.is_some() && !is_togetherai_provider(provider_id.as_ref()) {
             warnings.push(Warning::unsupported("seed", Option::<String>::None));
         }
 
@@ -822,6 +874,7 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         _ctx: &ProviderContext,
     ) -> Option<Vec<Warning>> {
         let mut warnings = Vec::new();
+        let provider_id = self.adapter.provider_id();
 
         if req.aspect_ratio.is_some() {
             warnings.push(Warning::unsupported(
@@ -830,7 +883,7 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
             ));
         }
 
-        if req.seed.is_some() {
+        if req.seed.is_some() && !is_togetherai_provider(provider_id.as_ref()) {
             warnings.push(Warning::unsupported("seed", Option::<String>::None));
         }
 
@@ -850,6 +903,7 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         _ctx: &ProviderContext,
     ) -> Option<Vec<Warning>> {
         let mut warnings = Vec::new();
+        let provider_id = self.adapter.provider_id();
 
         if req.aspect_ratio.is_some() {
             warnings.push(Warning::unsupported(
@@ -858,7 +912,7 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
             ));
         }
 
-        if req.seed.is_some() {
+        if req.seed.is_some() && !is_togetherai_provider(provider_id.as_ref()) {
             warnings.push(Warning::unsupported("seed", Option::<String>::None));
         }
 
@@ -1033,7 +1087,7 @@ impl OpenAiCompatibleSpecWithAdapter {
         impl crate::standards::openai::image::OpenAiImageAdapter for CompatImageAdapter {
             fn transform_generation_request(
                 &self,
-                _req: &crate::types::ImageGenerationRequest,
+                req: &crate::types::ImageGenerationRequest,
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
                 let model_s = body
@@ -1041,6 +1095,16 @@ impl OpenAiCompatibleSpecWithAdapter {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .unwrap_or_default();
+                let provider_id = self.adapter.provider_id();
+                let provider_options =
+                    compat_image_provider_options(provider_id.as_ref(), &req.provider_options_map);
+                if is_togetherai_provider(provider_id.as_ref()) {
+                    normalize_togetherai_image_generation_request(
+                        req,
+                        body,
+                        provider_options.as_ref(),
+                    );
+                }
                 self.adapter.transform_request_params(
                     body,
                     &model_s,
