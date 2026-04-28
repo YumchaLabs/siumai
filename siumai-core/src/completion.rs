@@ -94,6 +94,7 @@ mod tests {
                     .unwrap_or_default()
                     .to_string(),
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: Some("stop".to_string()),
                 usage: None,
                 response_metadata: None,
                 warnings: None,
