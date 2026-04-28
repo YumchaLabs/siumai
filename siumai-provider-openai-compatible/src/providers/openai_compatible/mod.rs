@@ -118,9 +118,10 @@ pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use settings::{
-    AlibabaProviderSettings, DeepInfraProviderSettings, FireworksProviderSettings,
-    GoogleVertexMaasProviderSettings, MistralProviderSettings, MoonshotAIProviderSettings,
-    OpenAICompatibleProviderSettings, PerplexityProviderSettings,
+    AlibabaProviderSettings, DeepInfraProviderSettings, DeepSeekProviderSettings,
+    FireworksProviderSettings, GoogleVertexMaasProviderSettings, GroqProviderSettings,
+    MistralProviderSettings, MoonshotAIProviderSettings, OpenAICompatibleProviderSettings,
+    PerplexityProviderSettings, TogetherAIProviderSettings, XaiProviderSettings,
 };
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
@@ -270,6 +271,32 @@ pub type OpenAICompatibleConfig = OpenAiCompatibleConfig;
 /// Rust package version exposed on the generic OpenAI-compatible package-surface facade.
 pub const OPENAI_COMPATIBLE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// AI SDK-style provider-scoped alias for DeepSeek compat clients.
+pub type DeepSeekClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for DeepSeek compat configs.
+pub type DeepSeekConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the DeepSeek package-surface facade.
+pub const DEEPSEEK_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// AI SDK-style DeepSeek chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type DeepSeekChatModelId = String;
+
+/// AI SDK-style provider-scoped alias for Groq compat clients.
+pub type GroqClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for Groq compat configs.
+pub type GroqConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the Groq package-surface facade.
+pub const GROQ_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// AI SDK-style Groq chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type GroqChatModelId = String;
+/// AI SDK-style Groq transcription model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type GroqTranscriptionModelId = String;
+
 /// AI SDK-style provider-scoped alias for Mistral compat clients.
 pub type MistralClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for Mistral compat configs.
@@ -300,6 +327,33 @@ pub type FireworksEmbeddingModelId = String;
 ///
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type FireworksImageModelId = String;
+
+/// AI SDK-style provider-scoped alias for TogetherAI compat clients.
+pub type TogetherAIClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for TogetherAI compat configs.
+pub type TogetherAIConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the TogetherAI package-surface facade.
+pub const TOGETHERAI_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// AI SDK-style TogetherAI chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type TogetherAIChatModelId = String;
+/// AI SDK-style TogetherAI completion model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type TogetherAICompletionModelId = String;
+/// AI SDK-style TogetherAI embedding model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type TogetherAIEmbeddingModelId = String;
+/// AI SDK-style TogetherAI image model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type TogetherAIImageModelId = String;
+/// AI SDK-style TogetherAI reranking model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type TogetherAIRerankingModelId = String;
 
 /// AI SDK-style DeepInfra chat model id alias.
 ///
@@ -354,6 +408,29 @@ pub const MOONSHOTAI_VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type MoonshotAIChatModelId = String;
+
+/// AI SDK-style provider-scoped alias for xAI compat clients.
+pub type XaiClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for xAI compat configs.
+pub type XaiConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the xAI package-surface facade.
+pub const XAI_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// AI SDK-style xAI chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type XaiChatModelId = String;
+/// AI SDK-style xAI responses model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type XaiResponsesModelId = String;
+/// AI SDK-style xAI image model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type XaiImageModelId = String;
+/// AI SDK-style xAI video model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type XaiVideoModelId = String;
 
 /// AI SDK-style provider-scoped alias for Google Vertex MaaS compat text-family clients.
 pub type GoogleVertexMaasClient = openai_client::OpenAiCompatibleClient;

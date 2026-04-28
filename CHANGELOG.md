@@ -6,6 +6,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- OpenAI-compatible package-surface parity now also exposes compat-backed AI SDK-style
+  `DeepSeekProviderSettings`, `GroqProviderSettings`, `TogetherAIProviderSettings`, and
+  `XaiProviderSettings`, plus provider-scoped client/config/model-id aliases.
 - OpenAI-compatible Alibaba/Qwen parity now supports the AI SDK `alibaba` preset, `qwen` preset
   aliases, typed `AlibabaChatOptions` / `QwenChatOptions`, and request normalization for
   `enableThinking`, `thinkingBudget`, and `parallelToolCalls`.
@@ -1044,6 +1047,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- OpenAI-compatible DeepSeek, Fireworks, Mistral, Perplexity, and xAI presets now declare their
+  canonical AI SDK API-key environment variables for config-first construction.
 - OpenAI-compatible usage conversion now applies the audited AI SDK provider-specific semantics for
   DeepSeek prompt-cache hits, MoonshotAI top-level cache counters, Groq reasoning without prompt
   cache normalization, Qwen/Alibaba cache-write counters, and xAI chat/Responses non-inclusive

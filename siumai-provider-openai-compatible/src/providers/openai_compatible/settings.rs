@@ -8,9 +8,10 @@ use std::sync::Arc;
 
 use super::alibaba_video::{ALIBABA_VIDEO_DEFAULT_BASE_URL, AlibabaVideoModel};
 use super::{
-    AlibabaConfig, DeepInfraConfig, FireworksConfig, GoogleVertexMaasConfig, MistralConfig,
-    MoonshotAIConfig, OpenAiCompatibleBuilder, OpenAiCompatibleConfig, PerplexityConfig,
-    RequestBodyTransformer, ResponseMetadataExtractor,
+    AlibabaConfig, DeepInfraConfig, DeepSeekConfig, FireworksConfig, GoogleVertexMaasConfig,
+    GroqConfig, MistralConfig, MoonshotAIConfig, OpenAiCompatibleBuilder, OpenAiCompatibleConfig,
+    PerplexityConfig, RequestBodyTransformer, ResponseMetadataExtractor, TogetherAIConfig,
+    XaiConfig,
 };
 
 const GOOGLE_VERTEX_MAAS_DEFAULT_LOCATION: &str = "global";
@@ -28,6 +29,91 @@ fn non_empty(value: Option<String>) -> Option<String> {
 
 fn env_non_empty(name: &str) -> Option<String> {
     non_empty(std::env::var(name).ok())
+}
+
+macro_rules! simple_compat_provider_settings {
+    (
+        $(#[$meta:meta])*
+        pub struct $settings:ident => $config:ty, $provider_id:literal;
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone, Default)]
+        pub struct $settings {
+            pub api_key: Option<String>,
+            pub base_url: Option<String>,
+            pub headers: HashMap<String, String>,
+            pub fetch: Option<Arc<dyn HttpTransport>>,
+        }
+
+        impl $settings {
+            pub fn new() -> Self {
+                Self::default()
+            }
+
+            pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
+                self.api_key = Some(api_key.into());
+                self
+            }
+
+            pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+                self.base_url = Some(base_url.into());
+                self
+            }
+
+            pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+                self.headers.extend(headers);
+                self
+            }
+
+            pub fn with_header<K: Into<String>, V: Into<String>>(
+                mut self,
+                name: K,
+                value: V,
+            ) -> Self {
+                self.headers.insert(name.into(), value.into());
+                self
+            }
+
+            pub fn with_fetch(mut self, fetch: Arc<dyn HttpTransport>) -> Self {
+                self.fetch = Some(fetch);
+                self
+            }
+
+            pub fn into_builder(self) -> OpenAiCompatibleBuilder {
+                let mut builder =
+                    OpenAiCompatibleBuilder::new(BuilderBase::default(), $provider_id);
+
+                if let Some(api_key) = self.api_key {
+                    builder = builder.api_key(api_key);
+                }
+                if let Some(base_url) = self.base_url {
+                    builder = builder.base_url(base_url);
+                }
+                if !self.headers.is_empty() {
+                    builder = builder.custom_headers(self.headers);
+                }
+                if let Some(fetch) = self.fetch {
+                    builder = builder.fetch(fetch);
+                }
+
+                builder
+            }
+
+            pub fn into_builder_for_model<S: Into<String>>(
+                self,
+                model: S,
+            ) -> OpenAiCompatibleBuilder {
+                self.into_builder().model(model)
+            }
+
+            pub fn into_config_for_model<S: Into<String>>(
+                self,
+                model: S,
+            ) -> Result<$config, LlmError> {
+                self.into_builder_for_model(model).into_config()
+            }
+        }
+    };
 }
 
 /// Package-level generic OpenAI-compatible provider settings aligned with
@@ -198,6 +284,42 @@ impl OpenAICompatibleProviderSettings {
     ) -> Result<OpenAiCompatibleConfig, LlmError> {
         self.into_builder_for_model(model).into_config()
     }
+}
+
+simple_compat_provider_settings! {
+    /// Package-level DeepSeek provider settings aligned with
+    /// `repo-ref/ai/packages/deepseek/src/deepseek-provider.ts`.
+    ///
+    /// This carrier is model-agnostic. Model selection happens later through
+    /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
+    pub struct DeepSeekProviderSettings => DeepSeekConfig, "deepseek";
+}
+
+simple_compat_provider_settings! {
+    /// Package-level Groq provider settings aligned with
+    /// `repo-ref/ai/packages/groq/src/groq-provider.ts`.
+    ///
+    /// This carrier is model-agnostic. Model selection happens later through
+    /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
+    pub struct GroqProviderSettings => GroqConfig, "groq";
+}
+
+simple_compat_provider_settings! {
+    /// Package-level xAI provider settings aligned with
+    /// `repo-ref/ai/packages/xai/src/xai-provider.ts`.
+    ///
+    /// This carrier covers the shared OpenAI-compatible chat/language-model surface. Native xAI
+    /// image, video, file, and responses APIs remain owned by `siumai-provider-xai`.
+    pub struct XaiProviderSettings => XaiConfig, "xai";
+}
+
+simple_compat_provider_settings! {
+    /// Package-level TogetherAI provider settings aligned with
+    /// `repo-ref/ai/packages/togetherai/src/togetherai-provider.ts`.
+    ///
+    /// This carrier covers the shared OpenAI-compatible text/audio/image surface. Native
+    /// TogetherAI reranking remains owned by `siumai-provider-togetherai`.
+    pub struct TogetherAIProviderSettings => TogetherAIConfig, "togetherai";
 }
 
 /// Package-level DeepInfra provider settings aligned with
@@ -881,6 +1003,89 @@ mod tests {
         assert_eq!(config.base_url, "https://example.com/v1");
         assert_eq!(config.adapter.base_url(), "https://example.com/v1");
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn deepseek_provider_settings_into_config_preserve_supported_inputs() {
+        let config = DeepSeekProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/deepseek")
+            .with_header("x-test", "1")
+            .with_fetch(Arc::new(NoopTransport))
+            .into_config_for_model("deepseek-chat")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "deepseek");
+        assert_eq!(config.base_url, "https://example.com/deepseek");
+        assert_eq!(config.common_params.model, "deepseek-chat");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+        assert!(config.http_transport.is_some());
+    }
+
+    #[test]
+    fn groq_provider_settings_into_config_preserve_supported_inputs() {
+        let config = GroqProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/groq/openai/v1")
+            .with_header("x-test", "1")
+            .with_fetch(Arc::new(NoopTransport))
+            .into_config_for_model("openai/gpt-oss-20b")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "groq");
+        assert_eq!(config.base_url, "https://example.com/groq/openai/v1");
+        assert_eq!(config.common_params.model, "openai/gpt-oss-20b");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+        assert!(config.http_transport.is_some());
+    }
+
+    #[test]
+    fn xai_provider_settings_into_config_preserve_supported_inputs() {
+        let config = XaiProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/xai/v1")
+            .with_header("x-test", "1")
+            .with_fetch(Arc::new(NoopTransport))
+            .into_config_for_model("grok-4")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "xai");
+        assert_eq!(config.base_url, "https://example.com/xai/v1");
+        assert_eq!(config.common_params.model, "grok-4");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+        assert!(config.http_transport.is_some());
+    }
+
+    #[test]
+    fn togetherai_provider_settings_into_config_preserve_supported_inputs() {
+        let config = TogetherAIProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/together/v1")
+            .with_header("x-test", "1")
+            .with_fetch(Arc::new(NoopTransport))
+            .into_config_for_model("meta-llama/Llama-3.3-70B-Instruct-Turbo")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "togetherai");
+        assert_eq!(config.base_url, "https://example.com/together/v1");
+        assert_eq!(
+            config.common_params.model,
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+        assert!(config.http_transport.is_some());
     }
 
     #[test]

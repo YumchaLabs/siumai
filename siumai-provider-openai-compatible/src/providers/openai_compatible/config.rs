@@ -201,7 +201,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             ],
             default_model: Some("deepseek-chat".to_string()),
             supports_reasoning: true,
-            api_key_env: None,
+            api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
             api_key_env_aliases: Vec::new(),
         },
     );
@@ -354,7 +354,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             ],
             default_model: Some(fireworks_models::CHAT.to_string()),
             supports_reasoning: false,
-            api_key_env: None,
+            api_key_env: Some("FIREWORKS_API_KEY".to_string()),
             api_key_env_aliases: Vec::new(),
         },
     );
@@ -386,7 +386,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             capabilities: vec!["tools".to_string()],
             default_model: Some(perplexity_models::CHAT.to_string()),
             supports_reasoning: false,
-            api_key_env: None,
+            api_key_env: Some("PERPLEXITY_API_KEY".to_string()),
             api_key_env_aliases: Vec::new(),
         },
     );
@@ -420,7 +420,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             capabilities: vec!["tools".to_string(), "vision".to_string()],
             default_model: Some("grok-2-1212".to_string()),
             supports_reasoning: false,
-            api_key_env: None,
+            api_key_env: Some("XAI_API_KEY".to_string()),
             api_key_env_aliases: Vec::new(),
         },
     );
@@ -466,7 +466,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             ],
             default_model: Some(mistral_models::CHAT.to_string()),
             supports_reasoning: false,
-            api_key_env: None,
+            api_key_env: Some("MISTRAL_API_KEY".to_string()),
             api_key_env_aliases: Vec::new(),
         },
     );
@@ -1114,6 +1114,7 @@ mod tests {
         assert_eq!(config.id, "deepseek");
         assert_eq!(config.name, "DeepSeek");
         assert_eq!(config.base_url, "https://api.deepseek.com");
+        assert_eq!(config.api_key_env.as_deref(), Some("DEEPSEEK_API_KEY"));
 
         let config = get_provider_config("deepinfra").unwrap();
         assert_eq!(config.id, "deepinfra");
@@ -1134,10 +1135,26 @@ mod tests {
         assert_eq!(config.base_url, "https://api.moonshot.ai/v1");
         assert_eq!(config.api_key_env.as_deref(), Some("MOONSHOT_API_KEY"));
 
+        let config = get_provider_config("mistral").unwrap();
+        assert_eq!(config.id, "mistral");
+        assert_eq!(config.api_key_env.as_deref(), Some("MISTRAL_API_KEY"));
+
         let config = get_provider_config("groq").unwrap();
         assert_eq!(config.id, "groq");
         assert_eq!(config.base_url, "https://api.groq.com/openai/v1");
         assert_eq!(config.api_key_env.as_deref(), Some("GROQ_API_KEY"));
+
+        let config = get_provider_config("xai").unwrap();
+        assert_eq!(config.id, "xai");
+        assert_eq!(config.api_key_env.as_deref(), Some("XAI_API_KEY"));
+
+        let config = get_provider_config("perplexity").unwrap();
+        assert_eq!(config.id, "perplexity");
+        assert_eq!(config.api_key_env.as_deref(), Some("PERPLEXITY_API_KEY"));
+
+        let config = get_provider_config("fireworks").unwrap();
+        assert_eq!(config.id, "fireworks");
+        assert_eq!(config.api_key_env.as_deref(), Some("FIREWORKS_API_KEY"));
 
         let config = get_provider_config("qwen").unwrap();
         assert_eq!(config.id, "qwen");

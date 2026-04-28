@@ -503,18 +503,28 @@ pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod openai_compatible {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            ConfigurableAdapter, MetadataExtractor, OPENAI_COMPATIBLE_VERSION as VERSION,
-            OpenAICompatibleChatModelId, OpenAICompatibleClient, OpenAICompatibleCompletionModelId,
-            OpenAICompatibleConfig, OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData,
+            AlibabaProviderSettings, ConfigurableAdapter, DeepInfraProviderSettings,
+            DeepSeekChatModelId, DeepSeekClient, DeepSeekConfig, DeepSeekProviderSettings,
+            FireworksProviderSettings, GoogleVertexMaasProviderSettings, GroqChatModelId,
+            GroqClient, GroqConfig, GroqProviderSettings, GroqTranscriptionModelId,
+            MetadataExtractor, MistralProviderSettings, MoonshotAIProviderSettings,
+            OPENAI_COMPATIBLE_VERSION as VERSION, OpenAICompatibleChatModelId,
+            OpenAICompatibleClient, OpenAICompatibleCompletionModelId, OpenAICompatibleConfig,
+            OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData,
             OpenAICompatibleImageModelId, OpenAICompatibleProviderSettings,
             OpenAICompatibleRequestSettings, OpenAiCompatibleChatModelId, OpenAiCompatibleClient,
             OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
             OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
-            OpenAiCompatibleImageModelId, OpenAiCompatibleRequestSettings, ProviderAdapter,
-            ProviderCompatibility, ProviderConfig, ProviderErrorStructure, RequestBodyTransformer,
-            ResponseMetadataExtractor, deepinfra, deepseek, fireworks, generic_provider_config,
-            get_provider_config, groq, list_provider_ids, moonshot, moonshotai, openrouter,
-            provider_supports_capability, siliconflow, vertex_maas, xai,
+            OpenAiCompatibleImageModelId, OpenAiCompatibleRequestSettings,
+            PerplexityProviderSettings, ProviderAdapter, ProviderCompatibility, ProviderConfig,
+            ProviderErrorStructure, RequestBodyTransformer, ResponseMetadataExtractor,
+            TogetherAIChatModelId, TogetherAIClient, TogetherAICompletionModelId, TogetherAIConfig,
+            TogetherAIEmbeddingModelId, TogetherAIImageModelId, TogetherAIProviderSettings,
+            TogetherAIRerankingModelId, XaiChatModelId, XaiClient, XaiConfig, XaiImageModelId,
+            XaiProviderSettings, XaiResponsesModelId, XaiVideoModelId, deepinfra, deepseek,
+            fireworks, generic_provider_config, get_provider_config, groq, list_provider_ids,
+            moonshot, moonshotai, openrouter, provider_supports_capability, siliconflow,
+            vertex_maas, xai,
         };
 
         /// Typed generic OpenAI-compatible provider options (`provider_options_map["openaiCompatible"]`).
