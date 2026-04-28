@@ -593,27 +593,47 @@ fn raw_usage_object_from_response(
     raw_usage
 }
 
+fn usage_token_totals(usage: &AnthropicUsage) -> (u32, u32) {
+    usage
+        .iterations
+        .as_ref()
+        .filter(|iterations| !iterations.is_empty())
+        .map(|iterations| {
+            iterations
+                .iter()
+                .fold((0u32, 0u32), |(input_tokens, output_tokens), iteration| {
+                    (
+                        input_tokens.saturating_add(iteration.input_tokens),
+                        output_tokens.saturating_add(iteration.output_tokens),
+                    )
+                })
+        })
+        .unwrap_or((usage.input_tokens, usage.output_tokens))
+}
+
 pub fn create_usage_from_response(usage: Option<AnthropicUsage>) -> Option<Usage> {
     usage.map(|u| {
         let raw_usage = raw_usage_object_from_response(&u);
+        let (input_no_cache, output_total) = usage_token_totals(&u);
+        let cache_read = u.cache_read_input_tokens.unwrap_or(0);
+        let cache_write = u.cache_creation_input_tokens.unwrap_or(0);
+        let input_total = input_no_cache
+            .saturating_add(cache_read)
+            .saturating_add(cache_write);
 
         let mut builder = Usage::builder()
-            .prompt_tokens(u.input_tokens)
-            .completion_tokens(u.output_tokens)
-            .total_tokens(u.input_tokens.saturating_add(u.output_tokens))
+            .prompt_tokens(input_no_cache)
+            .completion_tokens(output_total)
+            .total_tokens(input_no_cache.saturating_add(output_total))
             .with_input_tokens(crate::types::UsageInputTokens {
-                total: Some(
-                    u.input_tokens
-                        .saturating_add(u.cache_read_input_tokens.unwrap_or(0))
-                        .saturating_add(u.cache_creation_input_tokens.unwrap_or(0)),
-                ),
-                no_cache: Some(u.input_tokens),
+                total: Some(input_total),
+                no_cache: Some(input_no_cache),
                 cache_read: u.cache_read_input_tokens,
                 cache_write: u.cache_creation_input_tokens,
             })
             .with_output_tokens(crate::types::UsageOutputTokens {
-                total: Some(u.output_tokens),
-                text: Some(u.output_tokens),
+                total: Some(output_total),
+                text: Some(output_total),
                 reasoning: None,
             })
             .with_raw_usage_value(serde_json::Value::Object(raw_usage));
@@ -1454,5 +1474,39 @@ mod tests {
         assert_eq!(usage.normalized_input_tokens().total, Some(843));
         assert_eq!(usage.normalized_input_tokens().cache_write, Some(0));
         assert_eq!(usage.normalized_output_tokens().total, Some(28));
+    }
+
+    #[test]
+    fn test_create_usage_from_json_value_sums_iterations_like_ai_sdk() {
+        let raw_usage = serde_json::json!({
+            "input_tokens": 45000,
+            "output_tokens": 1234,
+            "cache_creation_input_tokens": 1000,
+            "cache_read_input_tokens": 500,
+            "iterations": [
+                {
+                    "type": "compaction",
+                    "input_tokens": 180000,
+                    "output_tokens": 3500
+                },
+                {
+                    "type": "message",
+                    "input_tokens": 23000,
+                    "output_tokens": 1000
+                }
+            ]
+        });
+
+        let usage = create_usage_from_json_value(Some(&raw_usage)).expect("usage");
+
+        assert_eq!(usage.raw_usage_value(), Some(raw_usage));
+        assert_eq!(usage.prompt_tokens(), Some(203000));
+        assert_eq!(usage.completion_tokens(), Some(4500));
+        assert_eq!(usage.total_tokens(), Some(207500));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(203000));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(1000));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(500));
+        assert_eq!(usage.normalized_input_tokens().total, Some(204500));
+        assert_eq!(usage.normalized_output_tokens().total, Some(4500));
     }
 }

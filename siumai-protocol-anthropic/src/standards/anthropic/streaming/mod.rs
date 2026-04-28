@@ -927,10 +927,6 @@ impl AnthropicEventConverter {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let input_no_cache = input_tokens
-            .saturating_sub(cache_creation_input_tokens)
-            .saturating_sub(cache_read_input_tokens);
-
         let stop_sequence = self
             .vercel_stop_sequence
             .lock()
@@ -955,19 +951,24 @@ impl AnthropicEventConverter {
 
         let usage =
             super::utils::create_usage_from_json_value(Some(&usage_raw)).unwrap_or_else(|| {
-                let input_total = u32::try_from(input_tokens).unwrap_or(u32::MAX);
+                let input_total = u32::try_from(
+                    input_tokens
+                        .saturating_add(cache_creation_input_tokens)
+                        .saturating_add(cache_read_input_tokens),
+                )
+                .unwrap_or(u32::MAX);
+                let input_no_cache = u32::try_from(input_tokens).unwrap_or(u32::MAX);
                 let output_total = u32::try_from(output_tokens).unwrap_or(u32::MAX);
                 let cache_read = u32::try_from(cache_read_input_tokens).unwrap_or(u32::MAX);
                 let cache_write = u32::try_from(cache_creation_input_tokens).unwrap_or(u32::MAX);
-                let no_cache = u32::try_from(input_no_cache).unwrap_or(u32::MAX);
 
                 Usage::builder()
-                    .prompt_tokens(no_cache)
+                    .prompt_tokens(input_no_cache)
                     .completion_tokens(output_total)
-                    .total_tokens(no_cache.saturating_add(output_total))
+                    .total_tokens(input_no_cache.saturating_add(output_total))
                     .with_input_tokens(crate::types::UsageInputTokens {
                         total: Some(input_total),
-                        no_cache: Some(no_cache),
+                        no_cache: Some(input_no_cache),
                         cache_read: Some(cache_read),
                         cache_write: Some(cache_write),
                     })

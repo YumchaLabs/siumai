@@ -705,7 +705,7 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     let _ = converter
         .convert_event(Event {
             event: "".to_string(),
-            data: r#"{"type":"message_start","message":{"id":"msg_usage","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":17,"output_tokens":0,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","service_tier":"standard","server_tool_use":{"web_search_requests":2},"iterations":[{"type":"compaction","input_tokens":6,"output_tokens":1},{"type":"message","input_tokens":11,"output_tokens":0}]}}}"#.to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_usage","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":45000,"output_tokens":0,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","service_tier":"standard","server_tool_use":{"web_search_requests":2},"iterations":[{"type":"compaction","input_tokens":180000,"output_tokens":3500},{"type":"message","input_tokens":23000,"output_tokens":0}]}}}"#.to_string(),
             id: "".to_string(),
             retry: None,
         })
@@ -714,34 +714,39 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     let out = converter
         .convert_event(Event {
             event: "".to_string(),
-            data: r#"{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":17,"output_tokens":1,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","service_tier":"standard","server_tool_use":{"web_search_requests":2},"iterations":[{"type":"compaction","input_tokens":6,"output_tokens":1},{"type":"message","input_tokens":11,"output_tokens":1}]}}"#.to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":45000,"output_tokens":1234,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","service_tier":"standard","server_tool_use":{"web_search_requests":2},"iterations":[{"type":"compaction","input_tokens":180000,"output_tokens":3500},{"type":"message","input_tokens":23000,"output_tokens":1000}]}}"#.to_string(),
             id: "".to_string(),
             retry: None,
         })
         .await;
 
-    let finish = out
+    let (finish_usage, finish_metadata) = out
         .iter()
         .find_map(|event| match stream_part(event) {
             Some(crate::streaming::LanguageModelV3StreamPart::Finish {
-                provider_metadata, ..
-            }) => Some(provider_metadata),
+                usage,
+                provider_metadata,
+                ..
+            }) => Some((usage, provider_metadata)),
             _ => None,
         })
         .expect("expected finish part");
+    assert_eq!(finish_usage.input_tokens.no_cache, Some(203000));
+    assert_eq!(finish_usage.input_tokens.total, Some(203015));
+    assert_eq!(finish_usage.output_tokens.total, Some(4500));
     assert_eq!(
-        finish
+        finish_metadata
             .as_ref()
             .and_then(|meta| meta.get("anthropic"))
             .and_then(|meta| meta.pointer("/iterations/0/inputTokens")),
-        Some(&serde_json::json!(6))
+        Some(&serde_json::json!(180000))
     );
     assert_eq!(
-        finish
+        finish_metadata
             .as_ref()
             .and_then(|meta| meta.get("anthropic"))
             .and_then(|meta| meta.pointer("/iterations/1/outputTokens")),
-        Some(&serde_json::json!(1))
+        Some(&serde_json::json!(1000))
     );
 
     let end = out.iter().find_map(|r| match r.as_ref().ok() {
@@ -751,8 +756,10 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     let end = end.expect("expected StreamEnd");
 
     let usage = end.usage.clone().expect("usage");
-    assert_eq!(usage.prompt_tokens(), Some(17));
-    assert_eq!(usage.completion_tokens(), Some(1));
+    assert_eq!(usage.prompt_tokens(), Some(203000));
+    assert_eq!(usage.completion_tokens(), Some(4500));
+    assert_eq!(usage.normalized_input_tokens().total, Some(203015));
+    assert_eq!(usage.normalized_input_tokens().no_cache, Some(203000));
     assert_eq!(
         usage
             .prompt_tokens_details
@@ -763,8 +770,8 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     assert_eq!(
         usage.raw_usage_value(),
         Some(serde_json::json!({
-            "input_tokens": 17,
-            "output_tokens": 1,
+            "input_tokens": 45000,
+            "output_tokens": 1234,
             "cache_creation_input_tokens": 10,
             "cache_read_input_tokens": 5,
             "cache_creation": {
@@ -778,13 +785,13 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
             "iterations": [
                 {
                     "type": "compaction",
-                    "input_tokens": 6,
-                    "output_tokens": 1
+                    "input_tokens": 180000,
+                    "output_tokens": 3500
                 },
                 {
                     "type": "message",
-                    "input_tokens": 11,
-                    "output_tokens": 1
+                    "input_tokens": 23000,
+                    "output_tokens": 1000
                 }
             ]
         }))
@@ -804,11 +811,11 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     let iterations = meta.iterations.as_ref().expect("iterations");
     assert_eq!(iterations.len(), 2);
     assert_eq!(iterations[0].r#type, "compaction");
-    assert_eq!(iterations[0].input_tokens, 6);
-    assert_eq!(iterations[0].output_tokens, 1);
+    assert_eq!(iterations[0].input_tokens, 180000);
+    assert_eq!(iterations[0].output_tokens, 3500);
     assert_eq!(iterations[1].r#type, "message");
-    assert_eq!(iterations[1].input_tokens, 11);
-    assert_eq!(iterations[1].output_tokens, 1);
+    assert_eq!(iterations[1].input_tokens, 23000);
+    assert_eq!(iterations[1].output_tokens, 1000);
     assert_eq!(
         meta.usage
             .as_ref()
