@@ -8,6 +8,7 @@ use crate::types::video::{
     MaterializedVideoAsset, VideoGenerationRequest, VideoGenerationResponse,
     VideoTaskStatusResponse,
 };
+use crate::video::VideoPollingOptions;
 use async_trait::async_trait;
 
 /// Video generation capability trait
@@ -89,6 +90,17 @@ pub trait VideoGenerationCapability: Send + Sync {
         Err(LlmError::UnsupportedOperation(format!(
             "Provider-owned generated-video materialization is not supported for provider reference {provider_reference:?}"
         )))
+    }
+
+    /// Extract provider-owned polling controls from a video-generation request.
+    ///
+    /// The stable Rust video capability stays task-oriented, but high-level helpers can use this
+    /// hook to honor AI SDK-style `providerOptions.*.pollIntervalMs` and `pollTimeoutMs`.
+    fn polling_options(
+        &self,
+        _request: &VideoGenerationRequest,
+    ) -> Result<VideoPollingOptions, LlmError> {
+        Ok(VideoPollingOptions::default())
     }
 
     /// Maximum number of final videos this model/provider can produce in a single task call.

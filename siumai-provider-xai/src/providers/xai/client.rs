@@ -1187,6 +1187,13 @@ impl VideoGenerationCapability for XaiClient {
         super::video::query_video_task(self, task_id).await
     }
 
+    fn polling_options(
+        &self,
+        request: &VideoGenerationRequest,
+    ) -> Result<siumai_core::video::VideoPollingOptions, LlmError> {
+        super::video::polling_options(self, request)
+    }
+
     fn max_videos_per_call(&self) -> Option<u32> {
         Some(1)
     }

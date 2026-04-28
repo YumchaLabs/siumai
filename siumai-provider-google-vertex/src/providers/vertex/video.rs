@@ -13,13 +13,14 @@ use crate::types::video::{
 use crate::types::{BaseResponse, HttpResponseInfo, Warning};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
+use siumai_core::video::VideoPollingOptions;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::client::GoogleVertexConfig;
 
 const VERTEX_USER_AGENT: &str = concat!("siumai/google-vertex/", env!("CARGO_PKG_VERSION"));
-const POLLING_WARNING: &str = "Google Vertex video uses the task-based Rust surface; polling options are ignored on task submission and task-status queries.";
 const VIDEO_INPUT_WARNING: &str = "Google Vertex video models on the provider-owned path support prompt and optional image-to-video input, but not direct video-to-video inputs.";
 const URL_IMAGE_WARNING: &str = "Google Vertex video models require base64-backed image input or GCS reference images. URL-backed seed images are ignored on this task-based path.";
 
@@ -238,6 +239,27 @@ fn take_reference_images_opt(
     })
 }
 
+pub(super) fn polling_options(
+    request: &VideoGenerationRequest,
+) -> Result<VideoPollingOptions, LlmError> {
+    let mut options = parse_vertex_video_options(&request.provider_options_map)?;
+    let mut extra_params = request.extra_params.clone().unwrap_or_default();
+
+    if options.poll_interval_ms.is_none() {
+        options.poll_interval_ms =
+            take_u64_opt(&mut extra_params, "pollIntervalMs", "poll_interval_ms");
+    }
+    if options.poll_timeout_ms.is_none() {
+        options.poll_timeout_ms =
+            take_u64_opt(&mut extra_params, "pollTimeoutMs", "poll_timeout_ms");
+    }
+
+    Ok(VideoPollingOptions {
+        poll_interval: options.poll_interval_ms.map(Duration::from_millis),
+        poll_timeout: options.poll_timeout_ms.map(Duration::from_millis),
+    })
+}
+
 fn image_input_to_vertex_payload(
     input: &VideoGenerationInput,
 ) -> Result<Option<serde_json::Value>, Warning> {
@@ -311,15 +333,6 @@ fn build_create_request_body(
             take_reference_images_opt(&mut extra_params, "referenceImages", "reference_images")?;
     }
 
-    if options.poll_interval_ms.is_some() {
-        warnings.push(Warning::unsupported(
-            "pollIntervalMs",
-            Some(POLLING_WARNING),
-        ));
-    }
-    if options.poll_timeout_ms.is_some() {
-        warnings.push(Warning::unsupported("pollTimeoutMs", Some(POLLING_WARNING)));
-    }
     if request.video.is_some() {
         warnings.push(Warning::unsupported("video", Some(VIDEO_INPUT_WARNING)));
     }
@@ -776,13 +789,7 @@ mod tests {
         .expect("create video task");
 
         assert_eq!(response.task_id, "operations/test-video-123");
-        assert_eq!(
-            response.warnings,
-            Some(vec![
-                Warning::unsupported("pollIntervalMs", Some(POLLING_WARNING)),
-                Warning::unsupported("pollTimeoutMs", Some(POLLING_WARNING)),
-            ])
-        );
+        assert_eq!(response.warnings, None);
 
         let req = transport.take().expect("captured request");
         assert_eq!(
@@ -836,6 +843,23 @@ mod tests {
         );
         assert!(req.body["parameters"].get("pollIntervalMs").is_none());
         assert!(req.body["parameters"].get("pollTimeoutMs").is_none());
+    }
+
+    #[test]
+    fn polling_options_reads_provider_options_before_extra_params() {
+        let request = VideoGenerationRequest::new("veo-3.1-generate-preview", "draw a robot")
+            .with_extra_param("pollIntervalMs", serde_json::json!(999))
+            .with_extra_param("pollTimeoutMs", serde_json::json!(9999))
+            .with_vertex_video_options(
+                GoogleVertexVideoModelOptions::new()
+                    .with_poll_interval_ms(250)
+                    .with_poll_timeout_ms(30_000),
+            );
+
+        let options = polling_options(&request).expect("vertex polling options");
+
+        assert_eq!(options.poll_interval, Some(Duration::from_millis(250)));
+        assert_eq!(options.poll_timeout, Some(Duration::from_millis(30_000)));
     }
 
     #[tokio::test]

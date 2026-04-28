@@ -33,6 +33,13 @@ impl VideoGenerationCapability for GeminiClient {
         helper.query_video_task(task_id).await
     }
 
+    fn polling_options(
+        &self,
+        request: &crate::types::video::VideoGenerationRequest,
+    ) -> Result<siumai_core::video::VideoPollingOptions, LlmError> {
+        super::super::video::polling_options(request)
+    }
+
     async fn materialize_video_reference(
         &self,
         provider_reference: &crate::types::ProviderReference,

@@ -1034,6 +1034,13 @@ impl VideoGenerationCapability for GoogleVertexClient {
         .await
     }
 
+    fn polling_options(
+        &self,
+        request: &VideoGenerationRequest,
+    ) -> Result<siumai_core::video::VideoPollingOptions, LlmError> {
+        super::video::polling_options(request)
+    }
+
     fn max_videos_per_call(&self) -> Option<u32> {
         Some(4)
     }

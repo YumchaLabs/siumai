@@ -18784,10 +18784,7 @@ mod vertex_contract {
         assert_eq!(builder_resp.task_id, "operations/test-video-123");
         assert_eq!(config_resp.task_id, "operations/test-video-123");
         assert_eq!(registry_resp.task_id, "operations/test-video-123");
-        assert_eq!(
-            builder_resp.warnings.as_ref().map(std::vec::Vec::len),
-            Some(2)
-        );
+        assert_eq!(builder_resp.warnings, None);
         assert_eq!(config_resp.warnings, builder_resp.warnings);
         assert_eq!(registry_resp.warnings, builder_resp.warnings);
 

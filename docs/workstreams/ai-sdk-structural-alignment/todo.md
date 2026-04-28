@@ -1286,6 +1286,11 @@ Status legend:
     `providerOptions`, OpenAI/Azure honor provider-scoped `purpose` / `expiresAfter` from both
     request-level and default provider options, and Gemini now honors `displayName` plus poll
     interval/timeout provider options on the upload path
+  - `generateVideo` polling control parity is now covered on the Rust task-oriented helper:
+    `VideoModelV3::polling_options(...)` / `VideoGenerationCapability::polling_options(...)`
+    feed provider-owned `pollIntervalMs` / `pollTimeoutMs` into `siumai::video::generate(...)`
+    for the audited Vertex, Gemini/Google, and xAI video providers without leaking those
+    runtime-only controls into task-submission request bodies
   - Anthropic provider-owned `files()` now also converges on that same shared file-management
     contract: `AnthropicFiles` / `AnthropicClient` implement `FileManagementCapability`,
     upload/list/retrieve/delete reuse shared file-management structs directly, and the old

@@ -13,6 +13,46 @@ use crate::types::{
     MaterializedVideoAsset, ProviderReference, VideoGenerationRequest, VideoGenerationResponse,
     VideoTaskStatusResponse,
 };
+use std::time::Duration;
+
+/// Provider-owned polling controls for high-level video generation helpers.
+///
+/// Providers use this hook to consume AI SDK-style `providerOptions.*.pollIntervalMs` and
+/// `pollTimeoutMs` without leaking those runtime-only controls into task-submission payloads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VideoPollingOptions {
+    /// Optional delay between task-status polling attempts.
+    pub poll_interval: Option<Duration>,
+    /// Optional maximum total polling duration.
+    pub poll_timeout: Option<Duration>,
+}
+
+impl VideoPollingOptions {
+    /// Create empty polling options.
+    pub const fn new() -> Self {
+        Self {
+            poll_interval: None,
+            poll_timeout: None,
+        }
+    }
+
+    /// Set polling interval.
+    pub const fn with_poll_interval(mut self, value: Duration) -> Self {
+        self.poll_interval = Some(value);
+        self
+    }
+
+    /// Set polling timeout.
+    pub const fn with_poll_timeout(mut self, value: Duration) -> Self {
+        self.poll_timeout = Some(value);
+        self
+    }
+
+    /// Return true when no provider-owned override is present.
+    pub const fn is_empty(&self) -> bool {
+        self.poll_interval.is_none() && self.poll_timeout.is_none()
+    }
+}
 
 /// V3 interface for task-oriented video generation models.
 #[async_trait]
@@ -34,6 +74,18 @@ pub trait VideoModelV3: Send + Sync {
         Err(LlmError::UnsupportedOperation(format!(
             "Provider-owned generated-video materialization is not supported for provider reference {provider_reference:?}"
         )))
+    }
+
+    /// Extract provider-owned polling controls from a video-generation request.
+    ///
+    /// The task-oriented Rust contract keeps polling in the high-level helper rather than inside
+    /// provider `create_task`. This hook lets providers preserve AI SDK-style providerOptions
+    /// semantics for `video::generate(...)`.
+    fn polling_options(
+        &self,
+        _request: &VideoGenerationRequest,
+    ) -> Result<VideoPollingOptions, LlmError> {
+        Ok(VideoPollingOptions::default())
     }
 
     /// Maximum number of final videos this model can produce in a single task call.
@@ -95,6 +147,13 @@ where
         provider_reference: &ProviderReference,
     ) -> Result<MaterializedVideoAsset, LlmError> {
         VideoGenerationCapability::materialize_video_reference(self, provider_reference).await
+    }
+
+    fn polling_options(
+        &self,
+        request: &VideoGenerationRequest,
+    ) -> Result<VideoPollingOptions, LlmError> {
+        VideoGenerationCapability::polling_options(self, request)
     }
 
     fn max_videos_per_call(&self) -> Option<u32> {

@@ -199,15 +199,19 @@ tasks, auto-materializes URL-backed final videos by default, exposes an AI SDK-s
 request surface also now accepts prompt-less image-to-video requests through
 `VideoGenerationRequest.prompt: Option<String>`, and the stable public input layer now has an
 explicit `VideoGenerationPrompt` / `GenerateVideoPrompt` union that mirrors AI SDK's text-only or
-image-plus-optional-text prompt shape. Final generated videos also expose direct `bytes()` /
-`base64()` accessors on the common inline/materialized path, while `generate_materialized(...)`
-remains the explicit `MaterializedVideo` normalization helper. Helper-level default URL
+image-plus-optional-text prompt shape. Provider-owned polling controls now also sit on an explicit
+object-safe `VideoPollingOptions` hook, so AI SDK-style `providerOptions.*.pollIntervalMs` /
+`pollTimeoutMs` values on the audited Vertex, Gemini/Google, and xAI video paths are consumed by
+the high-level `siumai::video::generate(...)` polling loop instead of being sent to provider task
+submission bodies. Final generated videos also expose direct `bytes()` / `base64()` accessors on
+the common inline/materialized path, while `generate_materialized(...)` remains the explicit
+`MaterializedVideo` normalization helper. Helper-level default URL
 materialization is now intentionally limited to schemes the Rust facade can truthfully download on
 its own (`data:` / `http:` / `https:`), so provider-owned URLs such as current Vertex `gs://...`
 outputs remain raw URL-backed assets with warnings instead of causing false generic-download
 failures. What remains open in this area is no longer model construction, batching, URL
-materialization, or the basic request shape. It is the
-smaller remaining helper/runtime boundary: audited Gemini and MiniMaxi provider references now have
+materialization, provider-owned polling options, or the basic request shape. It is the smaller
+remaining helper/runtime boundary: audited Gemini and MiniMaxi provider references now have
 provider-owned materialization adapters through the shared video-family capability, while providers
 that still require a different authenticated download runtime (for example current Vertex GCS-owned
 outputs) remain deferred; the core Rust family also intentionally remains task-oriented instead of a
@@ -630,8 +634,10 @@ surface exposes `GoogleVertexReferenceImage`, `GoogleVertexVideoModelOptions`, d
 top of a real Veo task runtime. The important intentional divergence from AI SDK remains the
 execution shape, not the data shape: Rust keeps explicit `create_video_task` /
 `query_video_task` semantics instead of inventing a fake auto-polling callable provider object,
-so typed polling options are accepted as compatibility fields but remain warning-only on the
-task-based path.
+but the shared high-level `siumai::video::generate(...)` helper now consumes typed
+`pollIntervalMs` / `pollTimeoutMs` through the provider-owned `VideoPollingOptions` hook. Those
+polling controls are still stripped from `predictLongRunning` task-submission bodies because they
+belong to the helper/runtime loop, not the Vertex request payload.
 
 The earlier first-class-provider gap for Cohere is now also closed on the audited public/runtime
 paths: Siumai treats `cohere` as the canonical native `/v2` provider surface for

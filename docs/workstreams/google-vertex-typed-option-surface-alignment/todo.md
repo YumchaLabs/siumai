@@ -1,6 +1,6 @@
 # Google Vertex Typed Option Surface Alignment - Todo
 
-Last updated: 2026-04-20
+Last updated: 2026-04-28
 
 ## Done
 
@@ -19,9 +19,18 @@ Last updated: 2026-04-20
 - [x] Expose the dedicated family-model constructor path for Vertex video.
   - `registry.video_model("vertex:...")` now resolves through the stable task-oriented video
     family handle instead of relying only on `language_model(...).create_video_task(...)`
+- [x] Decide the high-level Vertex video helper boundary.
+  - the generic Rust-first `siumai::video::generate(...)` helper is sufficient for the audited
+    polling semantics
+  - `VideoModelV3::polling_options(...)` / `VideoGenerationCapability::polling_options(...)` let
+    the Vertex provider consume `providerOptions.vertex.pollIntervalMs` and `pollTimeoutMs` in the
+    shared helper loop, matching AI SDK `doGenerate()` polling controls without sending those
+    runtime-only fields to `predictLongRunning`
+  - provider-owned final-result/download helpers remain deferred only for authenticated
+    GCS-owned materialization; the generic helper must not pretend it can download `gs://...`
+    without provider credentials
 
 ## Open
 
-- [ ] Decide whether the generic Rust-first `siumai::video::generate(...)` helper is sufficient
-      for Vertex, or whether Vertex still needs extra provider-owned final-result/download helpers
-      above the current task-based runtime
+- [ ] Add a provider-owned authenticated Vertex GCS materialization helper if a real credentials
+      path is introduced; do not add a fake generic downloader for `gs://...` outputs.

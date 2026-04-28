@@ -1041,6 +1041,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- AI SDK-style video polling controls are now honored by the shared high-level video helper:
+  `siumai::video::generate(...)` consumes provider-owned `pollIntervalMs` / `pollTimeoutMs` from
+  Vertex, Gemini/Google, and xAI video provider options through a new `VideoPollingOptions`
+  capability hook instead of incorrectly treating those runtime-only controls as ignored
+  task-submission fields.
 - Google Vertex express-mode authentication now wins consistently when `GOOGLE_VERTEX_API_KEY`
   supplies the API key, suppressing token-provider auth just like the audited AI SDK node wrapper
   does when an effective API key is present.

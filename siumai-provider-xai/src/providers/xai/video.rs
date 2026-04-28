@@ -8,7 +8,9 @@ use crate::types::video::{
 };
 use crate::types::{BaseResponse, HttpResponseInfo, Warning};
 use crate::utils::mime::guess_mime_from_bytes;
+use siumai_core::video::VideoPollingOptions;
 use std::collections::HashMap;
+use std::time::Duration;
 
 fn parse_xai_video_options(
     map: &crate::types::ProviderOptionsMap,
@@ -143,6 +145,20 @@ fn resolve_xai_video_options(
     }
 
     Ok(options)
+}
+
+pub(super) fn polling_options(
+    client: &XaiClient,
+    request: &VideoGenerationRequest,
+) -> Result<VideoPollingOptions, LlmError> {
+    let mut request = request.clone();
+    client.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
+    let options = resolve_xai_video_options(&request)?;
+
+    Ok(VideoPollingOptions {
+        poll_interval: options.poll_interval_ms.map(Duration::from_millis),
+        poll_timeout: options.poll_timeout_ms.map(Duration::from_millis),
+    })
 }
 
 fn map_resolution(value: &str) -> Option<&'static str> {
@@ -577,6 +593,7 @@ mod tests {
     use super::*;
     use crate::provider_options::XaiVideoMode;
     use crate::providers::xai::ext::video_options::XaiVideoRequestExt;
+    use crate::types::ProviderOptionsMap;
 
     #[test]
     fn build_create_body_routes_extend_video_requests_to_extensions_endpoint() {
@@ -656,5 +673,31 @@ mod tests {
         assert!(
             matches!(err, LlmError::InvalidParameter(message) if message.contains("require a non-empty prompt"))
         );
+    }
+
+    #[tokio::test]
+    async fn polling_options_merges_client_defaults_and_provider_option_overrides() {
+        let mut defaults = ProviderOptionsMap::default();
+        defaults.insert(
+            "xai",
+            serde_json::json!({
+                "pollIntervalMs": 500,
+                "pollTimeoutMs": 30_000
+            }),
+        );
+        let client = super::super::XaiClient::from_config(
+            super::super::XaiConfig::new("test-key")
+                .with_model("grok-imagine-video")
+                .with_provider_options_map(defaults),
+        )
+        .await
+        .expect("xai client");
+        let request = VideoGenerationRequest::new("grok-imagine-video", "animate")
+            .with_xai_video_options(XaiVideoOptions::new().with_poll_interval_ms(250));
+
+        let options = polling_options(&client, &request).expect("xai polling options");
+
+        assert_eq!(options.poll_interval, Some(Duration::from_millis(250)));
+        assert_eq!(options.poll_timeout, Some(Duration::from_millis(30_000)));
     }
 }

@@ -43383,10 +43383,7 @@ mod vertex_public_path {
         assert_eq!(provider_resp.task_id, "operations/test-video-123");
         assert_eq!(config_resp.task_id, "operations/test-video-123");
         assert_eq!(registry_resp.task_id, "operations/test-video-123");
-        assert_eq!(
-            siumai_resp.warnings.as_ref().map(std::vec::Vec::len),
-            Some(2)
-        );
+        assert_eq!(siumai_resp.warnings, None);
         assert_eq!(provider_resp.warnings, siumai_resp.warnings);
         assert_eq!(config_resp.warnings, siumai_resp.warnings);
         assert_eq!(registry_resp.warnings, siumai_resp.warnings);

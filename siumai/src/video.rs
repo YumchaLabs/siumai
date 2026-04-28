@@ -30,7 +30,7 @@ pub use siumai_core::types::{
     VideoModelProviderMetadata, VideoModelResponseMetadata, VideoTaskStatus,
     VideoTaskStatusResponse,
 };
-pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4};
+pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4, VideoPollingOptions};
 
 const DEFAULT_VIDEO_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const DEFAULT_VIDEO_POLL_TIMEOUT: Duration = Duration::from_secs(300);
@@ -119,8 +119,14 @@ pub struct GenerateOptions {
     /// `query_retry`, `timeout`, and `headers` override equivalent values.
     pub request_options: Option<RequestOptions>,
     /// Delay between polling attempts.
+    ///
+    /// Provider-owned `providerOptions.*.pollIntervalMs` values override this on
+    /// `generate(...)` when the model exposes that AI SDK-compatible hook.
     pub poll_interval: Duration,
     /// Optional maximum total polling duration per task.
+    ///
+    /// Provider-owned `providerOptions.*.pollTimeoutMs` values override this on
+    /// `generate(...)` when the model exposes that AI SDK-compatible hook.
     pub poll_timeout: Option<Duration>,
     /// Whether URL-backed final videos should be downloaded into byte-backed assets during
     /// `generate(...)`.
@@ -573,6 +579,23 @@ fn validate_poll_interval(poll_interval: Duration) -> Result<(), LlmError> {
     }
 
     Ok(())
+}
+
+fn resolve_generate_polling_options<M: VideoModelV3 + ?Sized>(
+    model: &M,
+    request: &VideoGenerationRequest,
+    options: &GenerateOptions,
+) -> Result<(Duration, Option<Duration>), LlmError> {
+    let provider_options = model.polling_options(request)?;
+    let poll_interval = provider_options
+        .poll_interval
+        .unwrap_or(options.poll_interval);
+    validate_poll_interval(poll_interval)?;
+
+    Ok((
+        poll_interval,
+        provider_options.poll_timeout.or(options.poll_timeout),
+    ))
 }
 
 fn resolve_requested_video_count(request: &VideoGenerationRequest) -> Result<u32, LlmError> {
@@ -1248,8 +1271,6 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
     request: VideoGenerationRequest,
     options: GenerateOptions,
 ) -> Result<GenerateVideoResult, LlmError> {
-    validate_poll_interval(options.poll_interval)?;
-
     let max_videos_per_call = resolve_effective_max_videos_per_call(
         options.max_videos_per_call,
         model.max_videos_per_call(),
@@ -1263,6 +1284,8 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
 
     for request in requests {
         let requested_count = request.count.unwrap_or(1);
+        let (poll_interval, poll_timeout) =
+            resolve_generate_polling_options(model, &request, &options)?;
         let created = create_task(
             model,
             request,
@@ -1286,8 +1309,8 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
             WaitForTaskOptions {
                 retry: options.query_retry.clone(),
                 request_options: options.request_options.clone(),
-                poll_interval: options.poll_interval,
-                poll_timeout: options.poll_timeout,
+                poll_interval,
+                poll_timeout,
             },
         )
         .await?;
@@ -1403,6 +1426,7 @@ mod tests {
         fail_tasks: Arc<Mutex<HashMap<String, String>>>,
         never_finish: bool,
         max_videos_per_call: Option<u32>,
+        polling_options: VideoPollingOptions,
     }
 
     impl FakeGenerateVideoModel {
@@ -1414,6 +1438,7 @@ mod tests {
                 fail_tasks: Arc::new(Mutex::new(HashMap::new())),
                 never_finish: false,
                 max_videos_per_call,
+                polling_options: VideoPollingOptions::default(),
             }
         }
 
@@ -1427,6 +1452,7 @@ mod tests {
                 fail_tasks: Arc::new(Mutex::new(fail_tasks)),
                 never_finish: false,
                 max_videos_per_call: Some(2),
+                polling_options: VideoPollingOptions::default(),
             }
         }
 
@@ -1438,7 +1464,13 @@ mod tests {
                 fail_tasks: Arc::new(Mutex::new(HashMap::new())),
                 never_finish: true,
                 max_videos_per_call: Some(2),
+                polling_options: VideoPollingOptions::default(),
             }
+        }
+
+        fn with_polling_options(mut self, polling_options: VideoPollingOptions) -> Self {
+            self.polling_options = polling_options;
+            self
         }
     }
 
@@ -1767,6 +1799,13 @@ mod tests {
                     headers: HashMap::from([("x-query".to_string(), "1".to_string())]),
                 }),
             })
+        }
+
+        fn polling_options(
+            &self,
+            _request: &VideoGenerationRequest,
+        ) -> Result<VideoPollingOptions, LlmError> {
+            Ok(self.polling_options)
         }
 
         fn max_videos_per_call(&self) -> Option<u32> {
@@ -2231,6 +2270,29 @@ mod tests {
             video_entries[2].get("url").and_then(|value| value.as_str()),
             Some("https://example.com/task-2.mp4")
         );
+    }
+
+    #[tokio::test]
+    async fn generate_honors_provider_owned_polling_options() {
+        let model = FakeGenerateVideoModel::never_finishing().with_polling_options(
+            VideoPollingOptions::new()
+                .with_poll_interval(Duration::from_millis(1))
+                .with_poll_timeout(Duration::from_millis(3)),
+        );
+
+        let err = generate(
+            &model,
+            VideoGenerationRequest::new("fake-video-model", "provider polling"),
+            GenerateOptions {
+                poll_interval: Duration::ZERO,
+                poll_timeout: Some(Duration::from_millis(50)),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, LlmError::TimeoutError(message) if message.contains("after 3 ms")));
     }
 
     #[tokio::test]

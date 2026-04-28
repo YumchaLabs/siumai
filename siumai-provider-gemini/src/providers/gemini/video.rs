@@ -17,8 +17,10 @@ use crate::types::video::{
 };
 use crate::types::{ProviderReference, Warning};
 use serde::{Deserialize, Serialize};
+use siumai_core::video::VideoPollingOptions;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize)]
 struct VeoImage {
@@ -68,6 +70,26 @@ fn video_provider_options(
         .provider_options_map
         .get_object("google")
         .or_else(|| request.provider_options_map.get_object("gemini"))
+}
+
+pub(super) fn polling_options(
+    request: &VideoGenerationRequest,
+) -> Result<VideoPollingOptions, LlmError> {
+    let mut extra_params: HashMap<String, serde_json::Value> = video_provider_options(request)
+        .cloned()
+        .map(|map| map.into_iter().collect())
+        .unwrap_or_default();
+    extra_params.extend(request.extra_params.clone().unwrap_or_default());
+
+    let poll_interval_ms = take_u64_opt(&mut extra_params, "pollIntervalMs")
+        .or_else(|| take_u64_opt(&mut extra_params, "poll_interval_ms"));
+    let poll_timeout_ms = take_u64_opt(&mut extra_params, "pollTimeoutMs")
+        .or_else(|| take_u64_opt(&mut extra_params, "poll_timeout_ms"));
+
+    Ok(VideoPollingOptions {
+        poll_interval: poll_interval_ms.map(Duration::from_millis),
+        poll_timeout: poll_timeout_ms.map(Duration::from_millis),
+    })
 }
 
 fn build_veo_image_from_input(input: &VideoGenerationInput) -> Result<Option<VeoImage>, Warning> {
@@ -306,27 +328,10 @@ fn build_video_request_body(
     extra_params.extend(request.extra_params.clone().unwrap_or_default());
     let mut warnings = Vec::new();
 
-    let ignored_poll_interval_ms = take_u64_opt(&mut extra_params, "pollIntervalMs")
+    let _ = take_u64_opt(&mut extra_params, "pollIntervalMs")
         .or_else(|| take_u64_opt(&mut extra_params, "poll_interval_ms"));
-    let ignored_poll_timeout_ms = take_u64_opt(&mut extra_params, "pollTimeoutMs")
+    let _ = take_u64_opt(&mut extra_params, "pollTimeoutMs")
         .or_else(|| take_u64_opt(&mut extra_params, "poll_timeout_ms"));
-
-    if ignored_poll_interval_ms.is_some() {
-        warnings.push(Warning::unsupported(
-            "pollIntervalMs",
-            Some(
-                "Gemini video uses the task-based Rust surface; automatic polling options are ignored on request submission.",
-            ),
-        ));
-    }
-    if ignored_poll_timeout_ms.is_some() {
-        warnings.push(Warning::unsupported(
-            "pollTimeoutMs",
-            Some(
-                "Gemini video uses the task-based Rust surface; automatic polling options are ignored on request submission.",
-            ),
-        ));
-    }
 
     let negative_prompt = take_string_opt(&mut extra_params, "negativePrompt")
         .or_else(|| take_string_opt(&mut extra_params, "negative_prompt"));
@@ -817,7 +822,7 @@ mod tests {
     }
 
     #[test]
-    fn build_request_body_reads_google_provider_options_and_ignores_polling_knobs() {
+    fn build_request_body_reads_google_provider_options_and_strips_polling_knobs() {
         let req = VideoGenerationRequest::new("veo-3.1-generate-preview", "hi")
             .with_provider_option(
                 "google",
@@ -849,12 +854,26 @@ mod tests {
         );
         assert!(body["parameters"].get("pollIntervalMs").is_none());
         assert!(body["parameters"].get("pollTimeoutMs").is_none());
+        assert!(warnings.is_empty());
+    }
 
-        let warning_features = warnings
-            .into_iter()
-            .map(warning_feature)
-            .collect::<Vec<_>>();
-        assert_eq!(warning_features, vec!["pollIntervalMs", "pollTimeoutMs"]);
+    #[test]
+    fn polling_options_prefers_request_extra_params_over_google_provider_options() {
+        let req = VideoGenerationRequest::new("veo-3.1-generate-preview", "hi")
+            .with_provider_option(
+                "google",
+                serde_json::json!({
+                    "pollIntervalMs": 500,
+                    "pollTimeoutMs": 30000
+                }),
+            )
+            .with_extra_param("pollIntervalMs", serde_json::json!(250))
+            .with_extra_param("pollTimeoutMs", serde_json::json!(15_000));
+
+        let options = polling_options(&req).expect("gemini polling options");
+
+        assert_eq!(options.poll_interval, Some(Duration::from_millis(250)));
+        assert_eq!(options.poll_timeout, Some(Duration::from_millis(15_000)));
     }
 
     #[test]
