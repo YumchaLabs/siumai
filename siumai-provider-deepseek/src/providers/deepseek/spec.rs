@@ -1,6 +1,5 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_options::DeepSeekOptions;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
@@ -16,16 +15,33 @@ fn rename_field(obj: &mut Map<String, Value>, from: &str, to: &str) {
 
 fn normalize_deepseek_options(value: &Value) -> Option<Map<String, Value>> {
     let mut obj = value.as_object()?.clone();
-    rename_field(&mut obj, "enableReasoning", "enable_reasoning");
-    rename_field(&mut obj, "reasoningBudget", "reasoning_budget");
 
-    let normalized = serde_json::from_value::<DeepSeekOptions>(Value::Object(obj.clone()))
-        .ok()
-        .and_then(|options| serde_json::to_value(options).ok())
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or(obj);
+    let legacy_enable = obj
+        .remove("enableReasoning")
+        .or_else(|| obj.remove("enable_reasoning"))
+        .and_then(|value| value.as_bool());
 
-    Some(normalized)
+    obj.remove("reasoningBudget");
+    obj.remove("reasoning_budget");
+
+    if let Some(thinking) = obj
+        .get_mut("thinking")
+        .and_then(|value| value.as_object_mut())
+    {
+        rename_field(thinking, "thinkingType", "type");
+        rename_field(thinking, "thinking_type", "type");
+        thinking.remove("budgetTokens");
+        thinking.remove("budget_tokens");
+    } else if let Some(enable) = legacy_enable {
+        obj.insert(
+            "thinking".to_string(),
+            serde_json::json!({
+                "type": if enable { "enabled" } else { "disabled" }
+            }),
+        );
+    }
+
+    Some(obj)
 }
 
 fn deepseek_provider_options_name(provider_id: &str) -> &str {
@@ -158,11 +174,17 @@ mod tests {
             .expect("before_send hook");
         let body = hook(&serde_json::json!({ "messages": [] })).expect("hook output");
 
-        assert_eq!(body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(body["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(
+            body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
         assert_eq!(body["foo"], serde_json::json!("bar"));
         assert!(body.get("enableReasoning").is_none());
+        assert!(body.get("enable_reasoning").is_none());
         assert!(body.get("reasoningBudget").is_none());
+        assert!(body.get("reasoning_budget").is_none());
     }
 
     #[test]
@@ -184,7 +206,10 @@ mod tests {
                 "deepseek",
                 serde_json::json!({
                     "response_format": { "type": "json_object" },
-                    "reasoningBudget": 2048
+                    "thinking": {
+                        "type": "enabled",
+                        "budgetTokens": 2048
+                    }
                 }),
             );
         let ctx = ProviderContext::new(
@@ -201,8 +226,14 @@ mod tests {
             .expect("before_send hook");
         let body = hook(&body).expect("hook output");
 
-        assert_eq!(body["reasoning_budget"], serde_json::json!(2048));
-        assert!(body.get("reasoningBudget").is_none());
+        assert_eq!(
+            body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(body["thinking"].get("budgetTokens").is_none());
+        assert!(body["thinking"].get("budget_tokens").is_none());
         assert_eq!(
             body.get("response_format"),
             Some(&serde_json::json!({
@@ -337,8 +368,12 @@ mod tests {
             .expect("before_send hook");
         let body = hook(&serde_json::json!({ "messages": [] })).expect("hook output");
 
-        assert_eq!(body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(body["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(
+            body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
         assert_eq!(body["foo"], serde_json::json!("bar"));
     }
 

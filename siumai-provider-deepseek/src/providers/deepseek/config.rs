@@ -201,25 +201,12 @@ impl DeepSeekConfig {
         self.with_deepseek_options(DeepSeekOptions::new().with_reasoning_budget(budget))
     }
 
-    pub fn with_reasoning(mut self, enable: bool) -> Self {
-        self.provider_specific_config.insert(
-            "enable_reasoning".to_string(),
-            serde_json::Value::Bool(enable),
-        );
-        self
+    pub fn with_reasoning(self, enable: bool) -> Self {
+        self.with_deepseek_options(DeepSeekOptions::new().with_reasoning(enable))
     }
 
-    pub fn with_reasoning_budget(mut self, budget: i32) -> Self {
-        let clamped_budget = budget.clamp(128, 32768) as u32;
-        self.provider_specific_config.insert(
-            "reasoning_budget".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-        );
-        self.provider_specific_config.insert(
-            "enable_reasoning".to_string(),
-            serde_json::Value::Bool(true),
-        );
-        self
+    pub fn with_reasoning_budget(self, budget: i32) -> Self {
+        self.with_deepseek_options(DeepSeekOptions::new().with_reasoning_budget(budget))
     }
 
     pub fn validate(&self) -> Result<(), LlmError> {
@@ -358,8 +345,14 @@ mod tests {
             )
             .expect("transform request params");
 
-        assert_eq!(body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(body["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(
+            body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(body.get("enable_reasoning").is_none());
+        assert!(body.get("reasoning_budget").is_none());
     }
 
     #[test]

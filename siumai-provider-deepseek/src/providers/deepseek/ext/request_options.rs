@@ -30,7 +30,13 @@ mod tests {
             .provider_options_map
             .get("deepseek")
             .expect("deepseek options present");
-        assert_eq!(value["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(value["reasoning_budget"], serde_json::json!(4096));
+        assert_eq!(
+            value["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(value.get("enable_reasoning").is_none());
+        assert!(value.get("reasoning_budget").is_none());
     }
 }

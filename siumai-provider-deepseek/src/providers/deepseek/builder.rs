@@ -75,13 +75,13 @@ impl DeepSeekBuilder {
         self
     }
 
-    /// Enable DeepSeek reasoning output (mapped to `enable_reasoning` in request body).
+    /// Enable DeepSeek thinking output (mapped to `thinking.type` in request body).
     pub fn reasoning(mut self, enable: bool) -> Self {
         self.inner = self.inner.reasoning(enable);
         self
     }
 
-    /// Set reasoning budget (DeepSeek stores this as a provider option; also enables reasoning).
+    /// Backward-compatible alias that enables thinking. DeepSeek does not accept a token budget.
     pub fn reasoning_budget(mut self, budget: i32) -> Self {
         self.inner = self.inner.reasoning_budget(budget);
         self
@@ -270,8 +270,14 @@ mod tests {
                 siumai_provider_openai_compatible::providers::openai_compatible::RequestType::Chat,
             )
             .expect("transform request params");
-        assert_eq!(params["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(
+            params["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoning_budget").is_none());
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(11)));
         assert_eq!(
             config.http_config.connect_timeout,

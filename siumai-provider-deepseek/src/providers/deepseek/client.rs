@@ -286,11 +286,17 @@ mod tests {
 
         let _ = client.chat_request(request).await;
         let captured = transport.take().expect("captured request");
-        assert_eq!(captured.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(captured.body["reasoning_budget"], serde_json::json!(4096));
+        assert_eq!(
+            captured.body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
         assert_eq!(captured.body["foo"], serde_json::json!("bar"));
         assert!(captured.body.get("enableReasoning").is_none());
+        assert!(captured.body.get("enable_reasoning").is_none());
         assert!(captured.body.get("reasoningBudget").is_none());
+        assert!(captured.body.get("reasoning_budget").is_none());
     }
 
     #[tokio::test]
@@ -320,14 +326,23 @@ mod tests {
                 "deepseek",
                 serde_json::json!({
                     "response_format": { "type": "json_object" },
-                    "reasoningBudget": 2048
+                    "thinking": {
+                        "type": "enabled",
+                        "budgetTokens": 2048
+                    }
                 }),
             );
 
         let _ = client.chat_request(request).await;
         let captured = transport.take().expect("captured request");
-        assert_eq!(captured.body["reasoning_budget"], serde_json::json!(2048));
-        assert!(captured.body.get("reasoningBudget").is_none());
+        assert_eq!(
+            captured.body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(captured.body["thinking"].get("budgetTokens").is_none());
+        assert!(captured.body["thinking"].get("budget_tokens").is_none());
         assert_eq!(
             captured.body.get("response_format"),
             Some(&serde_json::json!({
@@ -342,8 +357,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deepseek_client_chat_stream_request_preserves_stable_fields_and_reasoning_normalization_at_transport_boundary()
-     {
+    async fn deepseek_client_chat_stream_request_preserves_stable_fields_and_thinking_options() {
         let transport = SseResponseTransport::new(b"data: [DONE]\n\n".to_vec());
         let cfg = super::super::config::DeepSeekConfig::new("test-key")
             .with_base_url("https://example.com/v1")
@@ -380,7 +394,10 @@ mod tests {
                 serde_json::json!({
                     "response_format": { "type": "json_object" },
                     "tool_choice": "auto",
-                    "reasoningBudget": 2048
+                    "thinking": {
+                        "type": "enabled",
+                        "budgetTokens": 2048
+                    }
                 }),
             );
 
@@ -398,8 +415,14 @@ mod tests {
             Some("text/event-stream")
         );
         assert_eq!(captured.body["stream"], serde_json::json!(true));
-        assert_eq!(captured.body["reasoning_budget"], serde_json::json!(2048));
-        assert!(captured.body.get("reasoningBudget").is_none());
+        assert_eq!(
+            captured.body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(captured.body["thinking"].get("budgetTokens").is_none());
+        assert!(captured.body["thinking"].get("budget_tokens").is_none());
         assert_eq!(captured.body["tool_choice"], serde_json::json!("none"));
         assert_eq!(
             captured.body["response_format"],
