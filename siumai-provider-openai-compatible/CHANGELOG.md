@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add typed `AlibabaCacheControl` plus Alibaba/Qwen runtime parity for AI SDK prompt cache-control
+  markers, including the provider warning emitted when more than four cache breakpoints are used.
 - Add compat-backed AI SDK-style `MistralProviderSettings` for the audited package-level
   `apiKey` / `baseURL` / `headers` / `fetch` construction subset, with upstream `generateId`
   explicitly deferred until the shared runtime owns a stable ID hook.

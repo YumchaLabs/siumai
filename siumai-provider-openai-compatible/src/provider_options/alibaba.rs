@@ -6,6 +6,23 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Alibaba prompt cache-control marker used on message/part provider options.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlibabaCacheControl {
+    /// Cache-control marker type. Alibaba currently documents `ephemeral`.
+    #[serde(rename = "type")]
+    pub r#type: String,
+}
+
+impl AlibabaCacheControl {
+    /// Create an ephemeral prompt-cache marker.
+    pub fn ephemeral() -> Self {
+        Self {
+            r#type: "ephemeral".to_string(),
+        }
+    }
+}
+
 /// Typed Alibaba/Qwen chat/language-model options.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,5 +128,13 @@ mod tests {
         assert_eq!(options.enable_thinking, Some(false));
         assert_eq!(options.thinking_budget, Some(1024));
         assert_eq!(options.parallel_tool_calls, Some(true));
+    }
+
+    #[test]
+    fn alibaba_cache_control_serializes_to_ai_sdk_shape() {
+        let value = serde_json::to_value(AlibabaCacheControl::ephemeral())
+            .expect("cache control serialize");
+
+        assert_eq!(value, serde_json::json!({ "type": "ephemeral" }));
     }
 }

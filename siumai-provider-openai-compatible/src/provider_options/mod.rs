@@ -10,8 +10,8 @@ pub mod perplexity;
 
 #[allow(deprecated)]
 pub use alibaba::{
-    AlibabaChatOptions, AlibabaLanguageModelOptions, AlibabaProviderOptions, QwenChatOptions,
-    QwenLanguageModelOptions, QwenProviderOptions,
+    AlibabaCacheControl, AlibabaChatOptions, AlibabaLanguageModelOptions, AlibabaProviderOptions,
+    QwenChatOptions, QwenLanguageModelOptions, QwenProviderOptions,
 };
 #[allow(deprecated)]
 pub use fireworks::{

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- OpenAI-compatible Alibaba/Qwen chat request shaping now applies AI SDK-style prompt cache
+  markers from message/part `providerOptions.alibaba|qwen.cacheControl` as Alibaba
+  `cache_control` content-part fields, while keeping request-level `cacheControl` out of the
+  top-level body.
 - OpenAI Responses request conversion now maps prompt-side provider-owned user `image` / `file`
   references directly onto `input_image.file_id` / `input_file.file_id`, and request
   normalization converts incoming wire `file_id` items back into canonical stable

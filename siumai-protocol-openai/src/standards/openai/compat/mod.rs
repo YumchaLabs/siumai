@@ -8,5 +8,6 @@ pub use siumai_core::standards::openai::compat::{
     adapter, openai_config, provider_registry, types,
 };
 
+pub mod alibaba_cache_control;
 pub mod spec;
 pub use siumai_core::standards::openai::compat::{streaming, transformers};

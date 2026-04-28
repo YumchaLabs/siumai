@@ -11,6 +11,7 @@ use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
 use crate::execution::executors::common::{HttpBody, HttpExecutionConfig};
 use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
+use crate::providers::openai_compatible::middleware::OpenAiCompatibleAlibabaCacheControlWarningMiddleware;
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleDeprecatedProviderOptionsWarningMiddleware;
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleStructuredOutputsWarningMiddleware;
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleToolWarningsMiddleware;
@@ -600,6 +601,14 @@ fn compat_model_middlewares(
     if config.supports_structured_outputs != Some(true) {
         middlewares.push(Arc::new(
             OpenAiCompatibleStructuredOutputsWarningMiddleware::new(),
+        ));
+    }
+
+    if crate::standards::openai::compat::alibaba_cache_control::supports_alibaba_cache_control(
+        &config.provider_id,
+    ) {
+        middlewares.push(Arc::new(
+            OpenAiCompatibleAlibabaCacheControlWarningMiddleware::new(config.provider_id.clone()),
         ));
     }
 
@@ -4116,6 +4125,123 @@ mod tests {
         assert!(captured.body.get("enableThinking").is_none());
         assert!(captured.body.get("thinkingBudget").is_none());
         assert!(captured.body.get("parallelToolCalls").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_qwen_applies_alibaba_prompt_cache_control_and_warning() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "qwen".to_string(),
+            name: "Qwen".to_string(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "tools".to_string()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl-qwen-cache",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "qwen-plus",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "done" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "qwen",
+            "test-key",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            adapter,
+        )
+        .with_model("qwen-plus")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("qwen-plus")
+            .messages(vec![
+                ChatMessage::system("system prompt")
+                    .with_provider_option(
+                        "alibaba",
+                        serde_json::json!({ "cacheControl": { "type": "system" } }),
+                    )
+                    .build(),
+                ChatMessage::user("")
+                    .with_content_parts(vec![
+                        ContentPart::text("inspect").with_provider_option(
+                            "qwen",
+                            serde_json::json!({ "cache_control": { "type": "user-part" } }),
+                        ),
+                        ContentPart::image_url("https://example.com/image.png"),
+                    ])
+                    .with_provider_option(
+                        "alibaba",
+                        serde_json::json!({ "cacheControl": { "type": "user-message" } }),
+                    )
+                    .build(),
+                ChatMessage::assistant("previous answer")
+                    .with_provider_option(
+                        "qwen",
+                        serde_json::json!({ "cacheControl": { "type": "assistant" } }),
+                    )
+                    .build(),
+                ChatMessage::user("final question")
+                    .with_provider_option(
+                        "alibaba",
+                        serde_json::json!({ "cacheControl": { "type": "final-user" } }),
+                    )
+                    .build(),
+            ])
+            .build()
+            .with_provider_option(
+                "alibaba",
+                serde_json::json!({
+                    "enableThinking": true,
+                    "cacheControl": { "type": "request-level-is-not-forwarded" }
+                }),
+            );
+
+        let response = client.chat_request(request).await.expect("response ok");
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["messages"][0]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "system" })
+        );
+        assert_eq!(
+            captured.body["messages"][1]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "user-part" })
+        );
+        assert_eq!(
+            captured.body["messages"][1]["content"][1]["cache_control"],
+            serde_json::json!({ "type": "user-message" })
+        );
+        assert_eq!(
+            captured.body["messages"][2]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "assistant" })
+        );
+        assert_eq!(
+            captured.body["messages"][3]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "final-user" })
+        );
+        assert_eq!(captured.body["enable_thinking"], serde_json::json!(true));
+        assert!(captured.body.get("cacheControl").is_none());
+
+        assert_eq!(
+            response.warnings,
+            Some(vec![crate::types::Warning::other(
+                crate::standards::openai::compat::alibaba_cache_control::CACHE_BREAKPOINT_LIMIT_WARNING,
+            )])
+        );
     }
 
     #[tokio::test]

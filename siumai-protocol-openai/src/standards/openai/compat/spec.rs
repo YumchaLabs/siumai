@@ -391,12 +391,24 @@ fn merged_normalized_provider_options(
     (!merged.is_empty()).then_some(merged)
 }
 
+fn remove_known_provider_chat_option_keys(
+    provider_id: &str,
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    remove_known_compat_chat_option_keys(obj);
+
+    if matches!(provider_id, "qwen" | "alibaba") {
+        obj.remove("cacheControl");
+        obj.remove("cache_control");
+    }
+}
+
 fn normalize_chat_passthrough_provider_options(
     provider_id: &str,
     map: &crate::types::ProviderOptionsMap,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
     let mut obj = merged_normalized_provider_options(provider_id, map)?;
-    remove_known_compat_chat_option_keys(&mut obj);
+    remove_known_provider_chat_option_keys(provider_id, &mut obj);
     Some(obj)
 }
 
@@ -527,14 +539,16 @@ fn provider_options_map_merge_hook(
 
 fn chat_request_settings_hook(
     provider_id: &str,
-    map: &crate::types::ProviderOptionsMap,
+    req: &crate::types::ChatRequest,
     settings: &OpenAiCompatibleRequestSettings,
     supports_stream_usage_hints: bool,
     request_uses_structured_outputs: bool,
 ) -> crate::execution::executors::BeforeSendHook {
     let provider_id = provider_id.to_string();
+    let map = &req.provider_options_map;
     let compat_options = compat_chat_options(&provider_id, map);
     let provider_options = normalize_chat_passthrough_provider_options(&provider_id, map);
+    let req = req.clone();
     let settings = settings.clone();
     Arc::new(
         move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
@@ -542,6 +556,11 @@ fn chat_request_settings_hook(
             if let Some(body_obj) = out.as_object_mut() {
                 apply_compat_chat_options(body_obj, &compat_options);
                 merge_provider_options_into_body(&provider_id, &provider_options, body_obj);
+                super::alibaba_cache_control::apply_cache_controls_to_chat_body(
+                    &provider_id,
+                    &req,
+                    body_obj,
+                );
                 apply_chat_request_settings(
                     body_obj,
                     &settings,
@@ -671,7 +690,7 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
     ) -> Option<crate::execution::executors::BeforeSendHook> {
         Some(chat_request_settings_hook(
             &ctx.provider_id,
-            &req.provider_options_map,
+            req,
             &self.request_settings,
             self.adapter.supports_stream_usage_hints(),
             req.response_format.is_some(),
@@ -2164,6 +2183,140 @@ mod tests {
         assert!(body.get("enableThinking").is_none());
         assert!(body.get("thinkingBudget").is_none());
         assert!(body.get("parallelToolCalls").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_qwen_runtime_applies_alibaba_prompt_cache_control() {
+        use crate::core::ProviderSpec;
+        use crate::types::{
+            ChatMessage, ContentPart, MessageContent, MessageMetadata, MessageRole,
+            ProviderOptionsMap,
+        };
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "qwen".to_string(),
+                name: "Qwen".to_string(),
+                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["chat".into(), "streaming".into(), "tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "qwen".to_string(),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let mut tool_message_options = ProviderOptionsMap::default();
+        tool_message_options.insert(
+            "alibaba",
+            serde_json::json!({ "cacheControl": { "type": "tool-message" } }),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("qwen-plus")
+            .messages(vec![
+                ChatMessage::system("system prompt")
+                    .with_provider_option(
+                        "alibaba",
+                        serde_json::json!({ "cacheControl": { "type": "system" } }),
+                    )
+                    .build(),
+                ChatMessage::user("")
+                    .with_content_parts(vec![
+                        ContentPart::text("look").with_provider_option(
+                            "qwen",
+                            serde_json::json!({ "cache_control": { "type": "user-part" } }),
+                        ),
+                        ContentPart::image_url("https://example.com/a.png"),
+                    ])
+                    .with_provider_option(
+                        "alibaba",
+                        serde_json::json!({ "cacheControl": { "type": "user-message" } }),
+                    )
+                    .build(),
+                ChatMessage::assistant("answer")
+                    .with_provider_option(
+                        "qwen",
+                        serde_json::json!({ "cache_control": { "type": "assistant" } }),
+                    )
+                    .build(),
+                ChatMessage {
+                    role: MessageRole::Tool,
+                    content: MessageContent::MultiModal(vec![
+                        ContentPart::tool_result_text("call_1", "lookup", "first")
+                            .with_provider_option(
+                                "qwen",
+                                serde_json::json!({ "cacheControl": { "type": "tool-part" } }),
+                            ),
+                        ContentPart::tool_result_text("call_2", "lookup", "second"),
+                    ]),
+                    provider_options: tool_message_options,
+                    metadata: MessageMetadata::default(),
+                },
+            ])
+            .build()
+            .with_provider_option(
+                "alibaba",
+                serde_json::json!({
+                    "enableThinking": true,
+                    "cacheControl": { "type": "request-level-is-not-a-body-param" }
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["enable_thinking"], serde_json::json!(true));
+        assert!(body.get("cacheControl").is_none());
+
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "system" })
+        );
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "user-part" })
+        );
+        assert_eq!(
+            body["messages"][1]["content"][1]["cache_control"],
+            serde_json::json!({ "type": "user-message" })
+        );
+        assert_eq!(
+            body["messages"][2]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "assistant" })
+        );
+        assert_eq!(
+            body["messages"][3]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "tool-part" })
+        );
+        assert_eq!(
+            body["messages"][4]["content"][0]["cache_control"],
+            serde_json::json!({ "type": "tool-message" })
+        );
+
+        let warnings =
+            crate::standards::openai::compat::alibaba_cache_control::cache_control_warnings(
+                "qwen", &req,
+            );
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings.iter().all(|warning| {
+            matches!(
+                warning,
+                Warning::Other { message }
+                    if message
+                        == crate::standards::openai::compat::alibaba_cache_control::CACHE_BREAKPOINT_LIMIT_WARNING
+            )
+        }));
     }
 
     #[test]
