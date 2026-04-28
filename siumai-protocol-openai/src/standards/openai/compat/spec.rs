@@ -56,8 +56,28 @@ fn normalize_xai_search_parameters(v: &mut serde_json::Value) {
 }
 
 fn normalize_deepseek_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
-    rename_field(obj, "enableReasoning", "enable_reasoning");
-    rename_field(obj, "reasoningBudget", "reasoning_budget");
+    let legacy_enable =
+        take_any(obj, &["enableReasoning", "enable_reasoning"]).and_then(|value| value.as_bool());
+
+    obj.remove("reasoningBudget");
+    obj.remove("reasoning_budget");
+
+    if let Some(thinking) = obj
+        .get_mut("thinking")
+        .and_then(|value| value.as_object_mut())
+    {
+        rename_field(thinking, "thinkingType", "type");
+        rename_field(thinking, "thinking_type", "type");
+        thinking.remove("budgetTokens");
+        thinking.remove("budget_tokens");
+    } else if let Some(enable) = legacy_enable {
+        obj.insert(
+            "thinking".to_string(),
+            serde_json::json!({
+                "type": if enable { "enabled" } else { "disabled" }
+            }),
+        );
+    }
 }
 
 fn take_any(
@@ -1960,8 +1980,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_deepseek_runtime_provider_normalizes_reasoning_options_and_preserves_stable_fields()
-     {
+    fn openai_compatible_deepseek_runtime_normalizes_thinking_options() {
         use crate::core::ProviderSpec;
         use crate::types::{Tool, ToolChoice, chat::ResponseFormat};
 
@@ -2025,10 +2044,16 @@ mod tests {
         let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
         let body = hook(&body).expect("hook body");
 
-        assert_eq!(body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(body["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(
+            body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
         assert!(body.get("enableReasoning").is_none());
+        assert!(body.get("enable_reasoning").is_none());
         assert!(body.get("reasoningBudget").is_none());
+        assert!(body.get("reasoning_budget").is_none());
         assert_eq!(body.get("tool_choice"), Some(&serde_json::json!("none")));
         assert_eq!(
             body.get("response_format"),

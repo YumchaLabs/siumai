@@ -195,6 +195,31 @@ impl ProviderAdapter for ConfigurableAdapter {
             rename_field(obj, "budgetTokens", "budget_tokens");
         }
 
+        fn normalize_deepseek_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+            let legacy_enable = take_any(obj, &["enableReasoning", "enable_reasoning"])
+                .and_then(|value| value.as_bool());
+
+            obj.remove("reasoningBudget");
+            obj.remove("reasoning_budget");
+
+            if let Some(thinking) = obj
+                .get_mut("thinking")
+                .and_then(|value| value.as_object_mut())
+            {
+                rename_field(thinking, "thinkingType", "type");
+                rename_field(thinking, "thinking_type", "type");
+                thinking.remove("budgetTokens");
+                thinking.remove("budget_tokens");
+            } else if let Some(enable) = legacy_enable {
+                obj.insert(
+                    "thinking".to_string(),
+                    serde_json::json!({
+                        "type": if enable { "enabled" } else { "disabled" }
+                    }),
+                );
+            }
+        }
+
         fn normalize_alibaba_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
             rename_field(obj, "enableThinking", "enable_thinking");
             rename_field(obj, "thinkingBudget", "thinking_budget");
@@ -257,6 +282,13 @@ impl ProviderAdapter for ConfigurableAdapter {
                         normalize_moonshot_thinking(&mut thinking);
                         obj.entry("thinking".to_string()).or_insert(thinking);
                     }
+                }
+            }
+            // DeepSeek uses the AI SDK `thinking.type` shape. Legacy reasoning aliases remain
+            // accepted as input but are not forwarded to the wire.
+            "deepseek" => {
+                if let Some(obj) = params.as_object_mut() {
+                    normalize_deepseek_options(obj);
                 }
             }
             // Alibaba/Qwen follows OpenAI chat-completions transport but uses snake_case
@@ -678,6 +710,43 @@ mod tests {
         assert_eq!(params["messages"][0]["role"], "system");
         assert!(params.get("stream_options").is_none());
         assert_eq!(params["max_tokens"], 123);
+    }
+
+    #[test]
+    fn configurable_adapter_transforms_deepseek_thinking_compat_quirks() {
+        let cfg = ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("deepseek-chat".to_string()),
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+        let adapter = ConfigurableAdapter::new(cfg);
+
+        let mut params = serde_json::json!({
+            "model": "deepseek-chat",
+            "enableReasoning": true,
+            "reasoningBudget": 2048
+        });
+
+        adapter
+            .transform_request_params(&mut params, "deepseek-chat", RequestType::Chat)
+            .expect("transform ok");
+
+        assert_eq!(
+            params["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(params.get("enableReasoning").is_none());
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoningBudget").is_none());
+        assert!(params.get("reasoning_budget").is_none());
     }
 
     #[test]
