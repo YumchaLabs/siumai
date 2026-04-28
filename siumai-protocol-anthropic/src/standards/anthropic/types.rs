@@ -75,10 +75,16 @@ pub struct AnthropicUsage {
 }
 
 /// Provider-hosted tools usage counters.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AnthropicServerToolUseUsage {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search_requests: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub web_fetch_requests: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_execution_requests: Option<u32>,
+    #[serde(flatten, default)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Anthropic usage breakdown entry for a single sampling iteration.

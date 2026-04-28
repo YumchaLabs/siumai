@@ -232,6 +232,7 @@ pub(super) fn serialize_event(
         cache_creation_input_tokens: Option<&serde_json::Value>,
     ) -> serde_json::Value {
         let mut usage_obj = raw_usage
+            .or_else(|| usage.and_then(Usage::raw_usage_value))
             .and_then(|value| value.as_object().cloned())
             .unwrap_or_default();
 

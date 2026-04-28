@@ -10,6 +10,10 @@ pub struct AnthropicServerToolUse {
     pub web_search_requests: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_fetch_requests: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_execution_requests: Option<u32>,
+    #[serde(flatten, default)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A single Anthropic citation object.

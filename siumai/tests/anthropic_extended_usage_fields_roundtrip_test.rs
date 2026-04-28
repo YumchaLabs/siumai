@@ -147,6 +147,110 @@ async fn anthropic_public_roundtrip_preserves_extended_usage_fields() {
     );
 }
 
+#[tokio::test]
+async fn anthropic_public_roundtrip_replays_raw_usage_without_provider_metadata() {
+    let converter = siumai::protocol::anthropic::streaming::AnthropicEventConverter::new(
+        siumai::protocol::anthropic::params::AnthropicParams::default(),
+    );
+
+    let raw_usage = serde_json::json!({
+        "input_tokens": 17,
+        "output_tokens": 1,
+        "cache_creation_input_tokens": 10,
+        "cache_read_input_tokens": 5,
+        "service_tier": "standard",
+        "server_tool_use": {
+            "code_execution_requests": 1,
+            "future_tool_requests": 9
+        }
+    });
+
+    let response = ChatResponse {
+        id: Some("msg_issue_17_raw_usage".to_string()),
+        model: Some("claude-sonnet-4-5".to_string()),
+        content: MessageContent::Text(String::new()),
+        usage: Some(
+            Usage::builder()
+                .prompt_tokens(17)
+                .completion_tokens(1)
+                .total_tokens(18)
+                .with_input_cache_read_tokens(5)
+                .with_raw_usage_value(raw_usage)
+                .build(),
+        ),
+        finish_reason: Some(FinishReason::Stop),
+        raw_finish_reason: None,
+        audio: None,
+        system_fingerprint: None,
+        service_tier: None,
+        warnings: None,
+        provider_metadata: None,
+    };
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::StreamEnd { response })
+        .expect("serialize stream end");
+
+    let frames = parse_sse_json_frames(&bytes);
+    let message_delta = frames
+        .iter()
+        .find(|frame| frame["type"] == "message_delta")
+        .expect("message_delta frame");
+
+    assert_eq!(
+        message_delta["usage"]["cache_creation_input_tokens"],
+        serde_json::json!(10)
+    );
+    assert_eq!(
+        message_delta["usage"]["cache_read_input_tokens"],
+        serde_json::json!(5)
+    );
+    assert_eq!(
+        message_delta["usage"]["service_tier"],
+        serde_json::json!("standard")
+    );
+    assert_eq!(
+        message_delta["usage"]["server_tool_use"]["code_execution_requests"],
+        serde_json::json!(1)
+    );
+    assert_eq!(
+        message_delta["usage"]["server_tool_use"]["future_tool_requests"],
+        serde_json::json!(9)
+    );
+
+    let decoder = siumai::protocol::anthropic::streaming::AnthropicEventConverter::new(
+        siumai::protocol::anthropic::params::AnthropicParams::default(),
+    );
+    let events = decode_frames(&decoder, &frames).await;
+    let roundtripped = events
+        .into_iter()
+        .find_map(|event| match event {
+            ChatStreamEvent::StreamEnd { response } => Some(response),
+            _ => None,
+        })
+        .expect("stream end response");
+
+    assert_eq!(roundtripped.service_tier.as_deref(), Some("standard"));
+    let metadata = roundtripped
+        .anthropic_metadata()
+        .expect("anthropic metadata");
+    assert_eq!(
+        metadata
+            .server_tool_use
+            .as_ref()
+            .and_then(|usage| usage.code_execution_requests),
+        Some(1)
+    );
+    assert_eq!(
+        metadata
+            .server_tool_use
+            .as_ref()
+            .and_then(|usage| usage.extra.get("future_tool_requests"))
+            .and_then(|value| value.as_u64()),
+        Some(9)
+    );
+}
+
 #[test]
 fn anthropic_public_message_metadata_surface_matches_narrow_typed_shape() {
     let mut response = ChatResponse {
