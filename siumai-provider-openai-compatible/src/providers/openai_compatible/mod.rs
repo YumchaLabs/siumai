@@ -115,9 +115,9 @@ pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use settings::{
-    DeepInfraProviderSettings, FireworksProviderSettings, GoogleVertexMaasProviderSettings,
-    MistralProviderSettings, MoonshotAIProviderSettings, OpenAICompatibleProviderSettings,
-    PerplexityProviderSettings,
+    AlibabaProviderSettings, DeepInfraProviderSettings, FireworksProviderSettings,
+    GoogleVertexMaasProviderSettings, MistralProviderSettings, MoonshotAIProviderSettings,
+    OpenAICompatibleProviderSettings, PerplexityProviderSettings,
 };
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
@@ -324,6 +324,17 @@ pub type DeepInfraClient = openai_client::OpenAiCompatibleClient;
 /// Rust package version exposed on the DeepInfra package-surface facade.
 pub const DEEPINFRA_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub type DeepInfraConfig = openai_config::OpenAiCompatibleConfig;
+
+/// AI SDK-style provider-scoped alias for Alibaba compat language-model clients.
+pub type AlibabaClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for Alibaba compat language-model configs.
+pub type AlibabaConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the Alibaba package-surface facade.
+pub const ALIBABA_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// AI SDK-style Alibaba chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type AlibabaChatModelId = String;
 
 /// AI SDK-style provider-scoped alias for MoonshotAI compat language-model clients.
 pub type MoonshotAIClient = openai_client::OpenAiCompatibleClient;

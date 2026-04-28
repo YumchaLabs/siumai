@@ -7,9 +7,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use super::{
-    DeepInfraConfig, FireworksConfig, GoogleVertexMaasConfig, MistralConfig, MoonshotAIConfig,
-    OpenAiCompatibleBuilder, OpenAiCompatibleConfig, PerplexityConfig, RequestBodyTransformer,
-    ResponseMetadataExtractor,
+    AlibabaConfig, DeepInfraConfig, FireworksConfig, GoogleVertexMaasConfig, MistralConfig,
+    MoonshotAIConfig, OpenAiCompatibleBuilder, OpenAiCompatibleConfig, PerplexityConfig,
+    RequestBodyTransformer, ResponseMetadataExtractor,
 };
 
 const GOOGLE_VERTEX_MAAS_DEFAULT_LOCATION: &str = "global";
@@ -387,6 +387,88 @@ impl GoogleVertexMaasProviderSettings {
         builder.into_config()
     }
 }
+/// Package-level Alibaba provider settings aligned with
+/// `repo-ref/ai/packages/alibaba/src/alibaba-provider.ts`.
+///
+/// This carrier covers the OpenAI-compatible chat/language-model construction subset. The AI SDK
+/// `videoBaseURL` setting belongs to Alibaba's DashScope native video surface and is intentionally
+/// deferred until this crate owns that video model implementation.
+#[derive(Clone, Default)]
+pub struct AlibabaProviderSettings {
+    pub api_key: Option<String>,
+    pub base_url: Option<String>,
+    pub headers: HashMap<String, String>,
+    pub fetch: Option<Arc<dyn HttpTransport>>,
+    pub include_usage: Option<bool>,
+}
+
+impl AlibabaProviderSettings {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+        self.base_url = Some(base_url.into());
+        self
+    }
+
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers.extend(headers);
+        self
+    }
+
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.headers.insert(name.into(), value.into());
+        self
+    }
+
+    pub fn with_fetch(mut self, fetch: Arc<dyn HttpTransport>) -> Self {
+        self.fetch = Some(fetch);
+        self
+    }
+
+    pub fn with_include_usage(mut self, include_usage: bool) -> Self {
+        self.include_usage = Some(include_usage);
+        self
+    }
+
+    pub fn into_builder(self) -> OpenAiCompatibleBuilder {
+        let mut builder = OpenAiCompatibleBuilder::new(BuilderBase::default(), "alibaba")
+            .with_include_usage(self.include_usage.unwrap_or(true));
+
+        if let Some(api_key) = self.api_key {
+            builder = builder.api_key(api_key);
+        }
+        if let Some(base_url) = self.base_url {
+            builder = builder.base_url(base_url);
+        }
+        if !self.headers.is_empty() {
+            builder = builder.custom_headers(self.headers);
+        }
+        if let Some(fetch) = self.fetch {
+            builder = builder.fetch(fetch);
+        }
+
+        builder
+    }
+
+    pub fn into_builder_for_model<S: Into<String>>(self, model: S) -> OpenAiCompatibleBuilder {
+        self.into_builder().model(model)
+    }
+
+    pub fn into_config_for_model<S: Into<String>>(
+        self,
+        model: S,
+    ) -> Result<AlibabaConfig, LlmError> {
+        self.into_builder_for_model(model).into_config()
+    }
+}
+
 /// Package-level MoonshotAI provider settings aligned with
 /// `repo-ref/ai/packages/moonshotai/src/moonshotai-provider.ts`.
 ///
@@ -855,6 +937,37 @@ mod tests {
             Some("1")
         );
         assert!(config.http_transport.is_some());
+    }
+
+    #[test]
+    fn alibaba_provider_settings_into_config_preserve_supported_inputs() {
+        let config = AlibabaProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/alibaba/compatible-mode/v1")
+            .with_header("x-test", "1")
+            .with_fetch(Arc::new(NoopTransport))
+            .into_config_for_model("qwen-plus")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "alibaba");
+        assert_eq!(
+            config.base_url,
+            "https://example.com/alibaba/compatible-mode/v1"
+        );
+        assert_eq!(config.common_params.model, "qwen-plus");
+        assert_eq!(config.include_usage, Some(true));
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+        assert!(config.http_transport.is_some());
+
+        let no_usage = AlibabaProviderSettings::new()
+            .with_api_key("test-key")
+            .with_include_usage(false)
+            .into_config_for_model("qwen-plus")
+            .expect("settings into config");
+        assert_eq!(no_usage.include_usage, Some(false));
     }
 
     #[test]
