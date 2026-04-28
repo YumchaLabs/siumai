@@ -695,7 +695,7 @@ fn default_request_settings_for_provider(provider_id: &str) -> OpenAiCompatibleR
     OpenAiCompatibleRequestSettings {
         supports_structured_outputs: match provider_id {
             // Keep this aligned with the compat config defaults used by the public client surface.
-            "openrouter" | "perplexity" | "mistral" | "groq" => Some(true),
+            "openrouter" | "perplexity" | "mistral" | "groq" | "qwen" | "alibaba" => Some(true),
             _ => None,
         },
         ..OpenAiCompatibleRequestSettings::default()
@@ -2243,6 +2243,60 @@ mod tests {
         assert_eq!(normalize_fireworks_reasoning_effort("low"), "low");
         assert_eq!(normalize_fireworks_reasoning_effort("high"), "high");
         assert_eq!(normalize_fireworks_reasoning_effort("xhigh"), "high");
+    }
+
+    #[test]
+    fn openai_compatible_qwen_defaults_to_json_schema_response_format() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "qwen".to_string(),
+                name: "Qwen".to_string(),
+                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["chat".into(), "streaming".into(), "tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "qwen".to_string(),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+        let req = crate::types::ChatRequest::builder()
+            .model("qwen-plus")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
     }
 
     #[test]
