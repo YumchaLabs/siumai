@@ -7,6 +7,7 @@ use super::params::AnthropicParams;
 use super::params::StructuredOutputMode;
 use super::provider_metadata::AnthropicSource;
 use super::server_tools;
+use super::utils::parse_finish_reason;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{
@@ -399,6 +400,13 @@ impl AnthropicEventConverter {
             .and_then(|map| map.get(tool_call_id).cloned())
     }
 
+    fn tool_use_id_for_index(&self, index: usize) -> Option<String> {
+        self.tool_use_ids_by_index
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&index).cloned())
+    }
+
     fn map_tool_caller_provider_metadata(caller: &serde_json::Value) -> Option<serde_json::Value> {
         let caller = caller.as_object()?;
         let mut mapped = serde_json::Map::new();
@@ -742,6 +750,17 @@ impl AnthropicEventConverter {
         .unwrap_or_else(|| Self::anthropic_content_block_provider_metadata(index))
     }
 
+    fn anthropic_json_tool_provider_metadata(
+        index: usize,
+        tool_call_id: &str,
+    ) -> crate::types::StreamProviderMetadata {
+        Self::anthropic_content_block_provider_metadata_with(Some(index), |anthropic| {
+            anthropic.insert("type".to_string(), serde_json::json!("jsonTool"));
+            anthropic.insert("toolCallId".to_string(), serde_json::json!(tool_call_id));
+        })
+        .unwrap_or_else(|| Self::anthropic_content_block_provider_metadata(index))
+    }
+
     fn anthropic_tool_call_provider_metadata(
         index: Option<usize>,
         caller: Option<&serde_json::Value>,
@@ -847,6 +866,30 @@ impl AnthropicEventConverter {
             part: ChatStreamPart::TextEnd {
                 id: id.to_string(),
                 provider_metadata: Some(Self::anthropic_content_block_provider_metadata(id)),
+            },
+        }
+    }
+
+    fn vercel_json_tool_text_start_event(id: usize, tool_call_id: &str) -> ChatStreamEvent {
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextStart {
+                id: id.to_string(),
+                provider_metadata: Some(Self::anthropic_json_tool_provider_metadata(
+                    id,
+                    tool_call_id,
+                )),
+            },
+        }
+    }
+
+    fn vercel_json_tool_text_end_event(id: usize, tool_call_id: &str) -> ChatStreamEvent {
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextEnd {
+                id: id.to_string(),
+                provider_metadata: Some(Self::anthropic_json_tool_provider_metadata(
+                    id,
+                    tool_call_id,
+                )),
             },
         }
     }
@@ -1248,15 +1291,14 @@ impl AnthropicEventConverter {
                         if let Some(idx) = event.index
                             && let Ok(mut map) = self.tool_use_ids_by_index.lock()
                         {
-                            map.insert(idx, tool_call_id);
+                            map.insert(idx, tool_call_id.clone());
                         }
 
                         // Vercel-aligned: do not emit tool-call deltas for the reserved `json` tool.
-                        // The corresponding `input_json_delta` chunks are emitted as ContentDelta.
-                        if self.should_stream_json_tool_as_text()
-                            && let Some(idx) = event.index
-                        {
-                            vec![Self::vercel_text_start_event(idx)]
+                        // The input chunks are exposed as text, with Anthropic metadata so gateways
+                        // can replay the original reserved tool block.
+                        if let Some(idx) = event.index {
+                            vec![Self::vercel_json_tool_text_start_event(idx, &tool_call_id)]
                         } else {
                             vec![]
                         }
@@ -1782,17 +1824,24 @@ impl AnthropicEventConverter {
                                 if self.get_content_block_type(idx).as_deref()
                                     == Some("json_tool_use")
                                 {
+                                    let provider_metadata = self
+                                        .tool_use_id_for_index(idx)
+                                        .map(|tool_call_id| {
+                                            Self::anthropic_json_tool_provider_metadata(
+                                                idx,
+                                                &tool_call_id,
+                                            )
+                                        })
+                                        .unwrap_or_else(|| {
+                                            Self::anthropic_content_block_provider_metadata(idx)
+                                        });
+                                    builder = builder.add_part(ChatStreamPart::TextDelta {
+                                        id: idx.to_string(),
+                                        delta: partial_json.clone(),
+                                        provider_metadata: Some(provider_metadata),
+                                    });
                                     if self.should_stream_json_tool_as_text() {
                                         self.append_text_content(idx, &partial_json);
-                                        builder = builder.add_part(ChatStreamPart::TextDelta {
-                                            id: idx.to_string(),
-                                            delta: partial_json,
-                                            provider_metadata: Some(
-                                                Self::anthropic_content_block_provider_metadata(
-                                                    idx,
-                                                ),
-                                            ),
-                                        });
                                     } else {
                                         builder =
                                             builder.add_content_delta(partial_json.clone(), None);
@@ -1849,17 +1898,23 @@ impl AnthropicEventConverter {
                                     == Some("json_tool_use")
                                 {
                                     self.append_text_content(idx, &partial_json);
-                                    if self.should_stream_json_tool_as_text() {
-                                        builder = builder.add_part(ChatStreamPart::TextDelta {
-                                            id: idx.to_string(),
-                                            delta: partial_json,
-                                            provider_metadata: Some(
-                                                Self::anthropic_content_block_provider_metadata(
-                                                    idx,
-                                                ),
-                                            ),
+                                    let provider_metadata = self
+                                        .tool_use_id_for_index(idx)
+                                        .map(|tool_call_id| {
+                                            Self::anthropic_json_tool_provider_metadata(
+                                                idx,
+                                                &tool_call_id,
+                                            )
+                                        })
+                                        .unwrap_or_else(|| {
+                                            Self::anthropic_content_block_provider_metadata(idx)
                                         });
-                                    } else {
+                                    builder = builder.add_part(ChatStreamPart::TextDelta {
+                                        id: idx.to_string(),
+                                        delta: partial_json.clone(),
+                                        provider_metadata: Some(provider_metadata),
+                                    });
+                                    if !self.should_stream_json_tool_as_text() {
                                         builder =
                                             builder.add_content_delta(partial_json.clone(), None);
                                     }
@@ -2004,8 +2059,8 @@ impl AnthropicEventConverter {
                         ]
                     }
                     Some("json_tool_use") => {
-                        if self.should_stream_json_tool_as_text() {
-                            vec![Self::vercel_text_end_event(idx)]
+                        if let Some(tool_call_id) = self.tool_use_id_for_index(idx) {
+                            vec![Self::vercel_json_tool_text_end_event(idx, &tool_call_id)]
                         } else {
                             vec![]
                         }
@@ -2082,19 +2137,13 @@ impl AnthropicEventConverter {
                 if let Some(delta) = &event.delta
                     && let Some(stop_reason) = &delta.stop_reason
                 {
-                    let reason = match stop_reason.as_str() {
-                        "end_turn" => FinishReason::Stop,
-                        "max_tokens" => FinishReason::Length,
-                        "stop_sequence" => FinishReason::StopSequence,
-                        "tool_use" => {
-                            if self.json_tool_seen.load(Ordering::Relaxed) {
-                                FinishReason::Stop
-                            } else {
-                                FinishReason::ToolCalls
-                            }
-                        }
-                        "refusal" => FinishReason::ContentFilter,
-                        _ => FinishReason::Stop,
+                    let reason = if stop_reason == "tool_use"
+                        && self.json_tool_seen.load(Ordering::Relaxed)
+                    {
+                        FinishReason::Stop
+                    } else {
+                        parse_finish_reason(Some(stop_reason.as_str()))
+                            .unwrap_or(FinishReason::Unknown)
                     };
 
                     if self.state_tracker.needs_stream_end() {

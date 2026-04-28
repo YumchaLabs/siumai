@@ -8,25 +8,13 @@ use crate::provider_metadata::anthropic::AnthropicContentPartExt;
 use crate::standards::anthropic::server_tools;
 use crate::standards::anthropic::utils::{
     raw_container_from_provider_metadata, raw_context_management_from_provider_metadata,
+    replay_anthropic_stop_reason,
 };
 use crate::types::{
     ChatResponse, ContentPart, FinishReason, ToolResultContentPart, ToolResultOutput, Usage,
 };
 use serde::Serialize;
 use std::collections::HashMap;
-
-fn anthropic_stop_reason(reason: Option<&FinishReason>) -> Option<&'static str> {
-    match reason? {
-        FinishReason::Stop | FinishReason::StopSequence => Some("end_turn"),
-        FinishReason::Length => Some("max_tokens"),
-        FinishReason::ToolCalls => Some("tool_use"),
-        // Best-effort fallbacks.
-        FinishReason::ContentFilter => Some("stop_sequence"),
-        FinishReason::Error => Some("end_turn"),
-        FinishReason::Unknown => None,
-        FinishReason::Other(_) => None,
-    }
-}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AnthropicUsage {
@@ -164,6 +152,19 @@ pub(crate) fn tool_use_block(
         block["caller"] = caller;
     }
     block
+}
+
+fn reserved_json_tool_input_from_text(
+    response: &ChatResponse,
+    text: &str,
+) -> Option<serde_json::Value> {
+    if response.raw_finish_reason.as_deref() != Some("tool_use")
+        || response.finish_reason.as_ref() != Some(&FinishReason::Stop)
+    {
+        return None;
+    }
+
+    serde_json::from_str(text.trim()).ok()
 }
 
 pub(crate) fn provider_tool_use_block(
@@ -658,7 +659,9 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
 
         match &response.content {
             crate::types::MessageContent::Text(text) => {
-                if !text.trim().is_empty() {
+                if let Some(input) = reserved_json_tool_input_from_text(response, text) {
+                    content.push(tool_use_block("toolu_siumai_json", "json", &input, None));
+                } else if !text.trim().is_empty() {
                     content.push(text_block(
                         text.clone(),
                         projected_citations_fallback.take(),
@@ -760,9 +763,15 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
             }
             #[cfg(feature = "structured-messages")]
             crate::types::MessageContent::Json(value) => {
-                let text = serde_json::to_string(value).unwrap_or_default();
-                if !text.trim().is_empty() {
-                    content.push(text_block(text, projected_citations_fallback.take()));
+                if response.raw_finish_reason.as_deref() == Some("tool_use")
+                    && response.finish_reason.as_ref() == Some(&FinishReason::Stop)
+                {
+                    content.push(tool_use_block("toolu_siumai_json", "json", value, None));
+                } else {
+                    let text = serde_json::to_string(value).unwrap_or_default();
+                    if !text.trim().is_empty() {
+                        content.push(text_block(text, projected_citations_fallback.take()));
+                    }
                 }
             }
         }
@@ -775,7 +784,10 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
             content,
             container,
             context_management,
-            stop_reason: anthropic_stop_reason(response.finish_reason.as_ref()),
+            stop_reason: replay_anthropic_stop_reason(
+                response.raw_finish_reason.as_deref(),
+                response.finish_reason.as_ref(),
+            ),
             stop_sequence,
             usage: usage_json(
                 response.usage.as_ref(),
@@ -855,7 +867,7 @@ mod tests {
         ]));
         response.id = Some("msg_1".to_string());
         response.model = Some("claude-sonnet-4-5".to_string());
-        response.finish_reason = Some(FinishReason::StopSequence);
+        response.finish_reason = Some(crate::types::FinishReason::StopSequence);
         response.service_tier = Some("priority".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "anthropic".to_string(),
@@ -870,7 +882,7 @@ mod tests {
             .expect("serialize");
 
         let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
-        assert_eq!(value["stop_reason"], serde_json::json!("end_turn"));
+        assert_eq!(value["stop_reason"], serde_json::json!("stop_sequence"));
         assert_eq!(value["stop_sequence"], serde_json::json!("</tool>"));
         assert_eq!(
             value["usage"]["service_tier"],
@@ -889,6 +901,31 @@ mod tests {
         assert_eq!(
             value["content"][3]["data"],
             serde_json::json!("redacted_123")
+        );
+    }
+
+    #[test]
+    fn anthropic_encoder_replays_raw_stop_reason_before_unified_finish_reason() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::Text(
+            "{\"value\":\"ok\"}".to_string(),
+        ));
+        response.id = Some("msg_json".to_string());
+        response.model = Some("claude-sonnet-4-5".to_string());
+        response.finish_reason = Some(crate::types::FinishReason::Stop);
+        response.raw_finish_reason = Some("tool_use".to_string());
+
+        let mut out = Vec::new();
+        AnthropicMessagesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["stop_reason"], serde_json::json!("tool_use"));
+        assert_eq!(value["content"][0]["type"], serde_json::json!("tool_use"));
+        assert_eq!(value["content"][0]["name"], serde_json::json!("json"));
+        assert_eq!(
+            value["content"][0]["input"],
+            serde_json::json!({ "value": "ok" })
         );
     }
 

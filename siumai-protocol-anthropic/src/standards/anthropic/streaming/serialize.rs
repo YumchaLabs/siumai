@@ -1,4 +1,5 @@
 use super::*;
+use crate::standards::anthropic::utils::{raw_anthropic_stop_reason, replay_anthropic_stop_reason};
 
 pub(super) fn serialize_event(
     this: &AnthropicEventConverter,
@@ -133,19 +134,6 @@ pub(super) fn serialize_event(
         F: FnOnce(usize) -> serde_json::Value,
     {
         ensure_active_block_at(state, kind, None, build_start)
-    }
-
-    fn map_stop_reason(reason: &FinishReason) -> Option<&'static str> {
-        match reason {
-            FinishReason::Stop => Some("end_turn"),
-            FinishReason::Length => Some("max_tokens"),
-            FinishReason::ToolCalls => Some("tool_use"),
-            FinishReason::ContentFilter => Some("refusal"),
-            FinishReason::StopSequence => Some("stop_sequence"),
-            FinishReason::Error => Some("error"),
-            FinishReason::Other(_) => None,
-            FinishReason::Unknown => None,
-        }
     }
 
     fn map_v3_finish_reason_unified(unified: &str) -> Option<&'static str> {
@@ -485,12 +473,12 @@ pub(super) fn serialize_event(
 
                 out.extend_from_slice(&close_active_block(state)?);
 
-                let stop_reason = response
-                    .finish_reason
-                    .as_ref()
-                    .and_then(map_stop_reason)
-                    .map(|s| serde_json::Value::String(s.to_string()))
-                    .unwrap_or(serde_json::Value::Null);
+                let stop_reason = replay_anthropic_stop_reason(
+                    response.raw_finish_reason.as_deref(),
+                    response.finish_reason.as_ref(),
+                )
+                .map(|s| serde_json::Value::String(s.to_string()))
+                .unwrap_or(serde_json::Value::Null);
 
                 let anthropic_meta = response
                     .provider_metadata
@@ -617,11 +605,140 @@ pub(super) fn serialize_event(
             .and_then(|value| usize::try_from(value).ok())
     }
 
+    fn is_json_tool_text_part(data: &serde_json::Value) -> bool {
+        anthropic_provider_metadata_string(data, "type").as_deref() == Some("jsonTool")
+    }
+
+    fn json_tool_call_id(data: &serde_json::Value, index: Option<usize>) -> String {
+        anthropic_provider_metadata_string(data, "toolCallId")
+            .or_else(|| {
+                data.get("toolCallId")
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned)
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| format!("toolu_siumai_json_{}", index.unwrap_or_default()))
+    }
+
+    fn serialize_json_tool_text_part(
+        part: &LanguageModelV3StreamPart,
+        data: &serde_json::Value,
+        state: &mut AnthropicSerializeState,
+    ) -> Result<Option<Vec<u8>>, LlmError> {
+        match part {
+            LanguageModelV3StreamPart::TextStart { .. } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
+
+                let index = provider_content_block_index(data, state);
+                let tool_call_id = json_tool_call_id(data, index);
+                let mut out = ensure_message_start_emitted(state)?;
+                let (block_out, _) = ensure_active_block_at(
+                    state,
+                    AnthropicSerializeBlockKind::Tool {
+                        id: tool_call_id.clone(),
+                    },
+                    index,
+                    move |idx| {
+                        serde_json::json!({
+                            "type": "content_block_start",
+                            "index": idx,
+                            "content_block": {
+                                "type": "tool_use",
+                                "id": tool_call_id,
+                                "name": "json",
+                                "input": {}
+                            }
+                        })
+                    },
+                )?;
+                out.extend_from_slice(&block_out);
+                Ok(Some(out))
+            }
+            LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
+                if state.last_v3_text_delta.as_deref() == Some(delta.as_str()) {
+                    state.last_v3_text_delta = None;
+                    return Ok(Some(Vec::new()));
+                }
+                state.last_v3_text_delta = None;
+
+                let index = provider_content_block_index(data, state);
+                let tool_call_id = json_tool_call_id(data, index);
+                let mut out = ensure_message_start_emitted(state)?;
+                let (block_out, idx) = ensure_active_block_at(
+                    state,
+                    AnthropicSerializeBlockKind::Tool {
+                        id: tool_call_id.clone(),
+                    },
+                    index,
+                    move |idx| {
+                        serde_json::json!({
+                            "type": "content_block_start",
+                            "index": idx,
+                            "content_block": {
+                                "type": "tool_use",
+                                "id": tool_call_id,
+                                "name": "json",
+                                "input": {}
+                            }
+                        })
+                    },
+                )?;
+                out.extend_from_slice(&block_out);
+
+                let delta_payload = serde_json::json!({
+                    "type": "content_block_delta",
+                    "index": idx,
+                    "delta": { "type": "input_json_delta", "partial_json": delta }
+                });
+                out.extend_from_slice(&sse_typed_frame(&delta_payload)?);
+                state.last_v3_text_delta = Some(delta.clone());
+                Ok(Some(out))
+            }
+            LanguageModelV3StreamPart::TextEnd { .. } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
+
+                let target_index = provider_content_block_index(data, state);
+                let tool_call_id = json_tool_call_id(data, target_index);
+                let active_json_index = state.active_block.as_ref().and_then(|active| {
+                    if matches!(&active.kind, AnthropicSerializeBlockKind::Tool { id } if id == &tool_call_id)
+                    {
+                        Some(active.index)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(active_index) = active_json_index
+                    && target_index.is_none_or(|index| index == active_index)
+                {
+                    return Ok(Some(close_active_block(state)?));
+                }
+
+                if let Some(target_index) = target_index {
+                    return Ok(Some(emit_content_block_stop(target_index)?));
+                }
+
+                Ok(Some(Vec::new()))
+            }
+            _ => Ok(None),
+        }
+    }
+
     fn serialize_text_part(
         part: &LanguageModelV3StreamPart,
         data: &serde_json::Value,
         state: &mut AnthropicSerializeState,
     ) -> Result<Option<Vec<u8>>, LlmError> {
+        if is_json_tool_text_part(data) {
+            return serialize_json_tool_text_part(part, data, state);
+        }
+
         let is_compaction =
             anthropic_provider_metadata_string(data, "type").as_deref() == Some("compaction");
         let block_kind = if is_compaction {
@@ -1232,7 +1349,8 @@ pub(super) fn serialize_event(
 
                     out.extend_from_slice(&close_active_block(&mut state)?);
 
-                    let stop_reason = map_v3_finish_reason_unified(&finish_reason.unified)
+                    let stop_reason = raw_anthropic_stop_reason(finish_reason.raw.as_deref())
+                        .or_else(|| map_v3_finish_reason_unified(&finish_reason.unified))
                         .map(|s| serde_json::Value::String(s.to_string()))
                         .unwrap_or(serde_json::Value::Null);
 

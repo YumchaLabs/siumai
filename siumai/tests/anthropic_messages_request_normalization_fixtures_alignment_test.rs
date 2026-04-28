@@ -164,7 +164,10 @@ fn anthropic_messages_request_normalization_restores_structured_output_and_mcp_s
         strict,
         schema,
         ..
-    } = format;
+    } = format
+    else {
+        panic!("expected JSON response format, got {format:?}");
+    };
     assert_eq!(name, None);
     assert_eq!(strict, None);
     assert_eq!(

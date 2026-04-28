@@ -2446,6 +2446,39 @@ fn serializes_text_stream_events_to_anthropic_sse() {
 }
 
 #[test]
+fn serializes_stream_end_with_raw_anthropic_stop_reason() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::StreamEnd {
+            response: ChatResponse {
+                id: Some("msg_json".to_string()),
+                model: Some("claude-test".to_string()),
+                content: MessageContent::Text(String::new()),
+                usage: None,
+                finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: Some("tool_use".to_string()),
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
+                warnings: None,
+                provider_metadata: None,
+            },
+        })
+        .expect("serialize end");
+
+    let frames = parse_sse_frames(&bytes);
+    let message_delta = frames
+        .iter()
+        .find(|frame| frame.event.as_deref() == Some("message_delta"))
+        .expect("message_delta frame");
+    assert_eq!(
+        message_delta.data["delta"]["stop_reason"],
+        serde_json::json!("tool_use")
+    );
+}
+
+#[test]
 fn serializes_error_event_with_event_prefix() {
     let converter = AnthropicEventConverter::new(create_test_config());
 

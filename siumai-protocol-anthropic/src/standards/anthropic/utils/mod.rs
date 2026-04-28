@@ -24,6 +24,7 @@ mod tools;
 pub use content::convert_message_content;
 pub use errors::map_anthropic_error;
 pub use finish::parse_finish_reason;
+pub(crate) use finish::{raw_anthropic_stop_reason, replay_anthropic_stop_reason};
 pub use headers::build_headers;
 pub use messages::convert_messages;
 pub use models::get_default_models;
