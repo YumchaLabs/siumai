@@ -76,6 +76,15 @@ pub mod alibaba {
 
     pub const CHAT: &str = QWEN_PLUS;
 
+    pub const WAN2_6_T2V: &str = "wan2.6-t2v";
+    pub const WAN2_5_T2V_PREVIEW: &str = "wan2.5-t2v-preview";
+    pub const WAN2_6_I2V: &str = "wan2.6-i2v";
+    pub const WAN2_6_I2V_FLASH: &str = "wan2.6-i2v-flash";
+    pub const WAN2_6_R2V: &str = "wan2.6-r2v";
+    pub const WAN2_6_R2V_FLASH: &str = "wan2.6-r2v-flash";
+
+    pub const VIDEO: &str = WAN2_6_T2V;
+
     pub const ALL: &[&str] = &[
         QWEN3_MAX,
         QWEN3_MAX_PREVIEW,
@@ -99,8 +108,21 @@ pub mod alibaba {
         QWEN3_CODER_FLASH,
     ];
 
+    pub const ALL_VIDEO: &[&str] = &[
+        WAN2_6_T2V,
+        WAN2_5_T2V_PREVIEW,
+        WAN2_6_I2V,
+        WAN2_6_I2V_FLASH,
+        WAN2_6_R2V,
+        WAN2_6_R2V_FLASH,
+    ];
+
     pub fn all_models() -> Vec<String> {
         ALL.iter().map(|&model| model.to_string()).collect()
+    }
+
+    pub fn all_video_models() -> Vec<String> {
+        ALL_VIDEO.iter().map(|&model| model.to_string()).collect()
     }
 }
 

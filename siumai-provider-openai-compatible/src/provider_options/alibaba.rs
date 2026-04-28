@@ -92,6 +92,120 @@ pub type QwenLanguageModelOptions = AlibabaLanguageModelOptions;
 #[deprecated(note = "Use QwenLanguageModelOptions instead.")]
 pub type QwenProviderOptions = QwenLanguageModelOptions;
 
+/// Typed Alibaba video-model options aligned with
+/// `repo-ref/ai/packages/alibaba/src/alibaba-video-model.ts`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlibabaVideoModelOptions {
+    /// Negative prompt to specify what to avoid.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "negative_prompt"
+    )]
+    pub negative_prompt: Option<String>,
+    /// URL to audio file for audio-video sync.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "audio_url")]
+    pub audio_url: Option<String>,
+    /// Enable provider prompt extension.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "prompt_extend"
+    )]
+    pub prompt_extend: Option<bool>,
+    /// Shot type: `single` or `multi`.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "shot_type")]
+    pub shot_type: Option<String>,
+    /// Whether to add a watermark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watermark: Option<bool>,
+    /// Enable audio generation for supported video models.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<bool>,
+    /// Reference URLs for reference-to-video mode.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "reference_urls"
+    )]
+    pub reference_urls: Option<Vec<String>>,
+    /// Polling interval in milliseconds for high-level video helpers.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "poll_interval_ms"
+    )]
+    pub poll_interval_ms: Option<u64>,
+    /// Polling timeout in milliseconds for high-level video helpers.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "poll_timeout_ms"
+    )]
+    pub poll_timeout_ms: Option<u64>,
+}
+
+impl AlibabaVideoModelOptions {
+    /// Create empty Alibaba video options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_negative_prompt(mut self, negative_prompt: impl Into<String>) -> Self {
+        self.negative_prompt = Some(negative_prompt.into());
+        self
+    }
+
+    pub fn with_audio_url(mut self, audio_url: impl Into<String>) -> Self {
+        self.audio_url = Some(audio_url.into());
+        self
+    }
+
+    pub const fn with_prompt_extend(mut self, prompt_extend: bool) -> Self {
+        self.prompt_extend = Some(prompt_extend);
+        self
+    }
+
+    pub fn with_shot_type(mut self, shot_type: impl Into<String>) -> Self {
+        self.shot_type = Some(shot_type.into());
+        self
+    }
+
+    pub const fn with_watermark(mut self, watermark: bool) -> Self {
+        self.watermark = Some(watermark);
+        self
+    }
+
+    pub const fn with_audio(mut self, audio: bool) -> Self {
+        self.audio = Some(audio);
+        self
+    }
+
+    pub fn with_reference_urls<I, S>(mut self, reference_urls: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.reference_urls = Some(reference_urls.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub const fn with_poll_interval_ms(mut self, poll_interval_ms: u64) -> Self {
+        self.poll_interval_ms = Some(poll_interval_ms);
+        self
+    }
+
+    pub const fn with_poll_timeout_ms(mut self, poll_timeout_ms: u64) -> Self {
+        self.poll_timeout_ms = Some(poll_timeout_ms);
+        self
+    }
+}
+
+/// Deprecated AI SDK-compatible alias for Alibaba video options.
+#[deprecated(note = "Use AlibabaVideoModelOptions instead.")]
+pub type AlibabaVideoProviderOptions = AlibabaVideoModelOptions;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +250,65 @@ mod tests {
             .expect("cache control serialize");
 
         assert_eq!(value, serde_json::json!({ "type": "ephemeral" }));
+    }
+
+    #[test]
+    fn alibaba_video_options_serialize_to_ai_sdk_shape() {
+        let value = serde_json::to_value(
+            AlibabaVideoModelOptions::new()
+                .with_negative_prompt("no rain")
+                .with_audio_url("https://example.com/audio.mp3")
+                .with_prompt_extend(true)
+                .with_shot_type("multi")
+                .with_watermark(false)
+                .with_audio(true)
+                .with_reference_urls(["https://example.com/ref.png"])
+                .with_poll_interval_ms(5000)
+                .with_poll_timeout_ms(600000),
+        )
+        .expect("options serialize");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "negativePrompt": "no rain",
+                "audioUrl": "https://example.com/audio.mp3",
+                "promptExtend": true,
+                "shotType": "multi",
+                "watermark": false,
+                "audio": true,
+                "referenceUrls": ["https://example.com/ref.png"],
+                "pollIntervalMs": 5000,
+                "pollTimeoutMs": 600000
+            })
+        );
+    }
+
+    #[test]
+    fn alibaba_video_options_accept_snake_case_aliases() {
+        let options: AlibabaVideoModelOptions = serde_json::from_value(serde_json::json!({
+            "negative_prompt": "no blur",
+            "audio_url": "https://example.com/audio.wav",
+            "prompt_extend": false,
+            "shot_type": "single",
+            "reference_urls": ["https://example.com/ref.mp4"],
+            "poll_interval_ms": 1000,
+            "poll_timeout_ms": 2000
+        }))
+        .expect("options deserialize");
+
+        assert_eq!(options.negative_prompt.as_deref(), Some("no blur"));
+        assert_eq!(
+            options.audio_url.as_deref(),
+            Some("https://example.com/audio.wav")
+        );
+        assert_eq!(options.prompt_extend, Some(false));
+        assert_eq!(options.shot_type.as_deref(), Some("single"));
+        assert_eq!(
+            options.reference_urls,
+            Some(vec!["https://example.com/ref.mp4".to_string()])
+        );
+        assert_eq!(options.poll_interval_ms, Some(1000));
+        assert_eq!(options.poll_timeout_ms, Some(2000));
     }
 }

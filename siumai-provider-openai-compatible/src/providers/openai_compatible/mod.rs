@@ -27,6 +27,7 @@
 pub mod providers;
 
 // New adapter system modules
+pub mod alibaba_video;
 pub mod builder;
 pub mod config;
 pub mod default_models;
@@ -69,11 +70,12 @@ pub use providers::models::{
 
 // Re-export new adapter system
 pub use crate::provider_options::{
-    AlibabaChatOptions, AlibabaLanguageModelOptions, FireworksChatOptions,
-    FireworksLanguageModelOptions, FireworksReasoningHistory, FireworksThinkingConfig,
-    FireworksThinkingType, MistralChatOptions, MistralLanguageModelOptions, MistralReasoningEffort,
-    MoonshotAIChatOptions, MoonshotAILanguageModelOptions, MoonshotAIReasoningHistory,
-    MoonshotAIThinkingConfig, MoonshotAIThinkingType, OpenAICompatibleEmbeddingModelOptions,
+    AlibabaChatOptions, AlibabaLanguageModelOptions, AlibabaVideoModelOptions,
+    FireworksChatOptions, FireworksLanguageModelOptions, FireworksReasoningHistory,
+    FireworksThinkingConfig, FireworksThinkingType, MistralChatOptions,
+    MistralLanguageModelOptions, MistralReasoningEffort, MoonshotAIChatOptions,
+    MoonshotAILanguageModelOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
+    MoonshotAIThinkingType, OpenAICompatibleEmbeddingModelOptions,
     OpenAICompatibleLanguageModelChatOptions, OpenAICompatibleLanguageModelCompletionOptions,
     OpenAiCompatibleEmbeddingModelOptions, OpenAiCompatibleLanguageModelChatOptions,
     OpenAiCompatibleLanguageModelCompletionOptions, OpenRouterOptions, OpenRouterTransform,
@@ -83,10 +85,10 @@ pub use crate::provider_options::{
 };
 #[allow(deprecated)]
 pub use crate::provider_options::{
-    AlibabaProviderOptions, MoonshotAIProviderOptions, OpenAICompatibleCompletionProviderOptions,
-    OpenAICompatibleEmbeddingProviderOptions, OpenAICompatibleProviderOptions,
-    OpenAiCompatibleCompletionProviderOptions, OpenAiCompatibleEmbeddingProviderOptions,
-    OpenAiCompatibleProviderOptions, QwenProviderOptions,
+    AlibabaProviderOptions, AlibabaVideoProviderOptions, MoonshotAIProviderOptions,
+    OpenAICompatibleCompletionProviderOptions, OpenAICompatibleEmbeddingProviderOptions,
+    OpenAICompatibleProviderOptions, OpenAiCompatibleCompletionProviderOptions,
+    OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleProviderOptions, QwenProviderOptions,
 };
 pub use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig,
@@ -97,6 +99,7 @@ pub use adapter::{
     ProviderCompatibility, RequestBodyTransformer, RequestTransformingAdapter,
     ResponseMetadataExtractor,
 };
+pub use alibaba_video::AlibabaVideoModel;
 pub use builder::OpenAiCompatibleBuilder;
 pub use config::{
     generic_provider_config, get_builtin_providers, get_provider_config, list_provider_ids,
@@ -335,6 +338,10 @@ pub const ALIBABA_VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type AlibabaChatModelId = String;
+/// AI SDK-style Alibaba video model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type AlibabaVideoModelId = String;
 
 /// AI SDK-style provider-scoped alias for MoonshotAI compat language-model clients.
 pub type MoonshotAIClient = openai_client::OpenAiCompatibleClient;

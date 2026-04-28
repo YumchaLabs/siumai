@@ -6,6 +6,7 @@ use crate::execution::http::transport::HttpTransport;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use super::alibaba_video::{ALIBABA_VIDEO_DEFAULT_BASE_URL, AlibabaVideoModel};
 use super::{
     AlibabaConfig, DeepInfraConfig, FireworksConfig, GoogleVertexMaasConfig, MistralConfig,
     MoonshotAIConfig, OpenAiCompatibleBuilder, OpenAiCompatibleConfig, PerplexityConfig,
@@ -389,14 +390,11 @@ impl GoogleVertexMaasProviderSettings {
 }
 /// Package-level Alibaba provider settings aligned with
 /// `repo-ref/ai/packages/alibaba/src/alibaba-provider.ts`.
-///
-/// This carrier covers the OpenAI-compatible chat/language-model construction subset. The AI SDK
-/// `videoBaseURL` setting belongs to Alibaba's DashScope native video surface and is intentionally
-/// deferred until this crate owns that video model implementation.
 #[derive(Clone, Default)]
 pub struct AlibabaProviderSettings {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
+    pub video_base_url: Option<String>,
     pub headers: HashMap<String, String>,
     pub fetch: Option<Arc<dyn HttpTransport>>,
     pub include_usage: Option<bool>,
@@ -414,6 +412,11 @@ impl AlibabaProviderSettings {
 
     pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
         self.base_url = Some(base_url.into());
+        self
+    }
+
+    pub fn with_video_base_url<S: Into<String>>(mut self, video_base_url: S) -> Self {
+        self.video_base_url = Some(video_base_url.into());
         self
     }
 
@@ -466,6 +469,29 @@ impl AlibabaProviderSettings {
         model: S,
     ) -> Result<AlibabaConfig, LlmError> {
         self.into_builder_for_model(model).into_config()
+    }
+
+    pub fn into_video_model<S: Into<String>>(self, model: S) -> AlibabaVideoModel {
+        let api_key = self
+            .api_key
+            .or_else(|| env_non_empty("ALIBABA_API_KEY"))
+            .or_else(|| env_non_empty("DASHSCOPE_API_KEY"))
+            .or_else(|| env_non_empty("QWEN_API_KEY"));
+        let mut video_model = AlibabaVideoModel::new(model)
+            .with_base_url(
+                self.video_base_url
+                    .unwrap_or_else(|| ALIBABA_VIDEO_DEFAULT_BASE_URL.to_string()),
+            )
+            .with_headers(self.headers);
+
+        if let Some(api_key) = api_key {
+            video_model = video_model.with_api_key(api_key);
+        }
+        if let Some(fetch) = self.fetch {
+            video_model = video_model.with_fetch(fetch);
+        }
+
+        video_model
     }
 }
 
@@ -773,6 +799,7 @@ mod tests {
     };
     use async_trait::async_trait;
     use reqwest::header::HeaderMap;
+    use siumai_core::traits::ModelMetadata;
 
     #[derive(Clone, Default)]
     struct NoopTransport;
@@ -968,6 +995,16 @@ mod tests {
             .into_config_for_model("qwen-plus")
             .expect("settings into config");
         assert_eq!(no_usage.include_usage, Some(false));
+
+        let video_model = AlibabaProviderSettings::new()
+            .with_api_key("test-key")
+            .with_video_base_url("https://example.com/dashscope")
+            .with_header("x-video", "1")
+            .with_fetch(Arc::new(NoopTransport))
+            .into_video_model("wan2.6-t2v");
+        assert_eq!(video_model.provider_id(), "alibaba.video");
+        assert_eq!(video_model.model_id(), "wan2.6-t2v");
+        assert_eq!(video_model.base_url(), "https://example.com/dashscope");
     }
 
     #[test]

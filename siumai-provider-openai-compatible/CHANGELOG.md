@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   markers, including the provider warning emitted when more than four cache breakpoints are used.
 - Add compat-backed AI SDK-style `AlibabaProviderSettings` for the audited chat/language-model
   `apiKey` / `baseURL` / `headers` / `fetch` / `includeUsage` construction subset.
+- Add Alibaba DashScope native video model parity for AI SDK `videoBaseURL`, typed video provider
+  options, task creation, task status metadata, polling controls, and unsupported option warnings.
 - Add compat-backed AI SDK-style `MistralProviderSettings` for the audited package-level
   `apiKey` / `baseURL` / `headers` / `fetch` construction subset, with upstream `generateId`
   explicitly deferred until the shared runtime owns a stable ID hook.
