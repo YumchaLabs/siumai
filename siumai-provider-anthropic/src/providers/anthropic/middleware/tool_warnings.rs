@@ -184,6 +184,17 @@ impl AnthropicToolWarningsMiddleware {
             }
         }
 
+        // Vercel-aligned: Anthropic requires a schema for request-level JSON response format.
+        if matches!(
+            req.response_format,
+            Some(crate::types::chat::ResponseFormat::JsonObject { .. })
+        ) {
+            warnings.push(Warning::unsupported(
+                "responseFormat",
+                Some("JSON response format requires a schema. The response format is ignored."),
+            ));
+        }
+
         if thinking.is_enabled() {
             if matches!(thinking.kind, ThinkingKind::Enabled) && thinking.budget_tokens.is_none() {
                 warnings.push(Warning::unsupported_setting(
@@ -378,5 +389,23 @@ mod tests {
                 if feature == "cacheControl breakpoint limit"
                     && d == "Maximum 4 cache breakpoints exceeded (found 5). This breakpoint will be ignored."
         )));
+    }
+
+    #[test]
+    fn warns_when_schema_less_json_response_format_is_ignored() {
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_response_format(crate::types::chat::ResponseFormat::json_object());
+
+        let mw = AnthropicToolWarningsMiddleware::new();
+        let out = mw.post_generate(&req, dummy_resp()).unwrap();
+        let warnings = out.warnings.unwrap_or_default();
+
+        assert_eq!(
+            warnings,
+            vec![Warning::unsupported(
+                "responseFormat",
+                Some("JSON response format requires a schema. The response format is ignored.",),
+            )]
+        );
     }
 }
