@@ -1047,6 +1047,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Ollama chat conversion now preserves native `done_reason` as `raw_finish_reason` on
   non-streaming and streaming responses, uses that raw value for `length`/provider-specific
   finish mapping, and replays it as `done_reason` when serializing Ollama JSONL stream endings.
+- Experimental response bridge loss reports now treat replayable raw finish reasons as exact for
+  OpenAI Chat Completions, Anthropic Messages, and Gemini GenerateContent targets instead of
+  flagging `finish_reason` as lossy after the encoder has already preserved the provider-native
+  value.
 - Gemini GenerateContent response parsing and protocol reserialization now preserve provider-native
   `finishReason` strings on the non-streaming path and prefer those raw values when replaying JSON
   or SSE responses, matching the existing streaming raw-finish fidelity and avoiding lossy

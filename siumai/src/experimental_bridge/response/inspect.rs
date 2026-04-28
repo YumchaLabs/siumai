@@ -374,6 +374,10 @@ fn inspect_response_finish_reason(
         return;
     };
 
+    if raw_finish_reason_replays_for_target(response, caps) {
+        return;
+    }
+
     match caps.finish_reason_mode {
         ResponseFinishReasonMode::OpenAiFamily => match reason {
             FinishReason::StopSequence => report.record_lossy_field(
@@ -393,13 +397,9 @@ fn inspect_response_finish_reason(
                     "Anthropic Messages response encoding does not preserve the concrete stop sequence value",
                 )
             }
-            FinishReason::ContentFilter => report.record_lossy_field(
-                "finish_reason",
-                "Anthropic Messages response encoding downgrades content filtering into `stop_sequence`",
-            ),
             FinishReason::Error => report.record_lossy_field(
                 "finish_reason",
-                "Anthropic Messages response encoding downgrades errors into `end_turn`",
+                "Anthropic Messages response encoding cannot preserve error finish reasons",
             ),
             FinishReason::Unknown | FinishReason::Other(_) => report.record_lossy_field(
                 "finish_reason",
@@ -418,6 +418,44 @@ fn inspect_response_finish_reason(
             ),
             _ => {}
         },
+    }
+}
+
+fn raw_finish_reason_replays_for_target(
+    response: &ChatResponse,
+    caps: ResponseTargetCapabilities,
+) -> bool {
+    let Some(raw) = response
+        .raw_finish_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+
+    match caps.finish_reason_mode {
+        ResponseFinishReasonMode::OpenAiFamily
+            if caps.target == BridgeTarget::OpenAiChatCompletions =>
+        {
+            matches!(
+                raw,
+                "stop" | "length" | "content_filter" | "tool_calls" | "function_call" | "error"
+            )
+        }
+        ResponseFinishReasonMode::OpenAiFamily => false,
+        ResponseFinishReasonMode::AnthropicMessages => matches!(
+            raw,
+            "end_turn"
+                | "max_tokens"
+                | "stop_sequence"
+                | "tool_use"
+                | "refusal"
+                | "pause_turn"
+                | "model_context_window_exceeded"
+                | "compaction"
+        ),
+        ResponseFinishReasonMode::GeminiGenerateContent => true,
     }
 }
 

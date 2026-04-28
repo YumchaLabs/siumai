@@ -268,6 +268,35 @@ fn openai_chat_response_bridge_preserves_native_top_level_fields() {
 
 #[cfg(feature = "openai")]
 #[test]
+fn openai_chat_response_bridge_does_not_report_replayed_raw_finish_reason_loss() {
+    let mut response = ChatResponse::new(MessageContent::Text("legacy function call".to_string()));
+    response.finish_reason = Some(FinishReason::Other("function_call".to_string()));
+    response.raw_finish_reason = Some("function_call".to_string());
+
+    let bridged = bridge_chat_response_to_openai_chat_completions_json_value(
+        &response,
+        Some(BridgeTarget::OpenAiChatCompletions),
+        BridgeMode::BestEffort,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(
+        !bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "finish_reason"),
+        "raw OpenAI chat finish reason should replay without a finish_reason loss report"
+    );
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["choices"][0]["finish_reason"], json!("function_call"));
+}
+
+#[cfg(feature = "openai")]
+#[test]
 fn strict_openai_chat_completions_bridge_rejects_reasoning_tool_result_and_metadata_loss() {
     let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
         ContentPart::reasoning("internal thinking"),
@@ -414,6 +443,35 @@ fn anthropic_response_bridge_reports_usage_and_metadata_loss() {
     assert_eq!(value["content"][1]["type"], json!("server_tool_use"));
     assert_eq!(value["content"][1]["id"], json!("call_1"));
     assert_eq!(value["content"][1]["name"], json!("web_search"));
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn anthropic_response_bridge_does_not_report_replayed_raw_finish_reason_loss() {
+    let mut response = ChatResponse::new(MessageContent::Text("compacted".to_string()));
+    response.finish_reason = Some(FinishReason::Other("compaction".to_string()));
+    response.raw_finish_reason = Some("compaction".to_string());
+
+    let bridged = bridge_chat_response_to_anthropic_messages_json_value(
+        &response,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeMode::BestEffort,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(
+        !bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "finish_reason"),
+        "raw Anthropic stop reason should replay without a finish_reason loss report"
+    );
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["stop_reason"], json!("compaction"));
 }
 
 #[cfg(feature = "anthropic")]
@@ -951,6 +1009,38 @@ fn gemini_response_bridge_reports_reasoning_finish_reason_and_usage_breakdown_lo
     assert_eq!(value["usageMetadata"]["totalTokenCount"], json!(18));
     assert_eq!(value["usageMetadata"]["cachedContentTokenCount"], json!(3));
     assert_eq!(value["usageMetadata"]["thoughtsTokenCount"], json!(4));
+}
+
+#[cfg(feature = "google")]
+#[test]
+fn gemini_response_bridge_does_not_report_replayed_raw_finish_reason_loss() {
+    let mut response = ChatResponse::new(MessageContent::Text("blocked".to_string()));
+    response.finish_reason = Some(FinishReason::Other("FUTURE_STOP_REASON".to_string()));
+    response.raw_finish_reason = Some("FUTURE_STOP_REASON".to_string());
+
+    let bridged = bridge_chat_response_to_gemini_generate_content_json_value(
+        &response,
+        Some(BridgeTarget::GeminiGenerateContent),
+        BridgeMode::BestEffort,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(
+        !bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "finish_reason"),
+        "raw Gemini finish reason should replay without a finish_reason loss report"
+    );
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(
+        value["candidates"][0]["finishReason"],
+        json!("FUTURE_STOP_REASON")
+    );
 }
 
 #[cfg(feature = "google")]
