@@ -753,16 +753,126 @@ pub mod fireworks {
     }
 }
 
-/// xAI model constants
+/// xAI model constants aligned with the audited AI SDK package subset.
 pub mod xai {
-    /// Grok Beta model
-    pub const GROK_BETA: &str = "grok-beta";
-    /// Grok Vision Beta model
-    pub const GROK_VISION_BETA: &str = "grok-vision-beta";
+    /// Grok 4 model family constants.
+    pub mod grok_4 {
+        pub const GROK_4_1_FAST_REASONING: &str = "grok-4-1-fast-reasoning";
+        pub const GROK_4_1_FAST_NON_REASONING: &str = "grok-4-1-fast-non-reasoning";
+        pub const GROK_4_FAST_NON_REASONING: &str = "grok-4-fast-non-reasoning";
+        pub const GROK_4_FAST_REASONING: &str = "grok-4-fast-reasoning";
+        pub const GROK_4_20_0309_NON_REASONING: &str = "grok-4.20-0309-non-reasoning";
+        pub const GROK_4_20_0309_REASONING: &str = "grok-4.20-0309-reasoning";
+        pub const GROK_4_20_MULTI_AGENT_0309: &str = "grok-4.20-multi-agent-0309";
+        pub const GROK_4: &str = "grok-4";
+        pub const GROK_4_0709: &str = "grok-4-0709";
+        pub const GROK_4_LATEST: &str = "grok-4-latest";
 
-    /// Get all xAI models
+        pub const ALL: &[&str] = &[
+            GROK_4_1_FAST_REASONING,
+            GROK_4_1_FAST_NON_REASONING,
+            GROK_4_FAST_NON_REASONING,
+            GROK_4_FAST_REASONING,
+            GROK_4_20_0309_NON_REASONING,
+            GROK_4_20_0309_REASONING,
+            GROK_4_20_MULTI_AGENT_0309,
+            GROK_4,
+            GROK_4_0709,
+            GROK_4_LATEST,
+        ];
+    }
+
+    /// Grok 3 model family constants.
+    pub mod grok_3 {
+        pub const GROK_3: &str = "grok-3";
+        pub const GROK_3_LATEST: &str = "grok-3-latest";
+        pub const GROK_3_MINI: &str = "grok-3-mini";
+        pub const GROK_3_MINI_LATEST: &str = "grok-3-mini-latest";
+
+        pub const ALL: &[&str] = &[GROK_3, GROK_3_LATEST, GROK_3_MINI, GROK_3_MINI_LATEST];
+    }
+
+    /// Code-specialized Grok model constants.
+    pub mod code {
+        pub const GROK_CODE_FAST_1: &str = "grok-code-fast-1";
+
+        pub const ALL: &[&str] = &[GROK_CODE_FAST_1];
+    }
+
+    /// Native image generation model constants.
+    pub mod image {
+        pub const GROK_IMAGINE_IMAGE: &str = "grok-imagine-image";
+        pub const GROK_IMAGINE_IMAGE_PRO: &str = "grok-imagine-image-pro";
+
+        pub const ALL: &[&str] = &[GROK_IMAGINE_IMAGE, GROK_IMAGINE_IMAGE_PRO];
+    }
+
+    /// Native video generation model constants.
+    pub mod video {
+        pub const GROK_IMAGINE_VIDEO: &str = "grok-imagine-video";
+
+        pub const ALL: &[&str] = &[GROK_IMAGINE_VIDEO];
+    }
+
+    /// Legacy xAI model constants preserved for older imports.
+    pub mod legacy {
+        pub const GROK_BETA: &str = "grok-beta";
+        pub const GROK_VISION_BETA: &str = "grok-vision-beta";
+
+        pub const ALL: &[&str] = &[GROK_BETA, GROK_VISION_BETA];
+    }
+
+    pub const CHAT: &str = grok_4::GROK_4;
+    pub const IMAGE: &str = image::GROK_IMAGINE_IMAGE;
+    pub const VIDEO: &str = video::GROK_IMAGINE_VIDEO;
+
+    pub const ALL_CHAT: &[&str] = &[
+        grok_4::GROK_4_1_FAST_REASONING,
+        grok_4::GROK_4_1_FAST_NON_REASONING,
+        grok_4::GROK_4_FAST_NON_REASONING,
+        grok_4::GROK_4_FAST_REASONING,
+        grok_4::GROK_4_20_0309_NON_REASONING,
+        grok_4::GROK_4_20_0309_REASONING,
+        grok_4::GROK_4_20_MULTI_AGENT_0309,
+        grok_4::GROK_4,
+        grok_4::GROK_4_0709,
+        grok_4::GROK_4_LATEST,
+        grok_3::GROK_3,
+        grok_3::GROK_3_LATEST,
+        grok_3::GROK_3_MINI,
+        grok_3::GROK_3_MINI_LATEST,
+        code::GROK_CODE_FAST_1,
+    ];
+
+    pub const ALL_IMAGE: &[&str] = image::ALL;
+    pub const ALL_VIDEO: &[&str] = video::ALL;
+
+    pub mod popular {
+        use super::*;
+
+        pub const FLAGSHIP: &str = grok_4::GROK_4;
+        pub const FAST: &str = grok_4::GROK_4_1_FAST_NON_REASONING;
+        pub const REASONING: &str = grok_4::GROK_4_1_FAST_REASONING;
+        pub const CODING: &str = code::GROK_CODE_FAST_1;
+        pub const IMAGE_GENERATION: &str = image::GROK_IMAGINE_IMAGE;
+        pub const VIDEO_GENERATION: &str = video::GROK_IMAGINE_VIDEO;
+    }
+
+    pub use code::GROK_CODE_FAST_1;
+    pub use grok_3::GROK_3;
+    pub use grok_3::GROK_3_MINI;
+    pub use grok_4::GROK_4;
+    pub use image::GROK_IMAGINE_IMAGE;
+    pub use legacy::GROK_BETA;
+    pub use legacy::GROK_VISION_BETA;
+
     pub fn all_models() -> Vec<String> {
-        vec![GROK_BETA.to_string(), GROK_VISION_BETA.to_string()]
+        let mut models = Vec::new();
+        models.extend(ALL_CHAT.iter().map(|&model| model.to_string()));
+        models.extend(ALL_IMAGE.iter().map(|&model| model.to_string()));
+        models.extend(ALL_VIDEO.iter().map(|&model| model.to_string()));
+        models.extend(legacy::ALL.iter().map(|&model| model.to_string()));
+        models
     }
 }
 
@@ -1034,23 +1144,340 @@ pub mod siliconflow {
     }
 }
 
-/// Groq model constants
+/// Groq model constants aligned with the audited AI SDK package subset.
 pub mod groq {
-    /// Llama 3.1 70B Versatile
-    pub const LLAMA_3_1_70B: &str = "llama-3.1-70b-versatile";
-    /// Llama 3.1 8B Instant
-    pub const LLAMA_3_1_8B: &str = "llama-3.1-8b-instant";
-    /// Mixtral 8x7B
-    pub const MIXTRAL_8X7B: &str = "mixtral-8x7b-32768";
+    /// Production chat models exposed by `@ai-sdk/groq`.
+    pub mod production {
+        pub const GEMMA2_9B_IT: &str = "gemma2-9b-it";
+        pub const LLAMA_3_1_8B_INSTANT: &str = "llama-3.1-8b-instant";
+        pub const LLAMA_3_3_70B_VERSATILE: &str = "llama-3.3-70b-versatile";
+        pub const LLAMA_GUARD_4_12B: &str = "meta-llama/llama-guard-4-12b";
+        pub const GPT_OSS_120B: &str = "openai/gpt-oss-120b";
+        pub const GPT_OSS_20B: &str = "openai/gpt-oss-20b";
 
-    /// Get all Groq models
-    pub fn all_models() -> Vec<String> {
-        vec![
-            LLAMA_3_1_70B.to_string(),
-            LLAMA_3_1_8B.to_string(),
-            MIXTRAL_8X7B.to_string(),
-        ]
+        pub const ALL: &[&str] = &[
+            GEMMA2_9B_IT,
+            LLAMA_3_1_8B_INSTANT,
+            LLAMA_3_3_70B_VERSATILE,
+            LLAMA_GUARD_4_12B,
+            GPT_OSS_120B,
+            GPT_OSS_20B,
+        ];
     }
+
+    /// Preview chat models exposed by `@ai-sdk/groq`.
+    pub mod preview {
+        pub const DEEPSEEK_R1_DISTILL_LLAMA_70B: &str = "deepseek-r1-distill-llama-70b";
+        pub const LLAMA_4_MAVERICK_17B_128E_INSTRUCT: &str =
+            "meta-llama/llama-4-maverick-17b-128e-instruct";
+        pub const LLAMA_4_SCOUT_17B_16E_INSTRUCT: &str =
+            "meta-llama/llama-4-scout-17b-16e-instruct";
+        pub const LLAMA_PROMPT_GUARD_2_22M: &str = "meta-llama/llama-prompt-guard-2-22m";
+        pub const LLAMA_PROMPT_GUARD_2_86M: &str = "meta-llama/llama-prompt-guard-2-86m";
+        pub const KIMI_K2_INSTRUCT: &str = "moonshotai/kimi-k2-instruct-0905";
+        pub const QWEN3_32B: &str = "qwen/qwen3-32b";
+        pub const LLAMA_GUARD_3_8B: &str = "llama-guard-3-8b";
+        pub const LLAMA3_70B_8192: &str = "llama3-70b-8192";
+        pub const LLAMA3_8B_8192: &str = "llama3-8b-8192";
+        pub const MIXTRAL_8X7B_32768: &str = "mixtral-8x7b-32768";
+        pub const QWEN_QWQ_32B: &str = "qwen-qwq-32b";
+        pub const QWEN_2_5_32B: &str = "qwen-2.5-32b";
+        pub const DEEPSEEK_R1_DISTILL_QWEN_32B: &str = "deepseek-r1-distill-qwen-32b";
+
+        pub const ALL: &[&str] = &[
+            DEEPSEEK_R1_DISTILL_LLAMA_70B,
+            LLAMA_4_MAVERICK_17B_128E_INSTRUCT,
+            LLAMA_4_SCOUT_17B_16E_INSTRUCT,
+            LLAMA_PROMPT_GUARD_2_22M,
+            LLAMA_PROMPT_GUARD_2_86M,
+            KIMI_K2_INSTRUCT,
+            QWEN3_32B,
+            LLAMA_GUARD_3_8B,
+            LLAMA3_70B_8192,
+            LLAMA3_8B_8192,
+            MIXTRAL_8X7B_32768,
+            QWEN_QWQ_32B,
+            QWEN_2_5_32B,
+            DEEPSEEK_R1_DISTILL_QWEN_32B,
+        ];
+    }
+
+    /// Transcription models exposed by `@ai-sdk/groq`.
+    pub mod transcription {
+        pub const WHISPER_LARGE_V3_TURBO: &str = "whisper-large-v3-turbo";
+        pub const WHISPER_LARGE_V3: &str = "whisper-large-v3";
+
+        pub const ALL: &[&str] = &[WHISPER_LARGE_V3_TURBO, WHISPER_LARGE_V3];
+    }
+
+    /// Provider-owned Groq speech models not part of the upstream AI SDK package surface.
+    pub mod speech {
+        pub const PLAYAI_TTS: &str = "playai-tts";
+        pub const PLAYAI_TTS_ARABIC: &str = "playai-tts-arabic";
+
+        pub const ALL: &[&str] = &[PLAYAI_TTS, PLAYAI_TTS_ARABIC];
+    }
+
+    /// AI SDK-aligned Groq chat catalog.
+    pub mod chat {
+        pub mod production {
+            pub use super::super::production::*;
+        }
+
+        pub mod preview {
+            pub use super::super::preview::*;
+        }
+
+        pub const ALL: &[&str] = &[
+            super::production::GEMMA2_9B_IT,
+            super::production::LLAMA_3_1_8B_INSTANT,
+            super::production::LLAMA_3_3_70B_VERSATILE,
+            super::production::LLAMA_GUARD_4_12B,
+            super::production::GPT_OSS_120B,
+            super::production::GPT_OSS_20B,
+            super::preview::DEEPSEEK_R1_DISTILL_LLAMA_70B,
+            super::preview::LLAMA_4_MAVERICK_17B_128E_INSTRUCT,
+            super::preview::LLAMA_4_SCOUT_17B_16E_INSTRUCT,
+            super::preview::LLAMA_PROMPT_GUARD_2_22M,
+            super::preview::LLAMA_PROMPT_GUARD_2_86M,
+            super::preview::KIMI_K2_INSTRUCT,
+            super::preview::QWEN3_32B,
+            super::preview::LLAMA_GUARD_3_8B,
+            super::preview::LLAMA3_70B_8192,
+            super::preview::LLAMA3_8B_8192,
+            super::preview::MIXTRAL_8X7B_32768,
+            super::preview::QWEN_QWQ_32B,
+            super::preview::QWEN_2_5_32B,
+            super::preview::DEEPSEEK_R1_DISTILL_QWEN_32B,
+        ];
+    }
+
+    pub const CHAT: &str = production::LLAMA_3_3_70B_VERSATILE;
+    pub const TRANSCRIPTION: &str = transcription::WHISPER_LARGE_V3_TURBO;
+    pub const SPEECH: &str = speech::PLAYAI_TTS;
+
+    pub const ALL_CHAT: &[&str] = chat::ALL;
+    pub const ALL_TRANSCRIPTION: &[&str] = transcription::ALL;
+    pub const ALL_SPEECH: &[&str] = speech::ALL;
+
+    /// Compatibility aliases for older Groq model imports.
+    pub const LLAMA_3_1_70B: &str = "llama-3.1-70b-versatile";
+    pub const LLAMA_3_1_8B: &str = production::LLAMA_3_1_8B_INSTANT;
+    pub const MIXTRAL_8X7B: &str = preview::MIXTRAL_8X7B_32768;
+
+    pub mod popular {
+        use super::*;
+
+        pub const FLAGSHIP: &str = production::LLAMA_3_3_70B_VERSATILE;
+        pub const FAST: &str = production::LLAMA_3_1_8B_INSTANT;
+        pub const REASONING: &str = preview::DEEPSEEK_R1_DISTILL_LLAMA_70B;
+        pub const SPEECH_TO_TEXT: &str = transcription::WHISPER_LARGE_V3;
+        pub const TEXT_TO_SPEECH: &str = speech::PLAYAI_TTS;
+    }
+
+    pub use preview::DEEPSEEK_R1_DISTILL_LLAMA_70B;
+    pub use production::GPT_OSS_20B;
+    pub use production::GPT_OSS_120B;
+    pub use production::LLAMA_3_1_8B_INSTANT;
+    pub use production::LLAMA_3_3_70B_VERSATILE;
+    pub use speech::PLAYAI_TTS;
+    pub use transcription::WHISPER_LARGE_V3;
+
+    pub fn all_models() -> Vec<String> {
+        let mut models =
+            Vec::with_capacity(ALL_CHAT.len() + ALL_TRANSCRIPTION.len() + ALL_SPEECH.len());
+        models.extend(ALL_CHAT.iter().map(|&model| model.to_string()));
+        models.extend(ALL_TRANSCRIPTION.iter().map(|&model| model.to_string()));
+        models.extend(ALL_SPEECH.iter().map(|&model| model.to_string()));
+        models
+    }
+}
+
+/// TogetherAI model constants aligned with the audited AI SDK package subset.
+pub mod togetherai {
+    /// TogetherAI chat/language-model constants.
+    pub mod chat {
+        pub const LLAMA_3_3_70B_INSTRUCT_TURBO: &str = "meta-llama/Llama-3.3-70B-Instruct-Turbo";
+        pub const META_LLAMA_3_1_8B_INSTRUCT_TURBO: &str =
+            "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
+        pub const META_LLAMA_3_1_70B_INSTRUCT_TURBO: &str =
+            "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo";
+        pub const META_LLAMA_3_1_405B_INSTRUCT_TURBO: &str =
+            "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo";
+        pub const META_LLAMA_3_8B_INSTRUCT_TURBO: &str =
+            "meta-llama/Meta-Llama-3-8B-Instruct-Turbo";
+        pub const META_LLAMA_3_70B_INSTRUCT_TURBO: &str =
+            "meta-llama/Meta-Llama-3-70B-Instruct-Turbo";
+        pub const LLAMA_3_2_3B_INSTRUCT_TURBO: &str = "meta-llama/Llama-3.2-3B-Instruct-Turbo";
+        pub const META_LLAMA_3_8B_INSTRUCT_LITE: &str = "meta-llama/Meta-Llama-3-8B-Instruct-Lite";
+        pub const META_LLAMA_3_70B_INSTRUCT_LITE: &str =
+            "meta-llama/Meta-Llama-3-70B-Instruct-Lite";
+        pub const LLAMA_3_8B_CHAT_HF: &str = "meta-llama/Llama-3-8b-chat-hf";
+        pub const LLAMA_3_70B_CHAT_HF: &str = "meta-llama/Llama-3-70b-chat-hf";
+        pub const NEMOTRON_70B_INSTRUCT_HF: &str = "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF";
+        pub const QWEN_2_5_CODER_32B_INSTRUCT: &str = "Qwen/Qwen2.5-Coder-32B-Instruct";
+        pub const QWQ_32B_PREVIEW: &str = "Qwen/QwQ-32B-Preview";
+        pub const WIZARD_LM_2_8X22B: &str = "microsoft/WizardLM-2-8x22B";
+        pub const GEMMA_2_27B_IT: &str = "google/gemma-2-27b-it";
+        pub const GEMMA_2_9B_IT: &str = "google/gemma-2-9b-it";
+        pub const DBRX_INSTRUCT: &str = "databricks/dbrx-instruct";
+        pub const DEEPSEEK_LLM_67B_CHAT: &str = "deepseek-ai/deepseek-llm-67b-chat";
+        pub const DEEPSEEK_V3: &str = "deepseek-ai/DeepSeek-V3";
+        pub const GEMMA_2B_IT: &str = "google/gemma-2b-it";
+        pub const MYTHOMAX_L2_13B: &str = "Gryphe/MythoMax-L2-13b";
+        pub const LLAMA_2_13B_CHAT_HF: &str = "meta-llama/Llama-2-13b-chat-hf";
+        pub const MISTRAL_7B_INSTRUCT_V0_1: &str = "mistralai/Mistral-7B-Instruct-v0.1";
+        pub const MISTRAL_7B_INSTRUCT_V0_2: &str = "mistralai/Mistral-7B-Instruct-v0.2";
+        pub const MISTRAL_7B_INSTRUCT_V0_3: &str = "mistralai/Mistral-7B-Instruct-v0.3";
+        pub const MIXTRAL_8X7B_INSTRUCT_V0_1: &str = "mistralai/Mixtral-8x7B-Instruct-v0.1";
+        pub const MIXTRAL_8X22B_INSTRUCT_V0_1: &str = "mistralai/Mixtral-8x22B-Instruct-v0.1";
+        pub const NOUS_HERMES_2_MIXTRAL_8X7B_DPO: &str =
+            "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO";
+        pub const QWEN_2_5_7B_INSTRUCT_TURBO: &str = "Qwen/Qwen2.5-7B-Instruct-Turbo";
+        pub const QWEN_2_5_72B_INSTRUCT_TURBO: &str = "Qwen/Qwen2.5-72B-Instruct-Turbo";
+        pub const QWEN_2_72B_INSTRUCT: &str = "Qwen/Qwen2-72B-Instruct";
+        pub const SOLAR_10_7B_INSTRUCT_V1_0: &str = "upstage/SOLAR-10.7B-Instruct-v1.0";
+    }
+
+    /// TogetherAI completion-model constants.
+    pub mod completion {
+        pub const LLAMA_2_70B_HF: &str = "meta-llama/Llama-2-70b-hf";
+        pub const MISTRAL_7B_V0_1: &str = "mistralai/Mistral-7B-v0.1";
+        pub const MIXTRAL_8X7B_V0_1: &str = "mistralai/Mixtral-8x7B-v0.1";
+        pub const LLAMA_GUARD_7B: &str = "Meta-Llama/Llama-Guard-7b";
+        pub const CODELLAMA_34B_INSTRUCT_HF: &str = "codellama/CodeLlama-34b-Instruct-hf";
+        pub const QWEN_2_5_CODER_32B_INSTRUCT: &str = "Qwen/Qwen2.5-Coder-32B-Instruct";
+    }
+
+    /// TogetherAI embedding-model constants.
+    pub mod embedding {
+        pub const M2_BERT_80M_2K_RETRIEVAL: &str = "togethercomputer/m2-bert-80M-2k-retrieval";
+        pub const M2_BERT_80M_32K_RETRIEVAL: &str = "togethercomputer/m2-bert-80M-32k-retrieval";
+        pub const M2_BERT_80M_8K_RETRIEVAL: &str = "togethercomputer/m2-bert-80M-8k-retrieval";
+        pub const UAE_LARGE_V1: &str = "WhereIsAI/UAE-Large-V1";
+        pub const BGE_LARGE_EN_V1_5: &str = "BAAI/bge-large-en-v1.5";
+        pub const BGE_BASE_EN_V1_5: &str = "BAAI/bge-base-en-v1.5";
+        pub const MSMARCO_BERT_BASE_DOT_V5: &str = "sentence-transformers/msmarco-bert-base-dot-v5";
+        pub const BERT_BASE_UNCASED: &str = "bert-base-uncased";
+    }
+
+    /// TogetherAI image-model constants.
+    pub mod image {
+        pub const STABLE_DIFFUSION_XL_BASE_1_0: &str = "stabilityai/stable-diffusion-xl-base-1.0";
+        pub const FLUX_1_DEV: &str = "black-forest-labs/FLUX.1-dev";
+        pub const FLUX_1_DEV_LORA: &str = "black-forest-labs/FLUX.1-dev-lora";
+        pub const FLUX_1_SCHNELL: &str = "black-forest-labs/FLUX.1-schnell";
+        pub const FLUX_1_CANNY: &str = "black-forest-labs/FLUX.1-canny";
+        pub const FLUX_1_DEPTH: &str = "black-forest-labs/FLUX.1-depth";
+        pub const FLUX_1_REDUX: &str = "black-forest-labs/FLUX.1-redux";
+        pub const FLUX_1_1_PRO: &str = "black-forest-labs/FLUX.1.1-pro";
+        pub const FLUX_1_PRO: &str = "black-forest-labs/FLUX.1-pro";
+        pub const FLUX_1_SCHNELL_FREE: &str = "black-forest-labs/FLUX.1-schnell-Free";
+        pub const FLUX_1_KONTEXT_PRO: &str = "black-forest-labs/FLUX.1-kontext-pro";
+        pub const FLUX_1_KONTEXT_MAX: &str = "black-forest-labs/FLUX.1-kontext-max";
+        pub const FLUX_1_KONTEXT_DEV: &str = "black-forest-labs/FLUX.1-kontext-dev";
+    }
+
+    /// TogetherAI rerank-model constants.
+    pub mod rerank {
+        pub const LLAMA_RANK_V1: &str = "Salesforce/Llama-Rank-v1";
+        pub const MXBAI_RERANK_LARGE_V2: &str = "mixedbread-ai/Mxbai-Rerank-Large-V2";
+    }
+
+    pub const CHAT: &str = chat::META_LLAMA_3_1_8B_INSTRUCT_TURBO;
+    pub const COMPLETION: &str = completion::QWEN_2_5_CODER_32B_INSTRUCT;
+    pub const EMBEDDING: &str = embedding::M2_BERT_80M_8K_RETRIEVAL;
+    pub const IMAGE: &str = image::FLUX_1_SCHNELL;
+    pub const RERANK: &str = rerank::LLAMA_RANK_V1;
+
+    pub const ALL_CHAT: &[&str] = &[
+        chat::LLAMA_3_3_70B_INSTRUCT_TURBO,
+        chat::META_LLAMA_3_1_8B_INSTRUCT_TURBO,
+        chat::META_LLAMA_3_1_70B_INSTRUCT_TURBO,
+        chat::META_LLAMA_3_1_405B_INSTRUCT_TURBO,
+        chat::META_LLAMA_3_8B_INSTRUCT_TURBO,
+        chat::META_LLAMA_3_70B_INSTRUCT_TURBO,
+        chat::LLAMA_3_2_3B_INSTRUCT_TURBO,
+        chat::META_LLAMA_3_8B_INSTRUCT_LITE,
+        chat::META_LLAMA_3_70B_INSTRUCT_LITE,
+        chat::LLAMA_3_8B_CHAT_HF,
+        chat::LLAMA_3_70B_CHAT_HF,
+        chat::NEMOTRON_70B_INSTRUCT_HF,
+        chat::QWEN_2_5_CODER_32B_INSTRUCT,
+        chat::QWQ_32B_PREVIEW,
+        chat::WIZARD_LM_2_8X22B,
+        chat::GEMMA_2_27B_IT,
+        chat::GEMMA_2_9B_IT,
+        chat::DBRX_INSTRUCT,
+        chat::DEEPSEEK_LLM_67B_CHAT,
+        chat::DEEPSEEK_V3,
+        chat::GEMMA_2B_IT,
+        chat::MYTHOMAX_L2_13B,
+        chat::LLAMA_2_13B_CHAT_HF,
+        chat::MISTRAL_7B_INSTRUCT_V0_1,
+        chat::MISTRAL_7B_INSTRUCT_V0_2,
+        chat::MISTRAL_7B_INSTRUCT_V0_3,
+        chat::MIXTRAL_8X7B_INSTRUCT_V0_1,
+        chat::MIXTRAL_8X22B_INSTRUCT_V0_1,
+        chat::NOUS_HERMES_2_MIXTRAL_8X7B_DPO,
+        chat::QWEN_2_5_7B_INSTRUCT_TURBO,
+        chat::QWEN_2_5_72B_INSTRUCT_TURBO,
+        chat::QWEN_2_72B_INSTRUCT,
+        chat::SOLAR_10_7B_INSTRUCT_V1_0,
+    ];
+
+    pub const ALL_COMPLETION: &[&str] = &[
+        completion::LLAMA_2_70B_HF,
+        completion::MISTRAL_7B_V0_1,
+        completion::MIXTRAL_8X7B_V0_1,
+        completion::LLAMA_GUARD_7B,
+        completion::CODELLAMA_34B_INSTRUCT_HF,
+        completion::QWEN_2_5_CODER_32B_INSTRUCT,
+    ];
+
+    pub const ALL_EMBEDDING: &[&str] = &[
+        embedding::M2_BERT_80M_2K_RETRIEVAL,
+        embedding::M2_BERT_80M_32K_RETRIEVAL,
+        embedding::M2_BERT_80M_8K_RETRIEVAL,
+        embedding::UAE_LARGE_V1,
+        embedding::BGE_LARGE_EN_V1_5,
+        embedding::BGE_BASE_EN_V1_5,
+        embedding::MSMARCO_BERT_BASE_DOT_V5,
+        embedding::BERT_BASE_UNCASED,
+    ];
+
+    pub const ALL_IMAGE: &[&str] = &[
+        image::STABLE_DIFFUSION_XL_BASE_1_0,
+        image::FLUX_1_DEV,
+        image::FLUX_1_DEV_LORA,
+        image::FLUX_1_SCHNELL,
+        image::FLUX_1_CANNY,
+        image::FLUX_1_DEPTH,
+        image::FLUX_1_REDUX,
+        image::FLUX_1_1_PRO,
+        image::FLUX_1_PRO,
+        image::FLUX_1_SCHNELL_FREE,
+        image::FLUX_1_KONTEXT_PRO,
+        image::FLUX_1_KONTEXT_MAX,
+        image::FLUX_1_KONTEXT_DEV,
+    ];
+
+    pub const ALL_RERANK: &[&str] = &[rerank::LLAMA_RANK_V1, rerank::MXBAI_RERANK_LARGE_V2];
+
+    pub fn all_models() -> Vec<String> {
+        let mut models = Vec::new();
+        models.extend(ALL_CHAT.iter().map(|&model| model.to_string()));
+        models.extend(ALL_COMPLETION.iter().map(|&model| model.to_string()));
+        models.extend(ALL_EMBEDDING.iter().map(|&model| model.to_string()));
+        models.extend(ALL_IMAGE.iter().map(|&model| model.to_string()));
+        models.extend(ALL_RERANK.iter().map(|&model| model.to_string()));
+        models
+    }
+}
+
+/// Historical alias for TogetherAI model constants.
+pub mod together {
+    pub use super::togetherai::*;
 }
 
 /// MoonshotAI model constants aligned with the audited AI SDK package subset.
@@ -1163,6 +1590,7 @@ pub fn get_models_for_provider(provider: &str) -> Vec<String> {
         "vertex-maas" => vertex_maas::all_models(),
         "xai" => xai::all_models(),
         "groq" => groq::all_models(),
+        "together" | "togetherai" => togetherai::all_models(),
         "siliconflow" => siliconflow::all_models(),
         "moonshot" | "moonshotai" => moonshot::all_models(),
         _ => vec![],
@@ -1257,6 +1685,38 @@ mod tests {
     }
 
     #[test]
+    fn test_xai_models() {
+        let models = xai::all_models();
+        assert!(!models.is_empty());
+        assert!(models.contains(&xai::CHAT.to_string()));
+        assert!(models.contains(&xai::IMAGE.to_string()));
+        assert!(models.contains(&xai::VIDEO.to_string()));
+        assert!(models.contains(&xai::GROK_BETA.to_string()));
+        assert!(models.contains(&xai::GROK_CODE_FAST_1.to_string()));
+    }
+
+    #[test]
+    fn test_groq_models() {
+        let models = groq::all_models();
+        assert!(!models.is_empty());
+        assert!(models.contains(&groq::CHAT.to_string()));
+        assert!(models.contains(&groq::TRANSCRIPTION.to_string()));
+        assert!(models.contains(&groq::production::GPT_OSS_20B.to_string()));
+        assert!(models.contains(&groq::preview::QWEN3_32B.to_string()));
+    }
+
+    #[test]
+    fn test_togetherai_models() {
+        let models = togetherai::all_models();
+        assert!(!models.is_empty());
+        assert!(models.contains(&togetherai::CHAT.to_string()));
+        assert!(models.contains(&togetherai::COMPLETION.to_string()));
+        assert!(models.contains(&togetherai::EMBEDDING.to_string()));
+        assert!(models.contains(&togetherai::IMAGE.to_string()));
+        assert!(models.contains(&togetherai::RERANK.to_string()));
+    }
+
+    #[test]
     fn test_get_models_for_provider() {
         let deepseek_models = get_models_for_provider("deepseek");
         assert!(!deepseek_models.is_empty());
@@ -1272,6 +1732,15 @@ mod tests {
 
         let moonshotai_models = get_models_for_provider("moonshotai");
         assert!(moonshotai_models.contains(&moonshotai::KIMI_K2_0905.to_string()));
+
+        let xai_models = get_models_for_provider("xai");
+        assert!(xai_models.contains(&xai::grok_4::GROK_4_LATEST.to_string()));
+
+        let groq_models = get_models_for_provider("groq");
+        assert!(groq_models.contains(&groq::production::GPT_OSS_120B.to_string()));
+
+        let togetherai_models = get_models_for_provider("togetherai");
+        assert!(togetherai_models.contains(&togetherai::chat::DEEPSEEK_V3.to_string()));
 
         let unknown_models = get_models_for_provider("unknown");
         assert!(unknown_models.is_empty());
@@ -1293,6 +1762,12 @@ mod tests {
             fireworks::image::FLUX_KONTEXT_PRO
         ));
         assert!(is_model_supported("moonshotai", moonshotai::KIMI_K2P5));
+        assert!(is_model_supported("xai", xai::grok_4::GROK_4_LATEST));
+        assert!(is_model_supported("groq", groq::production::GPT_OSS_20B));
+        assert!(is_model_supported(
+            "togetherai",
+            togetherai::image::FLUX_1_KONTEXT_PRO
+        ));
         assert!(!is_model_supported("deepseek", "unknown-model"));
         assert!(!is_model_supported("unknown", "any-model"));
     }

@@ -5,6 +5,7 @@
 
 use crate::providers::openai_compatible::ProviderAdapter;
 use crate::providers::openai_compatible::fireworks as fireworks_models;
+use crate::providers::openai_compatible::groq as groq_models;
 use crate::providers::openai_compatible::mistral as mistral_models;
 use crate::providers::openai_compatible::perplexity as perplexity_models;
 use crate::standards::openai::compat::provider_registry::{
@@ -116,6 +117,10 @@ fn build_builtin_provider_family_defaults() -> HashMap<&'static str, ProviderFam
             .with_embedding(fireworks_models::EMBEDDING)
             .with_image(fireworks_models::IMAGE)
             .with_transcription("whisper-v3"),
+    );
+    defaults.insert(
+        "groq",
+        ProviderFamilyDefaults::new().with_transcription(groq_models::TRANSCRIPTION),
     );
     defaults.insert(
         "mistral",
@@ -400,7 +405,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             name: "Groq".to_string(),
             base_url: "https://api.groq.com/openai/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
-            capabilities: vec!["tools".to_string()],
+            capabilities: vec!["tools".to_string(), "transcription".to_string()],
             default_model: Some("llama-3.3-70b-versatile".to_string()),
             supports_reasoning: false,
             api_key_env: Some("GROQ_API_KEY".to_string()),
@@ -1097,6 +1102,8 @@ mod tests {
         assert!(!provider_supports_capability("perplexity", "completion"));
         assert!(provider_supports_capability("fireworks", "completion"));
         assert!(!provider_supports_capability("groq", "vision"));
+        assert!(provider_supports_capability("groq", "transcription"));
+        assert!(provider_supports_capability("groq", "audio"));
         assert!(!provider_supports_capability("openrouter", "speech"));
         assert!(!provider_supports_capability("openrouter", "transcription"));
         assert!(!provider_supports_capability("openrouter", "audio"));
@@ -1255,6 +1262,9 @@ mod tests {
             togetherai.transcription_model,
             Some("openai/whisper-large-v3")
         );
+
+        let groq = get_provider_family_defaults_ref("groq").expect("groq defaults");
+        assert_eq!(groq.transcription_model, Some(groq_models::TRANSCRIPTION));
 
         let deepinfra = get_provider_family_defaults_ref("deepinfra").expect("deepinfra defaults");
         assert_eq!(deepinfra.embedding_model, Some("BAAI/bge-base-en-v1.5"));

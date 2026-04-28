@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add compat-backed AI SDK-style `DeepSeekProviderSettings`, `GroqProviderSettings`,
   `TogetherAIProviderSettings`, and `XaiProviderSettings` for the audited package-level
   `apiKey` / `baseURL` / `headers` / `fetch` construction subset.
+- Add audited AI SDK package model constants for openai-compatible `groq`, `xai`, and
+  `togetherai` namespaces, including chat, transcription/native-media, and provider-owned model
+  groups where the upstream package exposes them.
 - Add typed `AlibabaCacheControl` plus Alibaba/Qwen runtime parity for AI SDK prompt cache-control
   markers, including the provider warning emitted when more than four cache breakpoints are used.
 - Add compat-backed AI SDK-style `AlibabaProviderSettings` for the audited chat/language-model
@@ -58,6 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Built-in DeepSeek, Fireworks, Mistral, Perplexity, and xAI compat presets now declare their
   canonical AI SDK API-key environment variables so settings/builders can omit explicit keys when
   the matching environment variable is present.
+- The built-in Groq compat preset now advertises transcription capability and a default
+  transcription model, matching the AI SDK Groq package's speech-to-text surface.
 - Shared OpenAI-compatible auth/header validation now allows requests to proceed when an explicit
   `Authorization` header is already present, even if `api_key` is empty. This unblocks
   Google-style Bearer-token flows such as Vertex MaaS without requiring fake placeholder API keys.

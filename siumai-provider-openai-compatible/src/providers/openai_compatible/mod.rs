@@ -65,7 +65,7 @@ pub mod registry {
 // Re-export model constants for easy access
 pub use providers::models::{
     alibaba, deepinfra, deepseek, fireworks, groq, mistral, moonshot, moonshotai, openrouter,
-    perplexity, qwen, siliconflow, vertex_maas, xai,
+    perplexity, qwen, siliconflow, together, togetherai, vertex_maas, xai,
 };
 
 // Re-export new adapter system

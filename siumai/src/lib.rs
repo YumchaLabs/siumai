@@ -523,8 +523,8 @@ pub mod provider_ext {
             TogetherAIRerankingModelId, XaiChatModelId, XaiClient, XaiConfig, XaiImageModelId,
             XaiProviderSettings, XaiResponsesModelId, XaiVideoModelId, deepinfra, deepseek,
             fireworks, generic_provider_config, get_provider_config, groq, list_provider_ids,
-            moonshot, moonshotai, openrouter, provider_supports_capability, siliconflow,
-            vertex_maas, xai,
+            moonshot, moonshotai, openrouter, provider_supports_capability, siliconflow, together,
+            togetherai, vertex_maas, xai,
         };
 
         /// Typed generic OpenAI-compatible provider options (`provider_options_map["openaiCompatible"]`).
