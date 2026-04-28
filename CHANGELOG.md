@@ -1041,6 +1041,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- Completion responses now expose provider-native raw finish reasons on OpenAI, Azure, and
+  OpenAI-compatible non-streaming completion paths, matching the existing AI SDK-style streaming
+  fidelity where `finishReason.raw` preserves the original `choices[0].finish_reason` string.
 - Gemini GenerateContent response parsing and protocol reserialization now preserve provider-native
   `finishReason` strings on the non-streaming path and prefer those raw values when replaying JSON
   or SSE responses, matching the existing streaming raw-finish fidelity and avoiding lossy

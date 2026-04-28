@@ -1059,17 +1059,21 @@ impl OpenAiCompatibleClient {
             .and_then(|value| value.as_str())
             .map(ToString::to_string)
             .unwrap_or_default();
-        let finish_reason = raw
+        let raw_finish_reason = raw
             .get("choices")
             .and_then(|value| value.as_array())
             .and_then(|choices| choices.first())
             .and_then(|choice| choice.get("finish_reason"))
             .and_then(|value| value.as_str())
+            .map(ToString::to_string);
+        let finish_reason = raw_finish_reason
+            .as_deref()
             .and_then(|value| parse_finish_reason(Some(value)));
 
         CompletionResponse {
             text,
             finish_reason,
+            raw_finish_reason,
             usage: raw.get("usage").and_then(|usage| {
                 parse_provider_openai_usage_value(self.config.provider_id.as_str(), usage)
             }),
@@ -6004,6 +6008,7 @@ data: [DONE]
 
         assert_eq!(response.text(), "done");
         assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(response.raw_finish_reason.as_deref(), Some("stop"));
         assert_eq!(
             response
                 .usage

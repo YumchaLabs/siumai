@@ -219,6 +219,10 @@ pub struct CompletionResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<FinishReason>,
 
+    /// Provider-native finish reason when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_finish_reason: Option<String>,
+
     /// Token usage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
@@ -266,5 +270,34 @@ impl CompletionResponse {
         self.response_metadata
             .as_ref()
             .and_then(|metadata| metadata.model.as_deref())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn completion_response_serializes_raw_finish_reason() {
+        let response = CompletionResponse {
+            text: "done".to_string(),
+            finish_reason: Some(FinishReason::Stop),
+            raw_finish_reason: Some("stop".to_string()),
+            ..Default::default()
+        };
+
+        let value = serde_json::to_value(response).expect("serialize completion response");
+
+        assert_eq!(value["finish_reason"], json!("stop"));
+        assert_eq!(value["raw_finish_reason"], json!("stop"));
+    }
+
+    #[test]
+    fn completion_response_deserializes_missing_raw_finish_reason() {
+        let response: CompletionResponse =
+            serde_json::from_value(json!({ "text": "done" })).expect("completion response");
+
+        assert_eq!(response.raw_finish_reason, None);
     }
 }
