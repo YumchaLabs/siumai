@@ -663,35 +663,61 @@ fn apply_mistral_json_object_instruction(
     );
 }
 
-fn apply_perplexity_response_format(
+fn passthrough_provider_option_has(
+    provider_options: &Option<serde_json::Map<String, serde_json::Value>>,
+    key: &str,
+) -> bool {
+    provider_options
+        .as_ref()
+        .is_some_and(|options| options.contains_key(key))
+}
+
+fn apply_perplexity_chat_settings(
     provider_id: &str,
     req: &crate::types::ChatRequest,
+    provider_options: &Option<serde_json::Map<String, serde_json::Value>>,
     body_obj: &mut serde_json::Map<String, serde_json::Value>,
 ) {
     if provider_id != "perplexity" {
         return;
     }
 
-    let Some(response_format) = req.response_format.as_ref() else {
-        return;
-    };
+    if let Some(top_k) = req.common_params.top_k
+        && !passthrough_provider_option_has(provider_options, "top_k")
+    {
+        body_obj.insert("top_k".to_string(), serde_json::json!(top_k));
+    }
 
-    let json_schema = match response_format {
-        crate::types::chat::ResponseFormat::JsonObject { .. } => serde_json::Map::new(),
-        crate::types::chat::ResponseFormat::Json { schema, .. } => {
-            let mut json_schema = serde_json::Map::new();
-            json_schema.insert("schema".to_string(), schema.clone());
-            json_schema
-        }
-    };
+    if req.common_params.seed.is_some()
+        && !passthrough_provider_option_has(provider_options, "seed")
+    {
+        body_obj.remove("seed");
+    }
 
-    body_obj.insert(
-        "response_format".to_string(),
-        serde_json::json!({
-            "type": "json_schema",
-            "json_schema": json_schema,
-        }),
-    );
+    if req.common_params.stop_sequences.is_some()
+        && !passthrough_provider_option_has(provider_options, "stop")
+    {
+        body_obj.remove("stop");
+    }
+
+    if let Some(response_format) = req.response_format.as_ref() {
+        let json_schema = match response_format {
+            crate::types::chat::ResponseFormat::JsonObject { .. } => serde_json::Map::new(),
+            crate::types::chat::ResponseFormat::Json { schema, .. } => {
+                let mut json_schema = serde_json::Map::new();
+                json_schema.insert("schema".to_string(), schema.clone());
+                json_schema
+            }
+        };
+
+        body_obj.insert(
+            "response_format".to_string(),
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": json_schema,
+            }),
+        );
+    }
 }
 
 fn provider_options_map_merge_hook(
@@ -745,7 +771,7 @@ fn chat_request_settings_hook(
                     supports_stream_usage_hints,
                     request_uses_structured_outputs,
                 );
-                apply_perplexity_response_format(&provider_id, &req, body_obj);
+                apply_perplexity_chat_settings(&provider_id, &req, &provider_options, body_obj);
             }
 
             if let Some(transformer) = settings.request_body_transformer.as_ref() {
@@ -2988,6 +3014,98 @@ mod tests {
                 "json_schema": { "schema": schema }
             }))
         );
+    }
+
+    #[test]
+    fn openai_compatible_perplexity_chat_settings_follow_ai_sdk_body_shape() {
+        use crate::core::ProviderSpec;
+        use crate::types::CommonParams;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "perplexity".to_string(),
+                name: "Perplexity".to_string(),
+                base_url: "https://api.perplexity.ai".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "perplexity".to_string(),
+            "https://api.perplexity.ai".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = crate::types::ChatRequest::builder()
+            .model_params(CommonParams {
+                model: "sonar".to_string(),
+                top_k: Some(7.0),
+                stop_sequences: Some(vec!["END".to_string()]),
+                seed: Some(42),
+                ..CommonParams::default()
+            })
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body.get("top_k"), Some(&serde_json::json!(7.0)));
+        assert!(body.get("seed").is_none());
+        assert!(body.get("stop").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_perplexity_passthrough_options_can_still_set_seed_and_stop() {
+        use crate::core::ProviderSpec;
+        use crate::types::CommonParams;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "perplexity".to_string(),
+                name: "Perplexity".to_string(),
+                base_url: "https://api.perplexity.ai".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "perplexity".to_string(),
+            "https://api.perplexity.ai".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = crate::types::ChatRequest::builder()
+            .model_params(CommonParams {
+                model: "sonar".to_string(),
+                stop_sequences: Some(vec!["END".to_string()]),
+                seed: Some(42),
+                ..CommonParams::default()
+            })
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option(
+                "perplexity",
+                serde_json::json!({ "seed": 99, "stop": ["RAW"] }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body.get("seed"), Some(&serde_json::json!(99)));
+        assert_eq!(body.get("stop"), Some(&serde_json::json!(["RAW"])));
     }
 
     #[test]
