@@ -10,8 +10,10 @@ pub use metadata::{
     PerplexityUsage,
 };
 pub use request_options::{
-    AlibabaChatRequestExt, FireworksChatRequestExt, MistralChatRequestExt,
-    MoonshotAIChatRequestExt, OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
+    AlibabaChatRequestExt, DeepSeekChatRequestExt, FireworksChatRequestExt, GroqChatRequestExt,
+    GroqTranscriptionRequestExt, MistralChatRequestExt, MoonshotAIChatRequestExt,
+    OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
     OpenAiCompatibleEmbeddingRequestExt, OpenRouterChatRequestExt, PerplexityChatRequestExt,
-    QwenChatRequestExt,
+    QwenChatRequestExt, TogetherAIImageRequestExt, TogetherAIRerankRequestExt, XaiChatRequestExt,
+    XaiImageRequestExt,
 };

@@ -6200,9 +6200,12 @@ data: [DONE]
             )
             .unwrap();
         assert_eq!(
-            chat_body.get("enable_reasoning"),
-            Some(&serde_json::Value::Bool(true))
+            chat_body.get("thinking"),
+            Some(&serde_json::json!({
+                "type": "enabled"
+            }))
         );
+        assert!(chat_body.get("enable_reasoning").is_none());
 
         let mut emb_body = serde_json::json!({});
         client
@@ -6215,6 +6218,7 @@ data: [DONE]
             )
             .unwrap();
         assert!(emb_body.get("enable_reasoning").is_none());
+        assert!(emb_body.get("thinking").is_none());
     }
 
     #[tokio::test]

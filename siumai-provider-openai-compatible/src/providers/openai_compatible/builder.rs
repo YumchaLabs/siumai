@@ -82,6 +82,21 @@ pub struct OpenAiCompatibleBuilder {
     http_debug: bool,
 }
 
+fn provider_thinking_value(enable: bool, budget_tokens: Option<u32>) -> serde_json::Value {
+    let mut thinking = serde_json::Map::new();
+    thinking.insert(
+        "type".to_string(),
+        serde_json::Value::String(if enable { "enabled" } else { "disabled" }.to_string()),
+    );
+    if let Some(budget_tokens) = budget_tokens {
+        thinking.insert(
+            "budget_tokens".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(budget_tokens)),
+        );
+    }
+    serde_json::Value::Object(thinking)
+}
+
 impl OpenAiCompatibleBuilder {
     /// Create a new OpenAI-compatible builder
     pub fn new(base: BuilderBase, provider_id: &str) -> Self {
@@ -427,7 +442,7 @@ impl OpenAiCompatibleBuilder {
         self.with_http_transport(transport)
     }
 
-    /// Enable thinking mode for supported models (SiliconFlow only)
+    /// Enable thinking mode for supported models.
     ///
     /// When enabled, models that support thinking (like DeepSeek V3.1, Qwen 3, etc.)
     /// will include their reasoning process in the response.
@@ -451,15 +466,24 @@ impl OpenAiCompatibleBuilder {
     /// # }
     /// ```
     pub fn with_thinking(mut self, enable: bool) -> Self {
-        // Store thinking preference for later use in adapter creation
-        self.provider_specific_config.insert(
-            "enable_thinking".to_string(),
-            serde_json::Value::Bool(enable),
-        );
+        match self.provider_id.as_str() {
+            "deepseek" | "moonshot" | "moonshotai" => {
+                self.provider_specific_config.insert(
+                    "thinking".to_string(),
+                    provider_thinking_value(enable, None),
+                );
+            }
+            _ => {
+                self.provider_specific_config.insert(
+                    "enable_thinking".to_string(),
+                    serde_json::Value::Bool(enable),
+                );
+            }
+        }
         self
     }
 
-    /// Set the thinking budget (maximum tokens for reasoning) for supported models (SiliconFlow only)
+    /// Set the thinking budget (maximum tokens for reasoning) for supported models.
     ///
     /// This controls how many tokens the model can use for its internal reasoning process.
     /// Higher values allow for more detailed reasoning but consume more tokens.
@@ -485,10 +509,24 @@ impl OpenAiCompatibleBuilder {
     pub fn with_thinking_budget(mut self, budget: u32) -> Self {
         // Clamp to reasonable range and store for later use in adapter creation
         let clamped_budget = budget.clamp(128, 32768);
-        self.provider_specific_config.insert(
-            "thinking_budget".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-        );
+        match self.provider_id.as_str() {
+            "deepseek" => {
+                self.provider_specific_config
+                    .insert("thinking".to_string(), provider_thinking_value(true, None));
+            }
+            "moonshot" | "moonshotai" => {
+                self.provider_specific_config.insert(
+                    "thinking".to_string(),
+                    provider_thinking_value(true, Some(clamped_budget)),
+                );
+            }
+            _ => {
+                self.provider_specific_config.insert(
+                    "thinking_budget".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
+                );
+            }
+        }
         self
     }
 
@@ -496,7 +534,7 @@ impl OpenAiCompatibleBuilder {
     ///
     /// This is the unified reasoning interface that works across all OpenAI-compatible providers.
     /// Different providers handle reasoning differently:
-    /// - DeepSeek: Uses `reasoning_content` field for thinking output
+    /// - DeepSeek: Maps to `thinking.type`
     /// - OpenRouter: Passes through to underlying model's reasoning capabilities
     /// - SiliconFlow: Maps to `enable_thinking` parameter
     /// - Qwen/Alibaba: Maps to `enable_thinking` parameter
@@ -543,8 +581,14 @@ impl OpenAiCompatibleBuilder {
                 self.provider_specific_config
                     .insert("thinking".to_string(), serde_json::Value::Object(thinking));
             }
-            "deepseek" | "openrouter" => {
-                // DeepSeek and OpenRouter use "enable_reasoning"
+            "deepseek" => {
+                self.provider_specific_config.insert(
+                    "thinking".to_string(),
+                    provider_thinking_value(enable, None),
+                );
+            }
+            "openrouter" => {
+                // OpenRouter uses "enable_reasoning"
                 self.provider_specific_config.insert(
                     "enable_reasoning".to_string(),
                     serde_json::Value::Bool(enable),
@@ -567,7 +611,7 @@ impl OpenAiCompatibleBuilder {
     /// Different providers interpret this differently:
     /// - SiliconFlow: Maps to `thinking_budget` parameter
     /// - Qwen/Alibaba: Maps to `thinking_budget` parameter
-    /// - DeepSeek: Ignored (uses boolean reasoning mode)
+    /// - DeepSeek: Maps to `thinking.type` and ignores token budget
     /// - OpenRouter: Passed through to underlying model
     /// - MoonshotAI: Maps to `thinking.budget_tokens` and enables thinking
     ///
@@ -622,8 +666,12 @@ impl OpenAiCompatibleBuilder {
                 self.provider_specific_config
                     .insert("thinking".to_string(), serde_json::Value::Object(thinking));
             }
-            "deepseek" | "openrouter" => {
-                // DeepSeek and OpenRouter: store budget but mainly use boolean mode
+            "deepseek" => {
+                self.provider_specific_config
+                    .insert("thinking".to_string(), provider_thinking_value(true, None));
+            }
+            "openrouter" => {
+                // OpenRouter: store budget and enable reasoning
                 self.provider_specific_config.insert(
                     "reasoning_budget".to_string(),
                     serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
@@ -887,8 +935,14 @@ mod tests {
                 crate::providers::openai_compatible::RequestType::Chat,
             )
             .expect("transform request params");
-        assert_eq!(params["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(
+            params["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoning_budget").is_none());
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(15)));
         assert_eq!(
             config.http_config.connect_timeout,

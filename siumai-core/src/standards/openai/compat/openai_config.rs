@@ -14,6 +14,21 @@ use crate::types::{CommonParams, HttpConfig};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+fn thinking_option(enable: bool, budget_tokens: Option<u32>) -> serde_json::Value {
+    let mut thinking = serde_json::Map::new();
+    thinking.insert(
+        "type".to_string(),
+        serde_json::Value::String(if enable { "enabled" } else { "disabled" }.to_string()),
+    );
+    if let Some(budget_tokens) = budget_tokens {
+        thinking.insert(
+            "budget_tokens".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(budget_tokens)),
+        );
+    }
+    serde_json::Value::Object(thinking)
+}
+
 /// Configuration for OpenAI-compatible providers
 #[derive(Clone)]
 pub struct OpenAiCompatibleConfig {
@@ -423,6 +438,9 @@ impl OpenAiCompatibleConfig {
                     serde_json::Value::Bool(enable),
                 );
             }
+            "deepseek" | "moonshot" | "moonshotai" => {
+                self = self.with_provider_specific_param("thinking", thinking_option(enable, None));
+            }
             _ => {
                 self = self.with_provider_specific_param(
                     "enable_reasoning",
@@ -444,6 +462,15 @@ impl OpenAiCompatibleConfig {
                         serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
                     )
                     .with_provider_specific_param("enable_thinking", serde_json::Value::Bool(true));
+            }
+            "deepseek" => {
+                self = self.with_provider_specific_param("thinking", thinking_option(true, None));
+            }
+            "moonshot" | "moonshotai" => {
+                self = self.with_provider_specific_param(
+                    "thinking",
+                    thinking_option(true, Some(clamped_budget)),
+                );
             }
             _ => {
                 self = self
@@ -469,6 +496,9 @@ impl OpenAiCompatibleConfig {
                     serde_json::Value::Bool(enable),
                 );
             }
+            "deepseek" | "moonshot" | "moonshotai" => {
+                self = self.with_provider_specific_param("thinking", thinking_option(enable, None));
+            }
             _ => {
                 self = self.with_provider_specific_param(
                     "enable_reasoning",
@@ -490,6 +520,15 @@ impl OpenAiCompatibleConfig {
                         serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
                     )
                     .with_provider_specific_param("enable_thinking", serde_json::Value::Bool(true));
+            }
+            "deepseek" => {
+                self = self.with_provider_specific_param("thinking", thinking_option(true, None));
+            }
+            "moonshot" | "moonshotai" => {
+                self = self.with_provider_specific_param(
+                    "thinking",
+                    thinking_option(true, Some(clamped_budget)),
+                );
             }
             _ => {
                 self = self
@@ -966,8 +1005,14 @@ mod tests {
                 super::super::types::RequestType::Chat,
             )
             .expect("transform request params");
-        assert_eq!(params["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(
+            params["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoning_budget").is_none());
     }
 
     #[test]

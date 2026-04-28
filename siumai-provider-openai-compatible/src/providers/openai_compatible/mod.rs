@@ -71,24 +71,36 @@ pub use providers::models::{
 // Re-export new adapter system
 pub use crate::provider_options::{
     AlibabaChatOptions, AlibabaLanguageModelOptions, AlibabaVideoModelOptions,
+    DeepSeekLanguageModelOptions, DeepSeekThinkingConfig, DeepSeekThinkingType,
     FireworksChatOptions, FireworksLanguageModelOptions, FireworksReasoningHistory,
-    FireworksThinkingConfig, FireworksThinkingType, MistralChatOptions,
+    FireworksThinkingConfig, FireworksThinkingType, GroqLanguageModelOptions, GroqReasoningEffort,
+    GroqReasoningFormat, GroqServiceTier, GroqTranscriptionModelOptions, MistralChatOptions,
     MistralLanguageModelOptions, MistralReasoningEffort, MoonshotAIChatOptions,
     MoonshotAILanguageModelOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
-    MoonshotAIThinkingType, OpenAICompatibleEmbeddingModelOptions,
+    MoonshotAIThinkingType, NewsSearchSource, OpenAICompatibleEmbeddingModelOptions,
     OpenAICompatibleLanguageModelChatOptions, OpenAICompatibleLanguageModelCompletionOptions,
     OpenAiCompatibleEmbeddingModelOptions, OpenAiCompatibleLanguageModelChatOptions,
     OpenAiCompatibleLanguageModelCompletionOptions, OpenRouterOptions, OpenRouterTransform,
     PerplexityOptions, PerplexitySearchContextSize, PerplexitySearchMode,
     PerplexitySearchRecencyFilter, PerplexityUserLocation, PerplexityWebSearchOptions,
-    QwenChatOptions, QwenLanguageModelOptions,
+    QwenChatOptions, QwenLanguageModelOptions, RssSearchSource, SearchMode, SearchSource,
+    TogetherAIImageModelOptions, TogetherAIRerankingModelOptions, WebSearchSource, XSearchSource,
+    XaiChatReasoningEffort, XaiFilesOptions, XaiImageModelOptions, XaiImageQuality,
+    XaiImageResolution, XaiLanguageModelChatOptions, XaiLanguageModelResponsesOptions, XaiOptions,
+    XaiReasoningSummary, XaiResponseInclude, XaiResponsesReasoningEffort, XaiSearchParameters,
+    XaiVideoMode, XaiVideoModelOptions, XaiVideoResolution,
 };
 #[allow(deprecated)]
 pub use crate::provider_options::{
-    AlibabaProviderOptions, AlibabaVideoProviderOptions, MoonshotAIProviderOptions,
+    AlibabaProviderOptions, AlibabaVideoProviderOptions, DeepSeekChatOptions,
+    DeepSeekProviderOptions, GroqChatOptions, GroqProviderOptions, MoonshotAIProviderOptions,
     OpenAICompatibleCompletionProviderOptions, OpenAICompatibleEmbeddingProviderOptions,
     OpenAICompatibleProviderOptions, OpenAiCompatibleCompletionProviderOptions,
     OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleProviderOptions, QwenProviderOptions,
+    TogetherAIImageProviderOptions, TogetherAIRerankingOptions, TogetherAiImageModelOptions,
+    TogetherAiImageProviderOptions, TogetherAiRerankingModelOptions, TogetherAiRerankingOptions,
+    XaiImageProviderOptions, XaiProviderOptions, XaiResponsesProviderOptions,
+    XaiVideoProviderOptions,
 };
 pub use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig,
@@ -106,13 +118,15 @@ pub use config::{
     provider_supports_capability,
 };
 pub use ext::{
-    AlibabaChatRequestExt, FireworksChatRequestExt, MistralChatRequestExt,
-    MoonshotAIChatRequestExt, OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
+    AlibabaChatRequestExt, DeepSeekChatRequestExt, FireworksChatRequestExt, GroqChatRequestExt,
+    GroqTranscriptionRequestExt, MistralChatRequestExt, MoonshotAIChatRequestExt,
+    OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
     OpenAiCompatibleEmbeddingRequestExt, OpenRouterChatRequestExt, OpenRouterChatResponseExt,
     OpenRouterContentPartExt, OpenRouterContentPartMetadata, OpenRouterMetadata, OpenRouterSource,
     OpenRouterSourceExt, OpenRouterSourceMetadata, PerplexityChatRequestExt,
     PerplexityChatResponseExt, PerplexityCost, PerplexityImage, PerplexityMetadata,
-    PerplexityUsage, QwenChatRequestExt,
+    PerplexityUsage, QwenChatRequestExt, TogetherAIImageRequestExt, TogetherAIRerankRequestExt,
+    XaiChatRequestExt, XaiImageRequestExt,
 };
 pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
