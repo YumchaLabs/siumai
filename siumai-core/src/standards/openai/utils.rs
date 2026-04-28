@@ -806,6 +806,23 @@ fn ensure_object_entry<'a>(
         .expect("usage detail entry must be an object")
 }
 
+fn set_usage_detail_number(
+    object: &mut Map<String, Value>,
+    detail_key: &str,
+    token_key: &str,
+    value: u32,
+) {
+    ensure_object_entry(object, detail_key).insert(token_key.to_string(), serde_json::json!(value));
+}
+
+fn parse_normalized_openai_usage_with_raw(
+    mut normalized: Map<String, Value>,
+    raw: Map<String, Value>,
+) -> Option<Usage> {
+    normalized.insert("raw".to_string(), Value::Object(raw));
+    parse_openai_usage_value(&Value::Object(normalized))
+}
+
 /// Parse OpenAI chat/responses/AI SDK usage payloads into the unified `Usage` shape.
 pub fn parse_openai_usage_value(value: &Value) -> Option<Usage> {
     let object = value.as_object()?;
@@ -958,6 +975,176 @@ pub fn parse_openai_usage_value(value: &Value) -> Option<Usage> {
     Some(builder.build())
 }
 
+fn parse_deepseek_usage_value(value: &Value) -> Option<Usage> {
+    let raw = value.as_object()?.clone();
+    let mut normalized = raw.clone();
+
+    if let Some(cache_read_tokens) = usage_u32(usage_value(&raw, &["prompt_cache_hit_tokens"])) {
+        set_usage_detail_number(
+            &mut normalized,
+            "prompt_tokens_details",
+            "cached_tokens",
+            cache_read_tokens,
+        );
+    }
+
+    parse_normalized_openai_usage_with_raw(normalized, raw)
+}
+
+fn parse_groq_usage_value(value: &Value) -> Option<Usage> {
+    let raw = value.as_object()?.clone();
+    let mut normalized = raw.clone();
+
+    if let Some(details) = normalized
+        .get_mut("prompt_tokens_details")
+        .and_then(Value::as_object_mut)
+    {
+        details.remove("cached_tokens");
+        details.remove("cachedTokens");
+        if details.is_empty() {
+            normalized.remove("prompt_tokens_details");
+        }
+    }
+
+    parse_normalized_openai_usage_with_raw(normalized, raw)
+}
+
+fn parse_moonshotai_usage_value(value: &Value) -> Option<Usage> {
+    let raw = value.as_object()?.clone();
+    let mut normalized = raw.clone();
+
+    if let Some(cache_read_tokens) =
+        usage_u32(usage_value(&raw, &["cached_tokens", "cachedTokens"]))
+    {
+        set_usage_detail_number(
+            &mut normalized,
+            "prompt_tokens_details",
+            "cached_tokens",
+            cache_read_tokens,
+        );
+    }
+
+    parse_normalized_openai_usage_with_raw(normalized, raw)
+}
+
+fn parse_xai_chat_usage_value(value: &Value) -> Option<Usage> {
+    let raw = value.as_object()?.clone();
+    let mut normalized = raw.clone();
+
+    let prompt_tokens = usage_u32(usage_value(&raw, &["prompt_tokens", "input_tokens"]));
+    let cache_read_tokens = usage_object(&raw, &["prompt_tokens_details", "input_tokens_details"])
+        .and_then(|details| usage_u32(usage_value(details, &["cached_tokens", "cachedTokens"])))
+        .unwrap_or(0);
+
+    set_usage_detail_number(
+        &mut normalized,
+        "prompt_tokens_details",
+        "cached_tokens",
+        cache_read_tokens,
+    );
+
+    let normalized_input_total = prompt_tokens.map(|prompt_tokens| {
+        let input_total = if cache_read_tokens > prompt_tokens {
+            prompt_tokens.saturating_add(cache_read_tokens)
+        } else {
+            prompt_tokens
+        };
+        normalized.insert("prompt_tokens".to_string(), serde_json::json!(input_total));
+        input_total
+    });
+
+    let completion_tokens = usage_u32(usage_value(&raw, &["completion_tokens", "output_tokens"]));
+    let reasoning_tokens = usage_object(
+        &raw,
+        &["completion_tokens_details", "output_tokens_details"],
+    )
+    .and_then(|details| {
+        usage_u32(usage_value(
+            details,
+            &["reasoning_tokens", "reasoningTokens"],
+        ))
+    })
+    .unwrap_or(0);
+
+    set_usage_detail_number(
+        &mut normalized,
+        "completion_tokens_details",
+        "reasoning_tokens",
+        reasoning_tokens,
+    );
+
+    let normalized_output_total = completion_tokens.map(|completion_tokens| {
+        let output_total = completion_tokens.saturating_add(reasoning_tokens);
+        normalized.insert(
+            "completion_tokens".to_string(),
+            serde_json::json!(output_total),
+        );
+        output_total
+    });
+
+    if let Some(total_tokens) = normalized_input_total
+        .zip(normalized_output_total)
+        .map(|(input, output)| input.saturating_add(output))
+    {
+        normalized.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
+    }
+
+    parse_normalized_openai_usage_with_raw(normalized, raw)
+}
+
+/// Parse xAI Responses usage payloads into the unified `Usage` shape.
+pub fn parse_xai_responses_usage_value(value: &Value) -> Option<Usage> {
+    let raw = value.as_object()?.clone();
+    let mut normalized = raw.clone();
+
+    let input_tokens = usage_u32(usage_value(&raw, &["input_tokens", "prompt_tokens"]));
+    let cache_read_tokens = usage_object(&raw, &["input_tokens_details", "prompt_tokens_details"])
+        .and_then(|details| usage_u32(usage_value(details, &["cached_tokens", "cachedTokens"])))
+        .unwrap_or(0);
+
+    set_usage_detail_number(
+        &mut normalized,
+        "input_tokens_details",
+        "cached_tokens",
+        cache_read_tokens,
+    );
+
+    let normalized_input_total = input_tokens.map(|input_tokens| {
+        let input_total = if cache_read_tokens > input_tokens {
+            input_tokens.saturating_add(cache_read_tokens)
+        } else {
+            input_tokens
+        };
+        normalized.insert("input_tokens".to_string(), serde_json::json!(input_total));
+        input_total
+    });
+
+    let reasoning_tokens = usage_object(&raw, &["output_tokens_details"])
+        .and_then(|details| {
+            usage_u32(usage_value(
+                details,
+                &["reasoning_tokens", "reasoningTokens"],
+            ))
+        })
+        .unwrap_or(0);
+
+    set_usage_detail_number(
+        &mut normalized,
+        "output_tokens_details",
+        "reasoning_tokens",
+        reasoning_tokens,
+    );
+
+    if let Some(total_tokens) = normalized_input_total
+        .zip(usage_u32(usage_value(&raw, &["output_tokens"])))
+        .map(|(input, output)| input.saturating_add(output))
+    {
+        normalized.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
+    }
+
+    parse_normalized_openai_usage_with_raw(normalized, raw)
+}
+
 fn normalize_deepinfra_usage_value<'a>(value: &'a Value) -> Cow<'a, Value> {
     let Some(object) = value.as_object() else {
         return Cow::Borrowed(value);
@@ -1048,8 +1235,16 @@ pub fn normalize_openai_usage_value_for_provider<'a>(
 }
 
 pub fn parse_provider_openai_usage_value(provider_id: &str, value: &Value) -> Option<Usage> {
-    let normalized = normalize_openai_usage_value_for_provider(provider_id, value);
-    parse_openai_usage_value(normalized.as_ref())
+    match provider_id {
+        "deepseek" => parse_deepseek_usage_value(value),
+        "groq" => parse_groq_usage_value(value),
+        "moonshot" | "moonshotai" => parse_moonshotai_usage_value(value),
+        "xai" => parse_xai_chat_usage_value(value),
+        _ => {
+            let normalized = normalize_openai_usage_value_for_provider(provider_id, value);
+            parse_openai_usage_value(normalized.as_ref())
+        }
+    }
 }
 
 /// Convert unified `Usage` into OpenAI Chat Completions usage JSON.
@@ -1654,6 +1849,153 @@ mod tests {
         assert_eq!(
             usage.raw_usage_value().expect("raw usage")["total_tokens"],
             serde_json::json!(1186)
+        );
+    }
+
+    #[test]
+    fn parse_provider_openai_usage_value_maps_deepseek_prompt_cache_hits() {
+        let usage = parse_provider_openai_usage_value(
+            "deepseek",
+            &serde_json::json!({
+                "prompt_tokens": 495,
+                "completion_tokens": 157,
+                "total_tokens": 652,
+                "prompt_cache_hit_tokens": 320,
+                "prompt_cache_miss_tokens": 175,
+                "completion_tokens_details": {
+                    "reasoning_tokens": 118
+                }
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(495));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(175));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(320));
+        assert_eq!(usage.normalized_output_tokens().total, Some(157));
+        assert_eq!(usage.normalized_output_tokens().text, Some(39));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(118));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["prompt_cache_hit_tokens"],
+            serde_json::json!(320)
+        );
+    }
+
+    #[test]
+    fn parse_provider_openai_usage_value_prefers_moonshot_top_level_cached_tokens() {
+        let usage = parse_provider_openai_usage_value(
+            "moonshotai",
+            &serde_json::json!({
+                "prompt_tokens": 100,
+                "completion_tokens": 80,
+                "cached_tokens": 35,
+                "prompt_tokens_details": {
+                    "cached_tokens": 25
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 30
+                }
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(100));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(65));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(35));
+        assert_eq!(usage.normalized_output_tokens().total, Some(80));
+        assert_eq!(usage.normalized_output_tokens().text, Some(50));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(30));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["prompt_tokens_details"]["cached_tokens"],
+            serde_json::json!(25)
+        );
+    }
+
+    #[test]
+    fn parse_provider_openai_usage_value_maps_xai_chat_reasoning_and_cache_semantics() {
+        let usage = parse_provider_openai_usage_value(
+            "xai",
+            &serde_json::json!({
+                "prompt_tokens": 4142,
+                "completion_tokens": 254,
+                "total_tokens": 8734,
+                "prompt_tokens_details": {
+                    "cached_tokens": 4328
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 10
+                }
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(8470));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(4142));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(4328));
+        assert_eq!(usage.normalized_output_tokens().total, Some(264));
+        assert_eq!(usage.normalized_output_tokens().text, Some(254));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(10));
+        assert_eq!(usage.total_tokens(), Some(8734));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["completion_tokens"],
+            serde_json::json!(254)
+        );
+    }
+
+    #[test]
+    fn parse_provider_openai_usage_value_keeps_groq_prompt_cache_details_raw_only() {
+        let usage = parse_provider_openai_usage_value(
+            "groq",
+            &serde_json::json!({
+                "prompt_tokens": 20,
+                "completion_tokens": 10,
+                "prompt_tokens_details": {
+                    "cached_tokens": 5
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 3
+                }
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(20));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(20));
+        assert_eq!(usage.normalized_input_tokens().cache_read, None);
+        assert_eq!(usage.normalized_output_tokens().total, Some(10));
+        assert_eq!(usage.normalized_output_tokens().text, Some(7));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(3));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["prompt_tokens_details"]["cached_tokens"],
+            serde_json::json!(5)
+        );
+    }
+
+    #[test]
+    fn parse_xai_responses_usage_value_handles_noninclusive_cache_read_tokens() {
+        let usage = parse_xai_responses_usage_value(&serde_json::json!({
+            "input_tokens": 4142,
+            "output_tokens": 254,
+            "total_tokens": 4396,
+            "input_tokens_details": {
+                "cached_tokens": 4328
+            },
+            "output_tokens_details": {
+                "reasoning_tokens": 10
+            }
+        }))
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(8470));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(4142));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(4328));
+        assert_eq!(usage.normalized_output_tokens().total, Some(254));
+        assert_eq!(usage.normalized_output_tokens().text, Some(244));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(10));
+        assert_eq!(usage.total_tokens(), Some(8724));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["input_tokens"],
+            serde_json::json!(4142)
         );
     }
 

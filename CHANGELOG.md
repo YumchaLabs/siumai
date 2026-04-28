@@ -1041,6 +1041,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- OpenAI-compatible usage conversion now applies the audited AI SDK provider-specific semantics for
+  DeepSeek prompt-cache hits, MoonshotAI top-level cache counters, Groq reasoning without prompt
+  cache normalization, and xAI chat/Responses non-inclusive cache and reasoning totals while still
+  preserving the original provider usage payload in `Usage.raw`.
 - Completion responses now expose provider-native raw finish reasons on OpenAI, Azure, and
   OpenAI-compatible non-streaming completion paths, matching the existing AI SDK-style streaming
   fidelity where `finishReason.raw` preserves the original `choices[0].finish_reason` string.

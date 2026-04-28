@@ -209,6 +209,20 @@ impl OpenAiResponsesEventConverter {
         serde_json::Value::Object(out)
     }
 
+    pub(super) fn parse_responses_usage_value(
+        &self,
+        value: &serde_json::Value,
+    ) -> Option<crate::types::Usage> {
+        match self.responses_transform_style {
+            super::super::transformers::ResponsesTransformStyle::OpenAi => {
+                crate::standards::openai::utils::parse_openai_usage_value(value)
+            }
+            super::super::transformers::ResponsesTransformStyle::Xai => {
+                crate::standards::openai::utils::parse_xai_responses_usage_value(value)
+            }
+        }
+    }
+
     fn text_stream_part_id(&self, item_id: &str) -> String {
         match self.stream_parts_style {
             StreamPartsStyle::OpenAi => item_id.to_string(),

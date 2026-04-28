@@ -1,6 +1,6 @@
 use crate::error::LlmError;
 use crate::execution::transformers::response::ResponseTransformer;
-use crate::standards::openai::utils::parse_openai_usage_value;
+use crate::standards::openai::utils::{parse_openai_usage_value, parse_xai_responses_usage_value};
 use crate::types::ChatResponse;
 
 #[cfg(feature = "openai-responses")]
@@ -67,6 +67,13 @@ impl OpenAiResponsesResponseTransformer {
         match (self.style, call_name) {
             (ResponsesTransformStyle::Xai, "x_keyword_search") => "x_search".to_string(),
             _ => call_name.to_string(),
+        }
+    }
+
+    fn parse_usage_value(&self, value: &serde_json::Value) -> Option<crate::types::Usage> {
+        match self.style {
+            ResponsesTransformStyle::OpenAi => parse_openai_usage_value(value),
+            ResponsesTransformStyle::Xai => parse_xai_responses_usage_value(value),
         }
     }
 
@@ -1160,7 +1167,9 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         }
 
         // Usage
-        let usage = root.get("usage").and_then(parse_openai_usage_value);
+        let usage = root
+            .get("usage")
+            .and_then(|usage| self.parse_usage_value(usage));
 
         // Finish reason
         //
@@ -1843,6 +1852,58 @@ mod tests {
                 .and_then(|metadata| metadata.get("openai"))
                 .and_then(|metadata| metadata.get("itemId"))
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn xai_responses_transformer_uses_xai_usage_semantics() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_xai_usage_1",
+                "model": "grok-4",
+                "output": [
+                    {
+                        "type": "message",
+                        "id": "msg_xai_usage_1",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Done."
+                            }
+                        ]
+                    }
+                ],
+                "usage": {
+                    "input_tokens": 4142,
+                    "output_tokens": 254,
+                    "total_tokens": 4396,
+                    "input_tokens_details": {
+                        "cached_tokens": 4328
+                    },
+                    "output_tokens_details": {
+                        "reasoning_tokens": 10
+                    }
+                },
+                "status": "completed"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new()
+            .with_style(ResponsesTransformStyle::Xai)
+            .with_provider_metadata_key("xai");
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let usage = resp.usage.as_ref().expect("usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(8470));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(4142));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(4328));
+        assert_eq!(usage.normalized_output_tokens().total, Some(254));
+        assert_eq!(usage.normalized_output_tokens().text, Some(244));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(10));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["input_tokens"],
+            serde_json::json!(4142)
         );
     }
 

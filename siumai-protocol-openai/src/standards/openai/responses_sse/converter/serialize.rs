@@ -1387,7 +1387,7 @@ pub(super) fn serialize_event(
 
                     if let Some(usage) = data
                         .get("usage")
-                        .and_then(crate::standards::openai::utils::parse_openai_usage_value)
+                        .and_then(|usage| this.parse_responses_usage_value(usage))
                     {
                         state.latest_usage = Some(usage);
                     }

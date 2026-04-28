@@ -143,7 +143,8 @@ impl OpenAiResponsesEventConverter {
             .get("usage")
             .or_else(|| json.get("response")?.get("usage"))
         {
-            return crate::standards::openai::utils::parse_openai_usage_value(usage)
+            return self
+                .parse_responses_usage_value(usage)
                 .map(|usage| crate::streaming::ChatStreamEvent::UsageUpdate { usage });
         }
 
@@ -313,7 +314,7 @@ impl OpenAiResponsesEventConverter {
             .and_then(|r| r.get("usage"))
             .cloned()
             .unwrap_or(serde_json::Value::Null);
-        let usage = crate::standards::openai::utils::parse_openai_usage_value(&raw_usage);
+        let usage = self.parse_responses_usage_value(&raw_usage);
         let normalized_input = usage
             .as_ref()
             .map(crate::types::Usage::normalized_input_tokens)

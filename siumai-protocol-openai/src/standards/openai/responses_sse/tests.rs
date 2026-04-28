@@ -137,6 +137,39 @@ fn test_responses_event_converter_usage_update() {
 }
 
 #[test]
+fn xai_responses_event_converter_usage_update_uses_xai_semantics() {
+    let conv = OpenAiResponsesEventConverter::new().with_responses_transform_style(
+        crate::standards::openai::transformers::ResponsesTransformStyle::Xai,
+    );
+    let event = eventsource_stream::Event {
+        event: "response.usage".to_string(),
+        data: r#"{"usage":{"input_tokens":4142,"output_tokens":254,"total_tokens":4396,"input_tokens_details":{"cached_tokens":4328},"output_tokens_details":{"reasoning_tokens":10}}}"#.to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+
+    let fut = conv.convert_event(event);
+    let events = futures::executor::block_on(fut);
+    assert!(!events.is_empty());
+    let ev = events.first().unwrap().as_ref().unwrap();
+    match ev {
+        crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
+            assert_eq!(usage.normalized_input_tokens().total, Some(8470));
+            assert_eq!(usage.normalized_input_tokens().no_cache, Some(4142));
+            assert_eq!(usage.normalized_input_tokens().cache_read, Some(4328));
+            assert_eq!(usage.normalized_output_tokens().total, Some(254));
+            assert_eq!(usage.normalized_output_tokens().text, Some(244));
+            assert_eq!(usage.normalized_output_tokens().reasoning, Some(10));
+            assert_eq!(
+                usage.raw_usage_value().expect("raw usage")["input_tokens"],
+                serde_json::json!(4142)
+            );
+        }
+        _ => panic!("expected UsageUpdate"),
+    }
+}
+
+#[test]
 fn test_responses_event_converter_done() {
     let conv = OpenAiResponsesEventConverter::new();
     let event = eventsource_stream::Event {
