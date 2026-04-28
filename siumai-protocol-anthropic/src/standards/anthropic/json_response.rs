@@ -24,6 +24,14 @@ pub struct AnthropicUsage {
     pub service_tier: Option<String>,
 }
 
+fn insert_usage_field_if_missing(
+    usage: &mut serde_json::Map<String, serde_json::Value>,
+    key: &'static str,
+    value: serde_json::Value,
+) {
+    usage.entry(key.to_string()).or_insert(value);
+}
+
 fn usage_json(
     u: Option<&Usage>,
     service_tier: Option<&str>,
@@ -43,37 +51,37 @@ fn usage_json(
     let mut usage = raw_usage_value
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default();
-    usage.insert(
-        "input_tokens".to_string(),
+    insert_usage_field_if_missing(
+        &mut usage,
+        "input_tokens",
         serde_json::json!(fallback.input_tokens),
     );
-    usage.insert(
-        "output_tokens".to_string(),
+    insert_usage_field_if_missing(
+        &mut usage,
+        "output_tokens",
         serde_json::json!(fallback.output_tokens),
     );
     if let Some(cache_read_input_tokens) = normalized_input.cache_read {
-        usage.insert(
-            "cache_read_input_tokens".to_string(),
+        insert_usage_field_if_missing(
+            &mut usage,
+            "cache_read_input_tokens",
             serde_json::json!(cache_read_input_tokens),
         );
     }
     if let Some(cache_creation_input_tokens) = normalized_input.cache_write {
-        usage.insert(
-            "cache_creation_input_tokens".to_string(),
+        insert_usage_field_if_missing(
+            &mut usage,
+            "cache_creation_input_tokens",
             serde_json::json!(cache_creation_input_tokens),
         );
     }
 
-    match fallback.service_tier {
-        Some(service_tier) => {
-            usage.insert(
-                "service_tier".to_string(),
-                serde_json::Value::String(service_tier),
-            );
-        }
-        None => {
-            usage.remove("service_tier");
-        }
+    if let Some(service_tier) = fallback.service_tier {
+        insert_usage_field_if_missing(
+            &mut usage,
+            "service_tier",
+            serde_json::Value::String(service_tier),
+        );
     }
 
     serde_json::Value::Object(usage)
@@ -1367,6 +1375,69 @@ mod tests {
         assert_eq!(
             value["content"][0]["citations"][0]["url"],
             serde_json::json!("https://example.com")
+        );
+    }
+
+    #[test]
+    fn anthropic_encoder_preserves_raw_usage_token_fields_before_normalized_fallback() {
+        let raw_usage = serde_json::json!({
+            "input_tokens": 45000,
+            "output_tokens": 1234,
+            "cache_creation_input_tokens": 1000,
+            "cache_read_input_tokens": 500,
+            "service_tier": "standard",
+            "iterations": [
+                {
+                    "type": "compaction",
+                    "input_tokens": 180000,
+                    "output_tokens": 3500
+                },
+                {
+                    "type": "message",
+                    "input_tokens": 23000,
+                    "output_tokens": 1000
+                }
+            ]
+        });
+        let mut response =
+            ChatResponse::new(crate::types::MessageContent::Text("done".to_string()));
+        response.usage = Some(
+            Usage::builder()
+                .prompt_tokens(203000)
+                .completion_tokens(4500)
+                .total_tokens(207500)
+                .with_input_total_tokens(204500)
+                .with_input_no_cache_tokens(203000)
+                .with_input_cache_read_tokens(500)
+                .with_input_cache_write_tokens(1000)
+                .with_output_total_tokens(4500)
+                .with_raw_usage_value(raw_usage)
+                .build(),
+        );
+
+        let mut out = Vec::new();
+        AnthropicMessagesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["usage"]["input_tokens"], serde_json::json!(45000));
+        assert_eq!(value["usage"]["output_tokens"], serde_json::json!(1234));
+        assert_eq!(
+            value["usage"]["cache_creation_input_tokens"],
+            serde_json::json!(1000)
+        );
+        assert_eq!(
+            value["usage"]["cache_read_input_tokens"],
+            serde_json::json!(500)
+        );
+        assert_eq!(
+            value["usage"]["service_tier"],
+            serde_json::json!("standard")
+        );
+        assert_eq!(
+            value["usage"]["iterations"][0]["input_tokens"],
+            serde_json::json!(180000)
         );
     }
 

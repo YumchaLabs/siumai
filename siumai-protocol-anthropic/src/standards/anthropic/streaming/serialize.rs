@@ -156,6 +156,14 @@ pub(super) fn serialize_event(
         None
     }
 
+    fn insert_usage_field_if_missing(
+        usage_obj: &mut serde_json::Map<String, serde_json::Value>,
+        key: &'static str,
+        value: serde_json::Value,
+    ) {
+        usage_obj.entry(key.to_string()).or_insert(value);
+    }
+
     fn merge_usage_summary_into_payload(
         usage_obj: &mut serde_json::Map<String, serde_json::Value>,
         usage_summary: &serde_json::Value,
@@ -189,17 +197,23 @@ pub(super) fn serialize_event(
                 });
 
             if let Some(no_cache) = no_cache {
-                usage_obj.insert("input_tokens".to_string(), serde_json::json!(no_cache));
+                insert_usage_field_if_missing(
+                    usage_obj,
+                    "input_tokens",
+                    serde_json::json!(no_cache),
+                );
             }
             if let Some(cache_read) = cache_read {
-                usage_obj.insert(
-                    "cache_read_input_tokens".to_string(),
+                insert_usage_field_if_missing(
+                    usage_obj,
+                    "cache_read_input_tokens",
                     serde_json::json!(cache_read),
                 );
             }
             if let Some(cache_write) = cache_write {
-                usage_obj.insert(
-                    "cache_creation_input_tokens".to_string(),
+                insert_usage_field_if_missing(
+                    usage_obj,
+                    "cache_creation_input_tokens",
                     serde_json::json!(cache_write),
                 );
             }
@@ -209,7 +223,7 @@ pub(super) fn serialize_event(
             .and_then(|output_tokens| output_tokens.get("total"))
             .and_then(|value| value.as_u64())
         {
-            usage_obj.insert("output_tokens".to_string(), serde_json::json!(total));
+            insert_usage_field_if_missing(usage_obj, "output_tokens", serde_json::json!(total));
         }
     }
 
@@ -229,22 +243,35 @@ pub(super) fn serialize_event(
             let normalized_output = usage.normalized_output_tokens();
 
             if let Some(input_tokens) = normalized_input.no_cache {
-                usage_obj.insert("input_tokens".to_string(), serde_json::json!(input_tokens));
+                insert_usage_field_if_missing(
+                    &mut usage_obj,
+                    "input_tokens",
+                    serde_json::json!(input_tokens),
+                );
             }
             if let Some(output_tokens) = normalized_output
                 .total
                 .or_else(|| usage.completion_tokens_value())
             {
-                usage_obj.insert(
-                    "output_tokens".to_string(),
+                insert_usage_field_if_missing(
+                    &mut usage_obj,
+                    "output_tokens",
                     serde_json::json!(output_tokens),
                 );
             }
 
             if let Some(cached_tokens) = normalized_input.cache_read {
-                usage_obj.insert(
-                    "cache_read_input_tokens".to_string(),
+                insert_usage_field_if_missing(
+                    &mut usage_obj,
+                    "cache_read_input_tokens",
                     serde_json::json!(cached_tokens),
+                );
+            }
+            if let Some(cache_write_tokens) = normalized_input.cache_write {
+                insert_usage_field_if_missing(
+                    &mut usage_obj,
+                    "cache_creation_input_tokens",
+                    serde_json::json!(cache_write_tokens),
                 );
             }
         }
@@ -252,14 +279,19 @@ pub(super) fn serialize_event(
         if let Some(cache_creation_input_tokens) =
             cache_creation_input_tokens.filter(|value| !value.is_null())
         {
-            usage_obj.insert(
-                "cache_creation_input_tokens".to_string(),
+            insert_usage_field_if_missing(
+                &mut usage_obj,
+                "cache_creation_input_tokens",
                 cache_creation_input_tokens.clone(),
             );
         }
 
         if let Some(service_tier) = service_tier {
-            usage_obj.insert("service_tier".to_string(), serde_json::json!(service_tier));
+            insert_usage_field_if_missing(
+                &mut usage_obj,
+                "service_tier",
+                serde_json::json!(service_tier),
+            );
         }
 
         serde_json::Value::Object(usage_obj)

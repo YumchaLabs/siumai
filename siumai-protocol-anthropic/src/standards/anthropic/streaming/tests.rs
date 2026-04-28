@@ -3508,32 +3508,49 @@ fn serializes_stream_end_replays_extended_usage_fields_from_provider_metadata() 
                 content: MessageContent::Text(String::new()),
                 usage: Some(
                     Usage::builder()
-                        .prompt_tokens(17)
-                        .completion_tokens(1)
-                        .total_tokens(18)
-                        .with_cached_tokens(5)
+                        .prompt_tokens(203000)
+                        .completion_tokens(4500)
+                        .total_tokens(207500)
+                        .with_input_total_tokens(204500)
+                        .with_input_no_cache_tokens(203000)
+                        .with_input_cache_read_tokens(500)
+                        .with_input_cache_write_tokens(1000)
+                        .with_output_total_tokens(4500)
+                        .with_cached_tokens(500)
                         .build(),
                 ),
                 finish_reason: Some(FinishReason::Stop),
                 raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
-                service_tier: Some("standard".to_string()),
+                service_tier: Some("priority".to_string()),
                 warnings: None,
                 provider_metadata: Some(std::collections::HashMap::from([(
                     "anthropic".to_string(),
                     serde_json::json!({
                         "usage": {
-                            "input_tokens": 17,
-                            "output_tokens": 1,
-                            "cache_creation_input_tokens": 10,
-                            "cache_read_input_tokens": 5,
+                            "input_tokens": 45000,
+                            "output_tokens": 1234,
+                            "cache_creation_input_tokens": 1000,
+                            "cache_read_input_tokens": 500,
                             "service_tier": "standard",
                             "server_tool_use": {
                                 "web_search_requests": 2
-                            }
+                            },
+                            "iterations": [
+                                {
+                                    "type": "compaction",
+                                    "input_tokens": 180000,
+                                    "output_tokens": 3500
+                                },
+                                {
+                                    "type": "message",
+                                    "input_tokens": 23000,
+                                    "output_tokens": 1000
+                                }
+                            ]
                         },
-                        "cacheCreationInputTokens": 10
+                        "cacheCreationInputTokens": 1000
                     }),
                 )])),
             },
@@ -3547,12 +3564,20 @@ fn serializes_stream_end_replays_extended_usage_fields_from_provider_metadata() 
         .expect("message_delta frame");
 
     assert_eq!(
+        message_delta["usage"]["input_tokens"],
+        serde_json::json!(45000)
+    );
+    assert_eq!(
+        message_delta["usage"]["output_tokens"],
+        serde_json::json!(1234)
+    );
+    assert_eq!(
         message_delta["usage"]["cache_creation_input_tokens"],
-        serde_json::json!(10)
+        serde_json::json!(1000)
     );
     assert_eq!(
         message_delta["usage"]["cache_read_input_tokens"],
-        serde_json::json!(5)
+        serde_json::json!(500)
     );
     assert_eq!(
         message_delta["usage"]["service_tier"],
@@ -3561,6 +3586,10 @@ fn serializes_stream_end_replays_extended_usage_fields_from_provider_metadata() 
     assert_eq!(
         message_delta["usage"]["server_tool_use"]["web_search_requests"],
         serde_json::json!(2)
+    );
+    assert_eq!(
+        message_delta["usage"]["iterations"][0]["input_tokens"],
+        serde_json::json!(180000)
     );
 }
 
@@ -3614,14 +3643,26 @@ fn serializes_v3_finish_replays_raw_usage_and_context_management() {
                 "providerMetadata": {
                     "anthropic": {
                         "usage": {
-                            "input_tokens": 17,
-                            "output_tokens": 1,
-                            "cache_creation_input_tokens": 10,
-                            "cache_read_input_tokens": 5,
+                            "input_tokens": 45000,
+                            "output_tokens": 1234,
+                            "cache_creation_input_tokens": 1000,
+                            "cache_read_input_tokens": 500,
                             "service_tier": "standard",
                             "server_tool_use": {
                                 "web_search_requests": 2
-                            }
+                            },
+                            "iterations": [
+                                {
+                                    "type": "compaction",
+                                    "input_tokens": 180000,
+                                    "output_tokens": 3500
+                                },
+                                {
+                                    "type": "message",
+                                    "input_tokens": 23000,
+                                    "output_tokens": 1000
+                                }
+                            ]
                         },
                         "stopSequence": "done",
                         "contextManagement": {
@@ -3637,13 +3678,13 @@ fn serializes_v3_finish_replays_raw_usage_and_context_management() {
                 },
                 "usage": {
                     "inputTokens": {
-                        "total": 32,
-                        "noCache": 17,
-                        "cacheRead": 5,
-                        "cacheWrite": 10
+                        "total": 204500,
+                        "noCache": 203000,
+                        "cacheRead": 500,
+                        "cacheWrite": 1000
                     },
                     "outputTokens": {
-                        "total": 1
+                        "total": 4500
                     }
                 }
             }),
@@ -3661,16 +3702,28 @@ fn serializes_v3_finish_replays_raw_usage_and_context_management() {
         serde_json::json!("done")
     );
     assert_eq!(
+        message_delta["usage"]["input_tokens"],
+        serde_json::json!(45000)
+    );
+    assert_eq!(
+        message_delta["usage"]["output_tokens"],
+        serde_json::json!(1234)
+    );
+    assert_eq!(
         message_delta["usage"]["cache_creation_input_tokens"],
-        serde_json::json!(10)
+        serde_json::json!(1000)
     );
     assert_eq!(
         message_delta["usage"]["cache_read_input_tokens"],
-        serde_json::json!(5)
+        serde_json::json!(500)
     );
     assert_eq!(
         message_delta["usage"]["server_tool_use"]["web_search_requests"],
         serde_json::json!(2)
+    );
+    assert_eq!(
+        message_delta["usage"]["iterations"][1]["output_tokens"],
+        serde_json::json!(1000)
     );
     assert_eq!(
         message_delta["context_management"]["applied_edits"][0]["cleared_tool_uses"],
