@@ -617,6 +617,52 @@ fn apply_chat_request_settings(
     }
 }
 
+fn mistral_json_instruction(existing: Option<&str>) -> String {
+    match existing.filter(|value| !value.is_empty()) {
+        Some(prompt) => format!("{prompt}\n\nYou MUST answer with JSON."),
+        None => "You MUST answer with JSON.".to_string(),
+    }
+}
+
+fn apply_mistral_json_object_instruction(
+    provider_id: &str,
+    req: &crate::types::ChatRequest,
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    if provider_id != "mistral"
+        || !matches!(
+            req.response_format,
+            Some(crate::types::chat::ResponseFormat::JsonObject { .. })
+        )
+    {
+        return;
+    }
+
+    let Some(messages) = body_obj
+        .get_mut("messages")
+        .and_then(|value| value.as_array_mut())
+    else {
+        return;
+    };
+
+    if let Some(first) = messages.first_mut()
+        && first.get("role").and_then(|value| value.as_str()) == Some("system")
+        && let Some(content) = first.get_mut("content")
+        && let Some(text) = content.as_str()
+    {
+        *content = serde_json::Value::String(mistral_json_instruction(Some(text)));
+        return;
+    }
+
+    messages.insert(
+        0,
+        serde_json::json!({
+            "role": "system",
+            "content": mistral_json_instruction(None),
+        }),
+    );
+}
+
 fn provider_options_map_merge_hook(
     provider_id: &str,
     map: &crate::types::ProviderOptionsMap,
@@ -660,6 +706,7 @@ fn chat_request_settings_hook(
                     &req,
                     body_obj,
                 );
+                apply_mistral_json_object_instruction(&provider_id, &req, body_obj);
                 apply_chat_request_settings(
                     body_obj,
                     &settings,
@@ -2603,6 +2650,57 @@ mod tests {
                     "strict": true
                 }
             }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_mistral_json_object_injects_json_instruction() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "mistral".to_string(),
+                name: "Mistral AI".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "mistral".to_string(),
+            "https://api.mistral.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = crate::types::ChatRequest::builder()
+            .model("mistral-small-latest")
+            .messages(vec![
+                crate::types::ChatMessage::system("Existing system").build(),
+                crate::types::ChatMessage::user("hi").build(),
+            ])
+            .response_format(ResponseFormat::json_object())
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(
+            body["messages"][0],
+            serde_json::json!({
+                "role": "system",
+                "content": "Existing system\n\nYou MUST answer with JSON."
+            })
+        );
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({ "type": "json_object" }))
         );
     }
 
