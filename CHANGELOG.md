@@ -6,6 +6,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- OpenAI-compatible Alibaba/Qwen parity now supports the AI SDK `alibaba` preset, `qwen` preset
+  aliases, typed `AlibabaChatOptions` / `QwenChatOptions`, and request normalization for
+  `enableThinking`, `thinkingBudget`, and `parallelToolCalls`.
 - AI SDK `text-stream` HTTP response helper parity now has a real Axum server boundary:
   `siumai_extras::server::axum::{to_text_stream_response,
   to_text_stream_response_with_options, TextStreamResponseOptions}` wraps `ChatStream` text output

@@ -81,6 +81,36 @@ impl OpenAiCompatibleEmbeddingRequestExt for crate::types::EmbeddingRequest {
     }
 }
 
+/// Alibaba request option helpers for `ChatRequest`.
+///
+/// This targets the AI SDK-aligned `provider_options_map["alibaba"]` namespace.
+pub trait AlibabaChatRequestExt {
+    /// Convenience: attach Alibaba-specific options to `provider_options_map["alibaba"]`.
+    fn with_alibaba_options(self, options: crate::provider_options::AlibabaChatOptions) -> Self;
+}
+
+impl AlibabaChatRequestExt for ChatRequest {
+    fn with_alibaba_options(self, options: crate::provider_options::AlibabaChatOptions) -> Self {
+        let value = serde_json::to_value(options).expect("serialize AlibabaChatOptions");
+        merge_provider_option_object(self, "alibaba", value)
+    }
+}
+
+/// Qwen request option helpers for `ChatRequest`.
+///
+/// This targets the local `provider_options_map["qwen"]` namespace.
+pub trait QwenChatRequestExt {
+    /// Convenience: attach Qwen-specific options to `provider_options_map["qwen"]`.
+    fn with_qwen_options(self, options: crate::provider_options::QwenChatOptions) -> Self;
+}
+
+impl QwenChatRequestExt for ChatRequest {
+    fn with_qwen_options(self, options: crate::provider_options::QwenChatOptions) -> Self {
+        let value = serde_json::to_value(options).expect("serialize QwenChatOptions");
+        merge_provider_option_object(self, "qwen", value)
+    }
+}
+
 /// Mistral request option helpers for `ChatRequest`.
 ///
 /// This is a provider-owned extension trait so `siumai-core` stays provider-agnostic.
@@ -170,12 +200,12 @@ impl PerplexityChatRequestExt for ChatRequest {
 mod tests {
     use super::*;
     use crate::provider_options::{
-        FireworksChatOptions, FireworksReasoningHistory, FireworksThinkingConfig,
-        FireworksThinkingType, MistralChatOptions, MistralReasoningEffort, MoonshotAIChatOptions,
-        MoonshotAIReasoningHistory, MoonshotAIThinkingConfig, MoonshotAIThinkingType,
-        OpenAiCompatibleEmbeddingModelOptions, OpenAiCompatibleLanguageModelChatOptions,
-        OpenAiCompatibleLanguageModelCompletionOptions, OpenRouterOptions, OpenRouterTransform,
-        PerplexityOptions, PerplexitySearchMode,
+        AlibabaChatOptions, FireworksChatOptions, FireworksReasoningHistory,
+        FireworksThinkingConfig, FireworksThinkingType, MistralChatOptions, MistralReasoningEffort,
+        MoonshotAIChatOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
+        MoonshotAIThinkingType, OpenAiCompatibleEmbeddingModelOptions,
+        OpenAiCompatibleLanguageModelChatOptions, OpenAiCompatibleLanguageModelCompletionOptions,
+        OpenRouterOptions, OpenRouterTransform, PerplexityOptions, PerplexitySearchMode,
     };
     use crate::types::{ChatMessage, CompletionRequest, EmbeddingRequest};
 
@@ -247,6 +277,46 @@ mod tests {
         assert_eq!(value["existing"], serde_json::json!(true));
         assert_eq!(value["dimensions"], serde_json::json!(256));
         assert_eq!(value["user"], serde_json::json!("user-789"));
+    }
+
+    #[test]
+    fn chat_request_ext_attaches_alibaba_options() {
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_provider_option("alibaba", serde_json::json!({ "existing": true }))
+            .with_alibaba_options(
+                AlibabaChatOptions::new()
+                    .with_enable_thinking(true)
+                    .with_thinking_budget(2048)
+                    .with_parallel_tool_calls(false),
+            );
+
+        let value = request
+            .provider_options_map
+            .get("alibaba")
+            .expect("alibaba options present");
+        assert_eq!(value["existing"], serde_json::json!(true));
+        assert_eq!(value["enableThinking"], serde_json::json!(true));
+        assert_eq!(value["thinkingBudget"], serde_json::json!(2048));
+        assert_eq!(value["parallelToolCalls"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn chat_request_ext_attaches_qwen_options() {
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_provider_option("qwen", serde_json::json!({ "existing": true }))
+            .with_qwen_options(
+                AlibabaChatOptions::new()
+                    .with_enable_thinking(false)
+                    .with_thinking_budget(1024),
+            );
+
+        let value = request
+            .provider_options_map
+            .get("qwen")
+            .expect("qwen options present");
+        assert_eq!(value["existing"], serde_json::json!(true));
+        assert_eq!(value["enableThinking"], serde_json::json!(false));
+        assert_eq!(value["thinkingBudget"], serde_json::json!(1024));
     }
 
     #[test]

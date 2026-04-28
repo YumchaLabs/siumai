@@ -417,7 +417,7 @@ impl OpenAiCompatibleConfig {
     /// Enable provider-native thinking mode when supported.
     pub fn with_thinking(mut self, enable: bool) -> Self {
         match self.provider_id.as_str() {
-            "siliconflow" => {
+            "siliconflow" | "qwen" | "alibaba" => {
                 self = self.with_provider_specific_param(
                     "enable_thinking",
                     serde_json::Value::Bool(enable),
@@ -437,7 +437,7 @@ impl OpenAiCompatibleConfig {
     pub fn with_thinking_budget(mut self, budget: u32) -> Self {
         let clamped_budget = budget.clamp(128, 32768);
         match self.provider_id.as_str() {
-            "siliconflow" => {
+            "siliconflow" | "qwen" | "alibaba" => {
                 self = self
                     .with_provider_specific_param(
                         "thinking_budget",
@@ -463,7 +463,7 @@ impl OpenAiCompatibleConfig {
     /// Unified reasoning toggle.
     pub fn with_reasoning(mut self, enable: bool) -> Self {
         match self.provider_id.as_str() {
-            "siliconflow" => {
+            "siliconflow" | "qwen" | "alibaba" => {
                 self = self.with_provider_specific_param(
                     "enable_thinking",
                     serde_json::Value::Bool(enable),
@@ -483,7 +483,7 @@ impl OpenAiCompatibleConfig {
     pub fn with_reasoning_budget(mut self, budget: i32) -> Self {
         let clamped_budget = budget.clamp(128, 32768) as u32;
         match self.provider_id.as_str() {
-            "siliconflow" => {
+            "siliconflow" | "qwen" | "alibaba" => {
                 self = self
                     .with_provider_specific_param(
                         "thinking_budget",

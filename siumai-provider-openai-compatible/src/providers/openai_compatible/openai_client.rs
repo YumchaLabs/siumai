@@ -2227,15 +2227,15 @@ mod tests {
         HttpTransportStreamBody, HttpTransportStreamResponse,
     };
     use crate::provider_options::{
-        FireworksChatOptions, FireworksReasoningHistory, FireworksThinkingConfig,
-        FireworksThinkingType, MoonshotAIChatOptions, MoonshotAIReasoningHistory,
-        MoonshotAIThinkingConfig, MoonshotAIThinkingType, OpenRouterOptions, OpenRouterTransform,
-        PerplexityOptions, PerplexitySearchContextSize, PerplexitySearchMode,
-        PerplexitySearchRecencyFilter, PerplexityUserLocation,
+        AlibabaChatOptions, FireworksChatOptions, FireworksReasoningHistory,
+        FireworksThinkingConfig, FireworksThinkingType, MoonshotAIChatOptions,
+        MoonshotAIReasoningHistory, MoonshotAIThinkingConfig, MoonshotAIThinkingType,
+        OpenRouterOptions, OpenRouterTransform, PerplexityOptions, PerplexitySearchContextSize,
+        PerplexitySearchMode, PerplexitySearchRecencyFilter, PerplexityUserLocation,
     };
     use crate::providers::openai_compatible::ext::{
-        FireworksChatRequestExt, MoonshotAIChatRequestExt, OpenRouterChatRequestExt,
-        PerplexityChatRequestExt, PerplexityChatResponseExt,
+        AlibabaChatRequestExt, FireworksChatRequestExt, MoonshotAIChatRequestExt,
+        OpenRouterChatRequestExt, PerplexityChatRequestExt, PerplexityChatResponseExt,
     };
     use crate::standards::openai::compat::provider_registry::{
         ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
@@ -4058,6 +4058,64 @@ mod tests {
         assert_eq!(usage.normalized_input_tokens().cache_write, Some(50));
         assert_eq!(usage.normalized_output_tokens().text, Some(50));
         assert_eq!(usage.normalized_output_tokens().reasoning, Some(25));
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_qwen_accepts_alibaba_provider_options() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "qwen".to_string(),
+            name: "Qwen".to_string(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "tools".to_string()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "qwen",
+            "test-key",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            adapter,
+        )
+        .with_model("qwen-plus")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("qwen-plus")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "lookup",
+                "Lookup value",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .build()
+            .with_alibaba_options(
+                AlibabaChatOptions::new()
+                    .with_enable_thinking(true)
+                    .with_thinking_budget(2048)
+                    .with_parallel_tool_calls(false),
+            );
+
+        let _ = client.chat_request(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(captured.body["enable_thinking"], serde_json::json!(true));
+        assert_eq!(captured.body["thinking_budget"], serde_json::json!(2048));
+        assert_eq!(
+            captured.body["parallel_tool_calls"],
+            serde_json::json!(false)
+        );
+        assert!(captured.body.get("enableThinking").is_none());
+        assert!(captured.body.get("thinkingBudget").is_none());
+        assert!(captured.body.get("parallelToolCalls").is_none());
     }
 
     #[tokio::test]

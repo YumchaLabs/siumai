@@ -63,6 +63,13 @@ pub fn provider_options_keys(provider_id: &str) -> Vec<String> {
         }
     };
 
+    if matches!(raw.as_str(), "qwen" | "alibaba") {
+        let alias = if raw == "qwen" { "alibaba" } else { "qwen" };
+        push_unique(alias.to_string());
+        push_unique(raw);
+        return keys;
+    }
+
     push_unique(raw.clone());
 
     let raw_camel = to_camel_case(&raw);
@@ -335,6 +342,14 @@ mod tests {
         assert_eq!(
             provider_options_keys("moonshot"),
             vec!["moonshot".to_string(), "moonshotai".to_string()]
+        );
+        assert_eq!(
+            provider_options_keys("qwen"),
+            vec!["alibaba".to_string(), "qwen".to_string()]
+        );
+        assert_eq!(
+            provider_options_keys("alibaba"),
+            vec!["qwen".to_string(), "alibaba".to_string()]
         );
     }
 

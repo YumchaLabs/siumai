@@ -22,6 +22,7 @@ macro_rules! siumai_for_each_openai_compatible_provider {
         $mac!(yi, "yi");
         $mac!(doubao, "doubao");
         $mac!(baichuan, "baichuan");
+        $mac!(alibaba, "alibaba");
         $mac!(qwen, "qwen");
         // OpenAI-compatible variants of native providers
         $mac!(groq_openai_compatible, "groq");

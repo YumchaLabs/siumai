@@ -499,6 +499,7 @@ impl OpenAiCompatibleBuilder {
     /// - DeepSeek: Uses `reasoning_content` field for thinking output
     /// - OpenRouter: Passes through to underlying model's reasoning capabilities
     /// - SiliconFlow: Maps to `enable_thinking` parameter
+    /// - Qwen/Alibaba: Maps to `enable_thinking` parameter
     /// - MoonshotAI: Maps to `thinking.type`
     ///
     /// # Arguments
@@ -522,8 +523,8 @@ impl OpenAiCompatibleBuilder {
     pub fn reasoning(mut self, enable: bool) -> Self {
         // Map unified reasoning to provider-specific parameters
         match self.provider_id.as_str() {
-            "siliconflow" => {
-                // SiliconFlow uses "enable_thinking"
+            "siliconflow" | "qwen" | "alibaba" => {
+                // SiliconFlow and Alibaba/Qwen use "enable_thinking"
                 self.provider_specific_config.insert(
                     "enable_thinking".to_string(),
                     serde_json::Value::Bool(enable),
@@ -565,6 +566,7 @@ impl OpenAiCompatibleBuilder {
     /// This controls how many tokens the model can use for its internal reasoning process.
     /// Different providers interpret this differently:
     /// - SiliconFlow: Maps to `thinking_budget` parameter
+    /// - Qwen/Alibaba: Maps to `thinking_budget` parameter
     /// - DeepSeek: Ignored (uses boolean reasoning mode)
     /// - OpenRouter: Passed through to underlying model
     /// - MoonshotAI: Maps to `thinking.budget_tokens` and enables thinking
@@ -593,8 +595,8 @@ impl OpenAiCompatibleBuilder {
 
         // Map unified reasoning_budget to provider-specific parameters
         match self.provider_id.as_str() {
-            "siliconflow" => {
-                // SiliconFlow uses "thinking_budget"
+            "siliconflow" | "qwen" | "alibaba" => {
+                // SiliconFlow and Alibaba/Qwen use "thinking_budget"
                 self.provider_specific_config.insert(
                     "thinking_budget".to_string(),
                     serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
@@ -910,6 +912,34 @@ mod tests {
             Some(&"2".to_string())
         );
         assert_eq!(config.http_interceptors.len(), 2);
+    }
+
+    #[test]
+    fn openai_compatible_builder_maps_qwen_reasoning_to_alibaba_thinking_fields() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "qwen")
+            .api_key("test-key")
+            .model("qwen-plus")
+            .reasoning(true)
+            .reasoning_budget(2048)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.provider_id, "qwen");
+
+        let mut params = serde_json::json!({});
+        config
+            .adapter
+            .transform_request_params(
+                &mut params,
+                &config.model,
+                crate::providers::openai_compatible::RequestType::Chat,
+            )
+            .expect("transform request params");
+
+        assert_eq!(params["enable_thinking"], serde_json::json!(true));
+        assert_eq!(params["thinking_budget"], serde_json::json!(2048));
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoning_budget").is_none());
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Provider-owned typed option structs for OpenAI-compatible vendors.
 
+pub mod alibaba;
 pub mod fireworks;
 pub mod mistral;
 pub mod moonshotai;
@@ -7,6 +8,11 @@ pub mod openai_compatible;
 pub mod openrouter;
 pub mod perplexity;
 
+#[allow(deprecated)]
+pub use alibaba::{
+    AlibabaChatOptions, AlibabaLanguageModelOptions, AlibabaProviderOptions, QwenChatOptions,
+    QwenLanguageModelOptions, QwenProviderOptions,
+};
 #[allow(deprecated)]
 pub use fireworks::{
     FireworksChatOptions, FireworksEmbeddingModelOptions, FireworksEmbeddingProviderOptions,

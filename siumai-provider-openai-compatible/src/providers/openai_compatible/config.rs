@@ -584,8 +584,27 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
         },
     );
 
-    // Qwen (Alibaba) - Chinese AI
-    // Docs: https://help.aliyun.com/zh/dashscope/developer-reference/compatible-openai
+    // Alibaba Cloud / Qwen - OpenAI-compatible DashScope chat-completions surface.
+    let qwen_capabilities = vec![
+        "tools".to_string(),
+        "vision".to_string(),
+        "reasoning".to_string(),
+    ];
+    providers.insert(
+        "alibaba".to_string(),
+        ProviderConfig {
+            id: "alibaba".to_string(),
+            name: "Alibaba Cloud".to_string(),
+            base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: qwen_capabilities.clone(),
+            default_model: Some("qwen-plus".to_string()),
+            supports_reasoning: true,
+            api_key_env: Some("ALIBABA_API_KEY".to_string()),
+            api_key_env_aliases: vec!["DASHSCOPE_API_KEY".to_string(), "QWEN_API_KEY".to_string()],
+        },
+    );
+    // Historical local preset for the same model family, kept on the domestic DashScope endpoint.
     providers.insert(
         "qwen".to_string(),
         ProviderConfig {
@@ -593,11 +612,11 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             name: "Qwen".to_string(),
             base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
-            capabilities: vec!["tools".to_string(), "vision".to_string()],
+            capabilities: qwen_capabilities,
             default_model: Some("qwen-plus".to_string()),
-            supports_reasoning: false,
-            api_key_env: None,
-            api_key_env_aliases: Vec::new(),
+            supports_reasoning: true,
+            api_key_env: Some("ALIBABA_API_KEY".to_string()),
+            api_key_env_aliases: vec!["DASHSCOPE_API_KEY".to_string()],
         },
     );
 
@@ -1012,6 +1031,7 @@ mod tests {
         assert!(providers.contains_key("vertex-maas"));
         assert!(providers.contains_key("fireworks"));
         assert!(providers.contains_key("moonshotai"));
+        assert!(providers.contains_key("alibaba"));
 
         // DeepSeek should support reasoning
         let deepseek = providers.get("deepseek").unwrap();
@@ -1065,6 +1085,8 @@ mod tests {
         ));
         assert!(provider_supports_capability("moonshotai", "reasoning"));
         assert!(!provider_supports_capability("moonshotai", "completion"));
+        assert!(provider_supports_capability("alibaba", "reasoning"));
+        assert!(provider_supports_capability("qwen", "reasoning"));
         assert!(provider_supports_capability("vertex-maas", "embedding"));
         assert!(!provider_supports_capability(
             "vertex-maas",
@@ -1116,6 +1138,26 @@ mod tests {
         assert_eq!(config.id, "groq");
         assert_eq!(config.base_url, "https://api.groq.com/openai/v1");
         assert_eq!(config.api_key_env.as_deref(), Some("GROQ_API_KEY"));
+
+        let config = get_provider_config("qwen").unwrap();
+        assert_eq!(config.id, "qwen");
+        assert_eq!(config.api_key_env.as_deref(), Some("ALIBABA_API_KEY"));
+        assert_eq!(
+            config.api_key_env_aliases,
+            vec!["DASHSCOPE_API_KEY".to_string()]
+        );
+
+        let config = get_provider_config("alibaba").unwrap();
+        assert_eq!(config.id, "alibaba");
+        assert_eq!(
+            config.base_url,
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        );
+        assert_eq!(config.api_key_env.as_deref(), Some("ALIBABA_API_KEY"));
+        assert_eq!(
+            config.api_key_env_aliases,
+            vec!["DASHSCOPE_API_KEY".to_string(), "QWEN_API_KEY".to_string()]
+        );
 
         assert!(get_provider_config("nonexistent").is_none());
     }

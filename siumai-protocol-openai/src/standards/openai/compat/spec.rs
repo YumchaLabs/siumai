@@ -106,6 +106,18 @@ fn normalize_moonshotai_options(obj: &mut serde_json::Map<String, serde_json::Va
     }
 }
 
+fn normalize_alibaba_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(value) = take_any(obj, &["enableThinking", "enable_thinking"]) {
+        obj.insert("enable_thinking".to_string(), value);
+    }
+    if let Some(value) = take_any(obj, &["thinkingBudget", "thinking_budget"]) {
+        obj.insert("thinking_budget".to_string(), value);
+    }
+    if let Some(value) = take_any(obj, &["parallelToolCalls", "parallel_tool_calls"]) {
+        obj.insert("parallel_tool_calls".to_string(), value);
+    }
+}
+
 fn normalize_mistral_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
     if let Some(value) = take_any(obj, &["safePrompt", "safe_prompt"]) {
         obj.insert("safe_prompt".to_string(), value);
@@ -345,6 +357,8 @@ fn normalize_provider_options(
         normalize_fireworks_options(&mut obj);
     } else if provider_id == "moonshotai" || provider_id == "moonshot" {
         normalize_moonshotai_options(&mut obj);
+    } else if provider_id == "qwen" || provider_id == "alibaba" {
+        normalize_alibaba_options(&mut obj);
     } else if provider_id == "groq" {
         if let Some(value) = take_any(&mut obj, &["max_completion_tokens", "max_tokens"]) {
             obj.entry("max_tokens".to_string()).or_insert(value);
@@ -2093,6 +2107,63 @@ mod tests {
         assert_eq!(normalize_fireworks_reasoning_effort("low"), "low");
         assert_eq!(normalize_fireworks_reasoning_effort("high"), "high");
         assert_eq!(normalize_fireworks_reasoning_effort("xhigh"), "high");
+    }
+
+    #[test]
+    fn openai_compatible_qwen_runtime_accepts_alibaba_provider_options() {
+        use crate::core::ProviderSpec;
+        use crate::types::Tool;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "qwen".to_string(),
+                name: "Qwen".to_string(),
+                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["chat".into(), "streaming".into(), "tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "qwen".to_string(),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("qwen-plus")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "lookup",
+                "Lookup value",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .build()
+            .with_provider_option(
+                "alibaba",
+                serde_json::json!({
+                    "enableThinking": true,
+                    "thinkingBudget": 2048,
+                    "parallelToolCalls": false
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["enable_thinking"], serde_json::json!(true));
+        assert_eq!(body["thinking_budget"], serde_json::json!(2048));
+        assert_eq!(body["parallel_tool_calls"], serde_json::json!(false));
+        assert!(body.get("enableThinking").is_none());
+        assert!(body.get("thinkingBudget").is_none());
+        assert!(body.get("parallelToolCalls").is_none());
     }
 
     #[test]

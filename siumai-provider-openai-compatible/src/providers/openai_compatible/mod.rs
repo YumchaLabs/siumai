@@ -1,4 +1,4 @@
-﻿//! OpenAI-Compatible Provider Interface
+//! OpenAI-Compatible Provider Interface
 //!
 //! This module provides model constants for OpenAI-compatible providers.
 //! These providers use a dedicated OpenAI-compatible client (`OpenAiCompatibleClient`) that
@@ -63,29 +63,30 @@ pub mod registry {
 
 // Re-export model constants for easy access
 pub use providers::models::{
-    deepinfra, deepseek, fireworks, groq, mistral, moonshot, moonshotai, openrouter, perplexity,
-    siliconflow, vertex_maas, xai,
+    alibaba, deepinfra, deepseek, fireworks, groq, mistral, moonshot, moonshotai, openrouter,
+    perplexity, qwen, siliconflow, vertex_maas, xai,
 };
 
 // Re-export new adapter system
 pub use crate::provider_options::{
-    FireworksChatOptions, FireworksLanguageModelOptions, FireworksReasoningHistory,
-    FireworksThinkingConfig, FireworksThinkingType, MistralChatOptions,
-    MistralLanguageModelOptions, MistralReasoningEffort, MoonshotAIChatOptions,
-    MoonshotAILanguageModelOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
-    MoonshotAIThinkingType, OpenAICompatibleEmbeddingModelOptions,
+    AlibabaChatOptions, AlibabaLanguageModelOptions, FireworksChatOptions,
+    FireworksLanguageModelOptions, FireworksReasoningHistory, FireworksThinkingConfig,
+    FireworksThinkingType, MistralChatOptions, MistralLanguageModelOptions, MistralReasoningEffort,
+    MoonshotAIChatOptions, MoonshotAILanguageModelOptions, MoonshotAIReasoningHistory,
+    MoonshotAIThinkingConfig, MoonshotAIThinkingType, OpenAICompatibleEmbeddingModelOptions,
     OpenAICompatibleLanguageModelChatOptions, OpenAICompatibleLanguageModelCompletionOptions,
     OpenAiCompatibleEmbeddingModelOptions, OpenAiCompatibleLanguageModelChatOptions,
     OpenAiCompatibleLanguageModelCompletionOptions, OpenRouterOptions, OpenRouterTransform,
     PerplexityOptions, PerplexitySearchContextSize, PerplexitySearchMode,
     PerplexitySearchRecencyFilter, PerplexityUserLocation, PerplexityWebSearchOptions,
+    QwenChatOptions, QwenLanguageModelOptions,
 };
 #[allow(deprecated)]
 pub use crate::provider_options::{
-    MoonshotAIProviderOptions, OpenAICompatibleCompletionProviderOptions,
+    AlibabaProviderOptions, MoonshotAIProviderOptions, OpenAICompatibleCompletionProviderOptions,
     OpenAICompatibleEmbeddingProviderOptions, OpenAICompatibleProviderOptions,
     OpenAiCompatibleCompletionProviderOptions, OpenAiCompatibleEmbeddingProviderOptions,
-    OpenAiCompatibleProviderOptions,
+    OpenAiCompatibleProviderOptions, QwenProviderOptions,
 };
 pub use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig,
@@ -102,13 +103,13 @@ pub use config::{
     provider_supports_capability,
 };
 pub use ext::{
-    FireworksChatRequestExt, MistralChatRequestExt, MoonshotAIChatRequestExt,
-    OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
+    AlibabaChatRequestExt, FireworksChatRequestExt, MistralChatRequestExt,
+    MoonshotAIChatRequestExt, OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
     OpenAiCompatibleEmbeddingRequestExt, OpenRouterChatRequestExt, OpenRouterChatResponseExt,
     OpenRouterContentPartExt, OpenRouterContentPartMetadata, OpenRouterMetadata, OpenRouterSource,
     OpenRouterSourceExt, OpenRouterSourceMetadata, PerplexityChatRequestExt,
     PerplexityChatResponseExt, PerplexityCost, PerplexityImage, PerplexityMetadata,
-    PerplexityUsage,
+    PerplexityUsage, QwenChatRequestExt,
 };
 pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;

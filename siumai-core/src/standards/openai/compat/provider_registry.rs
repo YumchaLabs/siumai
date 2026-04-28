@@ -195,6 +195,12 @@ impl ProviderAdapter for ConfigurableAdapter {
             rename_field(obj, "budgetTokens", "budget_tokens");
         }
 
+        fn normalize_alibaba_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+            rename_field(obj, "enableThinking", "enable_thinking");
+            rename_field(obj, "thinkingBudget", "thinking_budget");
+            rename_field(obj, "parallelToolCalls", "parallel_tool_calls");
+        }
+
         // Most OpenAI-compatible providers don't need parameter transformation.
         //
         // For a small set of vendors, we centralize well-known OpenAI-compat quirks here
@@ -251,6 +257,13 @@ impl ProviderAdapter for ConfigurableAdapter {
                         normalize_moonshot_thinking(&mut thinking);
                         obj.entry("thinking".to_string()).or_insert(thinking);
                     }
+                }
+            }
+            // Alibaba/Qwen follows OpenAI chat-completions transport but uses snake_case
+            // thinking controls on the wire.
+            "qwen" | "alibaba" => {
+                if let Some(obj) = params.as_object_mut() {
+                    normalize_alibaba_options(obj);
                 }
             }
             _ => {}
