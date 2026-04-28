@@ -297,6 +297,39 @@ fn openai_chat_response_bridge_does_not_report_replayed_raw_finish_reason_loss()
 
 #[cfg(feature = "openai")]
 #[test]
+fn openai_responses_bridge_does_not_report_replayed_raw_incomplete_finish_reason_loss() {
+    let mut response = ChatResponse::new(MessageContent::Text("partial".to_string()));
+    response.finish_reason = Some(FinishReason::Length);
+    response.raw_finish_reason = Some("max_output_tokens".to_string());
+
+    let bridged = bridge_chat_response_to_openai_responses_json_value(
+        &response,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(
+        !bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "finish_reason"),
+        "raw OpenAI Responses incomplete reason should replay without a finish_reason loss report"
+    );
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["status"], json!("incomplete"));
+    assert_eq!(
+        value["incomplete_details"]["reason"],
+        json!("max_output_tokens")
+    );
+}
+
+#[cfg(feature = "openai")]
+#[test]
 fn strict_openai_chat_completions_bridge_rejects_reasoning_tool_result_and_metadata_loss() {
     let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
         ContentPart::reasoning("internal thinking"),

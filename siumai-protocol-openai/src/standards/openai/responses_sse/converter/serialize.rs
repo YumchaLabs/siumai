@@ -82,15 +82,104 @@ pub(super) fn serialize_event(
             })
     }
 
+    fn openai_incomplete_reason_from_response(
+        response: &crate::types::ChatResponse,
+    ) -> Option<String> {
+        let raw = response
+            .raw_finish_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        match (response.finish_reason.as_ref(), raw) {
+            (Some(crate::types::FinishReason::Length), Some(raw)) => Some(raw.to_string()),
+            (Some(crate::types::FinishReason::Length), None) => {
+                Some("max_output_tokens".to_string())
+            }
+            (Some(crate::types::FinishReason::ContentFilter), Some(raw)) => Some(raw.to_string()),
+            (Some(crate::types::FinishReason::ContentFilter), None) => {
+                Some("content_filter".to_string())
+            }
+            (
+                Some(crate::types::FinishReason::Unknown | crate::types::FinishReason::Other(_)),
+                Some(raw),
+            ) => Some(raw.to_string()),
+            (Some(crate::types::FinishReason::Other(reason)), None)
+                if !reason.trim().is_empty() =>
+            {
+                Some(reason.trim().to_string())
+            }
+            _ => None,
+        }
+    }
+
+    fn openai_incomplete_reason_from_finish_payload(data: &serde_json::Value) -> Option<String> {
+        let finish = data.get("finishReason")?;
+        let raw = finish
+            .get("raw")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let unified = finish
+            .get("unified")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        match (unified, raw) {
+            (Some("length" | "content-filter" | "content_filter" | "other"), Some(raw)) => {
+                Some(raw.to_string())
+            }
+            (Some("length"), None) => Some("max_output_tokens".to_string()),
+            (Some("content-filter" | "content_filter"), None) => Some("content_filter".to_string()),
+            (Some(other), Some(raw))
+                if openai_finish_reason_str_from_candidate(Some(other)).is_none() =>
+            {
+                Some(raw.to_string())
+            }
+            (None, Some(raw))
+                if openai_finish_reason_str_from_candidate(Some(raw)).is_none()
+                    || matches!(
+                        openai_finish_reason_str_from_candidate(Some(raw)),
+                        Some("length" | "content_filter")
+                    ) =>
+            {
+                Some(raw.to_string())
+            }
+            _ => None,
+        }
+    }
+
     fn openai_responses_usage_json(usage: &crate::types::Usage) -> serde_json::Value {
         crate::standards::openai::utils::openai_responses_usage_value(usage)
     }
 
-    fn openai_response_status(finish_reason: Option<&str>) -> &'static str {
-        match finish_reason {
-            Some("error") => "failed",
-            _ => "completed",
+    fn openai_response_status(
+        finish_reason: Option<&str>,
+        incomplete_reason: Option<&str>,
+        force_failed: bool,
+    ) -> &'static str {
+        if force_failed || finish_reason == Some("error") {
+            "failed"
+        } else if incomplete_reason.is_some() {
+            "incomplete"
+        } else {
+            "completed"
         }
+    }
+
+    fn openai_response_event_name(status: &str) -> &'static str {
+        match status {
+            "failed" => "response.failed",
+            "incomplete" => "response.incomplete",
+            _ => "response.completed",
+        }
+    }
+
+    fn openai_incomplete_details_value(reason: Option<&str>) -> serde_json::Value {
+        reason
+            .map(|reason| serde_json::json!({ "reason": reason }))
+            .unwrap_or(serde_json::Value::Null)
     }
 
     fn now_epoch_seconds() -> i64 {
@@ -909,15 +998,20 @@ pub(super) fn serialize_event(
                 .or_else(|| state.latest_usage.clone());
             let usage_json = usage.as_ref().map(openai_responses_usage_json);
             let finish_reason = openai_finish_reason_str(response.finish_reason.as_ref());
+            let incomplete_reason = openai_incomplete_reason_from_response(&response);
+            let response_status =
+                openai_response_status(finish_reason, incomplete_reason.as_deref(), false);
+            let response_event_name = openai_response_event_name(response_status);
 
             let payload = serde_json::json!({
-                "type": "response.completed",
+                "type": response_event_name,
                 "sequence_number": next_sequence_number(&mut state),
                 "response": {
                     "id": response_id,
                     "object": "response",
                     "created_at": created_at,
-                    "status": openai_response_status(finish_reason),
+                    "status": response_status,
+                    "incomplete_details": openai_incomplete_details_value(incomplete_reason.as_deref()),
                     "model": model_id,
                     "output": output,
                     "usage": usage_json.unwrap_or(serde_json::Value::Null),
@@ -927,7 +1021,7 @@ pub(super) fn serialize_event(
                 }
             });
 
-            out.extend_from_slice(&sse_event_frame("response.completed", &payload)?);
+            out.extend_from_slice(&sse_event_frame(response_event_name, &payload)?);
             out.extend_from_slice(&sse_done_frame());
             state.response_completed_emitted = true;
             Ok(out)
@@ -1480,21 +1574,19 @@ pub(super) fn serialize_event(
                     let usage = state.latest_usage.clone();
                     let usage_json = usage.as_ref().map(openai_responses_usage_json);
                     let finish_reason = openai_finish_reason_str_from_finish_payload(data);
-                    let response_status = if state.latest_error_message.is_some()
+                    let incomplete_reason = openai_incomplete_reason_from_finish_payload(data);
+                    let force_failed = state.latest_error_message.is_some()
                         && data
                             .pointer("/finishReason/unified")
                             .and_then(|v| v.as_str())
                             == Some("other")
-                    {
-                        "failed"
-                    } else {
-                        openai_response_status(finish_reason)
-                    };
-                    let response_event_name = if response_status == "failed" {
-                        "response.failed"
-                    } else {
-                        "response.completed"
-                    };
+                        && incomplete_reason.is_none();
+                    let response_status = openai_response_status(
+                        finish_reason,
+                        incomplete_reason.as_deref(),
+                        force_failed,
+                    );
+                    let response_event_name = openai_response_event_name(response_status);
 
                     let payload = serde_json::json!({
                         "type": response_event_name,
@@ -1504,6 +1596,7 @@ pub(super) fn serialize_event(
                             "object": "response",
                             "created_at": created_at,
                             "status": response_status,
+                            "incomplete_details": openai_incomplete_details_value(incomplete_reason.as_deref()),
                             "error": state.latest_error_message.as_ref().map(|message| serde_json::json!({
                                 "message": message,
                             })).unwrap_or(serde_json::Value::Null),

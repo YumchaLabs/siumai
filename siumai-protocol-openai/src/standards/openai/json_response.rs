@@ -35,10 +35,33 @@ fn openai_chat_finish_reason(response: &ChatResponse) -> Option<String> {
     }
 }
 
-fn openai_response_status(reason: Option<&FinishReason>) -> &'static str {
-    match reason {
-        Some(FinishReason::Error) => "failed",
-        _ => "completed",
+fn openai_responses_incomplete_reason(response: &ChatResponse) -> Option<String> {
+    let raw = response
+        .raw_finish_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match (response.finish_reason.as_ref(), raw) {
+        (Some(FinishReason::Length), Some(raw)) => Some(raw.to_string()),
+        (Some(FinishReason::Length), None) => Some("max_output_tokens".to_string()),
+        (Some(FinishReason::ContentFilter), Some(raw)) => Some(raw.to_string()),
+        (Some(FinishReason::ContentFilter), None) => Some("content_filter".to_string()),
+        (Some(FinishReason::Unknown | FinishReason::Other(_)), Some(raw)) => Some(raw.to_string()),
+        (Some(FinishReason::Other(reason)), None) if !reason.trim().is_empty() => {
+            Some(reason.trim().to_string())
+        }
+        _ => None,
+    }
+}
+
+fn openai_response_status(response: &ChatResponse) -> &'static str {
+    if matches!(response.finish_reason, Some(FinishReason::Error)) {
+        "failed"
+    } else if openai_responses_incomplete_reason(response).is_some() {
+        "incomplete"
+    } else {
+        "completed"
     }
 }
 
@@ -244,6 +267,8 @@ pub struct OpenAiResponsesJsonResponse {
     pub created: u64,
     pub model: String,
     pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub incomplete_details: Option<OpenAiResponsesIncompleteDetails>,
     pub output: Vec<serde_json::Value>,
     pub output_text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -254,6 +279,11 @@ pub struct OpenAiResponsesJsonResponse {
     pub system_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OpenAiResponsesIncompleteDetails {
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1443,7 +1473,9 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
             object: "response",
             created: 0,
             model,
-            status: openai_response_status(response.finish_reason.as_ref()),
+            status: openai_response_status(response),
+            incomplete_details: openai_responses_incomplete_reason(response)
+                .map(|reason| OpenAiResponsesIncompleteDetails { reason }),
             output,
             output_text: response.content.all_text(),
             finish_reason: openai_finish_reason(response.finish_reason.as_ref()),
@@ -1587,6 +1619,53 @@ mod tests {
             value["output"][2]["arguments"],
             serde_json::json!(r#"{"city":"Tokyo"}"#)
         );
+    }
+
+    #[test]
+    fn responses_encoder_replays_incomplete_raw_finish_reason() {
+        let mut response =
+            ChatResponse::new(crate::types::MessageContent::Text("partial".to_string()));
+        response.id = Some("resp_incomplete".to_string());
+        response.model = Some("gpt-5-mini".to_string());
+        response.finish_reason = Some(FinishReason::Length);
+        response.raw_finish_reason = Some("max_output_tokens".to_string());
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["status"], serde_json::json!("incomplete"));
+        assert_eq!(
+            value["incomplete_details"]["reason"],
+            serde_json::json!("max_output_tokens")
+        );
+        assert_eq!(value["finish_reason"], serde_json::json!("length"));
+    }
+
+    #[test]
+    fn responses_encoder_replays_unknown_incomplete_raw_finish_reason() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::Text(
+            "provider-specific".to_string(),
+        ));
+        response.id = Some("resp_unknown_incomplete".to_string());
+        response.model = Some("gpt-5-mini".to_string());
+        response.finish_reason = Some(FinishReason::Other("other".to_string()));
+        response.raw_finish_reason = Some("quota_exhausted".to_string());
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["status"], serde_json::json!("incomplete"));
+        assert_eq!(
+            value["incomplete_details"]["reason"],
+            serde_json::json!("quota_exhausted")
+        );
+        assert!(value.get("finish_reason").is_none());
     }
 
     #[test]

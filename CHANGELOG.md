@@ -1045,6 +1045,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   DeepSeek prompt-cache hits, MoonshotAI top-level cache counters, Groq reasoning without prompt
   cache normalization, and xAI chat/Responses non-inclusive cache and reasoning totals while still
   preserving the original provider usage payload in `Usage.raw`.
+- OpenAI Responses response encoding now replays `raw_finish_reason` as
+  `incomplete_details.reason` for incomplete outputs and marks those responses as
+  `response.incomplete`, so `max_output_tokens`, `content_filter`, and future provider-specific
+  incomplete reasons round-trip without false bridge loss reports.
 - Completion responses now expose provider-native raw finish reasons on OpenAI, Azure, and
   OpenAI-compatible non-streaming completion paths, matching the existing AI SDK-style streaming
   fidelity where `finishReason.raw` preserves the original `choices[0].finish_reason` string.

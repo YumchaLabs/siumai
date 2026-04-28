@@ -443,6 +443,16 @@ fn raw_finish_reason_replays_for_target(
                 "stop" | "length" | "content_filter" | "tool_calls" | "function_call" | "error"
             )
         }
+        ResponseFinishReasonMode::OpenAiFamily if caps.target == BridgeTarget::OpenAiResponses => {
+            match response.finish_reason.as_ref() {
+                Some(FinishReason::Length | FinishReason::ContentFilter) => true,
+                Some(FinishReason::Unknown | FinishReason::Other(_)) => !matches!(
+                    raw,
+                    "stop" | "length" | "content_filter" | "tool_calls" | "function_call" | "error"
+                ),
+                _ => false,
+            }
+        }
         ResponseFinishReasonMode::OpenAiFamily => false,
         ResponseFinishReasonMode::AnthropicMessages => matches!(
             raw,

@@ -1907,6 +1907,46 @@ fn responses_stream_proxy_serializes_finish_part_as_response_completed() {
 }
 
 #[test]
+fn responses_stream_proxy_serializes_raw_incomplete_finish_reason() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:finish".to_string(),
+            data: serde_json::json!({
+                "type": "finish",
+                "finishReason": { "raw": "max_output_tokens", "unified": "length" },
+                "usage": {
+                    "inputTokens": { "total": 1, "cacheRead": 0, "cacheWrite": null, "noCache": 1 },
+                    "outputTokens": { "total": 2, "reasoning": 0, "text": 2 },
+                    "raw": null
+                }
+            }),
+        })
+        .expect("serialize finish");
+
+    let frames = parse_sse_frames(&bytes);
+    let incomplete = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.incomplete")
+        .map(|(_, value)| value)
+        .expect("response.incomplete frame");
+    assert_eq!(incomplete["type"], serde_json::json!("response.incomplete"));
+    assert_eq!(
+        incomplete["response"]["status"],
+        serde_json::json!("incomplete")
+    );
+    assert_eq!(
+        incomplete["response"]["incomplete_details"]["reason"],
+        serde_json::json!("max_output_tokens")
+    );
+    assert_eq!(
+        incomplete["response"]["finish_reason"],
+        serde_json::json!("length")
+    );
+}
+
+#[test]
 fn responses_stream_proxy_maps_v3_tool_finish_to_tool_calls_finish_reason() {
     let conv = OpenAiResponsesEventConverter::new();
 
