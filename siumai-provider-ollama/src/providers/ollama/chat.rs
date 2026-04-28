@@ -209,6 +209,7 @@ mod tests {
             response.finish_reason,
             Some(crate::types::FinishReason::Stop)
         );
+        assert_eq!(response.raw_finish_reason.as_deref(), Some("stop"));
         assert!(response.usage.is_some());
         assert!(
             response

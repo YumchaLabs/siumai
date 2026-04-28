@@ -1026,6 +1026,39 @@ pub(crate) fn build_ollama_provider_metadata(
     }
 }
 
+/// Map Ollama `done_reason` into the stable finish reason.
+pub fn map_done_reason(raw: Option<&str>) -> Option<crate::types::FinishReason> {
+    raw.map(|reason| match reason {
+        "stop" => crate::types::FinishReason::Stop,
+        "length" => crate::types::FinishReason::Length,
+        _ => crate::types::FinishReason::Other(reason.to_string()),
+    })
+}
+
+/// Resolve the stable finish reason for an Ollama chat response.
+pub fn resolve_chat_finish_reason(
+    raw_done_reason: Option<&str>,
+    done: bool,
+    has_tool_calls: bool,
+) -> Option<crate::types::FinishReason> {
+    if has_tool_calls {
+        Some(crate::types::FinishReason::ToolCalls)
+    } else {
+        map_done_reason(raw_done_reason)
+            .or_else(|| done.then_some(crate::types::FinishReason::Stop))
+    }
+}
+
+/// Convert a stable finish reason back to Ollama's `done_reason` when possible.
+pub fn finish_reason_to_done_reason(reason: &crate::types::FinishReason) -> Option<String> {
+    match reason {
+        crate::types::FinishReason::Stop => Some("stop".to_string()),
+        crate::types::FinishReason::Length => Some("length".to_string()),
+        crate::types::FinishReason::Other(reason) => Some(reason.clone()),
+        _ => None,
+    }
+}
+
 /// Convert an Ollama chat response to the unified `ChatResponse` (includes provider metadata).
 pub fn convert_chat_response(response: OllamaChatResponse) -> crate::types::ChatResponse {
     let message = convert_from_ollama_message(&response.message);
@@ -1051,25 +1084,9 @@ pub fn convert_chat_response(response: OllamaChatResponse) -> crate::types::Chat
         .tool_calls
         .as_ref()
         .is_some_and(|calls| !calls.is_empty());
-    let finish_reason = if has_tool_calls {
-        Some(crate::types::FinishReason::ToolCalls)
-    } else {
-        response
-            .done_reason
-            .as_deref()
-            .map(|reason| match reason {
-                "stop" => crate::types::FinishReason::Stop,
-                "length" => crate::types::FinishReason::Length,
-                _ => crate::types::FinishReason::Other(reason.to_string()),
-            })
-            .or({
-                if response.done {
-                    Some(crate::types::FinishReason::Stop)
-                } else {
-                    None
-                }
-            })
-    };
+    let raw_finish_reason = response.done_reason.clone();
+    let finish_reason =
+        resolve_chat_finish_reason(raw_finish_reason.as_deref(), response.done, has_tool_calls);
 
     let provider_metadata = build_ollama_provider_metadata(
         response.total_duration,
@@ -1085,7 +1102,7 @@ pub fn convert_chat_response(response: OllamaChatResponse) -> crate::types::Chat
         model: Some(response.model),
         usage,
         finish_reason,
-        raw_finish_reason: None,
+        raw_finish_reason,
         audio: None,
         system_fingerprint: None,
         service_tier: None,
@@ -1192,11 +1209,44 @@ mod tests {
             converted.finish_reason,
             Some(crate::types::FinishReason::ToolCalls)
         );
+        assert_eq!(converted.raw_finish_reason.as_deref(), Some("stop"));
         assert_eq!(converted.tool_calls().len(), 1);
         let call = converted.tool_calls()[0].as_tool_call().expect("tool call");
         assert_eq!(call.tool_call_id, "call_0");
         assert_eq!(call.tool_name, "get_weather");
         assert_eq!(call.arguments, &serde_json::json!({ "city": "Toronto" }));
+    }
+
+    #[test]
+    fn test_convert_chat_response_preserves_raw_done_reason() {
+        let response = OllamaChatResponse {
+            model: "llama3.2".to_string(),
+            created_at: "2026-03-07T00:00:00Z".to_string(),
+            message: OllamaChatMessage {
+                role: "assistant".to_string(),
+                content: "truncated".to_string(),
+                tool_name: None,
+                images: None,
+                tool_calls: None,
+                thinking: None,
+            },
+            done: true,
+            done_reason: Some("length".to_string()),
+            total_duration: None,
+            load_duration: None,
+            prompt_eval_count: None,
+            prompt_eval_duration: None,
+            eval_count: None,
+            eval_duration: None,
+        };
+
+        let converted = convert_chat_response(response);
+
+        assert_eq!(
+            converted.finish_reason,
+            Some(crate::types::FinishReason::Length)
+        );
+        assert_eq!(converted.raw_finish_reason.as_deref(), Some("length"));
     }
 
     #[test]
@@ -1223,6 +1273,7 @@ mod tests {
         };
 
         let converted = convert_chat_response(response);
+        assert_eq!(converted.raw_finish_reason.as_deref(), Some("stop"));
         assert_eq!(
             converted.get_metadata("ollama", "total_duration_ms"),
             Some(&serde_json::json!(1250))

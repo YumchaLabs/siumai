@@ -20,6 +20,7 @@ struct OllamaStreamResponse {
     model: Option<String>,
     message: Option<OllamaMessage>,
     done: Option<bool>,
+    done_reason: Option<String>,
     total_duration: Option<u64>,
     load_duration: Option<u64>,
     prompt_eval_count: Option<u32>,
@@ -71,7 +72,7 @@ impl OllamaEventConverter {
         response: OllamaStreamResponse,
     ) -> Vec<ChatStreamEvent> {
         use crate::streaming::EventBuilder;
-        use crate::types::{ChatResponse, FinishReason, MessageContent};
+        use crate::types::{ChatResponse, MessageContent};
 
         let mut builder = EventBuilder::new();
 
@@ -120,24 +121,23 @@ impl OllamaEventConverter {
         if response.done == Some(true) {
             // Mark that StreamEnd is being emitted
             self.state_tracker.mark_stream_ended();
+            let raw_finish_reason = response.done_reason.clone();
+            let saw_tool_calls = *self
+                .tool_calls_emitted
+                .lock()
+                .expect("tool_calls_emitted lock");
 
             let chat_response = ChatResponse {
                 id: None,
                 model: response.model.clone(),
                 content: MessageContent::Text(String::new()),
                 usage: self.extract_usage(&response),
-                finish_reason: Some({
-                    let saw_tool_calls = *self
-                        .tool_calls_emitted
-                        .lock()
-                        .expect("tool_calls_emitted lock");
-                    if saw_tool_calls {
-                        FinishReason::ToolCalls
-                    } else {
-                        FinishReason::Stop
-                    }
-                }),
-                raw_finish_reason: None,
+                finish_reason: crate::standards::ollama::utils::resolve_chat_finish_reason(
+                    raw_finish_reason.as_deref(),
+                    true,
+                    saw_tool_calls,
+                ),
+                raw_finish_reason,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
@@ -344,14 +344,25 @@ impl JsonEventConverter for OllamaEventConverter {
                 let usage = response.usage.clone();
                 let prompt_eval_count = usage.as_ref().and_then(|u| u.prompt_tokens());
                 let eval_count = usage.as_ref().and_then(|u| u.completion_tokens());
+                let done_reason = response.raw_finish_reason.clone().or_else(|| {
+                    response
+                        .finish_reason
+                        .as_ref()
+                        .and_then(crate::standards::ollama::utils::finish_reason_to_done_reason)
+                });
 
                 let model = self.stream_model.lock().ok().and_then(|v| v.clone());
-                let body = serde_json::json!({
-                    "model": model,
-                    "done": true,
-                    "prompt_eval_count": prompt_eval_count,
-                    "eval_count": eval_count,
-                });
+                let mut body = serde_json::Map::new();
+                body.insert("model".to_string(), serde_json::json!(model));
+                body.insert("done".to_string(), serde_json::json!(true));
+                body.insert(
+                    "prompt_eval_count".to_string(),
+                    serde_json::json!(prompt_eval_count),
+                );
+                body.insert("eval_count".to_string(), serde_json::json!(eval_count));
+                if let Some(done_reason) = done_reason {
+                    body.insert("done_reason".to_string(), serde_json::json!(done_reason));
+                }
                 let mut out = serde_json::to_vec(&body).map_err(|e| {
                     LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
                 })?;
@@ -415,7 +426,7 @@ mod tests {
         let converter = OllamaEventConverter::new();
 
         // Test stream end conversion
-        let json_data = r#"{"model":"llama2","done":true,"total_duration":1250000000,"load_duration":150000000,"prompt_eval_count":10,"prompt_eval_duration":200000000,"eval_count":20,"eval_duration":700000000}"#;
+        let json_data = r#"{"model":"llama2","done":true,"done_reason":"length","total_duration":1250000000,"load_duration":150000000,"prompt_eval_count":10,"prompt_eval_duration":200000000,"eval_count":20,"eval_duration":700000000}"#;
 
         let result = converter.convert_json(json_data).await;
         assert!(!result.is_empty());
@@ -438,6 +449,8 @@ mod tests {
 
         match stream_end {
             Some(Ok(ChatStreamEvent::StreamEnd { response })) => {
+                assert_eq!(response.finish_reason, Some(FinishReason::Length));
+                assert_eq!(response.raw_finish_reason.as_deref(), Some("length"));
                 assert_eq!(
                     response.get_metadata("ollama", "total_duration_ms"),
                     Some(&serde_json::json!(1250))
@@ -537,15 +550,17 @@ mod tests {
             });
 
         assert_eq!(non_streaming.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(non_streaming.raw_finish_reason.as_deref(), Some("stop"));
         assert_eq!(non_streaming.tool_calls().len(), 1);
 
         let converter = OllamaEventConverter::new();
         let mut processor = StreamProcessor::new();
         let mut finish_reason = None;
+        let mut raw_finish_reason = None;
 
         let chunks = vec![
             r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Toronto"}}}]},"done":false}"#,
-            r#"{"model":"llama3.2","done":true,"prompt_eval_count":10,"eval_count":20}"#,
+            r#"{"model":"llama3.2","done":true,"done_reason":"stop","prompt_eval_count":10,"eval_count":20}"#,
         ];
 
         for chunk in chunks {
@@ -553,6 +568,7 @@ mod tests {
                 match event {
                     ChatStreamEvent::StreamEnd { response } => {
                         finish_reason = response.finish_reason;
+                        raw_finish_reason = response.raw_finish_reason;
                     }
                     other => {
                         let _ = processor.process_event(other);
@@ -563,6 +579,7 @@ mod tests {
 
         let streaming = processor.build_final_response_with_finish_reason(finish_reason);
         assert_eq!(streaming.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(raw_finish_reason.as_deref(), Some("stop"));
         assert_eq!(streaming.tool_calls().len(), 1);
 
         let a = non_streaming.tool_calls()[0]
@@ -636,7 +653,7 @@ mod tests {
                             .build(),
                     ),
                     finish_reason: Some(FinishReason::Stop),
-                    raw_finish_reason: None,
+                    raw_finish_reason: Some("stop".to_string()),
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,
@@ -649,6 +666,7 @@ mod tests {
         let line = String::from_utf8(bytes).expect("utf8");
         let v: serde_json::Value = serde_json::from_str(line.trim()).expect("json");
         assert_eq!(v.get("done").and_then(|x| x.as_bool()), Some(true));
+        assert_eq!(v.get("done_reason").and_then(|x| x.as_str()), Some("stop"));
         assert_eq!(
             v.get("prompt_eval_count").and_then(|x| x.as_u64()),
             Some(10)
