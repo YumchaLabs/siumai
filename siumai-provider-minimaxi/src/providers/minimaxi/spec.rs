@@ -516,6 +516,9 @@ impl MinimaxiChatSpec {
         req: &crate::types::ChatRequest,
     ) -> Option<MinimaxiResponseFormat> {
         match req.response_format.as_ref()? {
+            crate::types::chat::ResponseFormat::JsonObject { .. } => {
+                Some(MinimaxiResponseFormat::JsonObject)
+            }
             crate::types::chat::ResponseFormat::Json {
                 schema,
                 name,
@@ -883,6 +886,36 @@ mod tests {
         assert_eq!(
             body["output_format"]["type"],
             serde_json::json!("json_schema")
+        );
+    }
+
+    #[test]
+    fn minimaxi_chat_spec_maps_json_object_response_format() {
+        let request = ChatRequest::builder()
+            .model("MiniMax-M2")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(crate::types::chat::ResponseFormat::json_object())
+            .build();
+        let ctx = ProviderContext::new(
+            "minimaxi",
+            MinimaxiConfig::DEFAULT_BASE_URL,
+            Some("test-key".to_string()),
+            HashMap::new(),
+        );
+        let spec = MinimaxiChatSpec::new();
+        let transformers = spec.choose_chat_transformers(&request, &ctx);
+        let body = transformers
+            .request
+            .transform_chat(&request)
+            .expect("transform request");
+        let body = spec
+            .chat_before_send(&request, &ctx)
+            .expect("before send hook")(&body)
+        .expect("apply before send hook");
+
+        assert_eq!(
+            body["output_format"],
+            serde_json::json!({ "type": "json_object" })
         );
     }
 
