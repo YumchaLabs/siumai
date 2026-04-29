@@ -824,9 +824,13 @@ impl OpenAiCompatibleBuilder {
         if !self.query_params.is_empty() {
             config = config.with_query_params(self.query_params);
         }
-        let include_usage = self
-            .include_usage
-            .or_else(|| (canonical_provider_id == "moonshotai").then_some(true));
+        let include_usage = self.include_usage.or_else(|| {
+            matches!(
+                canonical_provider_id.as_str(),
+                "alibaba" | "qwen" | "moonshotai"
+            )
+            .then_some(true)
+        });
         if let Some(include_usage) = include_usage {
             config = config.with_include_usage(include_usage);
         }
@@ -1181,10 +1185,35 @@ mod tests {
     }
 
     #[test]
+    fn openai_compatible_builder_defaults_alibaba_family_include_usage() {
+        for provider_id in ["alibaba", "qwen"] {
+            let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), provider_id)
+                .api_key("test-key")
+                .model("qwen-plus")
+                .into_config()
+                .expect("into_config ok");
+
+            assert_eq!(config.include_usage, Some(true), "{provider_id}");
+        }
+    }
+
+    #[test]
     fn openai_compatible_builder_respects_explicit_moonshotai_include_usage() {
         let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "moonshotai")
             .api_key("test-key")
             .model("kimi-k2-0905")
+            .with_include_usage(false)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.include_usage, Some(false));
+    }
+
+    #[test]
+    fn openai_compatible_builder_respects_explicit_alibaba_include_usage() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "alibaba")
+            .api_key("test-key")
+            .model("qwen-plus")
             .with_include_usage(false)
             .into_config()
             .expect("into_config ok");
