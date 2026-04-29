@@ -350,8 +350,10 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     }
                 }
                 "response.reasoning_summary_part.added" => {
-                    if let Some(evt) = self.convert_reasoning_summary_part_added(&json) {
-                        return vec![Ok(evt)];
+                    if let Some(events) = self.convert_reasoning_summary_part_added(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
                     }
                 }
                 "response.reasoning_summary_text.delta" => {
@@ -373,6 +375,11 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
                     if !out.is_empty() {
                         return out;
+                    }
+                }
+                "response.reasoning_summary_part.done" => {
+                    if let Some(evt) = self.convert_reasoning_summary_part_done(&json) {
+                        return vec![Ok(evt)];
                     }
                 }
                 _ => {

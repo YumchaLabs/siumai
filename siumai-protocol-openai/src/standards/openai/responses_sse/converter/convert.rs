@@ -434,6 +434,19 @@ impl OpenAiResponsesEventConverter {
         })
     }
 
+    fn reasoning_end_event(
+        &self,
+        id: String,
+        provider_metadata: serde_json::Value,
+    ) -> crate::streaming::ChatStreamEvent {
+        crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningEnd {
+                id,
+                provider_metadata: self.reasoning_part_provider_metadata(provider_metadata),
+            },
+        }
+    }
+
     pub(super) fn convert_reasoning_output_item_added(
         &self,
         json: &serde_json::Value,
@@ -464,6 +477,7 @@ impl OpenAiResponsesEventConverter {
             return None;
         }
         self.mark_reasoning_start_emitted(&id);
+        self.record_reasoning_part_id(item_id, &id);
 
         Some(crate::streaming::ChatStreamEvent::Part {
             part: crate::types::ChatStreamPart::ReasoningStart {
@@ -488,7 +502,7 @@ impl OpenAiResponsesEventConverter {
     pub(super) fn convert_reasoning_summary_part_added(
         &self,
         json: &serde_json::Value,
-    ) -> Option<crate::streaming::ChatStreamEvent> {
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
         // response.reasoning_summary_part.added
         let item_id = json.get("item_id")?.as_str()?;
         if item_id.is_empty() {
@@ -503,37 +517,60 @@ impl OpenAiResponsesEventConverter {
                 return None;
             }
             self.mark_reasoning_start_emitted(&id);
-            return Some(crate::streaming::ChatStreamEvent::Part {
+            self.record_reasoning_part_id(item_id, &id);
+            return Some(vec![crate::streaming::ChatStreamEvent::Part {
                 part: crate::types::ChatStreamPart::ReasoningStart {
                     id,
                     provider_metadata: self.reasoning_part_provider_metadata(serde_json::json!({
                         "itemId": item_id,
                     })),
                 },
-            });
+            }]);
         }
         let summary_index = json
             .get("summary_index")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let id = format!("{item_id}:{summary_index}");
-        if self.has_emitted_reasoning_start(&id) {
-            return None;
+        let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+        if summary_index > 0 {
+            for id in self.take_reasoning_parts_can_conclude(item_id) {
+                if self.has_emitted_reasoning_end(&id) {
+                    continue;
+                }
+                self.mark_reasoning_end_emitted(&id);
+                events.push(self.reasoning_end_event(
+                    id,
+                    serde_json::json!({
+                        "itemId": item_id,
+                    }),
+                ));
+            }
         }
-        self.mark_reasoning_start_emitted(&id);
 
-        let encrypted_content = self.reasoning_encrypted_content(item_id);
+        let id = format!("{item_id}:{summary_index}");
+        if !self.has_emitted_reasoning_start(&id) {
+            self.mark_reasoning_start_emitted(&id);
+            self.record_reasoning_part_id(item_id, &id);
 
-        Some(crate::streaming::ChatStreamEvent::Part {
-            part: crate::types::ChatStreamPart::ReasoningStart {
-                id,
-                provider_metadata: self.reasoning_part_provider_metadata(serde_json::json!({
-                    "itemId": item_id,
-                    "reasoningEncryptedContent": encrypted_content,
-                })),
-            },
-        })
+            let encrypted_content = self.reasoning_encrypted_content(item_id);
+
+            events.push(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ReasoningStart {
+                    id,
+                    provider_metadata: self.reasoning_part_provider_metadata(serde_json::json!({
+                        "itemId": item_id,
+                        "reasoningEncryptedContent": encrypted_content,
+                    })),
+                },
+            });
+        }
+
+        if events.is_empty() {
+            None
+        } else {
+            Some(events)
+        }
     }
 
     pub(super) fn convert_reasoning_summary_text_delta(
@@ -561,6 +598,7 @@ impl OpenAiResponsesEventConverter {
                 // Ensure a start event exists for this block.
                 if !self.has_emitted_reasoning_start(&id) {
                     self.mark_reasoning_start_emitted(&id);
+                    self.record_reasoning_part_id(item_id, &id);
                 }
 
                 Some(crate::streaming::ChatStreamEvent::Part {
@@ -577,6 +615,7 @@ impl OpenAiResponsesEventConverter {
                 let id = self.reasoning_stream_part_id(item_id);
                 if !self.has_emitted_reasoning_start(&id) {
                     self.mark_reasoning_start_emitted(&id);
+                    self.record_reasoning_part_id(item_id, &id);
                 }
 
                 Some(crate::streaming::ChatStreamEvent::Part {
@@ -590,6 +629,45 @@ impl OpenAiResponsesEventConverter {
                 })
             }
         }
+    }
+
+    pub(super) fn convert_reasoning_summary_part_done(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        // response.reasoning_summary_part.done
+        let item_id = json.get("item_id")?.as_str()?;
+        if item_id.is_empty() {
+            return None;
+        }
+
+        let id = match self.stream_parts_style {
+            StreamPartsStyle::OpenAi => {
+                let summary_index = json
+                    .get("summary_index")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                format!("{item_id}:{summary_index}")
+            }
+            StreamPartsStyle::Xai => self.reasoning_stream_part_id(item_id),
+        };
+
+        if self.requested_store != Some(true) {
+            self.mark_reasoning_part_can_conclude(item_id, &id);
+            return None;
+        }
+
+        if self.has_emitted_reasoning_end(&id) {
+            return None;
+        }
+        self.mark_reasoning_end_emitted(&id);
+
+        Some(self.reasoning_end_event(
+            id,
+            serde_json::json!({
+                "itemId": item_id,
+            }),
+        ))
     }
 
     pub(super) fn convert_reasoning_output_item_done(
@@ -620,6 +698,7 @@ impl OpenAiResponsesEventConverter {
             let mut events = Vec::new();
             if !self.has_emitted_reasoning_start(&id) {
                 self.mark_reasoning_start_emitted(&id);
+                self.record_reasoning_part_id(item_id, &id);
                 events.push(crate::streaming::ChatStreamEvent::Part {
                     part: crate::types::ChatStreamPart::ReasoningStart {
                         id: id.clone(),
@@ -659,9 +738,14 @@ impl OpenAiResponsesEventConverter {
             .unwrap_or(0);
         let blocks = std::cmp::max(1, summary_len);
 
+        let mut ids: Vec<String> = (0..blocks).map(|i| format!("{item_id}:{i}")).collect();
+        ids.extend(self.take_reasoning_parts_can_conclude(item_id));
+        ids.extend(self.take_reasoning_part_ids(item_id));
+        ids.sort();
+        ids.dedup();
+
         let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
-        for i in 0..blocks {
-            let id = format!("{item_id}:{i}");
+        for id in ids {
             if self.has_emitted_reasoning_end(&id) {
                 continue;
             }

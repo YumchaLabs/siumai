@@ -38,8 +38,10 @@ pub struct OpenAiResponsesEventConverter {
     next_mcp_approval_tool_call_index: Arc<Mutex<u64>>,
     emitted_mcp_approval_request_ids: Arc<Mutex<HashSet<String>>>,
     reasoning_encrypted_content_by_item_id: Arc<Mutex<HashMap<String, Option<String>>>>,
+    reasoning_part_ids_by_item_id: Arc<Mutex<HashMap<String, HashSet<String>>>>,
     emitted_reasoning_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_reasoning_end_ids: Arc<Mutex<HashSet<String>>>,
+    can_conclude_reasoning_part_ids_by_item_id: Arc<Mutex<HashMap<String, HashSet<String>>>>,
     apply_patch_call_id_by_item_id: Arc<Mutex<HashMap<String, String>>>,
     apply_patch_operation_by_item_id: Arc<Mutex<HashMap<String, serde_json::Value>>>,
     emitted_apply_patch_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
@@ -74,6 +76,13 @@ pub struct OpenAiResponsesEventConverter {
 
     /// Controls how the final `response.completed` payload is transformed into `ChatResponse`.
     responses_transform_style: super::super::transformers::ResponsesTransformStyle,
+
+    /// The request-level Responses `store` option, when known.
+    ///
+    /// AI SDK only concludes `response.reasoning_summary_part.done` immediately when the
+    /// request explicitly used `store: true`. For `store: false` and unspecified values,
+    /// the final reasoning item can still carry encrypted content.
+    requested_store: Option<bool>,
 
     /// Controls the providerMetadata key used in Vercel-aligned stream parts
     /// (e.g. "openai" vs "azure").
@@ -114,8 +123,10 @@ impl Default for OpenAiResponsesEventConverter {
             next_mcp_approval_tool_call_index: Arc::new(Mutex::new(0)),
             emitted_mcp_approval_request_ids: Arc::new(Mutex::new(HashSet::new())),
             reasoning_encrypted_content_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            reasoning_part_ids_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             emitted_reasoning_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_reasoning_end_ids: Arc::new(Mutex::new(HashSet::new())),
+            can_conclude_reasoning_part_ids_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             apply_patch_call_id_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             apply_patch_operation_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             emitted_apply_patch_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
@@ -140,6 +151,7 @@ impl Default for OpenAiResponsesEventConverter {
             emit_web_search_tool_result: true,
             stream_parts_style: StreamPartsStyle::OpenAi,
             responses_transform_style: super::super::transformers::ResponsesTransformStyle::OpenAi,
+            requested_store: None,
             provider_metadata_key: "openai".to_string(),
             custom_tool_name_by_call_name: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_call_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
@@ -197,6 +209,11 @@ impl OpenAiResponsesEventConverter {
         style: super::super::transformers::ResponsesTransformStyle,
     ) -> Self {
         self.responses_transform_style = style;
+        self
+    }
+
+    pub fn with_requested_store(mut self, store: Option<bool>) -> Self {
+        self.requested_store = store;
         self
     }
 

@@ -911,6 +911,149 @@ fn responses_message_output_text_events_emit_text_parts() {
 }
 
 #[test]
+fn responses_reasoning_summary_part_done_waits_for_final_item_by_default() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning","encrypted_content":"enc_start"}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let added_out = futures::executor::block_on(conv.convert_event(added));
+    assert!(matches!(
+        stream_part(&added_out[0]),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart { id, .. })
+            if id == "rs_1:0"
+    ));
+
+    let done0 = eventsource_stream::Event {
+        event: "".to_string(),
+        data:
+            r#"{"type":"response.reasoning_summary_part.done","item_id":"rs_1","summary_index":0}"#
+                .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let done0_out = futures::executor::block_on(conv.convert_event(done0));
+    assert!(done0_out.is_empty());
+
+    let added1 = eventsource_stream::Event {
+        event: "".to_string(),
+        data:
+            r#"{"type":"response.reasoning_summary_part.added","item_id":"rs_1","summary_index":1}"#
+                .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let added1_out = futures::executor::block_on(conv.convert_event(added1));
+    assert_eq!(added1_out.len(), 2);
+    assert!(matches!(
+        stream_part(&added1_out[0]),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+            id,
+            provider_metadata,
+        }) if id == "rs_1:0"
+            && provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("openai"))
+                .and_then(|meta| meta.get("reasoningEncryptedContent"))
+                .is_none()
+    ));
+    assert!(matches!(
+        stream_part(&added1_out[1]),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart { id, .. })
+            if id == "rs_1:1"
+    ));
+
+    let done1 = eventsource_stream::Event {
+        event: "".to_string(),
+        data:
+            r#"{"type":"response.reasoning_summary_part.done","item_id":"rs_1","summary_index":1}"#
+                .to_string(),
+        id: "4".to_string(),
+        retry: None,
+    };
+    let done1_out = futures::executor::block_on(conv.convert_event(done1));
+    assert!(done1_out.is_empty());
+
+    let final_item = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","encrypted_content":"enc_final"}}"#
+            .to_string(),
+        id: "5".to_string(),
+        retry: None,
+    };
+    let final_out = futures::executor::block_on(conv.convert_event(final_item));
+    assert_eq!(final_out.len(), 1);
+    assert!(matches!(
+        stream_part(&final_out[0]),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+            id,
+            provider_metadata,
+        }) if id == "rs_1:1"
+            && provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("openai"))
+                .and_then(|meta| meta.get("reasoningEncryptedContent"))
+                == Some(&serde_json::json!("enc_final"))
+    ));
+}
+
+#[test]
+fn responses_reasoning_summary_part_done_ends_immediately_when_store_requested() {
+    let conv = OpenAiResponsesEventConverter::new().with_requested_store(Some(true));
+
+    let added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning"}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let _ = futures::executor::block_on(conv.convert_event(added));
+
+    let done = eventsource_stream::Event {
+        event: "".to_string(),
+        data:
+            r#"{"type":"response.reasoning_summary_part.done","item_id":"rs_1","summary_index":0}"#
+                .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let done_out = futures::executor::block_on(conv.convert_event(done));
+    assert_eq!(done_out.len(), 1);
+    assert!(matches!(
+        stream_part(&done_out[0]),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+            id,
+            provider_metadata,
+        }) if id == "rs_1:0"
+            && provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("openai"))
+                .and_then(|meta| meta.get("itemId"))
+                == Some(&serde_json::json!("rs_1"))
+            && provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("openai"))
+                .and_then(|meta| meta.get("reasoningEncryptedContent"))
+                .is_none()
+    ));
+
+    let final_item = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","encrypted_content":"enc_final"}}"#
+            .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let final_out = futures::executor::block_on(conv.convert_event(final_item));
+    assert!(final_out.is_empty());
+}
+
+#[test]
 fn responses_reasoning_item_events_emit_reasoning_parts() {
     let conv = OpenAiResponsesEventConverter::new();
 

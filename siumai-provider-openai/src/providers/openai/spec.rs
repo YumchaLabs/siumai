@@ -252,6 +252,20 @@ impl OpenAiSpec {
         serde_json::from_value(responses_api.clone()).ok()
     }
 
+    fn requested_store_from_provider_options_map(&self, req: &ChatRequest) -> Option<bool> {
+        let value = req.provider_options_map.get("openai")?;
+        let normalized = self.normalize_openai_provider_options_json(value);
+        let obj = normalized.as_object()?;
+        obj.get("store")
+            .and_then(|value| value.as_bool())
+            .or_else(|| {
+                obj.get("responses_api")
+                    .and_then(|value| value.as_object())
+                    .and_then(|responses_api| responses_api.get("store"))
+                    .and_then(|value| value.as_bool())
+            })
+    }
+
     fn auto_responses_api_include_from_tools(&self, req: &ChatRequest) -> Vec<String> {
         use crate::types::Tool;
 
@@ -379,9 +393,13 @@ impl ProviderSpec for OpenAiSpec {
             let resp_tx =
                 crate::providers::openai::transformers::OpenAiResponsesResponseTransformer::new()
                     .with_provider_metadata_key(provider_metadata_key);
+            let requested_store = self
+                .requested_store_from_provider_options_map(req)
+                .or_else(|| self.forced_responses_api.as_ref().and_then(|cfg| cfg.store));
             let converter =
                 crate::providers::openai::responses::OpenAiResponsesEventConverter::new()
                     .with_provider_metadata_key(provider_metadata_key)
+                    .with_requested_store(requested_store)
                     .with_request_tools(req.tools.as_deref().unwrap_or(&[]));
             let stream_tx =
                 crate::providers::openai::transformers::OpenAiResponsesStreamChunkTransformer {
