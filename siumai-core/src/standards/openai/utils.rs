@@ -421,6 +421,63 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
     convert_messages_with_target(messages, MessageConversionTarget::OpenAiCompatible)
 }
 
+/// Convert messages for the Perplexity chat-completions shape used by the AI SDK provider.
+///
+/// Perplexity differs from the generic OpenAI-compatible conversion in two important ways:
+/// text-only user/assistant content is collapsed into a single string, while image/PDF file
+/// content uses Perplexity's `image_url` / `file_url` content-part shape.
+pub fn convert_messages_perplexity_chat(
+    messages: &[ChatMessage],
+) -> Result<Vec<OpenAiMessage>, LlmError> {
+    let mut out = Vec::new();
+
+    for message in messages {
+        match message.role {
+            MessageRole::System | MessageRole::Developer => {
+                out.push(OpenAiMessage {
+                    role: match message.role {
+                        MessageRole::Developer => "developer",
+                        _ => "system",
+                    }
+                    .to_string(),
+                    content: Some(serde_json::Value::String(perplexity_text_content(
+                        &message.content,
+                    ))),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::User => {
+                out.push(OpenAiMessage {
+                    role: "user".to_string(),
+                    content: Some(perplexity_message_content(&message.content)?),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::Assistant => {
+                out.push(OpenAiMessage {
+                    role: "assistant".to_string(),
+                    content: Some(perplexity_message_content(&message.content)?),
+                    tool_calls: perplexity_assistant_tool_calls(message),
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::Tool => {
+                out.extend(convert_messages_with_target(
+                    std::slice::from_ref(message),
+                    MessageConversionTarget::OpenAiCompatible,
+                )?);
+            }
+        }
+    }
+
+    Ok(out)
+}
+
 /// Convert Siumai messages into OpenAI Chat Completions wire format.
 ///
 /// This is aligned with Vercel `@ai-sdk/openai` behavior (PDF/audio file parts).
@@ -675,6 +732,180 @@ fn convert_messages_with_target(
     }
 
     Ok(openai_messages)
+}
+
+fn perplexity_text_content(content: &MessageContent) -> String {
+    let mut text = String::new();
+    match content {
+        MessageContent::Text(value) => text.push_str(value),
+        MessageContent::MultiModal(parts) => {
+            for part in parts {
+                if let ContentPart::Text { text: value, .. } = part {
+                    text.push_str(value);
+                }
+            }
+        }
+        #[cfg(feature = "structured-messages")]
+        MessageContent::Json(value) => {
+            text.push_str(&serde_json::to_string(value).unwrap_or_default());
+        }
+    }
+    text
+}
+
+fn perplexity_message_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
+    let MessageContent::MultiModal(parts) = content else {
+        return Ok(serde_json::Value::String(perplexity_text_content(content)));
+    };
+
+    let has_multipart_content = parts.iter().any(|part| match part {
+        ContentPart::Image { .. } => true,
+        ContentPart::File { media_type, .. } => {
+            media_type.starts_with("image/") || media_type == "application/pdf"
+        }
+        _ => false,
+    });
+
+    if !has_multipart_content {
+        return Ok(serde_json::Value::String(perplexity_text_content(content)));
+    }
+
+    let mut content_parts = Vec::new();
+    for (index, part) in parts.iter().enumerate() {
+        match part {
+            ContentPart::Text { text, .. } => {
+                content_parts.push(serde_json::json!({
+                    "type": "text",
+                    "text": text,
+                }));
+            }
+            ContentPart::Image {
+                source, media_type, ..
+            } => {
+                content_parts.push(serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": perplexity_image_url(source, media_type.as_deref())?,
+                    },
+                }));
+            }
+            ContentPart::File {
+                source, media_type, ..
+            } if media_type.starts_with("image/") => {
+                content_parts.push(serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": perplexity_image_url(source, Some(media_type))?,
+                    },
+                }));
+            }
+            ContentPart::File {
+                source,
+                media_type,
+                filename,
+                ..
+            } if media_type == "application/pdf" => {
+                let mut file_part = serde_json::Map::new();
+                file_part.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("file_url".to_string()),
+                );
+                file_part.insert(
+                    "file_url".to_string(),
+                    serde_json::json!({
+                        "url": perplexity_pdf_url(source)?,
+                    }),
+                );
+
+                if let Some(file_name) = filename
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .or_else(|| {
+                        (!matches!(source, FilePartSource::Media(MediaSource::Url { .. })))
+                            .then(|| format!("document-{index}.pdf"))
+                    })
+                {
+                    file_part.insert("file_name".to_string(), serde_json::json!(file_name));
+                }
+
+                content_parts.push(serde_json::Value::Object(file_part));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(serde_json::Value::Array(content_parts))
+}
+
+fn perplexity_image_url(
+    source: &FilePartSource,
+    media_type: Option<&str>,
+) -> Result<String, LlmError> {
+    let media_type = media_type.unwrap_or("image/jpeg");
+    match source {
+        FilePartSource::Media(MediaSource::Url { url }) => Ok(url.clone()),
+        FilePartSource::Media(MediaSource::Base64 { data }) => {
+            if data.starts_with("data:") {
+                Ok(data.clone())
+            } else {
+                Ok(format!("data:{media_type};base64,{data}"))
+            }
+        }
+        FilePartSource::Media(MediaSource::Binary { data }) => {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+            Ok(format!("data:{media_type};base64,{encoded}"))
+        }
+        FilePartSource::ProviderReference { .. } => Err(LlmError::UnsupportedOperation(
+            "file parts with provider references".to_string(),
+        )),
+    }
+}
+
+fn perplexity_pdf_url(source: &FilePartSource) -> Result<String, LlmError> {
+    match source {
+        FilePartSource::Media(MediaSource::Url { url }) => Ok(url.clone()),
+        FilePartSource::Media(MediaSource::Base64 { data }) => Ok(data.clone()),
+        FilePartSource::Media(MediaSource::Binary { data }) => {
+            Ok(base64::engine::general_purpose::STANDARD.encode(data))
+        }
+        FilePartSource::ProviderReference { .. } => Err(LlmError::UnsupportedOperation(
+            "file parts with provider references".to_string(),
+        )),
+    }
+}
+
+fn perplexity_assistant_tool_calls(message: &ChatMessage) -> Option<Vec<OpenAiToolCall>> {
+    let tool_calls = message.tool_calls();
+    if tool_calls.is_empty() {
+        return None;
+    }
+
+    Some(
+        tool_calls
+            .iter()
+            .filter_map(|part| {
+                let ContentPart::ToolCall {
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                    ..
+                } = part
+                else {
+                    return None;
+                };
+
+                Some(OpenAiToolCall {
+                    id: tool_call_id.clone(),
+                    r#type: "function".to_string(),
+                    function: Some(OpenAiFunction {
+                        name: tool_name.clone(),
+                        arguments: serde_json::to_string(arguments).unwrap_or_default(),
+                    }),
+                    extra: HashMap::new(),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// Infer audio format from media type.
@@ -1876,6 +2107,72 @@ mod tests {
         assert_eq!(
             parts[0]["file"]["file_data"],
             "data:application/pdf;base64,Zm9v"
+        );
+    }
+
+    #[test]
+    fn perplexity_text_only_parts_collapse_to_string() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![
+                ContentPart::text("Hello "),
+                ContentPart::text("World"),
+            ]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let out = convert_messages_perplexity_chat(&[msg]).expect("convert messages");
+        assert_eq!(
+            out[0].content.as_ref(),
+            Some(&serde_json::json!("Hello World"))
+        );
+    }
+
+    #[test]
+    fn perplexity_pdf_file_part_maps_to_file_url_content_part() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: FilePartSource::base64("Zm9v"),
+                media_type: "application/pdf".to_string(),
+                filename: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let out = convert_messages_perplexity_chat(&[msg]).expect("convert messages");
+        let content = out[0].content.clone().expect("content");
+        let parts = content.as_array().expect("array");
+        assert_eq!(parts[0]["type"], "file_url");
+        assert_eq!(parts[0]["file_url"]["url"], "Zm9v");
+        assert_eq!(parts[0]["file_name"], "document-0.pdf");
+    }
+
+    #[test]
+    fn perplexity_file_provider_reference_is_rejected() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: FilePartSource::provider_reference(ProviderReference::single(
+                    "perplexity",
+                    "file-abc",
+                )),
+                media_type: "application/pdf".to_string(),
+                filename: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let err = convert_messages_perplexity_chat(&[msg]).expect_err("provider reference error");
+        assert!(
+            matches!(err, LlmError::UnsupportedOperation(message) if message == "file parts with provider references")
         );
     }
 

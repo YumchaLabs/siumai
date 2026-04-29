@@ -14,7 +14,7 @@ use crate::error::LlmError;
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
-use crate::standards::openai::utils::convert_messages;
+use crate::standards::openai::utils::{convert_messages, convert_messages_perplexity_chat};
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
 use crate::types::{
@@ -40,7 +40,11 @@ impl RequestTransformer for CompatRequestTransformer {
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
         // Convert messages into OpenAI-like format
-        let openai_messages = convert_messages(&req.messages)?;
+        let openai_messages = if self.config.provider_id.eq_ignore_ascii_case("perplexity") {
+            convert_messages_perplexity_chat(&req.messages)?
+        } else {
+            convert_messages(&req.messages)?
+        };
         let mut body = serde_json::json!({
             "model": self.config.model,
             "messages": openai_messages,
@@ -624,7 +628,7 @@ mod tests {
     use super::super::types as compat_types;
     use super::super::types::RequestType;
     use super::*;
-    use crate::types::FinishReason;
+    use crate::types::{FinishReason, MessageMetadata, MessageRole, ProviderOptionsMap};
 
     #[derive(Debug, Clone)]
     #[allow(dead_code)]
@@ -783,6 +787,71 @@ mod tests {
                 url: "https://example.com/book".to_string(),
                 title: None,
             }
+        );
+    }
+
+    #[test]
+    fn perplexity_request_transformer_uses_ai_sdk_message_content_shape() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "perplexity".to_string(),
+                name: "Perplexity".to_string(),
+                base_url: "https://api.perplexity.ai".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("sonar-pro".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "perplexity",
+            "test-key",
+            "https://api.perplexity.ai",
+            adapter.clone(),
+        )
+        .with_model("sonar-pro");
+
+        let tx = CompatRequestTransformer { config, adapter };
+        let req = ChatRequest::builder()
+            .model("sonar-pro")
+            .messages(vec![
+                crate::types::ChatMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::MultiModal(vec![
+                        ContentPart::text("Hello "),
+                        ContentPart::text("World"),
+                    ]),
+                    metadata: MessageMetadata::default(),
+                    provider_options: ProviderOptionsMap::default(),
+                },
+                crate::types::ChatMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::MultiModal(vec![ContentPart::File {
+                        source: crate::types::FilePartSource::base64("Zm9v"),
+                        media_type: "application/pdf".to_string(),
+                        filename: None,
+                        provider_options: ProviderOptionsMap::default(),
+                        provider_metadata: None,
+                    }]),
+                    metadata: MessageMetadata::default(),
+                    provider_options: ProviderOptionsMap::default(),
+                },
+            ])
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["messages"][0]["content"],
+            serde_json::json!("Hello World")
+        );
+        assert_eq!(
+            body["messages"][1]["content"][0],
+            serde_json::json!({
+                "type": "file_url",
+                "file_url": { "url": "Zm9v" },
+                "file_name": "document-0.pdf",
+            })
         );
     }
 
