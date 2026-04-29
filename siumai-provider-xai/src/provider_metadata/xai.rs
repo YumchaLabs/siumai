@@ -15,6 +15,14 @@ pub struct XaiMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sources: Option<Vec<XaiSource>>,
 
+    /// Cost returned by xAI Responses usage, in USD ticks.
+    #[serde(
+        rename = "costInUsdTicks",
+        alias = "cost_in_usd_ticks",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cost_in_usd_ticks: Option<u64>,
+
     /// Logprobs extracted from Responses / Chat Completions outputs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<serde_json::Value>,
@@ -93,6 +101,7 @@ mod tests {
             "logprobs".to_string(),
             serde_json::json!([{ "token": "hello", "logprob": -0.1 }]),
         );
+        inner.insert("costInUsdTicks".to_string(), serde_json::json!(113500));
         inner.insert("vendor_extra".to_string(), serde_json::json!(true));
 
         let mut outer = HashMap::new();
@@ -104,6 +113,7 @@ mod tests {
 
         let meta = resp.xai_metadata().expect("xai metadata");
         assert_eq!(meta.sources.as_ref().map(Vec::len), Some(1));
+        assert_eq!(meta.cost_in_usd_ticks, Some(113500));
         assert!(meta.logprobs.is_some());
         assert_eq!(
             meta.extra.get("vendor_extra"),

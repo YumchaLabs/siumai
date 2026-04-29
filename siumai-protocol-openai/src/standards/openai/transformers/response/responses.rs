@@ -1,6 +1,9 @@
 use crate::error::LlmError;
 use crate::execution::transformers::response::ResponseTransformer;
-use crate::standards::openai::utils::{parse_openai_usage_value, parse_xai_responses_usage_value};
+use crate::standards::openai::utils::{
+    parse_openai_usage_value, parse_xai_responses_usage_value,
+    xai_responses_usage_provider_metadata_value,
+};
 use crate::types::ChatResponse;
 
 #[cfg(feature = "openai-responses")]
@@ -1249,7 +1252,9 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         // Provider metadata (Vercel-aligned): sources extracted from provider tool results and
         // message annotations.
         let provider_metadata = if xai_style {
-            None
+            root.get("usage")
+                .and_then(xai_responses_usage_provider_metadata_value)
+                .map(|metadata| self.single_provider_metadata_map(metadata))
         } else {
             let mut sources: Vec<serde_json::Value> = Vec::new();
             let mut seen_source_keys: std::collections::HashSet<String> =
@@ -1878,6 +1883,7 @@ mod tests {
                     "input_tokens": 4142,
                     "output_tokens": 254,
                     "total_tokens": 4396,
+                    "cost_in_usd_ticks": 113500,
                     "input_tokens_details": {
                         "cached_tokens": 4328
                     },
@@ -1905,6 +1911,8 @@ mod tests {
             usage.raw_usage_value().expect("raw usage")["input_tokens"],
             serde_json::json!(4142)
         );
+        let metadata = resp.provider_metadata.as_ref().expect("provider metadata");
+        assert_eq!(metadata["xai"]["costInUsdTicks"], serde_json::json!(113500));
     }
 
     #[test]

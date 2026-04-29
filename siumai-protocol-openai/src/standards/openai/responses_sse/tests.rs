@@ -170,6 +170,57 @@ fn xai_responses_event_converter_usage_update_uses_xai_semantics() {
 }
 
 #[test]
+fn xai_responses_completed_finish_exposes_cost_provider_metadata() {
+    let conv = OpenAiResponsesEventConverter::new()
+        .with_stream_parts_style(StreamPartsStyle::Xai)
+        .with_responses_transform_style(
+            crate::standards::openai::transformers::ResponsesTransformStyle::Xai,
+        )
+        .with_provider_metadata_key("xai");
+    let event = eventsource_stream::Event {
+        event: "response.completed".to_string(),
+        data: r#"{"type":"response.completed","response":{"id":"resp_xai_cost","object":"response","model":"grok-4-fast","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":5,"cost_in_usd_ticks":113500}}}"#.to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+
+    let fut = conv.convert_event(event);
+    let events = futures::executor::block_on(fut);
+    assert!(events.is_empty());
+
+    let pending = conv.handle_stream_end_events();
+    let finish = pending
+        .iter()
+        .find_map(|event| match event {
+            Ok(crate::streaming::ChatStreamEvent::Part {
+                part:
+                    crate::types::ChatStreamPart::Finish {
+                        provider_metadata, ..
+                    },
+            }) => provider_metadata.as_ref(),
+            _ => None,
+        })
+        .expect("finish provider metadata");
+
+    assert_eq!(finish["xai"]["costInUsdTicks"], serde_json::json!(113500));
+
+    let response = pending
+        .iter()
+        .find_map(|event| match event {
+            Ok(crate::streaming::ChatStreamEvent::StreamEnd { response }) => Some(response),
+            _ => None,
+        })
+        .expect("stream end response");
+    assert_eq!(
+        response
+            .provider_metadata
+            .as_ref()
+            .expect("response provider metadata")["xai"]["costInUsdTicks"],
+        serde_json::json!(113500)
+    );
+}
+
+#[test]
 fn test_responses_event_converter_done() {
     let conv = OpenAiResponsesEventConverter::new();
     let event = eventsource_stream::Event {

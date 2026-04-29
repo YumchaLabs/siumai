@@ -752,6 +752,13 @@ pub fn parse_xai_responses_usage_value(value: &serde_json::Value) -> Option<Usag
     siumai_core::standards::openai::utils::parse_xai_responses_usage_value(value)
 }
 
+/// Extract xAI Responses usage-owned provider metadata.
+pub fn xai_responses_usage_provider_metadata_value(
+    value: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    siumai_core::standards::openai::utils::xai_responses_usage_provider_metadata_value(value)
+}
+
 /// Convert unified `Usage` into OpenAI Chat Completions usage JSON.
 pub fn openai_chat_usage_value(usage: &Usage) -> serde_json::Value {
     siumai_core::standards::openai::utils::openai_chat_usage_value(usage)

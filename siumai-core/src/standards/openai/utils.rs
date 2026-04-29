@@ -1451,6 +1451,18 @@ pub fn parse_xai_responses_usage_value(value: &Value) -> Option<Usage> {
     parse_normalized_openai_usage_with_raw(normalized, raw)
 }
 
+/// Extract xAI Responses usage-owned provider metadata.
+///
+/// AI SDK exposes `usage.cost_in_usd_ticks` as
+/// `providerMetadata.xai.costInUsdTicks` instead of folding it into unified usage.
+pub fn xai_responses_usage_provider_metadata_value(value: &Value) -> Option<Value> {
+    let object = value.as_object()?;
+    let cost = usage_value(object, &["cost_in_usd_ticks", "costInUsdTicks"])
+        .filter(|value| !value.is_null())?;
+
+    Some(serde_json::json!({ "costInUsdTicks": cost.clone() }))
+}
+
 fn normalize_deepinfra_usage_value<'a>(value: &'a Value) -> Cow<'a, Value> {
     let Some(object) = value.as_object() else {
         return Cow::Borrowed(value);
@@ -2488,6 +2500,18 @@ mod tests {
             usage.raw_usage_value().expect("raw usage")["input_tokens"],
             serde_json::json!(4142)
         );
+    }
+
+    #[test]
+    fn xai_responses_usage_provider_metadata_maps_cost_ticks() {
+        let metadata = xai_responses_usage_provider_metadata_value(&serde_json::json!({
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cost_in_usd_ticks": 113500
+        }))
+        .expect("provider metadata");
+
+        assert_eq!(metadata["costInUsdTicks"], serde_json::json!(113500));
     }
 
     #[test]

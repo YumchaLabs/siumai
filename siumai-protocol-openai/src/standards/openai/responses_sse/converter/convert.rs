@@ -352,6 +352,11 @@ impl OpenAiResponsesEventConverter {
                 .and_then(|r| r.get("status"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let provider_metadata =
+                crate::standards::openai::utils::xai_responses_usage_provider_metadata_value(
+                    &raw_usage,
+                )
+                .and_then(|metadata| self.part_provider_metadata(metadata));
 
             return Some(crate::streaming::ChatStreamEvent::Part {
                 part: crate::types::ChatStreamPart::Finish {
@@ -360,7 +365,7 @@ impl OpenAiResponsesEventConverter {
                         unified,
                         raw: raw_finish,
                     },
-                    provider_metadata: None,
+                    provider_metadata,
                 },
             });
         }
