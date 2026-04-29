@@ -87,7 +87,7 @@ impl OpenAiResponsesResponseTransformer {
             .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
     }
 
-    fn xai_file_search_results(item: &serde_json::Value) -> serde_json::Value {
+    fn file_search_results(item: &serde_json::Value) -> serde_json::Value {
         let Some(results) = item.get("results") else {
             return serde_json::Value::Null;
         };
@@ -110,6 +110,11 @@ impl OpenAiResponsesResponseTransformer {
                     {
                         out.insert("filename".to_string(), filename.clone());
                     }
+                    if let Some(attributes) = result.get("attributes")
+                        && !attributes.is_null()
+                    {
+                        out.insert("attributes".to_string(), attributes.clone());
+                    }
                     if let Some(score) = result.get("score")
                         && !score.is_null()
                     {
@@ -124,6 +129,41 @@ impl OpenAiResponsesResponseTransformer {
                 })
                 .collect(),
         )
+    }
+
+    fn json_string(value: &serde_json::Value) -> String {
+        serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
+    }
+
+    fn local_shell_generate_input(item: &serde_json::Value) -> String {
+        const ORDERED_ACTION_KEYS: [&str; 6] = [
+            "type",
+            "command",
+            "timeout_ms",
+            "user",
+            "working_directory",
+            "env",
+        ];
+
+        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
+        let Some(action_obj) = action.as_object() else {
+            return format!("{{\"action\":{}}}", Self::json_string(action));
+        };
+
+        let mut fields = Vec::new();
+        for key in ORDERED_ACTION_KEYS {
+            if let Some(value) = action_obj.get(key) {
+                fields.push(format!("\"{key}\":{}", Self::json_string(value)));
+            }
+        }
+        for (key, value) in action_obj {
+            if !ORDERED_ACTION_KEYS.contains(&key.as_str()) {
+                let key = serde_json::to_string(key).unwrap_or_else(|_| "\"\"".to_string());
+                fields.push(format!("{key}:{}", Self::json_string(value)));
+            }
+        }
+
+        format!("{{\"action\":{{{}}}}}", fields.join(","))
     }
 
     fn shell_environment_is_provider_executed(value: &serde_json::Value) -> bool {
@@ -722,12 +762,12 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         let result = if xai_style {
                             serde_json::json!({
                                 "queries": Self::xai_file_search_queries(item),
-                                "results": Self::xai_file_search_results(item),
+                                "results": Self::file_search_results(item),
                             })
                         } else {
                             serde_json::json!({
                                 "queries": item.get("queries").cloned().unwrap_or(serde_json::Value::Null),
-                                "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
+                                "results": Self::file_search_results(item),
                             })
                         };
                         let tool_name = if xai_style {
@@ -1063,30 +1103,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             continue;
                         }
 
-                        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
-                        // NOTE: serde_json serializes object keys in sorted order by default, but Vercel's
-                        // JSON.stringify preserves insertion order. Build the JSON string manually to match.
-                        let action_type = serde_json::to_string(
-                            action.get("type").unwrap_or(&serde_json::json!("exec")),
-                        )
-                        .unwrap_or_else(|_| "\"exec\"".to_string());
-                        let command = serde_json::to_string(
-                            action.get("command").unwrap_or(&serde_json::json!([])),
-                        )
-                        .unwrap_or_else(|_| "[]".to_string());
-                        let working_directory = serde_json::to_string(
-                            action
-                                .get("working_directory")
-                                .unwrap_or(&serde_json::json!("/")),
-                        )
-                        .unwrap_or_else(|_| "\"/\"".to_string());
-                        let env = serde_json::to_string(
-                            action.get("env").unwrap_or(&serde_json::json!({})),
-                        )
-                        .unwrap_or_else(|_| "{}".to_string());
-                        let input_str = format!(
-                            "{{\"action\":{{\"type\":{action_type},\"command\":{command},\"working_directory\":{working_directory},\"env\":{env}}}}}"
-                        );
+                        // AI SDK doGenerate preserves OpenAI's raw action shape for local_shell_call.
+                        let input_str = Self::local_shell_generate_input(item);
 
                         let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
                             self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
@@ -1938,7 +1956,7 @@ mod tests {
                         "id": "fs_1",
                         "queries": ["rust 1.85 release notes"],
                         "results": [
-                            {"file_id": "file_1", "filename": "notes.md", "score": 0.9, "text": "..." }
+                            {"file_id": "file_1", "filename": "notes.md", "attributes": {"topic": "rust"}, "score": 0.9, "text": "..." }
                         ]
                     },
                     {
@@ -2036,6 +2054,29 @@ mod tests {
         assert_eq!(source_meta.file_id.as_deref(), Some("file_1"));
         assert!(source_meta.container_id.is_none());
         assert!(source_meta.index.is_none());
+
+        let file_search_result = parts
+            .iter()
+            .find(|part| {
+                matches!(
+                    part,
+                    crate::types::ContentPart::ToolResult { tool_name, .. }
+                        if tool_name == "fileSearch"
+                )
+            })
+            .expect("file search tool result");
+        let crate::types::ContentPart::ToolResult { output, .. } = file_search_result else {
+            unreachable!("expected file search tool result");
+        };
+        let crate::types::ToolResultOutput::Json { value, .. } = output else {
+            panic!("expected JSON file search output");
+        };
+        assert_eq!(value["results"][0]["fileId"], serde_json::json!("file_1"));
+        assert_eq!(
+            value["results"][0]["attributes"]["topic"],
+            serde_json::json!("rust")
+        );
+        assert!(value["results"][0].get("file_id").is_none());
 
         let cited_document = sources
             .iter()
@@ -2604,8 +2645,8 @@ mod tests {
                         "action": {
                             "type": "exec",
                             "command": ["pwd"],
-                            "working_directory": "/tmp",
-                            "env": {}
+                            "timeout_ms": 1000,
+                            "user": "coder"
                         }
                     },
                     {
@@ -2661,6 +2702,42 @@ mod tests {
         let resp = tx.transform_chat_response(&raw).unwrap();
         let parts = resp.content.as_multimodal().expect("expected multimodal");
         assert_eq!(parts.len(), 6);
+
+        match &parts[0] {
+            crate::types::ContentPart::ToolCall {
+                tool_call_id,
+                tool_name,
+                arguments,
+                provider_executed,
+                dynamic,
+                provider_metadata,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_local");
+                assert_eq!(tool_name, "shell");
+                assert_eq!(*provider_executed, None);
+                assert_eq!(*dynamic, Some(true));
+                assert_eq!(
+                    provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("openai"))
+                        .and_then(|metadata| metadata.get("itemId")),
+                    Some(&serde_json::json!("lsh_1"))
+                );
+                let input: serde_json::Value =
+                    serde_json::from_str(arguments.as_str().expect("local shell input string"))
+                        .expect("local shell input JSON");
+                assert_eq!(input["action"]["type"], serde_json::json!("exec"));
+                assert_eq!(input["action"]["command"], serde_json::json!(["pwd"]));
+                assert_eq!(input["action"]["timeout_ms"], serde_json::json!(1000));
+                assert_eq!(input["action"]["user"], serde_json::json!("coder"));
+                assert!(input["action"].get("timeoutMs").is_none());
+                assert!(input["action"].get("working_directory").is_none());
+                assert!(input["action"].get("workingDirectory").is_none());
+                assert!(input["action"].get("env").is_none());
+            }
+            other => panic!("expected local shell tool call, got {other:?}"),
+        }
 
         match &parts[2] {
             crate::types::ContentPart::ToolCall {
