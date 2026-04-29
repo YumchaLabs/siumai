@@ -983,6 +983,30 @@ impl OpenAiResponsesRequestTransformer {
                                     continue;
                                 }
 
+                                if resolved_tool_name == "apply_patch" {
+                                    let call_id = arguments
+                                        .get("callId")
+                                        .or_else(|| arguments.get("call_id"))
+                                        .and_then(|value| value.as_str())
+                                        .unwrap_or(tool_call_id);
+                                    let operation =
+                                        arguments.get("operation").cloned().unwrap_or_default();
+
+                                    let mut call = serde_json::json!({
+                                        "type": "apply_patch_call",
+                                        "call_id": call_id,
+                                        "status": "completed",
+                                        "operation": operation,
+                                    });
+                                    if let Some(id) = item_id.as_deref() {
+                                        call["id"] = serde_json::json!(id);
+                                    } else if Self::is_xai_request(req) {
+                                        call["id"] = serde_json::json!(tool_call_id);
+                                    }
+                                    input.push(call);
+                                    continue;
+                                }
+
                                 if Self::is_openai_custom_provider_tool_name(
                                     req,
                                     resolved_tool_name,
@@ -2609,6 +2633,66 @@ mod tests {
         assert_eq!(
             input[1]["tools"][0]["name"],
             serde_json::json!("get_weather")
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_transform_chat_maps_apply_patch_call_item() {
+        use crate::types::{
+            ChatMessage, ContentPart, MessageContent, MessageMetadata, MessageRole,
+        };
+
+        let tx = OpenAiResponsesRequestTransformer;
+
+        let mut provider_options = ProviderOptionsMap::default();
+        provider_options.insert("openai", serde_json::json!({ "itemId": "apc_item_1" }));
+
+        let assistant = ChatMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiModal(vec![ContentPart::ToolCall {
+                tool_call_id: "call_apply_patch_1".to_string(),
+                tool_name: "apply_patch".to_string(),
+                arguments: serde_json::json!({
+                    "callId": "call_apply_patch_1",
+                    "operation": {
+                        "type": "update_file",
+                        "path": "src/lib.rs",
+                        "diff": "@@\n-old\n+new\n"
+                    }
+                }),
+                provider_executed: None,
+                dynamic: Some(true),
+                invalid: None,
+                error: None,
+                title: None,
+                provider_options,
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let request = ChatRequest::builder()
+            .message(assistant)
+            .tools(vec![siumai_core::tools::openai::apply_patch()])
+            .provider_option("openai", serde_json::json!({ "store": false }))
+            .model("gpt-5")
+            .build();
+
+        let body = tx.transform_chat(&request).expect("transform chat");
+        let input = body["input"].as_array().expect("input array");
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["type"], serde_json::json!("apply_patch_call"));
+        assert_eq!(input[0]["call_id"], serde_json::json!("call_apply_patch_1"));
+        assert_eq!(input[0]["id"], serde_json::json!("apc_item_1"));
+        assert_eq!(
+            input[0]["operation"]["type"],
+            serde_json::json!("update_file")
+        );
+        assert_eq!(
+            input[0]["operation"]["path"],
+            serde_json::json!("src/lib.rs")
         );
     }
 
