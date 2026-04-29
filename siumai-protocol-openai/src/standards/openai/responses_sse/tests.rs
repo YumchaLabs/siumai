@@ -1005,6 +1005,133 @@ fn responses_tool_search_stream_maps_call_and_output() {
 }
 
 #[test]
+fn responses_mcp_approval_request_emits_call_and_approval_on_done() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let ev_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"mcpr_1","type":"mcp_approval_request","arguments":"{\"url\":\"https://ai-sdk.dev\"}","name":"create_short_url","server_label":"zip1"}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out_added = futures::executor::block_on(conv.convert_event(ev_added));
+    assert!(
+        out_added.is_empty(),
+        "AI SDK defers MCP approval parts until output_item.done"
+    );
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"mcpr_1","type":"mcp_approval_request","arguments":"{\"url\":\"https://ai-sdk.dev\"}","name":"create_short_url","server_label":"zip1"}}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let out_done = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out_done.len(), 2);
+
+    match stream_part(&out_done[0]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "id-0");
+            assert_eq!(call.tool_name, "mcp.create_short_url");
+            assert_eq!(call.provider_executed, Some(true));
+            assert_eq!(call.dynamic, Some(true));
+            assert_eq!(call.input, "{\"url\":\"https://ai-sdk.dev\"}");
+        }
+        other => panic!("expected tool-call part, got {other:?}"),
+    }
+
+    match stream_part(&out_done[1]).expect("tool-approval-request part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolApprovalRequest(request) => {
+            assert_eq!(request.approval_id, "mcpr_1");
+            assert_eq!(request.tool_call_id, "id-0");
+        }
+        other => panic!("expected tool-approval-request part, got {other:?}"),
+    }
+}
+
+#[test]
+fn responses_mcp_call_waits_for_done_and_maps_result_shape() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let ev_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":1,"item":{"id":"mcp_1","type":"mcp_call","status":"in_progress","approval_request_id":null,"arguments":"","error":null,"name":"search","output":null,"server_label":"dmcp"}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out_added = futures::executor::block_on(conv.convert_event(ev_added));
+    assert!(out_added.is_empty());
+
+    let ev_args_done = eventsource_stream::Event {
+        event: "response.mcp_call_arguments.done".to_string(),
+        data: r#"{"type":"response.mcp_call_arguments.done","output_index":1,"item_id":"mcp_1","arguments":"{\"query\":\"rust\"}"}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let out_args_done = futures::executor::block_on(conv.convert_event(ev_args_done));
+    assert!(
+        out_args_done.is_empty(),
+        "AI SDK emits MCP tool-call on output_item.done, not arguments.done"
+    );
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":1,"item":{"id":"mcp_1","type":"mcp_call","status":"completed","approval_request_id":null,"arguments":"{\"query\":\"rust\"}","error":{"message":"rate limited"},"name":"search","output":null,"server_label":"dmcp"}}"#
+            .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let out_done = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out_done.len(), 2);
+
+    match stream_part(&out_done[0]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "mcp_1");
+            assert_eq!(call.tool_name, "mcp.search");
+            assert_eq!(call.provider_executed, Some(true));
+            assert_eq!(call.dynamic, Some(true));
+            assert_eq!(call.input, "{\"query\":\"rust\"}");
+        }
+        other => panic!("expected tool-call part, got {other:?}"),
+    }
+
+    match stream_part(&out_done[1]).expect("tool-result part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+            assert_eq!(result.tool_call_id, "mcp_1");
+            assert_eq!(result.tool_name, "mcp.search");
+            assert_eq!(result.dynamic, Some(true));
+            assert_eq!(result.result["type"], serde_json::json!("call"));
+            assert_eq!(result.result["serverLabel"], serde_json::json!("dmcp"));
+            assert_eq!(
+                result.result["arguments"],
+                serde_json::json!("{\"query\":\"rust\"}")
+            );
+            assert_eq!(
+                result.result["error"]["message"],
+                serde_json::json!("rate limited")
+            );
+            assert!(
+                result.result.get("output").is_none(),
+                "AI SDK omits null MCP output"
+            );
+            assert_eq!(
+                result
+                    .provider_metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("openai"))
+                    .and_then(|metadata| metadata.get("itemId")),
+                Some(&serde_json::json!("mcp_1"))
+            );
+        }
+        other => panic!("expected tool-result part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_client_tool_search_stream_uses_final_call_id() {
     let tools = [siumai_core::tools::openai::tool_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);

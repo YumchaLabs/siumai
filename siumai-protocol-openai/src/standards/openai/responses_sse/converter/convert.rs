@@ -1380,41 +1380,12 @@ impl OpenAiResponsesEventConverter {
 
         let (default_tool_name, input) = match item_type {
             "mcp_call" => {
-                // MCP tool calls stream arguments separately. Record metadata here,
-                // emit tool-call when arguments are available.
-                let item_id = item.get("id")?.as_str()?;
-                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let server_label = item
-                    .get("server_label")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                self.record_mcp_call_added(item_id, name, server_label);
+                // MCP tool-call/result parts are emitted on output_item.done, matching AI SDK.
                 return None;
             }
             "mcp_approval_request" => {
-                // Vercel alignment: represent approval request as a dynamic tool-call
-                // followed by a tool-approval-request (emitted on output_item.done).
-                let approval_id = item.get("id")?.as_str()?;
-                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let args = item
-                    .get("arguments")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("{}");
-                let tool_call_id = self.mcp_approval_tool_call_id(approval_id);
-                let tool_name = format!("mcp.{name}");
-
-                return Some(vec![self.openai_tool_call_event(
-                    &tool_call_id,
-                    &tool_name,
-                    serde_json::json!(args),
-                    Some(true),
-                    Some(true),
-                    None,
-                    OpenAiResponsesEventExtras {
-                        output_index,
-                        raw_item: Some(serde_json::Value::Object(item.clone())),
-                    },
-                )]);
+                // MCP approval requests are emitted on output_item.done, matching AI SDK.
+                return None;
             }
             "custom_tool_call" => {
                 // xAI x_search emits internal custom tool calls (e.g. `x_keyword_search`) and streams
@@ -1702,6 +1673,25 @@ impl OpenAiResponsesEventConverter {
                 }
 
                 let tool_call_id = self.mcp_approval_tool_call_id(approval_id);
+                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let args = item
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("{}");
+                let tool_name = format!("mcp.{name}");
+
+                extra_events.push(self.openai_tool_call_event(
+                    &tool_call_id,
+                    &tool_name,
+                    serde_json::json!(args),
+                    Some(true),
+                    Some(true),
+                    None,
+                    OpenAiResponsesEventExtras {
+                        output_index,
+                        raw_item: Some(serde_json::Value::Object(item.clone())),
+                    },
+                ));
                 extra_events.push(self.openai_tool_approval_request_event(
                     approval_id,
                     &tool_call_id,
@@ -1731,6 +1721,10 @@ impl OpenAiResponsesEventConverter {
                     .get("output")
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
+                let error = item
+                    .get("error")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
 
                 let tool_name = format!("mcp.{name}");
                 let tool_name_for_result = tool_name.clone();
@@ -1757,27 +1751,43 @@ impl OpenAiResponsesEventConverter {
                 }
                 self.mark_mcp_result_emitted(tool_call_id);
 
-                return Some(vec![self.openai_tool_result_event(
+                let mut result = serde_json::Map::new();
+                result.insert("type".to_string(), serde_json::json!("call"));
+                result.insert(
+                    "serverLabel".to_string(),
+                    serde_json::Value::String(server_label.to_string()),
+                );
+                result.insert(
+                    "name".to_string(),
+                    serde_json::Value::String(name.to_string()),
+                );
+                result.insert(
+                    "arguments".to_string(),
+                    serde_json::Value::String(args_for_result),
+                );
+                if !output.is_null() {
+                    result.insert("output".to_string(), output);
+                }
+                if !error.is_null() {
+                    result.insert("error".to_string(), error);
+                }
+                let provider_metadata = (!item_id.is_empty())
+                    .then(|| self.provider_metadata_json(serde_json::json!({ "itemId": item_id })));
+
+                extra_events.push(self.openai_tool_result_event(
                     tool_call_id,
                     &tool_name_for_result,
-                    serde_json::json!({
-                        "type": "call",
-                        "serverLabel": server_label,
-                        "name": name,
-                        "arguments": args_for_result,
-                        "output": output,
-                    }),
+                    serde_json::Value::Object(result),
                     Some(true),
                     Some(true),
                     None,
-                    Some(self.provider_metadata_json(serde_json::json!({
-                        "itemId": tool_call_id,
-                    }))),
+                    provider_metadata,
                     OpenAiResponsesEventExtras {
                         output_index,
                         raw_item: Some(serde_json::Value::Object(item.clone())),
                     },
-                )]);
+                ));
+                return Some(extra_events);
             }
             "web_search_call" => {
                 if !self.emit_web_search_tool_result {
@@ -2272,29 +2282,7 @@ impl OpenAiResponsesEventConverter {
         let item_id = json.get("item_id").and_then(|v| v.as_str())?;
         let args = json.get("arguments").and_then(|v| v.as_str())?;
         self.record_mcp_call_args(item_id, args);
-
-        if self.has_emitted_mcp_call(item_id) {
-            return None;
-        }
-
-        let (name, _server_label) = self.mcp_call_meta(item_id)?;
-        self.mark_mcp_call_emitted(item_id);
-
-        let tool_name = format!("mcp.{name}");
-        let output_index = json.get("output_index").and_then(|v| v.as_u64());
-
-        Some(self.openai_tool_call_event(
-            item_id,
-            &tool_name,
-            serde_json::json!(args),
-            Some(true),
-            Some(true),
-            None,
-            OpenAiResponsesEventExtras {
-                output_index,
-                raw_item: None,
-            },
-        ))
+        None
     }
 
     pub(super) fn convert_mcp_items_from_completed(
@@ -2338,8 +2326,33 @@ impl OpenAiResponsesEventConverter {
                         .get("output")
                         .cloned()
                         .unwrap_or(serde_json::Value::Null);
+                    let error = item
+                        .get("error")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
                     let tool_name = format!("mcp.{name}");
                     let tool_name_for_result = tool_name.clone();
+
+                    let mut result = serde_json::Map::new();
+                    result.insert("type".to_string(), serde_json::json!("call"));
+                    result.insert(
+                        "serverLabel".to_string(),
+                        serde_json::Value::String(server_label.to_string()),
+                    );
+                    result.insert(
+                        "name".to_string(),
+                        serde_json::Value::String(name.to_string()),
+                    );
+                    result.insert(
+                        "arguments".to_string(),
+                        serde_json::Value::String(args.to_string()),
+                    );
+                    if !output.is_null() {
+                        result.insert("output".to_string(), output);
+                    }
+                    if !error.is_null() {
+                        result.insert("error".to_string(), error);
+                    }
 
                     if !self.has_emitted_mcp_call(tool_call_id) {
                         events.push(self.openai_tool_call_event(
@@ -2357,13 +2370,7 @@ impl OpenAiResponsesEventConverter {
                     events.push(self.openai_tool_result_event(
                         tool_call_id,
                         &tool_name_for_result,
-                        serde_json::json!({
-                            "type": "call",
-                            "serverLabel": server_label,
-                            "name": name,
-                            "arguments": args,
-                            "output": output,
-                        }),
+                        serde_json::Value::Object(result),
                         Some(true),
                         Some(true),
                         None,

@@ -1,26 +1,11 @@
 use super::*;
 
 impl OpenAiResponsesEventConverter {
-    pub(super) fn record_mcp_call_added(&self, item_id: &str, name: &str, server_label: &str) {
-        let Ok(mut map) = self.mcp_calls_by_item_id.lock() else {
-            return;
-        };
-        map.insert(
-            item_id.to_string(),
-            (name.to_string(), server_label.to_string()),
-        );
-    }
-
     pub(super) fn record_mcp_call_args(&self, item_id: &str, args: &str) {
         let Ok(mut map) = self.mcp_call_args_by_item_id.lock() else {
             return;
         };
         map.insert(item_id.to_string(), args.to_string());
-    }
-
-    pub(super) fn mcp_call_meta(&self, item_id: &str) -> Option<(String, String)> {
-        let map = self.mcp_calls_by_item_id.lock().ok()?;
-        map.get(item_id).cloned()
     }
 
     pub(super) fn mcp_call_args(&self, item_id: &str) -> Option<String> {
