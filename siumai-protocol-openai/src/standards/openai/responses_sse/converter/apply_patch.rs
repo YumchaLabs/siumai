@@ -29,6 +29,22 @@ impl OpenAiResponsesEventConverter {
         map.get(item_id).cloned()
     }
 
+    pub(super) fn mark_apply_patch_diff_seen(&self, call_id: &str) {
+        if call_id.is_empty() {
+            return;
+        }
+        if let Ok(mut set) = self.apply_patch_diff_seen_call_ids.lock() {
+            set.insert(call_id.to_string());
+        }
+    }
+
+    pub(super) fn has_seen_apply_patch_diff(&self, call_id: &str) -> bool {
+        self.apply_patch_diff_seen_call_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(call_id))
+    }
+
     pub(super) fn mark_apply_patch_tool_input_start_emitted(&self, id: &str) -> bool {
         let Ok(mut set) = self.emitted_apply_patch_tool_input_start_ids.lock() else {
             return false;

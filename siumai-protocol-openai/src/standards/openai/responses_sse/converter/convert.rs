@@ -43,6 +43,18 @@ impl OpenAiResponsesEventConverter {
             .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
     }
 
+    fn escape_json_delta(delta: &str) -> String {
+        serde_json::to_string(delta)
+            .ok()
+            .and_then(|value| {
+                value
+                    .strip_prefix('"')
+                    .and_then(|value| value.strip_suffix('"'))
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| delta.to_string())
+    }
+
     fn file_search_results_from_object(
         item: &serde_json::Map<String, serde_json::Value>,
     ) -> serde_json::Value {
@@ -1103,7 +1115,9 @@ impl OpenAiResponsesEventConverter {
             return None;
         }
 
-        Some(self.openai_tool_input_delta_event(&call_id, delta))
+        self.mark_apply_patch_diff_seen(&call_id);
+        let escaped_delta = Self::escape_json_delta(delta);
+        Some(self.openai_tool_input_delta_event(&call_id, &escaped_delta))
     }
 
     pub(super) fn convert_apply_patch_operation_diff_done(
@@ -1120,6 +1134,15 @@ impl OpenAiResponsesEventConverter {
         }
 
         let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+        if !self.has_seen_apply_patch_diff(&call_id)
+            && let Some(diff) = json.get("diff").and_then(|v| v.as_str())
+            && !diff.is_empty()
+        {
+            let escaped_diff = Self::escape_json_delta(diff);
+            events.push(self.openai_tool_input_delta_event(&call_id, &escaped_diff));
+            self.mark_apply_patch_diff_seen(&call_id);
+        }
 
         // Close the open `diff` string and the surrounding objects: `"}}`
         events.push(self.openai_tool_input_delta_event(&call_id, "\"}}"));
@@ -1207,7 +1230,8 @@ impl OpenAiResponsesEventConverter {
             events.push(self.openai_tool_input_delta_event(item_id, &prefix));
         }
 
-        events.push(self.openai_tool_input_delta_event(item_id, delta));
+        let escaped_delta = Self::escape_json_delta(delta);
+        events.push(self.openai_tool_input_delta_event(item_id, &escaped_delta));
 
         Some(events)
     }

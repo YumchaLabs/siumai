@@ -32,6 +32,19 @@ fn stream_part(
     crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event.as_ref().ok()?)
 }
 
+fn append_tool_input_deltas(
+    events: &[Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>],
+    out: &mut String,
+) {
+    for event in events {
+        if let Some(crate::streaming::LanguageModelV3StreamPart::ToolInputDelta { delta, .. }) =
+            stream_part(event)
+        {
+            out.push_str(&delta);
+        }
+    }
+}
+
 fn openai_responses_raw_item(
     event: &Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>,
 ) -> Option<&serde_json::Value> {
@@ -641,6 +654,182 @@ fn responses_file_search_stream_maps_ai_sdk_result_shape() {
         }
         other => panic!("expected tool-result part, got {other:?}"),
     }
+}
+
+#[test]
+fn responses_code_interpreter_code_delta_escapes_json_string() {
+    let conv = OpenAiResponsesEventConverter::new();
+    let mut stitched_input = String::new();
+
+    let ev_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "id": "ci_1",
+                "type": "code_interpreter_call",
+                "status": "in_progress",
+                "container_id": "cntr_1"
+            }
+        })
+        .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out_added = futures::executor::block_on(conv.convert_event(ev_added));
+    append_tool_input_deltas(&out_added, &mut stitched_input);
+
+    let code_delta = "print(\"x\")\npath = \"C:\\tmp\"";
+    let ev_delta = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.code_interpreter_call_code.delta",
+            "item_id": "ci_1",
+            "output_index": 0,
+            "delta": code_delta
+        })
+        .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let out_delta = futures::executor::block_on(conv.convert_event(ev_delta));
+    append_tool_input_deltas(&out_delta, &mut stitched_input);
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.code_interpreter_call_code.done",
+            "item_id": "ci_1",
+            "output_index": 0,
+            "code": code_delta
+        })
+        .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let out_done = futures::executor::block_on(conv.convert_event(ev_done));
+    append_tool_input_deltas(&out_done, &mut stitched_input);
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stitched_input).expect("stitched code input is valid JSON");
+    assert_eq!(parsed["containerId"], serde_json::json!("cntr_1"));
+    assert_eq!(parsed["code"], serde_json::json!(code_delta));
+}
+
+#[test]
+fn responses_apply_patch_diff_delta_escapes_and_done_does_not_duplicate() {
+    let conv = OpenAiResponsesEventConverter::new();
+    let mut stitched_input = String::new();
+
+    let ev_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "id": "ap_1",
+                "type": "apply_patch_call",
+                "call_id": "call_patch_1",
+                "status": "in_progress",
+                "operation": {
+                    "type": "update_file",
+                    "path": "src/lib.rs"
+                }
+            }
+        })
+        .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out_added = futures::executor::block_on(conv.convert_event(ev_added));
+    append_tool_input_deltas(&out_added, &mut stitched_input);
+
+    let diff = "@@\n-println!(\"old\");\n+println!(\"new\\\\path\");";
+    let ev_delta = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.apply_patch_call_operation_diff.delta",
+            "item_id": "ap_1",
+            "output_index": 0,
+            "delta": diff
+        })
+        .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let out_delta = futures::executor::block_on(conv.convert_event(ev_delta));
+    append_tool_input_deltas(&out_delta, &mut stitched_input);
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.apply_patch_call_operation_diff.done",
+            "item_id": "ap_1",
+            "output_index": 0,
+            "diff": diff
+        })
+        .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let out_done = futures::executor::block_on(conv.convert_event(ev_done));
+    append_tool_input_deltas(&out_done, &mut stitched_input);
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stitched_input).expect("stitched apply patch input is valid JSON");
+    assert_eq!(parsed["callId"], serde_json::json!("call_patch_1"));
+    assert_eq!(parsed["operation"]["diff"], serde_json::json!(diff));
+}
+
+#[test]
+fn responses_apply_patch_diff_done_emits_diff_without_delta() {
+    let conv = OpenAiResponsesEventConverter::new();
+    let mut stitched_input = String::new();
+
+    let ev_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "id": "ap_2",
+                "type": "apply_patch_call",
+                "call_id": "call_patch_2",
+                "status": "in_progress",
+                "operation": {
+                    "type": "update_file",
+                    "path": "src/main.rs"
+                }
+            }
+        })
+        .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out_added = futures::executor::block_on(conv.convert_event(ev_added));
+    append_tool_input_deltas(&out_added, &mut stitched_input);
+
+    let diff = "@@\n+let text = \"done-only\";";
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.apply_patch_call_operation_diff.done",
+            "item_id": "ap_2",
+            "output_index": 0,
+            "diff": diff
+        })
+        .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let out_done = futures::executor::block_on(conv.convert_event(ev_done));
+    append_tool_input_deltas(&out_done, &mut stitched_input);
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stitched_input).expect("stitched apply patch input is valid JSON");
+    assert_eq!(parsed["callId"], serde_json::json!("call_patch_2"));
+    assert_eq!(parsed["operation"]["diff"], serde_json::json!(diff));
 }
 
 #[test]
