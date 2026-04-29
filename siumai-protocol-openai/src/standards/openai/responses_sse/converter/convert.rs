@@ -101,6 +101,81 @@ impl OpenAiResponsesEventConverter {
         )
     }
 
+    fn web_search_result_from_object(
+        item: &serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Value {
+        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
+        if action.is_null() && item.get("results").is_none() {
+            return serde_json::json!({});
+        }
+
+        let action_type_raw = action
+            .get("type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("search");
+        let action_type = match action_type_raw {
+            "open_page" => "openPage",
+            "find_in_page" => "findInPage",
+            other => other,
+        };
+
+        let mut action_obj = serde_json::Map::new();
+        action_obj.insert(
+            "type".to_string(),
+            serde_json::Value::String(action_type.to_string()),
+        );
+
+        if action_type_raw == "search"
+            && let Some(query) = action.get("query").or_else(|| item.get("query"))
+            && !query.is_null()
+        {
+            action_obj.insert("query".to_string(), query.clone());
+        }
+
+        if matches!(action_type_raw, "open_page" | "find_in_page")
+            && let Some(url) = action.get("url").or_else(|| item.get("url"))
+            && !url.is_null()
+        {
+            action_obj.insert("url".to_string(), url.clone());
+        }
+
+        if action_type_raw == "find_in_page"
+            && let Some(pattern) = action.get("pattern")
+            && !pattern.is_null()
+        {
+            action_obj.insert("pattern".to_string(), pattern.clone());
+        }
+
+        let mut result = serde_json::Map::new();
+        result.insert("action".to_string(), serde_json::Value::Object(action_obj));
+
+        if let Some(sources) = action.get("sources").and_then(|value| value.as_array())
+            && !sources.is_empty()
+        {
+            result.insert(
+                "sources".to_string(),
+                serde_json::Value::Array(sources.to_vec()),
+            );
+        }
+
+        if !result.contains_key("sources")
+            && let Some(results) = item.get("results").and_then(|value| value.as_array())
+        {
+            let sources = results
+                .iter()
+                .filter_map(|entry| {
+                    let url = entry.get("url").and_then(|value| value.as_str())?;
+                    Some(serde_json::json!({ "type": "url", "url": url }))
+                })
+                .collect::<Vec<_>>();
+            if !sources.is_empty() {
+                result.insert("sources".to_string(), serde_json::Value::Array(sources));
+            }
+        }
+
+        serde_json::Value::Object(result)
+    }
+
     pub(super) fn convert_responses_event(
         &self,
         json: &serde_json::Value,
@@ -1677,12 +1752,6 @@ impl OpenAiResponsesEventConverter {
                     return None;
                 }
 
-                // Include results if present (align with non-streaming transformer).
-                let results = item
-                    .get("results")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-
                 // Emit Vercel-aligned sources for web search results.
                 if let Some(arr) = item.get("results").and_then(|v| v.as_array()) {
                     for (i, r) in arr.iter().enumerate() {
@@ -1708,14 +1777,7 @@ impl OpenAiResponsesEventConverter {
                     }
                 }
 
-                (
-                    "web_search",
-                    serde_json::json!({
-                        "action": item.get("action").cloned().unwrap_or(serde_json::Value::Null),
-                        "results": results,
-                        "status": item.get("status").cloned().unwrap_or_else(|| serde_json::json!("completed")),
-                    }),
-                )
+                ("web_search", Self::web_search_result_from_object(item))
             }
             "file_search_call" => {
                 let result = match self.stream_parts_style {

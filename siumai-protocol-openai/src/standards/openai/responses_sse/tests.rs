@@ -518,6 +518,58 @@ fn responses_provider_tool_name_uses_configured_web_search_preview() {
 }
 
 #[test]
+fn responses_web_search_stream_maps_ai_sdk_result_shape() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "id": "ws_1",
+                "type": "web_search_call",
+                "status": "completed",
+                "action": {
+                    "type": "search",
+                    "query": "rust",
+                    "sources": [
+                        { "type": "url", "url": "https://www.rust-lang.org" }
+                    ]
+                }
+            }
+        })
+        .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out.len(), 1);
+
+    match stream_part(&out[0]).expect("tool-result part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+            assert_eq!(result.tool_call_id, "ws_1");
+            assert_eq!(result.tool_name, "web_search");
+            assert_eq!(result.result["action"]["type"], serde_json::json!("search"));
+            assert_eq!(result.result["action"]["query"], serde_json::json!("rust"));
+            assert_eq!(
+                result.result["sources"][0]["url"],
+                serde_json::json!("https://www.rust-lang.org")
+            );
+            assert!(
+                result.result.get("results").is_none(),
+                "AI SDK web search result does not expose raw results"
+            );
+            assert!(
+                result.result.get("status").is_none(),
+                "AI SDK web search result does not include status"
+            );
+        }
+        other => panic!("expected tool-result part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_image_generation_partial_image_emits_preliminary_tool_result() {
     let tools = [siumai_core::tools::openai::image_generation()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
