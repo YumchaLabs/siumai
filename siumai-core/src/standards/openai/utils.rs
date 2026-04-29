@@ -1013,6 +1013,159 @@ pub fn parse_openai_usage_value(value: &Value) -> Option<Usage> {
     Some(builder.build())
 }
 
+struct OpenAiCompatibleChatUsageFields {
+    raw: Map<String, Value>,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: Option<u32>,
+    cache_read_tokens: u32,
+    cache_write_tokens: Option<u32>,
+    no_cache_tokens: Option<u32>,
+    reasoning_tokens: u32,
+    output_text_tokens: Option<u32>,
+    prompt_detail_cached_tokens: Option<u32>,
+    completion_detail_reasoning_tokens: Option<u32>,
+    prompt_audio_tokens: Option<u32>,
+    completion_audio_tokens: Option<u32>,
+    accepted_prediction_tokens: Option<u32>,
+    rejected_prediction_tokens: Option<u32>,
+}
+
+fn build_openai_compatible_chat_usage(fields: OpenAiCompatibleChatUsageFields) -> Usage {
+    let cache_write_for_no_cache = fields.cache_write_tokens.unwrap_or(0);
+    let no_cache_tokens = fields.no_cache_tokens.unwrap_or_else(|| {
+        fields
+            .prompt_tokens
+            .saturating_sub(fields.cache_read_tokens)
+            .saturating_sub(cache_write_for_no_cache)
+    });
+    let output_text_tokens = fields.output_text_tokens.unwrap_or_else(|| {
+        fields
+            .completion_tokens
+            .saturating_sub(fields.reasoning_tokens)
+    });
+
+    let mut builder = Usage::builder()
+        .prompt_tokens(fields.prompt_tokens)
+        .completion_tokens(fields.completion_tokens)
+        .with_input_total_tokens(fields.prompt_tokens)
+        .with_input_no_cache_tokens(no_cache_tokens)
+        .with_input_cache_read_tokens(fields.cache_read_tokens)
+        .with_output_total_tokens(fields.completion_tokens)
+        .with_output_text_tokens(output_text_tokens)
+        .with_output_reasoning_tokens(fields.reasoning_tokens)
+        .with_raw_usage(fields.raw);
+
+    if let Some(total_tokens) = fields.total_tokens {
+        builder = builder.total_tokens(total_tokens);
+    }
+    if let Some(cache_write_tokens) = fields.cache_write_tokens {
+        builder = builder.with_input_cache_write_tokens(cache_write_tokens);
+    }
+    if let Some(prompt_detail_cached_tokens) = fields.prompt_detail_cached_tokens {
+        builder = builder.with_cached_tokens(prompt_detail_cached_tokens);
+    }
+    if let Some(completion_detail_reasoning_tokens) = fields.completion_detail_reasoning_tokens {
+        builder = builder.with_reasoning_tokens(completion_detail_reasoning_tokens);
+    }
+    if let Some(prompt_audio_tokens) = fields.prompt_audio_tokens {
+        builder = builder.with_prompt_audio_tokens(prompt_audio_tokens);
+    }
+    if let Some(completion_audio_tokens) = fields.completion_audio_tokens {
+        builder = builder.with_completion_audio_tokens(completion_audio_tokens);
+    }
+    if let Some(accepted_prediction_tokens) = fields.accepted_prediction_tokens {
+        builder = builder.with_accepted_prediction_tokens(accepted_prediction_tokens);
+    }
+    if let Some(rejected_prediction_tokens) = fields.rejected_prediction_tokens {
+        builder = builder.with_rejected_prediction_tokens(rejected_prediction_tokens);
+    }
+
+    builder.build()
+}
+
+fn parse_openai_compatible_chat_usage_value(value: &Value) -> Option<Usage> {
+    let object = value.as_object()?;
+    let raw = object
+        .get("raw")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_else(|| object.clone());
+
+    let (input_total, input_no_cache, input_cache_read, input_cache_write) =
+        parse_input_tokens_value(object.get("inputTokens"));
+    let (output_total, output_text, output_reasoning) =
+        parse_output_tokens_value(object.get("outputTokens"));
+
+    let prompt_tokens = usage_u32(usage_value(object, &["prompt_tokens", "input_tokens"]))
+        .or(input_total)
+        .unwrap_or(0);
+    let completion_tokens = usage_u32(usage_value(object, &["completion_tokens", "output_tokens"]))
+        .or(output_total)
+        .unwrap_or(0);
+    let total_tokens = usage_u32(usage_value(object, &["total_tokens", "totalTokens"]));
+
+    let prompt_details = usage_object(object, &["prompt_tokens_details", "input_tokens_details"]);
+    let completion_details = usage_object(
+        object,
+        &["completion_tokens_details", "output_tokens_details"],
+    );
+    let cache_read_tokens = usage_u32(
+        prompt_details.and_then(|details| usage_value(details, &["cached_tokens", "cachedTokens"])),
+    )
+    .or(input_cache_read);
+    let reasoning_tokens = usage_u32(usage_value(
+        object,
+        &["reasoning_tokens", "reasoningTokens"],
+    ))
+    .or_else(|| {
+        usage_u32(
+            completion_details
+                .and_then(|details| usage_value(details, &["reasoning_tokens", "reasoningTokens"])),
+        )
+    })
+    .or(output_reasoning);
+    let prompt_audio_tokens = usage_u32(
+        prompt_details.and_then(|details| usage_value(details, &["audio_tokens", "audioTokens"])),
+    );
+    let completion_audio_tokens = usage_u32(
+        completion_details
+            .and_then(|details| usage_value(details, &["audio_tokens", "audioTokens"])),
+    );
+    let accepted_prediction_tokens = usage_u32(completion_details.and_then(|details| {
+        usage_value(
+            details,
+            &["accepted_prediction_tokens", "acceptedPredictionTokens"],
+        )
+    }));
+    let rejected_prediction_tokens = usage_u32(completion_details.and_then(|details| {
+        usage_value(
+            details,
+            &["rejected_prediction_tokens", "rejectedPredictionTokens"],
+        )
+    }));
+
+    Some(build_openai_compatible_chat_usage(
+        OpenAiCompatibleChatUsageFields {
+            raw,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            cache_read_tokens: cache_read_tokens.unwrap_or(0),
+            cache_write_tokens: input_cache_write,
+            no_cache_tokens: input_no_cache,
+            reasoning_tokens: reasoning_tokens.unwrap_or(0),
+            output_text_tokens: output_text,
+            prompt_detail_cached_tokens: cache_read_tokens,
+            completion_detail_reasoning_tokens: reasoning_tokens,
+            prompt_audio_tokens,
+            completion_audio_tokens,
+            accepted_prediction_tokens,
+            rejected_prediction_tokens,
+        },
+    ))
+}
+
 fn parse_deepseek_usage_value(value: &Value) -> Option<Usage> {
     let raw = value.as_object()?.clone();
     let mut normalized = raw.clone();
@@ -1049,61 +1202,135 @@ fn parse_groq_usage_value(value: &Value) -> Option<Usage> {
 
 fn parse_moonshotai_usage_value(value: &Value) -> Option<Usage> {
     let raw = value.as_object()?.clone();
-    let mut normalized = raw.clone();
 
-    if let Some(cache_read_tokens) =
-        usage_u32(usage_value(&raw, &["cached_tokens", "cachedTokens"]))
-    {
-        set_usage_detail_number(
-            &mut normalized,
-            "prompt_tokens_details",
-            "cached_tokens",
-            cache_read_tokens,
-        );
-    }
+    let prompt_tokens =
+        usage_u32(usage_value(&raw, &["prompt_tokens", "input_tokens"])).unwrap_or(0);
+    let completion_tokens =
+        usage_u32(usage_value(&raw, &["completion_tokens", "output_tokens"])).unwrap_or(0);
+    let total_tokens = usage_u32(usage_value(&raw, &["total_tokens", "totalTokens"]));
+    let prompt_details = usage_object(&raw, &["prompt_tokens_details", "input_tokens_details"]);
+    let completion_details = usage_object(
+        &raw,
+        &["completion_tokens_details", "output_tokens_details"],
+    );
+    let cache_read_tokens = usage_u32(usage_value(&raw, &["cached_tokens", "cachedTokens"]))
+        .or_else(|| {
+            usage_u32(
+                prompt_details
+                    .and_then(|details| usage_value(details, &["cached_tokens", "cachedTokens"])),
+            )
+        });
+    let reasoning_tokens = usage_u32(
+        completion_details
+            .and_then(|details| usage_value(details, &["reasoning_tokens", "reasoningTokens"])),
+    );
+    let prompt_audio_tokens = usage_u32(
+        prompt_details.and_then(|details| usage_value(details, &["audio_tokens", "audioTokens"])),
+    );
+    let completion_audio_tokens = usage_u32(
+        completion_details
+            .and_then(|details| usage_value(details, &["audio_tokens", "audioTokens"])),
+    );
+    let accepted_prediction_tokens = usage_u32(completion_details.and_then(|details| {
+        usage_value(
+            details,
+            &["accepted_prediction_tokens", "acceptedPredictionTokens"],
+        )
+    }));
+    let rejected_prediction_tokens = usage_u32(completion_details.and_then(|details| {
+        usage_value(
+            details,
+            &["rejected_prediction_tokens", "rejectedPredictionTokens"],
+        )
+    }));
 
-    parse_normalized_openai_usage_with_raw(normalized, raw)
+    Some(build_openai_compatible_chat_usage(
+        OpenAiCompatibleChatUsageFields {
+            raw,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            cache_read_tokens: cache_read_tokens.unwrap_or(0),
+            cache_write_tokens: None,
+            no_cache_tokens: None,
+            reasoning_tokens: reasoning_tokens.unwrap_or(0),
+            output_text_tokens: None,
+            prompt_detail_cached_tokens: cache_read_tokens,
+            completion_detail_reasoning_tokens: reasoning_tokens,
+            prompt_audio_tokens,
+            completion_audio_tokens,
+            accepted_prediction_tokens,
+            rejected_prediction_tokens,
+        },
+    ))
 }
 
 fn parse_alibaba_usage_value(value: &Value) -> Option<Usage> {
     let raw = value.as_object()?.clone();
-    let mut normalized = raw.clone();
 
-    let cache_write_tokens = usage_object(&raw, &["prompt_tokens_details", "input_tokens_details"])
-        .and_then(|details| {
-            usage_u32(usage_value(
-                details,
-                &["cache_creation_input_tokens", "cacheCreationInputTokens"],
-            ))
-        });
+    let prompt_tokens =
+        usage_u32(usage_value(&raw, &["prompt_tokens", "input_tokens"])).unwrap_or(0);
+    let completion_tokens =
+        usage_u32(usage_value(&raw, &["completion_tokens", "output_tokens"])).unwrap_or(0);
+    let total_tokens = usage_u32(usage_value(&raw, &["total_tokens", "totalTokens"]));
+    let prompt_details = usage_object(&raw, &["prompt_tokens_details", "input_tokens_details"]);
+    let completion_details = usage_object(
+        &raw,
+        &["completion_tokens_details", "output_tokens_details"],
+    );
+    let cache_read_tokens = usage_u32(
+        prompt_details.and_then(|details| usage_value(details, &["cached_tokens", "cachedTokens"])),
+    );
+    let cache_write_tokens = usage_u32(prompt_details.and_then(|details| {
+        usage_value(
+            details,
+            &["cache_creation_input_tokens", "cacheCreationInputTokens"],
+        )
+    }))
+    .unwrap_or(0);
+    let reasoning_tokens = usage_u32(
+        completion_details
+            .and_then(|details| usage_value(details, &["reasoning_tokens", "reasoningTokens"])),
+    );
+    let prompt_audio_tokens = usage_u32(
+        prompt_details.and_then(|details| usage_value(details, &["audio_tokens", "audioTokens"])),
+    );
+    let completion_audio_tokens = usage_u32(
+        completion_details
+            .and_then(|details| usage_value(details, &["audio_tokens", "audioTokens"])),
+    );
+    let accepted_prediction_tokens = usage_u32(completion_details.and_then(|details| {
+        usage_value(
+            details,
+            &["accepted_prediction_tokens", "acceptedPredictionTokens"],
+        )
+    }));
+    let rejected_prediction_tokens = usage_u32(completion_details.and_then(|details| {
+        usage_value(
+            details,
+            &["rejected_prediction_tokens", "rejectedPredictionTokens"],
+        )
+    }));
 
-    if let Some(cache_write_tokens) = cache_write_tokens {
-        let prompt_tokens =
-            usage_u32(usage_value(&raw, &["prompt_tokens", "input_tokens"])).unwrap_or(0);
-        let cache_read_tokens =
-            usage_object(&raw, &["prompt_tokens_details", "input_tokens_details"])
-                .and_then(|details| {
-                    usage_u32(usage_value(details, &["cached_tokens", "cachedTokens"]))
-                })
-                .unwrap_or(0);
-        let no_cache_tokens = prompt_tokens
-            .saturating_sub(cache_read_tokens)
-            .saturating_sub(cache_write_tokens);
-
-        let input_tokens = ensure_object_entry(&mut normalized, "inputTokens");
-        input_tokens.insert("total".to_string(), serde_json::json!(prompt_tokens));
-        input_tokens.insert("noCache".to_string(), serde_json::json!(no_cache_tokens));
-        input_tokens.insert(
-            "cacheRead".to_string(),
-            serde_json::json!(cache_read_tokens),
-        );
-        input_tokens.insert(
-            "cacheWrite".to_string(),
-            serde_json::json!(cache_write_tokens),
-        );
-    }
-
-    parse_normalized_openai_usage_with_raw(normalized, raw)
+    Some(build_openai_compatible_chat_usage(
+        OpenAiCompatibleChatUsageFields {
+            raw,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            cache_read_tokens: cache_read_tokens.unwrap_or(0),
+            cache_write_tokens: Some(cache_write_tokens),
+            no_cache_tokens: None,
+            reasoning_tokens: reasoning_tokens.unwrap_or(0),
+            output_text_tokens: None,
+            prompt_detail_cached_tokens: cache_read_tokens,
+            completion_detail_reasoning_tokens: reasoning_tokens,
+            prompt_audio_tokens,
+            completion_audio_tokens,
+            accepted_prediction_tokens,
+            rejected_prediction_tokens,
+        },
+    ))
 }
 
 fn parse_xai_chat_usage_value(value: &Value) -> Option<Usage> {
@@ -1322,7 +1549,7 @@ pub fn parse_provider_openai_usage_value(provider_id: &str, value: &Value) -> Op
         "xai" => parse_xai_chat_usage_value(value),
         _ => {
             let normalized = normalize_openai_usage_value_for_provider(provider_id, value);
-            parse_openai_usage_value(normalized.as_ref())
+            parse_openai_compatible_chat_usage_value(normalized.as_ref())
         }
     }
 }
@@ -1895,6 +2122,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_provider_openai_usage_value_defaults_generic_chat_usage_like_ai_sdk() {
+        let usage = parse_provider_openai_usage_value(
+            "openrouter",
+            &serde_json::json!({
+                "prompt_tokens": 100,
+                "completion_tokens": 50
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(100));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(100));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(0));
+        assert_eq!(usage.normalized_input_tokens().cache_write, None);
+        assert_eq!(usage.normalized_output_tokens().total, Some(50));
+        assert_eq!(usage.normalized_output_tokens().text, Some(50));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(0));
+    }
+
+    #[test]
     fn parse_provider_openai_finish_reason_matches_ai_sdk_vendor_mappings() {
         assert_eq!(
             parse_provider_openai_finish_reason("deepseek", Some("insufficient_system_resource")),
@@ -1989,6 +2236,29 @@ mod tests {
     }
 
     #[test]
+    fn parse_provider_openai_usage_value_maps_alibaba_missing_cache_write_to_zero() {
+        let usage = parse_provider_openai_usage_value(
+            "alibaba",
+            &serde_json::json!({
+                "prompt_tokens": 200,
+                "completion_tokens": 75,
+                "prompt_tokens_details": {
+                    "cached_tokens": 120
+                }
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(200));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(80));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(120));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(0));
+        assert_eq!(usage.normalized_output_tokens().total, Some(75));
+        assert_eq!(usage.normalized_output_tokens().text, Some(75));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(0));
+    }
+
+    #[test]
     fn parse_provider_openai_usage_value_maps_deepseek_prompt_cache_hits() {
         let usage = parse_provider_openai_usage_value(
             "deepseek",
@@ -2044,6 +2314,31 @@ mod tests {
         assert_eq!(
             usage.raw_usage_value().expect("raw usage")["prompt_tokens_details"]["cached_tokens"],
             serde_json::json!(25)
+        );
+    }
+
+    #[test]
+    fn parse_provider_openai_usage_value_maps_moonshot_null_fields_to_zero() {
+        let usage = parse_provider_openai_usage_value(
+            "moonshotai",
+            &serde_json::json!({
+                "prompt_tokens": null,
+                "completion_tokens": null,
+                "cached_tokens": null
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(0));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(0));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(0));
+        assert_eq!(usage.normalized_input_tokens().cache_write, None);
+        assert_eq!(usage.normalized_output_tokens().total, Some(0));
+        assert_eq!(usage.normalized_output_tokens().text, Some(0));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(0));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["prompt_tokens"],
+            serde_json::Value::Null
         );
     }
 

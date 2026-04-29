@@ -824,7 +824,10 @@ impl OpenAiCompatibleBuilder {
         if !self.query_params.is_empty() {
             config = config.with_query_params(self.query_params);
         }
-        if let Some(include_usage) = self.include_usage {
+        let include_usage = self
+            .include_usage
+            .or_else(|| (canonical_provider_id == "moonshotai").then_some(true));
+        if let Some(include_usage) = include_usage {
             config = config.with_include_usage(include_usage);
         }
         if let Some(supports) = self.supports_structured_outputs {
@@ -1164,6 +1167,29 @@ mod tests {
             .expect("into_config ok");
 
         assert_eq!(config.include_usage, Some(true));
+    }
+
+    #[test]
+    fn openai_compatible_builder_defaults_moonshotai_include_usage() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "moonshotai")
+            .api_key("test-key")
+            .model("kimi-k2-0905")
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.include_usage, Some(true));
+    }
+
+    #[test]
+    fn openai_compatible_builder_respects_explicit_moonshotai_include_usage() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "moonshotai")
+            .api_key("test-key")
+            .model("kimi-k2-0905")
+            .with_include_usage(false)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.include_usage, Some(false));
     }
 
     #[test]

@@ -1164,6 +1164,7 @@ mod tests {
         assert_eq!(config.provider_id, "moonshotai");
         assert_eq!(config.base_url, "https://example.com/moonshot");
         assert_eq!(config.common_params.model, "kimi-k2.5");
+        assert_eq!(config.include_usage, Some(true));
         assert_eq!(
             config.http_config.headers.get("x-test").map(String::as_str),
             Some("1")
