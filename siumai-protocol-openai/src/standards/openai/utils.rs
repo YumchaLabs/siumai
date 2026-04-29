@@ -752,6 +752,11 @@ pub fn parse_xai_responses_usage_value(value: &serde_json::Value) -> Option<Usag
     siumai_core::standards::openai::utils::parse_xai_responses_usage_value(value)
 }
 
+/// Return the xAI Responses fallback usage when the provider omits `usage`.
+pub fn xai_responses_zero_usage() -> Usage {
+    siumai_core::standards::openai::utils::xai_responses_zero_usage()
+}
+
 /// Extract xAI Responses usage-owned provider metadata.
 pub fn xai_responses_usage_provider_metadata_value(
     value: &serde_json::Value,

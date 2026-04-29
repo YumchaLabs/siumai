@@ -336,9 +336,15 @@ impl OpenAiResponsesEventConverter {
             .and_then(crate::types::Usage::raw_usage_value)
             .unwrap_or(raw_usage.clone());
         let finish_usage = usage.clone().unwrap_or_else(|| {
-            crate::types::Usage::builder()
-                .with_raw_usage_value(raw_usage_value.clone())
-                .build()
+            if self.responses_transform_style
+                == crate::standards::openai::transformers::ResponsesTransformStyle::Xai
+            {
+                crate::standards::openai::utils::xai_responses_zero_usage()
+            } else {
+                crate::types::Usage::builder()
+                    .with_raw_usage_value(raw_usage_value.clone())
+                    .build()
+            }
         });
 
         let unified = response

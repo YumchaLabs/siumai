@@ -2,7 +2,7 @@ use crate::error::LlmError;
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::standards::openai::utils::{
     parse_openai_usage_value, parse_xai_responses_usage_value,
-    xai_responses_usage_provider_metadata_value,
+    xai_responses_usage_provider_metadata_value, xai_responses_zero_usage,
 };
 use crate::types::ChatResponse;
 
@@ -1172,7 +1172,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         // Usage
         let usage = root
             .get("usage")
-            .and_then(|usage| self.parse_usage_value(usage));
+            .and_then(|usage| self.parse_usage_value(usage))
+            .or_else(|| xai_style.then(xai_responses_zero_usage));
 
         // Finish reason
         //
@@ -1913,6 +1914,34 @@ mod tests {
         );
         let metadata = resp.provider_metadata.as_ref().expect("provider metadata");
         assert_eq!(metadata["xai"]["costInUsdTicks"], serde_json::json!(113500));
+    }
+
+    #[test]
+    fn xai_responses_transformer_defaults_missing_usage_to_zero() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_xai_no_usage_1",
+                "model": "grok-4",
+                "output": [],
+                "status": "completed"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new()
+            .with_style(ResponsesTransformStyle::Xai)
+            .with_provider_metadata_key("xai");
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let usage = resp.usage.as_ref().expect("zero usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(0));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(0));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(0));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(0));
+        assert_eq!(usage.normalized_output_tokens().total, Some(0));
+        assert_eq!(usage.normalized_output_tokens().text, Some(0));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(0));
+        assert!(usage.raw_usage_value().is_none());
+        assert!(resp.provider_metadata.is_none());
     }
 
     #[test]

@@ -8,7 +8,8 @@ use crate::error::LlmError;
 use crate::standards::openai::types::{OpenAiFunction, OpenAiMessage, OpenAiToolCall};
 use crate::types::{
     ChatMessage, ContentPart, FilePartSource, FinishReason, MediaSource, MessageContent,
-    MessageRole, ProviderOptionsMap, ProviderReference, ToolResultOutput, Usage,
+    MessageRole, ProviderOptionsMap, ProviderReference, ToolResultOutput, Usage, UsageInputTokens,
+    UsageOutputTokens,
 };
 use base64::Engine;
 use serde_json::{Map, Value};
@@ -1451,6 +1452,25 @@ pub fn parse_xai_responses_usage_value(value: &Value) -> Option<Usage> {
     parse_normalized_openai_usage_with_raw(normalized, raw)
 }
 
+/// Return the xAI Responses fallback usage when the provider omits `usage`.
+///
+/// AI SDK treats missing xAI Responses usage as explicit zero counts instead of unknown counts.
+pub fn xai_responses_zero_usage() -> Usage {
+    Usage::builder()
+        .with_input_tokens(UsageInputTokens {
+            total: Some(0),
+            no_cache: Some(0),
+            cache_read: Some(0),
+            cache_write: Some(0),
+        })
+        .with_output_tokens(UsageOutputTokens {
+            total: Some(0),
+            text: Some(0),
+            reasoning: Some(0),
+        })
+        .build()
+}
+
 /// Extract xAI Responses usage-owned provider metadata.
 ///
 /// AI SDK exposes `usage.cost_in_usd_ticks` as
@@ -2500,6 +2520,20 @@ mod tests {
             usage.raw_usage_value().expect("raw usage")["input_tokens"],
             serde_json::json!(4142)
         );
+    }
+
+    #[test]
+    fn xai_responses_zero_usage_matches_ai_sdk_missing_usage_fallback() {
+        let usage = xai_responses_zero_usage();
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(0));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(0));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(0));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(0));
+        assert_eq!(usage.normalized_output_tokens().total, Some(0));
+        assert_eq!(usage.normalized_output_tokens().text, Some(0));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(0));
+        assert!(usage.raw_usage_value().is_none());
     }
 
     #[test]

@@ -221,6 +221,58 @@ fn xai_responses_completed_finish_exposes_cost_provider_metadata() {
 }
 
 #[test]
+fn xai_responses_completed_finish_defaults_missing_usage_to_zero() {
+    let conv = OpenAiResponsesEventConverter::new()
+        .with_stream_parts_style(StreamPartsStyle::Xai)
+        .with_responses_transform_style(
+            crate::standards::openai::transformers::ResponsesTransformStyle::Xai,
+        )
+        .with_provider_metadata_key("xai");
+    let event = eventsource_stream::Event {
+        event: "response.completed".to_string(),
+        data: r#"{"type":"response.completed","response":{"id":"resp_xai_no_usage","object":"response","model":"grok-4-fast","status":"completed","output":[]}}"#.to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+
+    let fut = conv.convert_event(event);
+    let events = futures::executor::block_on(fut);
+    assert!(events.is_empty());
+
+    let pending = conv.handle_stream_end_events();
+    let finish_usage = pending
+        .iter()
+        .find_map(|event| match event {
+            Ok(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::Finish { usage, .. },
+            }) => Some(usage),
+            _ => None,
+        })
+        .expect("finish usage");
+
+    assert_eq!(finish_usage.normalized_input_tokens().total, Some(0));
+    assert_eq!(finish_usage.normalized_input_tokens().no_cache, Some(0));
+    assert_eq!(finish_usage.normalized_input_tokens().cache_read, Some(0));
+    assert_eq!(finish_usage.normalized_input_tokens().cache_write, Some(0));
+    assert_eq!(finish_usage.normalized_output_tokens().total, Some(0));
+    assert_eq!(finish_usage.normalized_output_tokens().text, Some(0));
+    assert_eq!(finish_usage.normalized_output_tokens().reasoning, Some(0));
+    assert!(finish_usage.raw_usage_value().is_none());
+
+    let response_usage = pending
+        .iter()
+        .find_map(|event| match event {
+            Ok(crate::streaming::ChatStreamEvent::StreamEnd { response }) => {
+                response.usage.as_ref()
+            }
+            _ => None,
+        })
+        .expect("stream end response usage");
+    assert_eq!(response_usage.normalized_input_tokens().total, Some(0));
+    assert_eq!(response_usage.normalized_output_tokens().total, Some(0));
+}
+
+#[test]
 fn test_responses_event_converter_done() {
     let conv = OpenAiResponsesEventConverter::new();
     let event = eventsource_stream::Event {
