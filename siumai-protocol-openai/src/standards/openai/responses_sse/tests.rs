@@ -531,6 +531,78 @@ fn responses_image_generation_partial_image_emits_preliminary_tool_result() {
 }
 
 #[test]
+fn responses_computer_call_stream_matches_ai_sdk_lifecycle() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let ev_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"cu_1","type":"computer_call","status":"in_progress","action":{"type":"screenshot"}}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out_added = futures::executor::block_on(conv.convert_event(ev_added));
+    assert_eq!(out_added.len(), 1);
+    match stream_part(&out_added[0]).expect("tool-input-start part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+            id,
+            tool_name,
+            provider_executed,
+            ..
+        } => {
+            assert_eq!(id, "cu_1");
+            assert_eq!(tool_name, "computer_use");
+            assert_eq!(provider_executed, Some(true));
+        }
+        other => panic!("expected tool-input-start part, got {other:?}"),
+    }
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"cu_1","type":"computer_call","status":"completed","action":{"type":"screenshot"}}}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let out_done = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out_done.len(), 3);
+
+    match stream_part(&out_done[0]).expect("tool-input-end part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+            assert_eq!(id, "cu_1");
+        }
+        other => panic!("expected tool-input-end part, got {other:?}"),
+    }
+
+    match stream_part(&out_done[1]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "cu_1");
+            assert_eq!(call.tool_name, "computer_use");
+            assert_eq!(call.input, "");
+            assert_eq!(call.provider_executed, Some(true));
+        }
+        other => panic!("expected tool-call part, got {other:?}"),
+    }
+
+    match stream_part(&out_done[2]).expect("tool-result part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+            assert_eq!(result.tool_call_id, "cu_1");
+            assert_eq!(result.tool_name, "computer_use");
+            assert_eq!(
+                result.result["type"],
+                serde_json::json!("computer_use_tool_result")
+            );
+            assert_eq!(result.result["status"], serde_json::json!("completed"));
+            assert!(
+                result.result.get("action").is_none(),
+                "computer result should not expose action"
+            );
+        }
+        other => panic!("expected tool-result part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_tool_search_stream_maps_call_and_output() {
     let tools = [siumai_core::tools::openai::tool_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);

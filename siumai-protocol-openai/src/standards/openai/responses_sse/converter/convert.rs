@@ -1321,7 +1321,21 @@ impl OpenAiResponsesEventConverter {
                 };
                 ("file_search", input)
             }
-            "computer_call" => ("computer_use", serde_json::json!("")),
+            "computer_call" => {
+                let tool_call_id = item.get("id")?.as_str()?;
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "computer_use".to_string());
+
+                return Some(vec![self.openai_tool_input_start_event(
+                    tool_call_id,
+                    &tool_name,
+                    Some(true),
+                    None,
+                    None,
+                    None,
+                )]);
+            }
             "code_interpreter_call" => {
                 let container_id = item.get("container_id").and_then(|v| v.as_str());
                 let tool_call_id = item.get("id")?.as_str()?;
@@ -2060,13 +2074,47 @@ impl OpenAiResponsesEventConverter {
                     },
                 )]);
             }
-            "computer_call" => (
-                "computer_use",
-                serde_json::json!({
-                    "action": item.get("action").cloned().unwrap_or(serde_json::Value::Null),
-                    "status": item.get("status").cloned().unwrap_or_else(|| serde_json::json!("completed")),
-                }),
-            ),
+            "computer_call" => {
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "computer_use".to_string());
+                let status = item
+                    .get("status")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!("completed"));
+
+                return Some(vec![
+                    self.openai_tool_input_end_event(tool_call_id, None),
+                    self.openai_tool_call_event(
+                        tool_call_id,
+                        &tool_name,
+                        serde_json::json!(""),
+                        Some(true),
+                        None,
+                        None,
+                        OpenAiResponsesEventExtras {
+                            output_index,
+                            raw_item: Some(serde_json::Value::Object(item.clone())),
+                        },
+                    ),
+                    self.openai_tool_result_event(
+                        tool_call_id,
+                        &tool_name,
+                        serde_json::json!({
+                            "type": "computer_use_tool_result",
+                            "status": status,
+                        }),
+                        Some(true),
+                        None,
+                        None,
+                        None,
+                        OpenAiResponsesEventExtras {
+                            output_index,
+                            raw_item: Some(serde_json::Value::Object(item.clone())),
+                        },
+                    ),
+                ]);
+            }
             _ => return None,
         };
 
