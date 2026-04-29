@@ -722,7 +722,7 @@ fn convert_tool_denied_result_part(part: &UiToolPart) -> ContentPart {
         .approval
         .as_ref()
         .and_then(|approval| approval.reason.clone())
-        .unwrap_or_else(|| "Tool execution denied.".to_string());
+        .unwrap_or_else(|| "Tool call execution denied.".to_string());
 
     ContentPart::ToolResult {
         tool_call_id: part.tool_call_id.clone(),

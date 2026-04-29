@@ -910,7 +910,7 @@ pub fn convert_message_to_content(
                 ToolResultOutput::ExecutionDenied { reason, .. } => {
                     let msg = reason
                         .clone()
-                        .unwrap_or_else(|| "Tool execution denied.".to_string());
+                        .unwrap_or_else(|| "Tool call execution denied.".to_string());
                     push_function_response_part(
                         &mut parts,
                         tool_name,

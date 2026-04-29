@@ -724,7 +724,7 @@ impl BedrockChatRequestTransformer {
                 Ok(vec![serde_json::json!({ "text": value })])
             }
             ToolResultOutput::ExecutionDenied { reason, .. } => Ok(vec![serde_json::json!({
-                "text": reason.clone().unwrap_or_else(|| "Tool execution denied.".to_string())
+                "text": reason.clone().unwrap_or_else(|| "Tool call execution denied.".to_string())
             })]),
             ToolResultOutput::Json { value, .. } | ToolResultOutput::ErrorJson { value, .. } => {
                 Ok(vec![serde_json::json!({ "text": value.to_string() })])

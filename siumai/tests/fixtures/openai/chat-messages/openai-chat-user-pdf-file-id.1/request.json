@@ -4,7 +4,11 @@
       "role": "user",
       "content": {
         "MultiModal": [
-          { "type": "file", "data": "file-pdf-12345", "media_type": "application/pdf" }
+          {
+            "type": "file",
+            "providerReference": { "openai": "file-pdf-12345" },
+            "mediaType": "application/pdf"
+          }
         ]
       },
       "metadata": {}

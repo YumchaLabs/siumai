@@ -1017,7 +1017,7 @@ fn tool_result_content_value(output: &ToolResultOutput) -> String {
         }
         ToolResultOutput::ExecutionDenied { reason, .. } => reason
             .clone()
-            .unwrap_or_else(|| "Tool execution denied.".to_string()),
+            .unwrap_or_else(|| "Tool call execution denied.".to_string()),
         ToolResultOutput::Json { value, .. } | ToolResultOutput::ErrorJson { value, .. } => {
             serde_json::to_string(value).unwrap_or_default()
         }
