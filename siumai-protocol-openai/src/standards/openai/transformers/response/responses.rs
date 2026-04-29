@@ -125,6 +125,30 @@ impl OpenAiResponsesResponseTransformer {
                 .collect(),
         )
     }
+
+    fn shell_environment_is_provider_executed(value: &serde_json::Value) -> bool {
+        let environment = value.get("environment").unwrap_or(value);
+        let Some(environment_type) = environment.get("type").and_then(|value| value.as_str())
+        else {
+            return false;
+        };
+
+        matches!(
+            environment_type,
+            "containerAuto" | "containerReference" | "container_auto" | "container_reference"
+        )
+    }
+
+    fn response_shell_call_provider_executed(root: &serde_json::Value) -> bool {
+        root.get("tools")
+            .and_then(|value| value.as_array())
+            .is_some_and(|tools| {
+                tools.iter().any(|tool| {
+                    tool.get("type").and_then(|value| value.as_str()) == Some("shell")
+                        && Self::shell_environment_is_provider_executed(tool)
+                })
+            })
+    }
 }
 
 #[cfg(feature = "openai-responses")]
@@ -215,6 +239,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         use crate::types::{ContentPart, FinishReason, MessageContent};
         let root = raw.get("response").unwrap_or(raw);
         let xai_style = self.style == ResponsesTransformStyle::Xai;
+        let shell_call_provider_executed = Self::response_shell_call_provider_executed(root);
 
         // Build content parts (tool calls/results + text).
         //
@@ -1104,7 +1129,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_call_id: call_id.to_string(),
                             tool_name: "shell".to_string(),
                             arguments: serde_json::Value::String(input_str),
-                            provider_executed: None,
+                            provider_executed: shell_call_provider_executed.then_some(true),
                             dynamic: Some(true),
                             invalid: None,
                             error: None,
@@ -2637,6 +2662,20 @@ mod tests {
         let parts = resp.content.as_multimodal().expect("expected multimodal");
         assert_eq!(parts.len(), 6);
 
+        match &parts[2] {
+            crate::types::ContentPart::ToolCall {
+                tool_call_id,
+                tool_name,
+                provider_executed,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_shell");
+                assert_eq!(tool_name, "shell");
+                assert_eq!(*provider_executed, None);
+            }
+            other => panic!("expected shell tool call, got {other:?}"),
+        }
+
         match &parts[1] {
             crate::types::ContentPart::ToolResult {
                 tool_call_id,
@@ -2703,6 +2742,47 @@ mod tests {
                 );
             }
             other => panic!("expected apply_patch tool result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn responses_transformer_marks_container_shell_provider_executed() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_shell_container_1",
+                "model": "gpt-5.4",
+                "tools": [{
+                    "type": "shell",
+                    "environment": { "type": "container_auto" }
+                }],
+                "output": [{
+                    "type": "shell_call",
+                    "id": "sh_1",
+                    "call_id": "call_shell",
+                    "status": "completed",
+                    "action": { "commands": ["echo ok"] }
+                }],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("expected multimodal");
+        assert_eq!(parts.len(), 1);
+
+        match &parts[0] {
+            crate::types::ContentPart::ToolCall {
+                tool_call_id,
+                tool_name,
+                provider_executed,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_shell");
+                assert_eq!(tool_name, "shell");
+                assert_eq!(*provider_executed, Some(true));
+            }
+            other => panic!("expected shell tool call, got {other:?}"),
         }
     }
 

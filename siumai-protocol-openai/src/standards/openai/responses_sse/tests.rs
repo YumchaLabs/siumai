@@ -736,6 +736,60 @@ fn responses_local_shell_stream_maps_ai_sdk_action_keys() {
 }
 
 #[test]
+fn responses_shell_stream_omits_provider_executed_for_local_environment() {
+    let tools = [siumai_core::tools::openai::shell()];
+    let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"sh_1","type":"shell_call","status":"completed","call_id":"call_shell","action":{"commands":["echo ok"],"timeout_ms":null,"max_output_length":null}}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out.len(), 1);
+
+    match stream_part(&out[0]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "call_shell");
+            assert_eq!(call.tool_name, "shell");
+            assert_eq!(call.provider_executed, None);
+        }
+        other => panic!("expected tool-call part, got {other:?}"),
+    }
+}
+
+#[test]
+fn responses_shell_stream_marks_container_environment_provider_executed() {
+    let tools = [
+        siumai_core::tools::openai::shell().with_args(serde_json::json!({
+            "environment": { "type": "containerAuto" }
+        })),
+    ];
+    let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"sh_1","type":"shell_call","status":"completed","call_id":"call_shell","action":{"commands":["echo ok"],"timeout_ms":null,"max_output_length":null}}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out.len(), 1);
+
+    match stream_part(&out[0]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "call_shell");
+            assert_eq!(call.tool_name, "shell");
+            assert_eq!(call.provider_executed, Some(true));
+        }
+        other => panic!("expected tool-call part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_file_search_stream_maps_ai_sdk_result_shape() {
     let tools = [siumai_core::tools::openai::file_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);

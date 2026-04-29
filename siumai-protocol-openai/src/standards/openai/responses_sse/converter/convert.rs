@@ -2050,7 +2050,7 @@ impl OpenAiResponsesEventConverter {
                     tool_call_id,
                     &tool_name,
                     serde_json::Value::String(input),
-                    Some(false),
+                    self.shell_call_provider_executed().then_some(true),
                     None,
                     provider_metadata,
                     OpenAiResponsesEventExtras {

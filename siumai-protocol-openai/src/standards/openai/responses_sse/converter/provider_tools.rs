@@ -1,6 +1,31 @@
 use super::*;
 
+pub(super) fn shell_environment_is_provider_executed(value: &serde_json::Value) -> bool {
+    let environment = value.get("environment").unwrap_or(value);
+    let Some(environment_type) = environment.get("type").and_then(|value| value.as_str()) else {
+        return false;
+    };
+
+    matches!(
+        environment_type,
+        "containerAuto" | "containerReference" | "container_auto" | "container_reference"
+    )
+}
+
 impl OpenAiResponsesEventConverter {
+    pub(super) fn mark_shell_call_provider_executed(&self) {
+        if let Ok(mut value) = self.shell_call_provider_executed.lock() {
+            *value = true;
+        }
+    }
+
+    pub(super) fn shell_call_provider_executed(&self) -> bool {
+        self.shell_call_provider_executed
+            .lock()
+            .ok()
+            .is_some_and(|value| *value)
+    }
+
     pub(super) fn seed_provider_tool_names_from_request_tools(&self, tools: &[crate::types::Tool]) {
         use crate::types::Tool;
 
@@ -68,6 +93,9 @@ impl OpenAiResponsesEventConverter {
                         .or_insert_with(|| t.name.clone());
                     map.entry("shell_call_output".to_string())
                         .or_insert_with(|| t.name.clone());
+                    if shell_environment_is_provider_executed(&t.args) {
+                        self.mark_shell_call_provider_executed();
+                    }
                 }
                 "apply_patch" => {
                     map.entry("apply_patch_call".to_string())
@@ -146,6 +174,9 @@ impl OpenAiResponsesEventConverter {
                         .or_insert_with(|| "shell".to_string());
                     map.entry("shell_call_output".to_string())
                         .or_insert_with(|| "shell".to_string());
+                    if shell_environment_is_provider_executed(tool) {
+                        self.mark_shell_call_provider_executed();
+                    }
                 }
                 "apply_patch" => {
                     map.entry("apply_patch_call".to_string())
