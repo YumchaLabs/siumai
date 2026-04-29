@@ -176,6 +176,44 @@ impl OpenAiResponsesEventConverter {
         serde_json::Value::Object(result)
     }
 
+    fn local_shell_input_from_object(
+        item: &serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Value {
+        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
+        let mut action_obj = serde_json::Map::new();
+        action_obj.insert("type".to_string(), serde_json::json!("exec"));
+
+        if let Some(command) = action.get("command")
+            && !command.is_null()
+        {
+            action_obj.insert("command".to_string(), command.clone());
+        }
+        if let Some(timeout_ms) = action.get("timeout_ms").or_else(|| action.get("timeoutMs"))
+            && !timeout_ms.is_null()
+        {
+            action_obj.insert("timeoutMs".to_string(), timeout_ms.clone());
+        }
+        if let Some(user) = action.get("user")
+            && !user.is_null()
+        {
+            action_obj.insert("user".to_string(), user.clone());
+        }
+        if let Some(working_directory) = action
+            .get("working_directory")
+            .or_else(|| action.get("workingDirectory"))
+            && !working_directory.is_null()
+        {
+            action_obj.insert("workingDirectory".to_string(), working_directory.clone());
+        }
+        if let Some(env) = action.get("env")
+            && !env.is_null()
+        {
+            action_obj.insert("env".to_string(), env.clone());
+        }
+
+        serde_json::json!({ "action": action_obj })
+    }
+
     pub(super) fn convert_responses_event(
         &self,
         json: &serde_json::Value,
@@ -1953,15 +1991,11 @@ impl OpenAiResponsesEventConverter {
                 )]);
             }
             "local_shell_call" => {
-                let action = item
-                    .get("action")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
                 let tool_name = self
                     .provider_tool_name_for_item_type(item_type)
                     .unwrap_or_else(|| "shell".to_string());
 
-                let input = serde_json::json!({ "action": action }).to_string();
+                let input = Self::local_shell_input_from_object(item).to_string();
                 let provider_metadata = (!item_id.is_empty())
                     .then(|| self.provider_metadata_json(serde_json::json!({ "itemId": item_id })));
 
@@ -1969,7 +2003,7 @@ impl OpenAiResponsesEventConverter {
                     tool_call_id,
                     &tool_name,
                     serde_json::Value::String(input),
-                    Some(false),
+                    None,
                     None,
                     provider_metadata,
                     OpenAiResponsesEventExtras {

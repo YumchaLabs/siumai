@@ -668,6 +668,74 @@ fn responses_computer_call_stream_matches_ai_sdk_lifecycle() {
 }
 
 #[test]
+fn responses_local_shell_stream_maps_ai_sdk_action_keys() {
+    let tools = [siumai_core::tools::openai::local_shell()];
+    let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "id": "lsh_1",
+                "type": "local_shell_call",
+                "status": "completed",
+                "call_id": "call_local",
+                "action": {
+                    "type": "exec",
+                    "command": ["cargo", "test"],
+                    "timeout_ms": 1000,
+                    "user": "builder",
+                    "working_directory": "/workspace",
+                    "env": { "RUST_LOG": "debug" }
+                }
+            }
+        })
+        .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out.len(), 1);
+
+    match stream_part(&out[0]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "call_local");
+            assert_eq!(call.tool_name, "shell");
+            assert_eq!(call.provider_executed, None);
+
+            let input: serde_json::Value =
+                serde_json::from_str(&call.input).expect("local shell input json");
+            assert_eq!(input["action"]["type"], serde_json::json!("exec"));
+            assert_eq!(
+                input["action"]["command"],
+                serde_json::json!(["cargo", "test"])
+            );
+            assert_eq!(input["action"]["timeoutMs"], serde_json::json!(1000));
+            assert_eq!(input["action"]["user"], serde_json::json!("builder"));
+            assert_eq!(
+                input["action"]["workingDirectory"],
+                serde_json::json!("/workspace")
+            );
+            assert_eq!(
+                input["action"]["env"]["RUST_LOG"],
+                serde_json::json!("debug")
+            );
+            assert!(
+                input["action"].get("timeout_ms").is_none(),
+                "AI SDK stream input exposes timeoutMs"
+            );
+            assert!(
+                input["action"].get("working_directory").is_none(),
+                "AI SDK stream input exposes workingDirectory"
+            );
+        }
+        other => panic!("expected tool-call part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_file_search_stream_maps_ai_sdk_result_shape() {
     let tools = [siumai_core::tools::openai::file_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
