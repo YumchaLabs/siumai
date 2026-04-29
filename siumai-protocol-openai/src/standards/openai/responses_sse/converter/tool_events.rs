@@ -125,13 +125,37 @@ impl OpenAiResponsesEventConverter {
         provider_metadata: Option<serde_json::Value>,
         extras: OpenAiResponsesEventExtras,
     ) -> crate::types::ChatStreamEvent {
+        self.openai_tool_result_event_with_preliminary(
+            tool_call_id,
+            tool_name,
+            result,
+            dynamic,
+            is_error,
+            None,
+            provider_metadata,
+            extras,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn openai_tool_result_event_with_preliminary(
+        &self,
+        tool_call_id: &str,
+        tool_name: &str,
+        result: serde_json::Value,
+        dynamic: Option<bool>,
+        is_error: Option<bool>,
+        preliminary: Option<bool>,
+        provider_metadata: Option<serde_json::Value>,
+        extras: OpenAiResponsesEventExtras,
+    ) -> crate::types::ChatStreamEvent {
         let event = self.openai_stream_part_event(LanguageModelV3StreamPart::ToolResult(
             LanguageModelV3ToolResult {
                 tool_call_id: tool_call_id.to_string(),
                 tool_name: tool_name.to_string(),
                 result,
                 is_error,
-                preliminary: None,
+                preliminary,
                 dynamic,
                 provider_metadata: into_provider_metadata(provider_metadata),
             },

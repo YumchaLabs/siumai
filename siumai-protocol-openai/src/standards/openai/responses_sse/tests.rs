@@ -505,6 +505,32 @@ fn responses_provider_tool_name_uses_configured_web_search_preview() {
 }
 
 #[test]
+fn responses_image_generation_partial_image_emits_preliminary_tool_result() {
+    let tools = [siumai_core::tools::openai::image_generation()];
+    let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
+
+    let ev = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.image_generation_call.partial_image","output_index":1,"item_id":"ig_1","partial_image_index":0,"partial_image_b64":"b64_partial"}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out = futures::executor::block_on(conv.convert_event(ev));
+    assert_eq!(out.len(), 1);
+
+    match stream_part(&out[0]).expect("tool-result part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+            assert_eq!(result.tool_call_id, "ig_1");
+            assert_eq!(result.tool_name, "generateImage");
+            assert_eq!(result.result["result"], serde_json::json!("b64_partial"));
+            assert_eq!(result.preliminary, Some(true));
+        }
+        other => panic!("expected tool-result part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_tool_search_stream_maps_call_and_output() {
     let tools = [siumai_core::tools::openai::tool_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
@@ -1623,6 +1649,51 @@ fn responses_stream_proxy_serializes_provider_tool_result_stream_part_raw_item()
             && v["output_index"] == serde_json::json!(1)
             && v["item"]["type"] == serde_json::json!("web_search_call")
             && v["item"]["status"] == serde_json::json!("completed")
+    }));
+}
+
+#[test]
+fn responses_stream_proxy_serializes_image_generation_preliminary_result_as_partial_image() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-call".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "ig_1",
+                "toolName": "generateImage",
+                "providerExecuted": true,
+                "outputIndex": 1,
+                "rawItem": {
+                    "id": "ig_1",
+                    "type": "image_generation_call",
+                    "status": "in_progress"
+                }
+            }),
+        })
+        .expect("serialize image generation tool-call");
+
+    let bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-result".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "ig_1",
+                "toolName": "generateImage",
+                "result": { "result": "b64_partial" },
+                "preliminary": true,
+                "outputIndex": 1
+            }),
+        })
+        .expect("serialize image generation partial image");
+
+    let frames = parse_sse_frames(&bytes);
+    assert!(frames.iter().any(|(ev, v)| {
+        ev == "response.image_generation_call.partial_image"
+            && v["output_index"] == serde_json::json!(1)
+            && v["item_id"] == serde_json::json!("ig_1")
+            && v["partial_image_b64"] == serde_json::json!("b64_partial")
     }));
 }
 

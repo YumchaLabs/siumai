@@ -86,6 +86,17 @@ fn openai_responses_image_generation_stream_emits_vercel_aligned_tool_names() {
 
     assert!(!tool_calls.is_empty(), "expected tool-call events");
     assert!(!tool_results.is_empty(), "expected tool-result events");
+    assert!(
+        tool_results
+            .iter()
+            .any(|ev| ev.get("preliminary") == Some(&serde_json::json!(true))
+                && ev
+                    .get("result")
+                    .and_then(|result| result.get("result"))
+                    .and_then(|result| result.as_str())
+                    .is_some()),
+        "expected preliminary partial image tool-result"
+    );
 
     for ev in tool_calls.iter().chain(tool_results.iter()) {
         assert_eq!(

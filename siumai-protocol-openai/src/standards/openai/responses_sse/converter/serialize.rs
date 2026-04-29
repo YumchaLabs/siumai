@@ -1109,6 +1109,13 @@ pub(super) fn serialize_event(
                 matches!(tool_name, "toolSearch" | "tool_search")
             }
 
+            fn is_image_generation_stream_tool_name(tool_name: &str) -> bool {
+                matches!(
+                    tool_name,
+                    "generateImage" | "image_generation" | "imageGeneration"
+                )
+            }
+
             fn tool_search_input_parts(
                 value: Option<&serde_json::Value>,
             ) -> (serde_json::Value, Option<String>) {
@@ -2113,6 +2120,15 @@ pub(super) fn serialize_event(
                         data.get("outputIndex").and_then(|v| v.as_u64()),
                     );
 
+                    if let Some(item) = raw_item.as_ref()
+                        && let Some(id) = tool_call_id_for_index
+                        && let Some(item_type) = item.get("type").and_then(|v| v.as_str())
+                    {
+                        state
+                            .provider_tool_item_type_by_tool_call_id
+                            .insert(id.to_string(), item_type.to_string());
+                    }
+
                     if let Some(item) = raw_item {
                         let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -2306,6 +2322,14 @@ pub(super) fn serialize_event(
                             data.get("outputIndex").and_then(|v| v.as_u64()),
                         );
 
+                        if let Some(id) = tool_call_id_for_index
+                            && let Some(item_type) = item.get("type").and_then(|v| v.as_str())
+                        {
+                            state
+                                .provider_tool_item_type_by_tool_call_id
+                                .insert(id.to_string(), item_type.to_string());
+                        }
+
                         if let Some(done) = emit_deduped_output_item_frame(
                             &mut state,
                             "response.output_item.done",
@@ -2332,6 +2356,51 @@ pub(super) fn serialize_event(
                         .cloned()
                         .or_else(|| data.get("output").cloned())
                         .unwrap_or(serde_json::Value::Null);
+
+                    let is_image_generation_item = state
+                        .provider_tool_item_type_by_tool_call_id
+                        .get(call_id)
+                        .is_some_and(|item_type| item_type == "image_generation_call");
+
+                    if data.get("preliminary").and_then(|value| value.as_bool()) == Some(true)
+                        && (is_image_generation_item
+                            || is_image_generation_stream_tool_name(tool_name))
+                    {
+                        let Some(partial_image_b64) =
+                            result.get("result").and_then(|value| value.as_str())
+                        else {
+                            return Ok(Vec::new());
+                        };
+                        let output_index = if let Some(output_index) = state
+                            .provider_tool_output_index_by_tool_call_id
+                            .get(call_id)
+                        {
+                            *output_index
+                        } else {
+                            provider_tool_output_index(
+                                &mut state,
+                                Some(call_id),
+                                data.get("outputIndex").and_then(|v| v.as_u64()),
+                            )
+                        };
+                        let partial_image_index = data
+                            .get("partialImageIndex")
+                            .or_else(|| result.get("partialImageIndex"))
+                            .and_then(|value| value.as_u64())
+                            .unwrap_or(0);
+                        let payload = serde_json::json!({
+                            "type": "response.image_generation_call.partial_image",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "output_index": output_index,
+                            "item_id": call_id,
+                            "partial_image_index": partial_image_index,
+                            "partial_image_b64": partial_image_b64,
+                        });
+                        return sse_event_frame(
+                            "response.image_generation_call.partial_image",
+                            &payload,
+                        );
+                    }
 
                     let input = normalize_json_string(data.get("input"))
                         .map(serde_json::Value::String)

@@ -256,6 +256,11 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         return events.into_iter().map(Ok).collect();
                     }
                 }
+                "response.image_generation_call.partial_image" => {
+                    if let Some(evt) = self.convert_image_generation_partial_image(&json) {
+                        return vec![Ok(evt)];
+                    }
+                }
                 "response.code_interpreter_call_code.delta" => {
                     if let Some(events) = self.convert_code_interpreter_code_delta_tool_input(&json)
                         && !events.is_empty()

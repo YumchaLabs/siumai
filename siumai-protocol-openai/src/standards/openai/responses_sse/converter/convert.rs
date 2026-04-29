@@ -1404,6 +1404,38 @@ impl OpenAiResponsesEventConverter {
         Some(events)
     }
 
+    pub(super) fn convert_image_generation_partial_image(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        let tool_call_id = json.get("item_id")?.as_str()?;
+        if tool_call_id.is_empty() {
+            return None;
+        }
+        let partial_image_b64 = json.get("partial_image_b64")?.as_str()?;
+        let output_index = json.get("output_index").and_then(|value| value.as_u64());
+
+        let tool_name = self
+            .provider_tool_name_for_item_type("image_generation_call")
+            .unwrap_or_else(|| "image_generation".to_string());
+
+        Some(self.openai_tool_result_event_with_preliminary(
+            tool_call_id,
+            &tool_name,
+            serde_json::json!({
+                "result": partial_image_b64,
+            }),
+            None,
+            None,
+            Some(true),
+            None,
+            OpenAiResponsesEventExtras {
+                output_index,
+                raw_item: None,
+            },
+        ))
+    }
+
     pub(super) fn convert_provider_tool_output_item_done(
         &self,
         json: &serde_json::Value,

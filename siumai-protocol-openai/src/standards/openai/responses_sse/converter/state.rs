@@ -63,6 +63,7 @@ pub(super) struct OpenAiResponsesSerializeState {
     /// Stable output indices for provider-hosted tool calls/results when the caller does not
     /// provide an explicit `outputIndex` stream-part field.
     pub(super) provider_tool_output_index_by_tool_call_id: std::collections::HashMap<String, u64>,
+    pub(super) provider_tool_item_type_by_tool_call_id: std::collections::HashMap<String, String>,
 
     pub(super) latest_usage: Option<crate::types::Usage>,
     pub(super) latest_error_message: Option<String>,
