@@ -541,6 +541,13 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
     siumai_core::standards::openai::utils::convert_messages(messages)
 }
 
+/// Convert Siumai messages into the DeepSeek chat-completions wire format.
+pub fn convert_messages_deepseek_chat(
+    messages: &[ChatMessage],
+) -> Result<Vec<OpenAiMessage>, LlmError> {
+    siumai_core::standards::openai::utils::convert_messages_deepseek_chat(messages)
+}
+
 /// Convert Siumai messages into OpenAI Chat Completions wire format.
 ///
 /// This is aligned with Vercel `@ai-sdk/openai` behavior (PDF/audio file parts).

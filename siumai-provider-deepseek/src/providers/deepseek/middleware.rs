@@ -3,7 +3,7 @@
 use crate::error::LlmError;
 use crate::execution::middleware::LanguageModelMiddleware;
 use crate::streaming::ChatStreamEvent;
-use crate::types::{ChatRequest, ChatResponse, Warning};
+use crate::types::{ChatRequest, ChatResponse, ContentPart, MessageContent, Warning};
 use siumai_provider_openai_compatible::providers::openai_compatible::{
     RequestBodyTransformer, RequestType,
 };
@@ -91,18 +91,56 @@ impl DeepSeekWarningsMiddleware {
         Self
     }
 
+    fn unsupported_user_part_type(part: &ContentPart) -> Option<&'static str> {
+        match part {
+            ContentPart::Text { .. } => None,
+            ContentPart::Image { .. } => Some("image"),
+            ContentPart::Audio { .. } => Some("audio"),
+            ContentPart::File { .. } => Some("file"),
+            ContentPart::ReasoningFile { .. } => Some("reasoning-file"),
+            ContentPart::Custom { .. } => Some("custom"),
+            ContentPart::Source { .. } => Some("source"),
+            ContentPart::ToolCall { .. } => Some("tool-call"),
+            ContentPart::ToolApprovalResponse { .. } => Some("tool-approval-response"),
+            ContentPart::ToolApprovalRequest { .. } => Some("tool-approval-request"),
+            ContentPart::ToolResult { .. } => Some("tool-result"),
+            ContentPart::Reasoning { .. } => Some("reasoning"),
+        }
+    }
+
     fn compute_warnings(req: &ChatRequest) -> Vec<Warning> {
+        let mut warnings = Vec::new();
+
         if matches!(
             req.response_format,
             Some(crate::types::chat::ResponseFormat::Json { .. })
         ) {
-            vec![Warning::compatibility(
+            warnings.push(Warning::compatibility(
                 "responseFormat JSON schema",
                 Some("JSON response schema is injected into the system message."),
-            )]
-        } else {
-            Vec::new()
+            ));
         }
+
+        for message in &req.messages {
+            if !matches!(message.role, crate::types::MessageRole::User) {
+                continue;
+            }
+
+            let MessageContent::MultiModal(parts) = &message.content else {
+                continue;
+            };
+
+            for part in parts {
+                if let Some(part_type) = Self::unsupported_user_part_type(part) {
+                    warnings.push(Warning::unsupported(
+                        format!("user message part type: {part_type}"),
+                        None::<String>,
+                    ));
+                }
+            }
+        }
+
+        warnings
     }
 
     fn merge_warnings(mut resp: ChatResponse, additional: Vec<Warning>) -> ChatResponse {
@@ -188,6 +226,40 @@ mod tests {
             .expect("post generate");
 
         assert_eq!(out.warnings, None);
+    }
+
+    #[test]
+    fn warns_when_user_message_contains_unsupported_non_text_parts() {
+        let req = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage {
+                role: crate::types::MessageRole::User,
+                content: MessageContent::MultiModal(vec![
+                    ContentPart::text("hi"),
+                    ContentPart::File {
+                        source: crate::types::FilePartSource::base64("AAECAw=="),
+                        media_type: "image/png".to_string(),
+                        filename: None,
+                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        provider_metadata: None,
+                    },
+                ]),
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                metadata: crate::types::MessageMetadata::default(),
+            }])
+            .build();
+
+        let out = DeepSeekWarningsMiddleware::new()
+            .post_generate(&req, dummy_resp())
+            .expect("post generate");
+
+        assert_eq!(
+            out.warnings,
+            Some(vec![Warning::unsupported(
+                "user message part type: file",
+                None::<String>,
+            )])
+        );
     }
 
     #[test]

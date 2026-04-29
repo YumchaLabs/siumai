@@ -14,7 +14,9 @@ use crate::error::LlmError;
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
-use crate::standards::openai::utils::{convert_messages, convert_messages_perplexity_chat};
+use crate::standards::openai::utils::{
+    convert_messages, convert_messages_deepseek_chat, convert_messages_perplexity_chat,
+};
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
 use crate::types::{
@@ -40,10 +42,14 @@ impl RequestTransformer for CompatRequestTransformer {
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
         // Convert messages into OpenAI-like format
-        let openai_messages = if self.config.provider_id.eq_ignore_ascii_case("perplexity") {
-            convert_messages_perplexity_chat(&req.messages)?
-        } else {
-            convert_messages(&req.messages)?
+        let openai_messages = match self.config.provider_id.as_str() {
+            provider if provider.eq_ignore_ascii_case("deepseek") => {
+                convert_messages_deepseek_chat(&req.messages)?
+            }
+            provider if provider.eq_ignore_ascii_case("perplexity") => {
+                convert_messages_perplexity_chat(&req.messages)?
+            }
+            _ => convert_messages(&req.messages)?,
         };
         let mut body = serde_json::json!({
             "model": self.config.model,
@@ -853,6 +859,67 @@ mod tests {
                 "file_name": "document-0.pdf",
             })
         );
+    }
+
+    #[test]
+    fn deepseek_request_transformer_uses_ai_sdk_message_content_shape() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("deepseek-chat".to_string()),
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com",
+            adapter.clone(),
+        )
+        .with_model("deepseek-chat");
+
+        let tx = CompatRequestTransformer { config, adapter };
+        let req = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![
+                crate::types::ChatMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::MultiModal(vec![
+                        ContentPart::text("Hello "),
+                        ContentPart::File {
+                            source: crate::types::FilePartSource::base64("Zm9v"),
+                            media_type: "image/png".to_string(),
+                            filename: None,
+                            provider_options: ProviderOptionsMap::default(),
+                            provider_metadata: None,
+                        },
+                        ContentPart::text("World"),
+                    ]),
+                    metadata: MessageMetadata::default(),
+                    provider_options: ProviderOptionsMap::default(),
+                },
+                crate::types::ChatMessage::assistant_with_content(vec![
+                    ContentPart::reasoning("old reasoning"),
+                    ContentPart::tool_call("call_1", "lookup", serde_json::json!({}), None),
+                ])
+                .build(),
+                crate::types::ChatMessage::user("next").build(),
+            ])
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["messages"][0]["content"],
+            serde_json::json!("Hello World")
+        );
+        assert_eq!(body["messages"][1]["content"], serde_json::json!(""));
+        assert!(body["messages"][1].get("reasoning_content").is_none());
+        assert!(body["messages"][1]["tool_calls"].is_array());
     }
 
     #[test]

@@ -461,9 +461,105 @@ pub fn convert_messages_perplexity_chat(
                 out.push(OpenAiMessage {
                     role: "assistant".to_string(),
                     content: Some(perplexity_message_content(&message.content)?),
-                    tool_calls: perplexity_assistant_tool_calls(message),
+                    tool_calls: plain_assistant_tool_calls(message),
                     tool_call_id: None,
                     extra: HashMap::new(),
+                });
+            }
+            MessageRole::Tool => {
+                out.extend(convert_messages_with_target(
+                    std::slice::from_ref(message),
+                    MessageConversionTarget::OpenAiCompatible,
+                )?);
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Convert messages for the DeepSeek chat-completions shape used by the AI SDK provider.
+///
+/// DeepSeek is OpenAI-compatible at the transport layer, but the AI SDK provider intentionally
+/// narrows prompt conversion: user messages are text-only, assistant reasoning is replayed only
+/// for the assistant turns after the last user message, and tool-only assistant messages keep an
+/// empty-string `content`.
+pub fn convert_messages_deepseek_chat(
+    messages: &[ChatMessage],
+) -> Result<Vec<OpenAiMessage>, LlmError> {
+    let last_user_message_index = messages
+        .iter()
+        .rposition(|message| message.role == MessageRole::User);
+    let mut out = Vec::new();
+
+    for (index, message) in messages.iter().enumerate() {
+        match message.role {
+            MessageRole::System | MessageRole::Developer => {
+                out.push(OpenAiMessage {
+                    role: match message.role {
+                        MessageRole::Developer => "developer",
+                        _ => "system",
+                    }
+                    .to_string(),
+                    content: Some(serde_json::Value::String(deepseek_text_content(
+                        &message.content,
+                    ))),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::User => {
+                out.push(OpenAiMessage {
+                    role: "user".to_string(),
+                    content: Some(serde_json::Value::String(deepseek_text_content(
+                        &message.content,
+                    ))),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::Assistant => {
+                let mut text = String::new();
+                let mut reasoning = String::new();
+
+                match &message.content {
+                    MessageContent::Text(value) => text.push_str(value),
+                    MessageContent::MultiModal(parts) => {
+                        for part in parts {
+                            match part {
+                                ContentPart::Text { text: value, .. } => text.push_str(value),
+                                ContentPart::Reasoning { text: value, .. }
+                                    if last_user_message_index
+                                        .map_or(true, |last_user| index > last_user) =>
+                                {
+                                    reasoning.push_str(value);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    #[cfg(feature = "structured-messages")]
+                    MessageContent::Json(value) => {
+                        text.push_str(&serde_json::to_string(value).unwrap_or_default());
+                    }
+                }
+
+                let mut extra = HashMap::new();
+                if !reasoning.is_empty() {
+                    extra.insert(
+                        "reasoning_content".to_string(),
+                        serde_json::Value::String(reasoning),
+                    );
+                }
+
+                out.push(OpenAiMessage {
+                    role: "assistant".to_string(),
+                    content: Some(serde_json::Value::String(text)),
+                    tool_calls: plain_assistant_tool_calls(message),
+                    tool_call_id: None,
+                    extra,
                 });
             }
             MessageRole::Tool => {
@@ -654,20 +750,7 @@ fn convert_messages_with_target(
 
                             emitted = true;
 
-                            let content_value = match output {
-                                ToolResultOutput::Text { value, .. }
-                                | ToolResultOutput::ErrorText { value, .. } => value.clone(),
-                                ToolResultOutput::ExecutionDenied { reason, .. } => reason
-                                    .clone()
-                                    .unwrap_or_else(|| "Tool execution denied.".to_string()),
-                                ToolResultOutput::Json { value, .. }
-                                | ToolResultOutput::ErrorJson { value, .. } => {
-                                    serde_json::to_string(value).unwrap_or_default()
-                                }
-                                ToolResultOutput::Content { value, .. } => {
-                                    serde_json::to_string(value).unwrap_or_default()
-                                }
-                            };
+                            let content_value = tool_result_content_value(output);
 
                             let mut extra = HashMap::new();
                             if target == MessageConversionTarget::OpenAiCompatible {
@@ -732,6 +815,25 @@ fn convert_messages_with_target(
     }
 
     Ok(openai_messages)
+}
+
+fn deepseek_text_content(content: &MessageContent) -> String {
+    let mut text = String::new();
+    match content {
+        MessageContent::Text(value) => text.push_str(value),
+        MessageContent::MultiModal(parts) => {
+            for part in parts {
+                if let ContentPart::Text { text: value, .. } = part {
+                    text.push_str(value);
+                }
+            }
+        }
+        #[cfg(feature = "structured-messages")]
+        MessageContent::Json(value) => {
+            text.push_str(&serde_json::to_string(value).unwrap_or_default());
+        }
+    }
+    text
 }
 
 fn perplexity_text_content(content: &MessageContent) -> String {
@@ -874,7 +976,7 @@ fn perplexity_pdf_url(source: &FilePartSource) -> Result<String, LlmError> {
     }
 }
 
-fn perplexity_assistant_tool_calls(message: &ChatMessage) -> Option<Vec<OpenAiToolCall>> {
+fn plain_assistant_tool_calls(message: &ChatMessage) -> Option<Vec<OpenAiToolCall>> {
     let tool_calls = message.tool_calls();
     if tool_calls.is_empty() {
         return None;
@@ -906,6 +1008,21 @@ fn perplexity_assistant_tool_calls(message: &ChatMessage) -> Option<Vec<OpenAiTo
             })
             .collect(),
     )
+}
+
+fn tool_result_content_value(output: &ToolResultOutput) -> String {
+    match output {
+        ToolResultOutput::Text { value, .. } | ToolResultOutput::ErrorText { value, .. } => {
+            value.clone()
+        }
+        ToolResultOutput::ExecutionDenied { reason, .. } => reason
+            .clone()
+            .unwrap_or_else(|| "Tool execution denied.".to_string()),
+        ToolResultOutput::Json { value, .. } | ToolResultOutput::ErrorJson { value, .. } => {
+            serde_json::to_string(value).unwrap_or_default()
+        }
+        ToolResultOutput::Content { value, .. } => serde_json::to_string(value).unwrap_or_default(),
+    }
 }
 
 /// Infer audio format from media type.
@@ -2348,6 +2465,79 @@ mod tests {
             out[0].extra.get("reasoning_content"),
             Some(&serde_json::json!("step-1step-2"))
         );
+    }
+
+    #[test]
+    fn deepseek_user_message_conversion_keeps_only_text_parts() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![
+                ContentPart::text("Hello "),
+                ContentPart::File {
+                    source: FilePartSource::base64("AAECAw=="),
+                    media_type: "image/png".to_string(),
+                    filename: None,
+                    provider_options: ProviderOptionsMap::default(),
+                    provider_metadata: None,
+                },
+                ContentPart::text("World"),
+            ]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let out = convert_messages_deepseek_chat(&[msg]).expect("convert messages");
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].role, "user");
+        assert_eq!(
+            out[0].content,
+            Some(serde_json::Value::String("Hello World".to_string()))
+        );
+    }
+
+    #[test]
+    fn deepseek_assistant_reasoning_is_kept_only_after_last_user_message() {
+        let assistant = ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("private old reasoning"),
+            ContentPart::tool_call(
+                "call_1",
+                "lookup",
+                serde_json::json!({ "query": "rust" }),
+                None,
+            ),
+        ])
+        .build();
+        let tool_result =
+            ChatMessage::tool_result_json("call_1", "lookup", serde_json::json!({ "ok": true }))
+                .build();
+
+        let before_last_user = convert_messages_deepseek_chat(&[
+            ChatMessage::user("first").build(),
+            assistant.clone(),
+            tool_result,
+            ChatMessage::user("second").build(),
+        ])
+        .expect("convert messages");
+
+        assert_eq!(
+            before_last_user[1].content,
+            Some(serde_json::Value::String(String::new()))
+        );
+        assert!(
+            before_last_user[1].extra.get("reasoning_content").is_none(),
+            "reasoning before the last user turn must not be replayed"
+        );
+
+        let after_last_user =
+            convert_messages_deepseek_chat(&[ChatMessage::user("first").build(), assistant])
+                .expect("convert messages");
+
+        assert_eq!(
+            after_last_user[1].extra.get("reasoning_content"),
+            Some(&serde_json::json!("private old reasoning"))
+        );
+        assert!(after_last_user[1].tool_calls.is_some());
     }
 
     #[test]
