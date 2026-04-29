@@ -683,6 +683,41 @@ fn set_json_schema_strict(body_obj: &mut serde_json::Map<String, serde_json::Val
     }
 }
 
+fn openai_chat_function_tool_name(tool: &serde_json::Value) -> Option<&str> {
+    tool.get("function")
+        .and_then(|value| value.get("name"))
+        .and_then(|value| value.as_str())
+}
+
+fn apply_mistral_tool_choice(
+    req: &crate::types::ChatRequest,
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    let Some(choice) = req.tool_choice.as_ref() else {
+        return;
+    };
+
+    if !body_obj.get("tools").is_some_and(|value| value.is_array()) {
+        return;
+    }
+
+    match choice {
+        crate::types::ToolChoice::Required => {
+            body_obj.insert("tool_choice".to_string(), serde_json::json!("any"));
+        }
+        crate::types::ToolChoice::Tool { name } => {
+            if let Some(tools) = body_obj
+                .get_mut("tools")
+                .and_then(|value| value.as_array_mut())
+            {
+                tools.retain(|tool| openai_chat_function_tool_name(tool) == Some(name.as_str()));
+            }
+            body_obj.insert("tool_choice".to_string(), serde_json::json!("any"));
+        }
+        crate::types::ToolChoice::Auto | crate::types::ToolChoice::None => {}
+    }
+}
+
 fn apply_xai_chat_settings(
     provider_id: &str,
     req: &crate::types::ChatRequest,
@@ -752,6 +787,8 @@ fn apply_mistral_chat_settings(
     if provider_id != "mistral" {
         return;
     }
+
+    apply_mistral_tool_choice(req, body_obj);
 
     if req.common_params.frequency_penalty.is_some()
         && !passthrough_provider_option_has(provider_options, "frequency_penalty")
@@ -3167,6 +3204,106 @@ mod tests {
         assert!(body.get("parallelToolCalls").is_none());
         assert!(body.get("structuredOutputs").is_none());
         assert!(body.get("strictJsonSchema").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_mistral_tool_choice_required_maps_to_any() {
+        use crate::core::ProviderSpec;
+        use crate::types::{Tool, ToolChoice};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "mistral".to_string(),
+                name: "Mistral AI".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "mistral".to_string(),
+            "https://api.mistral.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("mistral-large-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "lookup",
+                "Lookup value",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(ToolChoice::Required)
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["tool_choice"], serde_json::json!("any"));
+    }
+
+    #[test]
+    fn openai_compatible_mistral_tool_choice_tool_filters_tools_and_maps_to_any() {
+        use crate::core::ProviderSpec;
+        use crate::types::{Tool, ToolChoice};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "mistral".to_string(),
+                name: "Mistral AI".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "mistral".to_string(),
+            "https://api.mistral.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("mistral-large-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![
+                Tool::function(
+                    "lookup",
+                    "Lookup value",
+                    serde_json::json!({ "type": "object", "properties": {} }),
+                ),
+                Tool::function(
+                    "weather",
+                    "Get weather",
+                    serde_json::json!({ "type": "object", "properties": {} }),
+                ),
+            ])
+            .tool_choice(ToolChoice::tool("weather"))
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["tool_choice"], serde_json::json!("any"));
+        let tools = body["tools"].as_array().expect("tools array");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], serde_json::json!("weather"));
     }
 
     #[test]

@@ -8,12 +8,20 @@ use std::collections::BTreeSet;
 
 #[derive(Debug, Default)]
 pub struct OpenAiCompatibleToolWarningsMiddleware {
+    provider_id: Option<String>,
     allowlist: BTreeSet<String>,
 }
 
 impl OpenAiCompatibleToolWarningsMiddleware {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn for_provider(provider_id: impl Into<String>) -> Self {
+        Self {
+            provider_id: Some(provider_id.into()),
+            allowlist: BTreeSet::new(),
+        }
     }
 
     pub fn with_allowlist<I, S>(mut self, ids: I) -> Self
@@ -23,6 +31,15 @@ impl OpenAiCompatibleToolWarningsMiddleware {
     {
         self.allowlist = ids.into_iter().map(Into::into).collect();
         self
+    }
+
+    fn provider_defined_feature(&self, tool: &crate::types::ProviderDefinedTool) -> String {
+        let label = if self.provider_id.as_deref() == Some("xai") {
+            tool.name.as_str()
+        } else {
+            tool.id.as_str()
+        };
+        format!("provider-defined tool {label}")
     }
 
     fn compute_warnings(&self, req: &ChatRequest) -> Vec<Warning> {
@@ -38,7 +55,7 @@ impl OpenAiCompatibleToolWarningsMiddleware {
             .iter()
             .filter_map(|t| match t {
                 Tool::ProviderDefined(t) if !self.allowlist.contains(&t.id) => Some(
-                    Warning::unsupported(format!("provider-defined tool {}", t.id), None::<String>),
+                    Warning::unsupported(self.provider_defined_feature(t), None::<String>),
                 ),
                 _ => None,
             })
@@ -134,5 +151,24 @@ mod tests {
             w,
             Warning::Unsupported { feature, .. } if feature == "provider-defined tool openai.web_search"
         )));
+    }
+
+    #[test]
+    fn xai_warnings_use_tool_name_like_ai_sdk() {
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
+            Tool::provider_defined("xai.unsupported_tool", "unsupported_tool"),
+        ]);
+
+        let mw = OpenAiCompatibleToolWarningsMiddleware::for_provider("xai");
+        let out = mw.post_generate(&req, dummy_resp()).unwrap();
+        let warnings = out.warnings.unwrap_or_default();
+
+        assert_eq!(
+            warnings,
+            vec![Warning::unsupported(
+                "provider-defined tool unsupported_tool",
+                None::<String>,
+            )]
+        );
     }
 }

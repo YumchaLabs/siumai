@@ -1,6 +1,6 @@
 [
   {
     "type": "unsupported",
-    "feature": "some.unsupported_tool"
+    "feature": "provider-defined tool some.unsupported_tool"
   }
 ]

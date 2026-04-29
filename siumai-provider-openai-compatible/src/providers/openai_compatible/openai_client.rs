@@ -613,12 +613,13 @@ fn compat_model_middlewares(
     }
 
     middlewares.push(Arc::new(
-        OpenAiCompatibleToolWarningsMiddleware::new().with_allowlist(
-            config
-                .provider_defined_tool_warning_allowlist
-                .iter()
-                .cloned(),
-        ),
+        OpenAiCompatibleToolWarningsMiddleware::for_provider(config.provider_id.clone())
+            .with_allowlist(
+                config
+                    .provider_defined_tool_warning_allowlist
+                    .iter()
+                    .cloned(),
+            ),
     ));
 
     middlewares
