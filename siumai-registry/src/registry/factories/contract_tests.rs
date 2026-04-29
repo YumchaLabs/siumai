@@ -7031,6 +7031,12 @@ data: [DONE]
             .await
             .expect("build fireworks image client");
 
+        let mut request_http_config = HttpConfig::empty();
+        request_http_config.headers.insert(
+            "x-fireworks-request".to_string(),
+            "request-header".to_string(),
+        );
+
         let response = client
             .as_image_generation_capability()
             .expect("image capability")
@@ -7038,6 +7044,7 @@ data: [DONE]
                 prompt: "a tiny robot".to_string(),
                 aspect_ratio: Some("16:9".to_string()),
                 count: 1,
+                http_config: Some(request_http_config),
                 ..Default::default()
             })
             .await
@@ -7049,6 +7056,10 @@ data: [DONE]
         assert_eq!(
             header_value(&requests[0], "authorization"),
             Some("Bearer ctx-key".to_string())
+        );
+        assert_eq!(
+            header_value(&requests[0], "x-fireworks-request"),
+            Some("request-header".to_string())
         );
         assert_eq!(
             requests[0].body["prompt"],
@@ -7151,6 +7162,11 @@ data: [DONE]
                 "output_format": "jpeg"
             }),
         );
+        let mut request_http_config = HttpConfig::empty();
+        request_http_config.headers.insert(
+            "x-fireworks-request".to_string(),
+            "request-header".to_string(),
+        );
 
         let response = client
             .as_image_extras()
@@ -7165,6 +7181,7 @@ data: [DONE]
                 count: Some(1),
                 aspect_ratio: Some("16:9".to_string()),
                 provider_options_map: provider_options,
+                http_config: Some(request_http_config),
                 ..Default::default()
             })
             .await
@@ -7186,6 +7203,14 @@ data: [DONE]
         );
         assert_eq!(requests[1].url, poll_url);
         assert_eq!(requests[1].body["id"], serde_json::json!("req-123"));
+        assert_eq!(
+            header_value(&requests[0], "x-fireworks-request"),
+            Some("request-header".to_string())
+        );
+        assert_eq!(
+            header_value(&requests[1], "x-fireworks-request"),
+            Some("request-header".to_string())
+        );
         assert_eq!(response.images.len(), 1);
         assert_eq!(response.images[0].b64_json.as_deref(), Some("aGVsbG8="));
     }

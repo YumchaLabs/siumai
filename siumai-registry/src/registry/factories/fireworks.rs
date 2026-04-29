@@ -14,8 +14,8 @@ use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
 use crate::traits::{ImageExtras, ImageGenerationCapability, ModelMetadata, ProviderCapabilities};
 use crate::types::{
-    GeneratedImage, HttpResponseInfo, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
-    ImageGenerationResponse, ImageVariationRequest, Warning,
+    GeneratedImage, HttpConfig, HttpResponseInfo, ImageEditInput, ImageEditRequest,
+    ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest, Warning,
 };
 use base64::Engine;
 use reqwest::header::{CONTENT_TYPE, HeaderMap};
@@ -592,6 +592,7 @@ impl FireworksImageClient {
     async fn download_polled_image(
         &self,
         url: &str,
+        per_request_http_config: Option<&HttpConfig>,
     ) -> Result<(GeneratedImage, Option<HashMap<String, String>>), LlmError> {
         if url.starts_with("data:") {
             let (bytes, media_type) = parse_data_url(url)?;
@@ -602,7 +603,7 @@ impl FireworksImageClient {
         }
 
         let execution = self.execution_config();
-        match execute_get_binary(&execution, url, None).await {
+        match execute_get_binary(&execution, url, per_request_http_config).await {
             Ok(result) => Ok((
                 generated_image_from_bytes(
                     result.bytes,
@@ -615,18 +616,22 @@ impl FireworksImageClient {
             )),
             Err(LlmError::UnsupportedOperation(_)) => {
                 let headers = FireworksImageSpec.build_headers(&self.wiring.provider_context)?;
-                let response = self
-                    .wiring
-                    .http_client
-                    .get(url)
-                    .headers(headers.clone())
-                    .send()
-                    .await
-                    .map_err(|err| {
-                        LlmError::HttpError(format!(
-                            "Failed to download Fireworks polled image result: {err}"
-                        ))
-                    })?;
+                let headers = if let Some(req_http) = per_request_http_config {
+                    FireworksImageSpec.merge_request_headers(headers, &req_http.headers)
+                } else {
+                    headers
+                };
+                let mut request = self.wiring.http_client.get(url).headers(headers);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    request = request.timeout(timeout);
+                }
+                let response = request.send().await.map_err(|err| {
+                    LlmError::HttpError(format!(
+                        "Failed to download Fireworks polled image result: {err}"
+                    ))
+                })?;
                 let status = response.status();
                 if !status.is_success() {
                     let body = response.text().await.unwrap_or_default();
@@ -664,18 +669,20 @@ impl FireworksImageClient {
         model: &str,
         body: Value,
         warnings: Vec<Warning>,
+        per_request_http_config: Option<&HttpConfig>,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let config = backend_config_for_model(model);
         match config.route_kind {
             FireworksImageRouteKind::WorkflowsAsync => {
-                self.generate_or_edit_async(model, body, warnings).await
+                self.generate_or_edit_async(model, body, warnings, per_request_http_config)
+                    .await
             }
             FireworksImageRouteKind::Workflows | FireworksImageRouteKind::ImageGeneration => {
                 let result = execute_bytes_request(
                     &self.execution_config(),
                     &self.image_url(model),
                     HttpBody::Json(body),
-                    None,
+                    per_request_http_config,
                 )
                 .await?;
 
@@ -704,12 +711,13 @@ impl FireworksImageClient {
         model: &str,
         body: Value,
         warnings: Vec<Warning>,
+        per_request_http_config: Option<&HttpConfig>,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let submit_result = execute_json_request(
             &self.execution_config(),
             &self.image_url(model),
             HttpBody::Json(body),
-            None,
+            per_request_http_config,
             false,
         )
         .await?;
@@ -733,7 +741,7 @@ impl FireworksImageClient {
                 &self.execution_config(),
                 &self.poll_url(model),
                 HttpBody::Json(serde_json::json!({ "id": submit.request_id })),
-                None,
+                per_request_http_config,
                 false,
             )
             .await?;
@@ -752,7 +760,9 @@ impl FireworksImageClient {
                                 .to_string(),
                         ));
                     };
-                    let (image, response_headers) = self.download_polled_image(&sample).await?;
+                    let (image, response_headers) = self
+                        .download_polled_image(&sample, per_request_http_config)
+                        .await?;
                     return Ok(ImageGenerationResponse {
                         images: vec![image],
                         metadata: HashMap::new(),
@@ -840,7 +850,7 @@ impl ImageGenerationCapability for FireworksImageClient {
         let model = resolve_generation_model(request.model.as_deref(), &self.model_id);
         let config = backend_config_for_model(&model);
         let (body, warnings) = build_generation_body(&request, config)?;
-        self.generate_or_edit_with_body(&model, body, warnings)
+        self.generate_or_edit_with_body(&model, body, warnings, request.http_config.as_ref())
             .await
     }
 
@@ -858,7 +868,7 @@ impl ImageExtras for FireworksImageClient {
         let model = resolve_edit_model(request.model.as_deref(), &self.model_id)?;
         let config = backend_config_for_model(&model);
         let (body, warnings) = build_edit_body(&request, config)?;
-        self.generate_or_edit_with_body(&model, body, warnings)
+        self.generate_or_edit_with_body(&model, body, warnings, request.http_config.as_ref())
             .await
     }
 
