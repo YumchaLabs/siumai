@@ -497,6 +497,138 @@ fn openai_hosted_dynamic_tool_payload(
         .unwrap_or_else(|| serde_json::Value::Object(input))
 }
 
+fn openai_is_tool_search_name(tool_name: &str) -> bool {
+    matches!(tool_name, "toolSearch" | "tool_search")
+}
+
+fn openai_tool_search_call_parts(
+    arguments: &serde_json::Value,
+) -> (Option<serde_json::Value>, Option<String>) {
+    let parsed = match arguments {
+        serde_json::Value::String(text) => serde_json::from_str::<serde_json::Value>(text).ok(),
+        other => Some(other.clone()),
+    };
+
+    let Some(obj) = parsed.as_ref().and_then(serde_json::Value::as_object) else {
+        return (None, None);
+    };
+
+    let arguments = obj.get("arguments").cloned();
+    let call_id = obj
+        .get("call_id")
+        .or_else(|| obj.get("callId"))
+        .and_then(serde_json::Value::as_str)
+        .map(ToString::to_string);
+
+    (arguments, call_id)
+}
+
+fn openai_tool_search_call_output_item(part: &ContentPart) -> Option<serde_json::Value> {
+    let ContentPart::ToolCall {
+        tool_call_id,
+        tool_name,
+        arguments,
+        ..
+    } = part
+    else {
+        return None;
+    };
+
+    if !openai_is_tool_search_name(tool_name) {
+        return None;
+    }
+
+    let item_id = openai_content_part_item_id(part).unwrap_or_else(|| tool_call_id.clone());
+    let (tool_search_args, call_id) = openai_tool_search_call_parts(arguments);
+    let execution = if call_id.is_some() {
+        "client"
+    } else {
+        "server"
+    };
+
+    let mut item = serde_json::Map::new();
+    item.insert("id".to_string(), serde_json::json!(item_id));
+    item.insert("type".to_string(), serde_json::json!("tool_search_call"));
+    item.insert("execution".to_string(), serde_json::json!(execution));
+    item.insert(
+        "call_id".to_string(),
+        call_id
+            .as_deref()
+            .map(|id| serde_json::json!(id))
+            .unwrap_or(serde_json::Value::Null),
+    );
+    item.insert("status".to_string(), serde_json::json!("completed"));
+    if let Some(arguments) = tool_search_args {
+        item.insert("arguments".to_string(), arguments);
+    }
+
+    Some(serde_json::Value::Object(item))
+}
+
+fn openai_tool_search_output_tools(
+    output: &crate::types::ToolResultOutput,
+) -> Option<serde_json::Value> {
+    let crate::types::ToolResultOutput::Json { value, .. } = output else {
+        return None;
+    };
+
+    value.get("tools").cloned()
+}
+
+fn openai_tool_search_result_output_item(
+    part: &ContentPart,
+    paired_call: Option<&ContentPart>,
+) -> Option<serde_json::Value> {
+    let ContentPart::ToolResult {
+        tool_call_id,
+        tool_name,
+        output,
+        ..
+    } = part
+    else {
+        return None;
+    };
+
+    if !openai_is_tool_search_name(tool_name) {
+        return None;
+    }
+
+    let item_id =
+        openai_content_part_item_id(part).unwrap_or_else(|| format!("tso_{tool_call_id}"));
+    let paired_call_id = paired_call.and_then(|call| match call {
+        ContentPart::ToolCall { arguments, .. } => {
+            let (_, call_id) = openai_tool_search_call_parts(arguments);
+            call_id
+        }
+        _ => None,
+    });
+    let execution = if paired_call_id.is_some() {
+        "client"
+    } else {
+        "server"
+    };
+
+    let mut item = serde_json::Map::new();
+    item.insert("id".to_string(), serde_json::json!(item_id));
+    item.insert("type".to_string(), serde_json::json!("tool_search_output"));
+    item.insert("execution".to_string(), serde_json::json!(execution));
+    item.insert(
+        "call_id".to_string(),
+        paired_call_id
+            .as_deref()
+            .map(|id| serde_json::json!(id))
+            .unwrap_or(serde_json::Value::Null),
+    );
+    item.insert("status".to_string(), serde_json::json!("completed"));
+    item.insert(
+        "tools".to_string(),
+        openai_tool_search_output_tools(output)
+            .unwrap_or_else(|| serde_json::Value::Array(Vec::new())),
+    );
+
+    Some(serde_json::Value::Object(item))
+}
+
 fn split_openai_sources(
     response: &ChatResponse,
 ) -> (Vec<OpenAiSource>, HashMap<String, Vec<OpenAiSource>>) {
@@ -1257,6 +1389,19 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                     _ => None,
                 })
                 .collect();
+            let tool_search_calls_by_call_id: HashMap<&str, &ContentPart> = parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::ToolCall {
+                        tool_call_id,
+                        tool_name,
+                        ..
+                    } if openai_is_tool_search_name(tool_name) => {
+                        Some((tool_call_id.as_str(), part))
+                    }
+                    _ => None,
+                })
+                .collect();
 
             for (index, part) in parts.iter().enumerate() {
                 match part {
@@ -1285,6 +1430,11 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                         ..
                     } => {
                         if let Some(item) = openai_hosted_dynamic_tool_call_output_item(part) {
+                            output.push(item);
+                            continue;
+                        }
+
+                        if let Some(item) = openai_tool_search_call_output_item(part) {
                             output.push(item);
                             continue;
                         }
@@ -1380,6 +1530,16 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                         ..
                     } => {
                         if let Some(item) = openai_hosted_dynamic_tool_result_output_item(part) {
+                            output.push(item);
+                            continue;
+                        }
+
+                        if let Some(item) = openai_tool_search_result_output_item(
+                            part,
+                            tool_search_calls_by_call_id
+                                .get(tool_call_id.as_str())
+                                .copied(),
+                        ) {
                             output.push(item);
                             continue;
                         }
@@ -1942,6 +2102,160 @@ mod tests {
         assert_eq!(
             value["output"][1]["output"]["message"],
             serde_json::json!("blocked")
+        );
+    }
+
+    #[test]
+    fn responses_encoder_serializes_tool_search_call_and_output_items() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolCall {
+                tool_call_id: "tsc_server_1".to_string(),
+                tool_name: "toolSearch".to_string(),
+                arguments: serde_json::Value::String(
+                    r#"{"arguments":{"paths":["get_weather"]},"call_id":null}"#.to_string(),
+                ),
+                provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "tsc_server_item"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "tsc_server_1".to_string(),
+                tool_name: "toolSearch".to_string(),
+                output: crate::types::ToolResultOutput::json(serde_json::json!({
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "get_weather",
+                            "parameters": { "type": "object" }
+                        }
+                    ]
+                })),
+                input: None,
+                provider_executed: None,
+                dynamic: None,
+                preliminary: None,
+                title: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "tso_server_item"
+                    }),
+                )])),
+            },
+            ContentPart::ToolCall {
+                tool_call_id: "call_final".to_string(),
+                tool_name: "toolSearch".to_string(),
+                arguments: serde_json::Value::String(
+                    r#"{"arguments":{"goal":"Find the weather tool"},"call_id":"call_final"}"#
+                        .to_string(),
+                ),
+                provider_executed: None,
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "tsc_client_item"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "call_final".to_string(),
+                tool_name: "toolSearch".to_string(),
+                output: crate::types::ToolResultOutput::json(serde_json::json!({
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "get_forecast",
+                            "parameters": { "type": "object" }
+                        }
+                    ]
+                })),
+                input: None,
+                provider_executed: None,
+                dynamic: None,
+                preliminary: None,
+                title: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "tso_client_item"
+                    }),
+                )])),
+            },
+        ]));
+        response.id = Some("resp_tool_search".to_string());
+        response.model = Some("gpt-5.4".to_string());
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["output"][0]["type"],
+            serde_json::json!("tool_search_call")
+        );
+        assert_eq!(
+            value["output"][0]["id"],
+            serde_json::json!("tsc_server_item")
+        );
+        assert_eq!(value["output"][0]["execution"], serde_json::json!("server"));
+        assert_eq!(value["output"][0]["call_id"], serde_json::Value::Null);
+        assert_eq!(
+            value["output"][0]["arguments"]["paths"],
+            serde_json::json!(["get_weather"])
+        );
+        assert_eq!(
+            value["output"][1]["type"],
+            serde_json::json!("tool_search_output")
+        );
+        assert_eq!(
+            value["output"][1]["id"],
+            serde_json::json!("tso_server_item")
+        );
+        assert_eq!(value["output"][1]["execution"], serde_json::json!("server"));
+        assert_eq!(value["output"][1]["call_id"], serde_json::Value::Null);
+        assert_eq!(
+            value["output"][1]["tools"][0]["name"],
+            serde_json::json!("get_weather")
+        );
+        assert_eq!(
+            value["output"][2]["type"],
+            serde_json::json!("tool_search_call")
+        );
+        assert_eq!(value["output"][2]["execution"], serde_json::json!("client"));
+        assert_eq!(
+            value["output"][2]["call_id"],
+            serde_json::json!("call_final")
+        );
+        assert_eq!(
+            value["output"][3]["type"],
+            serde_json::json!("tool_search_output")
+        );
+        assert_eq!(value["output"][3]["execution"], serde_json::json!("client"));
+        assert_eq!(
+            value["output"][3]["call_id"],
+            serde_json::json!("call_final")
+        );
+        assert_eq!(
+            value["output"][3]["tools"][0]["name"],
+            serde_json::json!("get_forecast")
         );
     }
 

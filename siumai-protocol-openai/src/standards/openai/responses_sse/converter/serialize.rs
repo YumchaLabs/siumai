@@ -1097,6 +1097,55 @@ pub(super) fn serialize_event(
                 }
             }
 
+            fn provider_metadata_item_id(data: &serde_json::Value) -> Option<&str> {
+                data.get("providerMetadata")
+                    .and_then(provider_metadata_value)
+                    .and_then(|metadata| metadata.get("itemId"))
+                    .and_then(|value| value.as_str())
+                    .filter(|item_id| !item_id.is_empty())
+            }
+
+            fn is_tool_search_stream_tool_name(tool_name: &str) -> bool {
+                matches!(tool_name, "toolSearch" | "tool_search")
+            }
+
+            fn tool_search_input_parts(
+                value: Option<&serde_json::Value>,
+            ) -> (serde_json::Value, Option<String>) {
+                let parsed = value.and_then(|value| match value {
+                    serde_json::Value::String(text) => {
+                        serde_json::from_str::<serde_json::Value>(text).ok()
+                    }
+                    serde_json::Value::Object(_) => Some(value.clone()),
+                    _ => None,
+                });
+
+                let Some(obj) = parsed.as_ref().and_then(serde_json::Value::as_object) else {
+                    return (serde_json::Value::Null, None);
+                };
+
+                let arguments = obj
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::Value::Object(obj.clone()));
+                let call_id = obj
+                    .get("call_id")
+                    .or_else(|| obj.get("callId"))
+                    .and_then(|value| value.as_str())
+                    .filter(|id| !id.is_empty())
+                    .map(ToString::to_string);
+
+                (arguments, call_id)
+            }
+
+            fn tool_search_tools_from_result(result: &serde_json::Value) -> serde_json::Value {
+                result
+                    .as_object()
+                    .and_then(|obj| obj.get("tools"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
+            }
+
             // Best-effort: ignore the custom event prefix and rely on the v3 part tag
             // (`data.type`) to select the OpenAI stream part handler.
             let effective_event_type = if event_type.starts_with("openai:") {
@@ -1793,6 +1842,39 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
+                    if is_tool_search_stream_tool_name(tool_name) {
+                        let item_id = provider_metadata_item_id(data).unwrap_or(call_id);
+                        let (arguments, final_call_id) = tool_search_input_parts(data.get("input"));
+                        let execution = if final_call_id.is_some() {
+                            "client"
+                        } else {
+                            "server"
+                        };
+                        let output_index = provider_tool_output_index(
+                            &mut state,
+                            Some(call_id),
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
+                        let item = serde_json::json!({
+                            "id": item_id,
+                            "type": "tool_search_call",
+                            "execution": execution,
+                            "call_id": final_call_id.as_deref(),
+                            "status": "completed",
+                            "arguments": arguments,
+                        });
+
+                        if let Some(done) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.done",
+                            output_index,
+                            item,
+                        )? {
+                            return Ok(done);
+                        }
+                        return Ok(Vec::new());
+                    }
+
                     if let Some(mcp_name) = tool_name.strip_prefix("mcp.") {
                         let output_index = provider_tool_output_index(
                             &mut state,
@@ -1974,6 +2056,43 @@ pub(super) fn serialize_event(
                                 Some(output),
                                 server_label,
                             ),
+                        )? {
+                            return Ok(done);
+                        }
+                        return Ok(Vec::new());
+                    }
+
+                    if is_tool_search_stream_tool_name(tool_name) {
+                        let item_id = provider_metadata_item_id(data)
+                            .map(ToString::to_string)
+                            .unwrap_or_else(|| format!("tso_{call_id}"));
+                        let output_index = alloc_or_reuse_output_index(
+                            &mut state,
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
+                        let execution = data
+                            .get("execution")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("client");
+                        let call_id_value = if execution == "server" {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::json!(call_id)
+                        };
+                        let item = serde_json::json!({
+                            "id": item_id,
+                            "type": "tool_search_output",
+                            "execution": execution,
+                            "call_id": call_id_value,
+                            "status": "completed",
+                            "tools": tool_search_tools_from_result(&result),
+                        });
+
+                        if let Some(done) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.done",
+                            output_index,
+                            item,
                         )? {
                             return Ok(done);
                         }
