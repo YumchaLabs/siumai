@@ -1369,14 +1369,9 @@ impl OpenAiCompatibleEventConverter {
     }
 
     fn extract_usage_from_json(&self, json: &serde_json::Value) -> Option<Usage> {
-        let usage = json.get("usage")?;
-        if usage.is_null() {
-            return None;
-        }
-
-        crate::standards::openai::utils::parse_provider_openai_usage_value(
+        crate::standards::openai::utils::extract_provider_openai_usage_value(
             self.adapter.provider_id().as_ref(),
-            usage,
+            json,
         )
     }
 }
@@ -2513,6 +2508,68 @@ mod tests {
             serde_json::json!("https://images.example.com/rust.png")
         );
         assert_eq!(perplexity["cost"]["requestCost"], serde_json::json!(0.01));
+        assert!(converter.handle_stream_end().is_none());
+    }
+
+    #[tokio::test]
+    async fn groq_streaming_extracts_x_groq_usage_like_ai_sdk() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "groq".to_string(),
+            name: "Groq".to_string(),
+            base_url: "https://api.groq.com/openai/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("gemma2-9b-it".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "groq",
+            "sk-test",
+            "https://api.groq.com/openai/v1",
+            adapter.clone(),
+        )
+        .with_model("gemma2-9b-it");
+
+        let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
+        let final_chunk = Event {
+            event: "".to_string(),
+            data: r#"{"id":"chatcmpl-789","object":"chat.completion.chunk","created":1234567890,"model":"gemma2-9b-it","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"x_groq":{"usage":{"queue_time":0.061348671,"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"completion_tokens_details":{"reasoning_tokens":2}}}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let events = converter.convert_event(final_chunk).await;
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                Ok(ChatStreamEvent::UsageUpdate { usage }) => Some(usage),
+                _ => None,
+            })
+            .expect("usage update");
+
+        assert_eq!(usage.prompt_tokens(), Some(10));
+        assert_eq!(usage.completion_tokens(), Some(5));
+        assert_eq!(usage.total_tokens(), Some(15));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(2));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["queue_time"],
+            serde_json::json!(0.061348671)
+        );
+
+        let end = events
+            .iter()
+            .find_map(|event| match event {
+                Ok(ChatStreamEvent::StreamEnd { response }) => Some(response),
+                _ => None,
+            })
+            .expect("stream end event");
+        assert_eq!(
+            end.usage.as_ref().and_then(|usage| usage.total_tokens()),
+            Some(15)
+        );
         assert!(converter.handle_stream_end().is_none());
     }
 

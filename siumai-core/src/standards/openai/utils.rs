@@ -1554,6 +1554,35 @@ pub fn parse_provider_openai_usage_value(provider_id: &str, value: &Value) -> Op
     }
 }
 
+pub fn extract_provider_openai_usage_value(provider_id: &str, raw: &Value) -> Option<Usage> {
+    fn non_null_usage<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+        let mut cursor = value;
+        for key in keys {
+            cursor = cursor.get(*key)?;
+        }
+        (!cursor.is_null()).then_some(cursor)
+    }
+
+    if provider_id == "groq" {
+        for usage in [
+            non_null_usage(raw, &["x_groq", "usage"]),
+            non_null_usage(raw, &["usage"]),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(parsed) = parse_provider_openai_usage_value(provider_id, usage) {
+                return Some(parsed);
+            }
+        }
+
+        return None;
+    }
+
+    non_null_usage(raw, &["usage"])
+        .and_then(|usage| parse_provider_openai_usage_value(provider_id, usage))
+}
+
 /// Convert unified `Usage` into OpenAI Chat Completions usage JSON.
 pub fn openai_chat_usage_value(usage: &Usage) -> Value {
     let normalized_input = usage.normalized_input_tokens();
@@ -2139,6 +2168,37 @@ mod tests {
         assert_eq!(usage.normalized_output_tokens().total, Some(50));
         assert_eq!(usage.normalized_output_tokens().text, Some(50));
         assert_eq!(usage.normalized_output_tokens().reasoning, Some(0));
+    }
+
+    #[test]
+    fn extract_provider_openai_usage_value_reads_groq_streaming_x_groq_usage() {
+        let usage = extract_provider_openai_usage_value(
+            "groq",
+            &serde_json::json!({
+                "choices": [{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop"
+                }],
+                "x_groq": {
+                    "usage": {
+                        "queue_time": 0.061348671,
+                        "prompt_tokens": 18,
+                        "completion_tokens": 439,
+                        "total_tokens": 457
+                    }
+                }
+            }),
+        )
+        .expect("parse x_groq usage");
+
+        assert_eq!(usage.prompt_tokens(), Some(18));
+        assert_eq!(usage.completion_tokens(), Some(439));
+        assert_eq!(usage.total_tokens(), Some(457));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["queue_time"],
+            serde_json::json!(0.061348671)
+        );
     }
 
     #[test]

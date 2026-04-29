@@ -937,7 +937,7 @@ mod tests {
             br#"data: {"id":"1","model":"llama-3.3-70b-versatile","created":1718345013,"choices":[{"index":0,"delta":{"content":"hello","role":"assistant"},"finish_reason":null}]}
 
 
-data: {"id":"1","model":"llama-3.3-70b-versatile","created":1718345013,"choices":[{"index":0,"delta":{"content":" from groq","role":null},"finish_reason":"stop","logprobs":{"content":[{"token":"hello","logprob":-0.2,"bytes":[104,101,108,108,111],"top_logprobs":[]}]}}]}
+data: {"id":"1","model":"llama-3.3-70b-versatile","created":1718345013,"choices":[{"index":0,"delta":{"content":" from groq","role":null},"finish_reason":"stop","logprobs":{"content":[{"token":"hello","logprob":-0.2,"bytes":[104,101,108,108,111],"top_logprobs":[]}]}}],"x_groq":{"usage":{"prompt_tokens":18,"completion_tokens":7,"total_tokens":25}}}
 
 
 data: [DONE]
@@ -996,6 +996,20 @@ data: [DONE]
                     "top_logprobs": []
                 }
             ]))
+        );
+        assert_eq!(
+            end.usage.as_ref().and_then(|usage| usage.prompt_tokens()),
+            Some(18)
+        );
+        assert_eq!(
+            end.usage
+                .as_ref()
+                .and_then(|usage| usage.completion_tokens()),
+            Some(7)
+        );
+        assert_eq!(
+            end.usage.as_ref().and_then(|usage| usage.total_tokens()),
+            Some(25)
         );
         assert_eq!(response_metadata.id.as_deref(), Some("1"));
         assert_eq!(
