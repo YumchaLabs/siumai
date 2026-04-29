@@ -56,6 +56,8 @@ enum MessageConversionTarget {
     OpenAiCompatible,
     /// Match Vercel `@ai-sdk/openai` chat message conversion behavior.
     OpenAiChat,
+    /// Match Vercel `@ai-sdk/xai` chat message conversion behavior.
+    XaiChat,
 }
 
 fn openai_chat_audio_format(media_type: &str) -> Result<&'static str, LlmError> {
@@ -113,6 +115,98 @@ fn unsupported_openai_compatible_provider_reference(label: &str) -> LlmError {
     ))
 }
 
+fn resolve_provider_reference<'a>(
+    provider_reference: &'a ProviderReference,
+    provider_id: &str,
+) -> Result<&'a str, LlmError> {
+    provider_reference.get(provider_id).ok_or_else(|| {
+        let available = provider_reference.available_providers();
+        let available = if available.is_empty() {
+            "none".to_string()
+        } else {
+            available.join(", ")
+        };
+
+        LlmError::InvalidParameter(format!(
+            "No provider reference found for provider '{provider_id}'. Available providers: {available}"
+        ))
+    })
+}
+
+fn media_source_as_data_or_url(
+    source: &FilePartSource,
+    media_type: &str,
+) -> Result<String, LlmError> {
+    match source {
+        FilePartSource::Media(MediaSource::Url { url }) => Ok(url.clone()),
+        FilePartSource::Media(MediaSource::Base64 { data }) => {
+            if data.starts_with("data:") {
+                Ok(data.clone())
+            } else {
+                Ok(format!("data:{media_type};base64,{data}"))
+            }
+        }
+        FilePartSource::Media(MediaSource::Binary { data }) => {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+            Ok(format!("data:{media_type};base64,{encoded}"))
+        }
+        FilePartSource::ProviderReference { .. } => Err(LlmError::UnsupportedOperation(
+            "file parts with provider references".to_string(),
+        )),
+    }
+}
+
+fn media_source_as_base64(
+    source: &FilePartSource,
+    unsupported_url: &str,
+) -> Result<String, LlmError> {
+    match source {
+        FilePartSource::Media(MediaSource::Url { .. }) => {
+            Err(LlmError::UnsupportedOperation(unsupported_url.to_string()))
+        }
+        FilePartSource::Media(MediaSource::Base64 { data }) => Ok(data.clone()),
+        FilePartSource::Media(MediaSource::Binary { data }) => {
+            Ok(base64::engine::general_purpose::STANDARD.encode(data))
+        }
+        FilePartSource::ProviderReference { .. } => Err(LlmError::UnsupportedOperation(
+            "file parts with provider references".to_string(),
+        )),
+    }
+}
+
+fn decode_text_file_source(source: &FilePartSource) -> Result<String, LlmError> {
+    match source {
+        FilePartSource::Media(MediaSource::Url { url }) => Ok(url.clone()),
+        FilePartSource::Media(MediaSource::Base64 { data }) => {
+            let raw = data
+                .split_once(',')
+                .map_or(data.as_str(), |(_, payload)| payload);
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(raw)
+                .map_err(|err| {
+                    LlmError::InvalidParameter(format!("Invalid base64 text file data: {err}"))
+                })?;
+            Ok(String::from_utf8_lossy(&bytes).into_owned())
+        }
+        FilePartSource::Media(MediaSource::Binary { data }) => {
+            Ok(String::from_utf8_lossy(data).into_owned())
+        }
+        FilePartSource::ProviderReference { .. } => Err(LlmError::UnsupportedOperation(
+            "file parts with provider references".to_string(),
+        )),
+    }
+}
+
+fn openai_compatible_audio_format(media_type: &str) -> Result<&'static str, LlmError> {
+    match media_type {
+        "audio/wav" => Ok("wav"),
+        "audio/mp3" | "audio/mpeg" => Ok("mp3"),
+        _ => Err(LlmError::UnsupportedOperation(format!(
+            "audio media type {media_type}"
+        ))),
+    }
+}
+
 fn convert_message_content_with_target(
     content: &MessageContent,
     target: MessageConversionTarget,
@@ -148,23 +242,25 @@ fn convert_message_content_with_target(
                     }
                     ContentPart::Image {
                         source,
+                        media_type,
                         detail,
                         provider_options,
                         ..
                     } => {
+                        let normalized_media_type = media_type.as_deref().unwrap_or("image/jpeg");
                         let url = match source {
                             FilePartSource::Media(MediaSource::Url { url }) => url.clone(),
                             FilePartSource::Media(MediaSource::Base64 { data }) => {
                                 if data.starts_with("data:") {
                                     data.clone()
                                 } else {
-                                    format!("data:image/jpeg;base64,{}", data)
+                                    format!("data:{normalized_media_type};base64,{data}")
                                 }
                             }
                             FilePartSource::Media(MediaSource::Binary { data }) => {
                                 let encoded =
                                     base64::engine::general_purpose::STANDARD.encode(data);
-                                format!("data:image/jpeg;base64,{}", encoded)
+                                format!("data:{normalized_media_type};base64,{encoded}")
                             }
                             FilePartSource::ProviderReference { provider_reference } => {
                                 match target {
@@ -183,6 +279,15 @@ fn convert_message_content_with_target(
                                                 "image parts",
                                             ),
                                         );
+                                    }
+                                    MessageConversionTarget::XaiChat => {
+                                        content_parts.push(serde_json::json!({
+                                            "type": "file",
+                                            "file": {
+                                                "file_id": resolve_provider_reference(provider_reference, "xai")?,
+                                            }
+                                        }));
+                                        continue;
                                     }
                                 }
                             }
@@ -206,30 +311,51 @@ fn convert_message_content_with_target(
                         content_parts.push(image_obj);
                     }
                     ContentPart::Audio {
-                        source, media_type, ..
-                    } => match source {
-                        crate::types::chat::MediaSource::Base64 { data } => {
-                            let format = infer_audio_format(media_type.as_deref());
-                            content_parts.push(serde_json::json!({
-                                "type": "input_audio",
-                                "input_audio": { "data": data, "format": format }
-                            }));
+                        source,
+                        media_type,
+                        provider_options,
+                        ..
+                    } => {
+                        let media_type = media_type.as_deref().unwrap_or("audio/wav");
+                        let format = match target {
+                            MessageConversionTarget::OpenAiCompatible => {
+                                openai_compatible_audio_format(media_type)?
+                            }
+                            MessageConversionTarget::OpenAiChat => {
+                                openai_chat_audio_format(media_type)?
+                            }
+                            _ => {
+                                return Err(LlmError::UnsupportedOperation(format!(
+                                    "file part media type {media_type}"
+                                )));
+                            }
+                        };
+
+                        let data = match source {
+                            MediaSource::Url { .. } => {
+                                return Err(LlmError::UnsupportedOperation(
+                                    "audio file parts with URLs".to_string(),
+                                ));
+                            }
+                            MediaSource::Base64 { data } => data.clone(),
+                            MediaSource::Binary { data } => {
+                                base64::engine::general_purpose::STANDARD.encode(data)
+                            }
+                        };
+
+                        let mut audio_obj = serde_json::json!({
+                            "type": "input_audio",
+                            "input_audio": { "data": data, "format": format }
+                        });
+
+                        if target == MessageConversionTarget::OpenAiCompatible
+                            && let serde_json::Value::Object(ref mut obj) = audio_obj
+                        {
+                            merge_openai_compatible_json(obj, Some(provider_options));
                         }
-                        crate::types::chat::MediaSource::Binary { data } => {
-                            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-                            let format = infer_audio_format(media_type.as_deref());
-                            content_parts.push(serde_json::json!({
-                                "type": "input_audio",
-                                "input_audio": { "data": encoded, "format": format }
-                            }));
-                        }
-                        crate::types::chat::MediaSource::Url { url } => {
-                            content_parts.push(serde_json::json!({
-                                "type": "text",
-                                "text": format!("[Audio: {}]", url)
-                            }));
-                        }
-                    },
+
+                        content_parts.push(audio_obj);
+                    }
                     ContentPart::File {
                         source,
                         media_type,
@@ -237,6 +363,18 @@ fn convert_message_content_with_target(
                         filename,
                         ..
                     } => {
+                        if target == MessageConversionTarget::XaiChat
+                            && let FilePartSource::ProviderReference { provider_reference } = source
+                        {
+                            content_parts.push(serde_json::json!({
+                                "type": "file",
+                                "file": {
+                                    "file_id": resolve_provider_reference(provider_reference, "xai")?,
+                                }
+                            }));
+                            continue;
+                        }
+
                         if media_type.starts_with("image/") {
                             let normalized_media_type = if media_type == "image/*" {
                                 "image/jpeg"
@@ -245,18 +383,8 @@ fn convert_message_content_with_target(
                             };
 
                             let url = match source {
-                                FilePartSource::Media(MediaSource::Url { url }) => url.clone(),
-                                FilePartSource::Media(MediaSource::Base64 { data }) => {
-                                    if data.starts_with("data:") {
-                                        data.clone()
-                                    } else {
-                                        format!("data:{};base64,{}", normalized_media_type, data)
-                                    }
-                                }
-                                FilePartSource::Media(MediaSource::Binary { data }) => {
-                                    let encoded =
-                                        base64::engine::general_purpose::STANDARD.encode(data);
-                                    format!("data:{};base64,{}", normalized_media_type, encoded)
+                                FilePartSource::Media(_) => {
+                                    media_source_as_data_or_url(source, normalized_media_type)?
                                 }
                                 FilePartSource::ProviderReference { provider_reference } => {
                                     match target {
@@ -265,6 +393,15 @@ fn convert_message_content_with_target(
                                                 "type": "file",
                                                 "file": {
                                                     "file_id": resolve_openai_chat_provider_reference(provider_reference)?,
+                                                }
+                                            }));
+                                            continue;
+                                        }
+                                        MessageConversionTarget::XaiChat => {
+                                            content_parts.push(serde_json::json!({
+                                                "type": "file",
+                                                "file": {
+                                                    "file_id": resolve_provider_reference(provider_reference, "xai")?,
                                                 }
                                             }));
                                             continue;
@@ -299,38 +436,48 @@ fn convert_message_content_with_target(
                             }
 
                             content_parts.push(image_obj);
-                        } else if target == MessageConversionTarget::OpenAiChat
-                            && media_type.starts_with("audio/")
+                        } else if matches!(
+                            target,
+                            MessageConversionTarget::OpenAiChat
+                                | MessageConversionTarget::OpenAiCompatible
+                        ) && media_type.starts_with("audio/")
                         {
-                            let format = openai_chat_audio_format(media_type)?;
-                            match source {
-                                FilePartSource::Media(MediaSource::Url { .. }) => {
-                                    return Err(LlmError::UnsupportedOperation(
-                                        "audio file parts with URLs".to_string(),
-                                    ));
+                            let format = match target {
+                                MessageConversionTarget::OpenAiCompatible => {
+                                    openai_compatible_audio_format(media_type)?
                                 }
-                                FilePartSource::Media(MediaSource::Base64 { data }) => {
-                                    content_parts.push(serde_json::json!({
-                                        "type": "input_audio",
-                                        "input_audio": { "data": data, "format": format }
-                                    }));
+                                MessageConversionTarget::OpenAiChat => {
+                                    openai_chat_audio_format(media_type)?
                                 }
-                                FilePartSource::Media(MediaSource::Binary { data }) => {
-                                    let encoded =
-                                        base64::engine::general_purpose::STANDARD.encode(data);
-                                    content_parts.push(serde_json::json!({
-                                        "type": "input_audio",
-                                        "input_audio": { "data": encoded, "format": format }
-                                    }));
-                                }
+                                _ => unreachable!(),
+                            };
+
+                            let data = match source {
                                 FilePartSource::ProviderReference { .. } => {
                                     return Err(LlmError::UnsupportedOperation(
                                         "audio file parts with provider references".to_string(),
                                     ));
                                 }
+                                _ => media_source_as_base64(source, "audio file parts with URLs")?,
+                            };
+
+                            let mut audio_obj = serde_json::json!({
+                                "type": "input_audio",
+                                "input_audio": { "data": data, "format": format }
+                            });
+
+                            if target == MessageConversionTarget::OpenAiCompatible
+                                && let serde_json::Value::Object(ref mut obj) = audio_obj
+                            {
+                                merge_openai_compatible_json(obj, Some(provider_options));
                             }
-                        } else if target == MessageConversionTarget::OpenAiChat
-                            && media_type == "application/pdf"
+
+                            content_parts.push(audio_obj);
+                        } else if matches!(
+                            target,
+                            MessageConversionTarget::OpenAiChat
+                                | MessageConversionTarget::OpenAiCompatible
+                        ) && media_type == "application/pdf"
                         {
                             match source {
                                 FilePartSource::Media(MediaSource::Url { .. }) => {
@@ -339,32 +486,74 @@ fn convert_message_content_with_target(
                                     ));
                                 }
                                 FilePartSource::Media(MediaSource::Base64 { data }) => {
+                                    let default_filename = match target {
+                                        MessageConversionTarget::OpenAiCompatible => {
+                                            "document.pdf".to_string()
+                                        }
+                                        _ => format!("part-{index}.pdf"),
+                                    };
                                     let file = serde_json::json!({
-                                        "filename": filename.clone().unwrap_or_else(|| format!("part-{}.pdf", index)),
-                                        "file_data": format!("data:application/pdf;base64,{}", data),
+                                        "filename": filename.clone().unwrap_or(default_filename),
+                                        "file_data": format!("data:application/pdf;base64,{data}"),
                                     });
-                                    content_parts
-                                        .push(serde_json::json!({ "type": "file", "file": file }));
+                                    let mut file_obj =
+                                        serde_json::json!({ "type": "file", "file": file });
+                                    if target == MessageConversionTarget::OpenAiCompatible
+                                        && let serde_json::Value::Object(ref mut obj) = file_obj
+                                    {
+                                        merge_openai_compatible_json(obj, Some(provider_options));
+                                    }
+                                    content_parts.push(file_obj);
                                 }
                                 FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
+                                    let default_filename = match target {
+                                        MessageConversionTarget::OpenAiCompatible => {
+                                            "document.pdf".to_string()
+                                        }
+                                        _ => format!("part-{index}.pdf"),
+                                    };
                                     let file = serde_json::json!({
-                                        "filename": filename.clone().unwrap_or_else(|| format!("part-{}.pdf", index)),
-                                        "file_data": format!("data:application/pdf;base64,{}", encoded),
+                                        "filename": filename.clone().unwrap_or(default_filename),
+                                        "file_data": format!("data:application/pdf;base64,{encoded}"),
                                     });
-                                    content_parts
-                                        .push(serde_json::json!({ "type": "file", "file": file }));
+                                    let mut file_obj =
+                                        serde_json::json!({ "type": "file", "file": file });
+                                    if target == MessageConversionTarget::OpenAiCompatible
+                                        && let serde_json::Value::Object(ref mut obj) = file_obj
+                                    {
+                                        merge_openai_compatible_json(obj, Some(provider_options));
+                                    }
+                                    content_parts.push(file_obj);
                                 }
                                 FilePartSource::ProviderReference { provider_reference } => {
-                                    content_parts.push(serde_json::json!({
-                                        "type": "file",
-                                        "file": {
-                                            "file_id": resolve_openai_chat_provider_reference(provider_reference)?,
-                                        }
-                                    }));
+                                    if target == MessageConversionTarget::OpenAiChat {
+                                        content_parts.push(serde_json::json!({
+                                            "type": "file",
+                                            "file": {
+                                                "file_id": resolve_openai_chat_provider_reference(provider_reference)?,
+                                            }
+                                        }));
+                                    } else {
+                                        return Err(LlmError::UnsupportedOperation(
+                                            "file parts with provider references".to_string(),
+                                        ));
+                                    }
                                 }
                             }
+                        } else if target == MessageConversionTarget::OpenAiCompatible
+                            && media_type.starts_with("text/")
+                        {
+                            let text = decode_text_file_source(source)?;
+                            let mut text_obj = serde_json::json!({
+                                "type": "text",
+                                "text": text,
+                            });
+                            if let serde_json::Value::Object(ref mut obj) = text_obj {
+                                merge_openai_compatible_json(obj, Some(provider_options));
+                            }
+                            content_parts.push(text_obj);
                         } else {
                             if target == MessageConversionTarget::OpenAiChat {
                                 return Err(LlmError::UnsupportedOperation(format!(
@@ -372,7 +561,7 @@ fn convert_message_content_with_target(
                                 )));
                             }
                             return Err(LlmError::UnsupportedOperation(format!(
-                                "OpenAI-compatible chat does not support file part media type {media_type}"
+                                "file part media type {media_type}"
                             )));
                         }
                     }
@@ -574,6 +763,155 @@ pub fn convert_messages_deepseek_chat(
     Ok(out)
 }
 
+/// Convert messages for the xAI chat-completions shape used by the AI SDK provider.
+///
+/// xAI is OpenAI-compatible at the transport layer, but provider-owned file references are
+/// represented as `{ type: "file", file: { file_id } }`, assistant reasoning is not replayed as
+/// `reasoning_content`, and tool-only assistant messages keep an empty-string `content`.
+pub fn convert_messages_xai_chat(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, LlmError> {
+    let mut out = Vec::new();
+
+    for message in messages {
+        match message.role {
+            MessageRole::System | MessageRole::Developer => {
+                out.push(OpenAiMessage {
+                    role: match message.role {
+                        MessageRole::Developer => "developer",
+                        _ => "system",
+                    }
+                    .to_string(),
+                    content: Some(serde_json::Value::String(deepseek_text_content(
+                        &message.content,
+                    ))),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::User => {
+                out.push(OpenAiMessage {
+                    role: "user".to_string(),
+                    content: Some(convert_message_content_with_target(
+                        &message.content,
+                        MessageConversionTarget::XaiChat,
+                    )?),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::Assistant => {
+                let mut text = String::new();
+                match &message.content {
+                    MessageContent::Text(value) => text.push_str(value),
+                    MessageContent::MultiModal(parts) => {
+                        for part in parts {
+                            if let ContentPart::Text { text: value, .. } = part {
+                                text.push_str(value);
+                            }
+                        }
+                    }
+                    #[cfg(feature = "structured-messages")]
+                    MessageContent::Json(value) => {
+                        text.push_str(&serde_json::to_string(value).unwrap_or_default());
+                    }
+                }
+
+                out.push(OpenAiMessage {
+                    role: "assistant".to_string(),
+                    content: Some(serde_json::Value::String(text)),
+                    tool_calls: plain_assistant_tool_calls(message),
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::Tool => {
+                emit_tool_result_messages(&mut out, message, false, false);
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Convert messages for the Mistral chat-completions shape used by the AI SDK provider.
+///
+/// Mistral uses string-valued `image_url` / `document_url` content parts, replays reasoning by
+/// concatenating it into assistant text, and marks the trailing assistant turn with `prefix: true`.
+pub fn convert_messages_mistral_chat(
+    messages: &[ChatMessage],
+) -> Result<Vec<OpenAiMessage>, LlmError> {
+    let mut out = Vec::new();
+
+    for (index, message) in messages.iter().enumerate() {
+        match message.role {
+            MessageRole::System | MessageRole::Developer => {
+                out.push(OpenAiMessage {
+                    role: match message.role {
+                        MessageRole::Developer => "developer",
+                        _ => "system",
+                    }
+                    .to_string(),
+                    content: Some(serde_json::Value::String(deepseek_text_content(
+                        &message.content,
+                    ))),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::User => {
+                out.push(OpenAiMessage {
+                    role: "user".to_string(),
+                    content: Some(mistral_user_content(&message.content)?),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    extra: HashMap::new(),
+                });
+            }
+            MessageRole::Assistant => {
+                let mut text = String::new();
+                match &message.content {
+                    MessageContent::Text(value) => text.push_str(value),
+                    MessageContent::MultiModal(parts) => {
+                        for part in parts {
+                            match part {
+                                ContentPart::Text { text: value, .. }
+                                | ContentPart::Reasoning { text: value, .. } => {
+                                    text.push_str(value);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    #[cfg(feature = "structured-messages")]
+                    MessageContent::Json(value) => {
+                        text.push_str(&serde_json::to_string(value).unwrap_or_default());
+                    }
+                }
+
+                let mut extra = HashMap::new();
+                if index == messages.len().saturating_sub(1) {
+                    extra.insert("prefix".to_string(), serde_json::Value::Bool(true));
+                }
+
+                out.push(OpenAiMessage {
+                    role: "assistant".to_string(),
+                    content: Some(serde_json::Value::String(text)),
+                    tool_calls: plain_assistant_tool_calls(message),
+                    tool_call_id: None,
+                    extra,
+                });
+            }
+            MessageRole::Tool => {
+                emit_tool_result_messages(&mut out, message, true, false);
+            }
+        }
+    }
+
+    Ok(out)
+}
+
 /// Convert Siumai messages into OpenAI Chat Completions wire format.
 ///
 /// This is aligned with Vercel `@ai-sdk/openai` behavior (PDF/audio file parts).
@@ -725,7 +1063,13 @@ fn convert_messages_with_target(
 
                 OpenAiMessage {
                     role: "assistant".to_string(),
-                    content: Some(serde_json::Value::String(text)),
+                    content: Some(
+                        if target == MessageConversionTarget::OpenAiCompatible && text.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::Value::String(text)
+                        },
+                    ),
                     tool_calls: tool_calls_openai,
                     tool_call_id: None,
                     extra,
@@ -815,6 +1159,147 @@ fn convert_messages_with_target(
     }
 
     Ok(openai_messages)
+}
+
+fn emit_tool_result_messages(
+    out: &mut Vec<OpenAiMessage>,
+    message: &ChatMessage,
+    include_tool_name: bool,
+    include_openai_compatible_metadata: bool,
+) {
+    match &message.content {
+        MessageContent::MultiModal(parts) => {
+            for part in parts {
+                let ContentPart::ToolResult {
+                    tool_call_id,
+                    tool_name,
+                    output,
+                    provider_options,
+                    ..
+                } = part
+                else {
+                    continue;
+                };
+
+                let mut extra = HashMap::new();
+                if include_tool_name {
+                    extra.insert(
+                        "name".to_string(),
+                        serde_json::Value::String(tool_name.clone()),
+                    );
+                }
+                if include_openai_compatible_metadata {
+                    merge_openai_compatible_extra(&mut extra, Some(provider_options));
+                }
+
+                out.push(OpenAiMessage {
+                    role: "tool".to_string(),
+                    content: Some(serde_json::Value::String(tool_result_content_value(output))),
+                    tool_calls: None,
+                    tool_call_id: Some(tool_call_id.clone()),
+                    extra,
+                });
+            }
+        }
+        MessageContent::Text(value) => {
+            out.push(OpenAiMessage {
+                role: "tool".to_string(),
+                content: Some(serde_json::Value::String(value.clone())),
+                tool_calls: None,
+                tool_call_id: None,
+                extra: HashMap::new(),
+            });
+        }
+        #[cfg(feature = "structured-messages")]
+        MessageContent::Json(value) => {
+            out.push(OpenAiMessage {
+                role: "tool".to_string(),
+                content: Some(serde_json::Value::String(
+                    serde_json::to_string(value).unwrap_or_default(),
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+                extra: HashMap::new(),
+            });
+        }
+    }
+}
+
+fn mistral_user_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
+    let mut content_parts = Vec::new();
+
+    match content {
+        MessageContent::Text(value) => {
+            content_parts.push(serde_json::json!({
+                "type": "text",
+                "text": value,
+            }));
+        }
+        MessageContent::MultiModal(parts) => {
+            for part in parts {
+                match part {
+                    ContentPart::Text { text, .. } => {
+                        content_parts.push(serde_json::json!({
+                            "type": "text",
+                            "text": text,
+                        }));
+                    }
+                    ContentPart::Image {
+                        source, media_type, ..
+                    } => {
+                        let media_type = media_type.as_deref().unwrap_or("image/jpeg");
+                        content_parts.push(serde_json::json!({
+                            "type": "image_url",
+                            "image_url": media_source_as_data_or_url(source, media_type)?,
+                        }));
+                    }
+                    ContentPart::File {
+                        source, media_type, ..
+                    } if media_type.starts_with("image/") => {
+                        let media_type = if media_type == "image/*" {
+                            "image/jpeg"
+                        } else {
+                            media_type.as_str()
+                        };
+                        content_parts.push(serde_json::json!({
+                            "type": "image_url",
+                            "image_url": media_source_as_data_or_url(source, media_type)?,
+                        }));
+                    }
+                    ContentPart::File {
+                        source, media_type, ..
+                    } if media_type == "application/pdf" => {
+                        content_parts.push(serde_json::json!({
+                            "type": "document_url",
+                            "document_url": media_source_as_data_or_url(source, "application/pdf")?,
+                        }));
+                    }
+                    ContentPart::File { source, .. }
+                        if matches!(source, FilePartSource::ProviderReference { .. }) =>
+                    {
+                        return Err(LlmError::UnsupportedOperation(
+                            "file parts with provider references".to_string(),
+                        ));
+                    }
+                    ContentPart::File { .. } | ContentPart::Audio { .. } => {
+                        return Err(LlmError::UnsupportedOperation(
+                            "Only images and PDF file parts are supported".to_string(),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        #[cfg(feature = "structured-messages")]
+        MessageContent::Json(value) => {
+            content_parts.push(serde_json::json!({
+                "type": "text",
+                "text": serde_json::to_string(value).unwrap_or_default(),
+            }));
+        }
+    }
+
+    Ok(serde_json::Value::Array(content_parts))
 }
 
 fn deepseek_text_content(content: &MessageContent) -> String {
@@ -1022,15 +1507,6 @@ fn tool_result_content_value(output: &ToolResultOutput) -> String {
             serde_json::to_string(value).unwrap_or_default()
         }
         ToolResultOutput::Content { value, .. } => serde_json::to_string(value).unwrap_or_default(),
-    }
-}
-
-/// Infer audio format from media type.
-pub(crate) fn infer_audio_format(media_type: Option<&str>) -> &'static str {
-    match media_type {
-        Some("audio/wav") | Some("audio/wave") | Some("audio/x-wav") => "wav",
-        Some("audio/mp3") | Some("audio/mpeg") => "mp3",
-        _ => "wav",
     }
 }
 
@@ -2468,6 +2944,195 @@ mod tests {
     }
 
     #[test]
+    fn openai_compatible_tool_only_assistant_content_is_null() {
+        let msg = ChatMessage::assistant_with_content(vec![ContentPart::tool_call(
+            "call_1",
+            "lookup",
+            serde_json::json!({ "query": "rust" }),
+            None,
+        )])
+        .build();
+
+        let out = convert_messages(&[msg]).expect("convert messages");
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].content, Some(serde_json::Value::Null));
+        assert!(out[0].tool_calls.is_some());
+    }
+
+    #[test]
+    fn openai_compatible_user_file_parts_match_ai_sdk_shapes() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![
+                ContentPart::file_base64("AAECAw==", "application/pdf", None),
+                ContentPart::file_base64("SGVsbG8=", "text/plain", None),
+                ContentPart::file_base64("AAEC", "audio/mpeg", None),
+            ]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let out = convert_messages(&[msg]).expect("convert messages");
+        let parts = out[0]
+            .content
+            .as_ref()
+            .and_then(|value| value.as_array())
+            .expect("multipart user content");
+
+        assert_eq!(parts[0]["type"], "file");
+        assert_eq!(parts[0]["file"]["filename"], "document.pdf");
+        assert_eq!(
+            parts[0]["file"]["file_data"],
+            "data:application/pdf;base64,AAECAw=="
+        );
+        assert_eq!(
+            parts[1],
+            serde_json::json!({ "type": "text", "text": "Hello" })
+        );
+        assert_eq!(parts[2]["type"], "input_audio");
+        assert_eq!(parts[2]["input_audio"]["data"], "AAEC");
+        assert_eq!(parts[2]["input_audio"]["format"], "mp3");
+    }
+
+    #[test]
+    fn xai_provider_reference_file_parts_map_to_file_ids() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: FilePartSource::provider_reference(ProviderReference::from([
+                    ("openai", "file-openai"),
+                    ("xai", "file-xai"),
+                ])),
+                media_type: "application/pdf".to_string(),
+                filename: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let out = convert_messages_xai_chat(&[msg]).expect("convert messages");
+        let parts = out[0]
+            .content
+            .as_ref()
+            .and_then(|value| value.as_array())
+            .expect("multipart xai user content");
+
+        assert_eq!(
+            parts[0],
+            serde_json::json!({
+                "type": "file",
+                "file": { "file_id": "file-xai" }
+            })
+        );
+    }
+
+    #[test]
+    fn xai_missing_provider_reference_reports_available_providers() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: FilePartSource::provider_reference(ProviderReference::single(
+                    "openai",
+                    "file-openai",
+                )),
+                media_type: "image/png".to_string(),
+                filename: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let err = convert_messages_xai_chat(&[msg]).expect_err("missing xai reference");
+        assert!(
+            matches!(err, LlmError::InvalidParameter(message) if message == "No provider reference found for provider 'xai'. Available providers: openai")
+        );
+    }
+
+    #[test]
+    fn xai_assistant_reasoning_is_not_sent_as_reasoning_content() {
+        let msg = ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("private reasoning"),
+            ContentPart::tool_call(
+                "call_1",
+                "lookup",
+                serde_json::json!({ "query": "rust" }),
+                None,
+            ),
+        ])
+        .build();
+
+        let out = convert_messages_xai_chat(&[msg]).expect("convert messages");
+
+        assert_eq!(out[0].content, Some(serde_json::json!("")));
+        assert!(out[0].extra.get("reasoning_content").is_none());
+        assert!(out[0].tool_calls.is_some());
+    }
+
+    #[test]
+    fn mistral_user_pdf_and_assistant_reasoning_match_ai_sdk_shape() {
+        let user = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![
+                ContentPart::text("Analyze this PDF"),
+                ContentPart::file_url("https://example.com/report.pdf", "application/pdf"),
+            ]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+        let assistant = ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("thinking"),
+            ContentPart::text("answer"),
+        ])
+        .build();
+
+        let out = convert_messages_mistral_chat(&[user, assistant]).expect("convert messages");
+        let user_parts = out[0]
+            .content
+            .as_ref()
+            .and_then(|value| value.as_array())
+            .expect("mistral user content array");
+
+        assert_eq!(
+            user_parts[1],
+            serde_json::json!({
+                "type": "document_url",
+                "document_url": "https://example.com/report.pdf"
+            })
+        );
+        assert_eq!(out[1].content, Some(serde_json::json!("thinkinganswer")));
+        assert_eq!(out[1].extra.get("prefix"), Some(&serde_json::json!(true)));
+    }
+
+    #[test]
+    fn mistral_tool_result_messages_include_tool_name() {
+        let assistant = ChatMessage::assistant_with_content(vec![ContentPart::tool_call(
+            "call_1",
+            "lookup",
+            serde_json::json!({ "query": "rust" }),
+            None,
+        )])
+        .build();
+        let tool_result =
+            ChatMessage::tool_result_json("call_1", "lookup", serde_json::json!({ "ok": true }))
+                .build();
+
+        let out =
+            convert_messages_mistral_chat(&[assistant, tool_result]).expect("convert messages");
+
+        assert_eq!(out[0].content, Some(serde_json::json!("")));
+        assert!(out[0].extra.get("prefix").is_none());
+        assert_eq!(out[1].role, "tool");
+        assert_eq!(out[1].tool_call_id.as_deref(), Some("call_1"));
+        assert_eq!(out[1].extra.get("name"), Some(&serde_json::json!("lookup")));
+        assert_eq!(out[1].content, Some(serde_json::json!("{\"ok\":true}")));
+    }
+
+    #[test]
     fn deepseek_user_message_conversion_keeps_only_text_parts() {
         let msg = ChatMessage {
             role: MessageRole::User,
@@ -3118,7 +3783,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_pdf_file_part_is_still_unsupported() {
+    fn openai_compatible_pdf_file_part_maps_to_file_content_part() {
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::File {
@@ -3132,8 +3797,15 @@ mod tests {
             provider_options: crate::types::ProviderOptionsMap::default(),
         };
 
-        let err = convert_messages(&[msg]).unwrap_err();
-        assert!(matches!(err, LlmError::UnsupportedOperation(_)));
+        let out = convert_messages(&[msg]).expect("convert messages");
+        let content = out[0].content.clone().expect("content");
+        let parts = content.as_array().expect("array");
+        assert_eq!(parts[0]["type"], "file");
+        assert_eq!(parts[0]["file"]["filename"], "document.pdf");
+        assert_eq!(
+            parts[0]["file"]["file_data"],
+            "data:application/pdf;base64,Zm9v"
+        );
     }
 
     #[test]

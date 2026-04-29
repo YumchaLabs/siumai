@@ -1,2 +1,0 @@
-OpenAI-compatible chat does not support file part media type application/pdf
-

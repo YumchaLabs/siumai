@@ -4,7 +4,7 @@
     { "role": "user", "content": "Hi" },
     {
       "role": "assistant",
-      "content": "",
+      "content": null,
       "tool_calls": [
         {
           "id": "call_1",

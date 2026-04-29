@@ -548,6 +548,18 @@ pub fn convert_messages_deepseek_chat(
     siumai_core::standards::openai::utils::convert_messages_deepseek_chat(messages)
 }
 
+/// Convert Siumai messages into the Mistral chat-completions wire format.
+pub fn convert_messages_mistral_chat(
+    messages: &[ChatMessage],
+) -> Result<Vec<OpenAiMessage>, LlmError> {
+    siumai_core::standards::openai::utils::convert_messages_mistral_chat(messages)
+}
+
+/// Convert Siumai messages into the xAI chat-completions wire format.
+pub fn convert_messages_xai_chat(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, LlmError> {
+    siumai_core::standards::openai::utils::convert_messages_xai_chat(messages)
+}
+
 /// Convert Siumai messages into OpenAI Chat Completions wire format.
 ///
 /// This is aligned with Vercel `@ai-sdk/openai` behavior (PDF/audio file parts).

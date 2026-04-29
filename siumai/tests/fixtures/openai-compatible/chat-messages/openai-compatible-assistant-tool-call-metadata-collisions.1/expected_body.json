@@ -5,7 +5,7 @@
       "role": "assistant",
       "cacheControl": { "type": "default" },
       "sharedKey": "assistantLevel",
-      "content": "",
+      "content": null,
       "tool_calls": [
         {
           "id": "collisionToolCall",

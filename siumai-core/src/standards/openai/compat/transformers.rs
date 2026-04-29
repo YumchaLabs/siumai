@@ -15,7 +15,8 @@ use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::standards::openai::utils::{
-    convert_messages, convert_messages_deepseek_chat, convert_messages_perplexity_chat,
+    convert_messages, convert_messages_deepseek_chat, convert_messages_mistral_chat,
+    convert_messages_perplexity_chat, convert_messages_xai_chat,
 };
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
@@ -48,6 +49,12 @@ impl RequestTransformer for CompatRequestTransformer {
             }
             provider if provider.eq_ignore_ascii_case("perplexity") => {
                 convert_messages_perplexity_chat(&req.messages)?
+            }
+            provider if provider.eq_ignore_ascii_case("mistral") => {
+                convert_messages_mistral_chat(&req.messages)?
+            }
+            provider if provider.eq_ignore_ascii_case("xai") => {
+                convert_messages_xai_chat(&req.messages)?
             }
             _ => convert_messages(&req.messages)?,
         };
@@ -916,6 +923,122 @@ mod tests {
         assert_eq!(
             body["messages"][0]["content"],
             serde_json::json!("Hello World")
+        );
+        assert_eq!(body["messages"][1]["content"], serde_json::json!(""));
+        assert!(body["messages"][1].get("reasoning_content").is_none());
+        assert!(body["messages"][1]["tool_calls"].is_array());
+    }
+
+    #[test]
+    fn mistral_request_transformer_uses_ai_sdk_message_content_shape() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "mistral".to_string(),
+                name: "Mistral".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("mistral-large-latest".to_string()),
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "mistral",
+            "test-key",
+            "https://api.mistral.ai/v1",
+            adapter.clone(),
+        )
+        .with_model("mistral-large-latest");
+
+        let tx = CompatRequestTransformer { config, adapter };
+        let req = ChatRequest::builder()
+            .model("mistral-large-latest")
+            .messages(vec![
+                crate::types::ChatMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::MultiModal(vec![
+                        ContentPart::text("Analyze"),
+                        ContentPart::file_url("https://example.com/report.pdf", "application/pdf"),
+                    ]),
+                    metadata: MessageMetadata::default(),
+                    provider_options: ProviderOptionsMap::default(),
+                },
+                crate::types::ChatMessage::assistant_with_content(vec![
+                    ContentPart::reasoning("thinking"),
+                    ContentPart::text("answer"),
+                ])
+                .build(),
+            ])
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["messages"][0]["content"][1],
+            serde_json::json!({
+                "type": "document_url",
+                "document_url": "https://example.com/report.pdf"
+            })
+        );
+        assert_eq!(
+            body["messages"][1]["content"],
+            serde_json::json!("thinkinganswer")
+        );
+        assert_eq!(body["messages"][1]["prefix"], serde_json::json!(true));
+        assert!(body["messages"][1].get("reasoning_content").is_none());
+    }
+
+    #[test]
+    fn xai_request_transformer_uses_ai_sdk_message_content_shape() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "xai".to_string(),
+                name: "xAI".to_string(),
+                base_url: "https://api.x.ai/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("grok-4".to_string()),
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config =
+            OpenAiCompatibleConfig::new("xai", "test-key", "https://api.x.ai/v1", adapter.clone())
+                .with_model("grok-4");
+
+        let tx = CompatRequestTransformer { config, adapter };
+        let req = ChatRequest::builder()
+            .model("grok-4")
+            .messages(vec![
+                crate::types::ChatMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::MultiModal(vec![ContentPart::File {
+                        source: crate::types::FilePartSource::provider_reference(
+                            crate::types::ProviderReference::single("xai", "file-xai"),
+                        ),
+                        media_type: "application/pdf".to_string(),
+                        filename: None,
+                        provider_options: ProviderOptionsMap::default(),
+                        provider_metadata: None,
+                    }]),
+                    metadata: MessageMetadata::default(),
+                    provider_options: ProviderOptionsMap::default(),
+                },
+                crate::types::ChatMessage::assistant_with_content(vec![
+                    ContentPart::reasoning("private reasoning"),
+                    ContentPart::tool_call("call_1", "lookup", serde_json::json!({}), None),
+                ])
+                .build(),
+            ])
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["messages"][0]["content"][0],
+            serde_json::json!({
+                "type": "file",
+                "file": { "file_id": "file-xai" }
+            })
         );
         assert_eq!(body["messages"][1]["content"], serde_json::json!(""));
         assert!(body["messages"][1].get("reasoning_content").is_none());

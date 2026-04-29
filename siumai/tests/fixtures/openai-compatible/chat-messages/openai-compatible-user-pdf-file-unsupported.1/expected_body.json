@@ -1,0 +1,17 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "file",
+          "file": {
+            "filename": "document.pdf",
+            "file_data": "data:application/pdf;base64,AAECAw=="
+          }
+        }
+      ]
+    }
+  ]
+}
