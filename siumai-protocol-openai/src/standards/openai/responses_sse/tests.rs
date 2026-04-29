@@ -603,6 +603,47 @@ fn responses_computer_call_stream_matches_ai_sdk_lifecycle() {
 }
 
 #[test]
+fn responses_file_search_stream_maps_ai_sdk_result_shape() {
+    let tools = [siumai_core::tools::openai::file_search()];
+    let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"fs_1","type":"file_search_call","status":"completed","queries":["rust"],"results":[{"file_id":"file_1","filename":"rust.txt","attributes":{"lang":"rust"},"score":0.98,"text":"Rust text"}]}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let out = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out.len(), 1);
+
+    match stream_part(&out[0]).expect("tool-result part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+            assert_eq!(result.tool_call_id, "fs_1");
+            assert_eq!(result.tool_name, "fileSearch");
+            assert_eq!(result.result["queries"], serde_json::json!(["rust"]));
+            assert_eq!(
+                result.result["results"][0]["fileId"],
+                serde_json::json!("file_1")
+            );
+            assert_eq!(
+                result.result["results"][0]["attributes"]["lang"],
+                serde_json::json!("rust")
+            );
+            assert!(
+                result.result["results"][0].get("file_id").is_none(),
+                "file search results should expose fileId"
+            );
+            assert!(
+                result.result.get("status").is_none(),
+                "AI SDK file search result does not include status"
+            );
+        }
+        other => panic!("expected tool-result part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_tool_search_stream_maps_call_and_output() {
     let tools = [siumai_core::tools::openai::tool_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);

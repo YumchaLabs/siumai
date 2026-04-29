@@ -43,7 +43,7 @@ impl OpenAiResponsesEventConverter {
             .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
     }
 
-    fn xai_file_search_results_from_object(
+    fn file_search_results_from_object(
         item: &serde_json::Map<String, serde_json::Value>,
     ) -> serde_json::Value {
         let Some(results) = item.get("results") else {
@@ -67,6 +67,11 @@ impl OpenAiResponsesEventConverter {
                         && !filename.is_null()
                     {
                         out.insert("filename".to_string(), filename.clone());
+                    }
+                    if let Some(attributes) = result.get("attributes")
+                        && !attributes.is_null()
+                    {
+                        out.insert("attributes".to_string(), attributes.clone());
                     }
                     if let Some(score) = result.get("score")
                         && !score.is_null()
@@ -1691,12 +1696,12 @@ impl OpenAiResponsesEventConverter {
             "file_search_call" => {
                 let result = match self.stream_parts_style {
                     StreamPartsStyle::OpenAi => serde_json::json!({
-                        "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
-                        "status": item.get("status").cloned().unwrap_or_else(|| serde_json::json!("completed")),
+                        "queries": item.get("queries").cloned().unwrap_or(serde_json::Value::Null),
+                        "results": Self::file_search_results_from_object(item),
                     }),
                     StreamPartsStyle::Xai => serde_json::json!({
                         "queries": Self::xai_file_search_queries_from_object(item),
-                        "results": Self::xai_file_search_results_from_object(item),
+                        "results": Self::file_search_results_from_object(item),
                     }),
                 };
                 ("file_search", result)
