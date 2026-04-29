@@ -1367,6 +1367,33 @@ impl OpenAiResponsesEventConverter {
             events.push(self.openai_tool_input_end_event(item_id, None));
         }
 
+        if self.mark_code_interpreter_tool_call_emitted(item_id) {
+            let tool_name = self
+                .provider_tool_name_for_item_type("code_interpreter_call")
+                .unwrap_or_else(|| "code_interpreter".to_string());
+            let code = json.get("code").and_then(|v| v.as_str()).unwrap_or("");
+            let container_id = self
+                .code_interpreter_container_id(item_id)
+                .unwrap_or_default();
+            let code_json = serde_json::to_string(code).unwrap_or_else(|_| "\"\"".to_string());
+            let container_id_json =
+                serde_json::to_string(container_id.as_str()).unwrap_or_else(|_| "\"\"".to_string());
+            let input = format!("{{\"code\":{code_json},\"containerId\":{container_id_json}}}");
+
+            events.push(self.openai_tool_call_event(
+                item_id,
+                &tool_name,
+                serde_json::Value::String(input),
+                Some(true),
+                None,
+                None,
+                OpenAiResponsesEventExtras {
+                    output_index: json.get("output_index").and_then(|value| value.as_u64()),
+                    raw_item: None,
+                },
+            ));
+        }
+
         Some(events)
     }
 
@@ -1457,7 +1484,7 @@ impl OpenAiResponsesEventConverter {
                 }
 
                 // Vercel alignment: code interpreter tool-call is emitted after tool-input-end,
-                // once the full code is known (at output_item.done).
+                // once the full code is known.
                 return None;
             }
             "tool_search_call" => {
@@ -1891,18 +1918,20 @@ impl OpenAiResponsesEventConverter {
 
                 let input = format!("{{\"code\":{code_json},\"containerId\":{container_id_json}}}");
 
-                events.push(self.openai_tool_call_event(
-                    tool_call_id,
-                    &tool_name,
-                    serde_json::Value::String(input),
-                    Some(true),
-                    None,
-                    None,
-                    OpenAiResponsesEventExtras {
-                        output_index,
-                        raw_item: Some(serde_json::Value::Object(item.clone())),
-                    },
-                ));
+                if self.mark_code_interpreter_tool_call_emitted(tool_call_id) {
+                    events.push(self.openai_tool_call_event(
+                        tool_call_id,
+                        &tool_name,
+                        serde_json::Value::String(input),
+                        Some(true),
+                        None,
+                        None,
+                        OpenAiResponsesEventExtras {
+                            output_index,
+                            raw_item: Some(serde_json::Value::Object(item.clone())),
+                        },
+                    ));
+                }
 
                 events.push(self.openai_tool_result_event(
                     tool_call_id,

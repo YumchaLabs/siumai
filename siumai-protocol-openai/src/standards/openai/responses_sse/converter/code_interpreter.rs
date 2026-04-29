@@ -50,4 +50,15 @@ impl OpenAiResponsesEventConverter {
             .ok()
             .is_some_and(|set| set.contains(id))
     }
+
+    pub(super) fn mark_code_interpreter_tool_call_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_code_interpreter_tool_call_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
 }

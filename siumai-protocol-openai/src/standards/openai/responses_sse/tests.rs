@@ -889,6 +889,62 @@ fn responses_code_interpreter_code_delta_escapes_json_string() {
         serde_json::from_str(&stitched_input).expect("stitched code input is valid JSON");
     assert_eq!(parsed["containerId"], serde_json::json!("cntr_1"));
     assert_eq!(parsed["code"], serde_json::json!(code_delta));
+
+    let code_done_tool_call = out_done
+        .iter()
+        .filter_map(stream_part)
+        .find_map(|part| match part {
+            crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => Some(call),
+            _ => None,
+        })
+        .expect("code.done should emit tool-call");
+    assert_eq!(code_done_tool_call.tool_call_id, "ci_1");
+    assert_eq!(code_done_tool_call.tool_name, "code_interpreter");
+    assert_eq!(code_done_tool_call.provider_executed, Some(true));
+    let call_input: serde_json::Value =
+        serde_json::from_str(&code_done_tool_call.input).expect("tool-call input json");
+    assert_eq!(call_input["containerId"], serde_json::json!("cntr_1"));
+    assert_eq!(call_input["code"], serde_json::json!(code_delta));
+
+    let ev_item_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "id": "ci_1",
+                "type": "code_interpreter_call",
+                "status": "completed",
+                "container_id": "cntr_1",
+                "code": code_delta,
+                "outputs": [{ "type": "logs", "logs": "ok" }]
+            }
+        })
+        .to_string(),
+        id: "4".to_string(),
+        retry: None,
+    };
+    let out_item_done = futures::executor::block_on(conv.convert_event(ev_item_done));
+    assert!(
+        out_item_done
+            .iter()
+            .filter_map(stream_part)
+            .all(|part| !matches!(
+                part,
+                crate::streaming::LanguageModelV3StreamPart::ToolCall(_)
+            )),
+        "output_item.done should not duplicate code interpreter tool-call"
+    );
+    assert!(
+        out_item_done
+            .iter()
+            .filter_map(stream_part)
+            .any(|part| matches!(
+                part,
+                crate::streaming::LanguageModelV3StreamPart::ToolResult(_)
+            )),
+        "output_item.done should still emit code interpreter tool-result"
+    );
 }
 
 #[test]
