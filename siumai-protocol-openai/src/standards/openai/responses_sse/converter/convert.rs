@@ -1328,12 +1328,26 @@ impl OpenAiResponsesEventConverter {
         let item_type = item.get("type")?.as_str()?;
         let output_index = json.get("output_index").and_then(|v| v.as_u64());
 
-        let tool_call_id = item.get("id")?.as_str()?;
+        let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let tool_call_id = item
+            .get("call_id")
+            .and_then(|v| v.as_str())
+            .filter(|id| !id.is_empty())
+            .unwrap_or(item_id);
+        if tool_call_id.is_empty() {
+            return None;
+        }
 
         let mut extra_events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
 
         if item_type == "custom_tool_call" {
-            if !self.mark_custom_tool_call_emitted(tool_call_id) {
+            let custom_item_id = if item_id.is_empty() {
+                tool_call_id
+            } else {
+                item_id
+            };
+
+            if !self.mark_custom_tool_call_emitted(custom_item_id) {
                 return None;
             }
 
@@ -1344,7 +1358,7 @@ impl OpenAiResponsesEventConverter {
                 .and_then(|v| v.as_str())
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
-                .or_else(|| self.take_custom_tool_input_by_item_id(tool_call_id))
+                .or_else(|| self.take_custom_tool_input_by_item_id(custom_item_id))
                 .unwrap_or_default();
 
             if self.stream_parts_style == StreamPartsStyle::Xai {
@@ -1718,7 +1732,6 @@ impl OpenAiResponsesEventConverter {
                 )]);
             }
             "local_shell_call" => {
-                let call_id = item.get("call_id").and_then(|v| v.as_str())?;
                 let action = item
                     .get("action")
                     .cloned()
@@ -1728,14 +1741,16 @@ impl OpenAiResponsesEventConverter {
                     .unwrap_or_else(|| "shell".to_string());
 
                 let input = serde_json::json!({ "action": action }).to_string();
+                let provider_metadata = (!item_id.is_empty())
+                    .then(|| self.provider_metadata_json(serde_json::json!({ "itemId": item_id })));
 
                 return Some(vec![self.openai_tool_call_event(
-                    call_id,
+                    tool_call_id,
                     &tool_name,
                     serde_json::Value::String(input),
                     Some(false),
                     None,
-                    None,
+                    provider_metadata,
                     OpenAiResponsesEventExtras {
                         output_index,
                         raw_item: Some(serde_json::Value::Object(item.clone())),
@@ -1743,7 +1758,6 @@ impl OpenAiResponsesEventConverter {
                 )]);
             }
             "shell_call" => {
-                let call_id = item.get("call_id").and_then(|v| v.as_str())?;
                 let action = item
                     .get("action")
                     .cloned()
@@ -1764,14 +1778,16 @@ impl OpenAiResponsesEventConverter {
                     }
                 })
                 .to_string();
+                let provider_metadata = (!item_id.is_empty())
+                    .then(|| self.provider_metadata_json(serde_json::json!({ "itemId": item_id })));
 
                 return Some(vec![self.openai_tool_call_event(
-                    call_id,
+                    tool_call_id,
                     &tool_name,
                     serde_json::Value::String(input),
                     Some(false),
                     None,
-                    None,
+                    provider_metadata,
                     OpenAiResponsesEventExtras {
                         output_index,
                         raw_item: Some(serde_json::Value::Object(item.clone())),
@@ -1779,7 +1795,6 @@ impl OpenAiResponsesEventConverter {
                 )]);
             }
             "apply_patch_call" => {
-                let call_id = item.get("call_id").and_then(|v| v.as_str())?;
                 let operation = item
                     .get("operation")
                     .cloned()
@@ -1789,16 +1804,138 @@ impl OpenAiResponsesEventConverter {
                     .unwrap_or_else(|| "apply_patch".to_string());
 
                 let input = serde_json::json!({
-                    "callId": call_id,
+                    "callId": tool_call_id,
                     "operation": operation,
                 })
                 .to_string();
+                let provider_metadata = (!item_id.is_empty())
+                    .then(|| self.provider_metadata_json(serde_json::json!({ "itemId": item_id })));
 
                 return Some(vec![self.openai_tool_call_event(
-                    call_id,
+                    tool_call_id,
                     &tool_name,
                     serde_json::Value::String(input),
                     Some(false),
+                    None,
+                    provider_metadata,
+                    OpenAiResponsesEventExtras {
+                        output_index,
+                        raw_item: Some(serde_json::Value::Object(item.clone())),
+                    },
+                )]);
+            }
+            "local_shell_call_output" => {
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "shell".to_string());
+                let result = serde_json::json!({
+                    "output": item.get("output").cloned().unwrap_or_else(|| serde_json::json!("")),
+                });
+
+                return Some(vec![self.openai_tool_result_event(
+                    tool_call_id,
+                    &tool_name,
+                    result,
+                    None,
+                    None,
+                    None,
+                    None,
+                    OpenAiResponsesEventExtras {
+                        output_index,
+                        raw_item: Some(serde_json::Value::Object(item.clone())),
+                    },
+                )]);
+            }
+            "shell_call_output" => {
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "shell".to_string());
+                let output = item
+                    .get("output")
+                    .and_then(|value| value.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .map(|entry| {
+                                let stdout = entry
+                                    .get("stdout")
+                                    .cloned()
+                                    .unwrap_or_else(|| serde_json::json!(""));
+                                let stderr = entry
+                                    .get("stderr")
+                                    .cloned()
+                                    .unwrap_or_else(|| serde_json::json!(""));
+                                let outcome =
+                                    entry.get("outcome").and_then(|value| value.as_object());
+                                let mapped_outcome = outcome
+                                    .map(|outcome| {
+                                        match outcome
+                                            .get("type")
+                                            .and_then(|value| value.as_str())
+                                            .unwrap_or("")
+                                        {
+                                            "timeout" => serde_json::json!({ "type": "timeout" }),
+                                            "exit" => serde_json::json!({
+                                                "type": "exit",
+                                                "exitCode": outcome
+                                                    .get("exit_code")
+                                                    .or_else(|| outcome.get("exitCode"))
+                                                    .cloned()
+                                                    .unwrap_or_else(|| serde_json::json!(0)),
+                                            }),
+                                            _ => serde_json::Value::Object(outcome.clone()),
+                                        }
+                                    })
+                                    .unwrap_or_else(
+                                        || serde_json::json!({ "type": "exit", "exitCode": 0 }),
+                                    );
+
+                                serde_json::json!({
+                                    "stdout": stdout,
+                                    "stderr": stderr,
+                                    "outcome": mapped_outcome,
+                                })
+                            })
+                            .collect::<Vec<serde_json::Value>>()
+                    })
+                    .unwrap_or_default();
+                let result = serde_json::json!({ "output": output });
+
+                return Some(vec![self.openai_tool_result_event(
+                    tool_call_id,
+                    &tool_name,
+                    result,
+                    None,
+                    None,
+                    None,
+                    None,
+                    OpenAiResponsesEventExtras {
+                        output_index,
+                        raw_item: Some(serde_json::Value::Object(item.clone())),
+                    },
+                )]);
+            }
+            "apply_patch_call_output" => {
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "apply_patch".to_string());
+                let mut result = serde_json::Map::new();
+                result.insert(
+                    "status".to_string(),
+                    item.get("status")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!("completed")),
+                );
+                if let Some(output) = item.get("output").cloned() {
+                    result.insert("output".to_string(), output);
+                }
+
+                return Some(vec![self.openai_tool_result_event(
+                    tool_call_id,
+                    &tool_name,
+                    serde_json::Value::Object(result),
+                    None,
+                    None,
                     None,
                     None,
                     OpenAiResponsesEventExtras {

@@ -1734,6 +1734,279 @@ fn responses_stream_proxy_roundtrips_mcp_tool_parts_without_raw_item() {
 }
 
 #[test]
+fn responses_stream_proxy_synthesizes_hosted_dynamic_tool_items_without_raw_item() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let local_call_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-call".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "call_local",
+                "toolName": "shell",
+                "providerExecuted": false,
+                "dynamic": true,
+                "input": {
+                    "action": {
+                        "type": "exec",
+                        "command": ["pwd"],
+                        "timeoutMs": 1000,
+                        "workingDirectory": "/tmp",
+                        "env": { "RUST_LOG": "debug" }
+                    }
+                },
+                "providerMetadata": {
+                    "openai": { "itemId": "lsh_1" }
+                }
+            }),
+        })
+        .expect("serialize local shell tool-call");
+    let local_call_frames = parse_sse_frames(&local_call_bytes);
+    assert!(local_call_frames.iter().any(|(ev, v)| {
+        ev == "response.output_item.done"
+            && v["item"]["id"] == serde_json::json!("lsh_1")
+            && v["item"]["type"] == serde_json::json!("local_shell_call")
+            && v["item"]["action"]["timeout_ms"] == serde_json::json!(1000)
+            && v["item"]["action"]["working_directory"] == serde_json::json!("/tmp")
+    }));
+
+    let shell_call_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-call".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "call_shell",
+                "toolName": "shell",
+                "providerExecuted": true,
+                "dynamic": true,
+                "input": {
+                    "action": {
+                        "commands": ["echo ok"],
+                        "timeoutMs": 2000,
+                        "maxOutputLength": 4096
+                    }
+                },
+                "providerMetadata": {
+                    "openai": { "itemId": "sh_1" }
+                }
+            }),
+        })
+        .expect("serialize shell tool-call");
+    let shell_call_frames = parse_sse_frames(&shell_call_bytes);
+    assert!(shell_call_frames.iter().any(|(ev, v)| {
+        ev == "response.output_item.done"
+            && v["item"]["id"] == serde_json::json!("sh_1")
+            && v["item"]["type"] == serde_json::json!("shell_call")
+            && v["item"]["action"]["timeout_ms"] == serde_json::json!(2000)
+            && v["item"]["action"]["max_output_length"] == serde_json::json!(4096)
+    }));
+
+    let apply_patch_call_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-call".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "call_apply",
+                "toolName": "apply_patch",
+                "providerExecuted": false,
+                "dynamic": true,
+                "input": {
+                    "callId": "call_apply",
+                    "operation": {
+                        "type": "update_file",
+                        "path": "src/lib.rs",
+                        "diff": "@@"
+                    }
+                },
+                "providerMetadata": {
+                    "openai": { "itemId": "apc_1" }
+                }
+            }),
+        })
+        .expect("serialize apply_patch tool-call");
+    let apply_patch_call_frames = parse_sse_frames(&apply_patch_call_bytes);
+    assert!(apply_patch_call_frames.iter().any(|(ev, v)| {
+        ev == "response.output_item.done"
+            && v["item"]["id"] == serde_json::json!("apc_1")
+            && v["item"]["type"] == serde_json::json!("apply_patch_call")
+            && v["item"]["operation"]["type"] == serde_json::json!("update_file")
+    }));
+
+    let local_result_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-result".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "call_local",
+                "toolName": "shell",
+                "dynamic": true,
+                "result": { "output": "ok\n" }
+            }),
+        })
+        .expect("serialize local shell tool-result");
+    let local_result_frames = parse_sse_frames(&local_result_bytes);
+    assert!(local_result_frames.iter().any(|(ev, v)| {
+        ev == "response.output_item.done"
+            && v["item"]["type"] == serde_json::json!("local_shell_call_output")
+            && v["item"]["call_id"] == serde_json::json!("call_local")
+            && v["item"]["output"] == serde_json::json!("ok\n")
+    }));
+
+    let shell_result_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-result".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "call_shell",
+                "toolName": "shell",
+                "dynamic": true,
+                "result": {
+                    "output": [{
+                        "stdout": "ok\n",
+                        "stderr": "",
+                        "outcome": { "type": "exit", "exitCode": 7 }
+                    }]
+                }
+            }),
+        })
+        .expect("serialize shell tool-result");
+    let shell_result_frames = parse_sse_frames(&shell_result_bytes);
+    assert!(shell_result_frames.iter().any(|(ev, v)| {
+        ev == "response.output_item.done"
+            && v["item"]["type"] == serde_json::json!("shell_call_output")
+            && v["item"]["output"][0]["outcome"]["exit_code"] == serde_json::json!(7)
+    }));
+
+    let apply_patch_result_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-result".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "call_apply",
+                "toolName": "apply_patch",
+                "dynamic": true,
+                "result": {
+                    "status": "completed",
+                    "output": "patched"
+                }
+            }),
+        })
+        .expect("serialize apply_patch tool-result");
+    let apply_patch_result_frames = parse_sse_frames(&apply_patch_result_bytes);
+    assert!(apply_patch_result_frames.iter().any(|(ev, v)| {
+        ev == "response.output_item.done"
+            && v["item"]["type"] == serde_json::json!("apply_patch_call_output")
+            && v["item"]["status"] == serde_json::json!("completed")
+            && v["item"]["output"] == serde_json::json!("patched")
+    }));
+}
+
+#[test]
+fn responses_stream_decoder_maps_hosted_dynamic_output_items() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let local_events = futures::executor::block_on(
+        conv.convert_event(eventsource_stream::Event {
+            event: "response.output_item.done".to_string(),
+            data: serde_json::json!({
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "item": {
+                    "type": "local_shell_call_output",
+                    "call_id": "call_local",
+                    "output": "ok\n"
+                }
+            })
+            .to_string(),
+            id: "1".to_string(),
+            retry: None,
+        }),
+    );
+    let local_result = local_events
+        .iter()
+        .find_map(|event| match stream_part(event)? {
+            crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => Some(result),
+            _ => None,
+        })
+        .expect("local shell output should decode as tool-result");
+    assert_eq!(local_result.tool_call_id, "call_local");
+    assert_eq!(local_result.tool_name, "shell");
+    assert_eq!(local_result.result["output"], serde_json::json!("ok\n"));
+
+    let shell_events = futures::executor::block_on(
+        conv.convert_event(eventsource_stream::Event {
+            event: "response.output_item.done".to_string(),
+            data: serde_json::json!({
+                "type": "response.output_item.done",
+                "output_index": 1,
+                "item": {
+                    "id": "sho_1",
+                    "type": "shell_call_output",
+                    "status": "completed",
+                    "call_id": "call_shell",
+                    "output": [{
+                        "stdout": "ok\n",
+                        "stderr": "",
+                        "outcome": { "type": "exit", "exit_code": 7 }
+                    }]
+                }
+            })
+            .to_string(),
+            id: "2".to_string(),
+            retry: None,
+        }),
+    );
+    let shell_result = shell_events
+        .iter()
+        .find_map(|event| match stream_part(event)? {
+            crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => Some(result),
+            _ => None,
+        })
+        .expect("shell output should decode as tool-result");
+    assert_eq!(shell_result.tool_call_id, "call_shell");
+    assert_eq!(
+        shell_result.result["output"][0]["outcome"]["exitCode"],
+        serde_json::json!(7)
+    );
+
+    let apply_patch_events = futures::executor::block_on(
+        conv.convert_event(eventsource_stream::Event {
+            event: "response.output_item.done".to_string(),
+            data: serde_json::json!({
+                "type": "response.output_item.done",
+                "output_index": 2,
+                "item": {
+                    "type": "apply_patch_call_output",
+                    "call_id": "call_apply",
+                    "status": "failed",
+                    "output": "conflict"
+                }
+            })
+            .to_string(),
+            id: "3".to_string(),
+            retry: None,
+        }),
+    );
+    let apply_patch_result = apply_patch_events
+        .iter()
+        .find_map(|event| match stream_part(event)? {
+            crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => Some(result),
+            _ => None,
+        })
+        .expect("apply_patch output should decode as tool-result");
+    assert_eq!(apply_patch_result.tool_call_id, "call_apply");
+    assert_eq!(apply_patch_result.tool_name, "apply_patch");
+    assert_eq!(
+        apply_patch_result.result["status"],
+        serde_json::json!("failed")
+    );
+    assert_eq!(
+        apply_patch_result.result["output"],
+        serde_json::json!("conflict")
+    );
+}
+
+#[test]
 fn responses_stream_bridge_maps_gemini_tool_events_to_openai_output_items() {
     let conv = OpenAiResponsesEventConverter::new();
     let mut bridge = crate::streaming::OpenAiResponsesStreamPartsBridge::new();

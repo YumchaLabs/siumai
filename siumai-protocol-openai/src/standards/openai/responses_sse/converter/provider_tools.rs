@@ -60,13 +60,19 @@ impl OpenAiResponsesEventConverter {
                 "local_shell" => {
                     map.entry("local_shell_call".to_string())
                         .or_insert_with(|| t.name.clone());
+                    map.entry("local_shell_call_output".to_string())
+                        .or_insert_with(|| t.name.clone());
                 }
                 "shell" => {
                     map.entry("shell_call".to_string())
                         .or_insert_with(|| t.name.clone());
+                    map.entry("shell_call_output".to_string())
+                        .or_insert_with(|| t.name.clone());
                 }
                 "apply_patch" => {
                     map.entry("apply_patch_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                    map.entry("apply_patch_call_output".to_string())
                         .or_insert_with(|| t.name.clone());
                 }
                 "tool_search" => {
@@ -132,13 +138,19 @@ impl OpenAiResponsesEventConverter {
                 "local_shell" => {
                     map.entry("local_shell_call".to_string())
                         .or_insert_with(|| "shell".to_string());
+                    map.entry("local_shell_call_output".to_string())
+                        .or_insert_with(|| "shell".to_string());
                 }
                 "shell" => {
                     map.entry("shell_call".to_string())
                         .or_insert_with(|| "shell".to_string());
+                    map.entry("shell_call_output".to_string())
+                        .or_insert_with(|| "shell".to_string());
                 }
                 "apply_patch" => {
                     map.entry("apply_patch_call".to_string())
+                        .or_insert_with(|| "apply_patch".to_string());
+                    map.entry("apply_patch_call_output".to_string())
                         .or_insert_with(|| "apply_patch".to_string());
                 }
                 "tool_search" => {

@@ -867,6 +867,135 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         });
                         continue;
                     }
+                    "local_shell_call_output" => {
+                        if output_call_id.is_empty() {
+                            continue;
+                        }
+
+                        content_parts.push(ContentPart::ToolResult {
+                            tool_call_id: output_call_id.clone(),
+                            tool_name: "shell".to_string(),
+                            output: crate::types::ToolResultOutput::json(serde_json::json!({
+                                "output": item
+                                    .get("output")
+                                    .cloned()
+                                    .unwrap_or_else(|| serde_json::json!("")),
+                            })),
+                            input: None,
+                            provider_executed: None,
+                            dynamic: Some(true),
+                            preliminary: None,
+                            title: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata: None,
+                        });
+                        continue;
+                    }
+                    "shell_call_output" => {
+                        if output_call_id.is_empty() {
+                            continue;
+                        }
+
+                        let output = item
+                            .get("output")
+                            .and_then(|value| value.as_array())
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .map(|entry| {
+                                        let stdout = entry
+                                            .get("stdout")
+                                            .cloned()
+                                            .unwrap_or_else(|| serde_json::json!(""));
+                                        let stderr = entry
+                                            .get("stderr")
+                                            .cloned()
+                                            .unwrap_or_else(|| serde_json::json!(""));
+                                        let outcome = entry
+                                            .get("outcome")
+                                            .and_then(|value| value.as_object())
+                                            .map(|outcome| {
+                                                match outcome
+                                                    .get("type")
+                                                    .and_then(|value| value.as_str())
+                                                    .unwrap_or("")
+                                                {
+                                                    "timeout" => {
+                                                        serde_json::json!({ "type": "timeout" })
+                                                    }
+                                                    "exit" => serde_json::json!({
+                                                        "type": "exit",
+                                                        "exitCode": outcome
+                                                            .get("exit_code")
+                                                            .or_else(|| outcome.get("exitCode"))
+                                                            .cloned()
+                                                            .unwrap_or_else(|| serde_json::json!(0)),
+                                                    }),
+                                                    _ => serde_json::Value::Object(outcome.clone()),
+                                                }
+                                            })
+                                            .unwrap_or_else(|| {
+                                                serde_json::json!({ "type": "exit", "exitCode": 0 })
+                                            });
+
+                                        serde_json::json!({
+                                            "stdout": stdout,
+                                            "stderr": stderr,
+                                            "outcome": outcome,
+                                        })
+                                    })
+                                    .collect::<Vec<serde_json::Value>>()
+                            })
+                            .unwrap_or_default();
+
+                        content_parts.push(ContentPart::ToolResult {
+                            tool_call_id: output_call_id.clone(),
+                            tool_name: "shell".to_string(),
+                            output: crate::types::ToolResultOutput::json(serde_json::json!({
+                                "output": output,
+                            })),
+                            input: None,
+                            provider_executed: None,
+                            dynamic: Some(true),
+                            preliminary: None,
+                            title: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata: None,
+                        });
+                        continue;
+                    }
+                    "apply_patch_call_output" => {
+                        if output_call_id.is_empty() {
+                            continue;
+                        }
+
+                        let mut result = serde_json::Map::new();
+                        result.insert(
+                            "status".to_string(),
+                            item.get("status")
+                                .cloned()
+                                .unwrap_or_else(|| serde_json::json!("completed")),
+                        );
+                        if let Some(output) = item.get("output").cloned() {
+                            result.insert("output".to_string(), output);
+                        }
+
+                        content_parts.push(ContentPart::ToolResult {
+                            tool_call_id: output_call_id.clone(),
+                            tool_name: "apply_patch".to_string(),
+                            output: crate::types::ToolResultOutput::json(
+                                serde_json::Value::Object(result),
+                            ),
+                            input: None,
+                            provider_executed: None,
+                            dynamic: Some(true),
+                            preliminary: None,
+                            title: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata: None,
+                        });
+                        continue;
+                    }
                     "x_search_call" => {
                         if !xai_style {
                             continue;
@@ -2432,6 +2561,148 @@ mod tests {
                 );
             }
             other => panic!("expected tool result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn responses_transformer_maps_hosted_dynamic_call_outputs() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_hosted_dynamic_1",
+                "model": "gpt-5.4",
+                "output": [
+                    {
+                        "type": "local_shell_call",
+                        "id": "lsh_1",
+                        "call_id": "call_local",
+                        "status": "completed",
+                        "action": {
+                            "type": "exec",
+                            "command": ["pwd"],
+                            "working_directory": "/tmp",
+                            "env": {}
+                        }
+                    },
+                    {
+                        "type": "local_shell_call_output",
+                        "call_id": "call_local",
+                        "output": "ok\n"
+                    },
+                    {
+                        "type": "shell_call",
+                        "id": "sh_1",
+                        "call_id": "call_shell",
+                        "status": "completed",
+                        "action": {
+                            "commands": ["echo ok"],
+                            "timeout_ms": null,
+                            "max_output_length": null
+                        }
+                    },
+                    {
+                        "type": "shell_call_output",
+                        "id": "sho_1",
+                        "call_id": "call_shell",
+                        "status": "completed",
+                        "output": [{
+                            "stdout": "ok\n",
+                            "stderr": "",
+                            "outcome": { "type": "exit", "exit_code": 7 }
+                        }]
+                    },
+                    {
+                        "type": "apply_patch_call",
+                        "id": "apc_1",
+                        "call_id": "call_apply",
+                        "status": "completed",
+                        "operation": {
+                            "type": "update_file",
+                            "path": "src/lib.rs",
+                            "diff": "@@"
+                        }
+                    },
+                    {
+                        "type": "apply_patch_call_output",
+                        "call_id": "call_apply",
+                        "status": "failed",
+                        "output": "conflict"
+                    }
+                ],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("expected multimodal");
+        assert_eq!(parts.len(), 6);
+
+        match &parts[1] {
+            crate::types::ContentPart::ToolResult {
+                tool_call_id,
+                tool_name,
+                output,
+                dynamic,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_local");
+                assert_eq!(tool_name, "shell");
+                assert_eq!(*dynamic, Some(true));
+                assert_eq!(
+                    output,
+                    &crate::types::ToolResultOutput::json(serde_json::json!({
+                        "output": "ok\n"
+                    }))
+                );
+            }
+            other => panic!("expected local shell tool result, got {other:?}"),
+        }
+
+        match &parts[3] {
+            crate::types::ContentPart::ToolResult {
+                tool_call_id,
+                tool_name,
+                output,
+                dynamic,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_shell");
+                assert_eq!(tool_name, "shell");
+                assert_eq!(*dynamic, Some(true));
+                assert_eq!(
+                    output,
+                    &crate::types::ToolResultOutput::json(serde_json::json!({
+                        "output": [{
+                            "stdout": "ok\n",
+                            "stderr": "",
+                            "outcome": { "type": "exit", "exitCode": 7 }
+                        }]
+                    }))
+                );
+            }
+            other => panic!("expected shell tool result, got {other:?}"),
+        }
+
+        match &parts[5] {
+            crate::types::ContentPart::ToolResult {
+                tool_call_id,
+                tool_name,
+                output,
+                dynamic,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_apply");
+                assert_eq!(tool_name, "apply_patch");
+                assert_eq!(*dynamic, Some(true));
+                assert_eq!(
+                    output,
+                    &crate::types::ToolResultOutput::json(serde_json::json!({
+                        "status": "failed",
+                        "output": "conflict"
+                    }))
+                );
+            }
+            other => panic!("expected apply_patch tool result, got {other:?}"),
         }
     }
 

@@ -1146,6 +1146,318 @@ pub(super) fn serialize_event(
                     .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
             }
 
+            #[derive(Clone, Copy)]
+            enum HostedDynamicToolKind {
+                LocalShell,
+                Shell,
+                ApplyPatch,
+            }
+
+            fn parsed_json_value(value: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+                match value? {
+                    serde_json::Value::String(text) => {
+                        serde_json::from_str::<serde_json::Value>(text).ok()
+                    }
+                    value => Some(value.clone()),
+                }
+            }
+
+            fn payload_field_or_object(
+                value: Option<&serde_json::Value>,
+                field: &str,
+            ) -> serde_json::Value {
+                let Some(parsed) = parsed_json_value(value) else {
+                    return serde_json::Value::Object(serde_json::Map::new());
+                };
+                let Some(obj) = parsed.as_object() else {
+                    return serde_json::Value::Object(serde_json::Map::new());
+                };
+                obj.get(field)
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::Value::Object(obj.clone()))
+            }
+
+            fn insert_mapped_field(
+                target: &mut serde_json::Map<String, serde_json::Value>,
+                output_key: &str,
+                source: &serde_json::Map<String, serde_json::Value>,
+                source_keys: &[&str],
+            ) {
+                for source_key in source_keys {
+                    if let Some(value) = source.get(*source_key) {
+                        target.insert(output_key.to_string(), value.clone());
+                        break;
+                    }
+                }
+            }
+
+            fn local_shell_action(value: Option<&serde_json::Value>) -> serde_json::Value {
+                let action = payload_field_or_object(value, "action");
+                let Some(obj) = action.as_object() else {
+                    return serde_json::Value::Object(serde_json::Map::new());
+                };
+
+                let mut mapped = serde_json::Map::new();
+                insert_mapped_field(&mut mapped, "type", obj, &["type"]);
+                insert_mapped_field(&mut mapped, "command", obj, &["command"]);
+                insert_mapped_field(&mut mapped, "timeout_ms", obj, &["timeoutMs", "timeout_ms"]);
+                insert_mapped_field(&mut mapped, "user", obj, &["user"]);
+                insert_mapped_field(
+                    &mut mapped,
+                    "working_directory",
+                    obj,
+                    &["workingDirectory", "working_directory"],
+                );
+                insert_mapped_field(&mut mapped, "env", obj, &["env"]);
+                serde_json::Value::Object(mapped)
+            }
+
+            fn shell_action(value: Option<&serde_json::Value>) -> serde_json::Value {
+                let action = payload_field_or_object(value, "action");
+                let Some(obj) = action.as_object() else {
+                    return serde_json::Value::Object(serde_json::Map::new());
+                };
+
+                let mut mapped = serde_json::Map::new();
+                insert_mapped_field(&mut mapped, "commands", obj, &["commands"]);
+                insert_mapped_field(&mut mapped, "timeout_ms", obj, &["timeoutMs", "timeout_ms"]);
+                insert_mapped_field(
+                    &mut mapped,
+                    "max_output_length",
+                    obj,
+                    &["maxOutputLength", "max_output_length"],
+                );
+                serde_json::Value::Object(mapped)
+            }
+
+            fn apply_patch_call_id(
+                fallback_call_id: &str,
+                value: Option<&serde_json::Value>,
+            ) -> String {
+                parsed_json_value(value)
+                    .and_then(|parsed| {
+                        parsed.as_object().and_then(|obj| {
+                            obj.get("callId")
+                                .or_else(|| obj.get("call_id"))
+                                .and_then(|value| value.as_str())
+                                .filter(|value| !value.is_empty())
+                                .map(ToString::to_string)
+                        })
+                    })
+                    .unwrap_or_else(|| fallback_call_id.to_string())
+            }
+
+            fn action_has_key(value: Option<&serde_json::Value>, key: &str) -> bool {
+                payload_field_or_object(value, "action")
+                    .as_object()
+                    .is_some_and(|obj| obj.contains_key(key))
+            }
+
+            fn hosted_dynamic_tool_kind_for_call(
+                tool_name: &str,
+                input: Option<&serde_json::Value>,
+                item_id: Option<&str>,
+            ) -> Option<HostedDynamicToolKind> {
+                match tool_name {
+                    "apply_patch" | "applyPatch" => Some(HostedDynamicToolKind::ApplyPatch),
+                    "local_shell" | "localShell" => Some(HostedDynamicToolKind::LocalShell),
+                    "shell" => {
+                        if let Some(item_id) = item_id {
+                            if item_id.starts_with("lsh_") {
+                                return Some(HostedDynamicToolKind::LocalShell);
+                            }
+                            if item_id.starts_with("sh_") {
+                                return Some(HostedDynamicToolKind::Shell);
+                            }
+                        }
+
+                        if action_has_key(input, "commands") {
+                            Some(HostedDynamicToolKind::Shell)
+                        } else {
+                            Some(HostedDynamicToolKind::LocalShell)
+                        }
+                    }
+                    _ => None,
+                }
+            }
+
+            fn hosted_dynamic_tool_kind_for_result(
+                tool_name: &str,
+                result: &serde_json::Value,
+                item_id: Option<&str>,
+            ) -> Option<HostedDynamicToolKind> {
+                match tool_name {
+                    "apply_patch" | "applyPatch" => Some(HostedDynamicToolKind::ApplyPatch),
+                    "local_shell" | "localShell" => Some(HostedDynamicToolKind::LocalShell),
+                    "shell" => {
+                        if let Some(item_id) = item_id {
+                            if item_id.starts_with("lsh_") {
+                                return Some(HostedDynamicToolKind::LocalShell);
+                            }
+                            if item_id.starts_with("sh_") || item_id.starts_with("sho_") {
+                                return Some(HostedDynamicToolKind::Shell);
+                            }
+                        }
+
+                        let output = result
+                            .as_object()
+                            .and_then(|obj| obj.get("output"))
+                            .unwrap_or(result);
+                        if output.is_array() {
+                            Some(HostedDynamicToolKind::Shell)
+                        } else {
+                            Some(HostedDynamicToolKind::LocalShell)
+                        }
+                    }
+                    _ => None,
+                }
+            }
+
+            fn hosted_dynamic_tool_call_item(
+                tool_name: &str,
+                call_id: &str,
+                item_id: &str,
+                input: Option<&serde_json::Value>,
+            ) -> Option<serde_json::Value> {
+                let kind = hosted_dynamic_tool_kind_for_call(tool_name, input, Some(item_id))?;
+                let call_id = match kind {
+                    HostedDynamicToolKind::ApplyPatch => apply_patch_call_id(call_id, input),
+                    HostedDynamicToolKind::LocalShell | HostedDynamicToolKind::Shell => {
+                        call_id.to_string()
+                    }
+                };
+
+                let mut item = serde_json::Map::new();
+                item.insert("id".to_string(), serde_json::json!(item_id));
+                item.insert("call_id".to_string(), serde_json::json!(call_id));
+                item.insert("status".to_string(), serde_json::json!("completed"));
+
+                match kind {
+                    HostedDynamicToolKind::LocalShell => {
+                        item.insert("type".to_string(), serde_json::json!("local_shell_call"));
+                        item.insert("action".to_string(), local_shell_action(input));
+                    }
+                    HostedDynamicToolKind::Shell => {
+                        item.insert("type".to_string(), serde_json::json!("shell_call"));
+                        item.insert("action".to_string(), shell_action(input));
+                    }
+                    HostedDynamicToolKind::ApplyPatch => {
+                        item.insert("type".to_string(), serde_json::json!("apply_patch_call"));
+                        item.insert(
+                            "operation".to_string(),
+                            payload_field_or_object(input, "operation"),
+                        );
+                    }
+                }
+
+                Some(serde_json::Value::Object(item))
+            }
+
+            fn shell_output_entry(item: &serde_json::Value) -> serde_json::Value {
+                let Some(obj) = item.as_object() else {
+                    return item.clone();
+                };
+
+                let outcome = obj
+                    .get("outcome")
+                    .and_then(|value| value.as_object())
+                    .map(|outcome| {
+                        let outcome_type = outcome
+                            .get("type")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("");
+                        match outcome_type {
+                            "timeout" => serde_json::json!({ "type": "timeout" }),
+                            "exit" => serde_json::json!({
+                                "type": "exit",
+                                "exit_code": outcome
+                                    .get("exitCode")
+                                    .or_else(|| outcome.get("exit_code"))
+                                    .cloned()
+                                    .unwrap_or_else(|| serde_json::json!(0)),
+                            }),
+                            _ => serde_json::Value::Object(outcome.clone()),
+                        }
+                    })
+                    .unwrap_or_else(|| serde_json::json!({ "type": "exit", "exit_code": 0 }));
+
+                serde_json::json!({
+                    "stdout": obj.get("stdout").cloned().unwrap_or_else(|| serde_json::json!("")),
+                    "stderr": obj.get("stderr").cloned().unwrap_or_else(|| serde_json::json!("")),
+                    "outcome": outcome,
+                })
+            }
+
+            fn hosted_dynamic_tool_result_item(
+                tool_name: &str,
+                call_id: &str,
+                item_id: Option<&str>,
+                result: &serde_json::Value,
+            ) -> Option<serde_json::Value> {
+                let kind = hosted_dynamic_tool_kind_for_result(tool_name, result, item_id)?;
+                let mut item = serde_json::Map::new();
+                if let Some(item_id) = item_id {
+                    item.insert("id".to_string(), serde_json::json!(item_id));
+                }
+                item.insert("call_id".to_string(), serde_json::json!(call_id));
+
+                match kind {
+                    HostedDynamicToolKind::LocalShell => {
+                        item.insert(
+                            "type".to_string(),
+                            serde_json::json!("local_shell_call_output"),
+                        );
+                        let output = result
+                            .as_object()
+                            .and_then(|obj| obj.get("output"))
+                            .cloned()
+                            .unwrap_or_else(|| result.clone());
+                        item.insert("output".to_string(), output);
+                    }
+                    HostedDynamicToolKind::Shell => {
+                        item.insert("type".to_string(), serde_json::json!("shell_call_output"));
+                        item.insert("status".to_string(), serde_json::json!("completed"));
+                        let output = result
+                            .as_object()
+                            .and_then(|obj| obj.get("output"))
+                            .unwrap_or(result);
+                        let mapped = output
+                            .as_array()
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .map(shell_output_entry)
+                                    .collect::<Vec<serde_json::Value>>()
+                            })
+                            .unwrap_or_default();
+                        item.insert("output".to_string(), serde_json::Value::Array(mapped));
+                    }
+                    HostedDynamicToolKind::ApplyPatch => {
+                        item.insert(
+                            "type".to_string(),
+                            serde_json::json!("apply_patch_call_output"),
+                        );
+                        let status = result
+                            .as_object()
+                            .and_then(|obj| obj.get("status"))
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!("completed"));
+                        item.insert("status".to_string(), status);
+                        if let Some(output) = result
+                            .as_object()
+                            .and_then(|obj| obj.get("output"))
+                            .cloned()
+                        {
+                            item.insert("output".to_string(), output);
+                        } else if !result.is_null() && !result.is_object() {
+                            item.insert("output".to_string(), result.clone());
+                        }
+                    }
+                }
+
+                Some(serde_json::Value::Object(item))
+            }
+
             // Best-effort: ignore the custom event prefix and rely on the v3 part tag
             // (`data.type`) to select the OpenAI stream part handler.
             let effective_event_type = if event_type.starts_with("openai:") {
@@ -1904,6 +2216,24 @@ pub(super) fn serialize_event(
                         return Ok(out);
                     }
 
+                    let item_id = provider_metadata_item_id(data).unwrap_or(call_id);
+                    if let Some(item) = hosted_dynamic_tool_call_item(
+                        tool_name,
+                        call_id,
+                        item_id,
+                        data.get("input"),
+                    ) {
+                        if let Some(done) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.done",
+                            output_index,
+                            item,
+                        )? {
+                            return Ok(done);
+                        }
+                        return Ok(Vec::new());
+                    }
+
                     let (item_id, output_index, name, arguments, emit_added, emit_done) = {
                         let call = ensure_function_call_state(
                             &mut state,
@@ -1997,12 +2327,6 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
-                    let output_index = provider_tool_output_index(
-                        &mut state,
-                        Some(call_id),
-                        data.get("outputIndex").and_then(|v| v.as_u64()),
-                    );
-
                     let result = data
                         .get("result")
                         .cloned()
@@ -2014,6 +2338,11 @@ pub(super) fn serialize_event(
                         .unwrap_or_else(|| serde_json::Value::String("{}".to_string()));
 
                     if let Some(mcp_name) = tool_name.strip_prefix("mcp.") {
+                        let output_index = provider_tool_output_index(
+                            &mut state,
+                            Some(call_id),
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
                         let (name, arguments, output, server_label) = result
                             .as_object()
                             .map(|obj| {
@@ -2099,6 +2428,30 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
+                    let item_id = provider_metadata_item_id(data);
+                    if let Some(item) =
+                        hosted_dynamic_tool_result_item(tool_name, call_id, item_id, &result)
+                    {
+                        let output_index = alloc_or_reuse_output_index(
+                            &mut state,
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
+                        if let Some(done) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.done",
+                            output_index,
+                            item,
+                        )? {
+                            return Ok(done);
+                        }
+                        return Ok(Vec::new());
+                    }
+
+                    let output_index = provider_tool_output_index(
+                        &mut state,
+                        Some(call_id),
+                        data.get("outputIndex").and_then(|v| v.as_u64()),
+                    );
                     let item = serde_json::json!({
                         "id": call_id,
                         "type": "custom_tool_call",
