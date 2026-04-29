@@ -1007,6 +1007,53 @@ fn responses_apply_patch_diff_done_emits_diff_without_delta() {
 }
 
 #[test]
+fn responses_apply_patch_done_omits_provider_executed_and_preserves_delete_input() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let ev_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "id": "ap_delete_1",
+                "type": "apply_patch_call",
+                "call_id": "call_delete_1",
+                "status": "completed",
+                "operation": {
+                    "type": "delete_file",
+                    "path": "obsolete.txt"
+                }
+            }
+        })
+        .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+
+    let out_done = futures::executor::block_on(conv.convert_event(ev_done));
+    assert_eq!(out_done.len(), 1);
+
+    match stream_part(&out_done[0]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "call_delete_1");
+            assert_eq!(call.tool_name, "apply_patch");
+            assert_eq!(call.provider_executed, None);
+            let input: serde_json::Value =
+                serde_json::from_str(&call.input).expect("apply_patch input JSON");
+            assert_eq!(input["callId"], serde_json::json!("call_delete_1"));
+            assert_eq!(input["operation"]["type"], serde_json::json!("delete_file"));
+            assert_eq!(
+                input["operation"]["path"],
+                serde_json::json!("obsolete.txt")
+            );
+            assert!(input["operation"].get("diff").is_none());
+        }
+        other => panic!("expected tool-call part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_tool_search_stream_maps_call_and_output() {
     let tools = [siumai_core::tools::openai::tool_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
