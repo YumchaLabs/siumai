@@ -226,6 +226,48 @@ impl OpenAiResponsesRequestTransformer {
         store != Some(false)
     }
 
+    fn is_openai_custom_provider_tool_name(req: &ChatRequest, name: &str) -> bool {
+        req.tools.as_deref().unwrap_or_default().iter().any(|tool| {
+            let crate::types::Tool::ProviderDefined(provider_tool) = tool else {
+                return false;
+            };
+
+            provider_tool.id == siumai_core::tools::openai::CUSTOM_ID && provider_tool.name == name
+        })
+    }
+
+    fn tool_search_call_parts(
+        arguments: &serde_json::Value,
+    ) -> (Option<serde_json::Value>, Option<String>) {
+        let parsed = match arguments {
+            serde_json::Value::String(text) => serde_json::from_str::<serde_json::Value>(text).ok(),
+            other => Some(other.clone()),
+        };
+
+        let Some(obj) = parsed.as_ref().and_then(|value| value.as_object()) else {
+            return (None, None);
+        };
+
+        let arguments = obj.get("arguments").cloned();
+        let call_id = obj
+            .get("call_id")
+            .or_else(|| obj.get("callId"))
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string());
+
+        (arguments, call_id)
+    }
+
+    fn tool_search_output_tools(
+        output: &crate::types::ToolResultOutput,
+    ) -> Option<serde_json::Value> {
+        let crate::types::ToolResultOutput::Json { value, .. } = output else {
+            return None;
+        };
+
+        value.get("tools").cloned()
+    }
+
     fn extend_message(
         req: &ChatRequest,
         msg: &crate::types::ChatMessage,
@@ -297,6 +339,19 @@ impl OpenAiResponsesRequestTransformer {
 
                             let resolved_tool_name =
                                 tool_name_mapping.to_provider_tool_name(tool_name);
+
+                            if resolved_tool_name == "tool_search"
+                                && let Some(tools) = Self::tool_search_output_tools(output)
+                            {
+                                items.push(serde_json::json!({
+                                    "type": "tool_search_output",
+                                    "execution": "client",
+                                    "call_id": tool_call_id,
+                                    "status": "completed",
+                                    "tools": tools,
+                                }));
+                                continue;
+                            }
 
                             // Vercel parity: provider tool outputs use dedicated output item types.
                             if resolved_tool_name == "local_shell"
@@ -552,7 +607,14 @@ impl OpenAiResponsesRequestTransformer {
                             };
 
                             items.push(serde_json::json!({
-                                "type": "function_call_output",
+                                "type": if Self::is_openai_custom_provider_tool_name(
+                                    req,
+                                    resolved_tool_name,
+                                ) {
+                                    "custom_tool_call_output"
+                                } else {
+                                    "function_call_output"
+                                },
                                 "call_id": tool_call_id,
                                 "output": output_value,
                             }));
@@ -807,6 +869,36 @@ impl OpenAiResponsesRequestTransformer {
                                 ))
                                 .or_else(|| xai_item_id.clone());
 
+                                if resolved_tool_name == "tool_search" {
+                                    if store && let Some(id) = item_id.as_deref() {
+                                        input.push(serde_json::json!({
+                                            "type": "item_reference",
+                                            "id": id,
+                                        }));
+                                        continue;
+                                    }
+
+                                    let (tool_search_args, call_id) =
+                                        Self::tool_search_call_parts(arguments);
+                                    let execution = if call_id.is_some() {
+                                        "client"
+                                    } else {
+                                        "server"
+                                    };
+                                    let mut call = serde_json::json!({
+                                        "type": "tool_search_call",
+                                        "id": item_id.as_deref().unwrap_or(tool_call_id),
+                                        "execution": execution,
+                                        "call_id": call_id.as_deref(),
+                                        "status": "completed",
+                                    });
+                                    if let Some(arguments) = tool_search_args {
+                                        call["arguments"] = arguments;
+                                    }
+                                    input.push(call);
+                                    continue;
+                                }
+
                                 if resolved_tool_name == "local_shell" {
                                     let action =
                                         arguments.get("action").cloned().unwrap_or_default();
@@ -891,6 +983,27 @@ impl OpenAiResponsesRequestTransformer {
                                     continue;
                                 }
 
+                                if Self::is_openai_custom_provider_tool_name(
+                                    req,
+                                    resolved_tool_name,
+                                ) {
+                                    let input_value = match arguments {
+                                        serde_json::Value::String(text) => text.clone(),
+                                        other => serde_json::to_string(other).unwrap_or_default(),
+                                    };
+                                    let mut call = serde_json::json!({
+                                        "type": "custom_tool_call",
+                                        "call_id": tool_call_id,
+                                        "name": resolved_tool_name,
+                                        "input": input_value,
+                                    });
+                                    if let Some(id) = item_id.as_deref() {
+                                        call["id"] = serde_json::json!(id);
+                                    }
+                                    input.push(call);
+                                    continue;
+                                }
+
                                 let mut call = serde_json::json!({
                                     "type": "function_call",
                                     "call_id": tool_call_id,
@@ -909,12 +1022,42 @@ impl OpenAiResponsesRequestTransformer {
                             }
                             ContentPart::ToolResult {
                                 tool_call_id,
+                                tool_name,
+                                output,
                                 provider_options,
                                 provider_metadata: _,
                                 provider_executed,
                                 ..
                             } => {
                                 flush_assistant(input, &mut content_parts);
+
+                                let resolved_tool_name =
+                                    tool_name_mapping.to_provider_tool_name(tool_name);
+                                if resolved_tool_name == "tool_search" {
+                                    let item_id = openai_or_azure_provider_option_item_id(Some(
+                                        provider_options,
+                                    ))
+                                    .unwrap_or_else(|| tool_call_id.clone());
+
+                                    if store {
+                                        input.push(serde_json::json!({
+                                            "type": "item_reference",
+                                            "id": item_id,
+                                        }));
+                                    } else if let Some(tools) =
+                                        Self::tool_search_output_tools(output)
+                                    {
+                                        input.push(serde_json::json!({
+                                            "type": "tool_search_output",
+                                            "id": item_id,
+                                            "execution": "server",
+                                            "call_id": serde_json::Value::Null,
+                                            "status": "completed",
+                                            "tools": tools,
+                                        }));
+                                    }
+                                    continue;
+                                }
 
                                 // Assistant tool results are typically provider-executed and stored.
                                 if store
@@ -2393,6 +2536,139 @@ mod tests {
         assert_eq!(input.len(), 1);
         assert_eq!(input[0]["type"], serde_json::json!("function_call"));
         assert!(input[0].get("id").is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_transform_chat_maps_tool_search_items() {
+        use crate::types::{
+            ChatMessage, ContentPart, MessageContent, MessageMetadata, MessageRole,
+        };
+
+        let tx = OpenAiResponsesRequestTransformer;
+
+        let assistant = ChatMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiModal(vec![ContentPart::ToolCall {
+                tool_call_id: "tsc_1".to_string(),
+                tool_name: "toolSearch".to_string(),
+                arguments: serde_json::json!({
+                    "arguments": { "goal": "Find the weather tool" }
+                }),
+                provider_executed: None,
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+        let tool = ChatMessage {
+            role: MessageRole::Tool,
+            content: MessageContent::MultiModal(vec![ContentPart::tool_result_json(
+                "tsc_1",
+                "toolSearch",
+                serde_json::json!({
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "get_weather",
+                            "parameters": { "type": "object" }
+                        }
+                    ]
+                }),
+            )]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let request = ChatRequest::builder()
+            .message(assistant)
+            .message(tool)
+            .tools(vec![siumai_core::tools::openai::tool_search()])
+            .provider_option("openai", serde_json::json!({ "store": false }))
+            .model("gpt-4.1")
+            .build();
+
+        let body = tx.transform_chat(&request).expect("transform chat");
+        let input = body["input"].as_array().expect("input array");
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0]["type"], serde_json::json!("tool_search_call"));
+        assert_eq!(input[0]["id"], serde_json::json!("tsc_1"));
+        assert_eq!(input[0]["execution"], serde_json::json!("server"));
+        assert_eq!(
+            input[0]["arguments"],
+            serde_json::json!({ "goal": "Find the weather tool" })
+        );
+        assert_eq!(input[1]["type"], serde_json::json!("tool_search_output"));
+        assert_eq!(input[1]["execution"], serde_json::json!("client"));
+        assert_eq!(input[1]["call_id"], serde_json::json!("tsc_1"));
+        assert_eq!(
+            input[1]["tools"][0]["name"],
+            serde_json::json!("get_weather")
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_transform_chat_maps_custom_tool_items() {
+        use crate::types::{
+            ChatMessage, ContentPart, MessageContent, MessageMetadata, MessageRole,
+        };
+
+        let tx = OpenAiResponsesRequestTransformer;
+
+        let assistant = ChatMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiModal(vec![ContentPart::ToolCall {
+                tool_call_id: "ct_1".to_string(),
+                tool_name: "write_sql".to_string(),
+                arguments: serde_json::json!("SELECT .+"),
+                provider_executed: None,
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+        let tool = ChatMessage {
+            role: MessageRole::Tool,
+            content: MessageContent::MultiModal(vec![ContentPart::tool_result_json(
+                "ct_1",
+                "write_sql",
+                serde_json::json!({ "ok": true }),
+            )]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let request = ChatRequest::builder()
+            .message(assistant)
+            .message(tool)
+            .tools(vec![siumai_core::tools::openai::custom("write_sql")])
+            .model("gpt-4.1")
+            .build();
+
+        let body = tx.transform_chat(&request).expect("transform chat");
+        let input = body["input"].as_array().expect("input array");
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0]["type"], serde_json::json!("custom_tool_call"));
+        assert_eq!(input[0]["call_id"], serde_json::json!("ct_1"));
+        assert_eq!(input[0]["name"], serde_json::json!("write_sql"));
+        assert_eq!(input[0]["input"], serde_json::json!("SELECT .+"));
+        assert_eq!(
+            input[1]["type"],
+            serde_json::json!("custom_tool_call_output")
+        );
+        assert_eq!(input[1]["call_id"], serde_json::json!("ct_1"));
+        assert_eq!(input[1]["output"], serde_json::json!("{\"ok\":true}"));
     }
 
     #[test]

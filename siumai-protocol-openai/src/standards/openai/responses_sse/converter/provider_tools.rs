@@ -69,6 +69,12 @@ impl OpenAiResponsesEventConverter {
                     map.entry("apply_patch_call".to_string())
                         .or_insert_with(|| t.name.clone());
                 }
+                "tool_search" => {
+                    map.entry("tool_search_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                    map.entry("tool_search_output".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
                 "computer_use_preview" => {
                     map.insert("computer_call".to_string(), t.name.clone());
                 }
@@ -134,6 +140,12 @@ impl OpenAiResponsesEventConverter {
                 "apply_patch" => {
                     map.entry("apply_patch_call".to_string())
                         .or_insert_with(|| "apply_patch".to_string());
+                }
+                "tool_search" => {
+                    map.entry("tool_search_call".to_string())
+                        .or_insert_with(|| "toolSearch".to_string());
+                    map.entry("tool_search_output".to_string())
+                        .or_insert_with(|| "toolSearch".to_string());
                 }
                 "computer_use_preview" => {
                     map.entry("computer_call".to_string())

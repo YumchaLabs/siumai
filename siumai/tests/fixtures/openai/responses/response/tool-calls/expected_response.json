@@ -53,7 +53,7 @@
       "total_tokens": 572
     }
   },
-  "finish_reason": "tool_calls",
+  "finish_reason": "tool-calls",
   "provider_metadata": {
     "openai": {
       "responseId": "resp_67c97c0203188190a025beb4a75242bc"

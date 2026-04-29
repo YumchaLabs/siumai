@@ -35,6 +35,202 @@ fn required_object_value(
         .ok_or_else(|| LlmError::InvalidInput(message.to_string()))
 }
 
+fn map_mcp_tool_filter(value: &serde_json::Value, include_read_only: bool) -> serde_json::Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+
+    let mut out = serde_json::Map::new();
+    if include_read_only && let Some(v) = obj.get("readOnly").or_else(|| obj.get("read_only")) {
+        out.insert("read_only".to_string(), v.clone());
+    }
+    if let Some(v) = obj.get("toolNames").or_else(|| obj.get("tool_names")) {
+        out.insert("tool_names".to_string(), v.clone());
+    }
+
+    if out.is_empty() {
+        value.clone()
+    } else {
+        serde_json::Value::Object(out)
+    }
+}
+
+fn map_mcp_require_approval(value: &serde_json::Value) -> serde_json::Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+
+    if let Some(never) = obj.get("never") {
+        return serde_json::json!({
+            "never": map_mcp_tool_filter(never, false),
+        });
+    }
+
+    value.clone()
+}
+
+fn map_mcp_allowed_tools(value: &serde_json::Value) -> serde_json::Value {
+    if value.is_array() {
+        return value.clone();
+    }
+
+    map_mcp_tool_filter(value, true)
+}
+
+fn map_shell_skills(value: &serde_json::Value) -> Result<serde_json::Value, LlmError> {
+    let Some(skills) = value.as_array() else {
+        return Ok(value.clone());
+    };
+
+    let mut out = Vec::with_capacity(skills.len());
+    for skill in skills {
+        let Some(obj) = skill.as_object() else {
+            out.push(skill.clone());
+            continue;
+        };
+
+        match obj.get("type").and_then(|v| v.as_str()) {
+            Some("skillReference") | Some("skill_reference") => {
+                let provider_reference = obj
+                    .get("providerReference")
+                    .or_else(|| obj.get("provider_reference"))
+                    .and_then(|v| v.as_object());
+                let skill_id = provider_reference
+                    .and_then(|reference| reference.get("openai"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        LlmError::InvalidInput(
+                            "OpenAI shell skillReference requires providerReference.openai"
+                                .to_string(),
+                        )
+                    })?;
+
+                let mut mapped = serde_json::Map::new();
+                mapped.insert("type".to_string(), serde_json::json!("skill_reference"));
+                mapped.insert("skill_id".to_string(), serde_json::json!(skill_id));
+                mapped.insert(
+                    "version".to_string(),
+                    obj.get("version")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!("latest")),
+                );
+                out.push(serde_json::Value::Object(mapped));
+            }
+            Some("inline") => {
+                let mut mapped = serde_json::Map::new();
+                mapped.insert("type".to_string(), serde_json::json!("inline"));
+
+                if let Some(v) = obj.get("name") {
+                    mapped.insert("name".to_string(), v.clone());
+                }
+                if let Some(v) = obj.get("description") {
+                    mapped.insert("description".to_string(), v.clone());
+                }
+                if let Some(source) = obj.get("source") {
+                    if let Some(source_obj) = source.as_object() {
+                        let mut mapped_source = serde_json::Map::new();
+                        if let Some(v) = source_obj.get("type") {
+                            mapped_source.insert("type".to_string(), v.clone());
+                        }
+                        if let Some(v) = source_obj
+                            .get("mediaType")
+                            .or_else(|| source_obj.get("media_type"))
+                        {
+                            mapped_source.insert("media_type".to_string(), v.clone());
+                        }
+                        if let Some(v) = source_obj.get("data") {
+                            mapped_source.insert("data".to_string(), v.clone());
+                        }
+                        mapped.insert(
+                            "source".to_string(),
+                            serde_json::Value::Object(mapped_source),
+                        );
+                    } else {
+                        mapped.insert("source".to_string(), source.clone());
+                    }
+                }
+                out.push(serde_json::Value::Object(mapped));
+            }
+            _ => out.push(skill.clone()),
+        }
+    }
+
+    Ok(serde_json::Value::Array(out))
+}
+
+fn map_shell_network_policy(value: &serde_json::Value) -> serde_json::Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+
+    match obj.get("type").and_then(|v| v.as_str()) {
+        Some("disabled") => serde_json::json!({ "type": "disabled" }),
+        Some("allowlist") => {
+            let mut out = serde_json::Map::new();
+            out.insert("type".to_string(), serde_json::json!("allowlist"));
+            if let Some(v) = obj
+                .get("allowedDomains")
+                .or_else(|| obj.get("allowed_domains"))
+            {
+                out.insert("allowed_domains".to_string(), v.clone());
+            }
+            if let Some(v) = obj
+                .get("domainSecrets")
+                .or_else(|| obj.get("domain_secrets"))
+            {
+                out.insert("domain_secrets".to_string(), v.clone());
+            }
+            serde_json::Value::Object(out)
+        }
+        _ => value.clone(),
+    }
+}
+
+fn map_shell_environment(value: &serde_json::Value) -> Result<serde_json::Value, LlmError> {
+    let Some(obj) = value.as_object() else {
+        return Ok(value.clone());
+    };
+
+    match obj.get("type").and_then(|v| v.as_str()) {
+        Some("containerReference") | Some("container_reference") => {
+            let mut out = serde_json::Map::new();
+            out.insert("type".to_string(), serde_json::json!("container_reference"));
+            if let Some(v) = obj.get("containerId").or_else(|| obj.get("container_id")) {
+                out.insert("container_id".to_string(), v.clone());
+            }
+            Ok(serde_json::Value::Object(out))
+        }
+        Some("containerAuto") | Some("container_auto") => {
+            let mut out = serde_json::Map::new();
+            out.insert("type".to_string(), serde_json::json!("container_auto"));
+            if let Some(v) = obj.get("fileIds").or_else(|| obj.get("file_ids")) {
+                out.insert("file_ids".to_string(), v.clone());
+            }
+            if let Some(v) = obj.get("memoryLimit").or_else(|| obj.get("memory_limit")) {
+                out.insert("memory_limit".to_string(), v.clone());
+            }
+            if let Some(v) = obj
+                .get("networkPolicy")
+                .or_else(|| obj.get("network_policy"))
+            {
+                out.insert("network_policy".to_string(), map_shell_network_policy(v));
+            }
+            if let Some(v) = obj.get("skills") {
+                out.insert("skills".to_string(), map_shell_skills(v)?);
+            }
+            Ok(serde_json::Value::Object(out))
+        }
+        _ => {
+            let mut out = serde_json::Map::new();
+            out.insert("type".to_string(), serde_json::json!("local"));
+            if let Some(v) = obj.get("skills") {
+                out.insert("skills".to_string(), v.clone());
+            }
+            Ok(serde_json::Value::Object(out))
+        }
+    }
+}
+
 fn convert_xai_provider_tool_to_responses_format(
     provider_tool: &crate::types::ProviderDefinedTool,
 ) -> Result<Option<serde_json::Value>, LlmError> {
@@ -222,6 +418,18 @@ pub fn convert_tools_to_responses_format(
                     tool["strict"] = serde_json::Value::Bool(strict);
                 }
 
+                if let Some(defer_loading) = function
+                    .provider_options_map
+                    .get_object("openai")
+                    .and_then(|openai| {
+                        openai
+                            .get("deferLoading")
+                            .or_else(|| openai.get("defer_loading"))
+                    })
+                {
+                    tool["defer_loading"] = defer_loading.clone();
+                }
+
                 openai_tools.push(tool);
             }
             crate::types::Tool::ProviderDefined(provider_tool) => {
@@ -284,7 +492,7 @@ pub fn convert_tools_to_responses_format(
                             .get("requireApproval")
                             .or_else(|| args_obj.get("require_approval"))
                         {
-                            openai_tool["require_approval"] = v.clone();
+                            openai_tool["require_approval"] = map_mcp_require_approval(v);
                         } else {
                             openai_tool["require_approval"] = serde_json::json!("never");
                         }
@@ -293,7 +501,16 @@ pub fn convert_tools_to_responses_format(
                             .get("allowedTools")
                             .or_else(|| args_obj.get("allowed_tools"))
                         {
-                            openai_tool["allowed_tools"] = v.clone();
+                            openai_tool["allowed_tools"] = map_mcp_allowed_tools(v);
+                        }
+                        if let Some(v) = args_obj.get("authorization") {
+                            openai_tool["authorization"] = v.clone();
+                        }
+                        if let Some(v) = args_obj
+                            .get("connectorId")
+                            .or_else(|| args_obj.get("connector_id"))
+                        {
+                            openai_tool["connector_id"] = v.clone();
                         }
                         if let Some(v) = args_obj.get("headers") {
                             openai_tool["headers"] = v.clone();
@@ -498,6 +715,34 @@ pub fn convert_tools_to_responses_format(
                             openai_tool["filters"] = filters.clone();
                         }
                     }
+                    "local_shell" | "apply_patch" => {
+                        // These hosted tools do not forward args in the AI SDK shaper.
+                    }
+                    "shell" => {
+                        if let Some(environment) = args_obj.get("environment") {
+                            openai_tool["environment"] = map_shell_environment(environment)?;
+                        }
+                    }
+                    "custom" => {
+                        openai_tool["name"] = serde_json::json!(&provider_tool.name);
+                        if let Some(v) = args_obj.get("description") {
+                            openai_tool["description"] = v.clone();
+                        }
+                        if let Some(v) = args_obj.get("format") {
+                            openai_tool["format"] = v.clone();
+                        }
+                    }
+                    "tool_search" => {
+                        if let Some(v) = args_obj.get("execution") {
+                            openai_tool["execution"] = v.clone();
+                        }
+                        if let Some(v) = args_obj.get("description") {
+                            openai_tool["description"] = v.clone();
+                        }
+                        if let Some(v) = args_obj.get("parameters") {
+                            openai_tool["parameters"] = v.clone();
+                        }
+                    }
                     _ => {
                         // Best-effort passthrough for unknown tools:
                         // merge args into the tool definition.
@@ -691,11 +936,17 @@ pub fn convert_responses_tool_choice(
                         {
                             match provider_tool.provider() {
                                 Some("openai") => {
+                                    if provider_tool.tool_type() == Some("custom") {
+                                        return Some(serde_json::json!({
+                                            "type": "custom",
+                                            "name": name,
+                                        }));
+                                    }
+
                                     if let Some(tool_type) = provider_tool.tool_type()
-                                        && let Some(t) =
-                                            siumai_core::tools::openai::responses_builtin_type_for_tool_type(
-                                                tool_type,
-                                            )
+                                        && let Some(t) = siumai_core::tools::openai::responses_builtin_type_for_tool_type(
+                                            tool_type,
+                                        )
                                     {
                                         return Some(serde_json::json!({ "type": t }));
                                     }
@@ -885,6 +1136,26 @@ mod tests {
     }
 
     #[test]
+    fn responses_tools_map_function_defer_loading_option() {
+        let mut provider_options = crate::types::ProviderOptionsMap::default();
+        provider_options.insert("openai", serde_json::json!({ "deferLoading": true }));
+        let tool = crate::types::Tool::function(
+            "get_weather",
+            "Get weather",
+            serde_json::json!({
+                "type": "object",
+                "properties": {},
+            }),
+        )
+        .with_provider_options_map(provider_options);
+
+        let out = convert_tools_to_responses_format(&[tool]).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["type"], serde_json::json!("function"));
+        assert_eq!(out[0]["defer_loading"], serde_json::json!(true));
+    }
+
+    #[test]
     fn responses_tools_map_image_generation_keys() {
         let tool = crate::tools::openai::image_generation().with_args(serde_json::json!({
             "background": "transparent",
@@ -917,6 +1188,173 @@ mod tests {
         assert_eq!(out[0]["partial_images"], serde_json::json!(2));
         assert_eq!(out[0]["quality"], serde_json::json!("high"));
         assert_eq!(out[0]["size"], serde_json::json!("1024x1024"));
+    }
+
+    #[test]
+    fn responses_tools_map_mcp_filters_like_ai_sdk() {
+        let tool = crate::tools::openai::mcp().with_args(serde_json::json!({
+            "serverLabel": "docs",
+            "serverUrl": "https://example.com/mcp",
+            "allowedTools": {
+                "readOnly": true,
+                "toolNames": ["search_docs"],
+            },
+            "connectorId": "conn_123",
+            "authorization": "Bearer token",
+            "requireApproval": {
+                "never": {
+                    "toolNames": ["safe_tool"],
+                }
+            },
+        }));
+
+        let out = convert_tools_to_responses_format(&[tool]).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["type"], serde_json::json!("mcp"));
+        assert_eq!(out[0]["server_label"], serde_json::json!("docs"));
+        assert_eq!(
+            out[0]["server_url"],
+            serde_json::json!("https://example.com/mcp")
+        );
+        assert_eq!(
+            out[0]["allowed_tools"],
+            serde_json::json!({
+                "read_only": true,
+                "tool_names": ["search_docs"],
+            })
+        );
+        assert_eq!(out[0]["connector_id"], serde_json::json!("conn_123"));
+        assert_eq!(out[0]["authorization"], serde_json::json!("Bearer token"));
+        assert_eq!(
+            out[0]["require_approval"],
+            serde_json::json!({
+                "never": { "tool_names": ["safe_tool"] }
+            })
+        );
+    }
+
+    #[test]
+    fn responses_tools_map_shell_environment_like_ai_sdk() {
+        let tool = crate::tools::openai::shell().with_args(serde_json::json!({
+            "environment": {
+                "type": "containerAuto",
+                "fileIds": ["file_1"],
+                "memoryLimit": "16g",
+                "networkPolicy": {
+                    "type": "allowlist",
+                    "allowedDomains": ["example.com"],
+                    "domainSecrets": [
+                        { "domain": "example.com", "name": "API_KEY", "value": "secret" }
+                    ]
+                },
+                "skills": [
+                    {
+                        "type": "skillReference",
+                        "providerReference": { "openai": "skill_abc" },
+                    },
+                    {
+                        "type": "inline",
+                        "name": "my-skill",
+                        "description": "A test skill",
+                        "source": {
+                            "type": "base64",
+                            "mediaType": "application/zip",
+                            "data": "dGVzdA=="
+                        }
+                    }
+                ]
+            }
+        }));
+
+        let out = convert_tools_to_responses_format(&[tool]).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["type"], serde_json::json!("shell"));
+        assert_eq!(
+            out[0]["environment"],
+            serde_json::json!({
+                "type": "container_auto",
+                "file_ids": ["file_1"],
+                "memory_limit": "16g",
+                "network_policy": {
+                    "type": "allowlist",
+                    "allowed_domains": ["example.com"],
+                    "domain_secrets": [
+                        { "domain": "example.com", "name": "API_KEY", "value": "secret" }
+                    ]
+                },
+                "skills": [
+                    {
+                        "type": "skill_reference",
+                        "skill_id": "skill_abc",
+                        "version": "latest"
+                    },
+                    {
+                        "type": "inline",
+                        "name": "my-skill",
+                        "description": "A test skill",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/zip",
+                            "data": "dGVzdA=="
+                        }
+                    }
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn responses_tools_map_custom_and_tool_search() {
+        let tools = vec![
+            crate::tools::openai::custom("write_sql").with_args(serde_json::json!({
+                "description": "Write SQL.",
+                "format": {
+                    "type": "grammar",
+                    "syntax": "regex",
+                    "definition": "SELECT .+"
+                }
+            })),
+            crate::tools::openai::tool_search().with_args(serde_json::json!({
+                "execution": "client",
+                "description": "Search for deferred tools",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "goal": { "type": "string" }
+                    }
+                }
+            })),
+        ];
+
+        let out = convert_tools_to_responses_format(&tools).unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0],
+            serde_json::json!({
+                "type": "custom",
+                "name": "write_sql",
+                "description": "Write SQL.",
+                "format": {
+                    "type": "grammar",
+                    "syntax": "regex",
+                    "definition": "SELECT .+"
+                }
+            })
+        );
+        assert_eq!(
+            out[1],
+            serde_json::json!({
+                "type": "tool_search",
+                "execution": "client",
+                "description": "Search for deferred tools",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "goal": { "type": "string" }
+                    }
+                }
+            })
+        );
     }
 
     #[test]
@@ -1030,6 +1468,17 @@ mod tests {
         assert_eq!(
             out,
             Some(serde_json::json!({ "type": "computer_use_preview" }))
+        );
+    }
+
+    #[test]
+    fn responses_tool_choice_resolves_openai_custom_provider_tool_name() {
+        let choice = crate::types::ToolChoice::tool("write_sql");
+        let tools = vec![crate::tools::openai::custom("write_sql")];
+        let out = convert_responses_tool_choice(&choice, Some(&tools));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({ "type": "custom", "name": "write_sql" }))
         );
     }
 

@@ -234,6 +234,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             String,
         > = std::collections::HashMap::new();
         let mut next_mcp_approval_tool_call_index: usize = 0;
+        let mut hosted_tool_search_call_ids: std::collections::VecDeque<String> =
+            std::collections::VecDeque::new();
 
         let mut mcp_approval_tool_call_id = |approval_id: &str| -> String {
             if approval_id.is_empty() {
@@ -776,6 +778,94 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             "result": item.get("result").cloned().unwrap_or(serde_json::Value::Null),
                         });
                         ("generateImage", args, result)
+                    }
+                    "tool_search_call" => {
+                        let tool_call_id = if output_call_id.is_empty() {
+                            item_id.clone()
+                        } else {
+                            output_call_id.clone()
+                        };
+                        if tool_call_id.is_empty() {
+                            continue;
+                        }
+
+                        let is_hosted = item
+                            .get("execution")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("server")
+                            == "server";
+                        if is_hosted {
+                            hosted_tool_search_call_ids.push_back(tool_call_id.clone());
+                        }
+
+                        let arguments_json = serde_json::to_string(
+                            item.get("arguments").unwrap_or(&serde_json::Value::Null),
+                        )
+                        .unwrap_or_else(|_| "null".to_string());
+                        let call_id_json = if output_call_id.is_empty() {
+                            "null".to_string()
+                        } else {
+                            serde_json::to_string(&output_call_id)
+                                .unwrap_or_else(|_| "null".to_string())
+                        };
+                        let input = format!(
+                            "{{\"arguments\":{arguments_json},\"call_id\":{call_id_json}}}"
+                        );
+                        let provider_metadata = (!item_id.is_empty()).then(|| {
+                            self.single_provider_metadata_map(serde_json::json!({
+                                "itemId": item_id,
+                            }))
+                        });
+
+                        content_parts.push(ContentPart::ToolCall {
+                            tool_call_id,
+                            tool_name: "toolSearch".to_string(),
+                            arguments: serde_json::Value::String(input),
+                            provider_executed: is_hosted.then_some(true),
+                            dynamic: None,
+                            invalid: None,
+                            error: None,
+                            title: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
+                        });
+                        continue;
+                    }
+                    "tool_search_output" => {
+                        let tool_call_id = if output_call_id.is_empty() {
+                            hosted_tool_search_call_ids
+                                .pop_front()
+                                .unwrap_or_else(|| item_id.clone())
+                        } else {
+                            output_call_id.clone()
+                        };
+                        if tool_call_id.is_empty() {
+                            continue;
+                        }
+
+                        let provider_metadata = (!item_id.is_empty()).then(|| {
+                            self.single_provider_metadata_map(serde_json::json!({
+                                "itemId": item_id,
+                            }))
+                        });
+
+                        content_parts.push(ContentPart::ToolResult {
+                            tool_call_id,
+                            tool_name: "toolSearch".to_string(),
+                            output: crate::types::ToolResultOutput::json(serde_json::json!({
+                                "tools": item.get("tools").cloned().unwrap_or_else(|| {
+                                    serde_json::Value::Array(Vec::new())
+                                }),
+                            })),
+                            input: None,
+                            provider_executed: None,
+                            dynamic: None,
+                            preliminary: None,
+                            title: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
+                        });
+                        continue;
                     }
                     "x_search_call" => {
                         if !xai_style {
@@ -2254,6 +2344,95 @@ mod tests {
         );
         assert_eq!(value["output"][0]["id"], serde_json::json!("ct_1"));
         assert_eq!(value["output"][0]["is_error"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn responses_transformer_maps_tool_search_call_and_output() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_tool_search_1",
+                "model": "gpt-5.4",
+                "output": [
+                    {
+                        "type": "tool_search_call",
+                        "id": "tsc_1",
+                        "execution": "server",
+                        "call_id": null,
+                        "status": "completed",
+                        "arguments": { "paths": ["get_weather"] }
+                    },
+                    {
+                        "type": "tool_search_output",
+                        "id": "tso_1",
+                        "execution": "server",
+                        "call_id": null,
+                        "status": "completed",
+                        "tools": [
+                            {
+                                "type": "function",
+                                "name": "get_weather",
+                                "parameters": { "type": "object" }
+                            }
+                        ]
+                    }
+                ],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("expected multimodal");
+        assert_eq!(parts.len(), 2);
+
+        match &parts[0] {
+            crate::types::ContentPart::ToolCall {
+                tool_call_id,
+                tool_name,
+                arguments,
+                provider_executed,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "tsc_1");
+                assert_eq!(tool_name, "toolSearch");
+                assert_eq!(*provider_executed, Some(true));
+                assert_eq!(
+                    arguments,
+                    &serde_json::Value::String(
+                        "{\"arguments\":{\"paths\":[\"get_weather\"]},\"call_id\":null}"
+                            .to_string()
+                    )
+                );
+            }
+            other => panic!("expected tool call, got {other:?}"),
+        }
+
+        match &parts[1] {
+            crate::types::ContentPart::ToolResult {
+                tool_call_id,
+                tool_name,
+                output,
+                provider_executed,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "tsc_1");
+                assert_eq!(tool_name, "toolSearch");
+                assert_eq!(*provider_executed, None);
+                assert_eq!(
+                    output,
+                    &crate::types::ToolResultOutput::json(serde_json::json!({
+                        "tools": [
+                            {
+                                "type": "function",
+                                "name": "get_weather",
+                                "parameters": { "type": "object" }
+                            }
+                        ]
+                    }))
+                );
+            }
+            other => panic!("expected tool result, got {other:?}"),
+        }
     }
 
     #[test]

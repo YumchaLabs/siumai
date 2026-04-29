@@ -1249,6 +1249,10 @@ impl OpenAiResponsesEventConverter {
                 // once the full code is known (at output_item.done).
                 return None;
             }
+            "tool_search_call" | "tool_search_output" => {
+                // Tool search uses final `call_id` / `arguments` from output_item.done.
+                return None;
+            }
             "image_generation_call" => ("image_generation", serde_json::json!("{}")),
             _ => return None,
         };
@@ -1615,6 +1619,104 @@ impl OpenAiResponsesEventConverter {
                     "result": item.get("result").cloned().unwrap_or(serde_json::Value::Null),
                 }),
             ),
+            "tool_search_call" => {
+                let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let call_id = item.get("call_id").and_then(|v| v.as_str());
+                let tool_call_id = call_id.filter(|id| !id.is_empty()).unwrap_or(item_id);
+                if tool_call_id.is_empty() {
+                    return None;
+                }
+
+                let is_hosted = item
+                    .get("execution")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("server")
+                    == "server";
+                if is_hosted && let Ok(mut ids) = self.hosted_tool_search_call_ids.lock() {
+                    ids.push_back(tool_call_id.to_string());
+                }
+
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "toolSearch".to_string());
+                let arguments_json = serde_json::to_string(
+                    item.get("arguments").unwrap_or(&serde_json::Value::Null),
+                )
+                .unwrap_or_else(|_| "null".to_string());
+                let call_id_json = call_id
+                    .and_then(|id| serde_json::to_string(id).ok())
+                    .unwrap_or_else(|| "null".to_string());
+                let input =
+                    format!("{{\"arguments\":{arguments_json},\"call_id\":{call_id_json}}}");
+                let provider_metadata = (!item_id.is_empty())
+                    .then(|| self.provider_metadata_json(serde_json::json!({ "itemId": item_id })));
+
+                let mut events = Vec::new();
+                if !is_hosted {
+                    events.push(self.openai_tool_input_start_event(
+                        tool_call_id,
+                        &tool_name,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ));
+                    events.push(self.openai_tool_input_end_event(tool_call_id, None));
+                }
+                events.push(self.openai_tool_call_event(
+                    tool_call_id,
+                    &tool_name,
+                    serde_json::Value::String(input),
+                    is_hosted.then_some(true),
+                    None,
+                    provider_metadata,
+                    OpenAiResponsesEventExtras {
+                        output_index,
+                        raw_item: Some(serde_json::Value::Object(item.clone())),
+                    },
+                ));
+                return Some(events);
+            }
+            "tool_search_output" => {
+                let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let call_id = item.get("call_id").and_then(|v| v.as_str());
+                let tool_call_id = if let Some(call_id) = call_id.filter(|id| !id.is_empty()) {
+                    call_id.to_string()
+                } else {
+                    self.hosted_tool_search_call_ids
+                        .lock()
+                        .ok()
+                        .and_then(|mut ids| ids.pop_front())
+                        .unwrap_or_else(|| item_id.to_string())
+                };
+                if tool_call_id.is_empty() {
+                    return None;
+                }
+
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "toolSearch".to_string());
+                let provider_metadata = (!item_id.is_empty())
+                    .then(|| self.provider_metadata_json(serde_json::json!({ "itemId": item_id })));
+
+                return Some(vec![self.openai_tool_result_event(
+                    &tool_call_id,
+                    &tool_name,
+                    serde_json::json!({
+                        "tools": item.get("tools").cloned().unwrap_or_else(|| {
+                            serde_json::Value::Array(Vec::new())
+                        }),
+                    }),
+                    None,
+                    None,
+                    None,
+                    provider_metadata,
+                    OpenAiResponsesEventExtras {
+                        output_index,
+                        raw_item: Some(serde_json::Value::Object(item.clone())),
+                    },
+                )]);
+            }
             "local_shell_call" => {
                 let call_id = item.get("call_id").and_then(|v| v.as_str())?;
                 let action = item

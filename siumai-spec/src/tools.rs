@@ -23,6 +23,8 @@ pub fn provider_defined_tool(id: &str) -> Option<Tool> {
         openai::COMPUTER_USE_ID => Some(openai::computer_use()),
         openai::MCP_ID => Some(openai::mcp()),
         openai::APPLY_PATCH_ID => Some(openai::apply_patch()),
+        openai::TOOL_SEARCH_ID => Some(openai::tool_search()),
+        openai::CUSTOM_ID => Some(openai::custom("custom")),
 
         // Anthropic
         anthropic::WEB_SEARCH_20250305_ID => Some(anthropic::web_search_20250305()),
@@ -88,6 +90,7 @@ pub mod openai {
         (COMPUTER_USE_ID, "computer_use"),
         (MCP_ID, "mcp"),
         (APPLY_PATCH_ID, "apply_patch"),
+        (TOOL_SEARCH_ID, "tool_search"),
     ];
 
     /// OpenAI Responses built-in tool types that we support for `tool_choice`.
@@ -152,6 +155,8 @@ pub mod openai {
     pub const COMPUTER_USE_ID: &str = "openai.computer_use";
     pub const MCP_ID: &str = "openai.mcp";
     pub const APPLY_PATCH_ID: &str = "openai.apply_patch";
+    pub const TOOL_SEARCH_ID: &str = "openai.tool_search";
+    pub const CUSTOM_ID: &str = "openai.custom";
 
     pub fn web_search() -> Tool {
         // Vercel AI SDK default key: `webSearch`
@@ -236,6 +241,18 @@ pub mod openai {
 
     pub fn apply_patch_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(APPLY_PATCH_ID, name)
+    }
+
+    pub fn tool_search() -> Tool {
+        tool_search_named("toolSearch")
+    }
+
+    pub fn tool_search_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(TOOL_SEARCH_ID, name)
+    }
+
+    pub fn custom(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(CUSTOM_ID, name)
     }
 }
 
@@ -1059,6 +1076,23 @@ mod tests {
             assert_eq!(pd.id, id);
             assert_eq!(pd.name, "shell");
         }
+    }
+
+    #[test]
+    fn openai_tool_search_and_custom_tools_have_expected_ids_and_names() {
+        let t = openai::tool_search();
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, openai::TOOL_SEARCH_ID);
+        assert_eq!(pd.name, "toolSearch");
+
+        let t = openai::custom("write_sql");
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, openai::CUSTOM_ID);
+        assert_eq!(pd.name, "write_sql");
     }
 
     #[test]

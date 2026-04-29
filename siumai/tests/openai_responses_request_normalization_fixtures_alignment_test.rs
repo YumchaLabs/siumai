@@ -269,7 +269,12 @@ fn openai_responses_request_normalization_item_reference_cases_are_best_effort()
             }
         ],
         "tools": [
-            { "type": "provider-defined", "id": "openai.local_shell", "name": "shell" }
+            {
+                "type": "provider",
+                "id": "openai.local_shell",
+                "name": "shell",
+                "isProviderExecuted": true
+            }
         ],
         "common_params": { "model": "gpt-5-nano" },
         "stream": false
