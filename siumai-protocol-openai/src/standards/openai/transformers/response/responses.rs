@@ -135,8 +135,28 @@ impl OpenAiResponsesResponseTransformer {
         serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
     }
 
+    fn ordered_object_json(
+        object: &serde_json::Map<String, serde_json::Value>,
+        ordered_keys: &[&str],
+    ) -> String {
+        let mut fields = Vec::new();
+        for key in ordered_keys {
+            if let Some(value) = object.get(*key) {
+                fields.push(format!("\"{key}\":{}", Self::json_string(value)));
+            }
+        }
+        for (key, value) in object {
+            if !ordered_keys.contains(&key.as_str()) {
+                let key = serde_json::to_string(key).unwrap_or_else(|_| "\"\"".to_string());
+                fields.push(format!("{key}:{}", Self::json_string(value)));
+            }
+        }
+
+        format!("{{{}}}", fields.join(","))
+    }
+
     fn local_shell_generate_input(item: &serde_json::Value) -> String {
-        const ORDERED_ACTION_KEYS: [&str; 6] = [
+        const ACTION_KEYS: [&str; 6] = [
             "type",
             "command",
             "timeout_ms",
@@ -150,20 +170,23 @@ impl OpenAiResponsesResponseTransformer {
             return format!("{{\"action\":{}}}", Self::json_string(action));
         };
 
-        let mut fields = Vec::new();
-        for key in ORDERED_ACTION_KEYS {
-            if let Some(value) = action_obj.get(key) {
-                fields.push(format!("\"{key}\":{}", Self::json_string(value)));
-            }
-        }
-        for (key, value) in action_obj {
-            if !ORDERED_ACTION_KEYS.contains(&key.as_str()) {
-                let key = serde_json::to_string(key).unwrap_or_else(|_| "\"\"".to_string());
-                fields.push(format!("{key}:{}", Self::json_string(value)));
-            }
-        }
+        format!(
+            "{{\"action\":{}}}",
+            Self::ordered_object_json(action_obj, &ACTION_KEYS)
+        )
+    }
 
-        format!("{{\"action\":{{{}}}}}", fields.join(","))
+    fn apply_patch_generate_input(call_id: &str, item: &serde_json::Value) -> String {
+        const OPERATION_KEYS: [&str; 3] = ["type", "path", "diff"];
+
+        let call_id_json = serde_json::to_string(call_id).unwrap_or_else(|_| "\"\"".to_string());
+        let operation = item.get("operation").unwrap_or(&serde_json::Value::Null);
+        let operation_json = operation
+            .as_object()
+            .map(|object| Self::ordered_object_json(object, &OPERATION_KEYS))
+            .unwrap_or_else(|| Self::json_string(operation));
+
+        format!("{{\"callId\":{call_id_json},\"operation\":{operation_json}}}")
     }
 
     fn shell_environment_is_provider_executed(value: &serde_json::Value) -> bool {
@@ -1165,24 +1188,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             continue;
                         }
 
-                        let op = item.get("operation").unwrap_or(&serde_json::Value::Null);
-                        let call_id_json =
-                            serde_json::to_string(&call_id).unwrap_or_else(|_| "\"\"".to_string());
-                        let op_type = serde_json::to_string(
-                            op.get("type").unwrap_or(&serde_json::Value::Null),
-                        )
-                        .unwrap_or_else(|_| "null".to_string());
-                        let op_path = serde_json::to_string(
-                            op.get("path").unwrap_or(&serde_json::Value::Null),
-                        )
-                        .unwrap_or_else(|_| "null".to_string());
-                        let op_diff = serde_json::to_string(
-                            op.get("diff").unwrap_or(&serde_json::Value::Null),
-                        )
-                        .unwrap_or_else(|_| "null".to_string());
-                        let input_str = format!(
-                            "{{\"callId\":{call_id_json},\"operation\":{{\"type\":{op_type},\"path\":{op_path},\"diff\":{op_diff}}}}}"
-                        );
+                        let input_str = Self::apply_patch_generate_input(call_id, item);
 
                         let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
                             self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
@@ -2682,9 +2688,8 @@ mod tests {
                         "call_id": "call_apply",
                         "status": "completed",
                         "operation": {
-                            "type": "update_file",
-                            "path": "src/lib.rs",
-                            "diff": "@@"
+                            "type": "delete_file",
+                            "path": "src/lib.rs"
                         }
                     },
                     {
@@ -2797,6 +2802,34 @@ mod tests {
                 );
             }
             other => panic!("expected shell tool result, got {other:?}"),
+        }
+
+        match &parts[4] {
+            crate::types::ContentPart::ToolCall {
+                tool_call_id,
+                tool_name,
+                arguments,
+                provider_metadata,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_apply");
+                assert_eq!(tool_name, "apply_patch");
+                assert_eq!(
+                    provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("openai"))
+                        .and_then(|metadata| metadata.get("itemId")),
+                    Some(&serde_json::json!("apc_1"))
+                );
+                let input: serde_json::Value =
+                    serde_json::from_str(arguments.as_str().expect("apply_patch input string"))
+                        .expect("apply_patch input JSON");
+                assert_eq!(input["callId"], serde_json::json!("call_apply"));
+                assert_eq!(input["operation"]["type"], serde_json::json!("delete_file"));
+                assert_eq!(input["operation"]["path"], serde_json::json!("src/lib.rs"));
+                assert!(input["operation"].get("diff").is_none());
+            }
+            other => panic!("expected apply_patch tool call, got {other:?}"),
         }
 
         match &parts[5] {
