@@ -49,6 +49,7 @@ struct OpenAiCompatParseState {
     active_reasoning_part_id: Option<String>,
     next_reasoning_part_index: u32,
     next_source_part_index: u32,
+    emitted_top_level_citation_urls: std::collections::HashSet<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1266,15 +1267,22 @@ impl OpenAiCompatibleEventConverter {
     }
 
     fn extract_source_events_from_json(&self, json: &serde_json::Value) -> Vec<ChatStreamEvent> {
-        let Some(annotations) = json
+        let annotations = json
             .get("choices")
             .and_then(|choices| choices.get(0))
             .and_then(|choice| choice.get("delta"))
             .and_then(|delta| delta.get("annotations"))
-            .and_then(|annotations| annotations.as_array())
-        else {
+            .and_then(|annotations| annotations.as_array());
+        let top_level_citations = self
+            .config
+            .provider_id
+            .eq_ignore_ascii_case("perplexity")
+            .then(|| json.get("citations").and_then(|value| value.as_array()))
+            .flatten();
+
+        if annotations.is_none() && top_level_citations.is_none() {
             return Vec::new();
-        };
+        }
 
         let response_id = self
             .latest_response_state
@@ -1287,49 +1295,92 @@ impl OpenAiCompatibleEventConverter {
             .unwrap_or_else(|poison| poison.into_inner());
         let mut out = Vec::new();
 
-        for annotation in annotations {
-            let annotation_type = annotation
-                .get("type")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty());
-            if annotation_type.is_some_and(|value| !value.eq_ignore_ascii_case("url_citation")) {
-                continue;
-            }
+        if let Some(annotations) = annotations {
+            for annotation in annotations {
+                let annotation_type = annotation
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                if annotation_type.is_some_and(|value| !value.eq_ignore_ascii_case("url_citation"))
+                {
+                    continue;
+                }
 
-            let Some(url_citation) = annotation.get("url_citation") else {
-                continue;
-            };
-            let Some(url) = url_citation
-                .get("url")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            else {
-                continue;
-            };
-            let title = url_citation
-                .get("title")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_string());
-            let id = Self::next_part_id(
-                "source",
-                response_id.as_deref(),
-                &mut parse_state.next_source_part_index,
-            );
+                let Some(url_citation) = annotation.get("url_citation") else {
+                    continue;
+                };
+                let Some(url) = url_citation
+                    .get("url")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
+                let title = url_citation
+                    .get("title")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_string());
+                let id = Self::next_part_id(
+                    "source",
+                    response_id.as_deref(),
+                    &mut parse_state.next_source_part_index,
+                );
 
-            out.push(ChatStreamEvent::Part {
-                part: ChatStreamPart::Source {
-                    id,
-                    source: crate::types::SourcePart::Url {
-                        url: url.to_string(),
-                        title,
+                parse_state
+                    .emitted_top_level_citation_urls
+                    .insert(url.to_string());
+
+                out.push(ChatStreamEvent::Part {
+                    part: ChatStreamPart::Source {
+                        id,
+                        source: crate::types::SourcePart::Url {
+                            url: url.to_string(),
+                            title,
+                        },
+                        provider_metadata: None,
                     },
-                    provider_metadata: None,
-                },
-            });
+                });
+            }
+        }
+
+        if let Some(citations) = top_level_citations {
+            for citation in citations {
+                let Some(url) = citation
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
+
+                if !parse_state
+                    .emitted_top_level_citation_urls
+                    .insert(url.to_string())
+                {
+                    continue;
+                }
+
+                let id = Self::next_part_id(
+                    "source",
+                    response_id.as_deref(),
+                    &mut parse_state.next_source_part_index,
+                );
+
+                out.push(ChatStreamEvent::Part {
+                    part: ChatStreamPart::Source {
+                        id,
+                        source: crate::types::SourcePart::Url {
+                            url: url.to_string(),
+                            title: None,
+                        },
+                        provider_metadata: None,
+                    },
+                });
+            }
         }
 
         out
@@ -2465,14 +2516,42 @@ mod tests {
             event,
             Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "Rust"
         )));
+        let source_parts: Vec<(String, String, Option<String>)> = r1
+            .iter()
+            .filter_map(|event| match event {
+                Ok(ChatStreamEvent::Part {
+                    part:
+                        ChatStreamPart::Source {
+                            id,
+                            source: crate::types::SourcePart::Url { url, title },
+                            ..
+                        },
+                }) => Some((id.clone(), url.clone(), title.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            source_parts,
+            vec![(
+                "source_1_0".to_string(),
+                "https://example.com/rust".to_string(),
+                None
+            )]
+        );
 
         let final_chunk = Event {
             event: "".to_string(),
-            data: r#"{"id":"1","model":"sonar","created":1718345013,"choices":[{"index":0,"delta":{"content":" ecosystem","role":null},"finish_reason":"stop"}],"images":[{"image_url":"https://images.example.com/rust.png","origin_url":"https://example.com/rust","height":900,"width":1600}],"usage":{"prompt_tokens":11,"completion_tokens":17,"total_tokens":28,"citation_tokens":7,"num_search_queries":2,"reasoning_tokens":3,"cost":{"input_tokens_cost":0.12,"output_tokens_cost":0.34,"request_cost":0.01,"total_cost":0.47}}}"#.to_string(),
+            data: r#"{"id":"1","model":"sonar","created":1718345013,"citations":["https://example.com/rust"],"choices":[{"index":0,"delta":{"content":" ecosystem","role":null},"finish_reason":"stop"}],"images":[{"image_url":"https://images.example.com/rust.png","origin_url":"https://example.com/rust","height":900,"width":1600}],"usage":{"prompt_tokens":11,"completion_tokens":17,"total_tokens":28,"citation_tokens":7,"num_search_queries":2,"reasoning_tokens":3,"cost":{"input_tokens_cost":0.12,"output_tokens_cost":0.34,"request_cost":0.01,"total_cost":0.47}}}"#.to_string(),
             id: "".to_string(),
             retry: None,
         };
         let r2 = converter.convert_event(final_chunk).await;
+        assert!(!r2.iter().any(|event| matches!(
+            event,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Source { .. }
+            })
+        )));
         assert!(r2.iter().any(|event| matches!(
             event,
             Ok(ChatStreamEvent::UsageUpdate { usage })

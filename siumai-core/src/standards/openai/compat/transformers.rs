@@ -385,8 +385,9 @@ impl ResponseTransformer for CompatResponseTransformer {
             }
         }
 
+        let mut next_source_part_index = 0usize;
         if let Some(annotations) = choice.message.annotations {
-            for (annotation_index, annotation) in annotations.into_iter().enumerate() {
+            for annotation in annotations {
                 let annotation_type = annotation
                     .annotation_type
                     .as_deref()
@@ -405,7 +406,7 @@ impl ResponseTransformer for CompatResponseTransformer {
                 }
 
                 parts.push(ContentPart::Source {
-                    id: compat_source_part_id(Some(response_id.as_str()), annotation_index),
+                    id: compat_source_part_id(Some(response_id.as_str()), next_source_part_index),
                     source: SourcePart::Url {
                         url: url_citation.url,
                         title: url_citation
@@ -415,7 +416,17 @@ impl ResponseTransformer for CompatResponseTransformer {
                     },
                     provider_metadata: None,
                 });
+                next_source_part_index += 1;
             }
+        }
+
+        if self.config.provider_id.eq_ignore_ascii_case("perplexity") {
+            append_perplexity_citation_source_parts(
+                raw,
+                Some(response_id.as_str()),
+                &mut parts,
+                &mut next_source_part_index,
+            );
         }
 
         // Add thinking/reasoning
@@ -558,6 +569,52 @@ fn compat_source_part_id(response_id: Option<&str>, index: usize) -> String {
     }
 }
 
+fn append_perplexity_citation_source_parts(
+    raw: &serde_json::Value,
+    response_id: Option<&str>,
+    parts: &mut Vec<ContentPart>,
+    next_source_part_index: &mut usize,
+) {
+    let Some(citations) = raw.get("citations").and_then(|value| value.as_array()) else {
+        return;
+    };
+
+    let mut seen_urls = parts
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Source {
+                source: SourcePart::Url { url, .. },
+                ..
+            } => Some(url.trim().to_string()),
+            _ => None,
+        })
+        .collect::<std::collections::HashSet<_>>();
+
+    for citation in citations {
+        let Some(url) = citation
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+
+        if !seen_urls.insert(url.to_string()) {
+            continue;
+        }
+
+        parts.push(ContentPart::Source {
+            id: compat_source_part_id(response_id, *next_source_part_index),
+            source: SourcePart::Url {
+                url: url.to_string(),
+                title: None,
+            },
+            provider_metadata: None,
+        });
+        *next_source_part_index += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::adapter::ProviderAdapter;
@@ -657,6 +714,76 @@ mod tests {
             .expect("perplexity provider metadata should be object-shaped");
         assert!(perplexity.contains_key("search_results"));
         assert!(perplexity.contains_key("videos"));
+    }
+
+    #[test]
+    fn perplexity_top_level_citations_are_exposed_as_source_parts() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "perplexity".to_string(),
+                name: "Perplexity".to_string(),
+                base_url: "https://api.perplexity.ai".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("sonar-pro".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "perplexity",
+            "test-key",
+            "https://api.perplexity.ai",
+            adapter.clone(),
+        )
+        .with_model("sonar-pro");
+
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
+
+        let raw = serde_json::json!({
+            "id": "ppl-123",
+            "model": "sonar-pro",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "hello" },
+                "finish_reason": "stop"
+            }],
+            "citations": ["https://example.com/rust", "https://example.com/book"],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("multimodal content");
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0].as_text(), Some("hello"));
+
+        let Some((first_source_id, first_source)) = parts[1].as_source() else {
+            panic!("expected first source part");
+        };
+        assert_eq!(first_source_id, "source_ppl-123_0");
+        assert_eq!(
+            first_source,
+            &SourcePart::Url {
+                url: "https://example.com/rust".to_string(),
+                title: None,
+            }
+        );
+
+        let Some((second_source_id, second_source)) = parts[2].as_source() else {
+            panic!("expected second source part");
+        };
+        assert_eq!(second_source_id, "source_ppl-123_1");
+        assert_eq!(
+            second_source,
+            &SourcePart::Url {
+                url: "https://example.com/book".to_string(),
+                title: None,
+            }
+        );
     }
 
     #[test]
