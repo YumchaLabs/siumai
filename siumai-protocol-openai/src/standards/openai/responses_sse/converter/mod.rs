@@ -98,6 +98,7 @@ pub struct OpenAiResponsesEventConverter {
     emitted_custom_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
     emitted_custom_tool_call_ids: Arc<Mutex<HashSet<String>>>,
     hosted_tool_search_call_ids: Arc<Mutex<VecDeque<String>>>,
+    emitted_tool_search_input_start_ids: Arc<Mutex<HashSet<String>>>,
 
     serialize_state: Arc<Mutex<OpenAiResponsesSerializeState>>,
 }
@@ -163,6 +164,7 @@ impl Default for OpenAiResponsesEventConverter {
             emitted_custom_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_custom_tool_call_ids: Arc::new(Mutex::new(HashSet::new())),
             hosted_tool_search_call_ids: Arc::new(Mutex::new(VecDeque::new())),
+            emitted_tool_search_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
             serialize_state: Arc::new(Mutex::new(OpenAiResponsesSerializeState::default())),
         }
     }

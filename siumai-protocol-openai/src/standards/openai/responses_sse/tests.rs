@@ -1106,6 +1106,66 @@ fn responses_tool_search_stream_maps_call_and_output() {
 }
 
 #[test]
+fn responses_tool_search_stream_emits_hosted_input_lifecycle() {
+    let tools = [siumai_core::tools::openai::tool_search()];
+    let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
+
+    let call_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"tsc_hosted","type":"tool_search_call","execution":"server","call_id":"call_should_not_surface","status":"in_progress","arguments":{}}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let added_events = futures::executor::block_on(conv.convert_event(call_added));
+    assert_eq!(added_events.len(), 1);
+    match stream_part(&added_events[0]).expect("tool-input-start part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+            id,
+            tool_name,
+            provider_executed,
+            ..
+        } => {
+            assert_eq!(id, "tsc_hosted");
+            assert_eq!(tool_name, "toolSearch");
+            assert_eq!(provider_executed, Some(true));
+        }
+        other => panic!("expected tool-input-start part, got {other:?}"),
+    }
+
+    let call_done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"tsc_hosted","type":"tool_search_call","execution":"server","call_id":"call_should_not_surface","status":"completed","arguments":{"paths":["get_weather"]}}}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let done_events = futures::executor::block_on(conv.convert_event(call_done));
+    assert_eq!(done_events.len(), 2);
+    match stream_part(&done_events[0]).expect("tool-input-end part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+            assert_eq!(id, "tsc_hosted");
+        }
+        other => panic!("expected tool-input-end part, got {other:?}"),
+    }
+    match stream_part(&done_events[1]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "tsc_hosted");
+            assert_eq!(call.tool_name, "toolSearch");
+            assert_eq!(call.provider_executed, Some(true));
+            let input: serde_json::Value =
+                serde_json::from_str(&call.input).expect("tool-search input json");
+            assert_eq!(input["call_id"], serde_json::Value::Null);
+            assert_eq!(
+                input["arguments"]["paths"],
+                serde_json::json!(["get_weather"])
+            );
+        }
+        other => panic!("expected tool-call part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_mcp_approval_request_emits_call_and_approval_on_done() {
     let conv = OpenAiResponsesEventConverter::new();
 

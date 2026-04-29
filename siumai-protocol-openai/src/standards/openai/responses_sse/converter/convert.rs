@@ -1460,8 +1460,34 @@ impl OpenAiResponsesEventConverter {
                 // once the full code is known (at output_item.done).
                 return None;
             }
-            "tool_search_call" | "tool_search_output" => {
-                // Tool search uses final `call_id` / `arguments` from output_item.done.
+            "tool_search_call" => {
+                let is_hosted = item.get("execution").and_then(|v| v.as_str()) == Some("server");
+                if is_hosted {
+                    let tool_call_id = item.get("id")?.as_str()?;
+                    let tool_name = self
+                        .provider_tool_name_for_item_type(item_type)
+                        .unwrap_or_else(|| "toolSearch".to_string());
+                    let should_emit = self
+                        .emitted_tool_search_input_start_ids
+                        .lock()
+                        .map(|mut ids| ids.insert(tool_call_id.to_string()))
+                        .unwrap_or(false);
+                    if should_emit {
+                        return Some(vec![self.openai_tool_input_start_event(
+                            tool_call_id,
+                            &tool_name,
+                            Some(true),
+                            None,
+                            None,
+                            None,
+                        )]);
+                    }
+                }
+
+                return None;
+            }
+            "tool_search_output" => {
+                // Tool search output is paired with the call at output_item.done.
                 return None;
             }
             "image_generation_call" => ("image_generation", serde_json::json!("{}")),
@@ -1905,16 +1931,16 @@ impl OpenAiResponsesEventConverter {
             "tool_search_call" => {
                 let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
                 let call_id = item.get("call_id").and_then(|v| v.as_str());
-                let tool_call_id = call_id.filter(|id| !id.is_empty()).unwrap_or(item_id);
+                let is_hosted = item.get("execution").and_then(|v| v.as_str()) == Some("server");
+                let tool_call_id = if is_hosted {
+                    item_id
+                } else {
+                    call_id.filter(|id| !id.is_empty()).unwrap_or(item_id)
+                };
                 if tool_call_id.is_empty() {
                     return None;
                 }
 
-                let is_hosted = item
-                    .get("execution")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("server")
-                    == "server";
                 if is_hosted && let Ok(mut ids) = self.hosted_tool_search_call_ids.lock() {
                     ids.push_back(tool_call_id.to_string());
                 }
@@ -1926,16 +1952,27 @@ impl OpenAiResponsesEventConverter {
                     item.get("arguments").unwrap_or(&serde_json::Value::Null),
                 )
                 .unwrap_or_else(|_| "null".to_string());
-                let call_id_json = call_id
-                    .and_then(|id| serde_json::to_string(id).ok())
-                    .unwrap_or_else(|| "null".to_string());
+                let call_id_json = if is_hosted {
+                    "null".to_string()
+                } else {
+                    serde_json::to_string(tool_call_id).unwrap_or_else(|_| "null".to_string())
+                };
                 let input =
                     format!("{{\"arguments\":{arguments_json},\"call_id\":{call_id_json}}}");
                 let provider_metadata = (!item_id.is_empty())
                     .then(|| self.provider_metadata_json(serde_json::json!({ "itemId": item_id })));
 
                 let mut events = Vec::new();
-                if !is_hosted {
+                if is_hosted {
+                    let has_started = self
+                        .emitted_tool_search_input_start_ids
+                        .lock()
+                        .map(|ids| ids.contains(tool_call_id))
+                        .unwrap_or(false);
+                    if has_started {
+                        events.push(self.openai_tool_input_end_event(tool_call_id, None));
+                    }
+                } else {
                     events.push(self.openai_tool_input_start_event(
                         tool_call_id,
                         &tool_name,
