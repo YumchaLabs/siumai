@@ -252,12 +252,10 @@ impl ProviderAdapter for ConfigurableAdapter {
                 }
             }
             // xAI (Grok) Chat Completions quirks (Vercel-aligned):
-            // - "stream_options" is not supported (omit it)
             // - stop sequences are not supported (omit "stop")
             // - accept Vercel-style camelCase provider options and normalize to snake_case
             "xai" => {
                 if let Some(obj) = params.as_object_mut() {
-                    obj.remove("stream_options");
                     obj.remove("stop");
 
                     if let Some(v) = take_any(obj, &["reasoningEffort", "reasoning_effort"]) {
@@ -458,7 +456,7 @@ impl ProviderAdapter for ConfigurableAdapter {
     }
 
     fn supports_stream_usage_hints(&self) -> bool {
-        !matches!(self.config.id.as_str(), "xai" | "groq")
+        !matches!(self.config.id.as_str(), "groq")
     }
 
     fn supports_image_generation(&self) -> bool {
@@ -809,6 +807,7 @@ mod tests {
 
         let mut params = serde_json::json!({
             "model": "grok-4",
+            "stream_options": { "include_usage": true },
             "enableReasoning": true,
             "reasoningBudget": 2048,
             "enable_thinking": true,
@@ -820,6 +819,10 @@ mod tests {
             .expect("transform ok");
 
         assert_eq!(params["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            params["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
         assert!(params.get("enableReasoning").is_none());
         assert!(params.get("enable_reasoning").is_none());
         assert!(params.get("reasoningBudget").is_none());
@@ -856,6 +859,6 @@ mod tests {
         });
 
         assert!(deepseek.supports_stream_usage_hints());
-        assert!(!xai.supports_stream_usage_hints());
+        assert!(xai.supports_stream_usage_hints());
     }
 }

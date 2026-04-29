@@ -803,6 +803,10 @@ mod tests {
             Some("text/event-stream")
         );
         assert_eq!(captured.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            captured.body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
         assert_eq!(captured.body["reasoning_effort"], serde_json::json!("high"));
         assert_eq!(
             captured.body["search_parameters"]["mode"],
@@ -997,6 +1001,10 @@ data: [DONE]
         let captured = transport.take_stream().expect("captured stream request");
 
         assert_eq!(captured.body["model"], serde_json::json!("grok-4"));
+        assert_eq!(
+            captured.body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
 
         let end = events
             .iter()

@@ -827,7 +827,7 @@ impl OpenAiCompatibleBuilder {
         let include_usage = self.include_usage.or_else(|| {
             matches!(
                 canonical_provider_id.as_str(),
-                "alibaba" | "qwen" | "moonshotai"
+                "alibaba" | "deepseek" | "moonshotai" | "qwen" | "xai"
             )
             .then_some(true)
         });
@@ -1174,22 +1174,11 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_builder_defaults_moonshotai_include_usage() {
-        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "moonshotai")
-            .api_key("test-key")
-            .model("kimi-k2-0905")
-            .into_config()
-            .expect("into_config ok");
-
-        assert_eq!(config.include_usage, Some(true));
-    }
-
-    #[test]
-    fn openai_compatible_builder_defaults_alibaba_family_include_usage() {
-        for provider_id in ["alibaba", "qwen"] {
+    fn openai_compatible_builder_defaults_ai_sdk_usage_streaming_providers() {
+        for provider_id in ["alibaba", "deepseek", "moonshotai", "qwen", "xai"] {
             let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), provider_id)
                 .api_key("test-key")
-                .model("qwen-plus")
+                .model("test-model")
                 .into_config()
                 .expect("into_config ok");
 
@@ -1198,27 +1187,17 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_builder_respects_explicit_moonshotai_include_usage() {
-        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "moonshotai")
-            .api_key("test-key")
-            .model("kimi-k2-0905")
-            .with_include_usage(false)
-            .into_config()
-            .expect("into_config ok");
+    fn openai_compatible_builder_respects_explicit_defaulted_include_usage() {
+        for provider_id in ["alibaba", "deepseek", "moonshotai", "qwen", "xai"] {
+            let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), provider_id)
+                .api_key("test-key")
+                .model("test-model")
+                .with_include_usage(false)
+                .into_config()
+                .expect("into_config ok");
 
-        assert_eq!(config.include_usage, Some(false));
-    }
-
-    #[test]
-    fn openai_compatible_builder_respects_explicit_alibaba_include_usage() {
-        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "alibaba")
-            .api_key("test-key")
-            .model("qwen-plus")
-            .with_include_usage(false)
-            .into_config()
-            .expect("into_config ok");
-
-        assert_eq!(config.include_usage, Some(false));
+            assert_eq!(config.include_usage, Some(false), "{provider_id}");
+        }
     }
 
     #[test]

@@ -529,7 +529,6 @@ fn merge_provider_options_into_body(
 
     if provider_id == "xai" {
         body_obj.remove("stop");
-        body_obj.remove("stream_options");
         body_obj.remove("reasoning_summary");
         body_obj.remove("previous_response_id");
         body_obj.remove("include");
@@ -712,7 +711,6 @@ fn apply_xai_chat_settings(
         body_obj.remove("stop");
     }
 
-    body_obj.remove("stream_options");
     body_obj.remove("reasoning_summary");
     body_obj.remove("previous_response_id");
     body_obj.remove("include");
