@@ -421,8 +421,16 @@ async fn parse_image_response(
     })?;
 
     let mut images = Vec::with_capacity(response.data.len());
+    let mut xai_images_meta = Vec::with_capacity(response.data.len());
     for item in response.data {
-        let b64_json = match (item.b64_json, item.url) {
+        let XaiImageData {
+            url,
+            b64_json,
+            revised_prompt,
+            extra_fields,
+        } = item;
+
+        let b64_json = match (b64_json, url) {
             (Some(b64), _) => Some(b64),
             (None, Some(url)) => Some(download_as_base64(client, &url).await?),
             (None, None) => {
@@ -432,21 +440,36 @@ async fn parse_image_response(
             }
         };
 
+        let mut xai_image_meta = serde_json::Map::new();
+        if let Some(revised_prompt) = revised_prompt.as_ref() {
+            xai_image_meta.insert(
+                "revisedPrompt".to_string(),
+                serde_json::json!(revised_prompt),
+            );
+        }
+        xai_images_meta.push(serde_json::Value::Object(xai_image_meta));
+
         images.push(GeneratedImage {
             url: None,
             b64_json,
             format: output_format.clone(),
             width: None,
             height: None,
-            revised_prompt: item.revised_prompt,
-            metadata: item.extra_fields,
+            revised_prompt,
+            metadata: extra_fields,
         });
     }
 
     let mut metadata = response.extra_fields;
+    let mut xai_meta = serde_json::Map::new();
+    xai_meta.insert(
+        "images".to_string(),
+        serde_json::Value::Array(xai_images_meta),
+    );
     if let Some(usage) = response.usage {
         let mut usage_meta = usage.extra_fields;
         if let Some(cost) = usage.cost_in_usd_ticks {
+            xai_meta.insert("costInUsdTicks".to_string(), cost.clone());
             usage_meta.insert("cost_in_usd_ticks".to_string(), cost);
         }
         if !usage_meta.is_empty() {
@@ -456,6 +479,7 @@ async fn parse_image_response(
             );
         }
     }
+    metadata.insert("xai".to_string(), serde_json::Value::Object(xai_meta));
 
     Ok(ImageGenerationResponse {
         images,
@@ -670,6 +694,74 @@ mod tests {
                 ),
                 Warning::unsupported("seed", Option::<String>::None),
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_image_response_adds_ai_sdk_xai_provider_metadata() {
+        let client = test_client().await;
+        let response = parse_image_response(
+            &client,
+            serde_json::json!({
+                "data": [
+                    {
+                        "b64_json": "aW1hZ2UtMQ==",
+                        "revised_prompt": "a revised prompt",
+                        "vendor_image_id": "img_1"
+                    },
+                    {
+                        "b64_json": "aW1hZ2UtMg=="
+                    }
+                ],
+                "usage": {
+                    "cost_in_usd_ticks": 113500,
+                    "vendor_usage": true
+                },
+                "request_id": "req_123"
+            }),
+            "grok-2-image".to_string(),
+            Some("png".to_string()),
+            Vec::new(),
+            reqwest::header::HeaderMap::new(),
+        )
+        .await
+        .expect("parse xai image response");
+
+        assert_eq!(response.images.len(), 2);
+        assert_eq!(
+            response.images[0].revised_prompt.as_deref(),
+            Some("a revised prompt")
+        );
+        assert_eq!(
+            response.images[0].metadata.get("vendor_image_id"),
+            Some(&serde_json::json!("img_1"))
+        );
+
+        let xai = response
+            .metadata
+            .get("xai")
+            .and_then(|value| value.as_object())
+            .expect("xai provider metadata");
+        assert_eq!(xai.get("costInUsdTicks"), Some(&serde_json::json!(113500)));
+
+        let images = xai
+            .get("images")
+            .and_then(|value| value.as_array())
+            .expect("xai image metadata");
+        assert_eq!(
+            images[0].get("revisedPrompt"),
+            Some(&serde_json::json!("a revised prompt"))
+        );
+        assert_eq!(
+            response.metadata.get("usage"),
+            Some(&serde_json::json!({
+                "cost_in_usd_ticks": 113500,
+                "vendor_usage": true
+            }))
+        );
+        assert_eq!(
+            response.metadata.get("request_id"),
+            Some(&serde_json::json!("req_123"))
         );
     }
 }

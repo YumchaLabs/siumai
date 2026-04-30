@@ -454,6 +454,71 @@ struct XaiVideoUsage {
     extra_fields: HashMap<String, serde_json::Value>,
 }
 
+fn build_create_metadata(
+    request_id: &str,
+    mut extra_fields: HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    extra_fields.insert(
+        "xai".to_string(),
+        serde_json::json!({
+            "requestId": request_id
+        }),
+    );
+    extra_fields
+}
+
+fn build_status_metadata(
+    task_id: &str,
+    parsed: &XaiVideoStatusResponse,
+) -> HashMap<String, serde_json::Value> {
+    let mut metadata = parsed.extra_fields.clone();
+    let mut xai_meta = serde_json::Map::new();
+    xai_meta.insert("requestId".to_string(), serde_json::json!(task_id));
+    if let Some(progress) = metadata.get("progress").cloned() {
+        xai_meta.insert("progress".to_string(), progress);
+    }
+    if let Some(model) = parsed.model.as_ref() {
+        metadata.insert("model".to_string(), serde_json::json!(model));
+    }
+    if let Some(usage) = parsed.usage.as_ref() {
+        let mut usage_meta = usage.extra_fields.clone();
+        if let Some(cost) = usage.cost_in_usd_ticks.clone() {
+            xai_meta.insert("costInUsdTicks".to_string(), cost.clone());
+            usage_meta.insert("cost_in_usd_ticks".to_string(), cost);
+        }
+        if !usage_meta.is_empty() {
+            metadata.insert(
+                "usage".to_string(),
+                serde_json::Value::Object(usage_meta.into_iter().collect()),
+            );
+        }
+    }
+
+    if let Some(video) = parsed.video.as_ref() {
+        if let Some(url) = video.url.as_ref() {
+            xai_meta.insert("videoUrl".to_string(), serde_json::json!(url));
+        }
+        if let Some(duration) = video.duration {
+            xai_meta.insert("duration".to_string(), serde_json::json!(duration));
+        }
+        if !video.extra_fields.is_empty() {
+            metadata.insert(
+                "video".to_string(),
+                serde_json::Value::Object(video.extra_fields.clone().into_iter().collect()),
+            );
+        }
+        if let Some(respect_moderation) = video.respect_moderation {
+            metadata.insert(
+                "respect_moderation".to_string(),
+                serde_json::json!(respect_moderation),
+            );
+        }
+    }
+
+    metadata.insert("xai".to_string(), serde_json::Value::Object(xai_meta));
+    metadata
+}
+
 pub(super) async fn create_video_task(
     client: &XaiClient,
     mut request: VideoGenerationRequest,
@@ -485,6 +550,7 @@ pub(super) async fn create_video_task(
     let task_id = parsed.request_id.ok_or_else(|| {
         LlmError::ParseError("xAI video create response did not include `request_id`".to_string())
     })?;
+    let metadata = build_create_metadata(&task_id, parsed.extra_fields);
 
     Ok(VideoGenerationResponse {
         task_id,
@@ -492,7 +558,7 @@ pub(super) async fn create_video_task(
             status_code: 0,
             status_msg: "ok".to_string(),
         }),
-        metadata: parsed.extra_fields,
+        metadata,
         warnings: (!warnings.is_empty()).then_some(warnings),
         response: Some(HttpResponseInfo {
             timestamp: chrono::Utc::now(),
@@ -518,41 +584,9 @@ pub(super) async fn query_video_task(
         LlmError::ParseError(format!("Failed to parse xAI video status response: {err}"))
     })?;
 
-    let mut metadata = parsed.extra_fields;
-    if let Some(model) = parsed.model.as_ref() {
-        metadata.insert("model".to_string(), serde_json::json!(model));
-    }
-    if let Some(usage) = parsed.usage {
-        let mut usage_meta = usage.extra_fields;
-        if let Some(cost) = usage.cost_in_usd_ticks {
-            usage_meta.insert("cost_in_usd_ticks".to_string(), cost);
-        }
-        if !usage_meta.is_empty() {
-            metadata.insert(
-                "usage".to_string(),
-                serde_json::Value::Object(usage_meta.into_iter().collect()),
-            );
-        }
-    }
-
-    let (video_url, duration, respect_moderation) = if let Some(video) = parsed.video {
-        if !video.extra_fields.is_empty() {
-            metadata.insert(
-                "video".to_string(),
-                serde_json::Value::Object(video.extra_fields.into_iter().collect()),
-            );
-        }
-        (video.url, video.duration, video.respect_moderation)
-    } else {
-        (None, None, None)
-    };
-
-    if let Some(respect_moderation) = respect_moderation {
-        metadata.insert(
-            "respect_moderation".to_string(),
-            serde_json::json!(respect_moderation),
-        );
-    }
+    let metadata = build_status_metadata(task_id, &parsed);
+    let video_url = parsed.video.as_ref().and_then(|video| video.url.clone());
+    let duration = parsed.video.as_ref().and_then(|video| video.duration);
 
     Ok(VideoTaskStatusResponse {
         task_id: task_id.to_string(),
@@ -570,7 +604,7 @@ pub(super) async fn query_video_task(
         metadata,
         response: Some(HttpResponseInfo {
             timestamp: chrono::Utc::now(),
-            model_id: parsed.model,
+            model_id: parsed.model.clone(),
             headers: headers_to_map(&result.headers),
         }),
     })
@@ -699,5 +733,71 @@ mod tests {
 
         assert_eq!(options.poll_interval, Some(Duration::from_millis(250)));
         assert_eq!(options.poll_timeout, Some(Duration::from_millis(30_000)));
+    }
+
+    #[tokio::test]
+    async fn create_video_task_adds_ai_sdk_xai_request_metadata() {
+        let raw = serde_json::json!({
+            "request_id": "req_123",
+            "vendor": true
+        });
+        let parsed: XaiCreateVideoResponse =
+            serde_json::from_value(raw).expect("parse create video response");
+        let task_id = parsed.request_id.expect("request id");
+        let metadata = build_create_metadata(&task_id, parsed.extra_fields);
+
+        assert_eq!(
+            metadata.get("xai").and_then(|value| value.get("requestId")),
+            Some(&serde_json::json!("req_123"))
+        );
+        assert_eq!(metadata.get("vendor"), Some(&serde_json::json!(true)));
+    }
+
+    #[tokio::test]
+    async fn query_video_task_adds_ai_sdk_xai_provider_metadata() {
+        let parsed: XaiVideoStatusResponse = serde_json::from_value(serde_json::json!({
+            "status": "done",
+            "model": "grok-imagine-video",
+            "progress": 100,
+            "usage": {
+                "cost_in_usd_ticks": 113500,
+                "vendor_usage": true
+            },
+            "video": {
+                "url": "https://example.com/video.mp4",
+                "duration": 6.0,
+                "respect_moderation": true,
+                "vendor_video_id": "vid_123"
+            }
+        }))
+        .expect("parse status response");
+
+        let metadata = build_status_metadata("req_123", &parsed);
+
+        let xai = metadata
+            .get("xai")
+            .and_then(|value| value.as_object())
+            .expect("xai metadata");
+        assert_eq!(xai.get("requestId"), Some(&serde_json::json!("req_123")));
+        assert_eq!(
+            xai.get("videoUrl"),
+            Some(&serde_json::json!("https://example.com/video.mp4"))
+        );
+        assert_eq!(xai.get("duration"), Some(&serde_json::json!(6.0)));
+        assert_eq!(xai.get("progress"), Some(&serde_json::json!(100)));
+        assert_eq!(xai.get("costInUsdTicks"), Some(&serde_json::json!(113500)));
+        assert_eq!(
+            metadata.get("usage"),
+            Some(&serde_json::json!({
+                "cost_in_usd_ticks": 113500,
+                "vendor_usage": true
+            }))
+        );
+        assert_eq!(
+            metadata
+                .get("video")
+                .and_then(|value| value.get("vendor_video_id")),
+            Some(&serde_json::json!("vid_123"))
+        );
     }
 }
