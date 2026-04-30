@@ -14,7 +14,8 @@
 //! cargo run --example openrouter-embedding --features openai
 //! ```
 
-use siumai::prelude::unified::*;
+use siumai::embedding;
+use siumai::prelude::*;
 use siumai::provider_ext::openai_compatible::OpenAiCompatibleClient;
 use siumai_core::types::EmbeddingFormat;
 

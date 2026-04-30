@@ -12624,6 +12624,9 @@ pub struct TranscriptionModelResponseMetadata {
     /// HTTP response headers when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
+    /// Raw response body when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
 }
 
 impl TryFrom<HttpResponseInfo> for TranscriptionModelResponseMetadata {
@@ -12642,6 +12645,7 @@ impl TryFrom<&HttpResponseInfo> for TranscriptionModelResponseMetadata {
             timestamp: value.timestamp,
             model_id: value.model_id.clone().ok_or("missing response model id")?,
             headers: (!value.headers.is_empty()).then_some(value.headers.clone()),
+            body: value.body.clone(),
         })
     }
 }
@@ -13922,6 +13926,7 @@ mod tests {
                 .with_timezone(&Utc),
             model_id: "stt-model".to_string(),
             headers: None,
+            body: Some(serde_json::json!({ "text": "hello" })),
         };
         let transcription_result = TranscriptionResult::new("hello")
             .with_segments(vec![TranscriptionSegment::new("hello", 0.0, 0.5)])

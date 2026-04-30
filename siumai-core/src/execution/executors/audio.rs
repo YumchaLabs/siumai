@@ -143,7 +143,11 @@ fn headers_to_map(headers: &HeaderMap) -> HashMap<String, String> {
         .collect()
 }
 
-fn build_response_info(headers: &HeaderMap, model_id: Option<&str>) -> HttpResponseInfo {
+fn build_response_info(
+    headers: &HeaderMap,
+    model_id: Option<&str>,
+    body: Option<serde_json::Value>,
+) -> HttpResponseInfo {
     HttpResponseInfo {
         timestamp: chrono::Utc::now(),
         model_id: model_id
@@ -151,7 +155,7 @@ fn build_response_info(headers: &HeaderMap, model_id: Option<&str>) -> HttpRespo
             .filter(|model_id| !model_id.is_empty())
             .map(ToOwned::to_owned),
         headers: headers_to_map(headers),
-        body: None,
+        body,
     }
 }
 
@@ -252,8 +256,17 @@ impl AudioExecutor for HttpAudioExecutor {
                     }
                 };
                 let (result, request) = result;
-                let response = Some(build_response_info(&result.headers, req.model.as_deref()));
                 let raw_bytes = result.bytes;
+                let raw_body = if transformer.tts_response_is_json() {
+                    serde_json::from_slice::<serde_json::Value>(&raw_bytes).ok()
+                } else {
+                    None
+                };
+                let response = Some(build_response_info(
+                    &result.headers,
+                    req.model.as_deref(),
+                    raw_body.clone(),
+                ));
 
                 // Parse response using transformer
                 // This allows providers to handle different response formats
@@ -261,13 +274,8 @@ impl AudioExecutor for HttpAudioExecutor {
                 let audio_data = transformer.parse_tts_response(raw_bytes.clone())?;
 
                 // Extract metadata if response is JSON
-                let (duration, sample_rate) = if transformer.tts_response_is_json() {
-                    // Try to parse as JSON to extract metadata
-                    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&raw_bytes) {
-                        transformer.parse_tts_metadata(&json)?
-                    } else {
-                        (None, None)
-                    }
+                let (duration, sample_rate) = if let Some(json) = raw_body.as_ref() {
+                    transformer.parse_tts_metadata(json)?
                 } else {
                     (None, None)
                 };
@@ -376,11 +384,16 @@ impl AudioExecutor for HttpAudioExecutor {
                 };
 
                 let (result, request) = result;
-                let response = Some(build_response_info(&result.headers, req.model.as_deref()));
-                let text = transformer.parse_stt_response(&result.json)?;
+                let raw_body = result.json;
+                let response = Some(build_response_info(
+                    &result.headers,
+                    req.model.as_deref(),
+                    Some(raw_body.clone()),
+                ));
+                let text = transformer.parse_stt_response(&raw_body)?;
                 Ok(SttExecutionResult {
                     text,
-                    raw: result.json,
+                    raw: raw_body,
                     request,
                     response,
                 })
@@ -398,9 +411,13 @@ impl AudioExecutor for HttpAudioExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportRequest, HttpTransportResponse,
+    };
     use crate::execution::transformers::audio::AudioHttpBody;
     use crate::traits::ProviderCapabilities;
     use reqwest::header::HeaderMap;
+    use reqwest::header::{HeaderName, HeaderValue};
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -497,5 +514,248 @@ mod tests {
         let req = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         let err = exec.stt(req).await.expect_err("should short-circuit");
         assert!(matches!(err, LlmError::InvalidInput(_)));
+    }
+
+    #[derive(Clone)]
+    struct SupportsAudioSpec;
+
+    impl crate::core::ProviderSpec for SupportsAudioSpec {
+        fn id(&self) -> &'static str {
+            "test"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new()
+                .with_speech()
+                .with_transcription()
+        }
+
+        fn build_headers(
+            &self,
+            _ctx: &crate::core::ProviderContext,
+        ) -> Result<HeaderMap, LlmError> {
+            Ok(HeaderMap::new())
+        }
+    }
+
+    #[derive(Clone)]
+    struct StaticJsonTransport {
+        response: serde_json::Value,
+    }
+
+    #[async_trait::async_trait]
+    impl HttpTransport for StaticJsonTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                HeaderName::from_static("x-request-id"),
+                HeaderValue::from_static("req_json"),
+            );
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&self.response).expect("serialize response"),
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct StaticBytesTransport {
+        bytes: Vec<u8>,
+    }
+
+    #[async_trait::async_trait]
+    impl HttpTransport for StaticBytesTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                HeaderName::from_static("x-request-id"),
+                HeaderValue::from_static("req_bytes"),
+            );
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: self.bytes.clone(),
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct JsonAudioTransformer {
+        tts_is_json: bool,
+    }
+
+    impl AudioTransformer for JsonAudioTransformer {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+
+        fn build_tts_body(&self, req: &TtsRequest) -> Result<AudioHttpBody, LlmError> {
+            Ok(AudioHttpBody::Json(serde_json::json!({
+                "model": req.model,
+                "input": req.text,
+            })))
+        }
+
+        fn build_stt_body(&self, req: &SttRequest) -> Result<AudioHttpBody, LlmError> {
+            Ok(AudioHttpBody::Json(serde_json::json!({
+                "model": req.model,
+                "audio": req.audio.as_base64(),
+            })))
+        }
+
+        fn tts_endpoint(&self) -> &str {
+            "/audio/speech"
+        }
+
+        fn stt_endpoint(&self) -> &str {
+            "/audio/transcriptions"
+        }
+
+        fn parse_tts_response(&self, response_bytes: Vec<u8>) -> Result<Vec<u8>, LlmError> {
+            if self.tts_is_json {
+                let json: serde_json::Value = serde_json::from_slice(&response_bytes)
+                    .map_err(|err| LlmError::ParseError(err.to_string()))?;
+                Ok(json
+                    .get("audio")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .as_bytes()
+                    .to_vec())
+            } else {
+                Ok(response_bytes)
+            }
+        }
+
+        fn parse_tts_metadata(
+            &self,
+            json: &serde_json::Value,
+        ) -> Result<(Option<f32>, Option<u32>), LlmError> {
+            Ok((
+                json.get("duration")
+                    .and_then(|value| value.as_f64())
+                    .map(|v| v as f32),
+                json.get("sample_rate")
+                    .and_then(|value| value.as_u64())
+                    .map(|v| v as u32),
+            ))
+        }
+
+        fn tts_response_is_json(&self) -> bool {
+            self.tts_is_json
+        }
+
+        fn parse_stt_response(&self, json: &serde_json::Value) -> Result<String, LlmError> {
+            Ok(json
+                .get("text")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string())
+        }
+    }
+
+    fn audio_exec(
+        transformer: Arc<dyn AudioTransformer>,
+        transport: Arc<dyn HttpTransport>,
+    ) -> HttpAudioExecutor {
+        HttpAudioExecutor {
+            provider_id: "test".to_string(),
+            http_client: reqwest::Client::new(),
+            transformer,
+            provider_spec: Arc::new(SupportsAudioSpec),
+            provider_context: crate::core::ProviderContext::new(
+                "test",
+                "https://example.invalid",
+                None,
+                HashMap::new(),
+            ),
+            policy: ExecutionPolicy::new().with_transport(transport),
+        }
+    }
+
+    #[tokio::test]
+    async fn stt_attaches_raw_json_response_body() {
+        let raw = serde_json::json!({
+            "text": "hello",
+            "language": "en",
+            "duration": 1.25
+        });
+        let exec = audio_exec(
+            Arc::new(JsonAudioTransformer { tts_is_json: false }),
+            Arc::new(StaticJsonTransport {
+                response: raw.clone(),
+            }),
+        );
+
+        let out = exec
+            .stt(SttRequest::from_audio(b"abc".to_vec(), "audio/wav").with_model("stt-model"))
+            .await
+            .expect("stt succeeds");
+        let response = out.response.expect("response metadata");
+
+        assert_eq!(out.text, "hello");
+        assert_eq!(out.raw, raw);
+        assert_eq!(response.model_id.as_deref(), Some("stt-model"));
+        assert_eq!(
+            response.headers.get("x-request-id").map(String::as_str),
+            Some("req_json")
+        );
+        assert_eq!(response.body, Some(raw));
+    }
+
+    #[tokio::test]
+    async fn json_tts_attaches_raw_json_response_body() {
+        let raw = serde_json::json!({
+            "audio": "abc",
+            "duration": 1.5,
+            "sample_rate": 24000
+        });
+        let exec = audio_exec(
+            Arc::new(JsonAudioTransformer { tts_is_json: true }),
+            Arc::new(StaticJsonTransport {
+                response: raw.clone(),
+            }),
+        );
+
+        let out = exec
+            .tts(TtsRequest::new("hello".to_string()).with_model("tts-model".to_string()))
+            .await
+            .expect("tts succeeds");
+        let response = out.response.expect("response metadata");
+
+        assert_eq!(out.audio_data, b"abc".to_vec());
+        assert_eq!(out.duration, Some(1.5));
+        assert_eq!(out.sample_rate, Some(24_000));
+        assert_eq!(response.model_id.as_deref(), Some("tts-model"));
+        assert_eq!(response.body, Some(raw));
+    }
+
+    #[tokio::test]
+    async fn binary_tts_does_not_synthesize_response_body() {
+        let exec = audio_exec(
+            Arc::new(JsonAudioTransformer { tts_is_json: false }),
+            Arc::new(StaticBytesTransport {
+                bytes: b"audio-bytes".to_vec(),
+            }),
+        );
+
+        let out = exec
+            .tts(TtsRequest::new("hello".to_string()).with_model("tts-model".to_string()))
+            .await
+            .expect("tts succeeds");
+        let response = out.response.expect("response metadata");
+
+        assert_eq!(out.audio_data, b"audio-bytes".to_vec());
+        assert_eq!(
+            response.headers.get("x-request-id").map(String::as_str),
+            Some("req_bytes")
+        );
+        assert_eq!(response.body, None);
     }
 }

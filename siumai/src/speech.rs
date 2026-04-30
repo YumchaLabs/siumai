@@ -341,7 +341,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some("ready-speech-model".to_string()),
                     headers: HashMap::from([("x-test".to_string(), "2".to_string())]),
-                    body: None,
+                    body: Some(serde_json::json!({ "audio": "base64" })),
                 }),
             })
         }
@@ -364,6 +364,10 @@ mod tests {
         assert_eq!(result.sample_rate, Some(24_000));
         assert_eq!(result.warnings.len(), 1);
         assert_eq!(result.responses.len(), 1);
+        assert_eq!(
+            result.responses[0].body,
+            Some(serde_json::json!({ "audio": "base64" }))
+        );
         assert_eq!(
             result
                 .request

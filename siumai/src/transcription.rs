@@ -381,7 +381,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some("ready-transcription-model".to_string()),
                     headers: HashMap::from([("x-test".to_string(), "2".to_string())]),
-                    body: None,
+                    body: Some(serde_json::json!({ "text": "hello world" })),
                 }),
             })
         }
@@ -405,6 +405,10 @@ mod tests {
         assert_eq!(result.segments[0].text, "hello world");
         assert_eq!(result.warnings.len(), 1);
         assert_eq!(result.responses.len(), 1);
+        assert_eq!(
+            result.responses[0].body,
+            Some(serde_json::json!({ "text": "hello world" }))
+        );
         assert_eq!(
             result
                 .request
