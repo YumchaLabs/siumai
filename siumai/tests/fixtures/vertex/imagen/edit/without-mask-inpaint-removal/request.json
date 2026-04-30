@@ -1,5 +1,15 @@
 {
-  "image": [1, 2, 3, 4],
+  "images": [
+    {
+      "type": "file",
+      "data": [
+        1,
+        2,
+        3,
+        4
+      ]
+    }
+  ],
   "prompt": "Remove the object",
   "model": "imagen-3.0-generate-002",
   "count": 1,

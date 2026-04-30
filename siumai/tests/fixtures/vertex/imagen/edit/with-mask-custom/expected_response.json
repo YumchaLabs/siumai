@@ -6,6 +6,11 @@
     }
   ],
   "metadata": {
-    "deployedModelId": "d"
+    "deployedModelId": "d",
+    "vertex": {
+      "images": [
+        {}
+      ]
+    }
   }
 }

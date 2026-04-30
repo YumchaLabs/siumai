@@ -1,6 +1,23 @@
 {
-  "image": [1, 2, 3, 4],
-  "mask": [9, 9, 9],
+  "images": [
+    {
+      "type": "file",
+      "data": [
+        1,
+        2,
+        3,
+        4
+      ]
+    }
+  ],
+  "mask": {
+    "type": "file",
+    "data": [
+      9,
+      9,
+      9
+    ]
+  },
   "prompt": "Upscale this image",
   "model": "imagen-3.0-generate-002",
   "count": 1,

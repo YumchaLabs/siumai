@@ -62,6 +62,73 @@ mod images_tests {
         assert_eq!(out.images.len(), 2);
         assert!(out.images.iter().any(|i| i.b64_json.is_some()));
         assert!(out.images.iter().any(|i| i.url.is_some()));
+
+        let google = out
+            .metadata
+            .get("google")
+            .and_then(|value| value.as_object())
+            .expect("google image metadata");
+        assert_eq!(
+            google
+                .get("images")
+                .and_then(|value| value.as_array())
+                .map(Vec::len),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn test_transform_imagen_response_adds_ai_sdk_google_image_metadata() {
+        let tx = GeminiResponseTransformer { config: cfg() };
+        let json = serde_json::json!({
+            "predictions": [
+                {
+                    "bytesBase64Encoded": "b64-image",
+                    "prompt": "a revised prompt"
+                }
+            ]
+        });
+
+        let out = tx.transform_image_response(&json).unwrap();
+
+        assert_eq!(out.images.len(), 1);
+        assert_eq!(out.images[0].b64_json.as_deref(), Some("b64-image"));
+        let google = out
+            .metadata
+            .get("google")
+            .and_then(|value| value.as_object())
+            .expect("google image metadata");
+        assert_eq!(
+            google
+                .get("images")
+                .and_then(|value| value.as_array())
+                .and_then(|images| images.first())
+                .and_then(|image| image.get("revisedPrompt")),
+            Some(&serde_json::json!("a revised prompt"))
+        );
+    }
+
+    #[test]
+    fn test_transform_image_response_uses_vertex_provider_metadata_key() {
+        let mut cfg = cfg();
+        cfg.provider_metadata_key = Some("vertex".to_string());
+        let tx = GeminiResponseTransformer { config: cfg };
+        let json = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "inlineData": { "mimeType": "image/png", "data": "iVBORw0..." } }
+                        ]
+                    }
+                }
+            ]
+        });
+
+        let out = tx.transform_image_response(&json).unwrap();
+
+        assert!(out.metadata.contains_key("vertex"));
+        assert!(!out.metadata.contains_key("google"));
     }
 }
 

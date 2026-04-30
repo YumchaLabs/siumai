@@ -10,5 +10,17 @@
       "format": "image/png",
       "revised_prompt": "revised prompt 2"
     }
-  ]
+  ],
+  "metadata": {
+    "vertex": {
+      "images": [
+        {
+          "revisedPrompt": "revised prompt 1"
+        },
+        {
+          "revisedPrompt": "revised prompt 2"
+        }
+      ]
+    }
+  }
 }

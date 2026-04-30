@@ -5,5 +5,14 @@
       "format": "image/png",
       "revised_prompt": "revised imagen 4 prompt"
     }
-  ]
+  ],
+  "metadata": {
+    "vertex": {
+      "images": [
+        {
+          "revisedPrompt": "revised imagen 4 prompt"
+        }
+      ]
+    }
+  }
 }

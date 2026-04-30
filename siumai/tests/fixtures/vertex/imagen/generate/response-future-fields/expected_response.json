@@ -16,7 +16,16 @@
   ],
   "metadata": {
     "deployedModelId": "deployed-model-id-1",
-    "model": "imagen-3.0-generate-002"
+    "model": "imagen-3.0-generate-002",
+    "vertex": {
+      "images": [
+        {
+          "revisedPrompt": "revised prompt 1"
+        },
+        {
+          "revisedPrompt": "revised prompt 2"
+        }
+      ]
+    }
   }
 }
-

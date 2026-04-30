@@ -481,6 +481,24 @@ pub struct GeminiResponseTransformer {
     pub config: GeminiConfig,
 }
 
+fn gemini_provider_metadata_key(config: &GeminiConfig) -> &'static str {
+    if let Some(override_key) = config.provider_metadata_key.as_deref() {
+        let key = override_key.trim().to_ascii_lowercase();
+        if key.contains("vertex") {
+            return "vertex";
+        }
+        if key.contains("google") {
+            return "google";
+        }
+    }
+
+    if config.base_url.contains("aiplatform.googleapis.com") || config.base_url.contains("vertex") {
+        "vertex"
+    } else {
+        "google"
+    }
+}
+
 fn gemini_finish_provider_metadata(
     grounding_metadata: Option<&types::GroundingMetadata>,
     url_context_metadata: Option<&types::UrlContextMetadata>,
@@ -545,26 +563,6 @@ impl ResponseTransformer for GeminiResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        fn provider_metadata_key(config: &GeminiConfig) -> &'static str {
-            if let Some(override_key) = config.provider_metadata_key.as_deref() {
-                let key = override_key.trim().to_ascii_lowercase();
-                if key.contains("vertex") {
-                    return "vertex";
-                }
-                if key.contains("google") {
-                    return "google";
-                }
-            }
-
-            if config.base_url.contains("aiplatform.googleapis.com")
-                || config.base_url.contains("vertex")
-            {
-                "vertex"
-            } else {
-                "google"
-            }
-        }
-
         fn raw_candidate_finish_reason(raw: &serde_json::Value) -> Option<String> {
             raw.get("candidates")
                 .and_then(|value| value.as_array())
@@ -602,7 +600,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
             return Err(LlmError::api_error(400, "No candidates in response"));
         }
 
-        let provider_key = provider_metadata_key(&self.config);
+        let provider_key = gemini_provider_metadata_key(&self.config);
 
         let candidate = &response.candidates[0];
         let raw_finish_reason = raw_candidate_finish_reason(raw);
@@ -1088,10 +1086,16 @@ impl ResponseTransformer for GeminiResponseTransformer {
         // Imagen: { predictions: [ { bytesBase64Encoded: "..." }, ... ] }
         if let Some(preds) = raw.get("predictions").and_then(|v| v.as_array()) {
             let mut images = Vec::new();
+            let mut image_metadata = Vec::with_capacity(preds.len());
             for p in preds {
                 if let Some(b64) = p.get("bytesBase64Encoded").and_then(|v| v.as_str())
                     && !b64.trim().is_empty()
                 {
+                    let mut image_meta = serde_json::Map::new();
+                    if let Some(prompt) = p.get("prompt").and_then(|v| v.as_str()) {
+                        image_meta.insert("revisedPrompt".to_string(), serde_json::json!(prompt));
+                    }
+                    image_metadata.push(serde_json::Value::Object(image_meta));
                     images.push(crate::types::GeneratedImage {
                         url: None,
                         b64_json: Some(b64.to_string()),
@@ -1103,9 +1107,16 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     });
                 }
             }
+            let provider_key = gemini_provider_metadata_key(&self.config);
+            let metadata = std::collections::HashMap::from([(
+                provider_key.to_string(),
+                serde_json::json!({
+                    "images": image_metadata,
+                }),
+            )]);
             return Ok(crate::types::ImageGenerationResponse {
                 images,
-                metadata: std::collections::HashMap::new(),
+                metadata,
                 warnings: None,
                 response: None,
             });
@@ -1152,9 +1163,19 @@ impl ResponseTransformer for GeminiResponseTransformer {
                 }
             }
         }
+        let provider_key = gemini_provider_metadata_key(&self.config);
+        let metadata = std::collections::HashMap::from([(
+            provider_key.to_string(),
+            serde_json::json!({
+                "images": images
+                    .iter()
+                    .map(|_| serde_json::json!({}))
+                    .collect::<Vec<_>>(),
+            }),
+        )]);
         Ok(crate::types::ImageGenerationResponse {
             images,
-            metadata: std::collections::HashMap::new(),
+            metadata,
             warnings: None,
             response: None,
         })

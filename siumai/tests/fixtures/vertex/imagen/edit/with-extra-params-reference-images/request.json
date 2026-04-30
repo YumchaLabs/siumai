@@ -1,6 +1,23 @@
 {
-  "image": [1, 2, 3, 4],
-  "mask": [9, 9, 9],
+  "images": [
+    {
+      "type": "file",
+      "data": [
+        1,
+        2,
+        3,
+        4
+      ]
+    }
+  ],
+  "mask": {
+    "type": "file",
+    "data": [
+      9,
+      9,
+      9
+    ]
+  },
   "prompt": "Add a hat to the person",
   "model": "imagen-3.0-generate-002",
   "count": 1,
@@ -10,7 +27,9 @@
       {
         "referenceId": 3,
         "referenceType": "REFERENCE_TYPE_RAW",
-        "referenceImage": { "bytesBase64Encoded": "CgsM" }
+        "referenceImage": {
+          "bytesBase64Encoded": "CgsM"
+        }
       }
     ]
   }

@@ -8,5 +8,14 @@
         "someFutureField": "some future value"
       }
     }
-  ]
+  ],
+  "metadata": {
+    "vertex": {
+      "images": [
+        {
+          "revisedPrompt": "revised snake prompt"
+        }
+      ]
+    }
+  }
 }

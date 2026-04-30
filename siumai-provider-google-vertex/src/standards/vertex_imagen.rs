@@ -575,6 +575,7 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
             .unwrap_or_default();
 
         let mut images = Vec::with_capacity(preds.len());
+        let mut image_metadata = Vec::with_capacity(preds.len());
         for pred in preds {
             if let Some(obj) = pred.as_object() {
                 let bytes = obj
@@ -620,6 +621,13 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
                     meta.insert(k.clone(), v.clone());
                 }
 
+                let mut provider_image_meta = serde_json::Map::new();
+                if let Some(prompt) = revised_prompt.as_ref() {
+                    provider_image_meta
+                        .insert("revisedPrompt".to_string(), serde_json::json!(prompt));
+                }
+                image_metadata.push(serde_json::Value::Object(provider_image_meta));
+
                 images.push(crate::types::GeneratedImage {
                     url: None,
                     b64_json: bytes.and_then(|v| v.as_str().map(|s| s.to_string())),
@@ -638,6 +646,12 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
                 metadata.insert(k.to_string(), v.clone());
             }
         }
+        metadata.insert(
+            self.provider_id.to_string(),
+            serde_json::json!({
+                "images": image_metadata,
+            }),
+        );
 
         Ok(crate::types::ImageGenerationResponse {
             images,
@@ -994,5 +1008,50 @@ mod tests {
             }
             _ => panic!("expected json image variation body"),
         }
+    }
+
+    #[test]
+    fn imagen_response_adds_ai_sdk_vertex_provider_metadata() {
+        let transformer = VertexImagenResponseTransformer::new("vertex");
+        let response = transformer
+            .transform_image_response(&serde_json::json!({
+                "predictions": [
+                    {
+                        "bytesBase64Encoded": "b64-image",
+                        "mimeType": "image/png",
+                        "prompt": "a revised prompt",
+                        "safetyAttributes": { "blocked": false }
+                    }
+                ],
+                "model": "imagen-4.0-generate-001"
+            }))
+            .expect("transform image response");
+
+        assert_eq!(response.images.len(), 1);
+        assert_eq!(
+            response.images[0].revised_prompt.as_deref(),
+            Some("a revised prompt")
+        );
+        assert_eq!(
+            response.images[0].metadata.get("safetyAttributes"),
+            Some(&serde_json::json!({ "blocked": false }))
+        );
+        assert_eq!(
+            response.metadata.get("model"),
+            Some(&serde_json::json!("imagen-4.0-generate-001"))
+        );
+        let vertex = response
+            .metadata
+            .get("vertex")
+            .and_then(|value| value.as_object())
+            .expect("vertex metadata");
+        assert_eq!(
+            vertex
+                .get("images")
+                .and_then(|value| value.as_array())
+                .and_then(|images| images.first())
+                .and_then(|image| image.get("revisedPrompt")),
+            Some(&serde_json::json!("a revised prompt"))
+        );
     }
 }

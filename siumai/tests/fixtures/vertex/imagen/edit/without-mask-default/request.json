@@ -1,5 +1,15 @@
 {
-  "image": [1, 2, 3, 4],
+  "images": [
+    {
+      "type": "file",
+      "data": [
+        1,
+        2,
+        3,
+        4
+      ]
+    }
+  ],
   "mask": null,
   "prompt": "Upscale this image",
   "model": "imagen-3.0-generate-002",
@@ -7,4 +17,3 @@
   "response_format": "b64_json",
   "extra_params": {}
 }
-
