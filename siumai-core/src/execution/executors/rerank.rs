@@ -1,6 +1,7 @@
 //! Rerank executor traits
 
 use crate::error::LlmError;
+use crate::execution::http::headers::headermap_to_hashmap;
 // use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::transformers::rerank_request::RerankRequestTransformer;
 use crate::execution::transformers::rerank_response::RerankResponseTransformer;
@@ -187,8 +188,15 @@ impl RerankExecutor for HttpRerankExecutor {
                 )
                 .await?;
 
-                // 5. Transform response
-                self.response_transformer.transform(result.json)
+                // 5. Transform response and attach AI SDK-style response envelope.
+                let mut out = self.response_transformer.transform(result.json.clone())?;
+                out.response = Some(crate::types::HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some(req.model.clone()),
+                    headers: headermap_to_hashmap(&result.headers),
+                    body: Some(result.json),
+                });
+                Ok(out)
             }
         };
 
@@ -203,10 +211,14 @@ impl RerankExecutor for HttpRerankExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{HttpTransportRequest, HttpTransportResponse};
+    use crate::execution::transformers::rerank_request::RerankRequestTransformer;
     use reqwest::header::HeaderMap;
+    use reqwest::header::{HeaderName, HeaderValue};
     use std::collections::HashMap;
+    use std::collections::VecDeque;
     use std::sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     };
 
@@ -274,6 +286,36 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct StaticResponseTransport {
+        requests: Arc<Mutex<Vec<HttpTransportRequest>>>,
+        responses: Arc<Mutex<VecDeque<HttpTransportResponse>>>,
+    }
+
+    impl StaticResponseTransport {
+        fn new(response: HttpTransportResponse) -> Self {
+            Self {
+                requests: Arc::new(Mutex::new(Vec::new())),
+                responses: Arc::new(Mutex::new(VecDeque::from([response]))),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::execution::http::transport::HttpTransport for StaticResponseTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            self.requests.lock().unwrap().push(request);
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| LlmError::HttpError("missing transport response".into()))
+        }
+    }
+
     struct MarkingReqTx {
         called: Arc<AtomicBool>,
         error: Option<LlmError>,
@@ -292,6 +334,36 @@ mod tests {
     impl crate::execution::transformers::rerank_response::RerankResponseTransformer for NoopRespTx {
         fn transform(&self, _raw: serde_json::Value) -> Result<RerankResponse, LlmError> {
             Err(LlmError::InvalidParameter("abort".into()))
+        }
+    }
+
+    struct EchoReqTx;
+    impl RerankRequestTransformer for EchoReqTx {
+        fn transform(&self, req: &RerankRequest) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({
+                "model": req.model,
+                "query": req.query,
+                "documents": req.documents.to_strings_lossy(),
+            }))
+        }
+    }
+
+    struct MinimalRespTx;
+    impl crate::execution::transformers::rerank_response::RerankResponseTransformer for MinimalRespTx {
+        fn transform(&self, raw: serde_json::Value) -> Result<RerankResponse, LlmError> {
+            Ok(RerankResponse {
+                id: raw
+                    .get("id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                results: Vec::new(),
+                tokens: crate::types::RerankTokenUsage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                },
+                response: None,
+            })
         }
     }
 
@@ -361,5 +433,51 @@ mod tests {
             called.load(Ordering::SeqCst),
             "request transformer should run when rerank is supported"
         );
+    }
+
+    #[tokio::test]
+    async fn rerank_executor_attaches_headers_and_raw_body_response_envelope() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-request-id"),
+            HeaderValue::from_static("rr_123"),
+        );
+        let raw_body = serde_json::json!({
+            "id": "rerank-response",
+            "results": [],
+            "meta": { "provider": "kept" }
+        });
+        let transport = StaticResponseTransport::new(HttpTransportResponse {
+            status: 200,
+            headers,
+            body: serde_json::to_vec(&raw_body).expect("serialize raw body"),
+        });
+        let exec = RerankExecutorBuilder::new("test", reqwest::Client::new())
+            .with_spec(Arc::new(RerankSpec))
+            .with_context(ctx())
+            .with_transformers(Arc::new(EchoReqTx), Arc::new(MinimalRespTx))
+            .with_transport(Arc::new(transport))
+            .build();
+
+        let response = exec
+            .execute(RerankRequest::new(
+                "rerank-model".to_string(),
+                "query".to_string(),
+                vec!["doc".to_string()],
+            ))
+            .await
+            .expect("rerank succeeds");
+        let response_info = response.response.expect("response envelope");
+
+        assert_eq!(response.id, "rerank-response");
+        assert_eq!(response_info.model_id.as_deref(), Some("rerank-model"));
+        assert_eq!(
+            response_info
+                .headers
+                .get("x-request-id")
+                .map(String::as_str),
+            Some("rr_123")
+        );
+        assert_eq!(response_info.body, Some(raw_body));
     }
 }

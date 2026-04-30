@@ -1685,6 +1685,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some(request.model),
                     headers: HashMap::from([("x-create".to_string(), "1".to_string())]),
+                    body: None,
                 }),
             })
         }
@@ -1797,6 +1798,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some("fake-video-model".to_string()),
                     headers: HashMap::from([("x-query".to_string(), "1".to_string())]),
+                    body: None,
                 }),
             })
         }
@@ -1874,6 +1876,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some(request.model),
                     headers: HashMap::from([("x-create".to_string(), "1".to_string())]),
+                    body: None,
                 }),
             })
         }
@@ -1894,6 +1897,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some("empty-video-model".to_string()),
                     headers: HashMap::from([("x-query".to_string(), "1".to_string())]),
+                    body: None,
                 }),
             })
         }
@@ -1921,6 +1925,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some(request.model),
                     headers: HashMap::new(),
+                    body: None,
                 }),
             })
         }
@@ -1949,6 +1954,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some("download-video-model".to_string()),
                     headers: HashMap::new(),
+                    body: None,
                 }),
             })
         }

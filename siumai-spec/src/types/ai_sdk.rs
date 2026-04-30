@@ -12184,6 +12184,30 @@ impl RerankResponseMetadata {
     }
 }
 
+impl From<HttpResponseInfo> for RerankResponseMetadata {
+    fn from(value: HttpResponseInfo) -> Self {
+        Self {
+            id: None,
+            timestamp: value.timestamp,
+            model_id: value.model_id.unwrap_or_default(),
+            headers: (!value.headers.is_empty()).then_some(value.headers),
+            body: value.body,
+        }
+    }
+}
+
+impl From<&HttpResponseInfo> for RerankResponseMetadata {
+    fn from(value: &HttpResponseInfo) -> Self {
+        Self {
+            id: None,
+            timestamp: value.timestamp,
+            model_id: value.model_id.clone().unwrap_or_default(),
+            headers: (!value.headers.is_empty()).then_some(value.headers.clone()),
+            body: value.body.clone(),
+        }
+    }
+}
+
 /// Single ranking entry in an AI SDK-style rerank result.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -12584,7 +12608,7 @@ impl TryFrom<&HttpResponseInfo> for SpeechModelResponseMetadata {
             timestamp: value.timestamp,
             model_id: value.model_id.clone().ok_or("missing response model id")?,
             headers: (!value.headers.is_empty()).then_some(value.headers.clone()),
-            body: None,
+            body: value.body.clone(),
         })
     }
 }
@@ -13065,6 +13089,7 @@ mod tests {
                 .with_timezone(&Utc),
             model_id: Some("model-1".to_string()),
             headers: HashMap::from([("x-test".to_string(), "1".to_string())]),
+            body: None,
         };
 
         let image =
@@ -14316,6 +14341,7 @@ mod tests {
             timestamp: Utc::now(),
             model_id: Some("video-model".to_string()),
             headers: HashMap::from([("x-video".to_string(), "1".to_string())]),
+            body: None,
         })
         .expect("valid video response metadata")
         .with_provider_metadata(HashMap::from([(

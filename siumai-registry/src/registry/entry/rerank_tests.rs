@@ -25,6 +25,7 @@ impl crate::traits::RerankCapability for BridgeRerankClient {
                 input_tokens: 1,
                 output_tokens: 1,
             },
+            response: None,
         })
     }
 }
@@ -165,6 +166,7 @@ async fn provider_factory_native_reranking_family_path_works() {
                     input_tokens: 1,
                     output_tokens: 1,
                 },
+                response: None,
             })
         }
     }
@@ -256,6 +258,7 @@ async fn reranking_model_handle_uses_native_family_path_when_available() {
                     input_tokens: 1,
                     output_tokens: 1,
                 },
+                response: None,
             })
         }
     }

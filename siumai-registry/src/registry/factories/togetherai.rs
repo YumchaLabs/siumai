@@ -542,6 +542,7 @@ impl ImageGenerationCapability for TogetherAiImageClient {
                 timestamp: chrono::Utc::now(),
                 model_id: Some(model),
                 headers: headers_to_map(&result.headers),
+                body: None,
             }),
         })
     }
@@ -588,6 +589,7 @@ impl ImageExtras for TogetherAiImageClient {
                 timestamp: chrono::Utc::now(),
                 model_id: Some(model),
                 headers: headers_to_map(&result.headers),
+                body: None,
             }),
         })
     }

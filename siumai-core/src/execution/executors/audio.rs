@@ -151,6 +151,7 @@ fn build_response_info(headers: &HeaderMap, model_id: Option<&str>) -> HttpRespo
             .filter(|model_id| !model_id.is_empty())
             .map(ToOwned::to_owned),
         headers: headers_to_map(headers),
+        body: None,
     }
 }
 

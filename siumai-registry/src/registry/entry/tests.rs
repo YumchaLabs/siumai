@@ -205,6 +205,7 @@ impl crate::traits::RerankCapability for TestProvRerankClient {
                 input_tokens: 1,
                 output_tokens: 1,
             },
+            response: None,
         })
     }
 }

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{HttpConfig, ProviderOptionsMap};
+use super::{HttpConfig, HttpResponseInfo, ProviderOptionsMap};
 
 /// Rerank documents (Vercel-aligned).
 ///
@@ -135,6 +135,10 @@ pub struct RerankResponse {
 
     /// Token usage information
     pub tokens: RerankTokenUsage,
+
+    /// HTTP response envelope (timestamp, model id, headers, raw body).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<HttpResponseInfo>,
 }
 
 /// Individual ranked document entry returned by provider-level rerank calls.
@@ -271,6 +275,12 @@ impl RerankResponse {
     pub fn relevance_scores(&self) -> Vec<f64> {
         self.results.iter().map(|r| r.relevance_score).collect()
     }
+
+    /// Attach an HTTP response envelope (timestamp, model id, headers, raw body).
+    pub fn with_response(mut self, response: HttpResponseInfo) -> Self {
+        self.response = Some(response);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -327,6 +337,7 @@ mod tests {
                 input_tokens: 100,
                 output_tokens: 10,
             },
+            response: None,
         };
 
         assert_eq!(response.top_result_index(), Some(2));

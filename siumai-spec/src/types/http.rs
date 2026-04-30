@@ -17,6 +17,9 @@ pub struct HttpResponseInfo {
     pub model_id: Option<String>,
     /// Response headers (lowercased keys).
     pub headers: HashMap<String, String>,
+    /// Parsed raw response body when the executor retains it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<serde_json::Value>,
 }
 
 /// HTTP request metadata

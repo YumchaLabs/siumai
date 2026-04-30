@@ -294,6 +294,7 @@ fn response_info(headers: &HeaderMap, model_id: &str) -> HttpResponseInfo {
         timestamp: chrono::Utc::now(),
         model_id: Some(model_id.to_string()),
         headers: headers_to_map(headers),
+        body: None,
     }
 }
 

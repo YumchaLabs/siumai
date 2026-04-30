@@ -17472,9 +17472,14 @@ mod openai_compatible_audio_public_path {
             siumai_req.body["prompt"],
             serde_json::json!("a tiny blue robot")
         );
-        assert_eq!(siumai_req.body["size"], serde_json::json!("1024x1024"));
-        assert_eq!(siumai_req.body["n"], serde_json::json!(1));
-        assert_eq!(siumai_req.body["response_format"], serde_json::json!("url"));
+        assert_eq!(siumai_req.body["width"], serde_json::json!(1024));
+        assert_eq!(siumai_req.body["height"], serde_json::json!(1024));
+        assert!(siumai_req.body.get("size").is_none());
+        assert!(siumai_req.body.get("n").is_none());
+        assert_eq!(
+            siumai_req.body["response_format"],
+            serde_json::json!("base64")
+        );
     }
 
     #[tokio::test]
@@ -17584,11 +17589,13 @@ mod openai_compatible_audio_public_path {
             registry_req.body["prompt"],
             serde_json::json!("a tiny blue robot")
         );
-        assert_eq!(registry_req.body["size"], serde_json::json!("1024x1024"));
-        assert_eq!(registry_req.body["n"], serde_json::json!(1));
+        assert_eq!(registry_req.body["width"], serde_json::json!(1024));
+        assert_eq!(registry_req.body["height"], serde_json::json!(1024));
+        assert!(registry_req.body.get("size").is_none());
+        assert!(registry_req.body.get("n").is_none());
         assert_eq!(
             registry_req.body["response_format"],
-            serde_json::json!("url")
+            serde_json::json!("base64")
         );
     }
 
@@ -17740,9 +17747,11 @@ mod openai_compatible_audio_public_path {
             serde_json::json!("black-forest-labs/FLUX.1-schnell")
         );
         assert_eq!(req.body["prompt"], serde_json::json!("a tiny blue robot"));
-        assert_eq!(req.body["size"], serde_json::json!("1024x1024"));
-        assert_eq!(req.body["n"], serde_json::json!(1));
-        assert_eq!(req.body["response_format"], serde_json::json!("url"));
+        assert_eq!(req.body["width"], serde_json::json!(1024));
+        assert_eq!(req.body["height"], serde_json::json!(1024));
+        assert!(req.body.get("size").is_none());
+        assert!(req.body.get("n").is_none());
+        assert_eq!(req.body["response_format"], serde_json::json!("base64"));
     }
 
     #[test]

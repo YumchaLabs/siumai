@@ -224,6 +224,7 @@ impl RerankResponseTransformer for TogetherAiRerankResponseTransformer {
                 input_tokens,
                 output_tokens,
             },
+            response: None,
         })
     }
 }

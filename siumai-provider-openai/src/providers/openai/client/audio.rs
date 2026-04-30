@@ -343,6 +343,7 @@ impl AudioCapability for OpenAiClient {
             timestamp: chrono::Utc::now(),
             model_id: req.model.clone().filter(|model| !model.is_empty()),
             headers: headers_to_map(&res.headers),
+            body: None,
         });
 
         let mut metadata = std::collections::HashMap::new();

@@ -290,6 +290,7 @@ impl RerankResponseTransformer for OpenAiRerankResponseTransformer {
             id: resp["id"].as_str().unwrap_or("").to_string(),
             results,
             tokens,
+            response: None,
         })
     }
 }

@@ -700,6 +700,7 @@ impl FireworksImageClient {
                         timestamp: chrono::Utc::now(),
                         model_id: Some(model.to_string()),
                         headers: headers_to_map(&result.headers),
+                        body: None,
                     }),
                 })
             }
@@ -772,6 +773,7 @@ impl FireworksImageClient {
                             model_id: Some(model.to_string()),
                             headers: response_headers
                                 .unwrap_or_else(|| headers_to_map(&poll_result.headers)),
+                            body: None,
                         }),
                     });
                 }

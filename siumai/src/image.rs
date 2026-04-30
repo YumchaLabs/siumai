@@ -766,6 +766,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some(format!("{route}-{call_index}")),
                     headers: HashMap::new(),
+                    body: None,
                 }),
             }
         }

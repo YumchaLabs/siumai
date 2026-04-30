@@ -181,6 +181,7 @@ impl RerankResponseTransformer for CohereRerankResponseTransformer {
                 input_tokens,
                 output_tokens: 0,
             },
+            response: None,
         })
     }
 }

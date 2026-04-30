@@ -494,9 +494,11 @@ async fn compat_together_image_missing_request_model_uses_family_default_across_
             serde_json::json!("black-forest-labs/FLUX.1-schnell")
         );
         assert_eq!(req.body["prompt"], serde_json::json!("a tiny purple robot"));
-        assert_eq!(req.body["size"], serde_json::json!("1024x1024"));
-        assert_eq!(req.body["n"], serde_json::json!(1));
-        assert_eq!(req.body["response_format"], serde_json::json!("url"));
+        assert_eq!(req.body["width"], serde_json::json!(1024));
+        assert_eq!(req.body["height"], serde_json::json!(1024));
+        assert!(req.body.get("size").is_none());
+        assert!(req.body.get("n").is_none());
+        assert_eq!(req.body["response_format"], serde_json::json!("base64"));
     }
 }
 

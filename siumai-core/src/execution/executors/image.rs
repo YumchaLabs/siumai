@@ -342,6 +342,7 @@ impl ImageExecutor for HttpImageExecutor {
                     timestamp: chrono::Utc::now(),
                     model_id: req.model.clone().filter(|m| !m.is_empty()),
                     headers: headers_to_map(&result.headers),
+                    body: None,
                 });
 
                 Ok(out)
@@ -437,6 +438,7 @@ impl ImageExecutor for HttpImageExecutor {
             timestamp: chrono::Utc::now(),
             model_id: req.model.clone().filter(|m| !m.is_empty()),
             headers: headers_to_map(&result.headers),
+            body: None,
         });
         Ok(out)
     }
@@ -523,6 +525,7 @@ impl ImageExecutor for HttpImageExecutor {
             timestamp: chrono::Utc::now(),
             model_id: req.model.clone().filter(|m| !m.is_empty()),
             headers: headers_to_map(&result.headers),
+            body: None,
         });
         Ok(out)
     }

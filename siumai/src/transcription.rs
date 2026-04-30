@@ -300,6 +300,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some("empty-transcription-model".to_string()),
                     headers: HashMap::from([("x-test".to_string(), "1".to_string())]),
+                    body: None,
                 }),
             })
         }
@@ -380,6 +381,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     model_id: Some("ready-transcription-model".to_string()),
                     headers: HashMap::from([("x-test".to_string(), "2".to_string())]),
+                    body: None,
                 }),
             })
         }

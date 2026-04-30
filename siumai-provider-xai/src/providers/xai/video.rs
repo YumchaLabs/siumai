@@ -564,6 +564,7 @@ pub(super) async fn create_video_task(
             timestamp: chrono::Utc::now(),
             model_id: Some(request.model),
             headers: headers_to_map(&result.headers),
+            body: None,
         }),
     })
 }
@@ -606,6 +607,7 @@ pub(super) async fn query_video_task(
             timestamp: chrono::Utc::now(),
             model_id: parsed.model.clone(),
             headers: headers_to_map(&result.headers),
+            body: None,
         }),
     })
 }

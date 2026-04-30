@@ -460,6 +460,7 @@ fn response_info(status: u16, headers: &HeaderMap, model: &str) -> Option<HttpRe
         timestamp: chrono::Utc::now(),
         model_id: Some(model.to_string()),
         headers: headers_to_map(headers),
+        body: None,
     })
     .filter(|_| status > 0)
 }

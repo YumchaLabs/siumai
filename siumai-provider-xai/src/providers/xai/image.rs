@@ -489,6 +489,7 @@ async fn parse_image_response(
             timestamp: chrono::Utc::now(),
             model_id: Some(model),
             headers: headers_to_map(&headers),
+            body: None,
         }),
     })
 }

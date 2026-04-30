@@ -87,6 +87,7 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
                     timestamp: chrono::Utc::now(),
                     model_id: req.model.clone().or_else(|| Some(out.model.clone())),
                     headers: headermap_to_hashmap(&result.headers),
+                    body: Some(result.json.clone()),
                 });
 
                 Ok(out)
