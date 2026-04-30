@@ -1324,10 +1324,6 @@ fn build_bedrock_usage_from_info_with_raw(
     builder.build()
 }
 
-fn build_bedrock_usage_from_info(usage: &BedrockUsageInfo) -> Usage {
-    build_bedrock_usage_from_info_with_raw(usage, None)
-}
-
 fn build_bedrock_usage_from_value(value: &serde_json::Value) -> Option<Usage> {
     serde_json::from_value::<BedrockUsageInfo>(value.clone())
         .ok()
@@ -1679,14 +1675,16 @@ impl BedrockEventConverter {
     fn append_raw_chunk(
         &self,
         out: &mut Vec<Result<ChatStreamEvent, LlmError>>,
-        raw_value: serde_json::Value,
+        raw_value: &serde_json::Value,
     ) {
         if !self.include_raw_chunks {
             return;
         }
 
         out.push(Ok(ChatStreamEvent::Part {
-            part: ChatStreamPart::Raw { raw_value },
+            part: ChatStreamPart::Raw {
+                raw_value: raw_value.clone(),
+            },
         }));
     }
 
@@ -1874,7 +1872,7 @@ impl JsonEventConverter for BedrockEventConverter {
                         self.append_stream_preamble(&mut out);
                         self.append_raw_chunk(
                             &mut out,
-                            serde_json::Value::String(json_data.to_string()),
+                            &serde_json::Value::String(json_data.to_string()),
                         );
                         out.push(Err(LlmError::ParseError(format!(
                             "Failed to parse Bedrock JSON chunk: {e}"
@@ -1888,7 +1886,7 @@ impl JsonEventConverter for BedrockEventConverter {
                 Err(e) => {
                     let mut out = Vec::new();
                     self.append_stream_preamble(&mut out);
-                    self.append_raw_chunk(&mut out, raw_value);
+                    self.append_raw_chunk(&mut out, &raw_value);
                     out.push(Err(LlmError::ParseError(format!(
                         "Failed to parse Bedrock JSON chunk: {e}"
                     ))));
@@ -1898,7 +1896,7 @@ impl JsonEventConverter for BedrockEventConverter {
 
             let mut out = Vec::new();
             self.append_stream_preamble(&mut out);
-            self.append_raw_chunk(&mut out, raw_value);
+            self.append_raw_chunk(&mut out, &raw_value);
 
             if let Some(error) = Self::stream_error_part(&chunk) {
                 self.tracker.mark_stream_ended();
@@ -2239,7 +2237,11 @@ impl JsonEventConverter for BedrockEventConverter {
 
             if let Some(metadata) = chunk.metadata.as_ref() {
                 if let Some(usage_info) = metadata.usage.as_ref() {
-                    let usage = build_bedrock_usage_from_info(usage_info);
+                    let raw_usage = raw_value
+                        .get("metadata")
+                        .and_then(|metadata| metadata.get("usage"))
+                        .cloned();
+                    let usage = build_bedrock_usage_from_info_with_raw(usage_info, raw_usage);
                     let mut acc = self.acc.lock().expect("lock");
                     acc.usage = Some(usage.clone());
 
@@ -3737,7 +3739,7 @@ mod tests {
         events.extend(
             converter
                 .convert_json(
-                    r#"{"metadata":{"usage":{"inputTokens":4,"outputTokens":34,"totalTokens":38,"cacheReadInputTokens":2,"cacheWriteInputTokens":3,"cacheDetails":[{"inputTokens":100,"ttl":"T5M"}]},"trace":{"request":"trace-1"},"performanceConfig":{"latency":"optimized"},"serviceTier":{"type":"on-demand"}}}"#,
+                    r#"{"metadata":{"usage":{"inputTokens":4,"outputTokens":34,"totalTokens":38,"cacheReadInputTokens":2,"cacheWriteInputTokens":3,"cacheDetails":[{"inputTokens":100,"ttl":"T5M"}],"futureUsageField":{"x":1}},"trace":{"request":"trace-1"},"performanceConfig":{"latency":"optimized"},"serviceTier":{"type":"on-demand"}}}"#,
                 )
                 .await,
         );
@@ -3766,6 +3768,18 @@ mod tests {
         assert_eq!(finish.0.normalized_input_tokens().cache_read, Some(2));
         assert_eq!(finish.0.normalized_input_tokens().cache_write, Some(3));
         assert_eq!(finish.0.normalized_output_tokens().total, Some(34));
+        assert_eq!(
+            finish.0.raw_usage_value(),
+            Some(serde_json::json!({
+                "inputTokens": 4,
+                "outputTokens": 34,
+                "totalTokens": 38,
+                "cacheReadInputTokens": 2,
+                "cacheWriteInputTokens": 3,
+                "cacheDetails": [{ "inputTokens": 100, "ttl": "T5M" }],
+                "futureUsageField": { "x": 1 }
+            }))
+        );
         assert_eq!(finish.1.unified, FinishReason::Stop);
         assert_eq!(finish.1.raw.as_deref(), Some("stop_sequence"));
         assert_eq!(
