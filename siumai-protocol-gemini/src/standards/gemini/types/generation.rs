@@ -330,4 +330,24 @@ pub struct UsageMetadata {
     /// Traffic class used for the request.
     #[serde(skip_serializing_if = "Option::is_none", rename = "trafficType")]
     pub traffic_type: Option<String>,
+    /// Token counts grouped by input modality.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "promptTokensDetails"
+    )]
+    pub prompt_tokens_details: Option<Vec<TokenDetail>>,
+    /// Token counts grouped by output modality.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "candidatesTokensDetails"
+    )]
+    pub candidates_tokens_details: Option<Vec<TokenDetail>>,
+}
+
+/// Token count for a Gemini content modality.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenDetail {
+    pub modality: String,
+    #[serde(rename = "tokenCount")]
+    pub token_count: i32,
 }

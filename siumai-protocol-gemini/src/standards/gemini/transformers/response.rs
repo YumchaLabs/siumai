@@ -180,7 +180,14 @@ mod tests_gemini_metadata {
                 "candidatesTokenCount": 6,
                 "thoughtsTokenCount": 3,
                 "totalTokenCount": 21,
-                "trafficType": "ON_DEMAND"
+                "trafficType": "ON_DEMAND",
+                "promptTokensDetails": [
+                    { "modality": "TEXT", "tokenCount": 10 },
+                    { "modality": "IMAGE", "tokenCount": 2 }
+                ],
+                "candidatesTokensDetails": [
+                    { "modality": "TEXT", "tokenCount": 6 }
+                ]
             },
             "modelVersion": "gemini-2.5-pro"
         });
@@ -199,6 +206,17 @@ mod tests_gemini_metadata {
         assert_eq!(
             usage.raw_usage_value().expect("raw usage")["trafficType"],
             serde_json::json!("ON_DEMAND")
+        );
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["promptTokensDetails"],
+            serde_json::json!([
+                { "modality": "TEXT", "tokenCount": 10 },
+                { "modality": "IMAGE", "tokenCount": 2 }
+            ])
+        );
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["candidatesTokensDetails"],
+            serde_json::json!([{ "modality": "TEXT", "tokenCount": 6 }])
         );
     }
 

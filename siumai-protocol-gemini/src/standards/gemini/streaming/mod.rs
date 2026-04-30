@@ -181,6 +181,25 @@ struct GeminiUsageMetadata {
         rename = "trafficType"
     )]
     traffic_type: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "promptTokensDetails"
+    )]
+    prompt_tokens_details: Option<Vec<GeminiTokenDetail>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "candidatesTokensDetails"
+    )]
+    candidates_tokens_details: Option<Vec<GeminiTokenDetail>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GeminiTokenDetail {
+    modality: String,
+    #[serde(rename = "tokenCount")]
+    token_count: u32,
 }
 
 /// Gemini event converter

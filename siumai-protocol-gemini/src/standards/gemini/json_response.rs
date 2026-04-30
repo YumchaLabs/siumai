@@ -60,6 +60,8 @@ fn usage_json(usage: &Usage) -> UsageMetadata {
             candidates_token_count: None,
             thoughts_token_count: None,
             traffic_type: None,
+            prompt_tokens_details: None,
+            candidates_tokens_details: None,
         });
 
     if let Some(prompt_total) = prompt_total {
@@ -314,7 +316,14 @@ mod tests {
                 .with_output_text_tokens(6)
                 .with_output_reasoning_tokens(3)
                 .with_raw_usage_value(serde_json::json!({
-                    "trafficType": "ON_DEMAND"
+                    "trafficType": "ON_DEMAND",
+                    "promptTokensDetails": [
+                        { "modality": "TEXT", "tokenCount": 10 },
+                        { "modality": "IMAGE", "tokenCount": 2 }
+                    ],
+                    "candidatesTokensDetails": [
+                        { "modality": "TEXT", "tokenCount": 6 }
+                    ]
                 }))
                 .build(),
         );
@@ -344,6 +353,17 @@ mod tests {
         assert_eq!(
             value["usageMetadata"]["trafficType"],
             serde_json::json!("ON_DEMAND")
+        );
+        assert_eq!(
+            value["usageMetadata"]["promptTokensDetails"],
+            serde_json::json!([
+                { "modality": "TEXT", "tokenCount": 10 },
+                { "modality": "IMAGE", "tokenCount": 2 }
+            ])
+        );
+        assert_eq!(
+            value["usageMetadata"]["candidatesTokensDetails"],
+            serde_json::json!([{ "modality": "TEXT", "tokenCount": 6 }])
         );
     }
 

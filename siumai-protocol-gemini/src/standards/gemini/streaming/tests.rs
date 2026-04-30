@@ -1053,7 +1053,14 @@ async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals(
         .serialize_event(&ChatStreamEvent::UsageUpdate {
             usage: Usage::builder()
                 .with_raw_usage_value(serde_json::json!({
-                    "trafficType": "ON_DEMAND"
+                    "trafficType": "ON_DEMAND",
+                    "promptTokensDetails": [
+                        { "modality": "TEXT", "tokenCount": 10 },
+                        { "modality": "IMAGE", "tokenCount": 2 }
+                    ],
+                    "candidatesTokensDetails": [
+                        { "modality": "TEXT", "tokenCount": 6 }
+                    ]
                 }))
                 .build(),
         })
@@ -1069,6 +1076,17 @@ async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals(
     assert_eq!(
         frames[0]["usageMetadata"]["trafficType"],
         serde_json::json!("ON_DEMAND")
+    );
+    assert_eq!(
+        frames[0]["usageMetadata"]["promptTokensDetails"],
+        serde_json::json!([
+            { "modality": "TEXT", "tokenCount": 10 },
+            { "modality": "IMAGE", "tokenCount": 2 }
+        ])
+    );
+    assert_eq!(
+        frames[0]["usageMetadata"]["candidatesTokensDetails"],
+        serde_json::json!([{ "modality": "TEXT", "tokenCount": 6 }])
     );
 
     let event = eventsource_stream::Event {
@@ -1089,6 +1107,19 @@ async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals(
                     .as_ref()
                     .and_then(|raw| raw.get("trafficType"))
                     == Some(&serde_json::json!("ON_DEMAND"))
+                && usage
+                    .raw_usage_value()
+                    .as_ref()
+                    .and_then(|raw| raw.get("promptTokensDetails"))
+                    == Some(&serde_json::json!([
+                        { "modality": "TEXT", "tokenCount": 10 },
+                        { "modality": "IMAGE", "tokenCount": 2 }
+                    ]))
+                && usage
+                    .raw_usage_value()
+                    .as_ref()
+                    .and_then(|raw| raw.get("candidatesTokensDetails"))
+                    == Some(&serde_json::json!([{ "modality": "TEXT", "tokenCount": 6 }]))
     )));
 }
 

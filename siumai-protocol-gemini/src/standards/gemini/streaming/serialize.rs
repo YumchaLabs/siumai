@@ -197,6 +197,8 @@ pub(super) fn serialize_event(
                 total_token_count: None,
                 thoughts_token_count: None,
                 traffic_type: None,
+                prompt_tokens_details: None,
+                candidates_tokens_details: None,
             });
 
         if let Some(prompt_tokens) = prompt_tokens {
