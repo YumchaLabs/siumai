@@ -267,12 +267,13 @@ fn build_query_metadata(
     if videos.is_empty() {
         HashMap::new()
     } else {
-        HashMap::from([(
-            "gemini".to_string(),
-            serde_json::json!({
-                "videos": videos,
-            }),
-        )])
+        let google_metadata = serde_json::json!({
+            "videos": videos,
+        });
+        HashMap::from([
+            ("google".to_string(), google_metadata.clone()),
+            ("gemini".to_string(), google_metadata),
+        ])
     }
 }
 
@@ -936,10 +937,10 @@ mod tests {
 
         let metadata = build_query_metadata(&response, &provider_context);
         let videos = metadata
-            .get("gemini")
+            .get("google")
             .and_then(|value| value.get("videos"))
             .and_then(|value| value.as_array())
-            .expect("gemini videos metadata");
+            .expect("google videos metadata");
 
         assert_eq!(videos.len(), 2);
         assert_eq!(
@@ -950,6 +951,7 @@ mod tests {
             videos[1].get("mediaType").and_then(|value| value.as_str()),
             Some("video/webm")
         );
+        assert_eq!(metadata.get("gemini"), metadata.get("google"));
     }
 
     #[tokio::test]
@@ -1001,11 +1003,15 @@ mod tests {
         assert_eq!(
             response
                 .metadata
-                .get("gemini")
+                .get("google")
                 .and_then(|value| value.get("videos"))
                 .and_then(|value| value.as_array())
                 .map(Vec::len),
             Some(1)
+        );
+        assert_eq!(
+            response.metadata.get("gemini"),
+            response.metadata.get("google")
         );
 
         let req = transport.take_get().expect("captured get request");
