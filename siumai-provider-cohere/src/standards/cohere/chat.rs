@@ -131,6 +131,22 @@ struct CohereChatResponseTransformer {
     warnings: Vec<Warning>,
 }
 
+fn cohere_citation_provider_metadata(citation: &Value) -> Value {
+    let mut metadata = serde_json::Map::new();
+
+    for key in ["start", "end", "text", "sources"] {
+        if let Some(value) = citation.get(key) {
+            metadata.insert(key.to_string(), value.clone());
+        }
+    }
+
+    if let Some(value) = citation.get("type") {
+        metadata.insert("citationType".to_string(), value.clone());
+    }
+
+    Value::Object(metadata)
+}
+
 impl ResponseTransformer for CohereChatResponseTransformer {
     fn provider_id(&self) -> &str {
         &self.provider_id
@@ -190,7 +206,10 @@ impl ResponseTransformer for CohereChatResponseTransformer {
                         title,
                         filename: None,
                     },
-                    provider_metadata: shared::provider_metadata_entry("cohere", citation.clone()),
+                    provider_metadata: shared::provider_metadata_entry(
+                        "cohere",
+                        cohere_citation_provider_metadata(citation),
+                    ),
                 });
             }
         }
@@ -1198,6 +1217,81 @@ mod tests {
                 "provider-defined tool openai.web_search",
                 None::<String>,
             )])
+        );
+    }
+
+    #[test]
+    fn cohere_non_stream_response_maps_citation_metadata_like_ai_sdk() {
+        let request = ChatRequest::new(vec![ChatMessage::user("hello").build()]);
+        let transformers = CohereChatStandard::new().create_transformers("cohere", &request);
+
+        let response = transformers
+            .response
+            .transform_chat_response(&json!({
+                "generation_id": "gen-citation",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Automation of tasks"
+                        }
+                    ],
+                    "citations": [
+                        {
+                            "start": 0,
+                            "end": 19,
+                            "text": "Automation of tasks",
+                            "sources": [
+                                {
+                                    "type": "document",
+                                    "id": "doc:0",
+                                    "document": {
+                                        "id": "doc:0",
+                                        "text": "AI provides automation of tasks",
+                                        "title": "benefits.txt"
+                                    }
+                                }
+                            ],
+                            "type": "TEXT_CONTENT"
+                        }
+                    ]
+                },
+                "finish_reason": "COMPLETE",
+                "usage": {
+                    "tokens": {
+                        "input_tokens": 3,
+                        "output_tokens": 5
+                    }
+                }
+            }))
+            .expect("transform response");
+
+        let source_meta = match &response.content {
+            MessageContent::MultiModal(parts) => parts.iter().find_map(|part| match part {
+                ContentPart::Source {
+                    provider_metadata,
+                    source,
+                    ..
+                } => {
+                    assert_eq!(source.title(), Some("benefits.txt"));
+                    provider_metadata.as_ref()
+                }
+                _ => None,
+            }),
+            _ => None,
+        }
+        .and_then(|metadata| metadata.get("cohere"))
+        .expect("cohere citation metadata");
+
+        assert_eq!(source_meta["start"], json!(0));
+        assert_eq!(source_meta["end"], json!(19));
+        assert_eq!(source_meta["text"], json!("Automation of tasks"));
+        assert_eq!(source_meta["citationType"], json!("TEXT_CONTENT"));
+        assert!(source_meta.get("type").is_none());
+        assert_eq!(
+            source_meta["sources"][0]["document"]["title"],
+            json!("benefits.txt")
         );
     }
 
