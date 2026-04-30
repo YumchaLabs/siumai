@@ -1284,7 +1284,10 @@ fn response_provider_metadata_to_stream_provider_metadata(
     metadata.cloned()
 }
 
-fn build_bedrock_usage_from_info(usage: &BedrockUsageInfo) -> Usage {
+fn build_bedrock_usage_from_info_with_raw(
+    usage: &BedrockUsageInfo,
+    raw_usage: Option<serde_json::Value>,
+) -> Usage {
     let mut builder = Usage::builder();
 
     if let Some(input_tokens) = usage.input_tokens {
@@ -1312,17 +1315,23 @@ fn build_bedrock_usage_from_info(usage: &BedrockUsageInfo) -> Usage {
     }) {
         builder = builder.with_input_total_tokens(input_total_tokens);
     }
-    if let Ok(serde_json::Value::Object(raw)) = serde_json::to_value(usage) {
+    if let Some(raw_usage) = raw_usage {
+        builder = builder.with_raw_usage_value(raw_usage);
+    } else if let Ok(serde_json::Value::Object(raw)) = serde_json::to_value(usage) {
         builder = builder.with_raw_usage(raw);
     }
 
     builder.build()
 }
 
+fn build_bedrock_usage_from_info(usage: &BedrockUsageInfo) -> Usage {
+    build_bedrock_usage_from_info_with_raw(usage, None)
+}
+
 fn build_bedrock_usage_from_value(value: &serde_json::Value) -> Option<Usage> {
     serde_json::from_value::<BedrockUsageInfo>(value.clone())
         .ok()
-        .map(|usage| build_bedrock_usage_from_info(&usage))
+        .map(|usage| build_bedrock_usage_from_info_with_raw(&usage, Some(value.clone())))
 }
 
 impl ResponseTransformer for BedrockChatResponseTransformer {
@@ -3230,6 +3239,43 @@ mod tests {
                 "cacheDetails": [{ "inputTokens": 100, "ttl": "T5M" }]
             }))
         );
+    }
+
+    #[test]
+    fn response_preserves_raw_usage_payload_with_unknown_fields() {
+        let tx = test_transformers(false);
+
+        let raw = serde_json::json!({
+            "output": {
+                "message": {
+                    "content": [
+                        { "text": "answer" }
+                    ]
+                }
+            },
+            "usage": {
+                "inputTokens": 4,
+                "outputTokens": 34,
+                "totalTokens": 38,
+                "cacheReadInputTokens": 2,
+                "cacheWriteInputTokens": 3,
+                "futureUsageField": { "x": 1 }
+            },
+            "stopReason": "end_turn"
+        });
+
+        let resp = tx
+            .response
+            .transform_chat_response(&raw)
+            .expect("transform");
+
+        let usage = resp.usage.as_ref().expect("usage");
+        assert_eq!(usage.normalized_input_tokens().total, Some(9));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(4));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(2));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(3));
+        assert_eq!(usage.normalized_output_tokens().total, Some(34));
+        assert_eq!(usage.raw_usage_value(), raw.get("usage").cloned());
     }
 
     #[test]
