@@ -198,16 +198,10 @@ impl OllamaEventConverter {
 
     /// Extract usage information
     fn extract_usage(&self, response: &OllamaStreamResponse) -> Option<Usage> {
-        if response.done == Some(true)
-            && let (Some(prompt_tokens), Some(completion_tokens)) =
-                (response.prompt_eval_count, response.eval_count)
-        {
-            return Some(
-                Usage::builder()
-                    .prompt_tokens(prompt_tokens)
-                    .completion_tokens(completion_tokens)
-                    .total_tokens(prompt_tokens + completion_tokens)
-                    .build(),
+        if response.done == Some(true) {
+            return crate::standards::ollama::utils::build_ollama_usage(
+                response.prompt_eval_count,
+                response.eval_count,
             );
         }
         None
@@ -439,6 +433,13 @@ mod tests {
         if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = usage_event {
             assert_eq!(usage.prompt_tokens(), Some(10));
             assert_eq!(usage.completion_tokens(), Some(20));
+            assert_eq!(
+                usage.raw_usage_value(),
+                Some(serde_json::json!({
+                    "prompt_eval_count": 10,
+                    "eval_count": 20
+                }))
+            );
         } else {
             panic!("Expected UsageUpdate event in results: {:?}", result);
         }
@@ -492,6 +493,30 @@ mod tests {
             }
             other => panic!("Expected parse error, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_ollama_stream_end_preserves_partial_usage_counts() {
+        let converter = OllamaEventConverter::new();
+        let json_data = r#"{"model":"llama2","done":true,"prompt_eval_count":10}"#;
+
+        let result = converter.convert_json(json_data).await;
+
+        let usage = result
+            .iter()
+            .find_map(|event| match event {
+                Ok(ChatStreamEvent::UsageUpdate { usage }) => Some(usage),
+                _ => None,
+            })
+            .expect("usage update");
+
+        assert_eq!(usage.prompt_tokens(), Some(10));
+        assert_eq!(usage.completion_tokens(), Some(0));
+        assert_eq!(usage.total_tokens(), Some(10));
+        assert_eq!(
+            usage.raw_usage_value(),
+            Some(serde_json::json!({ "prompt_eval_count": 10 }))
+        );
     }
 
     #[tokio::test]

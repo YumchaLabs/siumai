@@ -971,6 +971,37 @@ pub fn calculate_tokens_per_second(
     }
 }
 
+pub(crate) fn build_ollama_usage(
+    prompt_eval_count: Option<u32>,
+    eval_count: Option<u32>,
+) -> Option<crate::types::Usage> {
+    if prompt_eval_count.is_none() && eval_count.is_none() {
+        return None;
+    }
+
+    let prompt = prompt_eval_count.unwrap_or(0);
+    let completion = eval_count.unwrap_or(0);
+    let mut raw = serde_json::Map::new();
+    if let Some(prompt_eval_count) = prompt_eval_count {
+        raw.insert(
+            "prompt_eval_count".to_string(),
+            serde_json::json!(prompt_eval_count),
+        );
+    }
+    if let Some(eval_count) = eval_count {
+        raw.insert("eval_count".to_string(), serde_json::json!(eval_count));
+    }
+
+    Some(
+        crate::types::Usage::builder()
+            .prompt_tokens(prompt)
+            .completion_tokens(completion)
+            .total_tokens(prompt.saturating_add(completion))
+            .with_raw_usage(raw)
+            .build(),
+    )
+}
+
 pub(crate) fn build_ollama_provider_metadata(
     total_duration: Option<u64>,
     load_duration: Option<u64>,
@@ -1063,20 +1094,7 @@ pub fn finish_reason_to_done_reason(reason: &crate::types::FinishReason) -> Opti
 pub fn convert_chat_response(response: OllamaChatResponse) -> crate::types::ChatResponse {
     let message = convert_from_ollama_message(&response.message);
 
-    // Usage
-    let usage = if response.prompt_eval_count.is_some() || response.eval_count.is_some() {
-        let prompt = response.prompt_eval_count.unwrap_or(0);
-        let completion = response.eval_count.unwrap_or(0);
-        Some(
-            crate::types::Usage::builder()
-                .prompt_tokens(prompt)
-                .completion_tokens(completion)
-                .total_tokens(prompt + completion)
-                .build(),
-        )
-    } else {
-        None
-    };
+    let usage = build_ollama_usage(response.prompt_eval_count, response.eval_count);
 
     // Finish reason
     let has_tool_calls = response
@@ -1274,6 +1292,16 @@ mod tests {
 
         let converted = convert_chat_response(response);
         assert_eq!(converted.raw_finish_reason.as_deref(), Some("stop"));
+        assert_eq!(
+            converted
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.raw_usage_value()),
+            Some(serde_json::json!({
+                "prompt_eval_count": 10,
+                "eval_count": 20
+            }))
+        );
         assert_eq!(
             converted.get_metadata("ollama", "total_duration_ms"),
             Some(&serde_json::json!(1250))
