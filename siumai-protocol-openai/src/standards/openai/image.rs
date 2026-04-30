@@ -646,6 +646,26 @@ struct OpenAiImageResponseTransformer {
     adapter: Option<Arc<dyn OpenAiImageAdapter>>,
 }
 
+fn distribute_image_token_detail(
+    total: Option<u64>,
+    index: usize,
+    image_count: usize,
+) -> Option<u64> {
+    let total = total?;
+    if image_count == 0 {
+        return None;
+    }
+
+    let image_count = image_count as u64;
+    let base = total / image_count;
+    let remainder = total - base * (image_count - 1);
+    Some(if index as u64 == image_count - 1 {
+        remainder
+    } else {
+        base
+    })
+}
+
 impl ResponseTransformer for OpenAiImageResponseTransformer {
     fn provider_id(&self) -> &str {
         &self.provider_id
@@ -684,12 +704,21 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let usage = resp.get("usage").cloned();
+        let input_token_details = usage.as_ref().and_then(|u| u.get("input_tokens_details"));
+        let image_tokens = input_token_details
+            .and_then(|details| details.get("image_tokens"))
+            .and_then(|v| v.as_u64());
+        let text_tokens = input_token_details
+            .and_then(|details| details.get("text_tokens"))
+            .and_then(|v| v.as_u64());
 
         let mut openai_images_meta: Vec<serde_json::Value> = Vec::new();
+        let image_count = data.len();
 
         let images = data
             .iter()
-            .map(|img| {
+            .enumerate()
+            .map(|(index, img)| {
                 let url = img.get("url").and_then(|u| u.as_str()).map(String::from);
                 let b64_json = img
                     .get("b64_json")
@@ -728,6 +757,21 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
                         serde_json::Value::String(fmt.clone()),
                     );
                 }
+                if let Some(tokens) =
+                    distribute_image_token_detail(image_tokens, index, image_count)
+                {
+                    meta.insert(
+                        "imageTokens".to_string(),
+                        serde_json::Value::Number(tokens.into()),
+                    );
+                }
+                if let Some(tokens) = distribute_image_token_detail(text_tokens, index, image_count)
+                {
+                    meta.insert(
+                        "textTokens".to_string(),
+                        serde_json::Value::Number(tokens.into()),
+                    );
+                }
                 openai_images_meta.push(serde_json::Value::Object(meta));
 
                 crate::types::GeneratedImage {
@@ -751,7 +795,10 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
         if let Some(u) = usage {
             openai_meta.insert("usage".to_string(), u);
         }
-        metadata.insert("openai".to_string(), serde_json::Value::Object(openai_meta));
+        metadata.insert(
+            self.provider_id.clone(),
+            serde_json::Value::Object(openai_meta),
+        );
 
         Ok(ImageGenerationResponse {
             images,
@@ -932,6 +979,82 @@ mod tests {
         assert_eq!(
             response.images[1].b64_json,
             Some("base64encodeddata".to_string())
+        );
+    }
+
+    #[test]
+    fn test_image_response_transformer_uses_provider_namespace() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        let response_json = serde_json::json!({
+            "data": [{ "b64_json": "base64encodeddata" }]
+        });
+
+        let response = transformers
+            .response
+            .transform_image_response(&response_json)
+            .expect("transform");
+
+        assert!(response.metadata.contains_key("test-provider"));
+        assert!(!response.metadata.contains_key("openai"));
+    }
+
+    #[test]
+    fn test_image_response_transformer_distributes_input_token_details() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        let response_json = serde_json::json!({
+            "created": 1733837122_u64,
+            "data": [
+                { "b64_json": "image-1" },
+                { "b64_json": "image-2" },
+                { "b64_json": "image-3" }
+            ],
+            "usage": {
+                "input_tokens": 30,
+                "output_tokens": 900,
+                "total_tokens": 930,
+                "input_tokens_details": {
+                    "image_tokens": 194,
+                    "text_tokens": 28
+                }
+            }
+        });
+
+        let response = transformers
+            .response
+            .transform_image_response(&response_json)
+            .expect("transform");
+
+        let images = response
+            .metadata
+            .get("test-provider")
+            .and_then(|meta| meta.get("images"))
+            .and_then(|images| images.as_array())
+            .expect("provider images metadata");
+
+        assert_eq!(
+            images
+                .iter()
+                .map(|image| image.get("imageTokens").and_then(|v| v.as_u64()))
+                .collect::<Vec<_>>(),
+            vec![Some(64), Some(64), Some(66)]
+        );
+        assert_eq!(
+            images
+                .iter()
+                .map(|image| image.get("textTokens").and_then(|v| v.as_u64()))
+                .collect::<Vec<_>>(),
+            vec![Some(9), Some(9), Some(10)]
+        );
+        assert_eq!(
+            response
+                .metadata
+                .get("test-provider")
+                .and_then(|meta| meta.get("usage")),
+            response_json.get("usage")
         );
     }
 

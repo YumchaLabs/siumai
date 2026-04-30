@@ -1157,10 +1157,16 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
 
     fn choose_image_transformers(
         &self,
-        req: &crate::types::ImageGenerationRequest,
-        ctx: &ProviderContext,
+        _req: &crate::types::ImageGenerationRequest,
+        _ctx: &ProviderContext,
     ) -> ImageTransformers {
-        self.image_spec().choose_image_transformers(req, ctx)
+        let transformers = self
+            .image_standard()
+            .create_transformers(self.adapter.provider_id().as_ref());
+        ImageTransformers {
+            request: transformers.request,
+            response: transformers.response,
+        }
     }
 
     fn image_url(
@@ -1413,6 +1419,32 @@ impl OpenAiCompatibleSpecWithAdapter {
     }
 
     fn image_spec(&self) -> crate::standards::openai::image::OpenAiImageSpec {
+        let endpoint = format!(
+            "/{}",
+            self.adapter
+                .route_for(super::types::RequestType::ImageGeneration)
+                .trim_start_matches('/')
+        );
+
+        self.image_standard_with_endpoint(endpoint)
+            .create_spec("openai_compatible")
+    }
+
+    fn image_standard(&self) -> crate::standards::openai::image::OpenAiImageStandard {
+        let endpoint = format!(
+            "/{}",
+            self.adapter
+                .route_for(super::types::RequestType::ImageGeneration)
+                .trim_start_matches('/')
+        );
+
+        self.image_standard_with_endpoint(endpoint)
+    }
+
+    fn image_standard_with_endpoint(
+        &self,
+        endpoint: String,
+    ) -> crate::standards::openai::image::OpenAiImageStandard {
         #[derive(Clone)]
         struct CompatImageAdapter {
             adapter: Arc<dyn super::adapter::ProviderAdapter>,
@@ -1482,20 +1514,12 @@ impl OpenAiCompatibleSpecWithAdapter {
             }
         }
 
-        let endpoint = format!(
-            "/{}",
-            self.adapter
-                .route_for(super::types::RequestType::ImageGeneration)
-                .trim_start_matches('/')
-        );
-
         crate::standards::openai::image::OpenAiImageStandard::with_adapter(Arc::new(
             CompatImageAdapter {
                 adapter: self.adapter.clone(),
                 generation_endpoint: endpoint,
             },
         ))
-        .create_spec("openai_compatible")
     }
 
     fn rerank_spec(&self) -> crate::standards::openai::rerank::OpenAiRerankSpec {
@@ -1791,6 +1815,30 @@ mod tests {
 
         assert_eq!(body["user"], serde_json::json!("provider-user"));
         assert_eq!(body["quality"], serde_json::json!("hd"));
+    }
+
+    #[test]
+    fn openai_compatible_image_response_metadata_uses_runtime_provider_key() {
+        use crate::core::ProviderSpec;
+
+        let (spec, ctx) = compat_image_spec_and_ctx();
+        let req = ImageGenerationRequest {
+            prompt: "draw a cat".to_string(),
+            model: Some("deepseek-image".to_string()),
+            ..Default::default()
+        };
+
+        let bundle = spec.choose_image_transformers(&req, &ctx);
+        let response = bundle
+            .response
+            .transform_image_response(&serde_json::json!({
+                "data": [{ "b64_json": "base64encodeddata" }]
+            }))
+            .expect("transform image response");
+
+        assert!(response.metadata.contains_key("deepseek"));
+        assert!(!response.metadata.contains_key("openai"));
+        assert!(!response.metadata.contains_key("openai_compatible"));
     }
 
     #[test]
