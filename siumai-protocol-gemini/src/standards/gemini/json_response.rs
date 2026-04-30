@@ -258,6 +258,12 @@ impl JsonResponseConverter for GeminiGenerateContentJsonResponseConverter {
             usage_metadata: response.usage.as_ref().map(usage_json),
             model_version: response.model.clone(),
             response_id: response.id.clone(),
+            service_tier: response.service_tier.clone().or_else(|| {
+                google_response_metadata(response)
+                    .and_then(|meta| meta.get("serviceTier"))
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+            }),
         };
         let mut body = serde_json::to_value(body).map_err(|error| {
             LlmError::JsonError(format!(

@@ -643,6 +643,54 @@ async fn test_gemini_finish_reason_content_filter() {
 }
 
 #[tokio::test]
+async fn gemini_stream_finish_metadata_uses_stable_null_shape() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let json_data = serde_json::json!({
+        "candidates": [
+            {
+                "finishReason": "STOP",
+                "finishMessage": "done"
+            }
+        ],
+        "serviceTier": "flex"
+    });
+    let event = eventsource_stream::Event {
+        event: "".to_string(),
+        data: json_data.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    let response = result
+        .iter()
+        .find_map(|event| match event {
+            Ok(ChatStreamEvent::StreamEnd { response }) => Some(response),
+            _ => None,
+        })
+        .expect("stream end");
+    let meta = response
+        .provider_metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("google"))
+        .expect("google metadata");
+
+    assert_eq!(response.service_tier.as_deref(), Some("flex"));
+    assert_eq!(meta.get("finishMessage"), Some(&serde_json::json!("done")));
+    assert_eq!(meta.get("serviceTier"), Some(&serde_json::json!("flex")));
+    for key in [
+        "promptFeedback",
+        "groundingMetadata",
+        "urlContextMetadata",
+        "safetyRatings",
+        "usageMetadata",
+    ] {
+        assert_eq!(meta.get(key), Some(&serde_json::Value::Null));
+    }
+}
+
+#[tokio::test]
 async fn test_gemini_finish_reason_error() {
     let config = create_test_config();
     let converter = GeminiEventConverter::new(config);

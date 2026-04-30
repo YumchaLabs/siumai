@@ -51,6 +51,8 @@ struct GeminiStreamResponse {
     usage_metadata: Option<GeminiUsageMetadata>,
     #[serde(rename = "promptFeedback")]
     prompt_feedback: Option<super::types::PromptFeedback>,
+    #[serde(rename = "serviceTier")]
+    service_tier: Option<String>,
     /// Gateway-only metadata used for stable tool call id propagation in re-serialized streams.
     #[serde(default)]
     siumai: Option<GeminiSiumaiMetadata>,
@@ -62,6 +64,8 @@ struct GeminiCandidate {
     content: Option<GeminiContent>,
     #[serde(rename = "finishReason")]
     finish_reason: Option<String>,
+    #[serde(rename = "finishMessage")]
+    finish_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "groundingMetadata")]
     grounding_metadata: Option<super::types::GroundingMetadata>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "urlContextMetadata")]
@@ -200,6 +204,64 @@ struct GeminiTokenDetail {
     modality: String,
     #[serde(rename = "tokenCount")]
     token_count: u32,
+}
+
+fn gemini_finish_provider_metadata(
+    grounding_metadata: Option<&super::types::GroundingMetadata>,
+    url_context_metadata: Option<&super::types::UrlContextMetadata>,
+    safety_ratings: &[super::types::SafetyRating],
+    prompt_feedback: Option<&super::types::PromptFeedback>,
+    usage_metadata: Option<&GeminiUsageMetadata>,
+    finish_message: Option<&str>,
+    service_tier: Option<&str>,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut meta = std::collections::HashMap::new();
+    meta.insert(
+        "promptFeedback".to_string(),
+        prompt_feedback
+            .and_then(|value| serde_json::to_value(value).ok())
+            .unwrap_or(serde_json::Value::Null),
+    );
+    meta.insert(
+        "groundingMetadata".to_string(),
+        grounding_metadata
+            .and_then(|value| serde_json::to_value(value).ok())
+            .unwrap_or(serde_json::Value::Null),
+    );
+    meta.insert(
+        "urlContextMetadata".to_string(),
+        url_context_metadata
+            .and_then(|value| serde_json::to_value(value).ok())
+            .unwrap_or(serde_json::Value::Null),
+    );
+    meta.insert(
+        "safetyRatings".to_string(),
+        if safety_ratings.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::to_value(safety_ratings).unwrap_or(serde_json::Value::Null)
+        },
+    );
+    meta.insert(
+        "usageMetadata".to_string(),
+        usage_metadata
+            .and_then(|value| serde_json::to_value(value).ok())
+            .unwrap_or(serde_json::Value::Null),
+    );
+    meta.insert(
+        "finishMessage".to_string(),
+        finish_message
+            .map(|value| serde_json::json!(value))
+            .unwrap_or(serde_json::Value::Null),
+    );
+    meta.insert(
+        "serviceTier".to_string(),
+        service_tier
+            .map(|value| serde_json::json!(value))
+            .unwrap_or(serde_json::Value::Null),
+    );
+
+    meta
 }
 
 /// Gemini event converter
@@ -991,35 +1053,15 @@ impl GeminiEventConverter {
 
             let provider_metadata = {
                 let provider_key = self.provider_metadata_key();
-                let mut meta: std::collections::HashMap<String, serde_json::Value> =
-                    std::collections::HashMap::new();
-
-                if let Some(m) = &candidate.grounding_metadata
-                    && let Ok(v) = serde_json::to_value(m)
-                {
-                    meta.insert("groundingMetadata".to_string(), v);
-                }
-                if let Some(m) = &candidate.url_context_metadata
-                    && let Ok(v) = serde_json::to_value(m)
-                {
-                    meta.insert("urlContextMetadata".to_string(), v);
-                }
-                if !candidate.safety_ratings.is_empty()
-                    && let Ok(v) = serde_json::to_value(&candidate.safety_ratings)
-                {
-                    meta.insert("safetyRatings".to_string(), v);
-                }
-                if let Some(m) = response.prompt_feedback.as_ref()
-                    && let Ok(v) = serde_json::to_value(m)
-                {
-                    meta.insert("promptFeedback".to_string(), v);
-                }
-
-                if let Some(m) = response.usage_metadata.as_ref()
-                    && let Ok(v) = serde_json::to_value(m)
-                {
-                    meta.insert("usageMetadata".to_string(), v);
-                }
+                let mut meta = gemini_finish_provider_metadata(
+                    candidate.grounding_metadata.as_ref(),
+                    candidate.url_context_metadata.as_ref(),
+                    &candidate.safety_ratings,
+                    response.prompt_feedback.as_ref(),
+                    response.usage_metadata.as_ref(),
+                    candidate.finish_message.as_deref(),
+                    response.service_tier.as_deref(),
+                );
 
                 let sources = super::sources::extract_sources_with_generate_id(
                     candidate.grounding_metadata.as_ref(),
@@ -1031,16 +1073,12 @@ impl GeminiEventConverter {
                     meta.insert("sources".to_string(), v);
                 }
 
-                if meta.is_empty() {
-                    None
-                } else {
-                    Some(
-                        crate::types::provider_metadata::provider_metadata_from_object(
-                            provider_key,
-                            meta,
-                        ),
-                    )
-                }
+                Some(
+                    crate::types::provider_metadata::provider_metadata_from_object(
+                        provider_key,
+                        meta,
+                    ),
+                )
             };
 
             let response = ChatResponse {
@@ -1052,7 +1090,7 @@ impl GeminiEventConverter {
                 raw_finish_reason: candidate.finish_reason.clone(),
                 audio: None,
                 system_fingerprint: None,
-                service_tier: None,
+                service_tier: response.service_tier.clone(),
                 warnings: None,
                 provider_metadata,
             };

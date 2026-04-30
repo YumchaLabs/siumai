@@ -80,6 +80,43 @@ mod tests_gemini_metadata {
     }
 
     #[test]
+    fn gemini_response_provider_metadata_uses_stable_null_finish_shape() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.0-flash-exp".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": { "parts": [ { "text": "hello" } ] },
+                    "finishReason": "STOP"
+                }
+            ],
+            "modelVersion": "gemini-2.0-flash-exp"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let meta = resp
+            .provider_metadata
+            .as_ref()
+            .and_then(|m| m.get("google"))
+            .expect("google provider metadata");
+
+        for key in [
+            "promptFeedback",
+            "groundingMetadata",
+            "urlContextMetadata",
+            "safetyRatings",
+            "usageMetadata",
+            "finishMessage",
+            "serviceTier",
+        ] {
+            assert_eq!(meta.get(key), Some(&serde_json::Value::Null));
+        }
+    }
+
+    #[test]
     fn finish_reason_stop_with_tool_calls_maps_to_tool_calls() {
         let cfg = GeminiConfig::default()
             .with_model("gemini-2.0-flash-exp".into())
@@ -442,6 +479,64 @@ mod tests_gemini_metadata {
 #[derive(Clone)]
 pub struct GeminiResponseTransformer {
     pub config: GeminiConfig,
+}
+
+fn gemini_finish_provider_metadata(
+    grounding_metadata: Option<&types::GroundingMetadata>,
+    url_context_metadata: Option<&types::UrlContextMetadata>,
+    safety_ratings: &[types::SafetyRating],
+    prompt_feedback: Option<&types::PromptFeedback>,
+    usage_metadata: Option<&types::UsageMetadata>,
+    finish_message: Option<&str>,
+    service_tier: Option<&str>,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut google_meta = std::collections::HashMap::new();
+    google_meta.insert(
+        "promptFeedback".to_string(),
+        prompt_feedback
+            .and_then(|value| serde_json::to_value(value).ok())
+            .unwrap_or(serde_json::Value::Null),
+    );
+    google_meta.insert(
+        "groundingMetadata".to_string(),
+        grounding_metadata
+            .and_then(|value| serde_json::to_value(value).ok())
+            .unwrap_or(serde_json::Value::Null),
+    );
+    google_meta.insert(
+        "urlContextMetadata".to_string(),
+        url_context_metadata
+            .and_then(|value| serde_json::to_value(value).ok())
+            .unwrap_or(serde_json::Value::Null),
+    );
+    google_meta.insert(
+        "safetyRatings".to_string(),
+        if safety_ratings.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::to_value(safety_ratings).unwrap_or(serde_json::Value::Null)
+        },
+    );
+    google_meta.insert(
+        "usageMetadata".to_string(),
+        usage_metadata
+            .and_then(|value| serde_json::to_value(value).ok())
+            .unwrap_or(serde_json::Value::Null),
+    );
+    google_meta.insert(
+        "finishMessage".to_string(),
+        finish_message
+            .map(|value| serde_json::json!(value))
+            .unwrap_or(serde_json::Value::Null),
+    );
+    google_meta.insert(
+        "serviceTier".to_string(),
+        service_tier
+            .map(|value| serde_json::json!(value))
+            .unwrap_or(serde_json::Value::Null),
+    );
+
+    google_meta
 }
 
 impl ResponseTransformer for GeminiResponseTransformer {
@@ -842,59 +937,29 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     .unwrap_or_else(|| "other".to_string()),
             ),
         });
-        let service_tier = raw
-            .get("serviceTier")
-            .or_else(|| raw.get("service_tier"))
-            .and_then(|value| value.as_str())
-            .map(|value| value.to_string());
+        let service_tier = response.service_tier.clone().or_else(|| {
+            raw.get("serviceTier")
+                .or_else(|| raw.get("service_tier"))
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())
+        });
         let finish_message = raw
             .get("finishMessage")
             .or_else(|| raw.get("finish_message"))
             .and_then(|value| value.as_str())
             .map(|value| value.to_string());
 
-        // Provider metadata (Vercel alignment): expose grounding/url_context and safety ratings.
+        // Provider metadata (Vercel alignment): expose stable null fields plus siumai extensions.
         let provider_metadata = {
-            let mut google_meta: std::collections::HashMap<String, serde_json::Value> =
-                std::collections::HashMap::new();
-
-            if let Some(m) = &candidate.grounding_metadata
-                && let Ok(v) = serde_json::to_value(m)
-            {
-                google_meta.insert("groundingMetadata".to_string(), v);
-            }
-
-            if let Some(m) = &candidate.url_context_metadata
-                && let Ok(v) = serde_json::to_value(m)
-            {
-                google_meta.insert("urlContextMetadata".to_string(), v);
-            }
-
-            if !candidate.safety_ratings.is_empty()
-                && let Ok(v) = serde_json::to_value(&candidate.safety_ratings)
-            {
-                google_meta.insert("safetyRatings".to_string(), v);
-            }
-
-            if let Some(m) = &response.prompt_feedback
-                && let Ok(v) = serde_json::to_value(m)
-            {
-                google_meta.insert("promptFeedback".to_string(), v);
-            }
-
-            if let Some(m) = &response.usage_metadata
-                && let Ok(v) = serde_json::to_value(m)
-            {
-                google_meta.insert("usageMetadata".to_string(), v);
-            }
-
-            if let Some(message) = &finish_message {
-                google_meta.insert("finishMessage".to_string(), serde_json::json!(message));
-            }
-
-            if let Some(service_tier) = &service_tier {
-                google_meta.insert("serviceTier".to_string(), serde_json::json!(service_tier));
-            }
+            let mut google_meta = gemini_finish_provider_metadata(
+                candidate.grounding_metadata.as_ref(),
+                candidate.url_context_metadata.as_ref(),
+                &candidate.safety_ratings,
+                response.prompt_feedback.as_ref(),
+                response.usage_metadata.as_ref(),
+                finish_message.as_deref(),
+                service_tier.as_deref(),
+            );
 
             if let Some(avg) = candidate.avg_logprobs {
                 google_meta.insert("avgLogprobs".to_string(), serde_json::json!(avg));
@@ -917,16 +982,12 @@ impl ResponseTransformer for GeminiResponseTransformer {
                 google_meta.insert("sources".to_string(), v);
             }
 
-            if google_meta.is_empty() {
-                None
-            } else {
-                Some(
-                    crate::types::provider_metadata::provider_metadata_from_object(
-                        provider_key,
-                        google_meta,
-                    ),
-                )
-            }
+            Some(
+                crate::types::provider_metadata::provider_metadata_from_object(
+                    provider_key,
+                    google_meta,
+                ),
+            )
         };
 
         // If we collected any content parts (text, tool calls, media), prefer MultiModal

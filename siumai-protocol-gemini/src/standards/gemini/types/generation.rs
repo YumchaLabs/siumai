@@ -47,6 +47,9 @@ pub struct GenerateContentResponse {
     /// Output only. `response_id` is used to identify each response.
     #[serde(skip_serializing_if = "Option::is_none", rename = "responseId")]
     pub response_id: Option<String>,
+    /// Output only. Service tier used for the response.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "serviceTier")]
+    pub service_tier: Option<String>,
 }
 
 /// Configuration options for model generation and outputs.
