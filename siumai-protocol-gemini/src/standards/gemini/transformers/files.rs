@@ -27,6 +27,15 @@ impl GeminiFilesTransformer {
             .or_else(|| req.metadata.get("display_name").cloned())
     }
 
+    fn state_wire_value(state: &GeminiFileState) -> &'static str {
+        match state {
+            GeminiFileState::Unspecified => "STATE_UNSPECIFIED",
+            GeminiFileState::Processing => "PROCESSING",
+            GeminiFileState::Active => "ACTIVE",
+            GeminiFileState::Failed => "FAILED",
+        }
+    }
+
     fn convert_file(&self, gemini_file: &GeminiFile) -> crate::types::FileObject {
         let id = gemini_file
             .name
@@ -54,10 +63,38 @@ impl GeminiFilesTransformer {
         let filename = gemini_file.display_name.clone();
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("provider".to_string(), serde_json::json!("gemini"));
+        if let Some(name) = &gemini_file.name {
+            metadata.insert("name".to_string(), serde_json::json!(name));
+        }
+        if let Some(display_name) = &gemini_file.display_name {
+            metadata.insert("displayName".to_string(), serde_json::json!(display_name));
+        }
+        if let Some(mime_type) = &gemini_file.mime_type {
+            metadata.insert("mimeType".to_string(), serde_json::json!(mime_type));
+        }
+        if let Some(size_bytes) = &gemini_file.size_bytes {
+            metadata.insert("sizeBytes".to_string(), serde_json::json!(size_bytes));
+        }
+        if let Some(state) = &gemini_file.state {
+            metadata.insert(
+                "state".to_string(),
+                serde_json::json!(Self::state_wire_value(state)),
+            );
+        }
         if let Some(uri) = &gemini_file.uri {
             metadata.insert("uri".to_string(), serde_json::json!(uri));
         }
+        if let Some(create_time) = &gemini_file.create_time {
+            metadata.insert("createTime".to_string(), serde_json::json!(create_time));
+        }
+        if let Some(update_time) = &gemini_file.update_time {
+            metadata.insert("updateTime".to_string(), serde_json::json!(update_time));
+        }
+        if let Some(exp) = &gemini_file.expiration_time {
+            metadata.insert("expirationTime".to_string(), serde_json::json!(exp));
+        }
         if let Some(hash) = &gemini_file.sha256_hash {
+            metadata.insert("sha256Hash".to_string(), serde_json::json!(hash));
             metadata.insert("sha256_hash".to_string(), serde_json::json!(hash));
         }
         if let Some(exp) = &gemini_file.expiration_time {
@@ -250,10 +287,13 @@ mod files_tests {
         let upload_json = serde_json::json!({
             "file": {
                 "name": "files/abc",
-                "display_name": "hi.txt",
-                "mime_type": "text/plain",
-                "size_bytes": "2",
-                "create_time": "2024-01-01T00:00:00Z",
+                "displayName": "hi.txt",
+                "mimeType": "text/plain",
+                "sizeBytes": "2",
+                "createTime": "2024-01-01T00:00:00Z",
+                "updateTime": "2024-01-01T00:00:01Z",
+                "expirationTime": "2024-01-02T00:00:00Z",
+                "sha256Hash": "hash-123",
                 "state": "ACTIVE",
                 "uri": "https://content.example/abc"
             }
@@ -261,6 +301,40 @@ mod files_tests {
         let fo = tx.transform_file_object(&upload_json).unwrap();
         assert_eq!(fo.id, "abc");
         assert_eq!(fo.filename.as_deref(), Some("hi.txt"));
+        assert_eq!(
+            fo.metadata.get("name"),
+            Some(&serde_json::json!("files/abc"))
+        );
+        assert_eq!(
+            fo.metadata.get("displayName"),
+            Some(&serde_json::json!("hi.txt"))
+        );
+        assert_eq!(
+            fo.metadata.get("mimeType"),
+            Some(&serde_json::json!("text/plain"))
+        );
+        assert_eq!(fo.metadata.get("sizeBytes"), Some(&serde_json::json!("2")));
+        assert_eq!(fo.metadata.get("state"), Some(&serde_json::json!("ACTIVE")));
+        assert_eq!(
+            fo.metadata.get("createTime"),
+            Some(&serde_json::json!("2024-01-01T00:00:00Z"))
+        );
+        assert_eq!(
+            fo.metadata.get("updateTime"),
+            Some(&serde_json::json!("2024-01-01T00:00:01Z"))
+        );
+        assert_eq!(
+            fo.metadata.get("expirationTime"),
+            Some(&serde_json::json!("2024-01-02T00:00:00Z"))
+        );
+        assert_eq!(
+            fo.metadata.get("sha256Hash"),
+            Some(&serde_json::json!("hash-123"))
+        );
+        assert_eq!(
+            fo.metadata.get("sha256_hash"),
+            Some(&serde_json::json!("hash-123"))
+        );
         assert_eq!(
             tx.content_url_from_file_object(&fo).as_deref(),
             Some("https://content.example/abc")

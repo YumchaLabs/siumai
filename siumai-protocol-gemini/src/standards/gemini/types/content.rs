@@ -517,19 +517,47 @@ pub struct VertexRagResources {
 pub struct GeminiFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "displayName",
+        alias = "display_name"
+    )]
     pub display_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "mimeType",
+        alias = "mime_type"
+    )]
     pub mime_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "sizeBytes",
+        alias = "size_bytes"
+    )]
     pub size_bytes: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "createTime",
+        alias = "create_time"
+    )]
     pub create_time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "updateTime",
+        alias = "update_time"
+    )]
     pub update_time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "expirationTime",
+        alias = "expiration_time"
+    )]
     pub expiration_time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "sha256Hash",
+        alias = "sha256_hash"
+    )]
     pub sha256_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uri: Option<String>,
@@ -537,7 +565,11 @@ pub struct GeminiFile {
     pub state: Option<GeminiFileState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<GeminiStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "videoMetadata",
+        alias = "video_metadata"
+    )]
     pub video_metadata: Option<VideoFileMetadata>,
 }
 
@@ -591,7 +623,11 @@ pub struct CreateFileResponse {
 pub struct ListFilesResponse {
     #[serde(default)]
     pub files: Vec<GeminiFile>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "nextPageToken",
+        alias = "next_page_token"
+    )]
     pub next_page_token: Option<String>,
 }
 

@@ -105,29 +105,49 @@ fn transform_file_object_impl(
     #[derive(serde::Deserialize)]
     struct OpenAiFileResponse {
         id: String,
-        object: String,
-        bytes: u64,
-        created_at: u64,
+        object: Option<String>,
+        bytes: Option<u64>,
+        created_at: Option<u64>,
         filename: Option<String>,
-        purpose: String,
-        status: String,
+        purpose: Option<String>,
+        status: Option<String>,
         status_details: Option<String>,
+        expires_at: Option<u64>,
     }
     let f: OpenAiFileResponse = serde_json::from_value(raw.clone())
         .map_err(|e| LlmError::ParseError(format!("Failed to parse file: {e}")))?;
     let mut metadata = std::collections::HashMap::new();
-    metadata.insert("object".to_string(), serde_json::json!(f.object));
-    metadata.insert("status".to_string(), serde_json::json!(f.status));
+    if let Some(object) = f.object {
+        metadata.insert("object".to_string(), serde_json::json!(object));
+    }
+    if let Some(filename) = &f.filename {
+        metadata.insert("filename".to_string(), serde_json::json!(filename));
+    }
+    if let Some(purpose) = &f.purpose {
+        metadata.insert("purpose".to_string(), serde_json::json!(purpose));
+    }
+    if let Some(bytes) = f.bytes {
+        metadata.insert("bytes".to_string(), serde_json::json!(bytes));
+    }
+    if let Some(created_at) = f.created_at {
+        metadata.insert("createdAt".to_string(), serde_json::json!(created_at));
+    }
+    if let Some(status) = &f.status {
+        metadata.insert("status".to_string(), serde_json::json!(status));
+    }
     if let Some(d) = f.status_details {
         metadata.insert("status_details".to_string(), serde_json::json!(d));
+    }
+    if let Some(expires_at) = f.expires_at {
+        metadata.insert("expiresAt".to_string(), serde_json::json!(expires_at));
     }
     Ok(crate::types::FileObject {
         id: f.id,
         filename: f.filename,
-        bytes: f.bytes,
-        created_at: f.created_at,
-        purpose: f.purpose,
-        status: f.status,
+        bytes: f.bytes.unwrap_or_default(),
+        created_at: f.created_at.unwrap_or_default(),
+        purpose: f.purpose.unwrap_or_default(),
+        status: f.status.unwrap_or_default(),
         mime_type: None,
         metadata,
     })
@@ -139,13 +159,14 @@ fn transform_list_response_impl(
     #[derive(serde::Deserialize)]
     struct OpenAiFileResponse {
         id: String,
-        object: String,
-        bytes: u64,
-        created_at: u64,
+        object: Option<String>,
+        bytes: Option<u64>,
+        created_at: Option<u64>,
         filename: Option<String>,
-        purpose: String,
-        status: String,
+        purpose: Option<String>,
+        status: Option<String>,
         status_details: Option<String>,
+        expires_at: Option<u64>,
     }
     #[derive(serde::Deserialize)]
     struct OpenAiFileListResponse {
@@ -159,18 +180,37 @@ fn transform_list_response_impl(
         .into_iter()
         .map(|f| {
             let mut metadata = std::collections::HashMap::new();
-            metadata.insert("object".to_string(), serde_json::json!(f.object));
-            metadata.insert("status".to_string(), serde_json::json!(f.status));
-            if let Some(d) = f.status_details.clone() {
+            if let Some(object) = f.object {
+                metadata.insert("object".to_string(), serde_json::json!(object));
+            }
+            if let Some(filename) = &f.filename {
+                metadata.insert("filename".to_string(), serde_json::json!(filename));
+            }
+            if let Some(purpose) = &f.purpose {
+                metadata.insert("purpose".to_string(), serde_json::json!(purpose));
+            }
+            if let Some(bytes) = f.bytes {
+                metadata.insert("bytes".to_string(), serde_json::json!(bytes));
+            }
+            if let Some(created_at) = f.created_at {
+                metadata.insert("createdAt".to_string(), serde_json::json!(created_at));
+            }
+            if let Some(status) = &f.status {
+                metadata.insert("status".to_string(), serde_json::json!(status));
+            }
+            if let Some(d) = f.status_details {
                 metadata.insert("status_details".to_string(), serde_json::json!(d));
+            }
+            if let Some(expires_at) = f.expires_at {
+                metadata.insert("expiresAt".to_string(), serde_json::json!(expires_at));
             }
             crate::types::FileObject {
                 id: f.id,
                 filename: f.filename,
-                bytes: f.bytes,
-                created_at: f.created_at,
-                purpose: f.purpose,
-                status: f.status,
+                bytes: f.bytes.unwrap_or_default(),
+                created_at: f.created_at.unwrap_or_default(),
+                purpose: f.purpose.unwrap_or_default(),
+                status: f.status.unwrap_or_default(),
                 mime_type: None,
                 metadata,
             }
@@ -367,6 +407,23 @@ mod tests {
         assert_eq!(fo.filename.as_deref(), Some("hello.txt"));
         assert_eq!(fo.purpose, "assistants");
         assert_eq!(fo.status, "uploaded");
+        assert_eq!(
+            fo.metadata.get("filename"),
+            Some(&serde_json::json!("hello.txt"))
+        );
+        assert_eq!(
+            fo.metadata.get("purpose"),
+            Some(&serde_json::json!("assistants"))
+        );
+        assert_eq!(fo.metadata.get("bytes"), Some(&serde_json::json!(12)));
+        assert_eq!(
+            fo.metadata.get("createdAt"),
+            Some(&serde_json::json!(1710000000u64))
+        );
+        assert_eq!(
+            fo.metadata.get("status"),
+            Some(&serde_json::json!("uploaded"))
+        );
 
         // list response
         let list = serde_json::json!({
@@ -377,7 +434,33 @@ mod tests {
         let lr = tx.transform_list_response(&list).unwrap();
         assert_eq!(lr.files.len(), 1);
         assert_eq!(lr.files[0].status, "uploaded");
+        assert_eq!(
+            lr.files[0].metadata.get("createdAt"),
+            Some(&serde_json::json!(1710000000u64))
+        );
         assert!(!lr.has_more);
+    }
+
+    #[test]
+    fn openai_files_metadata_preserves_expires_at_in_ai_sdk_shape() {
+        let tx = OpenAiFilesTransformer;
+        let json = serde_json::json!({
+            "id": "file_expiring",
+            "object": "file",
+            "bytes": 12,
+            "created_at": 1710000000u64,
+            "filename": "hello.txt",
+            "purpose": "assistants",
+            "status": "uploaded",
+            "expires_at": 1710003600u64
+        });
+
+        let file = tx.transform_file_object(&json).unwrap();
+
+        assert_eq!(
+            file.metadata.get("expiresAt"),
+            Some(&serde_json::json!(1710003600u64))
+        );
     }
 
     #[test]
