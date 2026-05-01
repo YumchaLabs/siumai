@@ -1069,6 +1069,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   the raw response body on direct transformer usage.
 - Native Bedrock rerank response transformation now also preserves an AI SDK-style response
   envelope with the raw response body on direct transformer usage.
+- OpenAI-compatible rerank response transformation now preserves an AI SDK-style response envelope
+  with the raw response body before adapter normalization, covering shared Voyage/Jina/SiliconFlow
+  rerank paths that use the OpenAI-style standard directly.
 - Native Cohere chat response transformation now builds against the current shared
   response-metadata field.
 - The extensibility executor-testing example now builds against the current `ChatResponse`

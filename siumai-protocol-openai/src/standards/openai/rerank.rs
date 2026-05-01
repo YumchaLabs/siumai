@@ -26,7 +26,8 @@ use crate::core::{ProviderContext, ProviderSpec, RerankTransformers};
 use crate::error::LlmError;
 use crate::execution::transformers::rerank_request::RerankRequestTransformer;
 use crate::execution::transformers::rerank_response::RerankResponseTransformer;
-use crate::types::{RerankRequest, RerankResponse};
+use crate::types::{HttpResponseInfo, RerankRequest, RerankResponse};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// OpenAI Rerank API Standard
@@ -217,8 +218,24 @@ struct OpenAiRerankResponseTransformer {
     adapter: Option<Arc<dyn OpenAiRerankAdapter>>,
 }
 
+impl OpenAiRerankResponseTransformer {
+    fn response_info(raw: &serde_json::Value) -> HttpResponseInfo {
+        HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: raw
+                .get("model")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            headers: HashMap::new(),
+            body: Some(raw.clone()),
+        }
+    }
+}
+
 impl RerankResponseTransformer for OpenAiRerankResponseTransformer {
     fn transform(&self, mut resp: serde_json::Value) -> Result<RerankResponse, LlmError> {
+        let raw_body = resp.clone();
+
         // Apply adapter transformations
         if let Some(adapter) = &self.adapter {
             adapter.transform_response(&mut resp)?;
@@ -290,7 +307,7 @@ impl RerankResponseTransformer for OpenAiRerankResponseTransformer {
             id: resp["id"].as_str().unwrap_or("").to_string(),
             results,
             tokens,
-            response: None,
+            response: Some(Self::response_info(&raw_body)),
         })
     }
 }
@@ -352,6 +369,7 @@ mod tests {
 
         let resp = serde_json::json!({
             "id": "rerank-123",
+            "model": "test-model",
             "results": [
                 {
                     "index": 0,
@@ -382,6 +400,13 @@ mod tests {
         assert_eq!(rerank_resp.results[1].relevance_score, 0.85);
         assert_eq!(rerank_resp.tokens.input_tokens, 100);
         assert_eq!(rerank_resp.tokens.output_tokens, 10);
+        let response_info = rerank_resp.response.expect("response metadata");
+        assert_eq!(response_info.model_id.as_deref(), Some("test-model"));
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["id"],
+            "rerank-123"
+        );
     }
 
     #[test]
@@ -409,5 +434,50 @@ mod tests {
         let rerank_resp = transformers.response.transform(resp).expect("transform");
         assert_eq!(rerank_resp.tokens.input_tokens, 12);
         assert_eq!(rerank_resp.tokens.output_tokens, 3);
+    }
+
+    #[test]
+    fn test_rerank_response_metadata_preserves_raw_body_before_adapter_normalization() {
+        struct NormalizeDataAdapter;
+        impl OpenAiRerankAdapter for NormalizeDataAdapter {
+            fn transform_response(&self, resp: &mut serde_json::Value) -> Result<(), LlmError> {
+                resp["results"] = resp["data"].clone();
+                Ok(())
+            }
+        }
+
+        let standard = OpenAiRerankStandard::with_adapter(Arc::new(NormalizeDataAdapter));
+        let transformers = standard.create_transformers("test");
+
+        let resp = serde_json::json!({
+            "id": "rerank-123",
+            "data": [
+                {
+                    "index": 0,
+                    "relevance_score": 0.95
+                }
+            ]
+        });
+
+        let rerank_resp = transformers.response.transform(resp).expect("transform");
+        assert_eq!(rerank_resp.results[0].index, 0);
+
+        let response_info = rerank_resp.response.expect("response metadata");
+        assert!(
+            response_info
+                .body
+                .as_ref()
+                .expect("raw body")
+                .get("data")
+                .is_some()
+        );
+        assert!(
+            response_info
+                .body
+                .as_ref()
+                .expect("raw body")
+                .get("results")
+                .is_none()
+        );
     }
 }

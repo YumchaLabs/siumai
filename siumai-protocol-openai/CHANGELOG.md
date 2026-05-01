@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- OpenAI-compatible rerank response transformation now preserves an AI SDK-style response envelope
+  with the raw response body before adapter normalization, so direct transformer usage keeps the
+  same debugging metadata as the HTTP executor path.
 - OpenAI-compatible Alibaba/Qwen chat request shaping now applies AI SDK-style prompt cache
   markers from message/part `providerOptions.alibaba|qwen.cacheControl` as Alibaba
   `cache_control` content-part fields, while keeping request-level `cacheControl` out of the
