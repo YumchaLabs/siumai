@@ -333,13 +333,15 @@ where
     let request = request.with_response_format(response_format);
     let (request, effective_options) =
         crate::text::prepare_generate_request(request, options.generate_options);
-    let request_metadata = LanguageModelRequestMetadata {
-        body: serde_json::to_value(&request).ok(),
-    };
     let response_timestamp = Utc::now();
     let model_id = model.model_id().to_string();
 
     let response = crate::text::generate_prepared(model, request, effective_options).await?;
+    let request_metadata = response
+        .request
+        .as_ref()
+        .map(LanguageModelRequestMetadata::from)
+        .unwrap_or_default();
     let response_metadata = language_model_response_metadata_from_chat_response(
         &response,
         response_timestamp,
@@ -692,7 +694,7 @@ mod tests {
     use crate::text::TextModelV3;
     use async_trait::async_trait;
     use serde::Deserialize;
-    use siumai_core::types::HttpResponseInfo;
+    use siumai_core::types::{HttpRequestInfo, HttpResponseInfo};
     use std::sync::{Arc, Mutex};
 
     struct FakeObjectModel {
@@ -756,6 +758,22 @@ mod tests {
             tool_name: "legacy-tool".to_string(),
             details: Some("not available".to_string()),
         }]);
+        response.request = Some(HttpRequestInfo {
+            body: Some(
+                serde_json::json!({
+                    "model": "provider-model",
+                    "messages": [{ "role": "user", "content": "json" }],
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "person",
+                            "strict": true
+                        }
+                    }
+                })
+                .to_string(),
+            ),
+        });
         response.response = Some(HttpResponseInfo {
             timestamp: chrono::DateTime::parse_from_rfc3339("2026-04-30T00:00:00Z")
                 .expect("valid timestamp")
@@ -837,10 +855,26 @@ mod tests {
                 .request
                 .body
                 .as_ref()
-                .and_then(|body| body.get("responseFormat"))
+                .and_then(|body| body.get("model")),
+            Some(&serde_json::json!("provider-model"))
+        );
+        assert_eq!(
+            result
+                .request
+                .body
+                .as_ref()
+                .and_then(|body| body.get("response_format"))
                 .and_then(|format| format.get("type"))
                 .and_then(serde_json::Value::as_str),
-            Some("json")
+            Some("json_schema")
+        );
+        assert!(
+            result
+                .request
+                .body
+                .as_ref()
+                .and_then(|body| body.get("responseFormat"))
+                .is_none()
         );
 
         let request = seen_request
@@ -1192,9 +1226,20 @@ mod tests {
     #[tokio::test]
     async fn generate_json_sets_schema_less_response_format_and_parses_value() {
         let seen_request = Arc::new(Mutex::new(None));
-        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+        let mut response = ChatResponse::new(siumai_core::types::MessageContent::Text(
             "{\"answer\":42}".to_string(),
         ));
+        response.request = Some(HttpRequestInfo {
+            body: Some(
+                serde_json::json!({
+                    "model": "provider-model",
+                    "response_format": {
+                        "type": "json_object"
+                    }
+                })
+                .to_string(),
+            ),
+        });
         let model = FakeObjectModel {
             response,
             seen_request: seen_request.clone(),
@@ -1232,11 +1277,9 @@ mod tests {
                 .request
                 .body
                 .as_ref()
-                .and_then(|body| body.get("responseFormat")),
+                .and_then(|body| body.get("response_format")),
             Some(&serde_json::json!({
-                "type": "json",
-                "name": "payload",
-                "description": "Any JSON payload"
+                "type": "json_object"
             }))
         );
     }
