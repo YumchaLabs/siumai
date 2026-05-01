@@ -230,7 +230,9 @@ fn request_normalize_smoke_restores_anthropic_messages_request() {
     );
 
     let format = request.response_format.expect("response format");
-    let ResponseFormat::Json { schema, .. } = format;
+    let ResponseFormat::Json { schema, .. } = format else {
+        panic!("expected JSON schema response format");
+    };
     assert_eq!(schema["properties"]["name"]["type"], json!("string"));
     assert!(!report.is_rejected());
 }
