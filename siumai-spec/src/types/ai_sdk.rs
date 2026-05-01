@@ -13135,6 +13135,39 @@ mod tests {
     }
 
     #[test]
+    fn response_metadata_body_matrix_matches_ai_sdk_surfaces() {
+        let response = HttpResponseInfo {
+            timestamp: DateTime::parse_from_rfc3339("2026-04-21T09:00:00Z")
+                .expect("valid timestamp")
+                .with_timezone(&Utc),
+            model_id: Some("model-1".to_string()),
+            headers: HashMap::from([("x-test".to_string(), "1".to_string())]),
+            body: Some(serde_json::json!({ "raw": true })),
+        };
+
+        let rerank = RerankResponseMetadata::from(&response);
+        let speech =
+            SpeechModelResponseMetadata::try_from(&response).expect("convert speech metadata");
+        let transcription = TranscriptionModelResponseMetadata::try_from(&response)
+            .expect("convert transcription metadata");
+
+        assert_eq!(rerank.body.as_ref(), response.body.as_ref());
+        assert_eq!(speech.body.as_ref(), response.body.as_ref());
+        assert_eq!(transcription.body.as_ref(), response.body.as_ref());
+
+        let image =
+            ImageModelResponseMetadata::try_from(&response).expect("convert image metadata");
+        let video =
+            VideoModelResponseMetadata::try_from(&response).expect("convert video metadata");
+
+        let image_json = serde_json::to_value(&image).expect("serialize image metadata");
+        let video_json = serde_json::to_value(&video).expect("serialize video metadata");
+
+        assert!(image_json.get("body").is_none());
+        assert!(video_json.get("body").is_none());
+    }
+
+    #[test]
     fn generate_object_events_and_stream_parts_match_ai_sdk_shape() {
         let response_metadata = LanguageModelResponseMetadata {
             id: "resp_1".to_string(),
