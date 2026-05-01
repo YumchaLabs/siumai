@@ -1067,6 +1067,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `modelId` and the raw response body even when the low-level transformer is used directly.
 - Cohere rerank response transformation now also preserves an AI SDK-style response envelope with
   the raw response body on direct transformer usage.
+- Native Bedrock rerank response transformation now also preserves an AI SDK-style response
+  envelope with the raw response body on direct transformer usage.
 - Native Cohere chat response transformation now builds against the current shared
   response-metadata field.
 - The extensibility executor-testing example now builds against the current `ChatResponse`

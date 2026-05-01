@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native Bedrock streamed terminal `ChatResponse` values now also preserve the default model,
   request warnings, and Bedrock `stopSequence` metadata on the stream path instead of dropping
   them during JSON-stream accumulation.
+- Native Bedrock rerank response transformation now preserves an AI SDK-style response envelope
+  with the raw response body even when callers use the provider transformer directly outside the
+  HTTP executor path.
 - Native Bedrock Converse JSON streaming now also emits stable AI SDK-style body semantics instead
   of staying legacy-delta-only: text, reasoning, tool-input, tool-call, and terminal finish
   parts are emitted on the main stream lane while the older `ContentDelta` / `ThinkingDelta` /

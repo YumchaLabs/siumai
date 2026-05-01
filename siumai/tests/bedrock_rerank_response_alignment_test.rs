@@ -29,4 +29,11 @@ fn bedrock_rerank_response_maps_results() {
     assert_eq!(resp.results.len(), 2);
     assert_eq!(resp.results[0].index, 0);
     assert!(resp.results[0].relevance_score > 0.5);
+    assert_eq!(
+        resp.response
+            .as_ref()
+            .and_then(|info| info.body.as_ref())
+            .expect("raw response body")["results"][0]["relevanceScore"],
+        0.5110583305358887
+    );
 }
