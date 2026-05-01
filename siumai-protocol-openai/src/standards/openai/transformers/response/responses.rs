@@ -1929,7 +1929,19 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             warnings: None,
-            response: None,
+            response: Some(crate::types::HttpResponseInfo {
+                timestamp: root
+                    .get("created_at")
+                    .and_then(|value| value.as_i64())
+                    .and_then(|created_at| chrono::DateTime::from_timestamp(created_at, 0))
+                    .unwrap_or_else(chrono::Utc::now),
+                model_id: root
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                headers: std::collections::HashMap::new(),
+                body: Some(raw.clone()),
+            }),
             provider_metadata,
         })
     }
@@ -1941,6 +1953,37 @@ mod tests {
     use crate::encoding::{JsonEncodeOptions, JsonResponseConverter};
     use crate::execution::transformers::response::ResponseTransformer;
     use crate::standards::openai::json_response::OpenAiResponsesJsonResponseConverter;
+
+    #[test]
+    fn responses_chat_response_preserves_raw_response_body() {
+        let raw = serde_json::json!({
+            "id": "resp_1",
+            "created_at": 1710000000,
+            "model": "gpt-4.1-mini",
+            "output": [
+                {
+                    "type": "message",
+                    "id": "msg_1",
+                    "content": [
+                        { "type": "output_text", "text": "ok" }
+                    ]
+                }
+            ],
+            "usage": { "input_tokens": 1, "output_tokens": 2, "total_tokens": 3 }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let response_info = resp.response.expect("response metadata");
+
+        assert_eq!(response_info.model_id.as_deref(), Some("gpt-4.1-mini"));
+        assert_eq!(response_info.timestamp.timestamp(), 1710000000);
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["id"],
+            "resp_1"
+        );
+    }
 
     #[test]
     fn responses_provider_tools_are_exposed_as_tool_parts() {
