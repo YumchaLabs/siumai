@@ -713,7 +713,10 @@ impl StreamProcessor {
                     (!self.stream_warnings.is_empty()).then(|| self.stream_warnings.clone())
                 }),
             request: terminal_response.and_then(|response| response.request.clone()),
-            response: terminal_response.and_then(|response| response.response.clone()),
+            response: final_http_response_info(
+                terminal_response.and_then(|response| response.response.clone()),
+                self.start_metadata.as_ref(),
+            ),
             provider_metadata,
         }
     }
@@ -1027,6 +1030,43 @@ fn message_content_from_parts(parts: Vec<ContentPart>) -> MessageContent {
         ] if provider_options.is_empty() => MessageContent::Text(text.clone()),
         [] => MessageContent::Text(String::new()),
         _ => MessageContent::MultiModal(parts),
+    }
+}
+
+fn final_http_response_info(
+    terminal: Option<crate::types::HttpResponseInfo>,
+    start_metadata: Option<&ResponseMetadata>,
+) -> Option<crate::types::HttpResponseInfo> {
+    let Some(metadata) = start_metadata else {
+        return terminal;
+    };
+
+    let headers = metadata
+        .headers
+        .as_ref()
+        .filter(|headers| !headers.is_empty());
+    if headers.is_none() && metadata.body.is_none() {
+        return terminal;
+    }
+
+    match terminal {
+        Some(mut response) => {
+            if response.headers.is_empty()
+                && let Some(headers) = headers
+            {
+                response.headers = headers.clone();
+            }
+            if response.body.is_none() {
+                response.body = metadata.body.clone();
+            }
+            Some(response)
+        }
+        None => Some(crate::types::HttpResponseInfo {
+            timestamp: metadata.created.unwrap_or_else(chrono::Utc::now),
+            model_id: metadata.model.clone(),
+            headers: headers.cloned().unwrap_or_default(),
+            body: metadata.body.clone(),
+        }),
     }
 }
 
@@ -1399,11 +1439,18 @@ mod tests {
             metadata: ResponseMetadata {
                 id: Some("start_resp".to_string()),
                 model: Some("gpt-4o-mini".to_string()),
-                created: None,
+                created: Some(
+                    chrono::DateTime::parse_from_rfc3339("2026-04-30T12:00:00Z")
+                        .expect("valid timestamp")
+                        .with_timezone(&chrono::Utc),
+                ),
                 provider: "openai".to_string(),
                 request_id: Some("req_123".to_string()),
-                headers: None,
-                body: None,
+                headers: Some(HashMap::from([(
+                    "x-request-id".to_string(),
+                    "req_123".to_string(),
+                )])),
+                body: Some(serde_json::json!({ "stream": "metadata" })),
             },
         });
         let _ = sp.process_event(ChatStreamEvent::ContentDelta {
@@ -1419,6 +1466,15 @@ mod tests {
         assert_eq!(
             final_resp.content,
             MessageContent::Text("hello world".to_string())
+        );
+        let response = final_resp.response.expect("response metadata");
+        assert_eq!(
+            response.headers.get("x-request-id").map(String::as_str),
+            Some("req_123")
+        );
+        assert_eq!(
+            response.body,
+            Some(serde_json::json!({ "stream": "metadata" }))
         );
     }
 

@@ -177,7 +177,10 @@ mod tests {
                     created: None,
                     provider: "test".to_string(),
                     request_id: None,
-                    headers: None,
+                    headers: Some(std::collections::HashMap::from([(
+                        "x-stream-request-id".to_string(),
+                        "stream_req_1".to_string(),
+                    )])),
                     body: None,
                 },
             }),
@@ -205,6 +208,14 @@ mod tests {
                 assert_eq!(
                     response.usage.as_ref().and_then(|u| u.total_tokens()),
                     Some(3)
+                );
+                assert_eq!(
+                    response
+                        .response
+                        .as_ref()
+                        .and_then(|info| info.headers.get("x-stream-request-id"))
+                        .map(String::as_str),
+                    Some("stream_req_1")
                 );
                 assert_eq!(response.content, MessageContent::Text("Hello".to_string()));
             }
