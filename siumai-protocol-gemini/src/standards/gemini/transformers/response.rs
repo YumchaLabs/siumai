@@ -117,6 +117,37 @@ mod tests_gemini_metadata {
     }
 
     #[test]
+    fn gemini_chat_response_preserves_raw_response_body() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.0-flash-exp".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": { "parts": [ { "text": "hello" } ] },
+                    "finishReason": "STOP"
+                }
+            ],
+            "modelVersion": "gemini-2.0-flash-exp",
+            "responseId": "gemini-response-id"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let response_info = resp.response.expect("response metadata");
+
+        assert_eq!(
+            response_info.model_id.as_deref(),
+            Some("gemini-2.0-flash-exp")
+        );
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["responseId"],
+            "gemini-response-id"
+        );
+    }
+
+    #[test]
     fn finish_reason_stop_with_tool_calls_maps_to_tool_calls() {
         let cfg = GeminiConfig::default()
             .with_model("gemini-2.0-flash-exp".into())
@@ -1012,7 +1043,12 @@ impl ResponseTransformer for GeminiResponseTransformer {
             service_tier,
             warnings: None,
             provider_metadata,
-            response: None,
+            response: Some(crate::types::HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: response.model_version.clone(),
+                headers: std::collections::HashMap::new(),
+                body: Some(raw.clone()),
+            }),
         })
     }
 

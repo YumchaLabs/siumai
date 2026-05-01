@@ -588,7 +588,7 @@ impl AnthropicResponseTransformer {
 
         Ok(ChatResponse {
             id: Some(response.id),
-            model: Some(response.model),
+            model: Some(response.model.clone()),
             content,
             usage,
             finish_reason,
@@ -597,7 +597,12 @@ impl AnthropicResponseTransformer {
             system_fingerprint: None,
             service_tier: response.usage.as_ref().and_then(|u| u.service_tier.clone()),
             warnings: None,
-            response: None,
+            response: Some(crate::types::HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: Some(response.model),
+                headers: std::collections::HashMap::new(),
+                body: Some(raw.clone()),
+            }),
             provider_metadata,
         })
     }
@@ -661,6 +666,36 @@ mod tests {
         );
         let meta = resp.anthropic_metadata().expect("anthropic metadata");
         assert_eq!(meta.thinking_signature.as_deref(), Some("sig"));
+    }
+
+    #[test]
+    fn anthropic_chat_response_preserves_raw_response_body() {
+        let tx = AnthropicResponseTransformer::default();
+        let raw = serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-7-sonnet-latest",
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": { "input_tokens": 1, "output_tokens": 2 },
+            "content": [
+                { "type": "text", "text": "ok" }
+            ]
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let response_info = resp.response.expect("response metadata");
+
+        assert_eq!(
+            response_info.model_id.as_deref(),
+            Some("claude-3-7-sonnet-latest")
+        );
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["id"],
+            "msg_1"
+        );
     }
 
     #[test]

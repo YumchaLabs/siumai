@@ -10,8 +10,8 @@ use crate::provider_options::{CohereChatOptions, CohereThinkingType};
 use crate::streaming::EventBuilder;
 use crate::types::{
     ChatRequest, ChatResponse, ChatStreamEvent, ChatStreamFinishInfo, ChatStreamPart,
-    ChatStreamToolCall, ContentPart, FinishReason, MessageContent, ResponseFormat, SourcePart,
-    Tool, ToolChoice, Usage, Warning,
+    ChatStreamToolCall, ContentPart, FinishReason, HttpResponseInfo, MessageContent,
+    ResponseFormat, SourcePart, Tool, ToolChoice, Usage, Warning,
 };
 use eventsource_stream::Event;
 use serde_json::{Value, json};
@@ -276,7 +276,7 @@ impl ResponseTransformer for CohereChatResponseTransformer {
                 .and_then(Value::as_str)
                 .map(|value| value.to_string()),
             content: shared::message_content_from_parts(parts),
-            model,
+            model: model.clone(),
             usage,
             finish_reason: Some(shared::map_finish_reason(
                 raw.get("finish_reason").and_then(Value::as_str),
@@ -290,7 +290,12 @@ impl ResponseTransformer for CohereChatResponseTransformer {
             service_tier: None,
             warnings: (!self.warnings.is_empty()).then_some(self.warnings.clone()),
             provider_metadata: None,
-            response: None,
+            response: Some(HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: model,
+                headers: HashMap::new(),
+                body: Some(raw.clone()),
+            }),
         })
     }
 }
@@ -1218,6 +1223,44 @@ mod tests {
                 "provider-defined tool openai.web_search",
                 None::<String>,
             )])
+        );
+    }
+
+    #[test]
+    fn cohere_non_stream_response_preserves_raw_response_body() {
+        let mut request = ChatRequest::new(vec![ChatMessage::user("hello").build()]);
+        request.common_params.model = "command-a-03-2025".to_string();
+        let transformers = CohereChatStandard::new().create_transformers("cohere", &request);
+
+        let response = transformers
+            .response
+            .transform_chat_response(&json!({
+                "generation_id": "gen-body",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "hello from cohere"
+                        }
+                    ]
+                },
+                "finish_reason": "COMPLETE",
+                "usage": {
+                    "tokens": {
+                        "input_tokens": 3,
+                        "output_tokens": 5
+                    }
+                }
+            }))
+            .expect("transform response");
+        let response_info = response.response.expect("response metadata");
+
+        assert_eq!(response_info.model_id.as_deref(), Some("command-a-03-2025"));
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["generation_id"],
+            "gen-body"
         );
     }
 
