@@ -184,8 +184,16 @@ pub async fn generate_text<M: LanguageModel + ?Sized>(
     request: TextRequest,
     options: GenerateOptions,
 ) -> Result<GenerateTextProjectionResult, LlmError> {
-    let response = generate(model, request, options).await?;
-    Ok(project_generate_text_response(model, response))
+    let (request, effective) = prepare_generate_request(request, options);
+    let request_metadata = LanguageModelRequestMetadata {
+        body: serde_json::to_value(&request).ok(),
+    };
+    let response = generate_prepared(model, request, effective).await?;
+    Ok(project_generate_text_response(
+        model,
+        response,
+        request_metadata,
+    ))
 }
 
 /// Generate a streaming text response.
@@ -257,6 +265,7 @@ pub async fn stream_with_cancel<M: TextModelV3 + ?Sized>(
 fn project_generate_text_response<M: LanguageModel + ?Sized>(
     model: &M,
     response: TextResponse,
+    request_metadata: LanguageModelRequestMetadata,
 ) -> GenerateTextProjectionResult {
     let call_id = response.id.clone().unwrap_or_else(crate::generate_id);
     let http_response = response.response.as_ref();
@@ -298,8 +307,6 @@ fn project_generate_text_response<M: LanguageModel + ?Sized>(
         .finish_reason
         .clone()
         .unwrap_or(FinishReason::Unknown);
-    let request_metadata = LanguageModelRequestMetadata::default();
-
     let warnings = response
         .warnings
         .clone()
@@ -751,6 +758,17 @@ mod tests {
         assert_eq!(result.steps[0].call_id, "resp-1");
         assert_eq!(result.steps[0].model.provider, "test-provider");
         assert_eq!(result.steps[0].model.model_id, "provider-model");
+        assert_eq!(result.steps[0].request, result.request);
+        assert_eq!(
+            result
+                .request
+                .body
+                .as_ref()
+                .and_then(|body| body.get("messages"))
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
         assert_eq!(result.warnings, result.steps[0].warnings);
         assert_eq!(
             serde_json::to_value(result.warnings.as_ref().expect("warnings"))
