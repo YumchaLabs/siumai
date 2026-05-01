@@ -273,6 +273,21 @@ where
     transcription::transcribe(model, request, options).await
 }
 
+/// Generate videos through the AI SDK-style experimental helper surface.
+///
+/// This returns the passive `GenerateVideoResult` envelope over generated files.
+/// Use `siumai::video::generate(...)` when you need the Rust-first task-oriented result.
+pub async fn experimental_generate_video<M>(
+    model: &M,
+    request: video::VideoGenerationRequest,
+    options: video::GenerateOptions,
+) -> Result<siumai_core::types::GenerateVideoResult, siumai_core::error::LlmError>
+where
+    M: video::VideoModel + ?Sized,
+{
+    video::experimental_generate_video_result(model, request, options).await
+}
+
 /// Upload a file through the high-level AI SDK-style helper surface.
 pub async fn upload_file<A, D>(
     api: &A,
@@ -2172,6 +2187,7 @@ pub mod prelude {
     pub mod unified {
         #[doc(hidden)]
         pub use crate::Provider;
+        pub use crate::experimental_generate_video;
         pub use crate::files::{
             FileUploadProvider, UploadFileApi, UploadFileOptions, UploadFileProviderMetadata,
             UploadFileResult,
@@ -2200,8 +2216,6 @@ pub mod prelude {
         pub use crate::tools;
         #[allow(deprecated)]
         pub use crate::transcription::experimental_transcribe;
-        #[allow(deprecated)]
-        pub use crate::video::experimental_generate_video;
         pub use crate::{
             Arrayable, DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX,
             DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE,

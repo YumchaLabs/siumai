@@ -1351,8 +1351,8 @@ fn public_family_helpers_compile_against_stable_family_models() {
             ImageGenerationRequest, ImageModel, ImageVariationRequest,
         },
         prelude::unified::{
-            ChatMessage, JSONValue, generate_array, generate_choice, generate_enum, generate_image,
-            generate_json, generate_object, registry::*,
+            ChatMessage, JSONValue, experimental_generate_video, generate_array, generate_choice,
+            generate_enum, generate_image, generate_json, generate_object, registry::*,
         },
         rerank::{self, RerankRequest, RerankingModel},
         speech::{self, SpeechModel, TtsRequest},
@@ -1505,6 +1505,16 @@ fn public_family_helpers_compile_against_stable_family_models() {
         std::mem::drop(video::query_task(model, "task-123", Default::default()));
         std::mem::drop(video::wait_for_task(model, "task-123", Default::default()));
         std::mem::drop(video::generate(
+            model,
+            VideoGenerationRequest::new("video-model", "animate a robot"),
+            Default::default(),
+        ));
+        std::mem::drop(video::experimental_generate_video_result(
+            model,
+            VideoGenerationRequest::new("video-model", "animate a robot"),
+            Default::default(),
+        ));
+        std::mem::drop(experimental_generate_video(
             model,
             VideoGenerationRequest::new("video-model", "animate a robot"),
             Default::default(),

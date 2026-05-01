@@ -513,6 +513,38 @@ impl GenerateMaterializedVideoResult {
     }
 }
 
+fn project_generate_video_result(
+    result: GenerateVideoResult,
+) -> Result<siumai_core::types::GenerateVideoResult, LlmError> {
+    let mut files = Vec::with_capacity(result.videos.len());
+    for video in &result.videos {
+        files.push(siumai_core::types::GeneratedFile::from_base64(
+            video.base64()?,
+            video.media_type.clone(),
+        ));
+    }
+
+    let Some(projected) = siumai_core::types::GenerateVideoResult::from_videos(files) else {
+        let responses = result
+            .responses
+            .iter()
+            .filter_map(|response| {
+                response
+                    .query_response
+                    .clone()
+                    .or_else(|| response.create_response.clone())
+            })
+            .collect();
+        return Err(LlmError::NoVideoGenerated { responses });
+    };
+
+    let responses = result.video_model_responses();
+    Ok(projected
+        .with_warnings(result.warnings)
+        .with_responses(responses)
+        .with_provider_metadata(result.provider_metadata))
+}
+
 fn apply_video_call_options(
     mut request: VideoGenerationRequest,
     timeout: Option<Duration>,
@@ -1391,6 +1423,20 @@ pub async fn experimental_generate_video<M: VideoModelV4 + ?Sized>(
     options: GenerateOptions,
 ) -> Result<GenerateVideoResult, LlmError> {
     generate(model, request, options).await
+}
+
+/// Generate videos and project the task-oriented result into the AI SDK-style
+/// `GenerateVideoResult` envelope.
+///
+/// Use `video::generate(...)` when you need completed task responses or URL/provider-reference
+/// assets preserved in the Rust-first result shape.
+pub async fn experimental_generate_video_result<M: VideoModelV4 + ?Sized>(
+    model: &M,
+    request: VideoGenerationRequest,
+    options: GenerateOptions,
+) -> Result<siumai_core::types::GenerateVideoResult, LlmError> {
+    let result = generate(model, request, options).await?;
+    project_generate_video_result(result)
 }
 
 /// Submit video-generation tasks, poll them to completion, and normalize the result into explicit
@@ -2841,5 +2887,39 @@ mod tests {
             Some("inline-task:inline-video-model")
         );
         assert!(result.video_model_responses().is_empty());
+    }
+
+    #[tokio::test]
+    async fn experimental_generate_video_result_projects_ai_sdk_result_envelope() {
+        let model = FakeInlineMaterializedVideoModel;
+
+        let result = experimental_generate_video_result(
+            &model,
+            VideoGenerationRequest::new("inline-video-model", "animate inline"),
+            GenerateOptions {
+                poll_interval: Duration::from_millis(1),
+                poll_timeout: Some(Duration::from_millis(20)),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("project video result");
+
+        assert_eq!(result.videos.len(), 1);
+        assert_eq!(result.video.base64, STANDARD.encode([1_u8, 2, 3]));
+        assert_eq!(result.video.media_type, "video/mp4");
+        assert!(result.responses.is_empty());
+        let provider_metadata = result
+            .provider_metadata
+            .get("inline-video")
+            .and_then(serde_json::Value::as_object)
+            .expect("provider metadata");
+        assert_eq!(
+            provider_metadata
+                .get("videos")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
     }
 }
