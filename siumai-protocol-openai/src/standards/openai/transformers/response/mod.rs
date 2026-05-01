@@ -122,7 +122,15 @@ impl ResponseTransformer for OpenAiResponseTransformer {
             images,
             metadata,
             warnings: None,
-            response: None,
+            response: Some(HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: raw
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
+                headers: HashMap::new(),
+                body: None,
+            }),
         })
     }
 
@@ -229,6 +237,30 @@ mod embedding_tests {
             response_info.body.as_ref().expect("raw body")["data"][0]["embedding"][1],
             0.2
         );
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+    use crate::execution::transformers::response::ResponseTransformer;
+
+    #[test]
+    fn openai_image_response_includes_empty_response_envelope() {
+        let raw = serde_json::json!({
+            "created": 1733837122_u64,
+            "data": [
+                { "b64_json": "image-1" }
+            ]
+        });
+
+        let tx = OpenAiResponseTransformer;
+        let resp = tx.transform_image_response(&raw).expect("image response");
+        let response_info = resp.response.expect("response metadata");
+
+        assert!(response_info.model_id.is_none());
+        assert!(response_info.headers.is_empty());
+        assert!(response_info.body.is_none());
     }
 }
 
