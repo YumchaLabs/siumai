@@ -7,6 +7,8 @@ use crate::execution::transformers::request::RequestTransformer;
 use crate::streaming::adapters::{
     InterceptingConverter, MiddlewareConverter, MiddlewareJsonConverter, TransformerConverter,
 };
+use crate::types::{ChatStreamEvent, HttpRequestInfo};
+use futures_util::StreamExt;
 use std::collections::HashMap;
 
 // -----------------------------------------------------------------------------
@@ -86,6 +88,29 @@ pub(super) fn build_effective_chat_request_http_config(
     Some(out)
 }
 
+fn attach_stream_request_metadata(
+    stream: crate::streaming::ChatStream,
+    request_body: Option<String>,
+) -> crate::streaming::ChatStream {
+    let Some(body) = request_body else {
+        return stream;
+    };
+    let request = HttpRequestInfo { body: Some(body) };
+
+    Box::pin(stream.map(move |event| {
+        let request = request.clone();
+        event.map(|event| match event {
+            ChatStreamEvent::StreamEnd { mut response } => {
+                if response.request.is_none() {
+                    response.request = Some(request);
+                }
+                ChatStreamEvent::StreamEnd { response }
+            }
+            other => other,
+        })
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn create_sse_stream_with_middlewares(
     provider_id: String,
@@ -103,6 +128,7 @@ pub(super) async fn create_sse_stream_with_middlewares(
     disable_compression: bool,
     retry_options: Option<crate::retry_api::RetryOptions>,
 ) -> Result<crate::streaming::ChatStream, LlmError> {
+    let request_body = serde_json::to_string(&transformed).ok();
     let converter = TransformerConverter(sse_tx.clone());
     let mw_wrapped = MiddlewareConverter {
         middlewares: middlewares.clone(),
@@ -121,7 +147,7 @@ pub(super) async fn create_sse_stream_with_middlewares(
         convert: mw_wrapped,
     };
 
-    crate::execution::executors::stream_sse::execute_sse_stream_request_with_headers(
+    let stream = crate::execution::executors::stream_sse::execute_sse_stream_request_with_headers(
         &http,
         &provider_id,
         Some(provider_spec.as_ref()),
@@ -136,7 +162,9 @@ pub(super) async fn create_sse_stream_with_middlewares(
         disable_compression,
         transport,
     )
-    .await
+    .await?;
+
+    Ok(attach_stream_request_metadata(stream, request_body))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -155,6 +183,7 @@ pub(super) async fn create_json_stream_with_middlewares(
     req_in: crate::types::ChatRequest,
     disable_compression: bool,
 ) -> Result<crate::streaming::ChatStream, LlmError> {
+    let request_body = serde_json::to_string(&transformed).ok();
     let mw = MiddlewareJsonConverter {
         middlewares: middlewares.clone(),
         req: req_in.clone(),
@@ -162,21 +191,24 @@ pub(super) async fn create_json_stream_with_middlewares(
     };
     let per_request_http_config =
         build_effective_chat_request_http_config(&provider_spec, &provider_context, true, &req_in);
-    crate::execution::executors::stream_json::execute_json_stream_request_with_headers(
-        &http,
-        &provider_id,
-        Some(provider_spec.as_ref()),
-        &url,
-        headers_base,
-        transformed,
-        &interceptors,
-        None,
-        per_request_http_config.as_ref(),
-        mw,
-        disable_compression,
-        transport,
-    )
-    .await
+    let stream =
+        crate::execution::executors::stream_json::execute_json_stream_request_with_headers(
+            &http,
+            &provider_id,
+            Some(provider_spec.as_ref()),
+            &url,
+            headers_base,
+            transformed,
+            &interceptors,
+            None,
+            per_request_http_config.as_ref(),
+            mw,
+            disable_compression,
+            transport,
+        )
+        .await?;
+
+    Ok(attach_stream_request_metadata(stream, request_body))
 }
 
 // -----------------------------------------------------------------------------

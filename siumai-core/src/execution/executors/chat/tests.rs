@@ -1,5 +1,8 @@
 use super::*;
-use crate::execution::http::transport::{HttpTransportRequest, HttpTransportResponse};
+use crate::execution::http::transport::{
+    HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
+    HttpTransportStreamResponse,
+};
 use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
@@ -67,6 +70,30 @@ impl crate::execution::http::transport::HttpTransport for StaticResponseTranspor
         _request: HttpTransportRequest,
     ) -> Result<HttpTransportResponse, LlmError> {
         Ok(self.response.clone())
+    }
+}
+
+#[derive(Clone)]
+struct StaticStreamTransport {
+    response: Arc<dyn Fn() -> HttpTransportStreamResponse + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl crate::execution::http::transport::HttpTransport for StaticStreamTransport {
+    async fn execute_json(
+        &self,
+        _request: HttpTransportRequest,
+    ) -> Result<HttpTransportResponse, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "json transport is not used in this test".to_string(),
+        ))
+    }
+
+    async fn execute_stream(
+        &self,
+        _request: HttpTransportRequest,
+    ) -> Result<HttpTransportStreamResponse, LlmError> {
+        Ok((self.response)())
     }
 }
 
@@ -246,6 +273,91 @@ async fn nonstream_attaches_headers_and_raw_body_response_envelope() {
         Some("chat_req_123")
     );
     assert_eq!(response_info.body, Some(raw_body));
+}
+
+#[tokio::test]
+async fn stream_end_attaches_provider_request_body() {
+    #[derive(Clone)]
+    struct EndStreamTransformer;
+
+    impl crate::execution::transformers::stream::StreamChunkTransformer for EndStreamTransformer {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+
+        fn convert_event(
+            &self,
+            _event: eventsource_stream::Event,
+        ) -> crate::execution::transformers::stream::StreamEventFuture<'_> {
+            Box::pin(async {
+                vec![Ok(crate::types::ChatStreamEvent::StreamEnd {
+                    response: crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+                        "streamed".to_string(),
+                    )),
+                })]
+            })
+        }
+    }
+
+    let transport = StaticStreamTransport {
+        response: Arc::new(|| {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("text/event-stream"),
+            );
+            HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(b"data: {}\n\n".to_vec()),
+            }
+        }),
+    };
+    let provider_context = crate::core::ProviderContext::new(
+        "test",
+        "http://127.0.0.1",
+        None,
+        std::collections::HashMap::new(),
+    );
+    let exec = HttpChatExecutor {
+        provider_id: "test".into(),
+        http_client: reqwest::Client::new(),
+        request_transformer: Some(Arc::new(EchoRequestTransformer)),
+        response_transformer: Some(Arc::new(NoopResponseTransformer)),
+        stream_transformer: Some(Arc::new(EndStreamTransformer)),
+        json_stream_converter: None,
+        defer_transformer_selection: false,
+        policy: crate::execution::ExecutionPolicy::new()
+            .with_stream_disable_compression(true)
+            .with_transport(Arc::new(transport)),
+        middlewares: vec![],
+        provider_spec: Arc::new(TestProviderSpec),
+        provider_context,
+    };
+
+    let mut req = crate::types::ChatRequest::new(vec![]);
+    req.common_params.model = "request-model".to_string();
+    let mut stream = exec.execute_stream(req).await.expect("stream response");
+    let mut terminal = None;
+    while let Some(event) = stream.next().await {
+        if let crate::types::ChatStreamEvent::StreamEnd { response } = event.expect("stream event")
+        {
+            terminal = Some(response);
+        }
+    }
+    let response = terminal.expect("terminal response");
+    let request_body: serde_json::Value = serde_json::from_str(
+        response
+            .request
+            .as_ref()
+            .and_then(|request| request.body.as_deref())
+            .expect("terminal request body"),
+    )
+    .expect("valid terminal request body");
+
+    assert_eq!(response.content_text(), Some("streamed"));
+    assert_eq!(request_body["model"], serde_json::json!("request-model"));
+    assert_eq!(request_body["messages_len"], serde_json::json!(0));
 }
 
 #[tokio::test]
