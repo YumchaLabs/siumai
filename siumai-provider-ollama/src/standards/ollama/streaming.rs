@@ -217,6 +217,7 @@ impl OllamaEventConverter {
             provider: "ollama".to_string(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 
@@ -232,6 +233,7 @@ impl OllamaEventConverter {
             provider: "ollama".to_string(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 }
@@ -629,6 +631,7 @@ mod tests {
                 provider: "ollama".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         });
 
@@ -663,6 +666,7 @@ mod tests {
                 provider: "ollama".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         });
 

@@ -65,6 +65,21 @@ builtins = []
 
 structured-messages = [
     "siumai-core/structured-messages",
+    "siumai-protocol-openai?/structured-messages",
+    "siumai-provider-openai?/structured-messages",
+    "siumai-provider-openai-compatible?/structured-messages",
+    "siumai-provider-azure?/structured-messages",
+    "siumai-provider-anthropic?/structured-messages",
+    "siumai-provider-gemini?/structured-messages",
+    "siumai-provider-google-vertex?/structured-messages",
+    "siumai-provider-ollama?/structured-messages",
+    "siumai-provider-groq?/structured-messages",
+    "siumai-provider-xai?/structured-messages",
+    "siumai-provider-minimaxi?/structured-messages",
+    "siumai-provider-deepseek?/structured-messages",
+    "siumai-provider-cohere?/structured-messages",
+    "siumai-provider-togetherai?/structured-messages",
+    "siumai-provider-amazon-bedrock?/structured-messages",
     "builtins",
 ]
 

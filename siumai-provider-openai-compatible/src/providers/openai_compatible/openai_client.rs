@@ -321,6 +321,7 @@ impl CompletionStreamState {
             provider: provider.to_string(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 
@@ -1105,6 +1106,7 @@ impl OpenAiCompatibleClient {
                     let headers = crate::execution::http::headers::headermap_to_hashmap(headers);
                     (!headers.is_empty()).then_some(headers)
                 },
+                body: Some(raw.clone()),
             }),
             warnings: (!warnings.is_empty()).then_some(warnings),
             provider_metadata: completion_provider_metadata(&provider_metadata_key, &raw),
@@ -6662,6 +6664,16 @@ data: [DONE]
         );
 
         assert_eq!(response.text(), "hello");
+        let response_body = response
+            .response_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.body.as_ref())
+            .expect("compatible completion response body");
+        assert_eq!(response_body["id"], serde_json::json!("cmpl_compat_1"));
+        assert_eq!(
+            response_body["choices"][0]["text"],
+            serde_json::json!("hello")
+        );
         assert_eq!(
             response
                 .provider_metadata

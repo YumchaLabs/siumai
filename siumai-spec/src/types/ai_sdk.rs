@@ -10986,7 +10986,7 @@ impl From<&ResponseMetadata> for LanguageModelV4GenerateResponseMetadata {
             timestamp: value.created,
             model_id: value.model.clone(),
             headers: value.headers.clone(),
-            body: None,
+            body: value.body.clone(),
         }
     }
 }
@@ -13068,6 +13068,7 @@ mod tests {
                 "x-request-id".to_string(),
                 "req_123".to_string(),
             )])),
+            body: None,
         };
 
         let converted =
@@ -13082,6 +13083,34 @@ mod tests {
                 .and_then(|headers| headers.get("x-request-id"))
                 .map(String::as_str),
             Some("req_123")
+        );
+    }
+
+    #[test]
+    fn language_model_v4_generate_response_metadata_preserves_body() {
+        let metadata = ResponseMetadata {
+            id: Some("resp_123".to_string()),
+            model: Some("gpt-4o".to_string()),
+            created: Some(
+                DateTime::parse_from_rfc3339("2026-04-21T09:00:00Z")
+                    .expect("valid timestamp")
+                    .with_timezone(&Utc),
+            ),
+            provider: "openai".to_string(),
+            request_id: None,
+            headers: None,
+            body: Some(serde_json::json!({ "choices": [{ "text": "hello" }] })),
+        };
+
+        let converted = LanguageModelV4GenerateResponseMetadata::from(&metadata);
+
+        assert_eq!(converted.id.as_deref(), Some("resp_123"));
+        assert_eq!(
+            converted
+                .body
+                .as_ref()
+                .and_then(|body| body["choices"][0]["text"].as_str()),
+            Some("hello")
         );
     }
 

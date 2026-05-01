@@ -1172,6 +1172,7 @@ impl GeminiEventConverter {
             provider: "gemini".to_string(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 }

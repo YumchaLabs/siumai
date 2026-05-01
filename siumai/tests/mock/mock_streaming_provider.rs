@@ -4,7 +4,7 @@
 //! complete streaming scenarios for testing purposes.
 
 use async_trait::async_trait;
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use siumai::prelude::unified::{
     ChatMessage, ChatResponse, ChatStream, ChatStreamEvent, FinishReason, LlmError, MessageContent,
     ResponseMetadata, Usage,
@@ -37,6 +37,7 @@ impl Default for MockStreamingProvider {
                 created: Some(chrono::Utc::now()),
                 provider: "mock".to_string(),
                 request_id: Some("req-456".to_string()),
+                body: None,
             },
             content: "Hello world!".to_string(),
             include_thinking: false,
@@ -97,7 +98,7 @@ impl MockStreamingProvider {
             events.push(Ok(ChatStreamEvent::ThinkingDelta {
                 delta: "Let me think about this...".to_string(),
             }));
-            
+
             if let Some(delay) = self.event_delay {
                 tokio::time::sleep(delay).await;
             }
@@ -209,8 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_basic_stream() {
-        let provider = MockStreamingProvider::new()
-            .with_content("Hello world");
+        let provider = MockStreamingProvider::new().with_content("Hello world");
 
         let mut stream = provider.create_stream().await.unwrap();
         let mut events = Vec::new();
@@ -261,12 +261,24 @@ mod tests {
         }
 
         // Should have all event types
-        let has_stream_start = events.iter().any(|e| matches!(e, ChatStreamEvent::StreamStart { .. }));
-        let has_thinking = events.iter().any(|e| matches!(e, ChatStreamEvent::ThinkingDelta { .. }));
-        let has_tool_call = events.iter().any(|e| matches!(e, ChatStreamEvent::ToolCallDelta { .. }));
-        let has_content = events.iter().any(|e| matches!(e, ChatStreamEvent::ContentDelta { .. }));
-        let has_usage = events.iter().any(|e| matches!(e, ChatStreamEvent::UsageUpdate { .. }));
-        let has_stream_end = events.iter().any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
+        let has_stream_start = events
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::StreamStart { .. }));
+        let has_thinking = events
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::ThinkingDelta { .. }));
+        let has_tool_call = events
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::ToolCallDelta { .. }));
+        let has_content = events
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::ContentDelta { .. }));
+        let has_usage = events
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::UsageUpdate { .. }));
+        let has_stream_end = events
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
 
         assert!(has_stream_start, "Should have StreamStart");
         assert!(has_thinking, "Should have ThinkingDelta");

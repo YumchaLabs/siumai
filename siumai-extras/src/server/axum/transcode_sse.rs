@@ -1394,6 +1394,7 @@ mod transcode_tests {
                     provider: "openai".to_string(),
                     request_id: None,
                     headers: None,
+                    body: None,
                 },
             }),
             Ok(ChatStreamEvent::ContentDelta {

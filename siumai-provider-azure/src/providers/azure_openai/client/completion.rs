@@ -201,6 +201,7 @@ impl CompletionStreamState {
             provider: provider.to_string(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 
@@ -693,6 +694,7 @@ impl AzureOpenAiClient {
                     let headers = crate::execution::http::headers::headermap_to_hashmap(headers);
                     (!headers.is_empty()).then_some(headers)
                 },
+                body: Some(raw.clone()),
             }),
             warnings: (!warnings.is_empty()).then_some(warnings),
             provider_metadata: completion_provider_metadata(provider_key, &raw),
@@ -854,6 +856,16 @@ mod tests {
         assert_eq!(response.finish_reason, Some(FinishReason::Stop));
         assert_eq!(response.raw_finish_reason.as_deref(), Some("stop"));
         assert_eq!(response.id(), Some("cmpl-azure-1"));
+        let response_body = response
+            .response_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.body.as_ref())
+            .expect("azure completion response body");
+        assert_eq!(response_body["id"], serde_json::json!("cmpl-azure-1"));
+        assert_eq!(
+            response_body["choices"][0]["text"],
+            serde_json::json!("world")
+        );
         assert_eq!(
             response
                 .provider_metadata

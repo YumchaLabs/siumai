@@ -1635,6 +1635,7 @@ impl BedrockEventConverter {
             provider: self.provider_id.clone(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 

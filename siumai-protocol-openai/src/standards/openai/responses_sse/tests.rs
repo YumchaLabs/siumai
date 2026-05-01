@@ -1927,6 +1927,7 @@ fn responses_stream_proxy_serializes_basic_text_deltas() {
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         })
         .expect("serialize start");
@@ -2014,6 +2015,7 @@ fn responses_stream_proxy_serializes_openai_text_stream_part_delta() {
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         })
         .expect("serialize start");
@@ -2048,6 +2050,7 @@ fn responses_stream_proxy_serializes_v3_text_delta_even_with_non_openai_event_ty
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         })
         .expect("serialize start");
@@ -2124,6 +2127,7 @@ fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_add
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         })
         .expect("serialize start");
@@ -2301,6 +2305,7 @@ fn responses_stream_proxy_serializes_tool_input_stream_parts_as_function_call_ar
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         })
         .expect("serialize start");
@@ -3152,6 +3157,7 @@ fn responses_stream_proxy_serializes_stream_start_and_response_metadata_parts() 
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -3182,6 +3188,7 @@ fn responses_stream_proxy_serializes_text_start_and_end_parts() {
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -3250,6 +3257,7 @@ fn responses_stream_proxy_serializes_reasoning_start_and_end_parts() {
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -3298,6 +3306,7 @@ fn responses_stream_proxy_serializes_finish_part_as_response_completed() {
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -3591,6 +3600,7 @@ fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -3807,6 +3817,7 @@ fn responses_stream_proxy_closes_function_call_on_stream_end() {
             provider: "openai".to_string(),
             request_id: None,
             headers: None,
+            body: None,
         },
     });
 

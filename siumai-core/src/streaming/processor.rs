@@ -1400,6 +1400,7 @@ mod tests {
                 provider: "openai".to_string(),
                 request_id: Some("req_123".to_string()),
                 headers: None,
+                body: None,
             },
         });
         let _ = sp.process_event(ChatStreamEvent::ContentDelta {

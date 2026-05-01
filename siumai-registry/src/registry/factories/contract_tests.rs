@@ -1391,9 +1391,7 @@ mod azure_contract {
 #[cfg(feature = "cohere")]
 mod cohere_contract {
     use super::*;
-    use crate::traits::{
-        ChatCapability, EmbeddingExtensions, ImageGenerationCapability, RerankCapability,
-    };
+    use crate::traits::{ChatCapability, EmbeddingExtensions, RerankCapability};
     use reqwest::header::AUTHORIZATION;
     use siumai_provider_cohere::provider_options::{
         CohereChatOptions, CohereEmbeddingInputType, CohereEmbeddingOptions,

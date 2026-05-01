@@ -53,6 +53,7 @@ impl ChatCapability for MockClient {
             provider: self.provider.to_string(),
             request_id: None,
             headers: None,
+            body: None,
         };
 
         Ok(Box::pin(stream::iter([

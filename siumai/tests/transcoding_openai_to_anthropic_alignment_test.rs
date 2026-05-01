@@ -96,6 +96,7 @@ fn encode_anthropic_messages_sse(
                 provider: "anthropic".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         })
         .expect("serialize stream start");

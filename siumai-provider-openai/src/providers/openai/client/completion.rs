@@ -203,6 +203,7 @@ impl CompletionStreamState {
             provider: provider.to_string(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 
@@ -674,6 +675,7 @@ impl OpenAiClient {
                     let headers = crate::execution::http::headers::headermap_to_hashmap(headers);
                     (!headers.is_empty()).then_some(headers)
                 },
+                body: Some(raw.clone()),
             }),
             warnings: (!warnings.is_empty()).then_some(warnings),
             provider_metadata: completion_provider_metadata("openai", &raw),
@@ -847,6 +849,16 @@ mod tests {
         assert_eq!(response.raw_finish_reason.as_deref(), Some("stop"));
         assert_eq!(response.id(), Some("cmpl-openai-1"));
         assert_eq!(response.model(), Some("gpt-3.5-turbo-instruct"));
+        let response_body = response
+            .response_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.body.as_ref())
+            .expect("completion response body");
+        assert_eq!(response_body["id"], serde_json::json!("cmpl-openai-1"));
+        assert_eq!(
+            response_body["choices"][0]["text"],
+            serde_json::json!("world")
+        );
         assert_eq!(
             response
                 .usage

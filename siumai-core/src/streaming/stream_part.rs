@@ -1830,6 +1830,7 @@ impl LanguageModelV3StreamPart {
                     provider: String::new(),
                     request_id: None,
                     headers: None,
+                    body: None,
                 })
             }
             Self::Finish {

@@ -426,6 +426,9 @@ pub struct ResponseMetadata {
     /// Response headers when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
+    /// Raw response body when the provider surface exposes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -637,6 +640,7 @@ mod tests {
                 "x-request-id".to_string(),
                 "req_1".to_string(),
             )])),
+            body: None,
         };
 
         let value = serde_json::to_value(&metadata).expect("serialize metadata");

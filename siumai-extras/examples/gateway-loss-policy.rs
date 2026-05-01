@@ -220,6 +220,7 @@ fn synthetic_cross_protocol_stream() -> ChatStream {
                 provider: "openai".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             },
         }),
         Ok(ChatStreamEvent::ContentDelta {

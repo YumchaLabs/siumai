@@ -531,6 +531,7 @@ impl OpenAiCompatibleEventConverter {
             provider: self.config.provider_id.clone(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 
@@ -547,6 +548,7 @@ impl OpenAiCompatibleEventConverter {
             provider: self.config.provider_id.clone(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 
@@ -560,6 +562,7 @@ impl OpenAiCompatibleEventConverter {
             provider: self.config.provider_id.clone(),
             request_id: None,
             headers: None,
+            body: None,
         }
     }
 
@@ -641,6 +644,7 @@ impl OpenAiCompatibleEventConverter {
             provider: self.config.provider_id.clone(),
             request_id: None,
             headers: None,
+            body: None,
         }))
     }
 
@@ -3026,6 +3030,7 @@ mod tests {
                     provider: "openai-compatible".to_string(),
                     request_id: None,
                     headers: None,
+                    body: None,
                 },
             })
             .expect("serialize start");
@@ -3302,6 +3307,7 @@ mod tests {
                     provider: "openai-compatible".to_string(),
                     request_id: None,
                     headers: None,
+                    body: None,
                 },
             })
             .expect("serialize start without metadata");

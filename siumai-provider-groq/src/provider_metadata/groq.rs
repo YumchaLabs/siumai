@@ -94,6 +94,7 @@ impl GroqChatResponseExt for crate::types::ChatResponse {
             provider: "groq".to_string(),
             request_id: None,
             headers: None,
+            body: None,
         })
     }
 }

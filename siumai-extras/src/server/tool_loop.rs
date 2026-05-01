@@ -700,6 +700,7 @@ mod tests {
                 provider: "mock".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             };
 
             match idx {
@@ -879,6 +880,7 @@ mod tests {
                 provider: "mock".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             };
 
             match idx {
@@ -1073,6 +1075,7 @@ mod tests {
                 provider: "mock".to_string(),
                 request_id: None,
                 headers: None,
+                body: None,
             };
 
             match idx {

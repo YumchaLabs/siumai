@@ -61,6 +61,7 @@ impl CustomProvider for MiniProvider {
                     provider: "mini".to_string(),
                     request_id: None,
                     headers: None,
+                    body: None,
                 },
             }),
             Ok(ChatStreamEvent::ContentDelta {
