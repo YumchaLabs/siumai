@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   construction model-agnostic and maps the audited `apiKey` / `baseURL` / `headers` / `fetch`
   subset onto the real provider-owned builder/config path.
 
+### Fixed
+
+- Preserve AI SDK-style rerank response metadata (`modelId` and raw response body) in the
+  provider-owned response transformer, including direct fixture-transformer usage outside the
+  HTTP executor path.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

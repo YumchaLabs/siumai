@@ -8,9 +8,11 @@ use crate::error::LlmError;
 use crate::execution::transformers::rerank_request::RerankRequestTransformer;
 use crate::execution::transformers::rerank_response::RerankResponseTransformer;
 use crate::types::{
-    RerankDocuments, RerankRankingEntry, RerankRequest, RerankResponse, RerankTokenUsage,
+    HttpResponseInfo, RerankDocuments, RerankRankingEntry, RerankRequest, RerankResponse,
+    RerankTokenUsage,
 };
 use reqwest::header::HeaderMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone, Default)]
@@ -171,6 +173,20 @@ struct TogetherAiRerankResponseTransformer {
     provider_id: String,
 }
 
+impl TogetherAiRerankResponseTransformer {
+    fn response_info(raw: &serde_json::Value) -> HttpResponseInfo {
+        HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: raw
+                .get("model")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            headers: HashMap::new(),
+            body: Some(raw.clone()),
+        }
+    }
+}
+
 impl RerankResponseTransformer for TogetherAiRerankResponseTransformer {
     fn transform(&self, raw: serde_json::Value) -> Result<RerankResponse, LlmError> {
         let id = raw
@@ -224,7 +240,50 @@ impl RerankResponseTransformer for TogetherAiRerankResponseTransformer {
                 input_tokens,
                 output_tokens,
             },
-            response: None,
+            response: Some(Self::response_info(&raw)),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn response_transformer_preserves_ai_sdk_response_metadata() {
+        let raw = serde_json::json!({
+            "id": "rerank-id",
+            "object": "rerank",
+            "model": "Salesforce/Llama-Rank-v1",
+            "results": [
+                { "index": 1, "relevance_score": 0.82 }
+            ],
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 0,
+                "total_tokens": 12
+            }
+        });
+
+        let transformer = TogetherAiRerankResponseTransformer {
+            provider_id: "togetherai".to_string(),
+        };
+
+        let response = transformer.transform(raw).expect("transform response");
+        let response_info = response.response.expect("response metadata");
+
+        assert_eq!(
+            response_info.model_id.as_deref(),
+            Some("Salesforce/Llama-Rank-v1")
+        );
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["model"],
+            "Salesforce/Llama-Rank-v1"
+        );
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["id"],
+            "rerank-id"
+        );
     }
 }

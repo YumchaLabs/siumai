@@ -153,6 +153,7 @@ impl ResponseTransformer for MockResponseTransformer {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            response: None,
         })
     }
 }
