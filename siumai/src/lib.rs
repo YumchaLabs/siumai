@@ -233,6 +233,22 @@ where
     rerank::rerank_result(model, request, options).await
 }
 
+/// Generate images through the high-level AI SDK-style helper surface.
+///
+/// This root helper returns `GenerateImageResult`. Use
+/// `siumai::image::generate_image(...)` when you need the raw Rust-first
+/// `ImageGenerationResponse`.
+pub async fn generate_image<M>(
+    model: &M,
+    request: image::GenerateImageRequest,
+    options: image::GenerateOptions,
+) -> Result<siumai_core::types::GenerateImageResult, siumai_core::error::LlmError>
+where
+    M: image::ImageModel + siumai_core::traits::ImageExtras + ?Sized,
+{
+    image::generate_image_result(model, request, options).await
+}
+
 /// Generate speech audio through the high-level AI SDK-style helper surface.
 pub async fn generate_speech<M>(
     model: &M,
@@ -2228,8 +2244,8 @@ pub mod prelude {
             transcription, video,
         };
         pub use crate::{
-            embed, embed_many, generate_speech, generate_text, transcribe, upload_file,
-            upload_skill,
+            embed, embed_many, generate_image, generate_speech, generate_text, transcribe,
+            upload_file, upload_skill,
         };
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::completion::CompletionModel;

@@ -1351,8 +1351,8 @@ fn public_family_helpers_compile_against_stable_family_models() {
             ImageGenerationRequest, ImageModel, ImageVariationRequest,
         },
         prelude::unified::{
-            ChatMessage, JSONValue, generate_array, generate_choice, generate_enum, generate_json,
-            generate_object, registry::*,
+            ChatMessage, JSONValue, generate_array, generate_choice, generate_enum, generate_image,
+            generate_json, generate_object, registry::*,
         },
         rerank::{self, RerankRequest, RerankingModel},
         speech::{self, SpeechModel, TtsRequest},
@@ -1439,6 +1439,16 @@ fn public_family_helpers_compile_against_stable_family_models() {
             Default::default(),
         ));
         std::mem::drop(image::generate_image(
+            model,
+            GenerateImageRequest::from(GenerateImagePrompt::text("draw a robot")),
+            Default::default(),
+        ));
+        std::mem::drop(image::generate_image_result(
+            model,
+            GenerateImageRequest::from(GenerateImagePrompt::text("draw a robot")),
+            Default::default(),
+        ));
+        std::mem::drop(generate_image(
             model,
             GenerateImageRequest::from(GenerateImagePrompt::text("draw a robot")),
             Default::default(),
