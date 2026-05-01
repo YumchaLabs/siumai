@@ -167,14 +167,19 @@ Embedding helper parity is also cleaner at the data-structure layer: the passive
 surface now exposes `EmbedResult`, `EmbedManyResult`, `EmbedStartEvent`, `EmbedEndEvent`,
 `EmbeddingModelCallStartEvent`, `EmbeddingModelCallEndEvent`, and shared response-data carriers
 over the existing `Embedding`, `EmbeddingModelUsage`, `Warning`, and provider-metadata shapes.
-These remain result/callback payload views rather than a second embedding runtime.
+The public facade now also has thin `siumai::embed(...)` / `siumai::embed_many(...)` helpers plus
+module-level `embedding::{generate_embedding, generate_embeddings, embed_value, embed_values}`
+projections over the existing embedding-family runtime, preserving raw response headers/body
+without introducing a second provider execution path.
 
 Rerank helper parity now follows the same rule. The old provider-level single result item has been
 renamed to `RerankRankingEntry`, so the public `RerankResult<VALUE>` name can match AI SDK's
 full `rerank()` result envelope. The passive surface also exposes `RerankRanking`,
 `RerankResponseMetadata`, `RerankStartEvent`, `RerankEndEvent`,
 `RerankingModelCallStartEvent`, `RerankingModelCallEndEvent`, and
-`RerankingModelCallRanking` without adding a second rerank runtime.
+`RerankingModelCallRanking`. The public facade now also exposes `siumai::rerank(...)` as an
+AI SDK-style JSON-value result projection, with `rerank::{rerank_result, rerank_text_result}` on the
+module path for callers that want to keep the raw `rerank::rerank(...)` response surface separate.
 
 The higher-level speech/transcription helper story is now materially closer too: stable
 `TtsResponse` / `SttResponse` responses now preserve final `response` metadata and also expose

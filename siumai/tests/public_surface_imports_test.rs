@@ -549,7 +549,10 @@ fn public_surface_unified_imports_compile() {
     let _ = get_tool_or_dynamic_tool_name as for<'a> fn(&'a UiMessagePart) -> Option<&'a str>;
     let _ = last_assistant_message_is_complete_with_tool_calls as fn(&[UiMessage]) -> bool;
     let _ = last_assistant_message_is_complete_with_approval_responses as fn(&[UiMessage]) -> bool;
+    let _ = embed::<dyn EmbeddingModel, String>;
+    let _ = embed_many::<dyn EmbeddingModel>;
     let _ = generate_text::<dyn LanguageModel>;
+    let _ = rerank::<dyn RerankingModel>;
     let _ = experimental_generate_speech::<dyn SpeechModel>;
     let _ = experimental_generate_video::<dyn VideoModelV4>;
     let _ = experimental_transcribe::<dyn TranscriptionModel>;
@@ -1418,6 +1421,12 @@ fn public_family_helpers_compile_against_stable_family_models() {
         let request = EmbeddingRequest::new(vec!["hello".to_string()]);
         let batch = BatchEmbeddingRequest::new(vec![request.clone()]);
         std::mem::drop(embedding::embed(model, request, Default::default()));
+        std::mem::drop(embedding::embed_value(model, "hello", Default::default()));
+        std::mem::drop(embedding::embed_values(
+            model,
+            vec!["hello".to_string()],
+            Default::default(),
+        ));
         std::mem::drop(embedding::embed_many(model, batch, Default::default()));
     }
 
@@ -1455,7 +1464,8 @@ fn public_family_helpers_compile_against_stable_family_models() {
             "hello".to_string(),
             vec!["a".to_string(), "b".to_string()],
         );
-        std::mem::drop(rerank::rerank(model, request, Default::default()));
+        std::mem::drop(rerank::rerank(model, request.clone(), Default::default()));
+        std::mem::drop(rerank::rerank_result(model, request, Default::default()));
     }
 
     fn _assert_speech_surface<M: SpeechModel + ?Sized>(model: &M) {

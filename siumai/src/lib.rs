@@ -190,6 +190,49 @@ pub mod ui;
 /// Task-oriented video generation family helpers.
 pub mod video;
 
+/// Embed one text value through the high-level AI SDK-style helper surface.
+pub async fn embed<M, V>(
+    model: &M,
+    value: V,
+    options: embedding::EmbedOptions,
+) -> Result<siumai_core::types::EmbedResult, siumai_core::error::LlmError>
+where
+    M: embedding::EmbeddingModel + ?Sized,
+    V: Into<String>,
+{
+    embedding::embed_value(model, value, options).await
+}
+
+/// Embed several text values through the high-level AI SDK-style helper surface.
+pub async fn embed_many<M>(
+    model: &M,
+    values: Vec<String>,
+    options: embedding::EmbedOptions,
+) -> Result<siumai_core::types::EmbedManyResult, siumai_core::error::LlmError>
+where
+    M: embedding::EmbeddingModel + ?Sized,
+{
+    embedding::embed_values(model, values, options).await
+}
+
+/// Rerank documents through the high-level AI SDK-style helper surface.
+///
+/// The JSON projection preserves both text and structured-document requests. Use
+/// `siumai::rerank::rerank(...)` when you need the raw Rust-first `RerankResponse`.
+pub async fn rerank<M>(
+    model: &M,
+    request: rerank::RerankRequest,
+    options: rerank::RerankOptions,
+) -> Result<
+    siumai_core::types::RerankResult<siumai_core::types::JSONValue>,
+    siumai_core::error::LlmError,
+>
+where
+    M: rerank::RerankingModel + ?Sized,
+{
+    rerank::rerank_result(model, request, options).await
+}
+
 /// Upload a file through the high-level AI SDK-style helper surface.
 pub async fn upload_file<A, D>(
     api: &A,
@@ -2160,7 +2203,7 @@ pub mod prelude {
             completion, embedding, files, image, rerank, skills, speech, structured_output, text,
             transcription, video,
         };
-        pub use crate::{generate_text, upload_file, upload_skill};
+        pub use crate::{embed, embed_many, generate_text, upload_file, upload_skill};
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::completion::CompletionModel;
         pub use siumai_core::error::{ErrorCategory, LlmError};
