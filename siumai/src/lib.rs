@@ -233,6 +233,30 @@ where
     rerank::rerank_result(model, request, options).await
 }
 
+/// Generate speech audio through the high-level AI SDK-style helper surface.
+pub async fn generate_speech<M>(
+    model: &M,
+    request: speech::TtsRequest,
+    options: speech::SynthesizeOptions,
+) -> Result<speech::SpeechResult, siumai_core::error::LlmError>
+where
+    M: speech::SpeechModel + ?Sized,
+{
+    speech::synthesize(model, request, options).await
+}
+
+/// Transcribe audio through the high-level AI SDK-style helper surface.
+pub async fn transcribe<M>(
+    model: &M,
+    request: transcription::SttRequest,
+    options: transcription::TranscribeOptions,
+) -> Result<transcription::TranscriptionResult, siumai_core::error::LlmError>
+where
+    M: transcription::TranscriptionModel + ?Sized,
+{
+    transcription::transcribe(model, request, options).await
+}
+
 /// Upload a file through the high-level AI SDK-style helper surface.
 pub async fn upload_file<A, D>(
     api: &A,
@@ -2203,7 +2227,10 @@ pub mod prelude {
             completion, embedding, files, image, rerank, skills, speech, structured_output, text,
             transcription, video,
         };
-        pub use crate::{embed, embed_many, generate_text, upload_file, upload_skill};
+        pub use crate::{
+            embed, embed_many, generate_speech, generate_text, transcribe, upload_file,
+            upload_skill,
+        };
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::completion::CompletionModel;
         pub use siumai_core::error::{ErrorCategory, LlmError};

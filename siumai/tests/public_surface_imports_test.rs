@@ -551,8 +551,10 @@ fn public_surface_unified_imports_compile() {
     let _ = last_assistant_message_is_complete_with_approval_responses as fn(&[UiMessage]) -> bool;
     let _ = embed::<dyn EmbeddingModel, String>;
     let _ = embed_many::<dyn EmbeddingModel>;
+    let _ = generate_speech::<dyn SpeechModel>;
     let _ = generate_text::<dyn LanguageModel>;
     let _ = rerank::<dyn RerankingModel>;
+    let _ = transcribe::<dyn TranscriptionModel>;
     let _ = experimental_generate_speech::<dyn SpeechModel>;
     let _ = experimental_generate_video::<dyn VideoModelV4>;
     let _ = experimental_transcribe::<dyn TranscriptionModel>;
