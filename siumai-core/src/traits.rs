@@ -211,6 +211,7 @@ mod tests {
                     service_tier: None,
                     audio: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 })
             }

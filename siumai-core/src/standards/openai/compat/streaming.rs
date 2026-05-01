@@ -858,6 +858,7 @@ impl OpenAiCompatibleEventConverter {
             system_fingerprint: response_state.system_fingerprint,
             service_tier: response_state.service_tier,
             warnings: None,
+            response: None,
             provider_metadata: Some(Self::nested_provider_metadata_to_stream(
                 self.current_provider_metadata(),
             )),
@@ -1526,6 +1527,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 system_fingerprint: response_state.system_fingerprint,
                 service_tier: response_state.service_tier,
                 warnings: None,
+                response: None,
                 provider_metadata: Some(Self::nested_provider_metadata_to_stream(
                     self.current_provider_metadata(),
                 )),
@@ -3057,6 +3059,7 @@ mod tests {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 },
             })
@@ -3437,6 +3440,7 @@ mod tests {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 },
             })
@@ -3521,6 +3525,7 @@ mod tests {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 },
             })

@@ -712,6 +712,7 @@ impl StreamProcessor {
                 .or_else(|| {
                     (!self.stream_warnings.is_empty()).then(|| self.stream_warnings.clone())
                 }),
+            response: terminal_response.and_then(|response| response.response.clone()),
             provider_metadata,
         }
     }
@@ -1287,6 +1288,7 @@ mod tests {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            response: None,
             provider_metadata: Some(HashMap::from([(
                 "perplexity".to_string(),
                 serde_json::json!({
@@ -1350,6 +1352,7 @@ mod tests {
             system_fingerprint: Some("fp_terminal".to_string()),
             service_tier: Some("priority".to_string()),
             warnings: Some(vec![Warning::other("watch settings")]),
+            response: None,
             provider_metadata: None,
         };
 
@@ -1444,6 +1447,7 @@ mod tests {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            response: None,
             provider_metadata: None,
         };
 
@@ -1508,6 +1512,7 @@ mod tests {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            response: None,
             provider_metadata: None,
         };
 

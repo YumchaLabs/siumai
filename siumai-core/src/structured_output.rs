@@ -710,6 +710,7 @@ fn merge_stream_end_response_with_accumulated(
         system_fingerprint,
         service_tier,
         warnings,
+        response: http_response,
         provider_metadata,
     } = response;
 
@@ -730,6 +731,7 @@ fn merge_stream_end_response_with_accumulated(
         system_fingerprint: system_fingerprint.or(accumulated.system_fingerprint),
         service_tier: service_tier.or(accumulated.service_tier),
         warnings: warnings.or(accumulated.warnings),
+        response: http_response.or(accumulated.response),
         provider_metadata: accumulated.provider_metadata.or(provider_metadata),
     }
 }
@@ -1088,6 +1090,7 @@ mod tests {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            response: None,
             provider_metadata: Some(std::collections::HashMap::from([(
                 "bedrock".to_string(),
                 serde_json::json!({ "isJsonResponseFromTool": true }),

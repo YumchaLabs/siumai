@@ -1929,6 +1929,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             warnings: None,
+            response: None,
             provider_metadata,
         })
     }

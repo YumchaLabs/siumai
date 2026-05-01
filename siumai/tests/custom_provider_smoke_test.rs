@@ -81,6 +81,7 @@ impl CustomProvider for MiniProvider {
                     raw_finish_reason: None,
                     provider_metadata: None,
                     warnings: None,
+                    response: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,

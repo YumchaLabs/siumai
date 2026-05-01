@@ -1971,6 +1971,7 @@ fn responses_stream_proxy_serializes_basic_text_deltas() {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
+                response: None,
                 provider_metadata: None,
             },
         })
@@ -3839,6 +3840,7 @@ fn responses_stream_proxy_closes_function_call_on_stream_end() {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
+                response: None,
                 provider_metadata: None,
             },
         })

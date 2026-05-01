@@ -513,6 +513,7 @@ impl ResponseTransformer for CompatResponseTransformer {
             system_fingerprint: resp.system_fingerprint,
             service_tier: resp.service_tier,
             warnings: None,
+            response: None,
             provider_metadata,
         })
     }

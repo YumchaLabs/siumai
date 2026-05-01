@@ -947,7 +947,7 @@ pub struct NoObjectGeneratedError {
     pub text: Option<String>,
     /// Response metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub response: Option<LanguageModelResponseMetadata>,
+    pub response: Option<GenerateObjectResponseMetadata>,
     /// Language model usage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<LanguageModelUsage>,
@@ -960,7 +960,7 @@ impl NoObjectGeneratedError {
     /// Create a `NoObjectGeneratedError` with the upstream default message.
     pub fn new(
         text: Option<String>,
-        response: Option<LanguageModelResponseMetadata>,
+        response: Option<GenerateObjectResponseMetadata>,
         usage: Option<LanguageModelUsage>,
         finish_reason: Option<FinishReason>,
         cause: Option<JSONValue>,

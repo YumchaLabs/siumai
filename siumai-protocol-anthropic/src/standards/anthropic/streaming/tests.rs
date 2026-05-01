@@ -2436,6 +2436,7 @@ fn serializes_text_stream_events_to_anthropic_sse() {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
+                response: None,
                 provider_metadata: None,
             },
         })
@@ -2469,6 +2470,7 @@ fn serializes_stream_end_with_raw_anthropic_stop_reason() {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
+                response: None,
                 provider_metadata: None,
             },
         })
@@ -2581,6 +2583,7 @@ fn serializes_blocks_in_order_and_closes_before_message_stop() {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 },
             })
@@ -2790,6 +2793,7 @@ fn serializes_interleaved_blocks_as_separate_monotonic_content_blocks() {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 },
             })
@@ -2901,6 +2905,7 @@ fn serializes_repeated_thinking_deltas_with_single_start_and_single_stop() {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 },
             })
@@ -2976,6 +2981,7 @@ fn stream_end_clears_open_block_state_before_next_end() {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
+                response: None,
                 provider_metadata: None,
             },
         })
@@ -2994,6 +3000,7 @@ fn stream_end_clears_open_block_state_before_next_end() {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
+                response: None,
                 provider_metadata: None,
             },
         })
@@ -3525,6 +3532,7 @@ fn serializes_stream_end_replays_extended_usage_fields_from_provider_metadata() 
                 system_fingerprint: None,
                 service_tier: Some("priority".to_string()),
                 warnings: None,
+                response: None,
                 provider_metadata: Some(std::collections::HashMap::from([(
                     "anthropic".to_string(),
                     serde_json::json!({
@@ -3610,6 +3618,7 @@ fn serializes_stream_end_does_not_synthesize_zero_usage_totals_when_unknown() {
                 system_fingerprint: None,
                 service_tier: Some("standard".to_string()),
                 warnings: None,
+                response: None,
                 provider_metadata: None,
             },
         })

@@ -1,4 +1,5 @@
 use super::*;
+use crate::execution::http::transport::{HttpTransportRequest, HttpTransportResponse};
 use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
@@ -23,6 +24,49 @@ struct NoopResponseTransformer;
 impl crate::execution::transformers::response::ResponseTransformer for NoopResponseTransformer {
     fn provider_id(&self) -> &str {
         "test"
+    }
+}
+
+struct MinimalResponseTransformer;
+impl crate::execution::transformers::response::ResponseTransformer for MinimalResponseTransformer {
+    fn provider_id(&self) -> &str {
+        "test"
+    }
+
+    fn transform_chat_response(
+        &self,
+        raw: &serde_json::Value,
+    ) -> Result<crate::types::ChatResponse, LlmError> {
+        let mut response = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            raw.get("content")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        ));
+        response.id = raw
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+        response.model = raw
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+        Ok(response)
+    }
+}
+
+#[derive(Clone)]
+struct StaticResponseTransport {
+    response: HttpTransportResponse,
+}
+
+#[async_trait::async_trait]
+impl crate::execution::http::transport::HttpTransport for StaticResponseTransport {
+    async fn execute_json(
+        &self,
+        _request: HttpTransportRequest,
+    ) -> Result<HttpTransportResponse, LlmError> {
+        Ok(self.response.clone())
     }
 }
 
@@ -132,6 +176,66 @@ async fn applies_model_middlewares_before_mapping() {
     }
     let got = seen.lock().unwrap().clone().unwrap();
     assert_eq!(got, "base-mw");
+}
+
+#[tokio::test]
+async fn nonstream_attaches_headers_and_raw_body_response_envelope() {
+    let raw_body = serde_json::json!({
+        "id": "chatcmpl-test",
+        "model": "provider-model",
+        "content": "hello",
+        "provider": { "kept": true }
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        reqwest::header::HeaderName::from_static("x-request-id"),
+        reqwest::header::HeaderValue::from_static("chat_req_123"),
+    );
+    let transport = StaticResponseTransport {
+        response: HttpTransportResponse {
+            status: 200,
+            headers,
+            body: serde_json::to_vec(&raw_body).expect("serialize raw body"),
+        },
+    };
+    let provider_context = crate::core::ProviderContext::new(
+        "test",
+        "http://127.0.0.1",
+        None,
+        std::collections::HashMap::new(),
+    );
+    let exec = HttpChatExecutor {
+        provider_id: "test".into(),
+        http_client: reqwest::Client::new(),
+        request_transformer: Some(Arc::new(EchoRequestTransformer)),
+        response_transformer: Some(Arc::new(MinimalResponseTransformer)),
+        stream_transformer: None,
+        json_stream_converter: None,
+        defer_transformer_selection: false,
+        policy: crate::execution::ExecutionPolicy::new()
+            .with_stream_disable_compression(true)
+            .with_transport(Arc::new(transport)),
+        middlewares: vec![],
+        provider_spec: Arc::new(TestProviderSpec),
+        provider_context,
+    };
+
+    let mut req = crate::types::ChatRequest::new(vec![]);
+    req.common_params.model = "request-model".to_string();
+    let response = exec.execute(req).await.expect("chat response");
+    let response_info = response.response.as_ref().expect("response envelope");
+
+    assert_eq!(response.id.as_deref(), Some("chatcmpl-test"));
+    assert_eq!(response.content_text(), Some("hello"));
+    assert_eq!(response_info.model_id.as_deref(), Some("provider-model"));
+    assert_eq!(
+        response_info
+            .headers
+            .get("x-request-id")
+            .map(String::as_str),
+        Some("chat_req_123")
+    );
+    assert_eq!(response_info.body, Some(raw_body));
 }
 
 #[tokio::test]

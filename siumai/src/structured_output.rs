@@ -8,8 +8,8 @@ use serde::de::DeserializeOwned;
 use siumai_core::error::LlmError;
 use siumai_core::streaming::ChatStream;
 use siumai_core::types::{
-    CallWarning, ChatResponse, FinishReason, FlexibleSchema, JSONSchema7,
-    LanguageModelRequestMetadata, LanguageModelResponseMetadata, LanguageModelUsage,
+    CallWarning, ChatResponse, FinishReason, FlexibleSchema, GenerateObjectResponseMetadata,
+    JSONSchema7, LanguageModelRequestMetadata, LanguageModelResponseMetadata, LanguageModelUsage,
     ProviderMetadata, ResponseFormat, Schema, ValidationResult,
 };
 use siumai_core::utils::generate_id;
@@ -180,7 +180,7 @@ pub struct GenerateObjectResult<T> {
     /// Best-effort request metadata from the stable Rust request shape.
     pub request: LanguageModelRequestMetadata,
     /// Response metadata. Missing provider ids fall back to an SDK-generated id.
-    pub response: LanguageModelResponseMetadata,
+    pub response: GenerateObjectResponseMetadata,
     /// Provider-specific metadata.
     pub provider_metadata: Option<ProviderMetadata>,
     /// Raw underlying text/chat response for callers that need fields not projected above.
@@ -405,7 +405,7 @@ where
 
 fn no_object_generated_error(
     response: &ChatResponse,
-    response_metadata: LanguageModelResponseMetadata,
+    response_metadata: GenerateObjectResponseMetadata,
     usage: LanguageModelUsage,
     finish_reason: FinishReason,
     error: LlmError,
@@ -626,7 +626,7 @@ impl<T> GenerateObjectResult<T> {
     fn from_response(
         object: T,
         request: LanguageModelRequestMetadata,
-        response: LanguageModelResponseMetadata,
+        response: GenerateObjectResponseMetadata,
         raw_response: ChatResponse,
     ) -> Self {
         let reasoning = raw_response
@@ -663,13 +663,27 @@ fn language_model_response_metadata_from_chat_response(
     response: &ChatResponse,
     timestamp: DateTime<Utc>,
     model_id: String,
-) -> LanguageModelResponseMetadata {
-    LanguageModelResponseMetadata {
+) -> GenerateObjectResponseMetadata {
+    let http_response = response.response.as_ref();
+    let mut metadata = GenerateObjectResponseMetadata::new(LanguageModelResponseMetadata {
         id: response.id.clone().unwrap_or_else(generate_id),
-        timestamp,
-        model_id: response.model.clone().unwrap_or(model_id),
-        headers: None,
+        timestamp: http_response
+            .map(|response| response.timestamp)
+            .unwrap_or(timestamp),
+        model_id: http_response
+            .and_then(|response| response.model_id.clone())
+            .or_else(|| response.model.clone())
+            .unwrap_or(model_id),
+        headers: http_response
+            .map(|response| response.headers.clone())
+            .filter(|headers| !headers.is_empty()),
+    });
+
+    if let Some(body) = http_response.and_then(|response| response.body.clone()) {
+        metadata = metadata.with_body(body);
     }
+
+    metadata
 }
 
 #[cfg(test)]
@@ -678,6 +692,7 @@ mod tests {
     use crate::text::TextModelV3;
     use async_trait::async_trait;
     use serde::Deserialize;
+    use siumai_core::types::HttpResponseInfo;
     use std::sync::{Arc, Mutex};
 
     struct FakeObjectModel {
@@ -741,6 +756,17 @@ mod tests {
             tool_name: "legacy-tool".to_string(),
             details: Some("not available".to_string()),
         }]);
+        response.response = Some(HttpResponseInfo {
+            timestamp: chrono::DateTime::parse_from_rfc3339("2026-04-30T00:00:00Z")
+                .expect("valid timestamp")
+                .with_timezone(&chrono::Utc),
+            model_id: Some("fake-model".to_string()),
+            headers: std::collections::HashMap::from([(
+                "x-request-id".to_string(),
+                "obj_req_123".to_string(),
+            )]),
+            body: Some(serde_json::json!({ "id": "resp_1", "raw": true })),
+        });
 
         let model = FakeObjectModel {
             response,
@@ -773,7 +799,21 @@ mod tests {
         );
         assert_eq!(result.finish_reason, FinishReason::Stop);
         assert_eq!(result.usage.input_tokens, Some(3));
-        assert_eq!(result.response.model_id, "fake-model");
+        assert_eq!(result.response.metadata.model_id, "fake-model");
+        assert_eq!(
+            result
+                .response
+                .metadata
+                .headers
+                .as_ref()
+                .and_then(|headers| headers.get("x-request-id"))
+                .map(String::as_str),
+            Some("obj_req_123")
+        );
+        assert_eq!(
+            result.response.body,
+            Some(serde_json::json!({ "id": "resp_1", "raw": true }))
+        );
         assert_eq!(
             serde_json::to_value(result.warnings.as_ref().expect("warnings"))
                 .expect("serialize warnings"),
@@ -957,7 +997,7 @@ mod tests {
 
         assert_eq!(text.as_deref(), Some("{\"title\":\"Ada\"}"));
         assert_eq!(
-            response.map(|response| response.model_id),
+            response.map(|response| response.metadata.model_id),
             Some("fake-model".to_string())
         );
         assert_eq!(finish_reason, Some(FinishReason::Unknown));

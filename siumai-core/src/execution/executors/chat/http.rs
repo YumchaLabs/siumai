@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::error::LlmError;
+use crate::execution::http::headers::headermap_to_hashmap;
 use crate::execution::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn, apply_post_generate_chain,
     apply_transform_chain, try_pre_generate, try_pre_stream,
@@ -9,7 +10,7 @@ use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::streaming::ChatStream;
-use crate::types::{ChatRequest, ChatResponse};
+use crate::types::{ChatRequest, ChatResponse, HttpResponseInfo};
 
 use super::ChatExecutor;
 use super::helpers::{
@@ -203,7 +204,17 @@ impl ChatExecutor for HttpChatExecutor {
                                 false,
                             )
                             .await?;
-                            let resp = response_tx.transform_chat_response(&result.json)?;
+                            let mut resp = response_tx.transform_chat_response(&result.json)?;
+                            resp.response = Some(HttpResponseInfo {
+                                timestamp: chrono::Utc::now(),
+                                model_id: Some(
+                                    resp.model
+                                        .clone()
+                                        .unwrap_or_else(|| req_in.common_params.model.clone()),
+                                ),
+                                headers: headermap_to_hashmap(&result.headers),
+                                body: Some(result.json.clone()),
+                            });
                             Ok(resp)
                         }
                     };

@@ -311,6 +311,7 @@ async fn anthropic_public_feature_surface_preserves_thinking_signature_and_singl
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 },
             })

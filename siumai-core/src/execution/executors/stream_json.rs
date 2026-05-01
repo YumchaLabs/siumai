@@ -403,6 +403,7 @@ mod tests {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    response: None,
                     provider_metadata: None,
                 },
             })]

@@ -259,18 +259,34 @@ fn project_generate_text_response<M: LanguageModel + ?Sized>(
     response: TextResponse,
 ) -> GenerateTextProjectionResult {
     let call_id = response.id.clone().unwrap_or_else(crate::generate_id);
-    let model_id = response
+    let http_response = response.response.as_ref();
+    let model_id = http_response
+        .and_then(|response| response.model_id.clone())
+        .or_else(|| response.model.clone())
+        .unwrap_or_else(|| model.model_id().to_string());
+    let response_headers = http_response
+        .map(|response| response.headers.clone())
+        .filter(|headers| !headers.is_empty());
+    let response_body = http_response.and_then(|response| response.body.clone());
+    let response_timestamp = http_response
+        .map(|response| response.timestamp)
+        .unwrap_or_else(Utc::now);
+    let response_id = response.id.clone().unwrap_or_else(|| call_id.clone());
+    let model_info_model_id = response
         .model
         .clone()
         .unwrap_or_else(|| model.model_id().to_string());
-    let model_info = GenerateTextModelInfo::new(model.provider_id(), model_id.clone());
-    let response_metadata = GenerateTextResponseMetadata::new(LanguageModelResponseMetadata {
-        id: call_id.clone(),
-        timestamp: Utc::now(),
+    let model_info = GenerateTextModelInfo::new(model.provider_id(), model_info_model_id);
+    let mut response_metadata = GenerateTextResponseMetadata::new(LanguageModelResponseMetadata {
+        id: response_id,
+        timestamp: response_timestamp,
         model_id,
-        headers: None,
+        headers: response_headers,
     })
     .with_messages(response_messages_from_content(&response.content));
+    if let Some(body) = response_body {
+        response_metadata = response_metadata.with_body(body);
+    }
 
     let projection = project_generate_text_content(&response.content);
     let usage = response
@@ -642,7 +658,7 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::json;
     use siumai_core::traits::ModelMetadata;
-    use siumai_core::types::{ChatRequest, ChatResponse, Usage, Warning};
+    use siumai_core::types::{ChatRequest, ChatResponse, HttpResponseInfo, Usage, Warning};
 
     struct FakeLanguageModel;
 
@@ -686,6 +702,14 @@ mod tests {
                 setting: "topK".to_string(),
                 details: Some("not supported".to_string()),
             }]);
+            response.response = Some(HttpResponseInfo {
+                timestamp: chrono::DateTime::parse_from_rfc3339("2026-04-30T00:00:00Z")
+                    .expect("valid timestamp")
+                    .with_timezone(&chrono::Utc),
+                model_id: Some("provider-model".to_string()),
+                headers: HashMap::from([("x-request-id".to_string(), "req_123".to_string())]),
+                body: Some(json!({ "id": "resp-1", "raw": true })),
+            });
             Ok(response)
         }
 
@@ -739,6 +763,24 @@ mod tests {
         );
         assert_eq!(result.response.metadata.id, "resp-1");
         assert_eq!(result.response.metadata.model_id, "provider-model");
+        assert_eq!(
+            result
+                .response
+                .metadata
+                .headers
+                .as_ref()
+                .and_then(|headers| headers.get("x-request-id"))
+                .map(String::as_str),
+            Some("req_123")
+        );
+        assert_eq!(
+            result.response.body,
+            Some(json!({ "id": "resp-1", "raw": true }))
+        );
+        assert_eq!(
+            result.steps[0].response.body,
+            Some(json!({ "id": "resp-1", "raw": true }))
+        );
         assert_eq!(result.response.messages.len(), 1);
         assert_eq!(
             result
