@@ -1049,6 +1049,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- Core OpenAI-compatible image response transformation now accepts provider wire
+  `data[].b64_json` / `data[].url` responses directly and returns an AI SDK-style response
+  envelope instead of requiring callers to pre-normalize image payloads into Siumai's unified
+  struct.
 - OpenAI-compatible DeepSeek, Fireworks, Mistral, Perplexity, and xAI presets now declare their
   canonical AI SDK API-key environment variables for config-first construction.
 - OpenAI-compatible Groq now advertises its AI SDK transcription surface with a default

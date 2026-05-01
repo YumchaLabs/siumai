@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Core OpenAI-compatible image response transformation now accepts provider wire
+  `data[].b64_json` / `data[].url` responses directly and returns an AI SDK-style response
+  envelope instead of requiring callers to pre-normalize image payloads into Siumai's unified
+  struct.
 - Shared textual shadow replay is now idempotent for mixed converters: when a stream batch already
   contains legacy `ContentDelta` / `ThinkingDelta`, the shared stream factory no longer
   synthesizes a second copy from stable textual runtime parts.

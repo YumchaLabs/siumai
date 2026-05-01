@@ -21,8 +21,8 @@ use crate::standards::openai::utils::{
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
 use crate::types::{
-    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, HttpResponseInfo,
-    ImageGenerationRequest, ImageGenerationResponse, MessageContent, SourcePart,
+    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, GeneratedImage,
+    HttpResponseInfo, ImageGenerationRequest, ImageGenerationResponse, MessageContent, SourcePart,
 };
 use eventsource_stream::Event;
 use std::future::Future;
@@ -578,6 +578,65 @@ impl ResponseTransformer for CompatResponseTransformer {
         &self,
         raw: &serde_json::Value,
     ) -> Result<ImageGenerationResponse, LlmError> {
+        if let Some(data) = raw.get("data").and_then(|value| value.as_array()) {
+            let mut provider_images = Vec::with_capacity(data.len());
+            let mut images = Vec::with_capacity(data.len());
+
+            for item in data {
+                let url = item
+                    .get("url")
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned);
+                let b64_json = item
+                    .get("b64_json")
+                    .or_else(|| item.get("b64Json"))
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned);
+                let revised_prompt = item
+                    .get("revised_prompt")
+                    .or_else(|| item.get("revisedPrompt"))
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned);
+
+                let mut image_meta = serde_json::Map::new();
+                if let Some(prompt) = revised_prompt.as_ref() {
+                    image_meta.insert(
+                        "revisedPrompt".to_string(),
+                        serde_json::Value::String(prompt.clone()),
+                    );
+                }
+                provider_images.push(serde_json::Value::Object(image_meta));
+
+                images.push(GeneratedImage {
+                    url,
+                    b64_json,
+                    format: None,
+                    width: None,
+                    height: None,
+                    revised_prompt,
+                    metadata: std::collections::HashMap::new(),
+                });
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert(
+                self.resolved_provider_metadata_key(),
+                serde_json::json!({ "images": provider_images }),
+            );
+
+            return Ok(ImageGenerationResponse {
+                images,
+                metadata,
+                warnings: None,
+                response: Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some(self.config.model.clone()),
+                    headers: std::collections::HashMap::new(),
+                    body: None,
+                }),
+            });
+        }
+
         serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid image response: {e}")))
     }
@@ -798,6 +857,59 @@ mod tests {
             response_info.body.as_ref().expect("raw body")["providerMetadata"]["test-provider"]["traceId"],
             "emb_123"
         );
+    }
+
+    #[test]
+    fn openai_compatible_image_response_maps_provider_wire_shape() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "test-provider".to_string(),
+                name: "Test Provider".to_string(),
+                base_url: "https://api.example.com/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["image".to_string()],
+                default_model: Some("image-model".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "test-provider",
+            "test-key",
+            "https://api.example.com/v1",
+            adapter.clone(),
+        )
+        .with_model("image-model");
+
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
+
+        let resp = tx
+            .transform_image_response(&serde_json::json!({
+                "data": [{
+                    "b64_json": "base64-image",
+                    "revised_prompt": "a better prompt"
+                }]
+            }))
+            .expect("image response");
+
+        assert_eq!(resp.images.len(), 1);
+        assert_eq!(resp.images[0].b64_json.as_deref(), Some("base64-image"));
+        assert_eq!(
+            resp.images[0].revised_prompt.as_deref(),
+            Some("a better prompt")
+        );
+        assert_eq!(
+            resp.metadata["test-provider"]["images"][0]["revisedPrompt"],
+            "a better prompt"
+        );
+        let response_info = resp.response.expect("response metadata");
+        assert_eq!(response_info.model_id.as_deref(), Some("image-model"));
+        assert!(response_info.headers.is_empty());
+        assert!(response_info.body.is_none());
     }
 
     #[test]
