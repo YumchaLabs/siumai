@@ -182,7 +182,39 @@ pub(super) fn extract_openai_compatible_provider_metadata(
         }
     }
 
+    if provider_options_key(provider_id) == "deepseek" {
+        extract_deepseek_prompt_cache_metadata(raw, &mut meta);
+    }
+
     namespaced_provider_metadata(provider_id, meta)
+}
+
+fn extract_deepseek_prompt_cache_metadata(
+    raw: &serde_json::Value,
+    meta: &mut HashMap<String, serde_json::Value>,
+) {
+    let Some(usage) = raw.get("usage").and_then(Value::as_object) else {
+        return;
+    };
+
+    for (metadata_key, usage_keys) in [
+        (
+            "promptCacheHitTokens",
+            ["prompt_cache_hit_tokens", "promptCacheHitTokens"],
+        ),
+        (
+            "promptCacheMissTokens",
+            ["prompt_cache_miss_tokens", "promptCacheMissTokens"],
+        ),
+    ] {
+        if let Some(value) = usage_keys
+            .iter()
+            .find_map(|key| usage.get(*key))
+            .filter(|value| !value.is_null())
+        {
+            meta.insert(metadata_key.to_string(), value.clone());
+        }
+    }
 }
 
 pub(super) fn extract_perplexity_provider_metadata(
@@ -480,6 +512,32 @@ mod tests {
         assert_eq!(
             openai.get("rejectedPredictionTokens"),
             Some(&serde_json::json!(6))
+        );
+    }
+
+    #[test]
+    fn deepseek_metadata_helper_extracts_prompt_cache_usage_fields() {
+        let raw = serde_json::json!({
+            "id": "resp_1",
+            "usage": {
+                "prompt_tokens": 495,
+                "completion_tokens": 157,
+                "total_tokens": 652,
+                "prompt_cache_hit_tokens": 320,
+                "prompt_cache_miss_tokens": 175
+            }
+        });
+
+        let meta = extract_openai_compatible_provider_metadata("deepseek", &raw)
+            .expect("metadata present");
+        let deepseek = meta.get("deepseek").expect("deepseek namespace");
+        assert_eq!(
+            deepseek.get("promptCacheHitTokens"),
+            Some(&serde_json::json!(320))
+        );
+        assert_eq!(
+            deepseek.get("promptCacheMissTokens"),
+            Some(&serde_json::json!(175))
         );
     }
 

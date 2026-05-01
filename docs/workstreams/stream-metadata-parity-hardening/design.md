@@ -1,6 +1,6 @@
 # Stream Metadata Parity Hardening - Design
 
-Last updated: 2026-04-11
+Last updated: 2026-05-01
 
 ## Problem
 
@@ -17,6 +17,9 @@ and provider metadata extraction:
 - after adding those Gemini custom reasoning events, the Gemini GenerateContent serializer could
   see both the typed `Part` lane and the mirrored `Custom` lane during bridge round-trips and
   serialize the same reasoning delta twice
+- the shared OpenAI-compatible metadata helper normalized DeepSeek prompt-cache accounting into
+  stable `Usage`, but did not mirror AI SDK's `providerMetadata.deepseek.promptCacheHitTokens` /
+  `promptCacheMissTokens` response metadata fields
 
 These are all parity regressions of the same general kind: the stable runtime lane is present, but
 the compatibility lane or metadata surface is still incomplete.
@@ -82,10 +85,29 @@ Specifically:
 
 This keeps bridge round-trips stable without regressing the richer runtime event model.
 
+### 5. Mirror DeepSeek prompt-cache usage into provider metadata
+
+DeepSeek follows the OpenAI-compatible Chat Completions shape but exposes prompt-cache accounting as
+top-level usage fields. Stable Siumai usage conversion already consumes
+`usage.prompt_cache_hit_tokens` / `usage.prompt_cache_miss_tokens`; the AI SDK surface also exposes
+those values as provider metadata.
+
+The OpenAI-compatible metadata extractor therefore now maps both snake_case provider payloads and
+camelCase replay payloads into:
+
+- `providerMetadata.deepseek.promptCacheHitTokens`
+- `providerMetadata.deepseek.promptCacheMissTokens`
+
+The typed DeepSeek metadata helper accepts both spellings while serializing the AI SDK-style
+camelCase keys.
+
 ## Validation
 
 Locked by:
 
 - `cargo test -p siumai-core perplexity_metadata_helper_extracts_hosted_search_fields -- --nocapture`
+- `cargo nextest run -p siumai-core deepseek_metadata_helper_extracts_prompt_cache_usage_fields --no-fail-fast`
+- `cargo nextest run -p siumai-core deepseek_streaming_emits_usage_then_single_stream_end_and_ignores_done --no-fail-fast`
+- `cargo nextest run -p siumai-provider-deepseek deepseek_metadata --no-fail-fast`
 - `cargo nextest run -p siumai --test provider_public_path_parity_test --features google-vertex --no-fail-fast`
 - `cargo nextest run -p siumai --test gemini_generate_content_stream_bridge_roundtrip_fixtures_alignment_test vertex_generate_content_stream_bridge_roundtrip_fixture_summary_cases_match --features google-vertex`

@@ -1,6 +1,6 @@
 # Stream Metadata Parity Hardening - Todo
 
-Last updated: 2026-04-11
+Last updated: 2026-05-01
 
 ## Done
 
@@ -13,9 +13,12 @@ Last updated: 2026-04-11
 - [x] Reproduce Gemini GenerateContent bridge round-trip duplicate reasoning deltas
 - [x] Suppress duplicate mixed-lane reasoning deltas in the Gemini serializer
 - [x] Revalidate `provider_public_path_parity_test` under `google-vertex`
+- [x] Audit DeepSeek OpenAI-compatible provider metadata and restore AI SDK-style prompt cache
+      hit/miss token fields
 
 ## Open
 
-- [ ] Audit other OpenAI-compatible provider metadata helpers for missing typed usage fields
+- [ ] Continue auditing the remaining OpenAI-compatible provider metadata helpers for missing
+      typed usage fields
 - [ ] Audit other bridge serializers for mixed-lane `Part + Custom` duplicate effects as more
       stable runtime parts become first-class

@@ -19,6 +19,22 @@ pub struct DeepSeekMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<serde_json::Value>,
 
+    /// Prompt cache hit tokens exposed by DeepSeek usage metadata.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "promptCacheHitTokens",
+        alias = "prompt_cache_hit_tokens"
+    )]
+    pub prompt_cache_hit_tokens: Option<u32>,
+
+    /// Prompt cache miss tokens exposed by DeepSeek usage metadata.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "promptCacheMissTokens",
+        alias = "prompt_cache_miss_tokens"
+    )]
+    pub prompt_cache_miss_tokens: Option<u32>,
+
     /// Preserve unknown provider-specific metadata for forward compatibility.
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -118,6 +134,8 @@ mod tests {
             "logprobs".to_string(),
             serde_json::json!([{ "token": "hello", "logprob": -0.1 }]),
         );
+        inner.insert("promptCacheHitTokens".to_string(), serde_json::json!(320));
+        inner.insert("promptCacheMissTokens".to_string(), serde_json::json!(175));
         inner.insert("vendor_extra".to_string(), serde_json::json!(true));
 
         let mut outer = HashMap::new();
@@ -130,10 +148,33 @@ mod tests {
         let meta = resp.deepseek_metadata().expect("deepseek metadata");
         assert_eq!(meta.sources.as_ref().map(Vec::len), Some(1));
         assert!(meta.logprobs.is_some());
+        assert_eq!(meta.prompt_cache_hit_tokens, Some(320));
+        assert_eq!(meta.prompt_cache_miss_tokens, Some(175));
         assert_eq!(
             meta.extra.get("vendor_extra"),
             Some(&serde_json::json!(true))
         );
+    }
+
+    #[test]
+    fn deepseek_metadata_accepts_snake_case_prompt_cache_aliases() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut outer = HashMap::new();
+        outer.insert(
+            "deepseek".to_string(),
+            serde_json::json!({
+                "prompt_cache_hit_tokens": 11,
+                "prompt_cache_miss_tokens": 22
+            }),
+        );
+        resp.provider_metadata = Some(outer);
+
+        let meta = resp.deepseek_metadata().expect("deepseek metadata");
+        assert_eq!(meta.prompt_cache_hit_tokens, Some(11));
+        assert_eq!(meta.prompt_cache_miss_tokens, Some(22));
     }
 
     #[test]

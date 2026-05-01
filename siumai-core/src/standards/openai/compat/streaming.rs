@@ -2707,7 +2707,7 @@ mod tests {
         // Final chunk (DeepSeek docs): finish_reason + usage before data:[DONE].
         let final_chunk = Event {
             event: "".to_string(),
-            data: r#"{"choices":[{"delta":{"content":"","role":null},"finish_reason":"stop","index":0,"logprobs":null}],"created":1718345013,"id":"1","model":"deepseek-chat","object":"chat.completion.chunk","usage":{"completion_tokens":9,"prompt_tokens":17,"total_tokens":26}}"#.to_string(),
+            data: r#"{"choices":[{"delta":{"content":"","role":null},"finish_reason":"stop","index":0,"logprobs":null}],"created":1718345013,"id":"1","model":"deepseek-chat","object":"chat.completion.chunk","usage":{"completion_tokens":9,"prompt_tokens":17,"total_tokens":26,"prompt_cache_hit_tokens":11,"prompt_cache_miss_tokens":6}}"#.to_string(),
             id: "".to_string(),
             retry: None,
         };
@@ -2719,9 +2719,22 @@ mod tests {
                     && usage.completion_tokens() == Some(9)
                     && usage.total_tokens() == Some(26)
         )));
-        assert!(
-            r2.iter()
-                .any(|e| matches!(e, Ok(ChatStreamEvent::StreamEnd { .. })))
+        let end = r2
+            .iter()
+            .find_map(|event| match event {
+                Ok(ChatStreamEvent::StreamEnd { response }) => Some(response),
+                _ => None,
+            })
+            .expect("stream end event");
+        let metadata = end.provider_metadata.as_ref().expect("provider metadata");
+        let deepseek = metadata.get("deepseek").expect("deepseek metadata");
+        assert_eq!(
+            deepseek.get("promptCacheHitTokens"),
+            Some(&serde_json::json!(11))
+        );
+        assert_eq!(
+            deepseek.get("promptCacheMissTokens"),
+            Some(&serde_json::json!(6))
         );
 
         // After StreamEnd is emitted from finish_reason, the [DONE] marker should not

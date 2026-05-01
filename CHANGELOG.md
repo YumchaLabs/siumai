@@ -1058,6 +1058,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   cache normalization, Qwen/Alibaba cache-write counters, and xAI chat/Responses non-inclusive
   cache and reasoning totals while still preserving the original provider usage payload in
   `Usage.raw`.
+- DeepSeek OpenAI-compatible response metadata now mirrors AI SDK's prompt-cache usage fields as
+  `providerMetadata.deepseek.promptCacheHitTokens` / `promptCacheMissTokens`, and the typed
+  DeepSeek metadata helper exposes those fields.
 - OpenAI-compatible finish-reason conversion now applies AI SDK provider-specific mappings for
   DeepSeek `insufficient_system_resource`, Mistral `model_length`, Perplexity's narrower
   stop/length contract, and Cohere's uppercase stop reasons while continuing to preserve the raw

@@ -561,7 +561,10 @@ helper, and the tool-level runtime path now forwards `eagerInputStreaming` in ad
 DeepSeek now follows that same runtime-provider-root rule on the audited chat surface: request
 options are read from the resolved provider namespace, response metadata is emitted under that same
 root, and the typed DeepSeek helpers now expose keyed accessors for custom-root reads without
-guessing arbitrary vendor aliases.
+guessing arbitrary vendor aliases. DeepSeek prompt-cache usage now also mirrors the audited AI SDK
+response metadata lane by projecting `usage.prompt_cache_hit_tokens` /
+`usage.prompt_cache_miss_tokens` into `providerMetadata.deepseek.promptCacheHitTokens` /
+`promptCacheMissTokens`, with typed helper fields for both values.
 
 Google/Gemini request shaping is also closer to the upstream provider package now: the audited
 `google|vertex` request boundary uses the runtime namespace first for request options and
