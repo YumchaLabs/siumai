@@ -38,6 +38,39 @@ type GenerateTextOutputPart = GenerateTextContentPart<String, JSONValue, ToolRes
 type GenerateTextProjectedToolCall = GenerateTextToolCall<String, JSONValue>;
 type GenerateTextProjectedToolResult = GenerateTextToolResult<String, JSONValue, ToolResultOutput>;
 
+/// AI SDK-style inclusion controls for `generateText` result metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GenerateTextInclude {
+    /// Whether to retain the provider request body in result and step metadata.
+    pub request_body: bool,
+    /// Whether to retain the provider response body in result and step metadata.
+    pub response_body: bool,
+}
+
+impl GenerateTextInclude {
+    /// Include all metadata bodies, matching AI SDK defaults.
+    pub const fn all() -> Self {
+        Self {
+            request_body: true,
+            response_body: true,
+        }
+    }
+
+    /// Omit large request and response bodies while keeping the rest of the metadata.
+    pub const fn metadata_only() -> Self {
+        Self {
+            request_body: false,
+            response_body: false,
+        }
+    }
+}
+
+impl Default for GenerateTextInclude {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
 /// Options for `text::generate`.
 #[derive(Debug, Clone, Default)]
 pub struct GenerateOptions {
@@ -66,6 +99,8 @@ pub struct GenerateOptions {
     ///
     /// This is applied to `ChatRequest.telemetry` (runtime-only; not serialized).
     pub telemetry: Option<siumai_core::observability::telemetry::TelemetryConfig>,
+    /// Controls whether large provider request/response bodies are retained in `generate_text`.
+    pub include: GenerateTextInclude,
 }
 
 /// Options for `text::stream`.
@@ -184,17 +219,22 @@ pub async fn generate_text<M: LanguageModel + ?Sized>(
     request: TextRequest,
     options: GenerateOptions,
 ) -> Result<GenerateTextProjectionResult, LlmError> {
+    let include = options.include;
     let (request, effective) = prepare_generate_request(request, options);
     let response = generate_prepared(model, request, effective).await?;
-    let request_metadata = response
+    let mut request_metadata = response
         .request
         .as_ref()
         .map(LanguageModelRequestMetadata::from)
         .unwrap_or_default();
+    if !include.request_body {
+        request_metadata.body = None;
+    }
     Ok(project_generate_text_response(
         model,
         response,
         request_metadata,
+        include,
     ))
 }
 
@@ -268,6 +308,7 @@ fn project_generate_text_response<M: LanguageModel + ?Sized>(
     model: &M,
     response: TextResponse,
     request_metadata: LanguageModelRequestMetadata,
+    include: GenerateTextInclude,
 ) -> GenerateTextProjectionResult {
     let call_id = response.id.clone().unwrap_or_else(crate::generate_id);
     let http_response = response.response.as_ref();
@@ -295,7 +336,9 @@ fn project_generate_text_response<M: LanguageModel + ?Sized>(
         headers: response_headers,
     })
     .with_messages(response_messages_from_content(&response.content));
-    if let Some(body) = response_body {
+    if include.response_body
+        && let Some(body) = response_body
+    {
         response_metadata = response_metadata.with_body(body);
     }
 
@@ -838,6 +881,36 @@ mod tests {
                     .and_then(|value| value.get("trace"))
                     .and_then(serde_json::Value::as_str)),
             Some("abc")
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_text_include_can_omit_large_metadata_bodies() {
+        let model = FakeLanguageModel;
+        let result = generate_text(
+            &model,
+            ChatRequest::new(vec![ChatMessage::user("hi").build()]),
+            GenerateOptions {
+                include: GenerateTextInclude::metadata_only(),
+                ..GenerateOptions::default()
+            },
+        )
+        .await
+        .expect("generate text");
+
+        assert_eq!(result.request.body, None);
+        assert_eq!(result.steps[0].request.body, None);
+        assert_eq!(result.response.body, None);
+        assert_eq!(result.steps[0].response.body, None);
+        assert_eq!(
+            result
+                .response
+                .metadata
+                .headers
+                .as_ref()
+                .and_then(|headers| headers.get("x-request-id"))
+                .map(String::as_str),
+            Some("req_123")
         );
     }
 }
