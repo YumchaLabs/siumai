@@ -505,7 +505,7 @@ impl ResponseTransformer for CompatResponseTransformer {
         Ok(ChatResponse {
             id: Some(resp.id),
             content: final_content,
-            model: Some(resp.model),
+            model: Some(resp.model.clone()),
             usage,
             finish_reason,
             raw_finish_reason,
@@ -513,7 +513,12 @@ impl ResponseTransformer for CompatResponseTransformer {
             system_fingerprint: resp.system_fingerprint,
             service_tier: resp.service_tier,
             warnings: None,
-            response: None,
+            response: Some(HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: Some(resp.model),
+                headers: std::collections::HashMap::new(),
+                body: Some(raw.clone()),
+            }),
             provider_metadata,
         })
     }
@@ -910,6 +915,54 @@ mod tests {
         assert_eq!(response_info.model_id.as_deref(), Some("image-model"));
         assert!(response_info.headers.is_empty());
         assert!(response_info.body.is_none());
+    }
+
+    #[test]
+    fn openai_compatible_chat_response_preserves_raw_response_body() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "test-provider".to_string(),
+                name: "Test Provider".to_string(),
+                base_url: "https://api.example.com/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string()],
+                default_model: Some("chat-model".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "test-provider",
+            "test-key",
+            "https://api.example.com/v1",
+            adapter.clone(),
+        )
+        .with_model("chat-model");
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
+        let raw = serde_json::json!({
+            "id": "chatcmpl-123",
+            "model": "chat-model",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "hello" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3 }
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("chat response");
+        let response_info = resp.response.expect("response metadata");
+
+        assert_eq!(response_info.model_id.as_deref(), Some("chat-model"));
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["id"],
+            "chatcmpl-123"
+        );
     }
 
     #[test]
