@@ -339,12 +339,12 @@ impl AudioCapability for OpenAiClient {
         let res =
             execute_multipart_bytes_request(&config, &url, build_form, req.http_config.as_ref())
                 .await?;
-        let response = Some(crate::types::HttpResponseInfo {
+        let mut response = crate::types::HttpResponseInfo {
             timestamp: chrono::Utc::now(),
             model_id: req.model.clone().filter(|model| !model.is_empty()),
             headers: headers_to_map(&res.headers),
             body: None,
-        });
+        };
 
         let mut metadata = std::collections::HashMap::new();
 
@@ -354,6 +354,7 @@ impl AudioCapability for OpenAiClient {
                     "Invalid OpenAI audio translation JSON response: {e}"
                 ))
             })?;
+            response.body = Some(json.clone());
 
             if let Some(usage) = json.get("usage") {
                 metadata.insert("usage".to_string(), usage.clone());
@@ -386,13 +387,14 @@ impl AudioCapability for OpenAiClient {
                 warnings: None,
                 provider_metadata: None,
                 request: None,
-                response,
+                response: Some(response),
             });
         }
 
         let text = String::from_utf8(res.bytes).map_err(|e| {
             LlmError::ParseError(format!("Invalid UTF-8 translation response: {e}"))
         })?;
+        response.body = Some(serde_json::Value::String(text.clone()));
 
         Ok(crate::types::SttResponse {
             text,
@@ -404,7 +406,7 @@ impl AudioCapability for OpenAiClient {
             warnings: None,
             provider_metadata: None,
             request: None,
-            response,
+            response: Some(response),
         })
     }
 }

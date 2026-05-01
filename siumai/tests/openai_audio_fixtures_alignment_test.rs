@@ -254,7 +254,7 @@ async fn openai_audio_translation_sends_multipart_and_parses_json() {
         .and(body_string_contains("0"))
         .and(body_string_contains("audio.mp3"))
         .and(body_string_contains("hello"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(translation_body))
+        .respond_with(ResponseTemplate::new(200).set_body_json(translation_body.clone()))
         .expect(1)
         .mount(&server)
         .await;
@@ -285,4 +285,13 @@ async fn openai_audio_translation_sends_multipart_and_parses_json() {
     assert_eq!(resp.text, "hello (translated)");
     assert!(resp.metadata.contains_key("usage"));
     assert!(resp.metadata.contains_key("segments"));
+    let response = resp.response.as_ref().expect("response metadata");
+    assert_eq!(
+        response.body.as_ref().and_then(|body| body.get("text")),
+        translation_body.get("text")
+    );
+    assert_eq!(
+        response.body.as_ref().and_then(|body| body.get("usage")),
+        translation_body.get("usage")
+    );
 }
