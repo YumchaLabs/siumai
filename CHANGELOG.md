@@ -1063,6 +1063,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   DeepSeek metadata helper exposes those fields.
 - OpenAI-compatible embedding responses now preserve provider-returned embedding usage and
   `providerMetadata` payloads instead of dropping them during the shared response transform.
+- OpenAI and OpenAI-compatible embedding response transformation now also preserves an AI
+  SDK-style response envelope with the raw response body on direct transformer usage.
 - TogetherAI rerank response transformation now preserves an AI SDK-style response envelope with
   `modelId` and the raw response body even when the low-level transformer is used directly.
 - Cohere rerank response transformation now also preserves an AI SDK-style response envelope with

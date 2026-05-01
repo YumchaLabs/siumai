@@ -21,7 +21,7 @@ use crate::standards::openai::utils::{
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
 use crate::types::{
-    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse,
+    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, HttpResponseInfo,
     ImageGenerationRequest, ImageGenerationResponse, MessageContent, SourcePart,
 };
 use eventsource_stream::Event;
@@ -564,6 +564,12 @@ impl ResponseTransformer for CompatResponseTransformer {
             &self.resolved_provider_metadata_key(),
             &self.raw_provider_metadata_key(),
         );
+        response.response = Some(HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: Some(response.model.clone()),
+            headers: std::collections::HashMap::new(),
+            body: Some(raw.clone()),
+        });
 
         Ok(response)
     }
@@ -785,6 +791,13 @@ mod tests {
             Some(&serde_json::json!("emb_123"))
         );
         assert!(resp.metadata.get("test-provider").is_none());
+        let response_info = resp.response.expect("response metadata");
+        assert_eq!(response_info.model_id.as_deref(), Some("embed-model"));
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["providerMetadata"]["test-provider"]["traceId"],
+            "emb_123"
+        );
     }
 
     #[test]

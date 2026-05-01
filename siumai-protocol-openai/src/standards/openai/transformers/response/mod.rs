@@ -3,9 +3,10 @@
 use crate::error::LlmError;
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{
-    ChatResponse, EmbeddingResponse, EmbeddingUsage, GeneratedImage, ImageGenerationResponse,
-    ModerationResponse, ModerationResult,
+    ChatResponse, EmbeddingResponse, EmbeddingUsage, GeneratedImage, HttpResponseInfo,
+    ImageGenerationResponse, ModerationResponse, ModerationResult,
 };
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct OpenAiResponseTransformer;
@@ -69,11 +70,18 @@ impl ResponseTransformer for OpenAiResponseTransformer {
             .map_err(|e| LlmError::ParseError(format!("Invalid OpenAI embedding response: {e}")))?;
         r.data.sort_by_key(|o| o.index);
         let vectors = r.data.into_iter().map(|o| o.embedding).collect();
-        let mut resp = EmbeddingResponse::new(vectors, r.model);
+        let model = r.model;
+        let mut resp = EmbeddingResponse::new(vectors, model.clone());
         resp.usage = Some(EmbeddingUsage::new(
             r.usage.prompt_tokens,
             r.usage.total_tokens,
         ));
+        resp.response = Some(HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: Some(model),
+            headers: HashMap::new(),
+            body: Some(raw.clone()),
+        });
         Ok(resp)
     }
 
@@ -180,6 +188,47 @@ impl ResponseTransformer for OpenAiResponseTransformer {
             results: out,
             model,
         })
+    }
+}
+
+#[cfg(test)]
+mod embedding_tests {
+    use super::*;
+    use crate::execution::transformers::response::ResponseTransformer;
+
+    #[test]
+    fn openai_embedding_response_preserves_raw_response_body() {
+        let raw = serde_json::json!({
+            "object": "list",
+            "model": "text-embedding-3-small",
+            "data": [
+                {
+                    "object": "embedding",
+                    "index": 0,
+                    "embedding": [0.1, 0.2]
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 4,
+                "total_tokens": 4
+            }
+        });
+
+        let tx = OpenAiResponseTransformer;
+        let resp = tx
+            .transform_embedding_response(&raw)
+            .expect("embedding response");
+        let response_info = resp.response.expect("response metadata");
+
+        assert_eq!(
+            response_info.model_id.as_deref(),
+            Some("text-embedding-3-small")
+        );
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["data"][0]["embedding"][1],
+            0.2
+        );
     }
 }
 

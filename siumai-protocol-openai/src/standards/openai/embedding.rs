@@ -5,8 +5,9 @@
 use crate::error::LlmError;
 use crate::execution::transformers::request::RequestTransformer;
 use crate::execution::transformers::response::ResponseTransformer;
-use crate::types::{EmbeddingRequest, EmbeddingResponse};
+use crate::types::{EmbeddingRequest, EmbeddingResponse, HttpResponseInfo};
 use crate::{core::ProviderContext, core::ProviderSpec};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// OpenAI Embedding API Standard
@@ -179,12 +180,95 @@ impl ResponseTransformer for OpenAiEmbeddingResponseTransformer {
         &self,
         raw: &serde_json::Value,
     ) -> Result<EmbeddingResponse, LlmError> {
+        let raw_body = raw.clone();
         let mut raw = raw.clone();
         if let Some(adapter) = &self.adapter {
             adapter.transform_response(&mut raw)?;
         }
 
         let openai_tx = crate::standards::openai::transformers::OpenAiResponseTransformer;
-        openai_tx.transform_embedding_response(&raw)
+        let mut response = openai_tx.transform_embedding_response(&raw)?;
+        response.response = Some(HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: raw_body
+                .get("model")
+                .or_else(|| raw.get("model"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| Some(response.model.clone())),
+            headers: HashMap::new(),
+            body: Some(raw_body),
+        });
+        Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    struct NormalizingEmbeddingAdapter;
+
+    impl OpenAiEmbeddingAdapter for NormalizingEmbeddingAdapter {
+        fn transform_response(&self, resp: &mut serde_json::Value) -> Result<(), LlmError> {
+            let provider_model = resp
+                .get("provider_model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("normalized-model");
+            let vectors = resp
+                .get("vectors")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+
+            *resp = json!({
+                "object": "list",
+                "model": provider_model,
+                "data": vectors
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, embedding)| {
+                        json!({
+                            "object": "embedding",
+                            "index": index,
+                            "embedding": embedding,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+                "usage": {
+                    "prompt_tokens": 3,
+                    "total_tokens": 3
+                }
+            });
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn embedding_response_preserves_adapter_raw_response_body() {
+        let tx = OpenAiEmbeddingStandard::with_adapter(Arc::new(NormalizingEmbeddingAdapter))
+            .create_response_transformer("test-provider");
+        let raw = json!({
+            "provider_model": "provider-embedding-model",
+            "vectors": [[0.3, 0.7]],
+            "trace": {
+                "id": "trace-123"
+            }
+        });
+
+        let response = tx
+            .transform_embedding_response(&raw)
+            .expect("embedding response");
+        let response_info = response.response.expect("response info");
+        let body = response_info.body.expect("raw response body");
+
+        assert_eq!(response.model, "provider-embedding-model");
+        assert_eq!(
+            response_info.model_id.as_deref(),
+            Some("provider-embedding-model")
+        );
+        assert_eq!(body["trace"]["id"], "trace-123");
+        assert!(body.get("data").is_none());
     }
 }
