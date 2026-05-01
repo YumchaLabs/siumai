@@ -8,9 +8,11 @@ use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 use crate::streaming::{
     ChatStream, ChatStreamEvent, JsonEventConverter, SseEventConverter, SseStreamExt,
 };
+use crate::types::{ChatStreamPart, HttpResponseInfo, ResponseMetadata};
 use futures_util::StreamExt;
 use futures_util::TryStreamExt;
 use reqwest::header::HeaderMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Stream Factory
@@ -20,6 +22,82 @@ use std::sync::Arc;
 pub struct StreamFactory;
 
 impl StreamFactory {
+    pub(crate) fn attach_http_response_metadata(
+        stream: ChatStream,
+        headers: HeaderMap,
+    ) -> ChatStream {
+        let headers = crate::execution::http::headers::headermap_to_hashmap(&headers);
+        if headers.is_empty() {
+            return stream;
+        }
+
+        let timestamp = chrono::Utc::now();
+        Box::pin(stream.map(move |event| {
+            let headers = headers.clone();
+            event.map(|event| {
+                Self::attach_http_response_metadata_to_event(event, &headers, timestamp)
+            })
+        }))
+    }
+
+    fn attach_http_response_metadata_to_event(
+        event: ChatStreamEvent,
+        headers: &HashMap<String, String>,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) -> ChatStreamEvent {
+        match event {
+            ChatStreamEvent::StreamStart { mut metadata } => {
+                Self::attach_headers_to_response_metadata(&mut metadata, headers);
+                ChatStreamEvent::StreamStart { metadata }
+            }
+            ChatStreamEvent::Part { part } => ChatStreamEvent::Part {
+                part: Self::attach_headers_to_part(part, headers),
+            },
+            ChatStreamEvent::PartWithReplay { part, replay } => ChatStreamEvent::PartWithReplay {
+                part: Self::attach_headers_to_part(part, headers),
+                replay,
+            },
+            ChatStreamEvent::StreamEnd { mut response } => {
+                if let Some(info) = response.response.as_mut() {
+                    if info.headers.is_empty() {
+                        info.headers = headers.clone();
+                    }
+                } else {
+                    response.response = Some(HttpResponseInfo {
+                        timestamp,
+                        model_id: response.model.clone(),
+                        headers: headers.clone(),
+                        body: None,
+                    });
+                }
+                ChatStreamEvent::StreamEnd { response }
+            }
+            other => other,
+        }
+    }
+
+    fn attach_headers_to_part(
+        part: ChatStreamPart,
+        headers: &HashMap<String, String>,
+    ) -> ChatStreamPart {
+        match part {
+            ChatStreamPart::ResponseMetadata(mut metadata) => {
+                Self::attach_headers_to_response_metadata(&mut metadata, headers);
+                ChatStreamPart::ResponseMetadata(metadata)
+            }
+            other => other,
+        }
+    }
+
+    fn attach_headers_to_response_metadata(
+        metadata: &mut ResponseMetadata,
+        headers: &HashMap<String, String>,
+    ) {
+        if metadata.headers.is_none() {
+            metadata.headers = Some(headers.clone());
+        }
+    }
+
     pub(crate) fn expand_textual_part_shadow_events(
         events: Vec<Result<ChatStreamEvent, LlmError>>,
     ) -> Vec<Result<ChatStreamEvent, LlmError>> {
@@ -102,6 +180,7 @@ impl StreamFactory {
     where
         C: SseEventConverter + Clone + Send + 'static,
     {
+        let response_headers = response.headers().clone();
         // If server didn't return SSE, fall back to single JSON body conversion
         let is_sse = response
             .headers()
@@ -145,7 +224,10 @@ impl StreamFactory {
                 }
             }
             let stream = futures::stream::iter(events);
-            return Ok(Box::pin(stream));
+            return Ok(Self::attach_http_response_metadata(
+                Box::pin(stream),
+                response_headers,
+            ));
         }
 
         // Convert to byte stream and then to SSE
@@ -263,7 +345,10 @@ impl StreamFactory {
                 })
                 .flat_map(futures::stream::iter)
             });
-        Ok(Box::pin(chat_stream))
+        Ok(Self::attach_http_response_metadata(
+            Box::pin(chat_stream),
+            response_headers,
+        ))
     }
 
     /// Convert a byte stream into a ChatStream, using SSE when available,
@@ -281,6 +366,7 @@ impl StreamFactory {
         C: SseEventConverter + Clone + Send + 'static,
         S: futures_util::Stream<Item = Result<Vec<u8>, LlmError>> + Send + Sync + Unpin + 'static,
     {
+        let response_headers = headers.clone();
         let is_sse = headers
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
@@ -322,7 +408,10 @@ impl StreamFactory {
                 }
             }
 
-            return Ok(Box::pin(futures::stream::iter(events)));
+            return Ok(Self::attach_http_response_metadata(
+                Box::pin(futures::stream::iter(events)),
+                response_headers,
+            ));
         }
 
         let sse_stream = body_stream.into_sse_stream();
@@ -433,7 +522,10 @@ impl StreamFactory {
                 .flat_map(futures::stream::iter)
             });
 
-        Ok(Box::pin(chat_stream))
+        Ok(Self::attach_http_response_metadata(
+            Box::pin(chat_stream),
+            response_headers,
+        ))
     }
 
     /// Create a chat stream with optional 401 retry and error classification.
@@ -611,6 +703,7 @@ impl StreamFactory {
     where
         C: JsonEventConverter + Clone + 'static,
     {
+        let response_headers = response.headers().clone();
         use tokio_util::codec::{FramedRead, LinesCodec};
         use tokio_util::io::StreamReader;
 
@@ -653,7 +746,10 @@ impl StreamFactory {
                     .flat_map(futures::stream::iter),
             );
 
-        Ok(Box::pin(chat_stream))
+        Ok(Self::attach_http_response_metadata(
+            Box::pin(chat_stream),
+            response_headers,
+        ))
     }
 
     /// Create a chat stream using eventsource-stream

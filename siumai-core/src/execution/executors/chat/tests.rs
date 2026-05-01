@@ -306,6 +306,10 @@ async fn stream_end_attaches_provider_request_body() {
                 reqwest::header::CONTENT_TYPE,
                 reqwest::header::HeaderValue::from_static("text/event-stream"),
             );
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-stream-request-id"),
+                reqwest::header::HeaderValue::from_static("stream_req_123"),
+            );
             HttpTransportStreamResponse {
                 status: 200,
                 headers,
@@ -358,6 +362,14 @@ async fn stream_end_attaches_provider_request_body() {
     assert_eq!(response.content_text(), Some("streamed"));
     assert_eq!(request_body["model"], serde_json::json!("request-model"));
     assert_eq!(request_body["messages_len"], serde_json::json!(0));
+    assert_eq!(
+        response
+            .response
+            .as_ref()
+            .and_then(|response| response.headers.get("x-stream-request-id"))
+            .map(String::as_str),
+        Some("stream_req_123")
+    );
 }
 
 #[tokio::test]

@@ -140,8 +140,16 @@ where
             return Err(error);
         }
 
-        return create_json_stream_from_transport_body(response.body.into_stream(), json_converter)
-            .await;
+        let response_headers = response.headers.clone();
+        let stream =
+            create_json_stream_from_transport_body(response.body.into_stream(), json_converter)
+                .await?;
+        return Ok(
+            crate::streaming::StreamFactory::attach_http_response_metadata(
+                stream,
+                response_headers,
+            ),
+        );
     }
 
     // Build request
