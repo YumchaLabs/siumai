@@ -170,7 +170,10 @@ over the existing `Embedding`, `EmbeddingModelUsage`, `Warning`, and provider-me
 The public facade now also has thin `siumai::embed(...)` / `siumai::embed_many(...)` helpers plus
 module-level `embedding::{generate_embedding, generate_embeddings, embed_value, embed_values}`
 projections over the existing embedding-family runtime, preserving raw response headers/body
-without introducing a second provider execution path.
+without introducing a second provider execution path. The OpenAI-compatible embedding response
+transformer now also carries upstream `usage.prompt_tokens` and provider-returned
+`providerMetadata` through the Rust `EmbeddingResponse` metadata lane, matching the AI SDK
+embedding-model result contract more closely.
 
 Rerank helper parity now follows the same rule. The old provider-level single result item has been
 renamed to `RerankRankingEntry`, so the public `RerankResult<VALUE>` name can match AI SDK's

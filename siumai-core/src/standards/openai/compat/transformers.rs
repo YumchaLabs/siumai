@@ -527,14 +527,45 @@ impl ResponseTransformer for CompatResponseTransformer {
             embedding: Vec<f32>,
         }
         #[derive(serde::Deserialize)]
+        struct CompatEmbeddingUsage {
+            #[serde(alias = "promptTokens")]
+            prompt_tokens: Option<u32>,
+            #[serde(alias = "totalTokens")]
+            total_tokens: Option<u32>,
+        }
+        #[derive(serde::Deserialize)]
         struct CompatEmbeddingResp {
             data: Vec<CompatEmbeddingData>,
-            model: String,
+            model: Option<String>,
+            #[serde(default)]
+            usage: Option<CompatEmbeddingUsage>,
         }
         let r: CompatEmbeddingResp = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid embedding response: {e}")))?;
         let vectors = r.data.into_iter().map(|d| d.embedding).collect();
-        Ok(EmbeddingResponse::new(vectors, r.model))
+        let model = r
+            .model
+            .filter(|model| !model.trim().is_empty())
+            .unwrap_or_else(|| self.config.model.clone());
+        let mut response = EmbeddingResponse::new(vectors, model);
+
+        if let Some(prompt_tokens) = r.usage.as_ref().and_then(|usage| usage.prompt_tokens) {
+            response.usage = Some(crate::types::EmbeddingUsage::new(
+                prompt_tokens,
+                r.usage
+                    .as_ref()
+                    .and_then(|usage| usage.total_tokens)
+                    .unwrap_or(prompt_tokens),
+            ));
+        }
+
+        response.metadata = extract_embedding_provider_metadata(
+            raw,
+            &self.resolved_provider_metadata_key(),
+            &self.raw_provider_metadata_key(),
+        );
+
+        Ok(response)
     }
 
     fn transform_image_response(
@@ -544,6 +575,30 @@ impl ResponseTransformer for CompatResponseTransformer {
         serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid image response: {e}")))
     }
+}
+
+fn extract_embedding_provider_metadata(
+    raw: &serde_json::Value,
+    provider_key: &str,
+    raw_provider_key: &str,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let Some(metadata) = raw
+        .get("providerMetadata")
+        .or_else(|| raw.get("provider_metadata"))
+        .and_then(serde_json::Value::as_object)
+    else {
+        return std::collections::HashMap::new();
+    };
+
+    if let Some(provider_metadata) = metadata
+        .get(provider_key)
+        .or_else(|| metadata.get(raw_provider_key))
+        .and_then(serde_json::Value::as_object)
+    {
+        return provider_metadata.clone().into_iter().collect();
+    }
+
+    metadata.clone().into_iter().collect()
 }
 
 /// Stream chunk transformer that delegates to the unified converter
@@ -678,6 +733,59 @@ mod tests {
 
     // Test for structured_output via provider_params has been removed
     // as this functionality is now handled via provider_options
+
+    #[test]
+    fn openai_compatible_embedding_response_preserves_usage_and_provider_metadata() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "test-provider".to_string(),
+                name: "Test Provider".to_string(),
+                base_url: "https://api.example.com/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["embedding".to_string()],
+                default_model: Some("embed-model".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "test-provider",
+            "test-key",
+            "https://api.example.com/v1",
+            adapter.clone(),
+        )
+        .with_model("embed-model");
+
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
+
+        let raw = serde_json::json!({
+            "data": [{ "embedding": [0.1, 0.2, 0.3] }],
+            "usage": { "prompt_tokens": 8 },
+            "providerMetadata": {
+                "test-provider": {
+                    "traceId": "emb_123"
+                }
+            }
+        });
+
+        let resp = tx.transform_embedding_response(&raw).unwrap();
+        assert_eq!(resp.model, "embed-model");
+        assert_eq!(
+            resp.usage
+                .as_ref()
+                .map(|usage| (usage.prompt_tokens, usage.total_tokens)),
+            Some((8, 8))
+        );
+        assert_eq!(
+            resp.metadata.get("traceId"),
+            Some(&serde_json::json!("emb_123"))
+        );
+        assert!(resp.metadata.get("test-provider").is_none());
+    }
 
     #[test]
     fn perplexity_extra_fields_are_exposed_as_provider_metadata() {
