@@ -8,8 +8,11 @@ use crate::execution::transformers::response::ResponseTransformer;
 use crate::provider_options::{
     CohereEmbeddingInputType, CohereEmbeddingOptions, CohereEmbeddingTruncate,
 };
-use crate::types::{EmbeddingRequest, EmbeddingResponse, EmbeddingTaskType, EmbeddingUsage};
+use crate::types::{
+    EmbeddingRequest, EmbeddingResponse, EmbeddingTaskType, EmbeddingUsage, HttpResponseInfo,
+};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone, Default)]
@@ -147,10 +150,16 @@ impl ResponseTransformer for CohereEmbeddingResponseTransformer {
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32;
 
-        Ok(
-            EmbeddingResponse::new(embeddings, self.default_model.clone())
-                .with_usage(EmbeddingUsage::new(input_tokens, input_tokens)),
-        )
+        let mut response = EmbeddingResponse::new(embeddings, self.default_model.clone())
+            .with_usage(EmbeddingUsage::new(input_tokens, input_tokens));
+        response.response = Some(HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: Some(response.model.clone()),
+            headers: HashMap::new(),
+            body: Some(raw.clone()),
+        });
+
+        Ok(response)
     }
 }
 
@@ -227,6 +236,37 @@ mod tests {
 
         assert!(
             matches!(err, LlmError::ConfigurationError(message) if message.contains("256, 512, 1024, 1536"))
+        );
+    }
+
+    #[test]
+    fn cohere_embedding_response_preserves_raw_response_body() {
+        let transformer = CohereEmbeddingResponseTransformer {
+            provider_id: "cohere".to_string(),
+            default_model: "embed-v4.0".to_string(),
+        };
+        let raw = serde_json::json!({
+            "embeddings": {
+                "float": [[0.1, 0.2]]
+            },
+            "meta": {
+                "billed_units": {
+                    "input_tokens": 3
+                }
+            }
+        });
+
+        let response = transformer
+            .transform_embedding_response(&raw)
+            .expect("embedding response");
+        let response_info = response.response.expect("response metadata");
+
+        assert_eq!(response.model, "embed-v4.0");
+        assert_eq!(response_info.model_id.as_deref(), Some("embed-v4.0"));
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["meta"]["billed_units"]["input_tokens"],
+            serde_json::json!(3)
         );
     }
 }
