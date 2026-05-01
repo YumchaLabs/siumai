@@ -657,7 +657,16 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
             images,
             metadata,
             warnings: None,
-            response: None,
+            response: Some(crate::types::HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: raw
+                    .get("model")
+                    .or_else(|| raw.get("modelVersionId"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
+                headers: HashMap::new(),
+                body: None,
+            }),
         })
     }
 }
@@ -1053,5 +1062,12 @@ mod tests {
                 .and_then(|image| image.get("revisedPrompt")),
             Some(&serde_json::json!("a revised prompt"))
         );
+        let response_info = response.response.expect("response metadata");
+        assert_eq!(
+            response_info.model_id.as_deref(),
+            Some("imagen-4.0-generate-001")
+        );
+        assert!(response_info.headers.is_empty());
+        assert!(response_info.body.is_none());
     }
 }

@@ -75,6 +75,10 @@ mod images_tests {
                 .map(Vec::len),
             Some(2)
         );
+        let response_info = out.response.expect("response metadata");
+        assert_eq!(response_info.model_id.as_deref(), Some("gemini-1.5-flash"));
+        assert!(response_info.headers.is_empty());
+        assert!(response_info.body.is_none());
     }
 
     #[test]
@@ -106,6 +110,10 @@ mod images_tests {
                 .and_then(|image| image.get("revisedPrompt")),
             Some(&serde_json::json!("a revised prompt"))
         );
+        let response_info = out.response.expect("response metadata");
+        assert_eq!(response_info.model_id.as_deref(), Some("gemini-1.5-flash"));
+        assert!(response_info.headers.is_empty());
+        assert!(response_info.body.is_none());
     }
 
     #[test]

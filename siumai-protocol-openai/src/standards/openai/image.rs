@@ -26,8 +26,8 @@ use crate::error::LlmError;
 use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer};
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{
-    ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse,
-    ImageVariationRequest, Warning,
+    HttpResponseInfo, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
+    ImageGenerationResponse, ImageVariationRequest, Warning,
 };
 use crate::{core::ProviderContext, core::ProviderSpec};
 use std::sync::Arc;
@@ -804,7 +804,15 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
             images,
             metadata,
             warnings: None,
-            response: None,
+            response: Some(HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: resp
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
+                headers: std::collections::HashMap::new(),
+                body: None,
+            }),
         })
     }
 }
@@ -980,6 +988,10 @@ mod tests {
             response.images[1].b64_json,
             Some("base64encodeddata".to_string())
         );
+        let response_info = response.response.expect("response metadata");
+        assert!(response_info.model_id.is_none());
+        assert!(response_info.headers.is_empty());
+        assert!(response_info.body.is_none());
     }
 
     #[test]

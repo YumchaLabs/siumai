@@ -424,7 +424,12 @@ impl ResponseTransformer for BedrockImageResponseTransformer {
                 .collect(),
             metadata: response.into_metadata(),
             warnings: None,
-            response: None,
+            response: Some(crate::types::HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: None,
+                headers: HashMap::new(),
+                body: None,
+            }),
         })
     }
 }
@@ -1050,6 +1055,10 @@ mod tests {
             response.metadata.get("details"),
             Some(&serde_json::json!({ "seed": 42 }))
         );
+        let response_info = response.response.expect("response metadata");
+        assert!(response_info.model_id.is_none());
+        assert!(response_info.headers.is_empty());
+        assert!(response_info.body.is_none());
     }
 
     #[test]

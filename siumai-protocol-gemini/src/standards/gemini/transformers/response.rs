@@ -1167,7 +1167,12 @@ impl ResponseTransformer for GeminiResponseTransformer {
                 images,
                 metadata,
                 warnings: None,
-                response: None,
+                response: Some(crate::types::HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some(self.config.model.clone()),
+                    headers: std::collections::HashMap::new(),
+                    body: None,
+                }),
             });
         }
 
@@ -1226,7 +1231,12 @@ impl ResponseTransformer for GeminiResponseTransformer {
             images,
             metadata,
             warnings: None,
-            response: None,
+            response: Some(crate::types::HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: Some(self.config.model.clone()),
+                headers: std::collections::HashMap::new(),
+                body: None,
+            }),
         })
     }
 }
