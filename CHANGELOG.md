@@ -1065,6 +1065,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `providerMetadata` payloads instead of dropping them during the shared response transform.
 - TogetherAI rerank response transformation now preserves an AI SDK-style response envelope with
   `modelId` and the raw response body even when the low-level transformer is used directly.
+- Cohere rerank response transformation now also preserves an AI SDK-style response envelope with
+  the raw response body on direct transformer usage.
+- Native Cohere chat response transformation now builds against the current shared
+  response-metadata field.
 - The extensibility executor-testing example now builds against the current `ChatResponse`
   response-metadata field.
 - OpenAI-compatible finish-reason conversion now applies AI SDK provider-specific mappings for

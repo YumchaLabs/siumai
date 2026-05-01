@@ -52,6 +52,9 @@ fn normalize_json(value: &mut Value) {
             let keys: Vec<String> = map
                 .iter()
                 .filter_map(|(k, v)| {
+                    if k == "timestamp" {
+                        return Some(k.clone());
+                    }
                     if v.is_null() {
                         return Some(k.clone());
                     }

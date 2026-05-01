@@ -290,6 +290,7 @@ impl ResponseTransformer for CohereChatResponseTransformer {
             service_tier: None,
             warnings: (!self.warnings.is_empty()).then_some(self.warnings.clone()),
             provider_metadata: None,
+            response: None,
         })
     }
 }

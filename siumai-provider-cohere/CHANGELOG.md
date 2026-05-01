@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`256`, `512`, `1024`, or `1536`) instead of silently accepting arbitrary values.
 - Cohere embedding execution now also enforces the audited AI SDK batch-size guard: one native
   `/v2/embed` call may carry at most `96` inputs.
+- Cohere rerank response transformation now preserves an AI SDK-style response envelope with the
+  raw response body even when callers use the provider transformer directly outside the HTTP
+  executor path.
+- Native Cohere chat response transformation now builds against the current shared
+  response-metadata field.
 
 ## [0.11.0-beta.5] - 2026-01-15
 
