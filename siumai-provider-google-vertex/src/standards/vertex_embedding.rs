@@ -10,7 +10,9 @@ use crate::error::LlmError;
 use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::execution::transformers::request::RequestTransformer;
 use crate::execution::transformers::response::ResponseTransformer;
-use crate::types::{EmbeddingRequest, EmbeddingResponse, EmbeddingTaskType, EmbeddingUsage};
+use crate::types::{
+    EmbeddingRequest, EmbeddingResponse, EmbeddingTaskType, EmbeddingUsage, HttpResponseInfo,
+};
 use reqwest::header::HeaderMap;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -322,6 +324,12 @@ impl ResponseTransformer for VertexEmbeddingResponseTransformer {
         if token_count > 0 {
             out = out.with_usage(EmbeddingUsage::new(token_count, token_count));
         }
+        out.response = Some(HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: Some(out.model.clone()),
+            headers: HashMap::new(),
+            body: Some(raw.clone()),
+        });
         Ok(out)
     }
 }
@@ -344,6 +352,41 @@ mod tests {
         assert!(
             matches!(err, LlmError::InvalidInput(_)),
             "expected InvalidInput, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn vertex_embedding_response_preserves_raw_response_body() {
+        let transformer = VertexEmbeddingResponseTransformer {
+            provider_id: "vertex".to_string(),
+            model: "text-embedding-005".to_string(),
+        };
+        let raw = serde_json::json!({
+            "predictions": [{
+                "embeddings": {
+                    "values": [0.1, 0.2],
+                    "statistics": {
+                        "token_count": 3
+                    }
+                }
+            }]
+        });
+
+        let response = transformer
+            .transform_embedding_response(&raw)
+            .expect("embedding response");
+        let response_info = response.response.expect("response metadata");
+
+        assert_eq!(response.model, "text-embedding-005");
+        assert_eq!(
+            response_info.model_id.as_deref(),
+            Some("text-embedding-005")
+        );
+        assert!(response_info.headers.is_empty());
+        assert_eq!(
+            response_info.body.as_ref().expect("raw body")["predictions"][0]["embeddings"]["statistics"]
+                ["token_count"],
+            serde_json::json!(3)
         );
     }
 }

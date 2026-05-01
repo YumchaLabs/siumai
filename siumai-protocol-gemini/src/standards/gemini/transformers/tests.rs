@@ -169,6 +169,13 @@ mod embeddings_tests {
         assert_eq!(out.embeddings.len(), 1);
         assert_eq!(out.embeddings[0].len(), 3);
         assert_eq!(out.model, "gemini-embedding-001");
+        let response = out.response.expect("response metadata");
+        assert_eq!(response.model_id.as_deref(), Some("gemini-embedding-001"));
+        assert!(response.headers.is_empty());
+        assert_eq!(
+            response.body.as_ref().expect("raw body")["embedding"]["values"][1],
+            serde_json::json!(0.2)
+        );
     }
 
     #[test]
@@ -184,6 +191,12 @@ mod embeddings_tests {
         assert_eq!(out.embeddings.len(), 2);
         assert_eq!(out.embeddings[0], vec![0.1_f32, 0.2_f32]);
         assert_eq!(out.embeddings[1], vec![0.3_f32, 0.4_f32]);
+        let response = out.response.expect("response metadata");
+        assert_eq!(response.model_id.as_deref(), Some("gemini-embedding-001"));
+        assert_eq!(
+            response.body.as_ref().expect("raw body")["embeddings"][1]["values"][0],
+            serde_json::json!(0.3)
+        );
     }
 
     #[test]

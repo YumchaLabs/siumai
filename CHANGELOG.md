@@ -1049,6 +1049,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- Gemini and Vertex embedding response transformation now preserve an AI SDK-style response
+  envelope with the raw response body on direct transformer usage.
 - Core OpenAI-compatible image response transformation now accepts provider wire
   `data[].b64_json` / `data[].url` responses directly and returns an AI SDK-style response
   envelope instead of requiring callers to pre-normalize image payloads into Siumai's unified

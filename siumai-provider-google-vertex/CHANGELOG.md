@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Vertex embedding response transformation now preserves an AI SDK-style response envelope with
+  the raw response body on direct transformer usage.
 - Vertex express-mode authentication now wins consistently when `GOOGLE_VERTEX_API_KEY` supplies
   the API key, suppressing token-provider auth just like the audited AI SDK node wrapper does when
   an effective API key is present.

@@ -1012,6 +1012,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
             service_tier,
             warnings: None,
             provider_metadata,
+            response: None,
         })
     }
 
@@ -1054,6 +1055,12 @@ impl ResponseTransformer for GeminiResponseTransformer {
             if let Some(usage) = parse_usage(raw) {
                 out = out.with_usage(usage);
             }
+            out.response = Some(crate::types::HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: Some(out.model.clone()),
+                headers: std::collections::HashMap::new(),
+                body: Some(raw.clone()),
+            });
             return Ok(out);
         }
         if let Some(arr) = raw.get("embeddings").and_then(|v| v.as_array()) {
@@ -1072,6 +1079,12 @@ impl ResponseTransformer for GeminiResponseTransformer {
             if let Some(usage) = parse_usage(raw) {
                 out = out.with_usage(usage);
             }
+            out.response = Some(crate::types::HttpResponseInfo {
+                timestamp: chrono::Utc::now(),
+                model_id: Some(out.model.clone()),
+                headers: std::collections::HashMap::new(),
+                body: Some(raw.clone()),
+            });
             return Ok(out);
         }
         Err(LlmError::ParseError(

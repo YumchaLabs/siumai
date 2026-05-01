@@ -1274,6 +1274,7 @@ async fn gemini_stream_proxy_serializes_stream_end_finish_reason() {
                 service_tier: None,
                 warnings: None,
                 provider_metadata: None,
+                response: None,
             },
         })
         .expect("serialize ok");
@@ -1324,6 +1325,7 @@ async fn gemini_stream_proxy_prefers_raw_stream_end_finish_reason() {
                 service_tier: None,
                 warnings: None,
                 provider_metadata: None,
+                response: None,
             },
         })
         .expect("serialize ok");
@@ -1382,6 +1384,7 @@ fn gemini_serializes_direct_finish_part_once_even_if_stream_end_follows() {
                 service_tier: None,
                 warnings: None,
                 provider_metadata: None,
+                response: None,
             },
         })
         .expect("serialize stream end after finish");

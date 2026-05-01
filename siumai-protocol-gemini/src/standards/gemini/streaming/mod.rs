@@ -1093,6 +1093,7 @@ impl GeminiEventConverter {
                 service_tier: response.service_tier.clone(),
                 warnings: None,
                 provider_metadata,
+                response: None,
             };
 
             Some(response)
@@ -1245,6 +1246,7 @@ impl SseEventConverter for GeminiEventConverter {
             service_tier: None,
             warnings: None,
             provider_metadata: None,
+            response: None,
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
@@ -1289,6 +1291,7 @@ impl SseEventConverter for GeminiEventConverter {
                 service_tier: None,
                 warnings: None,
                 provider_metadata: None,
+                response: None,
             },
         }));
 
