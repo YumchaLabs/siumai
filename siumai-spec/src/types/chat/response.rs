@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use super::content::{ContentPart, MessageContent};
 use super::message::{ChatMessage, MessageRole};
 use super::metadata::MessageMetadata;
-use crate::types::{FinishReason, HttpResponseInfo, ProviderMetadataMap, Usage, Warning};
+use crate::types::{
+    FinishReason, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, Usage, Warning,
+};
 
 /// Audio output from the model
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -78,6 +80,12 @@ pub struct ChatResponse {
     /// Warnings from the model provider (e.g., unsupported settings)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warnings: Option<Vec<Warning>>,
+    /// HTTP request envelope for non-streaming provider calls.
+    ///
+    /// This mirrors AI SDK `doGenerate().request`, retaining the actual serialized
+    /// provider request body when the executor can preserve it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<HttpRequestInfo>,
     /// HTTP response envelope for non-streaming provider calls.
     ///
     /// This mirrors AI SDK `doGenerate().response`, which keeps transport metadata
@@ -129,6 +137,7 @@ impl ChatResponse {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            request: None,
             response: None,
             provider_metadata: None,
         }
@@ -147,6 +156,7 @@ impl ChatResponse {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            request: None,
             response: None,
             provider_metadata: None,
         }
@@ -165,6 +175,7 @@ impl ChatResponse {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            request: None,
             response: None,
             provider_metadata: None,
         }

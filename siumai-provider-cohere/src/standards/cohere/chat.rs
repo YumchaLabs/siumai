@@ -289,6 +289,7 @@ impl ResponseTransformer for CohereChatResponseTransformer {
             system_fingerprint: None,
             service_tier: None,
             warnings: (!self.warnings.is_empty()).then_some(self.warnings.clone()),
+            request: None,
             provider_metadata: None,
             response: Some(HttpResponseInfo {
                 timestamp: chrono::Utc::now(),

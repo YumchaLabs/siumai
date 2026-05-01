@@ -1042,6 +1042,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
             system_fingerprint: None,
             service_tier,
             warnings: None,
+            request: None,
             provider_metadata,
             response: Some(crate::types::HttpResponseInfo {
                 timestamp: chrono::Utc::now(),

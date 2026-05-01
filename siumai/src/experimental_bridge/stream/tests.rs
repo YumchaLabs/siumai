@@ -208,6 +208,7 @@ async fn openai_responses_stream_bridge_rewrites_anthropic_custom_parts() {
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };
@@ -295,6 +296,7 @@ async fn anthropic_stream_bridge_serializes_standard_events() {
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };
@@ -347,6 +349,7 @@ async fn stream_bridge_options_can_transform_events() {
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };
@@ -436,6 +439,7 @@ async fn anthropic_stream_bridge_splits_interleaved_blocks_into_ordered_output()
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };
@@ -533,6 +537,7 @@ async fn openai_chat_completions_stream_bridge_prefers_stream_end_terminal_envel
         system_fingerprint: Some("fp_terminal_1".to_string()),
         service_tier: Some("priority".to_string()),
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };
@@ -669,6 +674,7 @@ async fn stream_bridge_remapper_rewrites_tool_delta_and_final_response() {
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };
@@ -741,6 +747,7 @@ async fn stream_bridge_remapper_rewrites_stable_part_events_and_drops_stale_repl
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };
@@ -840,6 +847,7 @@ async fn stream_bridge_customization_bundle_can_transform_events_and_remap_tools
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };

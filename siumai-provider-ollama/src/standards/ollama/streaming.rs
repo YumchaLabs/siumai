@@ -142,6 +142,7 @@ impl OllamaEventConverter {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
+                request: None,
                 response: None,
                 provider_metadata: crate::standards::ollama::utils::build_ollama_provider_metadata(
                     response.total_duration,
@@ -290,6 +291,7 @@ impl JsonEventConverter for OllamaEventConverter {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            request: None,
             response: None,
             provider_metadata: None,
         };
@@ -689,6 +691,7 @@ mod tests {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
+                    request: None,
                     response: None,
                     provider_metadata: None,
                 },

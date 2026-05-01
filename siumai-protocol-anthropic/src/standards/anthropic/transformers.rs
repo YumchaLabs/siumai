@@ -597,6 +597,7 @@ impl AnthropicResponseTransformer {
             system_fingerprint: None,
             service_tier: response.usage.as_ref().and_then(|u| u.service_tier.clone()),
             warnings: None,
+            request: None,
             response: Some(crate::types::HttpResponseInfo {
                 timestamp: chrono::Utc::now(),
                 model_id: Some(response.model),

@@ -185,10 +185,12 @@ pub async fn generate_text<M: LanguageModel + ?Sized>(
     options: GenerateOptions,
 ) -> Result<GenerateTextProjectionResult, LlmError> {
     let (request, effective) = prepare_generate_request(request, options);
-    let request_metadata = LanguageModelRequestMetadata {
-        body: serde_json::to_value(&request).ok(),
-    };
     let response = generate_prepared(model, request, effective).await?;
+    let request_metadata = response
+        .request
+        .as_ref()
+        .map(LanguageModelRequestMetadata::from)
+        .unwrap_or_default();
     Ok(project_generate_text_response(
         model,
         response,
@@ -665,7 +667,9 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::json;
     use siumai_core::traits::ModelMetadata;
-    use siumai_core::types::{ChatRequest, ChatResponse, HttpResponseInfo, Usage, Warning};
+    use siumai_core::types::{
+        ChatRequest, ChatResponse, HttpRequestInfo, HttpResponseInfo, Usage, Warning,
+    };
 
     struct FakeLanguageModel;
 
@@ -709,6 +713,15 @@ mod tests {
                 setting: "topK".to_string(),
                 details: Some("not supported".to_string()),
             }]);
+            response.request = Some(HttpRequestInfo {
+                body: Some(
+                    json!({
+                        "model": "provider-model",
+                        "messages": [{ "role": "user", "content": "hi" }]
+                    })
+                    .to_string(),
+                ),
+            });
             response.response = Some(HttpResponseInfo {
                 timestamp: chrono::DateTime::parse_from_rfc3339("2026-04-30T00:00:00Z")
                     .expect("valid timestamp")
@@ -764,10 +777,26 @@ mod tests {
                 .request
                 .body
                 .as_ref()
+                .and_then(|body| body.get("model")),
+            Some(&json!("provider-model"))
+        );
+        assert_eq!(
+            result
+                .request
+                .body
+                .as_ref()
                 .and_then(|body| body.get("messages"))
                 .and_then(serde_json::Value::as_array)
                 .map(Vec::len),
             Some(1)
+        );
+        assert!(
+            result
+                .request
+                .body
+                .as_ref()
+                .and_then(|body| body.get("common_params"))
+                .is_none()
         );
         assert_eq!(result.warnings, result.steps[0].warnings);
         assert_eq!(

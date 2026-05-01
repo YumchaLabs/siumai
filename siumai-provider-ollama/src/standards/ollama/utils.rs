@@ -1125,6 +1125,7 @@ pub fn convert_chat_response(response: OllamaChatResponse) -> crate::types::Chat
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata,
     }

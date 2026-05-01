@@ -10,7 +10,7 @@ use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::streaming::ChatStream;
-use crate::types::{ChatRequest, ChatResponse, HttpResponseInfo};
+use crate::types::{ChatRequest, ChatResponse, HttpRequestInfo, HttpResponseInfo};
 
 use super::ChatExecutor;
 use super::helpers::{
@@ -180,6 +180,9 @@ impl ChatExecutor for HttpChatExecutor {
                                 &before_send,
                                 &req_in,
                             )?;
+                            let request_info = serde_json::to_string(&json_body)
+                                .ok()
+                                .map(|body| HttpRequestInfo { body: Some(body) });
 
                             let config = crate::execution::executors::common::HttpExecutionConfig {
                                 provider_id: provider_id.clone(),
@@ -205,6 +208,7 @@ impl ChatExecutor for HttpChatExecutor {
                             )
                             .await?;
                             let mut resp = response_tx.transform_chat_response(&result.json)?;
+                            resp.request = request_info;
                             resp.response = Some(HttpResponseInfo {
                                 timestamp: chrono::Utc::now(),
                                 model_id: Some(

@@ -1092,6 +1092,7 @@ impl GeminiEventConverter {
                 system_fingerprint: None,
                 service_tier: response.service_tier.clone(),
                 warnings: None,
+                request: None,
                 provider_metadata,
                 response: None,
             };
@@ -1246,6 +1247,7 @@ impl SseEventConverter for GeminiEventConverter {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            request: None,
             provider_metadata: None,
             response: None,
         };
@@ -1291,6 +1293,7 @@ impl SseEventConverter for GeminiEventConverter {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
+                request: None,
                 provider_metadata: None,
                 response: None,
             },

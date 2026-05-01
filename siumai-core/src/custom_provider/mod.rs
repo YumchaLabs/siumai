@@ -284,6 +284,7 @@ impl CustomChatResponse {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
+            request: None,
             response: None,
             provider_metadata,
         }

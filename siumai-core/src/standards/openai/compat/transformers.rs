@@ -513,6 +513,7 @@ impl ResponseTransformer for CompatResponseTransformer {
             system_fingerprint: resp.system_fingerprint,
             service_tier: resp.service_tier,
             warnings: None,
+            request: None,
             response: Some(HttpResponseInfo {
                 timestamp: chrono::Utc::now(),
                 model_id: Some(resp.model),

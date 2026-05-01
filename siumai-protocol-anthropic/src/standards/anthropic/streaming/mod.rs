@@ -668,6 +668,7 @@ impl AnthropicEventConverter {
                 .and_then(|value| value.as_str())
                 .map(ToOwned::to_owned),
             warnings: None,
+            request: None,
             response: None,
             provider_metadata: self.build_stream_provider_metadata(),
         }

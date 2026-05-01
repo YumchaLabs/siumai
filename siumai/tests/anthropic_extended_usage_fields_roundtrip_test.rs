@@ -75,6 +75,7 @@ async fn anthropic_public_roundtrip_preserves_extended_usage_fields() {
         system_fingerprint: None,
         service_tier: Some("standard".to_string()),
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: Some(HashMap::from([(
             "anthropic".to_string(),
@@ -185,6 +186,7 @@ async fn anthropic_public_roundtrip_replays_raw_usage_without_provider_metadata(
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: None,
     };
@@ -266,6 +268,7 @@ fn anthropic_public_message_metadata_surface_matches_narrow_typed_shape() {
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: Some(HashMap::from([(
             "anthropic".to_string(),
@@ -325,6 +328,7 @@ fn anthropic_public_message_metadata_container_surface_is_typed() {
         system_fingerprint: None,
         service_tier: None,
         warnings: None,
+        request: None,
         response: None,
         provider_metadata: Some(HashMap::from([(
             "anthropic".to_string(),

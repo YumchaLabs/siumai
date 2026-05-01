@@ -223,10 +223,20 @@ async fn nonstream_attaches_headers_and_raw_body_response_envelope() {
     let mut req = crate::types::ChatRequest::new(vec![]);
     req.common_params.model = "request-model".to_string();
     let response = exec.execute(req).await.expect("chat response");
+    let request_info = response.request.as_ref().expect("request envelope");
     let response_info = response.response.as_ref().expect("response envelope");
+    let request_body: serde_json::Value = serde_json::from_str(
+        request_info
+            .body
+            .as_deref()
+            .expect("serialized provider request body"),
+    )
+    .expect("valid provider request body");
 
     assert_eq!(response.id.as_deref(), Some("chatcmpl-test"));
     assert_eq!(response.content_text(), Some("hello"));
+    assert_eq!(request_body["model"], serde_json::json!("request-model"));
+    assert_eq!(request_body["messages_len"], serde_json::json!(0));
     assert_eq!(response_info.model_id.as_deref(), Some("provider-model"));
     assert_eq!(
         response_info

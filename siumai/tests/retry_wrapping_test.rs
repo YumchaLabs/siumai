@@ -44,6 +44,7 @@ impl ChatCapability for TestProvider {
                 raw_finish_reason: None,
                 provider_metadata: None,
                 warnings: None,
+                request: None,
                 response: None,
                 audio: None,
                 system_fingerprint: None,
