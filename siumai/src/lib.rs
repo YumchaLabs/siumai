@@ -1187,7 +1187,8 @@ pub mod provider_ext {
                 AzureOpenAiOptions, AzureReasoningEffort, AzureResponsesApiConfig,
                 OpenAIContextManagementConfig, OpenAIContextManagementType,
                 OpenAILanguageModelChatOptions, OpenAILanguageModelResponsesOptions,
-                SystemMessageMode,
+                PromptCacheRetention, ReasoningEffort, ResponsesLogprobs, ServiceTier,
+                SystemMessageMode, TextVerbosity, Truncation,
             };
             #[allow(deprecated)]
             pub use siumai_provider_azure::provider_options::{
@@ -1198,7 +1199,9 @@ pub mod provider_ext {
         pub use options::{
             AzureOpenAiChatRequestExt, AzureOpenAiOptions, AzureReasoningEffort,
             AzureResponsesApiConfig, OpenAIContextManagementConfig, OpenAIContextManagementType,
-            OpenAILanguageModelChatOptions, OpenAILanguageModelResponsesOptions, SystemMessageMode,
+            OpenAILanguageModelChatOptions, OpenAILanguageModelResponsesOptions,
+            PromptCacheRetention, ReasoningEffort, ResponsesLogprobs, ServiceTier,
+            SystemMessageMode, TextVerbosity, Truncation,
         };
         #[allow(deprecated)]
         pub use options::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};

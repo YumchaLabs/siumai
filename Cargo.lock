@@ -3227,7 +3227,6 @@ dependencies = [
  "serde_json",
  "siumai-core",
  "siumai-protocol-openai",
- "siumai-provider-openai",
  "thiserror 2.0.18",
  "tokio",
  "wiremock",
