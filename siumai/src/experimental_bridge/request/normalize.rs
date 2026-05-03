@@ -3306,6 +3306,7 @@ mod tests {
     use super::parse_anthropic_image_part;
     #[cfg(feature = "openai")]
     use super::{parse_openai_file_part, parse_openai_responses_image_part};
+    #[cfg(any(feature = "anthropic", feature = "openai"))]
     use crate::types::ContentPart;
 
     #[cfg(feature = "openai")]
