@@ -153,13 +153,17 @@ pub type OpenAICompatibleErrorData = OpenAiCompatibleErrorData;
 /// TypeScript exports `ProviderErrorStructure<T>` as a small public contract for provider-owned
 /// error decoding plus message extraction. Rust keeps the same concept as a serde-based helper
 /// without forcing callers to replace the compat adapter/runtime.
+type ProviderErrorDeserializer<T> =
+    std::sync::Arc<dyn Fn(&serde_json::Value) -> serde_json::Result<T> + Send + Sync>;
+type ProviderErrorMessageFormatter<T> = std::sync::Arc<dyn Fn(&T) -> String + Send + Sync>;
+type ProviderErrorRetryPredicate<T> =
+    std::sync::Arc<dyn Fn(reqwest::StatusCode, Option<&T>) -> bool + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ProviderErrorStructure<T> {
-    deserialize_error:
-        std::sync::Arc<dyn Fn(&serde_json::Value) -> serde_json::Result<T> + Send + Sync>,
-    error_to_message: std::sync::Arc<dyn Fn(&T) -> String + Send + Sync>,
-    is_retryable:
-        Option<std::sync::Arc<dyn Fn(reqwest::StatusCode, Option<&T>) -> bool + Send + Sync>>,
+    deserialize_error: ProviderErrorDeserializer<T>,
+    error_to_message: ProviderErrorMessageFormatter<T>,
+    is_retryable: Option<ProviderErrorRetryPredicate<T>>,
 }
 
 impl<T> std::fmt::Debug for ProviderErrorStructure<T> {

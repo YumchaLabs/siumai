@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Value that can be provided as no value, one value, or many values.
 ///
 /// This is the Rust data carrier for AI SDK `Arrayable<T>`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(untagged)]
 pub enum Arrayable<T> {
     /// Multiple values.
@@ -15,13 +15,8 @@ pub enum Arrayable<T> {
     /// A single value.
     Single(T),
     /// No value, equivalent to JavaScript `undefined` in `asArray`.
+    #[default]
     None,
-}
-
-impl<T> Default for Arrayable<T> {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl<T> Arrayable<T> {

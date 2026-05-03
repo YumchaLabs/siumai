@@ -279,14 +279,13 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
             ChatStreamEvent::ContentDelta { delta, .. } => {
                 summary.text.push_str(delta);
             }
-            ChatStreamEvent::UsageUpdate { usage } => {
+            ChatStreamEvent::UsageUpdate { usage }
                 if usage.prompt_tokens().unwrap_or(0) > 0
-                    || usage.completion_tokens().unwrap_or(0) > 0
-                {
-                    summary.prompt_tokens = usage.prompt_tokens();
-                    summary.completion_tokens = usage.completion_tokens();
-                    summary.total_tokens = usage.total_tokens();
-                }
+                    || usage.completion_tokens().unwrap_or(0) > 0 =>
+            {
+                summary.prompt_tokens = usage.prompt_tokens();
+                summary.completion_tokens = usage.completion_tokens();
+                summary.total_tokens = usage.total_tokens();
             }
             ChatStreamEvent::StreamEnd { response } => {
                 if summary.finish_reason.is_none() {
@@ -376,29 +375,29 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
                                 .map(ToString::to_string),
                         );
                     }
-                    Some("tool-call") if !saw_part_tool_calls => {
-                        if data
-                            .get("providerExecuted")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false)
-                        {
-                            increment_count(
-                                &mut summary.provider_tool_calls,
-                                data.get("toolName").and_then(Value::as_str),
-                            );
-                        }
+                    Some("tool-call")
+                        if !saw_part_tool_calls
+                            && data
+                                .get("providerExecuted")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false) =>
+                    {
+                        increment_count(
+                            &mut summary.provider_tool_calls,
+                            data.get("toolName").and_then(Value::as_str),
+                        );
                     }
-                    Some("tool-result") if !saw_part_tool_results => {
-                        if data
-                            .get("providerExecuted")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false)
-                        {
-                            increment_count(
-                                &mut summary.provider_tool_results,
-                                data.get("toolName").and_then(Value::as_str),
-                            );
-                        }
+                    Some("tool-result")
+                        if !saw_part_tool_results
+                            && data
+                                .get("providerExecuted")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false) =>
+                    {
+                        increment_count(
+                            &mut summary.provider_tool_results,
+                            data.get("toolName").and_then(Value::as_str),
+                        );
                     }
                     _ => {}
                 }

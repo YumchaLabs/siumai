@@ -6,9 +6,10 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use crate::tool_runtime::{
-    build_tool_execution_options, client_tool_call_count, execute_local_tool_call,
-    execution_denied_tool_result, merge_step_tool_results, preprocess_tool_approval_responses,
-    should_continue_after_tool_step, update_pending_deferred_tool_calls,
+    LocalToolCallExecution, build_tool_execution_options, client_tool_call_count,
+    execute_local_tool_call, execution_denied_tool_result, merge_step_tool_results,
+    preprocess_tool_approval_responses, should_continue_after_tool_step,
+    update_pending_deferred_tool_calls,
 };
 
 use super::prepare_step::{PrepareStepContext, filter_active_tools};
@@ -381,17 +382,19 @@ pub async fn generate(
                             .unwrap_or(false);
                         let out_part = match decision {
                             ToolApproval::Approve(args) | ToolApproval::Modify(args) => {
-                                execute_local_tool_call(
+                                execute_local_tool_call(LocalToolCallExecution {
                                     resolver,
                                     tool_name,
                                     tool_call_id,
-                                    args,
+                                    execution_args: args,
                                     tool_dynamic,
-                                    Some(&step_input_messages),
-                                    &current_context,
-                                    None,
-                                    opts.on_preliminary_tool_result.as_deref(),
-                                )
+                                    step_input_messages: Some(&step_input_messages),
+                                    context: &current_context,
+                                    abort_signal: None,
+                                    on_preliminary_tool_result: opts
+                                        .on_preliminary_tool_result
+                                        .as_deref(),
+                                })
                                 .await
                             }
                             ToolApproval::Deny { reason } => execution_denied_tool_result(

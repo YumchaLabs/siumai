@@ -466,7 +466,7 @@ pub struct DownloadError {
     pub status_text: Option<String>,
     /// Provider/application cause payload.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<JSONValue>,
+    pub cause: Option<Box<JSONValue>>,
 }
 
 impl DownloadError {
@@ -497,7 +497,7 @@ impl DownloadError {
             url,
             status_code,
             status_text,
-            cause,
+            cause: cause.map(Box::new),
         }
     }
 
@@ -724,13 +724,13 @@ pub struct TypeValidationError {
     /// Human-readable error message.
     pub message: String,
     /// Value that failed validation.
-    pub value: JSONValue,
+    pub value: Box<JSONValue>,
     /// Provider/application cause payload.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<JSONValue>,
+    pub cause: Option<Box<JSONValue>>,
     /// Validation context.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<TypeValidationContext>,
+    pub context: Option<Box<TypeValidationContext>>,
 }
 
 impl TypeValidationError {
@@ -774,9 +774,9 @@ impl TypeValidationError {
                 "{context_prefix}: Value: {value}.\nError message: {}",
                 ai_sdk_error_message(cause.as_ref())
             ),
-            value,
-            cause,
-            context,
+            value: Box::new(value),
+            cause: cause.map(Box::new),
+            context: context.map(Box::new),
         }
     }
 }
@@ -1241,15 +1241,10 @@ impl RetryError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum SourceMarker {
+    #[default]
     Source,
-}
-
-impl Default for SourceMarker {
-    fn default() -> Self {
-        Self::Source
-    }
 }
 
 impl Serialize for SourceMarker {
@@ -1458,15 +1453,10 @@ impl GeneratedFile {
 /// AI SDK `DefaultGeneratedFile` export. Rust keeps the same value carrier as `GeneratedFile`.
 pub type DefaultGeneratedFile = GeneratedFile;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum DefaultGeneratedFileWithTypeMarker {
+    #[default]
     File,
-}
-
-impl Default for DefaultGeneratedFileWithTypeMarker {
-    fn default() -> Self {
-        Self::File
-    }
 }
 
 impl Serialize for DefaultGeneratedFileWithTypeMarker {
@@ -1617,15 +1607,10 @@ impl GeneratedAudioFile {
 /// AI SDK `DefaultGeneratedAudioFile` export. Rust keeps the same value carrier as `GeneratedAudioFile`.
 pub type DefaultGeneratedAudioFile = GeneratedAudioFile;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum DefaultGeneratedAudioFileWithTypeMarker {
+    #[default]
     Audio,
-}
-
-impl Default for DefaultGeneratedAudioFileWithTypeMarker {
-    fn default() -> Self {
-        Self::Audio
-    }
 }
 
 impl Serialize for DefaultGeneratedAudioFileWithTypeMarker {
@@ -1702,15 +1687,10 @@ impl DefaultGeneratedAudioFileWithType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum TextOutputMarker {
+    #[default]
     Text,
-}
-
-impl Default for TextOutputMarker {
-    fn default() -> Self {
-        Self::Text
-    }
 }
 
 impl Serialize for TextOutputMarker {
@@ -1774,15 +1754,10 @@ impl TextOutput {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum CustomOutputMarker {
+    #[default]
     Custom,
-}
-
-impl Default for CustomOutputMarker {
-    fn default() -> Self {
-        Self::Custom
-    }
 }
 
 impl Serialize for CustomOutputMarker {
@@ -1846,15 +1821,10 @@ impl CustomOutput {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum FileOutputMarker {
+    #[default]
     File,
-}
-
-impl Default for FileOutputMarker {
-    fn default() -> Self {
-        Self::File
-    }
 }
 
 impl Serialize for FileOutputMarker {
@@ -1918,15 +1888,10 @@ impl FileOutput {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ReasoningOutputMarker {
+    #[default]
     Reasoning,
-}
-
-impl Default for ReasoningOutputMarker {
-    fn default() -> Self {
-        Self::Reasoning
-    }
 }
 
 impl Serialize for ReasoningOutputMarker {
@@ -1952,15 +1917,10 @@ impl<'de> Deserialize<'de> for ReasoningOutputMarker {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ReasoningFileOutputMarker {
+    #[default]
     ReasoningFile,
-}
-
-impl Default for ReasoningFileOutputMarker {
-    fn default() -> Self {
-        Self::ReasoningFile
-    }
 }
 
 impl Serialize for ReasoningFileOutputMarker {
@@ -2067,15 +2027,10 @@ impl ReasoningFileOutput {
 }
 
 /// AI SDK-style typed tool call view returned by higher-level text helpers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ToolCallMarker {
+    #[default]
     ToolCall,
-}
-
-impl Default for ToolCallMarker {
-    fn default() -> Self {
-        Self::ToolCall
-    }
 }
 
 impl Serialize for ToolCallMarker {
@@ -2210,15 +2165,10 @@ pub type DynamicToolCall<INPUT = JSONValue> = ToolCall<String, INPUT>;
 pub type TypedToolCall<NAME = String, INPUT = JSONValue> = ToolCall<NAME, INPUT>;
 
 /// AI SDK-style typed tool result view returned by higher-level text helpers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ToolResultMarker {
+    #[default]
     ToolResult,
-}
-
-impl Default for ToolResultMarker {
-    fn default() -> Self {
-        Self::ToolResult
-    }
 }
 
 impl Serialize for ToolResultMarker {
@@ -2353,15 +2303,10 @@ pub type DynamicToolResult<INPUT = JSONValue, OUTPUT = ToolResultOutput> =
 pub type TypedToolResult<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> =
     ToolResult<NAME, INPUT, OUTPUT>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ToolErrorMarker {
+    #[default]
     ToolError,
-}
-
-impl Default for ToolErrorMarker {
-    fn default() -> Self {
-        Self::ToolError
-    }
 }
 
 impl Serialize for ToolErrorMarker {
@@ -2523,15 +2468,10 @@ impl<NAME, INPUT, OUTPUT> From<ToolError<NAME, INPUT>> for ToolOutput<NAME, INPU
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ToolOutputDeniedMarker {
+    #[default]
     ToolOutputDenied,
-}
-
-impl Default for ToolOutputDeniedMarker {
-    fn default() -> Self {
-        Self::ToolOutputDenied
-    }
 }
 
 impl Serialize for ToolOutputDeniedMarker {
@@ -2619,15 +2559,10 @@ pub type StaticToolOutputDenied<NAME = String> = ToolOutputDenied<NAME>;
 /// Typed tool-output-denied view. Rust keeps the same runtime carrier as the static view.
 pub type TypedToolOutputDenied<NAME = String> = ToolOutputDenied<NAME>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ToolApprovalRequestOutputMarker {
+    #[default]
     ToolApprovalRequest,
-}
-
-impl Default for ToolApprovalRequestOutputMarker {
-    fn default() -> Self {
-        Self::ToolApprovalRequest
-    }
 }
 
 impl Serialize for ToolApprovalRequestOutputMarker {
@@ -2655,15 +2590,10 @@ impl<'de> Deserialize<'de> for ToolApprovalRequestOutputMarker {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ToolApprovalResponseOutputMarker {
+    #[default]
     ToolApprovalResponse,
-}
-
-impl Default for ToolApprovalResponseOutputMarker {
-    fn default() -> Self {
-        Self::ToolApprovalResponse
-    }
 }
 
 impl Serialize for ToolApprovalResponseOutputMarker {
@@ -4504,6 +4434,7 @@ impl ObjectStreamFinishPart {
 /// AI SDK `ObjectStreamPart` union from `generate-object/stream-object-result.ts`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum ObjectStreamPart<PARTIAL = JSONValue> {
     /// Partial object snapshot.
     Object(ObjectStreamObjectPart<PARTIAL>),
@@ -7469,6 +7400,7 @@ impl StreamTextLifecycleChunk {
 /// Chunk payload passed to AI SDK `streamText` `onChunk` callbacks.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum StreamTextChunk<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
     /// Regular `TextStreamPart`.
     Part(TextStreamPart<NAME, INPUT, OUTPUT>),
@@ -8343,11 +8275,8 @@ fn language_model_v4_provider_metadata_from_stable(
     let projected: ProviderMetadata = provider_metadata
         .as_ref()?
         .iter()
-        .filter_map(|(provider_id, value)| {
-            value
-                .is_object()
-                .then(|| (provider_id.clone(), value.clone()))
-        })
+        .filter(|(_, value)| value.is_object())
+        .map(|(provider_id, value)| (provider_id.clone(), value.clone()))
         .collect();
 
     (!projected.is_empty()).then_some(projected)
@@ -8366,12 +8295,12 @@ fn serialize_optional_language_model_v4_provider_metadata<S>(
 where
     S: Serializer,
 {
-    if let Some(provider_metadata) = provider_metadata {
-        if !language_model_v4_provider_metadata_are_object_shaped(provider_metadata) {
-            return Err(serde::ser::Error::custom(
-                "expected AI SDK V4 providerMetadata values to be JSON objects",
-            ));
-        }
+    if provider_metadata.as_ref().is_some_and(|provider_metadata| {
+        !language_model_v4_provider_metadata_are_object_shaped(provider_metadata)
+    }) {
+        return Err(serde::ser::Error::custom(
+            "expected AI SDK V4 providerMetadata values to be JSON objects",
+        ));
     }
 
     provider_metadata.serialize(serializer)
@@ -8384,12 +8313,12 @@ where
     D: Deserializer<'de>,
 {
     let provider_metadata = Option::<ProviderMetadata>::deserialize(deserializer)?;
-    if let Some(provider_metadata) = &provider_metadata {
-        if !language_model_v4_provider_metadata_are_object_shaped(provider_metadata) {
-            return Err(serde::de::Error::custom(
-                "expected AI SDK V4 providerMetadata values to be JSON objects",
-            ));
-        }
+    if provider_metadata.as_ref().is_some_and(|provider_metadata| {
+        !language_model_v4_provider_metadata_are_object_shaped(provider_metadata)
+    }) {
+        return Err(serde::de::Error::custom(
+            "expected AI SDK V4 providerMetadata values to be JSON objects",
+        ));
     }
 
     Ok(provider_metadata)

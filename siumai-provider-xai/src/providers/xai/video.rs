@@ -304,14 +304,14 @@ fn build_create_body(
     if allow_duration && let Some(duration) = request.duration {
         body.insert("duration".to_string(), serde_json::json!(duration));
     }
-    if allow_aspect_ratio {
-        if let Some(aspect_ratio) = request.aspect_ratio.as_ref().cloned().or_else(|| {
+    if allow_aspect_ratio
+        && let Some(aspect_ratio) = request.aspect_ratio.as_ref().cloned().or_else(|| {
             string_from_extra(request.extra_params.as_ref(), "aspect_ratio", "aspectRatio")
                 .ok()
                 .flatten()
-        }) {
-            body.insert("aspect_ratio".to_string(), serde_json::json!(aspect_ratio));
-        }
+        })
+    {
+        body.insert("aspect_ratio".to_string(), serde_json::json!(aspect_ratio));
     }
 
     if allow_resolution {
@@ -367,7 +367,6 @@ fn build_create_body(
             serde_json::Value::Array(
                 reference_image_urls
                     .iter()
-                    .cloned()
                     .map(|url| serde_json::json!({ "url": url }))
                     .collect(),
             ),

@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use serde_json::json;
 
-use crate::types::{DownloadError, JSONValue};
+use crate::types::DownloadError;
 
 /// Default maximum download size: 2 GiB.
 pub const DEFAULT_MAX_DOWNLOAD_SIZE: u64 = 2 * 1024 * 1024 * 1024;
@@ -311,7 +311,7 @@ fn download_error(url: &str, message: impl Into<String>) -> DownloadError {
         url: url.to_string(),
         status_code: None,
         status_text: None,
-        cause: None::<JSONValue>,
+        cause: None,
     }
 }
 

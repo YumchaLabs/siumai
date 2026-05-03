@@ -998,7 +998,7 @@ pub(super) fn serialize_event(
                 .or_else(|| state.latest_usage.clone());
             let usage_json = usage.as_ref().map(openai_responses_usage_json);
             let finish_reason = openai_finish_reason_str(response.finish_reason.as_ref());
-            let incomplete_reason = openai_incomplete_reason_from_response(&response);
+            let incomplete_reason = openai_incomplete_reason_from_response(response);
             let response_status =
                 openai_response_status(finish_reason, incomplete_reason.as_deref(), false);
             let response_event_name = openai_response_event_name(response_status);

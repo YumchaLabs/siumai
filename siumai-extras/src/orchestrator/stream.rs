@@ -7,9 +7,10 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::tool_runtime::{
-    build_tool_execution_options, client_tool_call_count, execute_local_tool_call,
-    execution_denied_tool_result, merge_step_tool_results, preprocess_tool_approval_responses,
-    should_continue_after_tool_step, update_pending_deferred_tool_calls,
+    LocalToolCallExecution, build_tool_execution_options, client_tool_call_count,
+    execute_local_tool_call, execution_denied_tool_result, merge_step_tool_results,
+    preprocess_tool_approval_responses, should_continue_after_tool_step,
+    update_pending_deferred_tool_calls,
 };
 
 use super::prepare_step::{PrepareStepContext, filter_active_tools};
@@ -394,10 +395,10 @@ where
                     current_context = context;
                 }
 
-                if let Some(active_tools) = prepare_result.active_tools {
-                    if let Some(ref tools) = current_tools {
-                        current_tools = Some(filter_active_tools(tools, &Some(active_tools)));
-                    }
+                if let Some(active_tools) = prepare_result.active_tools
+                    && let Some(ref tools) = current_tools
+                {
+                    current_tools = Some(filter_active_tools(tools, &Some(active_tools)));
                 }
 
                 if let Some(messages) = prepare_result.messages {
@@ -829,21 +830,19 @@ where
                             continue;
                         }
 
-                        if let Some(Tool::Function { function }) = declared_tool {
-                            if let Err(reason) =
+                        if let Some(Tool::Function { function }) = declared_tool
+                            && let Err(reason) =
                                 validate_args_with_schema(&function.parameters, arguments)
-                            {
-                                let out =
-                                    serde_json::json!({"error":"invalid_args","reason":reason});
-                                let tool_msg = ChatMessage::tool_error_json(
-                                    tool_call_id.clone(),
-                                    tool_name.clone(),
-                                    out,
-                                )
-                                .build();
-                                pending_tool_messages.push(tool_msg);
-                                continue;
-                            }
+                        {
+                            let out = serde_json::json!({"error":"invalid_args","reason":reason});
+                            let tool_msg = ChatMessage::tool_error_json(
+                                tool_call_id.clone(),
+                                tool_name.clone(),
+                                out,
+                            )
+                            .build();
+                            pending_tool_messages.push(tool_msg);
+                            continue;
                         }
 
                         if !streamed_input_available_ids.contains(tool_call_id)
@@ -865,7 +864,7 @@ where
                         let approval_required = streamed_approval_required
                             .get(tool_call_id)
                             .copied()
-                            .unwrap_or_else(|| false);
+                            .unwrap_or(false);
                         let approval_required =
                             if streamed_approval_required.contains_key(tool_call_id) {
                                 approval_required
@@ -916,17 +915,18 @@ where
                             .unwrap_or(false);
                         let out_part = match decision {
                             ToolApproval::Approve(args) | ToolApproval::Modify(args) => {
-                                execute_local_tool_call(
-                                    resolver.as_ref(),
+                                execute_local_tool_call(LocalToolCallExecution {
+                                    resolver: resolver.as_ref(),
                                     tool_name,
                                     tool_call_id,
-                                    args,
+                                    execution_args: args,
                                     tool_dynamic,
-                                    Some(&step_input_messages),
-                                    &current_context,
-                                    Some(orchestrator_cancel_clone.clone()),
-                                    on_preliminary_tool_result.as_deref(),
-                                )
+                                    step_input_messages: Some(&step_input_messages),
+                                    context: &current_context,
+                                    abort_signal: Some(orchestrator_cancel_clone.clone()),
+                                    on_preliminary_tool_result: on_preliminary_tool_result
+                                        .as_deref(),
+                                })
                                 .await
                             }
                             ToolApproval::Deny { reason } => execution_denied_tool_result(
@@ -1024,12 +1024,10 @@ where
             }
         } else if !encountered_error
             && let (Some(cb), Some(response)) = (&on_finish, final_response)
-        {
-            if let Some(event) =
+            && let Some(event) =
                 OrchestratorFinishEvent::from_response_and_steps(response, step_results.clone())
-            {
-                cb(&event);
-            }
+        {
+            cb(&event);
         }
         let _ = total_usage_tx.send(StepResult::merge_usage(&step_results));
         let _ = steps_tx.send(step_results);

@@ -135,7 +135,7 @@ fn translate_openai_tools(request: &mut ChatRequest, report: &mut BridgeReport) 
                         for alias in aliases {
                             choice_aliases.insert(alias, choice_name.clone());
                         }
-                        translated.push(tool);
+                        translated.push(*tool);
                     }
                     ToolTranslation::McpServer { server, aliases } => {
                         mcp_servers.push(server);
@@ -182,7 +182,7 @@ fn translate_openai_tools(request: &mut ChatRequest, report: &mut BridgeReport) 
 
 enum ToolTranslation {
     AnthropicTool {
-        tool: Tool,
+        tool: Box<Tool>,
         choice_name: String,
         aliases: Vec<String>,
     },
@@ -212,7 +212,7 @@ fn map_openai_provider_tool(
             match find_provider_tool_translation_rule(provider_tool, OPENAI_TO_ANTHROPIC_TOOL_RULES)
             {
                 Some(rule) => ToolTranslation::AnthropicTool {
-                    tool: rule.translate_tool(index, provider_tool, report),
+                    tool: Box::new(rule.translate_tool(index, provider_tool, report)),
                     choice_name: rule.choice_name(provider_tool),
                     aliases: rule.aliases(provider_tool),
                 },

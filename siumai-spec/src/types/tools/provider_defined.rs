@@ -2,16 +2,11 @@
 
 use super::Tool;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 enum ProviderToolType {
+    #[default]
     Provider,
-}
-
-impl Default for ProviderToolType {
-    fn default() -> Self {
-        Self::Provider
-    }
 }
 
 /// AI SDK V4 model-facing provider-tool shape.

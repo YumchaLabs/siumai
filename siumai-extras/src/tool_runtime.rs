@@ -234,17 +234,31 @@ pub(crate) fn collect_tool_approvals(
     Ok(approvals)
 }
 
-pub(crate) async fn execute_local_tool_call(
-    resolver: &dyn ToolResolver,
-    tool_name: &str,
-    tool_call_id: &str,
-    execution_args: Value,
-    tool_dynamic: bool,
-    step_input_messages: Option<&[ChatMessage]>,
-    context: &OrchestratorContext,
-    abort_signal: Option<CancelHandle>,
-    on_preliminary_tool_result: Option<&PreliminaryToolResultCallback>,
-) -> ContentPart {
+pub(crate) struct LocalToolCallExecution<'a> {
+    pub(crate) resolver: &'a dyn ToolResolver,
+    pub(crate) tool_name: &'a str,
+    pub(crate) tool_call_id: &'a str,
+    pub(crate) execution_args: Value,
+    pub(crate) tool_dynamic: bool,
+    pub(crate) step_input_messages: Option<&'a [ChatMessage]>,
+    pub(crate) context: &'a OrchestratorContext,
+    pub(crate) abort_signal: Option<CancelHandle>,
+    pub(crate) on_preliminary_tool_result: Option<&'a PreliminaryToolResultCallback>,
+}
+
+pub(crate) async fn execute_local_tool_call(call: LocalToolCallExecution<'_>) -> ContentPart {
+    let LocalToolCallExecution {
+        resolver,
+        tool_name,
+        tool_call_id,
+        execution_args,
+        tool_dynamic,
+        step_input_messages,
+        context,
+        abort_signal,
+        on_preliminary_tool_result,
+    } = call;
+
     let input = execution_args.clone();
     let execution_options =
         build_tool_execution_options(tool_call_id, step_input_messages, context, abort_signal);
@@ -378,17 +392,17 @@ pub(crate) async fn preprocess_tool_approval_responses(
         };
         let tool_call_id = approval.tool_call_id.clone();
         local_tool_parts.push(
-            execute_local_tool_call(
+            execute_local_tool_call(LocalToolCallExecution {
                 resolver,
-                approval.tool_name.as_str(),
-                approval.tool_call_id.as_str(),
-                approval.input,
-                approval.dynamic,
-                Some(messages),
+                tool_name: approval.tool_name.as_str(),
+                tool_call_id: approval.tool_call_id.as_str(),
+                execution_args: approval.input,
+                tool_dynamic: approval.dynamic,
+                step_input_messages: Some(messages),
                 context,
-                abort_signal.clone(),
+                abort_signal: abort_signal.clone(),
                 on_preliminary_tool_result,
-            )
+            })
             .await,
         );
         processed_tool_call_ids.insert(tool_call_id);

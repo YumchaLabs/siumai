@@ -202,11 +202,9 @@ async fn stream_object_emits_partial_updates() {
     let mut saw_final = false;
     while let Some(ev) = s.next().await {
         match ev.expect("ok") {
-            StreamObjectEvent::PartialObject { partial } => {
+            StreamObjectEvent::PartialObject { partial } if partial.get("name").is_some() => {
                 // eventually becomes object with both fields
-                if partial.get("name").is_some() {
-                    saw_partial = true;
-                }
+                saw_partial = true;
             }
             StreamObjectEvent::Final { object, .. } => {
                 assert_eq!(

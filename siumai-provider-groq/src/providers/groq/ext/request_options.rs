@@ -15,7 +15,7 @@ fn merge_provider_option_object(mut request: ChatRequest, value: serde_json::Val
 
         request
             .provider_options_map
-            .insert("groq".to_string(), serde_json::Value::Object(merged));
+            .insert("groq", serde_json::Value::Object(merged));
         request
     } else {
         request.with_provider_option("groq", value)

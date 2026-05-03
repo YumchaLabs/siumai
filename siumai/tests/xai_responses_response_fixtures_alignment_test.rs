@@ -42,7 +42,7 @@ fn read_json<T: DeserializeOwned>(path: impl AsRef<Path>) -> T {
     serde_json::from_str(&text).expect("parse fixture json")
 }
 
-fn provider_metadata<'a>(value: &'a Value) -> Option<&'a Value> {
+fn provider_metadata(value: &Value) -> Option<&Value> {
     value
         .get("provider_metadata")
         .or_else(|| value.get("providerMetadata"))

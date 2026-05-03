@@ -43,9 +43,9 @@ pub use provider_metadata::{
 pub use tool_choice::convert_tool_choice;
 pub use tools::convert_tools_to_anthropic_format;
 
-pub(crate) fn resolve_anthropic_provider_reference<'a>(
-    provider_reference: &'a ProviderReference,
-) -> Result<&'a str, LlmError> {
+pub(crate) fn resolve_anthropic_provider_reference(
+    provider_reference: &ProviderReference,
+) -> Result<&str, LlmError> {
     provider_reference.get("anthropic").ok_or_else(|| {
         let available = provider_reference.available_providers();
         let available = if available.is_empty() {

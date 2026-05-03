@@ -797,10 +797,8 @@ mod tests {
                 ChatStreamEvent::StreamStart { .. } => seen_start += 1,
                 ChatStreamEvent::StreamEnd { .. } => seen_end += 1,
                 ChatStreamEvent::ToolCallDelta { .. } => seen_tool_call_delta = true,
-                ChatStreamEvent::ContentDelta { delta, .. } => {
-                    if delta.contains("sunny") {
-                        seen_final_text = true;
-                    }
+                ChatStreamEvent::ContentDelta { delta, .. } if delta.contains("sunny") => {
+                    seen_final_text = true;
                 }
                 ChatStreamEvent::Part {
                     part: ChatStreamPart::ToolResult(result),
@@ -810,12 +808,11 @@ mod tests {
                 {
                     seen_tool_result_part = true;
                 }
-                ChatStreamEvent::Custom { event_type, data } => {
+                ChatStreamEvent::Custom { event_type, data }
                     if event_type == "gateway:tool-result"
-                        && data.get("type").and_then(|v| v.as_str()) == Some("tool-result")
-                    {
-                        seen_gateway_tool_result = true;
-                    }
+                        && data.get("type").and_then(|v| v.as_str()) == Some("tool-result") =>
+                {
+                    seen_gateway_tool_result = true;
                 }
                 _ => {}
             }

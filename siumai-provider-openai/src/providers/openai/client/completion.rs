@@ -199,7 +199,7 @@ impl CompletionStreamState {
         ResponseMetadata {
             id: self.id.clone(),
             model: self.model.clone(),
-            created: self.created.clone(),
+            created: self.created,
             provider: provider.to_string(),
             request_id: None,
             headers: None,

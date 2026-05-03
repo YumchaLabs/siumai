@@ -162,10 +162,10 @@ pub fn convert_messages(
         }
     }
 
-    fn anthropic_part_metadata<'a>(
-        message: &'a ChatMessage,
+    fn anthropic_part_metadata(
+        message: &ChatMessage,
         index: usize,
-    ) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    ) -> Option<&serde_json::Map<String, serde_json::Value>> {
         let MessageContent::MultiModal(parts) = &message.content else {
             return None;
         };
@@ -216,10 +216,10 @@ pub fn convert_messages(
         }
     }
 
-    fn anthropic_part_options<'a>(
-        message: &'a ChatMessage,
+    fn anthropic_part_options(
+        message: &ChatMessage,
         index: usize,
-    ) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    ) -> Option<&serde_json::Map<String, serde_json::Value>> {
         let MessageContent::MultiModal(parts) = &message.content else {
             return None;
         };

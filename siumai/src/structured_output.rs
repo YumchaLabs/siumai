@@ -416,8 +416,8 @@ fn no_object_generated_error(
         message: "No object generated: response did not match the requested structured output."
             .to_string(),
         text: response.text(),
-        response: Some(response_metadata),
-        usage: Some(usage),
+        response: Some(Box::new(response_metadata)),
+        usage: Some(Box::new(usage)),
         finish_reason: Some(finish_reason),
         cause: Some(Box::new(error)),
     }

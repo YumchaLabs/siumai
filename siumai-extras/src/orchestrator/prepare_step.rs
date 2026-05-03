@@ -232,6 +232,50 @@ pub(crate) fn filter_active_tools(tools: &[Tool], active_tools: &Option<Vec<Stri
 }
 
 #[cfg(test)]
+struct MockPrepareStepModel;
+
+#[cfg(test)]
+impl siumai::prelude::unified::ModelMetadata for MockPrepareStepModel {
+    fn provider_id(&self) -> &str {
+        "mock-provider"
+    }
+
+    fn model_id(&self) -> &str {
+        "mock-model"
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl siumai::text::TextModelV3 for MockPrepareStepModel {
+    async fn generate(
+        &self,
+        _request: siumai::text::TextRequest,
+    ) -> Result<siumai::text::TextResponse, siumai::prelude::unified::LlmError> {
+        Ok(siumai::prelude::unified::ChatResponse::new(
+            siumai::prelude::unified::MessageContent::Text(String::new()),
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: siumai::text::TextRequest,
+    ) -> Result<siumai::text::TextStream, siumai::prelude::unified::LlmError> {
+        Ok(Box::pin(futures::stream::empty()))
+    }
+
+    async fn stream_with_cancel(
+        &self,
+        _request: siumai::text::TextRequest,
+    ) -> Result<siumai::text::TextStreamHandle, siumai::prelude::unified::LlmError> {
+        Ok(siumai::text::TextStreamHandle {
+            stream: Box::pin(futures::stream::empty()),
+            cancel: siumai::experimental::utils::cancel::new_cancel_handle(),
+        })
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::orchestrator::StepModelInfo;
@@ -367,49 +411,5 @@ mod tests {
 
         let result = prepare_fn(ctx);
         assert!(result.tool_choice.is_none());
-    }
-}
-
-#[cfg(test)]
-struct MockPrepareStepModel;
-
-#[cfg(test)]
-impl siumai::prelude::unified::ModelMetadata for MockPrepareStepModel {
-    fn provider_id(&self) -> &str {
-        "mock-provider"
-    }
-
-    fn model_id(&self) -> &str {
-        "mock-model"
-    }
-}
-
-#[cfg(test)]
-#[async_trait::async_trait]
-impl siumai::text::TextModelV3 for MockPrepareStepModel {
-    async fn generate(
-        &self,
-        _request: siumai::text::TextRequest,
-    ) -> Result<siumai::text::TextResponse, siumai::prelude::unified::LlmError> {
-        Ok(siumai::prelude::unified::ChatResponse::new(
-            siumai::prelude::unified::MessageContent::Text(String::new()),
-        ))
-    }
-
-    async fn stream(
-        &self,
-        _request: siumai::text::TextRequest,
-    ) -> Result<siumai::text::TextStream, siumai::prelude::unified::LlmError> {
-        Ok(Box::pin(futures::stream::empty()))
-    }
-
-    async fn stream_with_cancel(
-        &self,
-        _request: siumai::text::TextRequest,
-    ) -> Result<siumai::text::TextStreamHandle, siumai::prelude::unified::LlmError> {
-        Ok(siumai::text::TextStreamHandle {
-            stream: Box::pin(futures::stream::empty()),
-            cancel: siumai::experimental::utils::cancel::new_cancel_handle(),
-        })
     }
 }

@@ -15,7 +15,7 @@ fn merge_provider_option_object(mut request: ChatRequest, value: serde_json::Val
 
         request
             .provider_options_map
-            .insert("xai".to_string(), serde_json::Value::Object(merged));
+            .insert("xai", serde_json::Value::Object(merged));
         request
     } else {
         request.with_provider_option("xai", value)

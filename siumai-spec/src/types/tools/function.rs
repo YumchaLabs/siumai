@@ -2,16 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 enum FunctionToolType {
+    #[default]
     Function,
-}
-
-impl Default for FunctionToolType {
-    fn default() -> Self {
-        Self::Function
-    }
 }
 
 /// AI SDK V4 model-facing function-tool shape.

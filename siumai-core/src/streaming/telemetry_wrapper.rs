@@ -45,52 +45,52 @@ impl Stream for TelemetryStreamWrapper {
                     self.last_finish_reason = response.finish_reason.clone();
                 }
             }
-            Poll::Ready(None) | Poll::Ready(Some(Err(_))) => {
+            Poll::Ready(None) | Poll::Ready(Some(Err(_)))
+                if self.telemetry_config.enabled && !self.telemetry_sent =>
+            {
                 // Stream ended - send telemetry event if not already sent
-                if self.telemetry_config.enabled && !self.telemetry_sent {
-                    self.telemetry_sent = true;
+                self.telemetry_sent = true;
 
-                    let final_response = self
-                        .processor
-                        .build_final_response_with_finish_reason(self.last_finish_reason.clone());
-                    let duration = std::time::SystemTime::now()
-                        .duration_since(self.start_time)
-                        .ok();
+                let final_response = self
+                    .processor
+                    .build_final_response_with_finish_reason(self.last_finish_reason.clone());
+                let duration = std::time::SystemTime::now()
+                    .duration_since(self.start_time)
+                    .ok();
 
-                    let mut gen_event = GenerationEvent::new(
-                        uuid::Uuid::new_v4().to_string(),
-                        self.trace_id.clone(),
-                        self.provider_id.clone(),
-                        self.model.clone(),
-                    );
+                let mut gen_event = GenerationEvent::new(
+                    uuid::Uuid::new_v4().to_string(),
+                    self.trace_id.clone(),
+                    self.provider_id.clone(),
+                    self.model.clone(),
+                );
 
-                    if self.telemetry_config.record_inputs {
-                        gen_event = gen_event.with_input(self.input_messages.clone());
-                    }
-
-                    if self.telemetry_config.record_outputs {
-                        gen_event = gen_event.with_output(final_response.clone());
-                    }
-
-                    if self.telemetry_config.record_usage
-                        && let Some(usage) = &final_response.usage
-                    {
-                        gen_event = gen_event.with_usage(usage.clone());
-                    }
-
-                    if let Some(reason) = &final_response.finish_reason {
-                        gen_event = gen_event.with_finish_reason(reason.clone());
-                    }
-
-                    if let Some(dur) = duration {
-                        gen_event = gen_event.with_duration(dur);
-                    }
-
-                    // Spawn a task to send telemetry event asynchronously
-                    tokio::spawn(async move {
-                        telemetry::emit(TelemetryEvent::Generation(gen_event)).await;
-                    });
+                if self.telemetry_config.record_inputs {
+                    gen_event = gen_event.with_input(self.input_messages.clone());
                 }
+
+                if self.telemetry_config.record_outputs {
+                    gen_event = gen_event.with_output(final_response.clone());
+                }
+
+                if self.telemetry_config.record_usage
+                    && let Some(usage) = &final_response.usage
+                {
+                    gen_event = gen_event.with_usage(usage.clone());
+                }
+
+                if let Some(reason) = &final_response.finish_reason {
+                    gen_event = gen_event.with_finish_reason(reason.clone());
+                }
+
+                if let Some(dur) = duration {
+                    gen_event = gen_event.with_duration(dur);
+                }
+
+                // Spawn a task to send telemetry event asynchronously
+                tokio::spawn(async move {
+                    telemetry::emit(TelemetryEvent::Generation(gen_event)).await;
+                });
             }
             _ => {}
         }

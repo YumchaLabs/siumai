@@ -33,9 +33,9 @@ pub const ALIBABA_VIDEO_DEFAULT_BASE_URL: &str = "https://dashscope-intl.aliyunc
 const ALIBABA_VIDEO_CREATE_PATH: &str = "/api/v1/services/aigc/video-generation/video-synthesis";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AlibabaVideoMode {
-    TextToVideo,
-    ImageToVideo,
-    ReferenceToVideo,
+    Text,
+    Image,
+    Reference,
 }
 
 #[derive(Clone)]
@@ -112,11 +112,11 @@ impl AlibabaVideoModel {
 
     fn mode_for_model(model_id: &str) -> AlibabaVideoMode {
         if model_id.contains("-i2v") {
-            AlibabaVideoMode::ImageToVideo
+            AlibabaVideoMode::Image
         } else if model_id.contains("-r2v") {
-            AlibabaVideoMode::ReferenceToVideo
+            AlibabaVideoMode::Reference
         } else {
-            AlibabaVideoMode::TextToVideo
+            AlibabaVideoMode::Text
         }
     }
 
@@ -431,7 +431,7 @@ fn build_create_body(
     );
     insert_if_some(&mut input, "audio_url", options.audio_url.clone());
 
-    if mode == AlibabaVideoMode::ImageToVideo
+    if mode == AlibabaVideoMode::Image
         && let Some(image) = request.image.as_ref()
     {
         input.insert(
@@ -440,7 +440,7 @@ fn build_create_body(
         );
     }
 
-    if mode == AlibabaVideoMode::ReferenceToVideo {
+    if mode == AlibabaVideoMode::Reference {
         insert_if_some(&mut input, "reference_urls", options.reference_urls.clone());
     }
 
@@ -454,7 +454,7 @@ fn build_create_body(
     insert_if_some(&mut parameters, "seed", request.seed);
 
     if let Some(resolution) = request.resolution.as_deref() {
-        if mode == AlibabaVideoMode::ImageToVideo {
+        if mode == AlibabaVideoMode::Image {
             parameters.insert(
                 "resolution".to_string(),
                 Value::String(map_i2v_resolution(resolution)),
@@ -711,7 +711,7 @@ impl VideoGenerationCapability for AlibabaVideoModel {
     }
 
     fn get_supported_resolutions(&self, model: &str) -> Vec<String> {
-        if Self::mode_for_model(model) == AlibabaVideoMode::ImageToVideo {
+        if Self::mode_for_model(model) == AlibabaVideoMode::Image {
             vec!["480P".to_string(), "720P".to_string(), "1080P".to_string()]
         } else {
             vec![

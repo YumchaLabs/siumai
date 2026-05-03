@@ -237,25 +237,17 @@ impl StructuredOutputValidator {
                         }
                     }
                 }
-                "array" => {
-                    if !value.is_array() {
-                        return Err(LlmError::ParseError("Expected array type".to_string()));
-                    }
+                "array" if !value.is_array() => {
+                    return Err(LlmError::ParseError("Expected array type".to_string()));
                 }
-                "string" => {
-                    if !value.is_string() {
-                        return Err(LlmError::ParseError("Expected string type".to_string()));
-                    }
+                "string" if !value.is_string() => {
+                    return Err(LlmError::ParseError("Expected string type".to_string()));
                 }
-                "number" => {
-                    if !value.is_number() {
-                        return Err(LlmError::ParseError("Expected number type".to_string()));
-                    }
+                "number" if !value.is_number() => {
+                    return Err(LlmError::ParseError("Expected number type".to_string()));
                 }
-                "boolean" => {
-                    if !value.is_boolean() {
-                        return Err(LlmError::ParseError("Expected boolean type".to_string()));
-                    }
+                "boolean" if !value.is_boolean() => {
+                    return Err(LlmError::ParseError("Expected boolean type".to_string()));
                 }
                 _ => {}
             }

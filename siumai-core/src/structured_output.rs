@@ -68,7 +68,7 @@ pub enum PartialJsonValueStreamEvent {
         /// Final parsed JSON value.
         value: serde_json::Value,
         /// Final response assembled from the source stream.
-        response: ChatResponse,
+        response: Box<ChatResponse>,
     },
 }
 
@@ -469,7 +469,7 @@ pub fn partial_json_value_stream(mut stream: ChatStream) -> PartialJsonValueStre
 
                     yield PartialJsonValueStreamEvent::Finish {
                         value,
-                        response: final_response,
+                        response: Box::new(final_response),
                     };
                     return;
                 }
@@ -491,7 +491,7 @@ pub fn partial_json_value_stream(mut stream: ChatStream) -> PartialJsonValueStre
         let value = extract_json_value_from_incomplete_stream_response(&final_response)?;
         yield PartialJsonValueStreamEvent::Finish {
             value,
-            response: final_response,
+            response: Box::new(final_response),
         };
     })
 }

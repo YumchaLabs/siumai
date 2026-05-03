@@ -102,12 +102,12 @@ fn resolve_auth(
 
     #[cfg(feature = "gcp")]
     {
-        return Ok((
+        Ok((
             String::new(),
             Some(std::sync::Arc::new(
                 crate::auth::adc::AdcTokenProvider::default_client(),
             )),
-        ));
+        ))
     }
 
     #[cfg(not(feature = "gcp"))]

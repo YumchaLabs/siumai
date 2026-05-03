@@ -471,10 +471,9 @@ fn openai_hosted_dynamic_tool_item_kind_for_result(
             if let Some(inner) = value
                 .and_then(serde_json::Value::as_object)
                 .and_then(|obj| obj.get("output"))
+                && inner.is_array()
             {
-                if inner.is_array() {
-                    return Some(OpenAiHostedDynamicToolItemKind::Shell);
-                }
+                return Some(OpenAiHostedDynamicToolItemKind::Shell);
             }
 
             Some(OpenAiHostedDynamicToolItemKind::LocalShell)

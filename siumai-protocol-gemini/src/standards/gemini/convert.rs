@@ -1070,14 +1070,12 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
                 // Handle Google/Gemini provider-defined tools
                 if matches!(provider_tool.provider(), Some("google" | "gemini")) {
                     match provider_tool.tool_type() {
-                        Some("code_execution") => {
+                        Some("code_execution") if is_gemini_2_or_newer(model) => {
                             // Vercel AI SDK: Code Execution is only supported on Gemini 2.0+.
-                            if is_gemini_2_or_newer(model) {
-                                function_declarations.shrink_to_fit();
-                                gemini_tools.push(GeminiTool::CodeExecution {
-                                    code_execution: super::types::CodeExecution {},
-                                });
-                            }
+                            function_declarations.shrink_to_fit();
+                            gemini_tools.push(GeminiTool::CodeExecution {
+                                code_execution: super::types::CodeExecution {},
+                            });
                         }
                         Some("google_search") => {
                             if is_gemini_2_or_newer(model) {
@@ -1110,134 +1108,122 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
                                 },
                             });
                         }
-                        Some("google_maps") => {
-                            if is_gemini_2_or_newer(model) {
-                                gemini_tools.push(GeminiTool::GoogleMaps {
-                                    google_maps: super::types::GoogleMaps {},
-                                });
-                            }
+                        Some("google_maps") if is_gemini_2_or_newer(model) => {
+                            gemini_tools.push(GeminiTool::GoogleMaps {
+                                google_maps: super::types::GoogleMaps {},
+                            });
                         }
-                        Some("url_context") => {
-                            if is_gemini_2_or_newer(model) {
-                                gemini_tools.push(GeminiTool::UrlContext {
-                                    url_context: super::types::UrlContext {},
-                                });
-                            }
+                        Some("url_context") if is_gemini_2_or_newer(model) => {
+                            gemini_tools.push(GeminiTool::UrlContext {
+                                url_context: super::types::UrlContext {},
+                            });
                         }
-                        Some("enterprise_web_search") => {
-                            if is_gemini_2_or_newer(model) {
-                                gemini_tools.push(GeminiTool::EnterpriseWebSearch {
-                                    enterprise_web_search: super::types::EnterpriseWebSearch {},
-                                });
-                            }
+                        Some("enterprise_web_search") if is_gemini_2_or_newer(model) => {
+                            gemini_tools.push(GeminiTool::EnterpriseWebSearch {
+                                enterprise_web_search: super::types::EnterpriseWebSearch {},
+                            });
                         }
-                        Some("vertex_rag_store") => {
-                            if is_gemini_2_or_newer(model) {
-                                let obj = provider_tool.args.as_object();
-                                let rag_corpus = obj
-                                    .and_then(|o| o.get("ragCorpus"))
-                                    .and_then(|v| v.as_str())
-                                    .ok_or_else(|| {
+                        Some("vertex_rag_store") if is_gemini_2_or_newer(model) => {
+                            let obj = provider_tool.args.as_object();
+                            let rag_corpus = obj
+                                .and_then(|o| o.get("ragCorpus"))
+                                .and_then(|v| v.as_str())
+                                .ok_or_else(|| {
+                                    LlmError::InvalidInput(
+                                        "google.vertex_rag_store requires `ragCorpus`".to_string(),
+                                    )
+                                })?
+                                .to_string();
+
+                            let similarity_top_k = match obj.and_then(|o| o.get("topK")) {
+                                None => None,
+                                Some(v) => {
+                                    let n = v.as_u64().ok_or_else(|| {
                                         LlmError::InvalidInput(
-                                            "google.vertex_rag_store requires `ragCorpus`"
-                                                .to_string(),
-                                        )
-                                    })?
-                                    .to_string();
-
-                                let similarity_top_k = match obj.and_then(|o| o.get("topK")) {
-                                    None => None,
-                                    Some(v) => {
-                                        let n = v.as_u64().ok_or_else(|| {
-                                            LlmError::InvalidInput(
-                                                "google.vertex_rag_store `topK` must be a positive integer"
-                                                    .to_string(),
-                                            )
-                                        })?;
-                                        if n == 0 {
-                                            return Err(LlmError::InvalidInput(
-                                                "google.vertex_rag_store `topK` must be a positive integer"
-                                                    .to_string(),
-                                            ));
-                                        }
-                                        Some(n as u32)
-                                    }
-                                };
-
-                                gemini_tools.push(GeminiTool::Retrieval {
-                                    retrieval: super::types::Retrieval {
-                                        vertex_rag_store: super::types::VertexRagStore {
-                                            rag_resources: super::types::VertexRagResources {
-                                                rag_corpus,
-                                            },
-                                            similarity_top_k,
-                                        },
-                                    },
-                                });
-                            }
-                        }
-                        Some("file_search") => {
-                            if supports_file_search(model) {
-                                let obj = provider_tool.args.as_object();
-
-                                let file_search_store_names = obj
-                                    .and_then(|o| o.get("fileSearchStoreNames"))
-                                    .and_then(|v| v.as_array())
-                                    .map(|arr| {
-                                        arr.iter()
-                                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                            .collect::<Vec<_>>()
-                                    })
-                                    .filter(|arr| !arr.is_empty())
-                                    .ok_or_else(|| {
-                                        LlmError::InvalidInput(
-                                            "google.file_search requires non-empty `fileSearchStoreNames`"
+                                            "google.vertex_rag_store `topK` must be a positive integer"
                                                 .to_string(),
                                         )
                                     })?;
+                                    if n == 0 {
+                                        return Err(LlmError::InvalidInput(
+                                            "google.vertex_rag_store `topK` must be a positive integer"
+                                                .to_string(),
+                                        ));
+                                    }
+                                    Some(n as u32)
+                                }
+                            };
 
-                                let top_k = match obj.and_then(|o| o.get("topK")) {
-                                    None => None,
-                                    Some(v) => {
-                                        let n = v.as_u64().ok_or_else(|| {
+                            gemini_tools.push(GeminiTool::Retrieval {
+                                retrieval: super::types::Retrieval {
+                                    vertex_rag_store: super::types::VertexRagStore {
+                                        rag_resources: super::types::VertexRagResources {
+                                            rag_corpus,
+                                        },
+                                        similarity_top_k,
+                                    },
+                                },
+                            });
+                        }
+                        Some("file_search") if supports_file_search(model) => {
+                            let obj = provider_tool.args.as_object();
+
+                            let file_search_store_names = obj
+                                .and_then(|o| o.get("fileSearchStoreNames"))
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                        .collect::<Vec<_>>()
+                                })
+                                .filter(|arr| !arr.is_empty())
+                                .ok_or_else(|| {
+                                    LlmError::InvalidInput(
+                                        "google.file_search requires non-empty `fileSearchStoreNames`"
+                                            .to_string(),
+                                    )
+                                })?;
+
+                            let top_k = match obj.and_then(|o| o.get("topK")) {
+                                None => None,
+                                Some(v) => {
+                                    let n = v.as_u64().ok_or_else(|| {
+                                        LlmError::InvalidInput(
+                                            "google.file_search `topK` must be a positive integer"
+                                                .to_string(),
+                                        )
+                                    })?;
+                                    if n == 0 {
+                                        return Err(LlmError::InvalidInput(
+                                            "google.file_search `topK` must be a positive integer"
+                                                .to_string(),
+                                        ));
+                                    }
+                                    Some(n as u32)
+                                }
+                            };
+
+                            let metadata_filter = match obj.and_then(|o| o.get("metadataFilter")) {
+                                None => None,
+                                Some(v) => Some(
+                                    v.as_str()
+                                        .ok_or_else(|| {
                                             LlmError::InvalidInput(
-                                                "google.file_search `topK` must be a positive integer"
+                                                "google.file_search `metadataFilter` must be a string expression"
                                                     .to_string(),
                                             )
-                                        })?;
-                                        if n == 0 {
-                                            return Err(LlmError::InvalidInput(
-                                                "google.file_search `topK` must be a positive integer"
-                                                    .to_string(),
-                                            ));
-                                        }
-                                        Some(n as u32)
-                                    }
-                                };
+                                        })?
+                                        .to_string(),
+                                ),
+                            };
 
-                                let metadata_filter = match obj.and_then(|o| o.get("metadataFilter"))
-                                {
-                                    None => None,
-                                    Some(v) => Some(
-                                        v.as_str()
-                                            .ok_or_else(|| {
-                                                LlmError::InvalidInput(
-                                                    "google.file_search `metadataFilter` must be a string expression"
-                                                        .to_string(),
-                                                )
-                                            })?
-                                            .to_string(),
-                                    ),
-                                };
-
-                                gemini_tools.push(GeminiTool::FileSearch {
-                                    file_search: super::types::FileSearch {
-                                        file_search_store_names: Some(file_search_store_names),
-                                        top_k,
-                                        metadata_filter,
-                                    },
-                                });
-                            }
+                            gemini_tools.push(GeminiTool::FileSearch {
+                                file_search: super::types::FileSearch {
+                                    file_search_store_names: Some(file_search_store_names),
+                                    top_k,
+                                    metadata_filter,
+                                },
+                            });
                         }
                         _ => {
                             // Unknown Google tool type; ignore for now

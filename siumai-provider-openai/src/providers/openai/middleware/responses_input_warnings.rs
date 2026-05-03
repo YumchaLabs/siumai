@@ -160,15 +160,13 @@ impl OpenAiResponsesInputWarningsMiddleware {
                         tool_name,
                         provider_executed: Some(true),
                         ..
-                    } => {
-                        if tool_name_mapping.to_provider_tool_name(tool_name) == "web_search" {
-                            has_web_search_results = true;
-                        }
+                    } if tool_name_mapping.to_provider_tool_name(tool_name) == "web_search" => {
+                        has_web_search_results = true;
                     }
-                    ContentPart::ToolResult { tool_name, .. } => {
-                        if tool_name_mapping.to_provider_tool_name(tool_name) == "web_search" {
-                            has_web_search_results = true;
-                        }
+                    ContentPart::ToolResult { tool_name, .. }
+                        if tool_name_mapping.to_provider_tool_name(tool_name) == "web_search" =>
+                    {
+                        has_web_search_results = true;
                     }
                     _ => {}
                 }

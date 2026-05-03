@@ -53,19 +53,11 @@ impl BedrockCachePointConfig {
 }
 
 /// Bedrock cache-point envelope aligned with the AI SDK Bedrock provider.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct BedrockCachePoint {
     /// Cache-point payload.
     #[serde(rename = "cachePoint", alias = "cache_point")]
     pub cache_point: BedrockCachePointConfig,
-}
-
-impl Default for BedrockCachePoint {
-    fn default() -> Self {
-        Self {
-            cache_point: BedrockCachePointConfig::default(),
-        }
-    }
 }
 
 impl BedrockCachePoint {

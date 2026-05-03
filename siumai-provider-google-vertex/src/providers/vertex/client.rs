@@ -78,12 +78,10 @@ fn requests_can_be_coalesced(
         )
 }
 
-fn vertex_image_max_images_per_call(model_id: &str, base_url: &str) -> u32 {
+fn vertex_image_max_images_per_call(model_id: &str) -> u32 {
     let normalized = normalize_vertex_model_id(model_id);
     if normalized.starts_with("gemini-") {
         10
-    } else if crate::standards::vertex_imagen::is_vertex_imagen_model(&normalized, base_url) {
-        4
     } else {
         4
     }
@@ -685,7 +683,6 @@ impl ImageGenerationCapability for GoogleVertexClient {
     fn max_images_per_call(&self) -> Option<u32> {
         Some(vertex_image_max_images_per_call(
             self.common_params.model.as_str(),
-            self.config.base_url.as_str(),
         ))
     }
 }

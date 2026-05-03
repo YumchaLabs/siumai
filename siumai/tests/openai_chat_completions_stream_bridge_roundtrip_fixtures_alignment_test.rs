@@ -235,14 +235,13 @@ fn summarize_openai_chat_events(events: &[ChatStreamEvent]) -> OpenAiChatStreamS
                     entry.arguments.push_str(arguments_delta);
                 }
             }
-            ChatStreamEvent::UsageUpdate { usage } => {
+            ChatStreamEvent::UsageUpdate { usage }
                 if usage.prompt_tokens().unwrap_or(0) > 0
-                    || usage.completion_tokens().unwrap_or(0) > 0
-                {
-                    summary.prompt_tokens = usage.prompt_tokens();
-                    summary.completion_tokens = usage.completion_tokens();
-                    summary.total_tokens = usage.total_tokens();
-                }
+                    || usage.completion_tokens().unwrap_or(0) > 0 =>
+            {
+                summary.prompt_tokens = usage.prompt_tokens();
+                summary.completion_tokens = usage.completion_tokens();
+                summary.total_tokens = usage.total_tokens();
             }
             ChatStreamEvent::StreamEnd { response } => {
                 if summary.finish_reason.is_none() {

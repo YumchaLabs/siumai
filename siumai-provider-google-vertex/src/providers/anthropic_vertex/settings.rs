@@ -69,8 +69,10 @@ impl GoogleVertexAnthropicProviderSettings {
 
     /// Convert package-level provider settings into the provider-owned builder surface.
     pub fn into_builder(self) -> VertexAnthropicBuilder {
-        let mut base = BuilderBase::default();
-        base.default_headers = self.headers;
+        let base = BuilderBase {
+            default_headers: self.headers,
+            ..Default::default()
+        };
 
         let mut builder = VertexAnthropicBuilder::new(base);
 

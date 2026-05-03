@@ -86,24 +86,20 @@ impl ChatCapability for MockChatModel {
         let s = async_stream::try_stream! {
             #[allow(unreachable_patterns)]
             match &response.content {
-                MessageContent::Text(text) => {
-                    if !text.is_empty() {
-                        yield ChatStreamEvent::ContentDelta {
-                            delta: text.clone(),
-                            index: None,
-                        };
-                    }
+                MessageContent::Text(text) if !text.is_empty() => {
+                    yield ChatStreamEvent::ContentDelta {
+                        delta: text.clone(),
+                        index: None,
+                    };
                 }
                 MessageContent::MultiModal(parts) => {
                     for part in parts {
                         match part {
-                            ContentPart::Text { text, .. } => {
-                                if !text.is_empty() {
-                                    yield ChatStreamEvent::ContentDelta {
-                                        delta: text.clone(),
-                                        index: None,
-                                    };
-                                }
+                            ContentPart::Text { text, .. } if !text.is_empty() => {
+                                yield ChatStreamEvent::ContentDelta {
+                                    delta: text.clone(),
+                                    index: None,
+                                };
                             }
                             ContentPart::ToolCall {
                                 tool_call_id,
@@ -1680,11 +1676,11 @@ async fn test_generate_stream_accepts_stable_text_parts_without_stream_end_respo
 
     let mut collected = String::new();
     while let Some(event) = stream.next().await {
-        match event.unwrap() {
-            ChatStreamEvent::Part {
-                part: ChatStreamPart::TextDelta { delta, .. },
-            } => collected.push_str(&delta),
-            _ => {}
+        if let ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        } = event.unwrap()
+        {
+            collected.push_str(&delta);
         }
     }
 
@@ -1714,9 +1710,8 @@ async fn test_generate_stream_step_preserves_raw_finish_reason() {
     .unwrap();
 
     while let Some(event) = stream.next().await {
-        match event.unwrap() {
-            ChatStreamEvent::StreamEnd { .. } => break,
-            _ => {}
+        if let ChatStreamEvent::StreamEnd { .. } = event.unwrap() {
+            break;
         }
     }
 
@@ -1992,14 +1987,12 @@ async fn test_generate_stream_owned_emits_runtime_tool_approval_request_and_inpu
 
     let mut saw_approval_request = false;
     while let Some(event) = stream.next().await {
-        match event.unwrap() {
-            ChatStreamEvent::Part {
-                part: ChatStreamPart::ToolApprovalRequest(request),
-            } => {
-                saw_approval_request = true;
-                assert_eq!(request.tool_call_id, "call_dangerous_stream");
-            }
-            _ => {}
+        if let ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolApprovalRequest(request),
+        } = event.unwrap()
+        {
+            saw_approval_request = true;
+            assert_eq!(request.tool_call_id, "call_dangerous_stream");
         }
     }
 
@@ -2610,9 +2603,9 @@ async fn test_generate_stream_owned_applies_prepare_step_context_and_tool_filter
             .tools
             .as_ref()
             .and_then(|tools| tools.first())
-            .and_then(|tool| match tool {
-                Tool::Function { function } => Some(function.name.as_str()),
-                Tool::ProviderDefined(provider_tool) => Some(provider_tool.name.as_str()),
+            .map(|tool| match tool {
+                Tool::Function { function } => function.name.as_str(),
+                Tool::ProviderDefined(provider_tool) => provider_tool.name.as_str(),
             }),
         Some("search")
     );

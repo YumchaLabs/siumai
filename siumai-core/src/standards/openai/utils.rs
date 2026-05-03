@@ -88,9 +88,9 @@ fn extract_openai_chat_image_detail(
         .map(|s| s.to_string())
 }
 
-fn resolve_openai_chat_provider_reference<'a>(
-    provider_reference: &'a ProviderReference,
-) -> Result<&'a str, LlmError> {
+fn resolve_openai_chat_provider_reference(
+    provider_reference: &ProviderReference,
+) -> Result<&str, LlmError> {
     for provider_id in ["openai", "azure"] {
         if let Some(reference) = provider_reference.get(provider_id) {
             return Ok(reference);
@@ -721,7 +721,7 @@ pub fn convert_messages_deepseek_chat(
                                 ContentPart::Text { text: value, .. } => text.push_str(value),
                                 ContentPart::Reasoning { text: value, .. }
                                     if last_user_message_index
-                                        .map_or(true, |last_user| index > last_user) =>
+                                        .is_none_or(|last_user| index > last_user) =>
                                 {
                                     reasoning.push_str(value);
                                 }
@@ -1274,9 +1274,10 @@ fn mistral_user_content(content: &MessageContent) -> Result<serde_json::Value, L
                             "document_url": media_source_as_data_or_url(source, "application/pdf")?,
                         }));
                     }
-                    ContentPart::File { source, .. }
-                        if matches!(source, FilePartSource::ProviderReference { .. }) =>
-                    {
+                    ContentPart::File {
+                        source: FilePartSource::ProviderReference { .. },
+                        ..
+                    } => {
                         return Err(LlmError::UnsupportedOperation(
                             "file parts with provider references".to_string(),
                         ));

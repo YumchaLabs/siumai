@@ -78,8 +78,7 @@ async fn openai_tts_sends_json_and_returns_audio_bytes() {
     assert_eq!(resp.audio_data, b"RIFF....WAVE".to_vec());
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(
-            &resp
-                .request
+            resp.request
                 .as_ref()
                 .and_then(|request| request.body.as_ref())
                 .expect("tts request body should be captured"),

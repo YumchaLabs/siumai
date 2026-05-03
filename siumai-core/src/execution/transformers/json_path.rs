@@ -196,10 +196,8 @@ pub(super) fn drop_field(body: &mut serde_json::Value, field: &str) {
             (PathSeg::Key(k), serde_json::Value::Object(map)) => {
                 map.remove(k);
             }
-            (PathSeg::Index(i), serde_json::Value::Array(arr)) => {
-                if *i < arr.len() {
-                    arr.remove(*i);
-                }
+            (PathSeg::Index(i), serde_json::Value::Array(arr)) if *i < arr.len() => {
+                arr.remove(*i);
             }
             _ => {}
         }
@@ -230,10 +228,8 @@ pub(super) fn drop_field(body: &mut serde_json::Value, field: &str) {
             (PathSeg::Key(k), serde_json::Value::Object(map)) => {
                 map.remove(k);
             }
-            (PathSeg::Index(i), serde_json::Value::Array(arr)) => {
-                if *i < arr.len() {
-                    arr.remove(*i);
-                }
+            (PathSeg::Index(i), serde_json::Value::Array(arr)) if *i < arr.len() => {
+                arr.remove(*i);
             }
             _ => {}
         }

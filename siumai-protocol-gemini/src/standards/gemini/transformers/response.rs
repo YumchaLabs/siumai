@@ -1185,18 +1185,18 @@ impl ResponseTransformer for GeminiResponseTransformer {
         {
             for part in &content.parts {
                 match part {
-                    Part::InlineData { inline_data, .. } => {
-                        if inline_data.mime_type.starts_with("image/") {
-                            images.push(crate::types::GeneratedImage {
-                                url: None,
-                                b64_json: Some(inline_data.data.clone()),
-                                format: Some(inline_data.mime_type.clone()),
-                                width: None,
-                                height: None,
-                                revised_prompt: None,
-                                metadata: std::collections::HashMap::new(),
-                            });
-                        }
+                    Part::InlineData { inline_data, .. }
+                        if inline_data.mime_type.starts_with("image/") =>
+                    {
+                        images.push(crate::types::GeneratedImage {
+                            url: None,
+                            b64_json: Some(inline_data.data.clone()),
+                            format: Some(inline_data.mime_type.clone()),
+                            width: None,
+                            height: None,
+                            revised_prompt: None,
+                            metadata: std::collections::HashMap::new(),
+                        });
                     }
                     Part::FileData { file_data, .. } => {
                         if let Some(m) = &file_data.mime_type

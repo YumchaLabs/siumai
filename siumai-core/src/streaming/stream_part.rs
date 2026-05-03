@@ -82,12 +82,13 @@ fn serialize_optional_stream_v4_provider_metadata<S>(
 where
     S: Serializer,
 {
-    if let Some(metadata) = metadata {
-        if !stream_v4_provider_metadata_are_object_shaped(metadata) {
-            return Err(serde::ser::Error::custom(
-                "expected AI SDK V4 providerMetadata values to be JSON objects",
-            ));
-        }
+    if metadata
+        .as_ref()
+        .is_some_and(|metadata| !stream_v4_provider_metadata_are_object_shaped(metadata))
+    {
+        return Err(serde::ser::Error::custom(
+            "expected AI SDK V4 providerMetadata values to be JSON objects",
+        ));
     }
 
     metadata.serialize(serializer)
@@ -100,12 +101,13 @@ where
     D: Deserializer<'de>,
 {
     let metadata = Option::<SharedV4ProviderMetadata>::deserialize(deserializer)?;
-    if let Some(metadata) = &metadata {
-        if !stream_v4_provider_metadata_are_object_shaped(metadata) {
-            return Err(serde::de::Error::custom(
-                "expected AI SDK V4 providerMetadata values to be JSON objects",
-            ));
-        }
+    if metadata
+        .as_ref()
+        .is_some_and(|metadata| !stream_v4_provider_metadata_are_object_shaped(metadata))
+    {
+        return Err(serde::de::Error::custom(
+            "expected AI SDK V4 providerMetadata values to be JSON objects",
+        ));
     }
 
     Ok(metadata)

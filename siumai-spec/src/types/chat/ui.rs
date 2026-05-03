@@ -88,6 +88,7 @@ impl UiMessage {
 
 /// UI message part aligned with AI SDK `UIMessagePart`.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum UiMessagePart {
     Text(UiTextPart),
     Custom(UiCustomPart),
@@ -1070,7 +1071,7 @@ impl UiToolPart {
         }
         obj.insert(
             "state".to_string(),
-            serde_json::to_value(&self.state).expect("serialize UI tool state"),
+            serde_json::to_value(self.state).expect("serialize UI tool state"),
         );
         if let Some(input) = &self.input {
             obj.insert("input".to_string(), input.clone());

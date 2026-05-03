@@ -152,9 +152,9 @@ impl ProviderSpec for AnthropicChatSpec {
             adapter: self.adapter.clone(),
         });
 
-        fn anthropic_part_options<'a>(
-            provider_options: &'a crate::types::ProviderOptionsMap,
-        ) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+        fn anthropic_part_options(
+            provider_options: &crate::types::ProviderOptionsMap,
+        ) -> Option<&serde_json::Map<String, serde_json::Value>> {
             provider_options.get_object("anthropic")
         }
 

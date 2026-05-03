@@ -11470,8 +11470,8 @@ mod vertex_maas_public_path {
                 .as_ref()
                 .expect("registry provider metadata"),
         ] {
-            assert!(root.get("vertexMaas").is_some());
-            assert!(root.get("vertex-maas").is_none());
+            assert!(root.contains_key("vertexMaas"));
+            assert!(!root.contains_key("vertex-maas"));
         }
     }
 
@@ -11633,8 +11633,8 @@ data: [DONE]
                 .provider_metadata
                 .expect("registry stream provider metadata"),
         ] {
-            assert!(root.get("vertexMaas").is_some());
-            assert!(root.get("vertex-maas").is_none());
+            assert!(root.contains_key("vertexMaas"));
+            assert!(!root.contains_key("vertex-maas"));
         }
     }
 
@@ -35421,17 +35421,13 @@ mod bedrock_public_path {
                 match event {
                     ChatStreamEvent::Part {
                         part: siumai::prelude::unified::ChatStreamPart::TextDelta { delta, .. },
-                    } => {
-                        if delta == "{\"value\":\"test\"}" {
-                            saw_text_delta = true;
-                        }
+                    } if delta == "{\"value\":\"test\"}" => {
+                        saw_text_delta = true;
                     }
                     ChatStreamEvent::Part {
                         part: siumai::prelude::unified::ChatStreamPart::ToolCall(tool_call),
-                    } => {
-                        if tool_call.tool_name == "json" {
-                            saw_json_tool_call = true;
-                        }
+                    } if tool_call.tool_name == "json" => {
+                        saw_json_tool_call = true;
                     }
                     ChatStreamEvent::StreamEnd { response } => {
                         stream_end = Some(response);

@@ -483,9 +483,13 @@ all-providers = [
 
     "openai",
 
+    "azure",
+
     "anthropic",
 
     "google",
+
+    "google-vertex",
 
     "ollama",
 

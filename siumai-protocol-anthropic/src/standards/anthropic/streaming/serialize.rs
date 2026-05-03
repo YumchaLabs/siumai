@@ -516,10 +516,7 @@ pub(super) fn serialize_event(
                     .provider_metadata
                     .as_ref()
                     .and_then(|provider_metadata| provider_metadata.get("anthropic"));
-                let usage = response
-                    .usage
-                    .as_ref()
-                    .or_else(|| state.latest_usage.as_ref());
+                let usage = response.usage.as_ref().or(state.latest_usage.as_ref());
                 let usage_obj = merge_usage_payload(
                     anthropic_meta.and_then(|meta| meta.get("usage")).cloned(),
                     usage,

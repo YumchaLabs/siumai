@@ -865,9 +865,9 @@ fn provider_metadata_root_value<'a>(
     provider_metadata_root_object(metadata, provider_id)?.get(key)
 }
 
-fn internal_generated_video_items<'a>(
-    metadata: &'a HashMap<String, serde_json::Value>,
-) -> Option<&'a serde_json::Value> {
+fn internal_generated_video_items(
+    metadata: &HashMap<String, serde_json::Value>,
+) -> Option<&serde_json::Value> {
     metadata
         .get("_siumai")
         .and_then(|value| value.get("generatedVideos"))
@@ -2703,7 +2703,7 @@ mod tests {
 
         assert_eq!(result.video.url(), Some("gs://bucket/output/video.mp4"));
         assert_eq!(result.tasks[0].video_url, None);
-        assert!(result.provider_metadata.get("google-vertex").is_none());
+        assert!(!result.provider_metadata.contains_key("google-vertex"));
         let provider_metadata = result
             .provider_metadata
             .get("vertex")

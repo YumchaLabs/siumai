@@ -31,17 +31,17 @@ fn provider_option_object<'a>(
 }
 
 #[cfg(feature = "openai-responses")]
-fn openai_or_azure_provider_option_object<'a>(
-    provider_options: Option<&'a ProviderOptionsMap>,
-) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+fn openai_or_azure_provider_option_object(
+    provider_options: Option<&ProviderOptionsMap>,
+) -> Option<&serde_json::Map<String, serde_json::Value>> {
     provider_option_object(provider_options, "openai")
         .or_else(|| provider_option_object(provider_options, "azure"))
 }
 
 #[cfg(feature = "openai-responses")]
-fn xai_provider_option_object<'a>(
-    provider_options: Option<&'a ProviderOptionsMap>,
-) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+fn xai_provider_option_object(
+    provider_options: Option<&ProviderOptionsMap>,
+) -> Option<&serde_json::Map<String, serde_json::Value>> {
     provider_option_object(provider_options, "xai")
 }
 
@@ -1742,15 +1742,14 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                         body["tools"] = serde_json::Value::Array(openai_tools);
 
                         // Add tool_choice if specified
-                        if let Some(choice) = &req.tool_choice {
-                            if let Some(tool_choice) =
+                        if let Some(choice) = &req.tool_choice
+                            && let Some(tool_choice) =
                                 crate::standards::openai::utils::convert_responses_tool_choice(
                                     choice,
                                     req.tools.as_deref(),
                                 )
-                            {
-                                body["tool_choice"] = tool_choice;
-                            }
+                        {
+                            body["tool_choice"] = tool_choice;
                         }
                     }
                 }

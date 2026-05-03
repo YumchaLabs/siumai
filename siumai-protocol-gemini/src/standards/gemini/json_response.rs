@@ -53,7 +53,7 @@ fn usage_json(usage: &Usage) -> UsageMetadata {
     let mut metadata = usage
         .raw_usage_value()
         .and_then(|value| serde_json::from_value::<UsageMetadata>(value).ok())
-        .unwrap_or_else(|| UsageMetadata {
+        .unwrap_or(UsageMetadata {
             prompt_token_count: None,
             total_token_count: None,
             cached_content_token_count: None,

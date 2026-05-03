@@ -944,9 +944,7 @@ fn provider_options_map_merge_hook(
 ) -> Option<crate::execution::executors::BeforeSendHook> {
     let provider_id = provider_id.to_string();
     let provider_options = merged_normalized_provider_options(&provider_id, map);
-    if provider_options.is_none() {
-        return None;
-    }
+    provider_options.as_ref()?;
     let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
         let mut out = body.clone();
         if let Some(body_obj) = out.as_object_mut() {
