@@ -27,6 +27,9 @@ const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-chat";
 #[cfg(feature = "groq")]
 const GROQ_DEFAULT_MODEL: &str = "llama-3.1-8b-instant";
 
+const LIVE_SMOKE_MAX_TOKENS: u32 = 256;
+const LIVE_SMOKE_TEMPERATURE: f64 = 0.0;
+
 #[cfg(feature = "anthropic")]
 const ANTHROPIC_FALLBACK_MODELS: &[&str] = &[
     ANTHROPIC_DEFAULT_MODEL,
@@ -42,16 +45,32 @@ fn compact(text: &str) -> String {
 
 fn prompt_messages() -> Vec<ChatMessage> {
     vec![
-        system!("You are terse. Reply in under six words."),
-        user!("Reply with SIUMAI_OK."),
+        system!("Return exactly the requested token and nothing else."),
+        user!("Output exactly: SIUMAI_OK"),
     ]
 }
 
 fn stream_prompt_messages() -> Vec<ChatMessage> {
     vec![
-        system!("You are terse. Reply in under six words."),
-        user!("Reply with STREAM_OK."),
+        system!("Return exactly the requested token and nothing else."),
+        user!("Output exactly: STREAM_OK"),
     ]
+}
+
+fn prompt_request() -> ChatRequest {
+    ChatRequest::builder()
+        .messages(prompt_messages())
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS)
+        .build()
+}
+
+fn stream_prompt_request() -> ChatRequest {
+    ChatRequest::builder()
+        .messages(stream_prompt_messages())
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS)
+        .build()
 }
 
 fn is_present(env_name: &str) -> bool {
@@ -204,7 +223,8 @@ async fn openai_builder_generate(explicit_base_url: bool) -> Result<String, Stri
     let model = openai_model();
     let mut builder = Provider::openai()
         .model(&model)
-        .max_tokens(24)
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(20));
 
@@ -215,7 +235,7 @@ async fn openai_builder_generate(explicit_base_url: bool) -> Result<String, Stri
     }
 
     let client = builder.build().await.map_err(|err| err.to_string())?;
-    generate_text(&client, ChatRequest::new(prompt_messages())).await
+    generate_text(&client, prompt_request()).await
 }
 
 #[cfg(feature = "openai")]
@@ -223,7 +243,8 @@ async fn openai_builder_stream(explicit_base_url: bool) -> Result<String, String
     let model = openai_model();
     let mut builder = Provider::openai()
         .model(&model)
-        .max_tokens(24)
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(20));
 
@@ -234,7 +255,7 @@ async fn openai_builder_stream(explicit_base_url: bool) -> Result<String, String
     }
 
     let client = builder.build().await.map_err(|err| err.to_string())?;
-    collect_stream_text(&client, ChatRequest::new(stream_prompt_messages())).await
+    collect_stream_text(&client, stream_prompt_request()).await
 }
 
 #[cfg(feature = "openai")]
@@ -242,7 +263,7 @@ async fn openai_registry_generate() -> Result<String, String> {
     let model = registry::global()
         .language_model(&format!("openai:{}", openai_model()))
         .map_err(|err| format!("registry build failed: {err}"))?;
-    generate_text(&model, ChatRequest::new(prompt_messages())).await
+    generate_text(&model, prompt_request()).await
 }
 
 #[cfg(feature = "openai")]
@@ -250,7 +271,7 @@ async fn openai_registry_stream() -> Result<String, String> {
     let model = registry::global()
         .language_model(&format!("openai:{}", openai_model()))
         .map_err(|err| format!("registry build failed: {err}"))?;
-    collect_stream_text(&model, ChatRequest::new(stream_prompt_messages())).await
+    collect_stream_text(&model, stream_prompt_request()).await
 }
 
 #[cfg(feature = "anthropic")]
@@ -260,7 +281,8 @@ async fn anthropic_builder_generate(explicit_base_url: bool) -> Result<String, S
     for model in anthropic_model_candidates() {
         let mut builder = Provider::anthropic()
             .model(&model)
-            .max_tokens(24)
+            .temperature(LIVE_SMOKE_TEMPERATURE)
+            .max_tokens(LIVE_SMOKE_MAX_TOKENS)
             .timeout(Duration::from_secs(90))
             .connect_timeout(Duration::from_secs(20));
 
@@ -271,7 +293,7 @@ async fn anthropic_builder_generate(explicit_base_url: bool) -> Result<String, S
         }
 
         match builder.build().await {
-            Ok(client) => match generate_text(&client, ChatRequest::new(prompt_messages())).await {
+            Ok(client) => match generate_text(&client, prompt_request()).await {
                 Ok(content) => return Ok(format!("model={model} content={content}")),
                 Err(err) => errors.push(format!("{model}: {err}")),
             },
@@ -289,7 +311,8 @@ async fn anthropic_builder_stream(explicit_base_url: bool) -> Result<String, Str
     for model in anthropic_model_candidates() {
         let mut builder = Provider::anthropic()
             .model(&model)
-            .max_tokens(24)
+            .temperature(LIVE_SMOKE_TEMPERATURE)
+            .max_tokens(LIVE_SMOKE_MAX_TOKENS)
             .timeout(Duration::from_secs(90))
             .connect_timeout(Duration::from_secs(20));
 
@@ -300,13 +323,10 @@ async fn anthropic_builder_stream(explicit_base_url: bool) -> Result<String, Str
         }
 
         match builder.build().await {
-            Ok(client) => {
-                match collect_stream_text(&client, ChatRequest::new(stream_prompt_messages())).await
-                {
-                    Ok(content) => return Ok(format!("model={model} content={content}")),
-                    Err(err) => errors.push(format!("{model}: {err}")),
-                }
-            }
+            Ok(client) => match collect_stream_text(&client, stream_prompt_request()).await {
+                Ok(content) => return Ok(format!("model={model} content={content}")),
+                Err(err) => errors.push(format!("{model}: {err}")),
+            },
             Err(err) => errors.push(format!("{model}: {err}")),
         }
     }
@@ -327,7 +347,7 @@ async fn anthropic_registry_generate() -> Result<String, String> {
             }
         };
 
-        match generate_text(&handle, ChatRequest::new(prompt_messages())).await {
+        match generate_text(&handle, prompt_request()).await {
             Ok(content) => return Ok(format!("model={model} content={content}")),
             Err(err) => errors.push(format!("{model}: {err}")),
         }
@@ -349,7 +369,7 @@ async fn anthropic_registry_stream() -> Result<String, String> {
             }
         };
 
-        match collect_stream_text(&handle, ChatRequest::new(stream_prompt_messages())).await {
+        match collect_stream_text(&handle, stream_prompt_request()).await {
             Ok(content) => return Ok(format!("model={model} content={content}")),
             Err(err) => errors.push(format!("{model}: {err}")),
         }
@@ -363,14 +383,15 @@ async fn gemini_builder_generate() -> Result<String, String> {
     let model = gemini_model();
     let client = Provider::gemini()
         .model(&model)
-        .max_tokens(24)
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS as i32)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(20))
         .build()
         .await
         .map_err(|err| err.to_string())?;
 
-    generate_text(&client, ChatRequest::new(prompt_messages())).await
+    generate_text(&client, prompt_request()).await
 }
 
 #[cfg(feature = "google")]
@@ -378,14 +399,15 @@ async fn gemini_builder_stream() -> Result<String, String> {
     let model = gemini_model();
     let client = Provider::gemini()
         .model(&model)
-        .max_tokens(24)
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS as i32)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(20))
         .build()
         .await
         .map_err(|err| err.to_string())?;
 
-    collect_stream_text(&client, ChatRequest::new(stream_prompt_messages())).await
+    collect_stream_text(&client, stream_prompt_request()).await
 }
 
 #[cfg(feature = "google")]
@@ -393,7 +415,7 @@ async fn gemini_registry_generate() -> Result<String, String> {
     let model = registry::global()
         .language_model(&format!("gemini:{}", gemini_model()))
         .map_err(|err| format!("registry build failed: {err}"))?;
-    generate_text(&model, ChatRequest::new(prompt_messages())).await
+    generate_text(&model, prompt_request()).await
 }
 
 #[cfg(feature = "google")]
@@ -401,7 +423,7 @@ async fn gemini_registry_stream() -> Result<String, String> {
     let model = registry::global()
         .language_model(&format!("gemini:{}", gemini_model()))
         .map_err(|err| format!("registry build failed: {err}"))?;
-    collect_stream_text(&model, ChatRequest::new(stream_prompt_messages())).await
+    collect_stream_text(&model, stream_prompt_request()).await
 }
 
 #[cfg(feature = "deepseek")]
@@ -409,14 +431,15 @@ async fn deepseek_builder_generate() -> Result<String, String> {
     let model = deepseek_model();
     let client = Provider::deepseek()
         .model(&model)
-        .max_tokens(24)
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(20))
         .build()
         .await
         .map_err(|err| err.to_string())?;
 
-    generate_text(&client, ChatRequest::new(prompt_messages())).await
+    generate_text(&client, prompt_request()).await
 }
 
 #[cfg(feature = "deepseek")]
@@ -424,14 +447,15 @@ async fn deepseek_builder_stream() -> Result<String, String> {
     let model = deepseek_model();
     let client = Provider::deepseek()
         .model(&model)
-        .max_tokens(24)
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(20))
         .build()
         .await
         .map_err(|err| err.to_string())?;
 
-    collect_stream_text(&client, ChatRequest::new(stream_prompt_messages())).await
+    collect_stream_text(&client, stream_prompt_request()).await
 }
 
 #[cfg(feature = "deepseek")]
@@ -439,7 +463,7 @@ async fn deepseek_registry_generate() -> Result<String, String> {
     let model = registry::global()
         .language_model(&format!("deepseek:{}", deepseek_model()))
         .map_err(|err| format!("registry build failed: {err}"))?;
-    generate_text(&model, ChatRequest::new(prompt_messages())).await
+    generate_text(&model, prompt_request()).await
 }
 
 #[cfg(feature = "deepseek")]
@@ -447,7 +471,7 @@ async fn deepseek_registry_stream() -> Result<String, String> {
     let model = registry::global()
         .language_model(&format!("deepseek:{}", deepseek_model()))
         .map_err(|err| format!("registry build failed: {err}"))?;
-    collect_stream_text(&model, ChatRequest::new(stream_prompt_messages())).await
+    collect_stream_text(&model, stream_prompt_request()).await
 }
 
 #[cfg(feature = "groq")]
@@ -455,14 +479,15 @@ async fn groq_builder_generate() -> Result<String, String> {
     let model = groq_model();
     let client = Provider::groq()
         .model(&model)
-        .max_tokens(24)
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(20))
         .build()
         .await
         .map_err(|err| err.to_string())?;
 
-    generate_text(&client, ChatRequest::new(prompt_messages())).await
+    generate_text(&client, prompt_request()).await
 }
 
 #[cfg(feature = "groq")]
@@ -470,14 +495,15 @@ async fn groq_builder_stream() -> Result<String, String> {
     let model = groq_model();
     let client = Provider::groq()
         .model(&model)
-        .max_tokens(24)
+        .temperature(LIVE_SMOKE_TEMPERATURE)
+        .max_tokens(LIVE_SMOKE_MAX_TOKENS)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(20))
         .build()
         .await
         .map_err(|err| err.to_string())?;
 
-    collect_stream_text(&client, ChatRequest::new(stream_prompt_messages())).await
+    collect_stream_text(&client, stream_prompt_request()).await
 }
 
 #[cfg(feature = "groq")]
@@ -485,7 +511,7 @@ async fn groq_registry_generate() -> Result<String, String> {
     let model = registry::global()
         .language_model(&format!("groq:{}", groq_model()))
         .map_err(|err| format!("registry build failed: {err}"))?;
-    generate_text(&model, ChatRequest::new(prompt_messages())).await
+    generate_text(&model, prompt_request()).await
 }
 
 #[cfg(feature = "groq")]
@@ -493,7 +519,7 @@ async fn groq_registry_stream() -> Result<String, String> {
     let model = registry::global()
         .language_model(&format!("groq:{}", groq_model()))
         .map_err(|err| format!("registry build failed: {err}"))?;
-    collect_stream_text(&model, ChatRequest::new(stream_prompt_messages())).await
+    collect_stream_text(&model, stream_prompt_request()).await
 }
 
 #[cfg(feature = "openai")]
