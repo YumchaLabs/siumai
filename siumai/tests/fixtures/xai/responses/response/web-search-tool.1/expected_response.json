@@ -7,7 +7,8 @@
         "toolCallId": "fc_25de2f84-163c-6e9e-e42e-cd1dbd6f9ed0_0",
         "toolName": "web_search",
         "input": "{\"query\":\"what is xAI\",\"num_results\":5}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "text",

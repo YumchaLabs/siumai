@@ -110,6 +110,28 @@ impl ProviderOptionsMap {
     }
 }
 
+fn merge_json_objects(
+    base: &mut serde_json::Value,
+    override_obj: serde_json::Map<String, serde_json::Value>,
+) {
+    let Some(base_obj) = base.as_object_mut() else {
+        *base = serde_json::Value::Object(override_obj);
+        return;
+    };
+
+    for (k, override_value) in override_obj {
+        match (base_obj.get_mut(&k), override_value) {
+            (Some(serde_json::Value::Object(_)), serde_json::Value::Object(nested_override)) => {
+                let base_nested = base_obj.get_mut(&k).expect("key just checked");
+                merge_json_objects(base_nested, nested_override);
+            }
+            (_, v) => {
+                base_obj.insert(k, v);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ProviderOptionsMap;
@@ -142,27 +164,5 @@ mod tests {
         let value = serde_json::to_value(&map).expect("serialize provider options");
         assert!(value.get("openaiCompatible").is_some());
         assert!(value.get("openaicompatible").is_none());
-    }
-}
-
-fn merge_json_objects(
-    base: &mut serde_json::Value,
-    override_obj: serde_json::Map<String, serde_json::Value>,
-) {
-    let Some(base_obj) = base.as_object_mut() else {
-        *base = serde_json::Value::Object(override_obj);
-        return;
-    };
-
-    for (k, override_value) in override_obj {
-        match (base_obj.get_mut(&k), override_value) {
-            (Some(serde_json::Value::Object(_)), serde_json::Value::Object(nested_override)) => {
-                let base_nested = base_obj.get_mut(&k).expect("key just checked");
-                merge_json_objects(base_nested, nested_override);
-            }
-            (_, v) => {
-                base_obj.insert(k, v);
-            }
-        }
     }
 }

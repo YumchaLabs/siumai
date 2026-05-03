@@ -7,7 +7,8 @@
         "toolCallId": "fs_123",
         "toolName": "file_search",
         "input": "",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -35,7 +36,9 @@
             ]
           }
         },
-        "providerExecuted": true
+        "input": "",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "text",

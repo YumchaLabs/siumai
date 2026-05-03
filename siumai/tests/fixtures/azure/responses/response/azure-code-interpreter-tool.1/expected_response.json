@@ -17,7 +17,8 @@
         "toolCallId": "ci_02ffbc38ae6fca1a0068ec876654a08197af4d648fe8bba210",
         "toolName": "codeExecution",
         "input": "{\"code\":\"import random\\n\\n# Generate five random numbers between 1 and 100 with two decimal places\\nnumbers = [round(random.uniform(1, 100), 2) for _ in range(5)]\\n\\n# Print the program and its execution results\\nprint(\\\"Program: Generate five random numbers between 1 and 100 with two decimal places\\\")\\nprint(\\\"Generated numbers:\\\")\\nfor i, num in enumerate(numbers, start=1):\\n    print(f\\\"{i}: {num:.2f}\\\")\",\"containerId\":\"cntr_68ec87613e58819097ec47888dc686d8088a1d37157e7565\"}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -34,7 +35,9 @@
             ]
           }
         },
-        "providerExecuted": true
+        "input": "{\"code\":\"import random\\n\\n# Generate five random numbers between 1 and 100 with two decimal places\\nnumbers = [round(random.uniform(1, 100), 2) for _ in range(5)]\\n\\n# Print the program and its execution results\\nprint(\\\"Program: Generate five random numbers between 1 and 100 with two decimal places\\\")\\nprint(\\\"Generated numbers:\\\")\\nfor i, num in enumerate(numbers, start=1):\\n    print(f\\\"{i}: {num:.2f}\\\")\",\"containerId\":\"cntr_68ec87613e58819097ec47888dc686d8088a1d37157e7565\"}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "text",

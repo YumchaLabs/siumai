@@ -863,22 +863,20 @@ fn apply_perplexity_chat_settings(
     }
 
     if let Some(response_format) = req.response_format.as_ref() {
-        let json_schema = match response_format {
-            crate::types::chat::ResponseFormat::JsonObject { .. } => serde_json::Map::new(),
-            crate::types::chat::ResponseFormat::Json { schema, .. } => {
-                let mut json_schema = serde_json::Map::new();
-                json_schema.insert("schema".to_string(), schema.clone());
-                json_schema
+        let value = match response_format {
+            crate::types::chat::ResponseFormat::JsonObject { .. } => serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {},
+            }),
+            crate::types::chat::ResponseFormat::Json { .. } => {
+                crate::standards::openai::utils::convert_chat_completions_response_format(
+                    response_format,
+                    true,
+                )
             }
         };
 
-        body_obj.insert(
-            "response_format".to_string(),
-            serde_json::json!({
-                "type": "json_schema",
-                "json_schema": json_schema,
-            }),
-        );
+        body_obj.insert("response_format".to_string(), value);
     }
 }
 
@@ -3466,7 +3464,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_perplexity_json_schema_omits_openai_only_schema_options() {
+    fn openai_compatible_perplexity_json_schema_preserves_stable_schema_options() {
         use crate::core::ProviderSpec;
         use crate::types::chat::ResponseFormat;
 
@@ -3501,7 +3499,7 @@ mod tests {
             .response_format(
                 ResponseFormat::json_schema(schema.clone())
                     .with_name("custom")
-                    .with_description("ignored by Perplexity")
+                    .with_description("custom description")
                     .with_strict(false),
             )
             .build()
@@ -3519,7 +3517,12 @@ mod tests {
             body.get("response_format"),
             Some(&serde_json::json!({
                 "type": "json_schema",
-                "json_schema": { "schema": schema }
+                "json_schema": {
+                    "name": "custom",
+                    "description": "custom description",
+                    "schema": schema,
+                    "strict": false
+                }
             }))
         );
     }

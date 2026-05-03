@@ -62,6 +62,13 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
+fn strip_transport_envelope(value: &mut Value) {
+    if let Value::Object(map) = value {
+        map.remove("request");
+        map.remove("response");
+    }
+}
+
 fn roundtrip_response_json(case: &str) -> Value {
     let root = fixtures_dir().join(case);
     let response: ChatResponse = read_json(root.join("expected_response.json"));
@@ -87,6 +94,7 @@ fn roundtrip_response_json(case: &str) -> Value {
         .expect("transform bridged response");
 
     let mut value = serde_json::to_value(roundtripped).expect("serialize roundtripped response");
+    strip_transport_envelope(&mut value);
     normalize_json(&mut value);
     value
 }
@@ -95,6 +103,7 @@ fn expected_response_json(case: &str) -> Value {
     let root = fixtures_dir().join(case);
     let response: ChatResponse = read_json(root.join("expected_response.json"));
     let mut value = serde_json::to_value(response).expect("serialize fixture response");
+    strip_transport_envelope(&mut value);
     normalize_json(&mut value);
     value
 }

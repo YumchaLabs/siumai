@@ -84,11 +84,7 @@ fn openai_responses_public_feature_surface_roundtrips_mcp_tool_stream_parts() {
 
     let decoder = OpenAiResponsesEventConverter::new();
     let mut events = Vec::new();
-    for (index, (event_name, payload)) in call_frames
-        .into_iter()
-        .chain(result_frames.into_iter())
-        .enumerate()
-    {
+    for (index, (event_name, payload)) in call_frames.into_iter().chain(result_frames).enumerate() {
         let out = futures::executor::block_on(decoder.convert_event(Event {
             event: event_name,
             data: serde_json::to_string(&payload).expect("serialize payload"),
@@ -190,11 +186,7 @@ fn openai_responses_public_feature_surface_roundtrips_tool_search_without_raw_it
 
     let decoder = OpenAiResponsesEventConverter::new();
     let mut events = Vec::new();
-    for (index, (event_name, payload)) in call_frames
-        .into_iter()
-        .chain(result_frames.into_iter())
-        .enumerate()
-    {
+    for (index, (event_name, payload)) in call_frames.into_iter().chain(result_frames).enumerate() {
         let out = futures::executor::block_on(decoder.convert_event(Event {
             event: event_name,
             data: serde_json::to_string(&payload).expect("serialize payload"),

@@ -12,14 +12,14 @@
   },
   "model": "grok-beta",
   "usage": {
-    "inputTokens": { "total": 1, "noCache": 1 },
-    "outputTokens": { "total": 2, "text": 2 },
+    "inputTokens": { "total": 1, "noCache": 1, "cacheRead": 0 },
+    "outputTokens": { "total": 2, "text": 2, "reasoning": 0 },
     "raw": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 },
     "prompt_tokens": 1,
     "completion_tokens": 2,
     "total_tokens": 3
   },
-  "finish_reason": "tool_calls",
+  "finish_reason": "tool-calls",
   "raw_finish_reason": "function_call",
   "audio": null
 }

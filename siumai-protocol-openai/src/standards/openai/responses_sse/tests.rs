@@ -2670,11 +2670,7 @@ fn responses_stream_proxy_roundtrips_mcp_tool_parts_without_raw_item() {
 
     let decoder = OpenAiResponsesEventConverter::new();
     let mut events = Vec::new();
-    for (index, (event_name, payload)) in call_frames
-        .into_iter()
-        .chain(result_frames.into_iter())
-        .enumerate()
-    {
+    for (index, (event_name, payload)) in call_frames.into_iter().chain(result_frames).enumerate() {
         let out = futures::executor::block_on(decoder.convert_event(eventsource_stream::Event {
             event: event_name,
             data: serde_json::to_string(&payload).expect("serialize payload"),

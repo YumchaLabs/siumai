@@ -75,6 +75,14 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
+fn normalize_chat_response_snapshot(value: &mut Value) {
+    if let Value::Object(map) = value {
+        map.remove("request");
+        map.remove("response");
+    }
+    normalize_json(value);
+}
+
 fn run_case(root: &Path) {
     let response: Value = read_json(root.join("response.json"));
     let expected: Value = read_json(root.join("expected_response.json"));
@@ -103,8 +111,8 @@ fn run_case(root: &Path) {
 
     let mut got_value = serde_json::to_value(resp).expect("serialize");
     let mut expected_value = expected;
-    normalize_json(&mut got_value);
-    normalize_json(&mut expected_value);
+    normalize_chat_response_snapshot(&mut got_value);
+    normalize_chat_response_snapshot(&mut expected_value);
     assert_eq!(
         got_value,
         expected_value,

@@ -172,6 +172,7 @@ impl<'a> VisionCapabilityProxy<'a> {
 
 #[cfg(test)]
 #[allow(unsafe_code)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use crate::client::LlmClient;

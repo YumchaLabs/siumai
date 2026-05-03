@@ -5,6 +5,8 @@
 //! - `ctx.api_key` overrides env vars (when env fallback exists)
 //! - `ctx.base_url` overrides provider defaults (where applicable)
 
+#![allow(clippy::await_holding_lock, clippy::field_reassign_with_default)]
+
 use crate::error::LlmError;
 use crate::execution::http::transport::{
     HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,

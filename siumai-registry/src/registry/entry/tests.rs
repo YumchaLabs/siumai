@@ -883,8 +883,10 @@ async fn registry_builder_propagates_provider_build_overrides_to_language_model_
         }) as Arc<dyn ProviderFactory>,
     );
 
-    let mut http_config = crate::types::HttpConfig::default();
-    http_config.user_agent = Some("registry-test-agent".to_string());
+    let http_config = crate::types::HttpConfig {
+        user_agent: Some("registry-test-agent".to_string()),
+        ..Default::default()
+    };
 
     let reg = crate::registry::builder::RegistryBuilder::new(providers)
         .with_http_client(reqwest::Client::new())

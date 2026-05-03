@@ -761,8 +761,8 @@ mod tests {
             .provider_metadata
             .clone()
             .expect("provider metadata");
-        assert!(provider_metadata.get("minimaxi").is_some());
-        assert!(provider_metadata.get("anthropic").is_none());
+        assert!(provider_metadata.contains_key("minimaxi"));
+        assert!(!provider_metadata.contains_key("anthropic"));
 
         let meta = response
             .minimaxi_metadata()
@@ -817,8 +817,8 @@ mod tests {
                 _ => None,
             })
             .expect("finish part");
-        assert!(finish_provider_metadata.get("minimaxi").is_some());
-        assert!(finish_provider_metadata.get("anthropic").is_none());
+        assert!(finish_provider_metadata.contains_key("minimaxi"));
+        assert!(!finish_provider_metadata.contains_key("anthropic"));
 
         let end = out
             .iter()
@@ -828,8 +828,8 @@ mod tests {
             })
             .expect("stream end");
         let provider_metadata = end.provider_metadata.clone().expect("provider metadata");
-        assert!(provider_metadata.get("minimaxi").is_some());
-        assert!(provider_metadata.get("anthropic").is_none());
+        assert!(provider_metadata.contains_key("minimaxi"));
+        assert!(!provider_metadata.contains_key("anthropic"));
 
         let meta = end.minimaxi_metadata().expect("typed minimaxi metadata");
         assert!(meta.context_management.is_some());

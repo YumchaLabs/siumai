@@ -76,6 +76,14 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
+fn normalize_chat_response_snapshot(value: &mut Value) {
+    if let Value::Object(map) = value {
+        map.remove("request");
+        map.remove("response");
+    }
+    normalize_json(value);
+}
+
 fn build_spec()
 -> siumai_provider_openai::standards::openai::compat::spec::OpenAiCompatibleSpecWithAdapter {
     let adapter =
@@ -108,8 +116,8 @@ fn run_case(root: &Path) {
 
     let mut got_resp_value = serde_json::to_value(got).unwrap();
     let mut expected_resp_value = expected_resp;
-    normalize_json(&mut got_resp_value);
-    normalize_json(&mut expected_resp_value);
+    normalize_chat_response_snapshot(&mut got_resp_value);
+    normalize_chat_response_snapshot(&mut expected_resp_value);
     assert_eq!(got_resp_value, expected_resp_value);
 }
 

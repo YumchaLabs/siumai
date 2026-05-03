@@ -630,6 +630,7 @@ impl HttpTransport for OpenAiWebSocketTransport {
 
 #[cfg(test)]
 #[cfg(feature = "openai-websocket")]
+#[allow(clippy::result_large_err)]
 mod tests {
     use super::*;
     use crate::execution::http::interceptor::HttpRequestContext;

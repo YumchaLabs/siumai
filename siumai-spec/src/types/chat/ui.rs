@@ -1389,10 +1389,8 @@ mod tests {
     fn tool_part_validation_rejects_result_metadata_outside_output_states() {
         let mut tool = UiToolPart::named("search", "call_1", UiToolPartState::InputAvailable);
         tool.input = Some(serde_json::json!({ "query": "rust" }));
-        tool.result_provider_metadata.insert(
-            "openai".to_string(),
-            serde_json::json!({ "itemId": "result_1" }),
-        );
+        tool.result_provider_metadata
+            .insert("openai", serde_json::json!({ "itemId": "result_1" }));
 
         let err = tool.validate().expect_err("validation should fail");
         assert!(err.contains("resultProviderMetadata is not allowed"));

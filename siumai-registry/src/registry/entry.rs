@@ -1058,18 +1058,20 @@ mod provider_build_override_tests {
 
     #[test]
     fn merged_with_merges_http_config_over_global_defaults() {
-        let mut base_http_config = HttpConfig::default();
-        base_http_config.timeout = Some(Duration::from_secs(30));
-        base_http_config.connect_timeout = Some(Duration::from_secs(5));
+        let mut base_http_config = HttpConfig {
+            timeout: Some(Duration::from_secs(30)),
+            connect_timeout: Some(Duration::from_secs(5)),
+            proxy: Some("http://global-proxy".to_string()),
+            user_agent: Some("global-agent".to_string()),
+            stream_disable_compression: true,
+            ..Default::default()
+        };
         base_http_config
             .headers
             .insert("authorization".to_string(), "Bearer global".to_string());
         base_http_config
             .headers
             .insert("x-global-header".to_string(), "keep-me".to_string());
-        base_http_config.proxy = Some("http://global-proxy".to_string());
-        base_http_config.user_agent = Some("global-agent".to_string());
-        base_http_config.stream_disable_compression = true;
 
         let mut provider_http_config = HttpConfig::empty();
         provider_http_config.timeout = Some(Duration::from_secs(90));

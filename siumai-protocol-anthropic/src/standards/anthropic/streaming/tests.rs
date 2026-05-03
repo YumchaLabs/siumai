@@ -2835,13 +2835,12 @@ fn serializes_interleaved_blocks_as_separate_monotonic_content_blocks() {
 
     let block_starts: Vec<(u64, &str)> = typed
         .iter()
-        .filter_map(|value| {
-            (value.get("type").and_then(|v| v.as_str()) == Some("content_block_start")).then(|| {
-                (
-                    value["index"].as_u64().expect("start index"),
-                    value["content_block"]["type"].as_str().expect("block type"),
-                )
-            })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some("content_block_start"))
+        .map(|value| {
+            (
+                value["index"].as_u64().expect("start index"),
+                value["content_block"]["type"].as_str().expect("block type"),
+            )
         })
         .collect();
     assert_eq!(
@@ -2851,19 +2850,15 @@ fn serializes_interleaved_blocks_as_separate_monotonic_content_blocks() {
 
     let block_deltas: Vec<u64> = typed
         .iter()
-        .filter_map(|value| {
-            (value.get("type").and_then(|v| v.as_str()) == Some("content_block_delta"))
-                .then(|| value["index"].as_u64().expect("delta index"))
-        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some("content_block_delta"))
+        .map(|value| value["index"].as_u64().expect("delta index"))
         .collect();
     assert_eq!(block_deltas, vec![0, 1, 2]);
 
     let block_stops: Vec<u64> = typed
         .iter()
-        .filter_map(|value| {
-            (value.get("type").and_then(|v| v.as_str()) == Some("content_block_stop"))
-                .then(|| value["index"].as_u64().expect("stop index"))
-        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some("content_block_stop"))
+        .map(|value| value["index"].as_u64().expect("stop index"))
         .collect();
     assert_eq!(block_stops, vec![0, 1, 2]);
 }

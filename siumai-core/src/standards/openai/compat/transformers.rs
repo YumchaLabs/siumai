@@ -855,7 +855,7 @@ mod tests {
             resp.metadata.get("traceId"),
             Some(&serde_json::json!("emb_123"))
         );
-        assert!(resp.metadata.get("test-provider").is_none());
+        assert!(!resp.metadata.contains_key("test-provider"));
         let response_info = resp.response.expect("response metadata");
         assert_eq!(response_info.model_id.as_deref(), Some("embed-model"));
         assert!(response_info.headers.is_empty());
@@ -1694,8 +1694,8 @@ mod tests {
 
         let resp = tx.transform_chat_response(&raw).unwrap();
         let provider_metadata = resp.provider_metadata.expect("provider metadata");
-        assert!(provider_metadata.get("testProvider").is_some());
-        assert!(provider_metadata.get("test-provider").is_none());
+        assert!(provider_metadata.contains_key("testProvider"));
+        assert!(!provider_metadata.contains_key("test-provider"));
 
         let parts = resp.content.as_multimodal().expect("multimodal content");
         let tool_call = parts

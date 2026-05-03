@@ -59,8 +59,16 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
+fn strip_transport_envelope(value: &mut Value) {
+    if let Value::Object(map) = value {
+        map.remove("request");
+        map.remove("response");
+    }
+}
+
 fn normalize_chat_response_json(response: &siumai::prelude::unified::ChatResponse) -> Value {
     let mut value = serde_json::to_value(response).expect("serialize chat response");
+    strip_transport_envelope(&mut value);
     normalize_json(&mut value);
     value
 }

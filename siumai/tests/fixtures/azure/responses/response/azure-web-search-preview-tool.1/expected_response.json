@@ -7,7 +7,8 @@
         "toolCallId": "ws_015f6a6b41cacae400691daacb83288193836c60a7c57507fd",
         "toolName": "webSearch",
         "input": "{}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -22,14 +23,17 @@
             }
           }
         },
-        "providerExecuted": true
+        "input": "{}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-call",
         "toolCallId": "ws_015f6a6b41cacae400691daacdbd0081938887c66406662377",
         "toolName": "webSearch",
         "input": "{}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -44,7 +48,9 @@
             }
           }
         },
-        "providerExecuted": true
+        "input": "{}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "text",

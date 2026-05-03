@@ -499,8 +499,7 @@ mod tests {
                     }
                 ]
             })
-            .to_string()
-            .into(),
+            .to_string(),
             id: "".into(),
             retry: None,
         };

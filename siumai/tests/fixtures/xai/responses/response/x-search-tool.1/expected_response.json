@@ -7,7 +7,8 @@
         "toolCallId": "fc_84c1a8ea-1f29-4a33-1049-0ed3561b0f64_us-east-1_0",
         "toolName": "x_search",
         "input": "{\"query\":\"AI artificial intelligence\",\"limit\":20,\"from_date\":\"2025-10-01\",\"to_date\":\"2025-10-29\",\"min_score_threshold\":0.2}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "text",

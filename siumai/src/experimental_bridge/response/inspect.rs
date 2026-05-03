@@ -639,6 +639,14 @@ fn inspect_gemini_response_provider_metadata(
                 format!("provider_metadata.{namespace}.logprobsResult"),
                 "Gemini GenerateContent response encoding preserves logprobs results",
             ),
+            "finishMessage" => report.record_carried_provider_metadata(
+                format!("provider_metadata.{namespace}.finishMessage"),
+                "Gemini GenerateContent response encoding preserves finish messages",
+            ),
+            "serviceTier" => report.record_carried_provider_metadata(
+                format!("provider_metadata.{namespace}.serviceTier"),
+                "Gemini GenerateContent response encoding preserves service tier metadata",
+            ),
             "sources" if has_grounding_metadata => report.record_carried_provider_metadata(
                 format!("provider_metadata.{namespace}.sources"),
                 "Gemini GenerateContent response encoding can recover normalized sources from preserved grounding metadata",

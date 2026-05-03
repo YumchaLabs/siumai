@@ -5103,7 +5103,9 @@ mod tests {
             serde_json::json!({
                 "type": "json_schema",
                 "json_schema": {
-                    "schema": schema
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
                 }
             })
         );
@@ -5213,7 +5215,9 @@ mod tests {
             serde_json::json!({
                 "type": "json_schema",
                 "json_schema": {
-                    "schema": schema
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
                 }
             })
         );
@@ -5306,7 +5310,9 @@ mod tests {
             serde_json::json!({
                 "type": "json_schema",
                 "json_schema": {
-                    "schema": schema
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
                 }
             })
         );
@@ -5995,7 +6001,7 @@ data: [DONE]
                 }
             })
         );
-        assert!(response.warnings.as_ref().map_or(true, Vec::is_empty));
+        assert!(response.warnings.as_ref().is_none_or(Vec::is_empty));
     }
 
     #[tokio::test]

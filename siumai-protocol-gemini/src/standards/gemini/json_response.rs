@@ -284,6 +284,17 @@ impl JsonResponseConverter for GeminiGenerateContentJsonResponseConverter {
             );
         }
 
+        if let Some(finish_message) = google_response_metadata(response)
+            .and_then(|meta| meta.get("finishMessage"))
+            .and_then(Value::as_str)
+            && let Some(object) = body.as_object_mut()
+        {
+            object.insert(
+                "finishMessage".to_string(),
+                Value::String(finish_message.to_string()),
+            );
+        }
+
         if opts.pretty {
             serde_json::to_writer_pretty(out, &body).map_err(|error| {
                 LlmError::JsonError(format!(
@@ -421,6 +432,32 @@ mod tests {
             value["candidates"][0]["finishReason"],
             serde_json::json!("PROHIBITED_CONTENT")
         );
+    }
+
+    #[test]
+    fn gemini_encoder_preserves_finish_message_and_service_tier_metadata() {
+        let mut response = ChatResponse::new(MessageContent::Text("done".to_string()));
+        response.provider_metadata = Some(
+            crate::types::provider_metadata::provider_metadata_from_object(
+                "google",
+                serde_json::Map::from_iter([
+                    (
+                        "finishMessage".to_string(),
+                        serde_json::json!("natural stop"),
+                    ),
+                    ("serviceTier".to_string(), serde_json::json!("flex")),
+                ]),
+            ),
+        );
+
+        let mut out = Vec::new();
+        GeminiGenerateContentJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["finishMessage"], serde_json::json!("natural stop"));
+        assert_eq!(value["serviceTier"], serde_json::json!("flex"));
     }
 
     #[test]

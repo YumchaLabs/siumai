@@ -823,8 +823,10 @@ mod tests {
             .into_config()
             .expect("builder config");
 
-        let mut http_config = crate::types::HttpConfig::default();
-        http_config.timeout = Some(Duration::from_secs(12));
+        let http_config = crate::types::HttpConfig {
+            timeout: Some(Duration::from_secs(12)),
+            ..Default::default()
+        };
         let manual_config = crate::providers::openai::OpenAiConfig::new("test-key")
             .with_base_url("https://example.com/v1")
             .with_organization("org-1")

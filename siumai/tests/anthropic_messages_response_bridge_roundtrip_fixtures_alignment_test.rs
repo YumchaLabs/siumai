@@ -70,7 +70,15 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
+fn strip_transport_envelope(value: &mut Value) {
+    if let Value::Object(map) = value {
+        map.remove("request");
+        map.remove("response");
+    }
+}
+
 fn project_expected_anthropic_roundtrip(mut value: Value) -> Value {
+    strip_transport_envelope(&mut value);
     if let Some(obj) = value.as_object_mut() {
         if let Some(usage) = obj.get_mut("usage").and_then(Value::as_object_mut) {
             usage.remove("cached_tokens");
@@ -90,6 +98,7 @@ fn project_expected_anthropic_roundtrip(mut value: Value) -> Value {
 
 fn normalize_response_json(value: Value) -> Value {
     let mut value = value;
+    strip_transport_envelope(&mut value);
     normalize_json(&mut value);
     value
 }

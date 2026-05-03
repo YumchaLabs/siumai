@@ -589,8 +589,10 @@ mod tests {
 
     #[test]
     fn xai_config_reasoning_and_search_defaults_roundtrip_into_compatible_config() {
-        let mut http_config = HttpConfig::default();
-        http_config.timeout = Some(Duration::from_secs(9));
+        let http_config = HttpConfig {
+            timeout: Some(Duration::from_secs(9)),
+            ..Default::default()
+        };
 
         let config = XaiConfig::new("test-key")
             .with_model("grok-4")

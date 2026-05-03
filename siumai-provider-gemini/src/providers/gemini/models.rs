@@ -312,6 +312,7 @@ pub fn model_supports_capability(model_id: &str, capability: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::get_default_models;
 

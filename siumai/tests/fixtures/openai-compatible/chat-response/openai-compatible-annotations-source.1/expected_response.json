@@ -34,11 +34,13 @@
   "usage": {
     "inputTokens": {
       "total": 12,
-      "noCache": 12
+      "noCache": 12,
+      "cacheRead": 0
     },
     "outputTokens": {
       "total": 9,
-      "text": 9
+      "text": 9,
+      "reasoning": 0
     },
     "raw": {
       "prompt_tokens": 12,
@@ -49,7 +51,7 @@
     "completion_tokens": 9,
     "total_tokens": 21
   },
-  "finish_reason": "tool_calls",
+  "finish_reason": "tool-calls",
   "raw_finish_reason": "tool_calls",
   "audio": null
 }

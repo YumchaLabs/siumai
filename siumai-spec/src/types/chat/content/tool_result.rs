@@ -636,6 +636,87 @@ impl ToolResultContentPart {
     }
 }
 
+impl ToolResultOutput {
+    /// Get provider options for this output variant.
+    pub fn provider_options(&self) -> &ProviderOptionsMap {
+        match self {
+            Self::Text {
+                provider_options, ..
+            }
+            | Self::Json {
+                provider_options, ..
+            }
+            | Self::ExecutionDenied {
+                provider_options, ..
+            }
+            | Self::ErrorText {
+                provider_options, ..
+            }
+            | Self::ErrorJson {
+                provider_options, ..
+            }
+            | Self::Content {
+                provider_options, ..
+            } => provider_options,
+        }
+    }
+
+    /// Alias of `provider_options()` that matches the wider shared-type naming convention.
+    pub fn provider_options_map(&self) -> &ProviderOptionsMap {
+        self.provider_options()
+    }
+
+    /// Get mutable provider options for this output variant.
+    pub fn provider_options_mut(&mut self) -> &mut ProviderOptionsMap {
+        match self {
+            Self::Text {
+                provider_options, ..
+            }
+            | Self::Json {
+                provider_options, ..
+            }
+            | Self::ExecutionDenied {
+                provider_options, ..
+            }
+            | Self::ErrorText {
+                provider_options, ..
+            }
+            | Self::ErrorJson {
+                provider_options, ..
+            }
+            | Self::Content {
+                provider_options, ..
+            } => provider_options,
+        }
+    }
+
+    /// Alias of `provider_options_mut()` that matches the wider shared-type naming convention.
+    pub fn provider_options_map_mut(&mut self) -> &mut ProviderOptionsMap {
+        self.provider_options_mut()
+    }
+
+    /// Replace provider options for this tool result output.
+    pub fn with_provider_options_map(mut self, provider_options_map: ProviderOptionsMap) -> Self {
+        *self.provider_options_map_mut() = provider_options_map;
+        self
+    }
+
+    /// Attach provider-specific request options to this tool result output.
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        value: serde_json::Value,
+    ) -> Self {
+        self.provider_options_mut().insert(provider_id, value);
+        self
+    }
+
+    /// Get provider-specific request options for a provider id on this tool result output.
+    pub fn provider_option(&self, provider_id: impl AsRef<str>) -> Option<&serde_json::Value> {
+        self.provider_options().get(provider_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ToolResultContentPart, ToolResultFileId, ToolResultOutput};
@@ -860,86 +941,5 @@ mod tests {
             ToolResultContentPart::file_url("https://example.com/report.pdf")
                 .with_media_type("application/pdf")
         );
-    }
-}
-
-impl ToolResultOutput {
-    /// Get provider options for this output variant.
-    pub fn provider_options(&self) -> &ProviderOptionsMap {
-        match self {
-            Self::Text {
-                provider_options, ..
-            }
-            | Self::Json {
-                provider_options, ..
-            }
-            | Self::ExecutionDenied {
-                provider_options, ..
-            }
-            | Self::ErrorText {
-                provider_options, ..
-            }
-            | Self::ErrorJson {
-                provider_options, ..
-            }
-            | Self::Content {
-                provider_options, ..
-            } => provider_options,
-        }
-    }
-
-    /// Alias of `provider_options()` that matches the wider shared-type naming convention.
-    pub fn provider_options_map(&self) -> &ProviderOptionsMap {
-        self.provider_options()
-    }
-
-    /// Get mutable provider options for this output variant.
-    pub fn provider_options_mut(&mut self) -> &mut ProviderOptionsMap {
-        match self {
-            Self::Text {
-                provider_options, ..
-            }
-            | Self::Json {
-                provider_options, ..
-            }
-            | Self::ExecutionDenied {
-                provider_options, ..
-            }
-            | Self::ErrorText {
-                provider_options, ..
-            }
-            | Self::ErrorJson {
-                provider_options, ..
-            }
-            | Self::Content {
-                provider_options, ..
-            } => provider_options,
-        }
-    }
-
-    /// Alias of `provider_options_mut()` that matches the wider shared-type naming convention.
-    pub fn provider_options_map_mut(&mut self) -> &mut ProviderOptionsMap {
-        self.provider_options_mut()
-    }
-
-    /// Replace provider options for this tool result output.
-    pub fn with_provider_options_map(mut self, provider_options_map: ProviderOptionsMap) -> Self {
-        *self.provider_options_map_mut() = provider_options_map;
-        self
-    }
-
-    /// Attach provider-specific request options to this tool result output.
-    pub fn with_provider_option(
-        mut self,
-        provider_id: impl AsRef<str>,
-        value: serde_json::Value,
-    ) -> Self {
-        self.provider_options_mut().insert(provider_id, value);
-        self
-    }
-
-    /// Get provider-specific request options for a provider id on this tool result output.
-    pub fn provider_option(&self, provider_id: impl AsRef<str>) -> Option<&serde_json::Value> {
-        self.provider_options().get(provider_id)
     }
 }

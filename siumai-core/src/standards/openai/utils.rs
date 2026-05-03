@@ -2487,19 +2487,35 @@ pub fn openai_chat_usage_value(usage: &Usage) -> Value {
             .unwrap_or(serde_json::Value::Null),
     );
 
-    if normalized_input.cache_read.is_some()
+    let raw_prompt_details_present = object
+        .get("prompt_tokens_details")
+        .and_then(Value::as_object)
+        .is_some();
+    let explicit_cached_tokens = usage
+        .prompt_tokens_details
+        .as_ref()
+        .and_then(|details| details.cached_tokens);
+    let chat_cached_tokens = if raw_prompt_details_present
+        || explicit_cached_tokens.is_some()
+        || normalized_input
+            .cache_read
+            .is_some_and(|tokens| tokens != 0)
+    {
+        normalized_input.cache_read
+    } else {
+        None
+    };
+
+    if chat_cached_tokens.is_some()
         || usage
             .prompt_tokens_details
             .as_ref()
             .and_then(|details| details.audio_tokens)
             .is_some()
-        || object
-            .get("prompt_tokens_details")
-            .and_then(Value::as_object)
-            .is_some()
+        || raw_prompt_details_present
     {
         let details = ensure_object_entry(&mut object, "prompt_tokens_details");
-        if let Some(cached_tokens) = normalized_input.cache_read {
+        if let Some(cached_tokens) = chat_cached_tokens {
             details.insert(
                 "cached_tokens".to_string(),
                 serde_json::json!(cached_tokens),
@@ -2517,7 +2533,26 @@ pub fn openai_chat_usage_value(usage: &Usage) -> Value {
         }
     }
 
-    if normalized_output.reasoning.is_some()
+    let raw_completion_details_present = object
+        .get("completion_tokens_details")
+        .and_then(Value::as_object)
+        .is_some();
+    let explicit_reasoning_tokens = usage
+        .completion_tokens_details
+        .as_ref()
+        .and_then(|details| details.reasoning_tokens);
+    let chat_reasoning_tokens = if raw_completion_details_present
+        || explicit_reasoning_tokens.is_some()
+        || normalized_output
+            .reasoning
+            .is_some_and(|tokens| tokens != 0)
+    {
+        normalized_output.reasoning
+    } else {
+        None
+    };
+
+    if chat_reasoning_tokens.is_some()
         || usage
             .completion_tokens_details
             .as_ref()
@@ -2533,13 +2568,10 @@ pub fn openai_chat_usage_value(usage: &Usage) -> Value {
             .as_ref()
             .and_then(|details| details.rejected_prediction_tokens)
             .is_some()
-        || object
-            .get("completion_tokens_details")
-            .and_then(Value::as_object)
-            .is_some()
+        || raw_completion_details_present
     {
         let details = ensure_object_entry(&mut object, "completion_tokens_details");
-        if let Some(reasoning_tokens) = normalized_output.reasoning {
+        if let Some(reasoning_tokens) = chat_reasoning_tokens {
             details.insert(
                 "reasoning_tokens".to_string(),
                 serde_json::json!(reasoning_tokens),
@@ -3070,7 +3102,7 @@ mod tests {
         let out = convert_messages_xai_chat(&[msg]).expect("convert messages");
 
         assert_eq!(out[0].content, Some(serde_json::json!("")));
-        assert!(out[0].extra.get("reasoning_content").is_none());
+        assert!(!out[0].extra.contains_key("reasoning_content"));
         assert!(out[0].tool_calls.is_some());
     }
 
@@ -3126,7 +3158,7 @@ mod tests {
             convert_messages_mistral_chat(&[assistant, tool_result]).expect("convert messages");
 
         assert_eq!(out[0].content, Some(serde_json::json!("")));
-        assert!(out[0].extra.get("prefix").is_none());
+        assert!(!out[0].extra.contains_key("prefix"));
         assert_eq!(out[1].role, "tool");
         assert_eq!(out[1].tool_call_id.as_deref(), Some("call_1"));
         assert_eq!(out[1].extra.get("name"), Some(&serde_json::json!("lookup")));
@@ -3191,7 +3223,7 @@ mod tests {
             Some(serde_json::Value::String(String::new()))
         );
         assert!(
-            before_last_user[1].extra.get("reasoning_content").is_none(),
+            !before_last_user[1].extra.contains_key("reasoning_content"),
             "reasoning before the last user turn must not be replayed"
         );
 
@@ -3244,8 +3276,10 @@ mod tests {
         };
 
         for converted in [
-            convert_messages(&[message.clone()]).expect("convert openai-compatible messages"),
-            convert_messages_openai_chat(&[message.clone()]).expect("convert openai chat messages"),
+            convert_messages(std::slice::from_ref(&message))
+                .expect("convert openai-compatible messages"),
+            convert_messages_openai_chat(std::slice::from_ref(&message))
+                .expect("convert openai chat messages"),
         ] {
             assert_eq!(converted.len(), 1);
             assert_eq!(converted[0].role, "tool");
@@ -3734,6 +3768,33 @@ mod tests {
         assert_eq!(value["citation_tokens"], serde_json::json!(7));
         assert!(value.get("input_tokens").is_none());
         assert!(value.get("output_tokens").is_none());
+    }
+
+    #[test]
+    fn openai_chat_usage_value_omits_synthetic_zero_details() {
+        let usage = Usage::builder()
+            .prompt_tokens(10)
+            .completion_tokens(8)
+            .total_tokens(18)
+            .with_input_total_tokens(10)
+            .with_input_no_cache_tokens(10)
+            .with_input_cache_read_tokens(0)
+            .with_output_total_tokens(8)
+            .with_output_text_tokens(8)
+            .with_output_reasoning_tokens(0)
+            .with_raw_usage_value(serde_json::json!({
+                "prompt_tokens": 10,
+                "completion_tokens": 8,
+                "total_tokens": 18
+            }))
+            .build();
+
+        let value = openai_chat_usage_value(&usage);
+
+        assert_eq!(value["prompt_tokens"], serde_json::json!(10));
+        assert_eq!(value["completion_tokens"], serde_json::json!(8));
+        assert!(value.get("prompt_tokens_details").is_none());
+        assert!(value.get("completion_tokens_details").is_none());
     }
 
     #[test]

@@ -765,8 +765,10 @@ mod tests {
             .into_config()
             .expect("builder config");
 
-        let mut http_config = crate::types::HttpConfig::default();
-        http_config.timeout = Some(Duration::from_secs(20));
+        let http_config = crate::types::HttpConfig {
+            timeout: Some(Duration::from_secs(20)),
+            ..Default::default()
+        };
         let mut manual_middlewares =
             crate::execution::middleware::build_auto_middlewares_vec("gemini", "gemini-2.5-flash");
         manual_middlewares.push(Arc::new(

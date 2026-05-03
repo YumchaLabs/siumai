@@ -109,7 +109,7 @@ async fn test_gemini_streaming_emits_raw_parts_when_enabled() {
     });
     let event = eventsource_stream::Event {
         event: "".into(),
-        data: raw_json.to_string().into(),
+        data: raw_json.to_string(),
         id: "".into(),
         retry: None,
     };
@@ -135,7 +135,7 @@ async fn test_gemini_top_level_error_chunk_emits_stable_error_part() {
     });
     let event = eventsource_stream::Event {
         event: "".into(),
-        data: raw_json.to_string().into(),
+        data: raw_json.to_string(),
         id: "".into(),
         retry: None,
     };

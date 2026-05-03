@@ -944,6 +944,7 @@ impl ChatCapability for OpenAiWebSocketSession {
 
 #[cfg(test)]
 #[cfg(feature = "openai-websocket")]
+#[allow(clippy::result_large_err)]
 mod tests {
     use super::*;
     use crate::providers::openai::OpenAiConfig;

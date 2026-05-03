@@ -1243,7 +1243,7 @@ mod tests {
         });
 
         let final_resp = sp.build_final_response();
-        assert_eq!(final_resp.content_text().as_deref(), Some("hello"));
+        assert_eq!(final_resp.content_text(), Some("hello"));
     }
 
     #[test]

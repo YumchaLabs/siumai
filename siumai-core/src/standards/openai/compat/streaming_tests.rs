@@ -1370,8 +1370,8 @@ async fn compat_stream_finish_keeps_requested_provider_metadata_key_even_without
         })
         .expect("finish provider metadata");
 
-    assert!(finish.get("testProvider").is_some());
-    assert!(finish.get("test-provider").is_none());
+    assert!(finish.contains_key("testProvider"));
+    assert!(!finish.contains_key("test-provider"));
 }
 
 #[tokio::test]
@@ -1423,7 +1423,7 @@ async fn compat_stream_tool_call_carries_thought_signature_under_requested_metad
             .and_then(|value| value.get("thoughtSignature")),
         Some(&serde_json::json!("<Sig>"))
     );
-    assert!(tool_call_metadata.get("test-provider").is_none());
+    assert!(!tool_call_metadata.contains_key("test-provider"));
 }
 
 #[tokio::test]

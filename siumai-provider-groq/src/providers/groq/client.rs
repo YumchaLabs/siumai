@@ -203,6 +203,7 @@ impl crate::traits::ModelMetadata for GroqClient {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use crate::execution::http::transport::{

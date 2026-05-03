@@ -62,6 +62,13 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
+fn strip_transport_envelope(value: &mut Value) {
+    if let Value::Object(map) = value {
+        map.remove("request");
+        map.remove("response");
+    }
+}
+
 fn strip_tool_call_ids(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -82,6 +89,7 @@ fn strip_tool_call_ids(value: &mut Value) {
 
 fn normalize_response_json(response: &ChatResponse) -> Value {
     let mut value = serde_json::to_value(response).expect("serialize chat response");
+    strip_transport_envelope(&mut value);
     normalize_json(&mut value);
     value
 }
@@ -195,18 +203,8 @@ fn vertex_generate_content_response_bridge_roundtrip_tool_call_fixture_preserves
     let (bridged, bridged_json, expected, roundtripped) = roundtrip_provider_response(case);
 
     assert!(
-        bridged.report.is_lossy(),
-        "fixture case {} expected lossy report, got {:?}",
-        response_path.display(),
-        bridged.report
-    );
-    assert!(
-        bridged
-            .report
-            .lossy_fields
-            .iter()
-            .any(|field| field == "finish_reason"),
-        "fixture case {} expected finish_reason projection, got {:?}",
+        bridged.report.is_exact(),
+        "fixture case {} expected exact report, got {:?}",
         response_path.display(),
         bridged.report
     );

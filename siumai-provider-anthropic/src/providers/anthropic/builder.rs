@@ -616,8 +616,10 @@ mod tests {
             .into_config()
             .expect("builder config");
 
-        let mut http_config = crate::types::HttpConfig::default();
-        http_config.timeout = Some(Duration::from_secs(18));
+        let http_config = crate::types::HttpConfig {
+            timeout: Some(Duration::from_secs(18)),
+            ..Default::default()
+        };
         let manual_config = crate::providers::anthropic::AnthropicConfig::new("test-key")
             .with_base_url("https://example.com")
             .with_model("claude-3-5-sonnet-20241022")
