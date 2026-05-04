@@ -6,7 +6,10 @@
 use crate::error::LlmError;
 use crate::streaming::JsonEventConverter;
 use crate::streaming::{ChatStreamEvent, StreamStateTracker};
-use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
+use crate::types::{
+    ChatResponse, ChatStreamFinishInfo, ChatStreamPart, ChatStreamToolCall, FinishReason,
+    MessageContent, ResponseMetadata, Usage,
+};
 use serde::Deserialize;
 use std::future::Future;
 use std::pin::Pin;
@@ -84,7 +87,7 @@ impl OllamaEventConverter {
 
         // Process thinking content (for models like deepseek-r1)
         if let Some(thinking) = self.extract_thinking(&response) {
-            builder = builder.add_thinking_delta(thinking);
+            builder = builder.add_reasoning_delta("reasoning", thinking);
         }
 
         // Process tool calls (when models request function execution).
@@ -95,13 +98,20 @@ impl OllamaEventConverter {
                 .expect("tool_calls_emitted lock");
             if !*emitted {
                 for (idx, tc) in tool_calls.into_iter().enumerate() {
+                    let id = format!("call_{idx}");
                     let args = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
-                    builder = builder.add_tool_call_delta(
-                        format!("call_{idx}"),
-                        Some(tc.function.name),
-                        Some(args),
-                        None,
-                    );
+                    builder = builder
+                        .add_tool_input_start(id.clone(), tc.function.name.clone())
+                        .add_tool_input_delta(id.clone(), args.clone())
+                        .add_tool_input_end(id.clone())
+                        .add_part(ChatStreamPart::ToolCall(ChatStreamToolCall {
+                            tool_call_id: id,
+                            tool_name: tc.function.name,
+                            input: args,
+                            provider_executed: None,
+                            dynamic: None,
+                            provider_metadata: None,
+                        }));
                 }
                 *emitted = true;
             }
@@ -109,12 +119,7 @@ impl OllamaEventConverter {
 
         // Process content - NO MORE CONTENT LOSS!
         if let Some(content) = self.extract_content(&response) {
-            builder = builder.add_content_delta(content, None);
-        }
-
-        // Process usage updates
-        if let Some(usage) = self.extract_usage(&response) {
-            builder = builder.add_usage_update(usage);
+            builder = builder.add_text_delta("text", content);
         }
 
         // Process stream end
@@ -152,7 +157,19 @@ impl OllamaEventConverter {
                     response.eval_count,
                 ),
             };
-            builder = builder.add_stream_end(chat_response);
+            builder = builder
+                .add_part(ChatStreamPart::Finish {
+                    usage: chat_response.usage.clone().unwrap_or_else(Usage::unknown),
+                    finish_reason: ChatStreamFinishInfo {
+                        unified: chat_response
+                            .finish_reason
+                            .clone()
+                            .unwrap_or(FinishReason::Unknown),
+                        raw: chat_response.raw_finish_reason.clone(),
+                    },
+                    provider_metadata: None,
+                })
+                .add_stream_end(chat_response);
         }
 
         builder.build()
@@ -299,6 +316,36 @@ impl JsonEventConverter for OllamaEventConverter {
     }
 
     fn serialize_event(&self, event: &ChatStreamEvent) -> Result<Vec<u8>, LlmError> {
+        fn serialize_json_line(body: serde_json::Value) -> Result<Vec<u8>, LlmError> {
+            let mut out = serde_json::to_vec(&body).map_err(|e| {
+                LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
+            })?;
+            out.push(b'\n');
+            Ok(out)
+        }
+
+        fn assistant_delta_line(
+            model: Option<String>,
+            field: &str,
+            delta: &str,
+        ) -> Result<Vec<u8>, LlmError> {
+            let mut message = serde_json::Map::new();
+            message.insert(
+                "role".to_string(),
+                serde_json::Value::String("assistant".to_string()),
+            );
+            message.insert(
+                field.to_string(),
+                serde_json::Value::String(delta.to_string()),
+            );
+            let body = serde_json::json!({
+                "model": model,
+                "message": serde_json::Value::Object(message),
+                "done": false,
+            });
+            serialize_json_line(body)
+        }
+
         match event {
             ChatStreamEvent::StreamStart { metadata } => {
                 if let Some(model) = metadata.model.clone()
@@ -308,31 +355,17 @@ impl JsonEventConverter for OllamaEventConverter {
                 }
                 Ok(Vec::new())
             }
-            ChatStreamEvent::ContentDelta { delta, .. } => {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
                 let model = self.stream_model.lock().ok().and_then(|v| v.clone());
-                let body = serde_json::json!({
-                    "model": model,
-                    "message": { "role": "assistant", "content": delta },
-                    "done": false,
-                });
-                let mut out = serde_json::to_vec(&body).map_err(|e| {
-                    LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
-                })?;
-                out.push(b'\n');
-                Ok(out)
-            }
-            ChatStreamEvent::ThinkingDelta { delta } => {
-                let model = self.stream_model.lock().ok().and_then(|v| v.clone());
-                let body = serde_json::json!({
-                    "model": model,
-                    "message": { "role": "assistant", "thinking": delta },
-                    "done": false,
-                });
-                let mut out = serde_json::to_vec(&body).map_err(|e| {
-                    LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
-                })?;
-                out.push(b'\n');
-                Ok(out)
+                match part {
+                    ChatStreamPart::TextDelta { delta, .. } => {
+                        assistant_delta_line(model, "content", delta)
+                    }
+                    ChatStreamPart::ReasoningDelta { delta, .. } => {
+                        assistant_delta_line(model, "thinking", delta)
+                    }
+                    _ => Ok(Vec::new()),
+                }
             }
             ChatStreamEvent::StreamEnd { response } => {
                 if let Some(model) = response.model.clone()
@@ -363,26 +396,18 @@ impl JsonEventConverter for OllamaEventConverter {
                 if let Some(done_reason) = done_reason {
                     body.insert("done_reason".to_string(), serde_json::json!(done_reason));
                 }
-                let mut out = serde_json::to_vec(&body).map_err(|e| {
-                    LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
-                })?;
-                out.push(b'\n');
-                Ok(out)
+                serialize_json_line(serde_json::Value::Object(body))
             }
             ChatStreamEvent::Error { error } => {
                 // Ollama's JSONL protocol does not define a stable error frame. Emit a best-effort
                 // JSON line so downstream proxies can surface the error.
                 let body = serde_json::json!({ "error": error });
-                let mut out = serde_json::to_vec(&body).map_err(|e| {
-                    LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
-                })?;
-                out.push(b'\n');
-                Ok(out)
+                serialize_json_line(body)
             }
-            ChatStreamEvent::UsageUpdate { .. }
+            ChatStreamEvent::ContentDelta { .. }
+            | ChatStreamEvent::ThinkingDelta { .. }
+            | ChatStreamEvent::UsageUpdate { .. }
             | ChatStreamEvent::ToolCallDelta { .. }
-            | ChatStreamEvent::Part { .. }
-            | ChatStreamEvent::PartWithReplay { .. }
             | ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
         }
     }
@@ -409,15 +434,22 @@ mod tests {
         let result = converter.convert_json(json_data).await;
         assert!(!result.is_empty());
 
-        // In the new architecture, we might get StreamStart + ContentDelta
-        let content_event = result
-            .iter()
-            .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
+        let content_event = result.iter().find(|event| {
+            matches!(
+                event,
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextDelta { .. }
+                })
+            )
+        });
 
-        if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
+        if let Some(Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        })) = content_event
+        {
             assert_eq!(delta, "Hello");
         } else {
-            panic!("Expected ContentDelta event in results: {:?}", result);
+            panic!("Expected TextDelta part in results: {:?}", result);
         }
     }
 
@@ -431,12 +463,14 @@ mod tests {
         let result = converter.convert_json(json_data).await;
         assert!(!result.is_empty());
 
-        // In the new architecture, we might get StreamStart + UsageUpdate
-        let usage_event = result
-            .iter()
-            .find(|event| matches!(event, Ok(ChatStreamEvent::UsageUpdate { .. })));
+        let usage_event = result.iter().find_map(|event| match event {
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish { usage, .. },
+            }) => Some(usage),
+            _ => None,
+        });
 
-        if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = usage_event {
+        if let Some(usage) = usage_event {
             assert_eq!(usage.prompt_tokens(), Some(10));
             assert_eq!(usage.completion_tokens(), Some(20));
             assert_eq!(
@@ -447,7 +481,7 @@ mod tests {
                 }))
             );
         } else {
-            panic!("Expected UsageUpdate event in results: {:?}", result);
+            panic!("Expected Finish part with usage in results: {:?}", result);
         }
 
         let stream_end = result
@@ -511,10 +545,12 @@ mod tests {
         let usage = result
             .iter()
             .find_map(|event| match event {
-                Ok(ChatStreamEvent::UsageUpdate { usage }) => Some(usage),
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::Finish { usage, .. },
+                }) => Some(usage),
                 _ => None,
             })
-            .expect("usage update");
+            .expect("finish usage");
 
         assert_eq!(usage.prompt_tokens(), Some(10));
         assert_eq!(usage.completion_tokens(), Some(0));
@@ -526,28 +562,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ollama_emits_tool_call_delta() {
+    async fn test_ollama_emits_tool_call_part() {
         let converter = OllamaEventConverter::new();
 
         let json_data = r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Toronto"}}}]},"done":false}"#;
         let result = converter.convert_json(json_data).await;
 
-        let tool_event = result
-            .iter()
-            .find(|event| matches!(event, Ok(ChatStreamEvent::ToolCallDelta { .. })));
+        let tool_event = result.iter().find(|event| {
+            matches!(
+                event,
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolCall(_)
+                })
+            )
+        });
 
         match tool_event {
-            Some(Ok(ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name,
-                arguments_delta,
-                ..
+            Some(Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolCall(call),
             })) => {
-                assert_eq!(id, "call_0");
-                assert_eq!(function_name.as_deref(), Some("get_weather"));
-                assert_eq!(arguments_delta.as_deref(), Some(r#"{"city":"Toronto"}"#));
+                assert_eq!(call.tool_call_id, "call_0");
+                assert_eq!(call.tool_name, "get_weather");
+                assert_eq!(call.input, r#"{"city":"Toronto"}"#);
             }
-            _ => panic!("Expected ToolCallDelta event in results: {:?}", result),
+            _ => panic!("Expected ToolCall part in results: {:?}", result),
         }
     }
 
@@ -638,9 +676,12 @@ mod tests {
         });
 
         let bytes = converter
-            .serialize_event(&ChatStreamEvent::ContentDelta {
-                delta: "hi".to_string(),
-                index: None,
+            .serialize_event(&ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "text".to_string(),
+                    delta: "hi".to_string(),
+                    provider_metadata: None,
+                },
             })
             .expect("serialize ok");
 

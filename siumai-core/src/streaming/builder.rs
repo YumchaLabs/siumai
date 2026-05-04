@@ -4,14 +4,14 @@
 
 use crate::error::LlmError;
 use crate::types::{
-    ChatResponse, ChatStreamEvent, ChatStreamPart, ChatStreamReplay, ResponseMetadata, Usage,
+    ChatResponse, ChatStreamEvent, ChatStreamPart, ChatStreamReplay, ResponseMetadata,
 };
 
 /// Event Builder
 ///
 /// Helper for efficiently building sequences of ChatStreamEvents.
 /// Commonly used in provider-specific converters to emit multiple events
-/// from a single provider event (e.g., StreamStart + ContentDelta).
+/// from a single provider event (e.g., StreamStart + TextDelta part).
 ///
 /// # Example
 /// ```rust,ignore
@@ -19,7 +19,7 @@ use crate::types::{
 ///
 /// let events = EventBuilder::new()
 ///     .add_stream_start(metadata)
-///     .add_content_delta("Hello".to_string(), None)
+///     .add_text_delta("0", "Hello")
 ///     .build();
 /// ```
 pub struct EventBuilder {
@@ -53,43 +53,78 @@ impl EventBuilder {
         self
     }
 
-    /// Add a ContentDelta event (only if delta is not empty)
-    pub fn add_content_delta(mut self, delta: String, index: Option<usize>) -> Self {
+    /// Add a typed text delta part (only if delta is not empty).
+    pub fn add_text_delta(mut self, id: impl Into<String>, delta: impl Into<String>) -> Self {
+        let delta = delta.into();
         if !delta.is_empty() {
-            self.events
-                .push(ChatStreamEvent::ContentDelta { delta, index });
+            self.events.push(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: id.into(),
+                    delta,
+                    provider_metadata: None,
+                },
+            });
         }
         self
     }
 
-    /// Add a ToolCallDelta event
-    pub fn add_tool_call_delta(
+    /// Add a typed reasoning delta part (only if delta is not empty).
+    pub fn add_reasoning_delta(mut self, id: impl Into<String>, delta: impl Into<String>) -> Self {
+        let delta = delta.into();
+        if !delta.is_empty() {
+            self.events.push(ChatStreamEvent::Part {
+                part: ChatStreamPart::ReasoningDelta {
+                    id: id.into(),
+                    delta,
+                    provider_metadata: None,
+                },
+            });
+        }
+        self
+    }
+
+    /// Add a typed tool input start part.
+    pub fn add_tool_input_start(
         mut self,
-        id: String,
-        function_name: Option<String>,
-        arguments_delta: Option<String>,
-        index: Option<usize>,
+        id: impl Into<String>,
+        tool_name: impl Into<String>,
     ) -> Self {
-        self.events.push(ChatStreamEvent::ToolCallDelta {
-            id,
-            function_name,
-            arguments_delta,
-            index,
+        self.events.push(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputStart {
+                id: id.into(),
+                tool_name: tool_name.into(),
+                provider_metadata: None,
+                provider_executed: None,
+                dynamic: None,
+                title: None,
+            },
         });
         self
     }
 
-    /// Add a ThinkingDelta event (only if delta is not empty)
-    pub fn add_thinking_delta(mut self, delta: String) -> Self {
+    /// Add a typed tool input delta part (only if delta is not empty).
+    pub fn add_tool_input_delta(mut self, id: impl Into<String>, delta: impl Into<String>) -> Self {
+        let delta = delta.into();
         if !delta.is_empty() {
-            self.events.push(ChatStreamEvent::ThinkingDelta { delta });
+            self.events.push(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolInputDelta {
+                    id: id.into(),
+                    delta,
+                    provider_metadata: None,
+                },
+            });
         }
         self
     }
 
-    /// Add a UsageUpdate event
-    pub fn add_usage_update(mut self, usage: Usage) -> Self {
-        self.events.push(ChatStreamEvent::UsageUpdate { usage });
+    /// Add a typed tool input end part.
+    pub fn add_tool_input_end(mut self, id: impl Into<String>) -> Self {
+        self.events.push(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputEnd {
+                id: id.into(),
+                provider_metadata: None,
+            },
+        });
         self
     }
 

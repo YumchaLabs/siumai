@@ -436,11 +436,7 @@ impl StreamChunkTransformer for CohereChatStreamTransformer {
             response.warnings = Some(self.warnings.clone());
         }
 
-        let mut builder = EventBuilder::with_capacity(3);
-        if let Some(usage) = usage {
-            builder = builder.add_usage_update(usage);
-        }
-        builder
+        EventBuilder::with_capacity(2)
             .add_part(ChatStreamPart::Finish {
                 usage: finish_usage,
                 finish_reason: ChatStreamFinishInfo {
@@ -545,13 +541,8 @@ fn handle_content_delta(
         .unwrap_or(Value::Null);
 
     if let Some(delta) = content.get("thinking").and_then(Value::as_str) {
-        return EventBuilder::with_capacity(2)
-            .add_thinking_delta(delta.to_string())
-            .add_part(ChatStreamPart::ReasoningDelta {
-                id: index.to_string(),
-                delta: delta.to_string(),
-                provider_metadata: None,
-            })
+        return EventBuilder::new()
+            .add_reasoning_delta(index.to_string(), delta)
             .build_results();
     }
 
@@ -561,13 +552,8 @@ fn handle_content_delta(
         .unwrap_or_default()
         .to_string();
 
-    EventBuilder::with_capacity(2)
-        .add_content_delta(delta.clone(), None)
-        .add_part(ChatStreamPart::TextDelta {
-            id: index.to_string(),
-            delta,
-            provider_metadata: None,
-        })
+    EventBuilder::new()
+        .add_text_delta(index.to_string(), delta)
         .build_results()
 }
 
@@ -633,28 +619,10 @@ fn handle_tool_call_start(
         });
     }
 
-    let mut builder = EventBuilder::with_capacity(3)
-        .add_tool_call_delta(
-            id.clone(),
-            Some(name.clone()),
-            (!arguments.is_empty()).then_some(arguments.clone()),
-            None,
-        )
-        .add_part(ChatStreamPart::ToolInputStart {
-            id: id.clone(),
-            tool_name: name,
-            provider_metadata: None,
-            provider_executed: None,
-            dynamic: None,
-            title: None,
-        });
+    let mut builder = EventBuilder::with_capacity(2).add_tool_input_start(id.clone(), name);
 
     if !arguments.is_empty() {
-        builder = builder.add_part(ChatStreamPart::ToolInputDelta {
-            id,
-            delta: arguments,
-            provider_metadata: None,
-        });
+        builder = builder.add_tool_input_delta(id, arguments);
     }
 
     builder.build_results()
@@ -685,13 +653,8 @@ fn handle_tool_call_delta(
         })
         .unwrap_or_default();
 
-    EventBuilder::with_capacity(2)
-        .add_tool_call_delta(id.clone(), None, Some(delta.clone()), None)
-        .add_part(ChatStreamPart::ToolInputDelta {
-            id,
-            delta,
-            provider_metadata: None,
-        })
+    EventBuilder::new()
+        .add_tool_input_delta(id, delta)
         .build_results()
 }
 

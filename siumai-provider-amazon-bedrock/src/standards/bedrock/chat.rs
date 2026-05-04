@@ -1941,21 +1941,7 @@ impl JsonEventConverter for BedrockEventConverter {
                     drop(acc);
 
                     if !is_json {
-                        builder = builder
-                            .add_tool_call_delta(
-                                normalized_id.clone(),
-                                Some(name.clone()),
-                                None,
-                                None,
-                            )
-                            .add_part(ChatStreamPart::ToolInputStart {
-                                id: normalized_id,
-                                tool_name: name,
-                                provider_metadata: None,
-                                provider_executed: None,
-                                dynamic: None,
-                                title: None,
-                            });
+                        builder = builder.add_tool_input_start(normalized_id, name);
                     }
                 } else {
                     let emit_text_start = {
@@ -2030,13 +2016,7 @@ impl JsonEventConverter for BedrockEventConverter {
                     });
                 }
 
-                builder = builder.add_content_delta(text.to_string(), None).add_part(
-                    ChatStreamPart::TextDelta {
-                        id: block_index.to_string(),
-                        delta: text.to_string(),
-                        provider_metadata: None,
-                    },
-                );
+                builder = builder.add_text_delta(block_index.to_string(), text);
             }
 
             if let Some(reasoning_content) = delta.and_then(|delta| delta.get("reasoningContent")) {
@@ -2080,13 +2060,7 @@ impl JsonEventConverter for BedrockEventConverter {
                         });
                     }
 
-                    builder = builder.add_thinking_delta(text.to_string()).add_part(
-                        ChatStreamPart::ReasoningDelta {
-                            id: block_index.to_string(),
-                            delta: text.to_string(),
-                            provider_metadata: None,
-                        },
-                    );
+                    builder = builder.add_reasoning_delta(block_index.to_string(), text);
                 } else if let Some(provider_metadata) = bedrock_reasoning_part_metadata(
                     reasoning_content
                         .get("signature")
@@ -2149,13 +2123,7 @@ impl JsonEventConverter for BedrockEventConverter {
                 if let Some(tool_id) = tool_id
                     && !is_json
                 {
-                    builder = builder
-                        .add_tool_call_delta(tool_id.clone(), None, Some(input.to_string()), None)
-                        .add_part(ChatStreamPart::ToolInputDelta {
-                            id: tool_id,
-                            delta: input.to_string(),
-                            provider_metadata: None,
-                        });
+                    builder = builder.add_tool_input_delta(tool_id, input);
                 }
             }
 
@@ -2195,18 +2163,12 @@ impl JsonEventConverter for BedrockEventConverter {
                                     provider_metadata: None,
                                 });
                                 if !text.is_empty() {
-                                    builder = builder.add_content_delta(text.clone(), None);
+                                    builder = builder.add_text_delta(block_index.to_string(), text);
                                 }
-                                builder = builder
-                                    .add_part(ChatStreamPart::TextDelta {
-                                        id: block_index.to_string(),
-                                        delta: text,
-                                        provider_metadata: None,
-                                    })
-                                    .add_part(ChatStreamPart::TextEnd {
-                                        id: block_index.to_string(),
-                                        provider_metadata: None,
-                                    });
+                                builder = builder.add_part(ChatStreamPart::TextEnd {
+                                    id: block_index.to_string(),
+                                    provider_metadata: None,
+                                });
                             } else {
                                 let input = if tool.json_text.is_empty() {
                                     "{}".to_string()
@@ -2251,8 +2213,6 @@ impl JsonEventConverter for BedrockEventConverter {
                     }
                     merge_json_object(&mut acc.provider_metadata, &mut provider_metadata);
                     drop(acc);
-
-                    builder = builder.add_usage_update(usage);
                 }
 
                 let mut provider_metadata = serde_json::Map::new();
@@ -3332,7 +3292,7 @@ mod tests {
             )
             .await;
 
-        assert_eq!(events.len(), 7);
+        assert_eq!(events.len(), 6);
         assert!(matches!(
             events.first(),
             Some(Ok(ChatStreamEvent::StreamStart { metadata }))
@@ -3365,10 +3325,6 @@ mod tests {
         ));
         assert!(matches!(
             events.get(5),
-            Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) if delta == "Hello"
-        ));
-        assert!(matches!(
-            events.get(6),
             Some(Ok(ChatStreamEvent::Part {
                 part: ChatStreamPart::TextDelta { id, delta, .. }
             })) if id == "0" && delta == "Hello"
@@ -3430,7 +3386,7 @@ mod tests {
                 r#"{"contentBlockDelta":{"contentBlockIndex":0,"delta":{"text":"Later"}}}"#,
             )
             .await;
-        assert_eq!(later.len(), 4);
+        assert_eq!(later.len(), 3);
         assert!(matches!(
             later.first(),
             Some(Ok(ChatStreamEvent::Part {
@@ -3445,10 +3401,6 @@ mod tests {
         ));
         assert!(matches!(
             later.get(2),
-            Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) if delta == "Later"
-        ));
-        assert!(matches!(
-            later.get(3),
             Some(Ok(ChatStreamEvent::Part {
                 part: ChatStreamPart::TextDelta { id, delta, .. }
             })) if id == "0" && delta == "Later"
@@ -3556,10 +3508,6 @@ mod tests {
             parts.get(5),
             Some(ChatStreamPart::ReasoningEnd { id, .. }) if id == "0"
         ));
-        assert!(events.iter().any(|event| matches!(
-            event,
-            Ok(ChatStreamEvent::ThinkingDelta { delta }) if delta == "thinking"
-        )));
     }
 
     #[tokio::test]
