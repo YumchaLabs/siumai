@@ -38,7 +38,6 @@ struct OpenAiCompatSerializeState {
     tool_call_state_by_id: std::collections::HashMap<String, OpenAiCompatSerializeToolCallState>,
     next_tool_call_index: u32,
     finished: bool,
-    last_v3_text_delta: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -75,21 +74,13 @@ struct OpenAiCompatParseToolCallState {
 #[derive(Debug, Default, Clone)]
 struct OpenAiCompatSerializeToolCallState {
     index: u32,
-    source: Option<OpenAiCompatToolStreamSource>,
     emitted_name: bool,
     emitted_arguments: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OpenAiCompatToolStreamSource {
-    LegacyDelta,
-    StablePart,
 }
 
 fn ensure_serialize_tool_call_state<'a>(
     state: &'a mut OpenAiCompatSerializeState,
     id: &str,
-    source: OpenAiCompatToolStreamSource,
 ) -> Option<&'a mut OpenAiCompatSerializeToolCallState> {
     use std::collections::hash_map::Entry;
 
@@ -99,21 +90,10 @@ fn ensure_serialize_tool_call_state<'a>(
             state.next_tool_call_index = state.next_tool_call_index.saturating_add(1);
             Some(entry.insert(OpenAiCompatSerializeToolCallState {
                 index,
-                source: Some(source),
                 ..OpenAiCompatSerializeToolCallState::default()
             }))
         }
-        Entry::Occupied(entry) => {
-            let slot = entry.into_mut();
-            match slot.source {
-                Some(existing) if existing != source => None,
-                Some(_) => Some(slot),
-                None => {
-                    slot.source = Some(source);
-                    Some(slot)
-                }
-            }
-        }
+        Entry::Occupied(entry) => Some(entry.into_mut()),
     }
 }
 
@@ -1951,60 +1931,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     state.emitted_role = true;
                     sse_data_frame(&payload)
                 }
-                ChatStreamEvent::ContentDelta { delta, index } => {
-                    if state.last_v3_text_delta.as_deref() == Some(delta.as_str()) {
-                        state.last_v3_text_delta = None;
-                        return Ok(Vec::new());
-                    }
-                    state.last_v3_text_delta = None;
-
-                    serialize_content_delta_frame(&mut state, delta, *index)
-                }
-                ChatStreamEvent::ToolCallDelta {
-                    id,
-                    function_name,
-                    arguments_delta,
-                    index,
-                } => {
-                    state.last_v3_text_delta = None;
-
-                    let choice_index = index.unwrap_or(0) as u32;
-                    let Some(tool_state) = ensure_serialize_tool_call_state(
-                        &mut state,
-                        id,
-                        OpenAiCompatToolStreamSource::LegacyDelta,
-                    ) else {
-                        return Ok(Vec::new());
-                    };
-                    if function_name.is_some() {
-                        tool_state.emitted_name = true;
-                    }
-                    if arguments_delta.is_some() {
-                        tool_state.emitted_arguments = true;
-                    }
-                    let tool_call_index = tool_state.index;
-                    serialize_tool_delta_frame(
-                        &state,
-                        choice_index,
-                        tool_call_index,
-                        id,
-                        function_name.clone(),
-                        arguments_delta.clone(),
-                    )
-                }
-                ChatStreamEvent::UsageUpdate { usage } => {
-                    state.last_v3_text_delta = None;
-
-                    let payload = chunk_payload(
-                        &state,
-                        serde_json::json!([]),
-                        Some(openai_chat_usage_payload(usage)),
-                    );
-                    sse_data_frame(&payload)
-                }
                 ChatStreamEvent::StreamEnd { response } => {
-                    state.last_v3_text_delta = None;
-
                     if state.finished {
                         return Ok(Vec::new());
                     }
@@ -2041,14 +1968,15 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     serialize_terminal_frame(&mut state, finish_reason, usage, logprobs)
                 }
                 ChatStreamEvent::Error { error } => {
-                    state.last_v3_text_delta = None;
-
                     let payload = serde_json::json!({
                         "error": { "message": error },
                     });
                     sse_data_frame(&payload)
                 }
-                ChatStreamEvent::ThinkingDelta { .. }
+                ChatStreamEvent::ContentDelta { .. }
+                | ChatStreamEvent::ToolCallDelta { .. }
+                | ChatStreamEvent::UsageUpdate { .. }
+                | ChatStreamEvent::ThinkingDelta { .. }
                 | ChatStreamEvent::Custom { .. }
                 | ChatStreamEvent::Part { .. }
                 | ChatStreamEvent::PartWithReplay { .. } => Ok(Vec::new()),
@@ -2069,8 +1997,6 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     provider_metadata,
                 } = &part
                 {
-                    state.last_v3_text_delta = None;
-
                     if state.finished {
                         return Ok(Vec::new());
                     }
@@ -2094,8 +2020,6 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 }
 
                 if let LanguageModelV3StreamPart::ResponseMetadata(metadata) = &part {
-                    state.last_v3_text_delta = None;
-
                     if let Some(id) = metadata.id.clone() {
                         state.id = Some(id);
                     }
@@ -2109,8 +2033,6 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 }
 
                 if let LanguageModelV3StreamPart::Error { error } = &part {
-                    state.last_v3_text_delta = None;
-
                     let payload = match error {
                         serde_json::Value::String(message) => serde_json::json!({
                             "error": { "message": message }
@@ -2132,25 +2054,17 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     ..
                 }) = &part
                 {
-                    state.last_v3_text_delta = None;
                     return serialize_source_annotation_frame(&state, 0, url, title.as_deref());
                 }
 
                 if let LanguageModelV3StreamPart::TextDelta { delta, .. } = &part {
-                    let delta = delta.clone();
-                    state.last_v3_text_delta = None;
-                    let out = serialize_content_delta_frame(&mut state, &delta, None)?;
-                    state.last_v3_text_delta = Some(delta);
-                    return Ok(out);
+                    return serialize_content_delta_frame(&mut state, delta, None);
                 }
 
                 match part {
                     LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
-                        let Some(tool_state) = ensure_serialize_tool_call_state(
-                            &mut state,
-                            &id,
-                            OpenAiCompatToolStreamSource::StablePart,
-                        ) else {
+                        let Some(tool_state) = ensure_serialize_tool_call_state(&mut state, &id)
+                        else {
                             return Ok(Vec::new());
                         };
                         if tool_state.emitted_name {
@@ -2168,11 +2082,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                         );
                     }
                     LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
-                        let Some(tool_state) = ensure_serialize_tool_call_state(
-                            &mut state,
-                            &id,
-                            OpenAiCompatToolStreamSource::StablePart,
-                        ) else {
+                        let Some(tool_state) = ensure_serialize_tool_call_state(&mut state, &id)
+                        else {
                             return Ok(Vec::new());
                         };
                         tool_state.emitted_arguments = true;
@@ -2190,11 +2101,9 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                         return Ok(Vec::new());
                     }
                     LanguageModelV3StreamPart::ToolCall(call) => {
-                        let Some(tool_state) = ensure_serialize_tool_call_state(
-                            &mut state,
-                            &call.tool_call_id,
-                            OpenAiCompatToolStreamSource::StablePart,
-                        ) else {
+                        let Some(tool_state) =
+                            ensure_serialize_tool_call_state(&mut state, &call.tool_call_id)
+                        else {
                             return Ok(Vec::new());
                         };
 
@@ -2228,28 +2137,12 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     _ => {}
                 }
 
-                let mut out = Vec::new();
-                let mut events = part.to_best_effort_chat_events();
-                let only_runtime_parts = !events.is_empty()
-                    && events.iter().all(|ev| {
-                        matches!(
-                            ev,
-                            ChatStreamEvent::Part { .. } | ChatStreamEvent::PartWithReplay { .. }
-                        )
-                    });
-                if (events.is_empty() || only_runtime_parts)
-                    && self.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+                if self.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
                     && let Some(text) = part.to_lossy_text()
                 {
-                    events = vec![ChatStreamEvent::ContentDelta {
-                        delta: text,
-                        index: None,
-                    }];
+                    return serialize_content_delta_frame(&mut state, &text, None);
                 }
-                for ev in events {
-                    out.extend_from_slice(&serialize_inner(&ev)?);
-                }
-                Ok(out)
+                Ok(Vec::new())
             }
             other => serialize_inner(other),
         }
@@ -3071,7 +2964,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_serializes_basic_text_deltas_as_chat_completion_chunks() {
+    fn openai_compatible_serializes_typed_text_deltas_as_chat_completion_chunks() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
@@ -3123,9 +3016,12 @@ mod tests {
         );
 
         let delta_bytes = conv
-            .serialize_event(&ChatStreamEvent::ContentDelta {
-                delta: "Hello".to_string(),
-                index: None,
+            .serialize_event(&ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "text".to_string(),
+                    delta: "Hello".to_string(),
+                    provider_metadata: None,
+                },
             })
             .expect("serialize delta");
         let delta_frames = parse_sse_data_frames(&delta_bytes);
@@ -3170,7 +3066,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_serializes_usage_update_with_unknown_totals_as_null() {
+    fn openai_compatible_serializes_typed_finish_with_unknown_totals_as_null() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
@@ -3198,14 +3094,21 @@ mod tests {
         let conv = OpenAiCompatibleEventConverter::new(cfg, adapter);
 
         let bytes = conv
-            .serialize_event(&ChatStreamEvent::UsageUpdate {
-                usage: Usage::builder()
-                    .with_raw_usage_value(serde_json::json!({
-                        "vendor_tokens": 5
-                    }))
-                    .build(),
+            .serialize_event(&ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish {
+                    usage: Usage::builder()
+                        .with_raw_usage_value(serde_json::json!({
+                            "vendor_tokens": 5
+                        }))
+                        .build(),
+                    finish_reason: ChatStreamFinishInfo {
+                        unified: FinishReason::Stop,
+                        raw: Some("stop".to_string()),
+                    },
+                    provider_metadata: None,
+                },
             })
-            .expect("serialize usage update");
+            .expect("serialize finish");
         let frames = parse_sse_data_frames(&bytes);
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0]["usage"]["prompt_tokens"], serde_json::Value::Null);
@@ -3655,7 +3558,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_serializes_tool_call_delta_as_tool_calls_delta() {
+    fn openai_compatible_serializes_typed_tool_input_start_as_tool_calls_delta() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
@@ -3683,13 +3586,17 @@ mod tests {
         let conv = OpenAiCompatibleEventConverter::new(cfg, adapter);
 
         let bytes = conv
-            .serialize_event(&ChatStreamEvent::ToolCallDelta {
-                id: "call_1".to_string(),
-                function_name: Some("lookup".to_string()),
-                arguments_delta: Some("{\"q\":\"rust\"}".to_string()),
-                index: None,
+            .serialize_event(&ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolInputStart {
+                    id: "call_1".to_string(),
+                    tool_name: "lookup".to_string(),
+                    provider_metadata: None,
+                    provider_executed: None,
+                    dynamic: None,
+                    title: None,
+                },
             })
-            .expect("serialize tool delta");
+            .expect("serialize tool-input-start");
         let frames = parse_sse_data_frames(&bytes);
         assert_eq!(frames.len(), 1);
         assert_eq!(
@@ -3794,7 +3701,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_stable_tool_parts_win_over_later_legacy_tool_deltas() {
+    fn openai_compatible_ignores_later_legacy_tool_deltas_after_typed_parts() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
@@ -3855,11 +3762,11 @@ mod tests {
                     arguments_delta: Some("{\"q\":\"rust\"}".to_string()),
                     index: None,
                 })
-                .expect("serialize later legacy tool delta"),
+                .expect("ignore later legacy tool delta"),
         );
 
         let frames = parse_sse_data_frames(&bytes);
-        assert_eq!(frames.len(), 2, "later legacy shadow should be suppressed");
+        assert_eq!(frames.len(), 2, "later legacy delta should be ignored");
         assert_eq!(
             frames[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
             serde_json::json!("lookup")
