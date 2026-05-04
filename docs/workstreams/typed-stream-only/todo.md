@@ -16,6 +16,7 @@
 - [ ] Audit `UsageUpdate` and route usage through `ChatStreamPart::Finish` or a typed usage part.
 - [x] Move Gemini stream parser off legacy text/reasoning/tool/usage shadow events.
 - [x] Move Anthropic stream parser off legacy text/reasoning/usage shadow events.
+- [x] Move OpenAI-compatible stream parser off legacy text/reasoning/tool/usage shadow events.
 
 ## Milestone 3 - Consumers
 

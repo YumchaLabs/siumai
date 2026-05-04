@@ -396,11 +396,8 @@ async fn responses_shape_delta_plain_string_yields_content() {
     let content = out
         .into_iter()
         .filter_map(|e| e.ok())
-        .find_map(|ev| match ev {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta),
-            _ => None,
-        })
-        .expect("expected ContentDelta");
+        .find_map(|ev| ev.text_delta().map(ToString::to_string))
+        .expect("expected typed text delta");
     assert_eq!(content, "Hello");
 }
 
@@ -418,11 +415,8 @@ async fn responses_shape_delta_text_yields_content() {
     let content = out
         .into_iter()
         .filter_map(|e| e.ok())
-        .find_map(|ev| match ev {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta),
-            _ => None,
-        })
-        .expect("expected ContentDelta");
+        .find_map(|ev| ev.text_delta().map(ToString::to_string))
+        .expect("expected typed text delta");
     assert_eq!(content, "World");
 }
 
@@ -440,11 +434,8 @@ async fn responses_shape_json_string_event_yields_content() {
     let content = out
         .into_iter()
         .filter_map(|e| e.ok())
-        .find_map(|ev| match ev {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta),
-            _ => None,
-        })
-        .expect("expected ContentDelta");
+        .find_map(|ev| ev.text_delta().map(ToString::to_string))
+        .expect("expected typed text delta");
     assert_eq!(content, "Hi");
 }
 
@@ -481,10 +472,11 @@ async fn tool_call_deltas_without_id_are_mapped_by_tool_call_index() {
     assert!(
         out1.iter().any(|e| matches!(
             e,
-            Ok(ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, .. })
-                if id == "call_1" && function_name.as_deref() == Some("lookup") && arguments_delta.as_deref() == Some("")
+            Ok(ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ToolInputStart { id, tool_name, .. }
+            }) if id == "call_1" && tool_name == "lookup"
         )),
-        "first chunk should include id + function name"
+        "first chunk should include stable tool-input-start"
     );
 
     let event2 = Event {
@@ -498,8 +490,9 @@ async fn tool_call_deltas_without_id_are_mapped_by_tool_call_index() {
     assert!(
         out2.iter().any(|e| matches!(
             e,
-            Ok(ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, .. })
-                if id == "call_1" && function_name.is_none() && arguments_delta.as_deref() == Some("{\"q\": \"")
+            Ok(ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ToolInputDelta { id, delta, .. }
+            }) if id == "call_1" && delta == "{\"q\": \""
         )),
         "follow-up chunk should reuse id by tool_call_index"
     );
@@ -515,10 +508,27 @@ async fn tool_call_deltas_without_id_are_mapped_by_tool_call_index() {
     assert!(
         out3.iter().any(|e| matches!(
             e,
-            Ok(ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, .. })
-                if id == "call_1" && function_name.is_none() && arguments_delta.as_deref() == Some("rust\"}")
+            Ok(ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ToolInputEnd { id, .. }
+            }) if id == "call_1"
         )),
-        "follow-up chunk should keep stable id"
+        "follow-up chunk should close the typed tool input"
+    );
+    assert!(out3.iter().any(|e| matches!(
+        e,
+        Ok(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolCall(call)
+        }) if call.tool_call_id == "call_1"
+            && call.tool_name == "lookup"
+            && call.input == "{\"q\": \"rust\"}"
+    )));
+    assert!(
+        !out1
+            .iter()
+            .chain(out2.iter())
+            .chain(out3.iter())
+            .any(|e| matches!(e, Ok(ChatStreamEvent::ToolCallDelta { .. }))),
+        "typed tool parts should not emit legacy tool-call deltas"
     );
 }
 
@@ -536,13 +546,15 @@ async fn multi_tool_calls_are_mapped_by_index() {
     let out1 = conv.convert_event(event1).await;
     assert!(out1.iter().any(|e| matches!(
         e,
-        Ok(ChatStreamEvent::ToolCallDelta { id, function_name, .. })
-            if id == "call_a" && function_name.as_deref() == Some("a")
+        Ok(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputStart { id, tool_name, .. }
+        }) if id == "call_a" && tool_name == "a"
     )));
     assert!(out1.iter().any(|e| matches!(
         e,
-        Ok(ChatStreamEvent::ToolCallDelta { id, function_name, .. })
-            if id == "call_b" && function_name.as_deref() == Some("b")
+        Ok(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputStart { id, tool_name, .. }
+        }) if id == "call_b" && tool_name == "b"
     )));
 
     let event2 = Event {
@@ -555,18 +567,20 @@ async fn multi_tool_calls_are_mapped_by_index() {
     let out2 = conv.convert_event(event2).await;
     assert!(out2.iter().any(|e| matches!(
         e,
-        Ok(ChatStreamEvent::ToolCallDelta { id, arguments_delta, .. })
-            if id == "call_b" && arguments_delta.as_deref() == Some("{\"x\":1}")
+        Ok(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputDelta { id, delta, .. }
+        }) if id == "call_b" && delta == "{\"x\":1}"
     )));
     assert!(out2.iter().any(|e| matches!(
         e,
-        Ok(ChatStreamEvent::ToolCallDelta { id, arguments_delta, .. })
-            if id == "call_a" && arguments_delta.as_deref() == Some("{\"y\":2}")
+        Ok(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputDelta { id, delta, .. }
+        }) if id == "call_a" && delta == "{\"y\":2}"
     )));
 }
 
 #[tokio::test]
-async fn parser_emits_stable_tool_parts_before_legacy_shadow_deltas() {
+async fn parser_emits_stable_tool_parts_without_legacy_shadow_deltas() {
     let conv = make_converter();
 
     let start_chunk = Event {
@@ -582,36 +596,17 @@ async fn parser_emits_stable_tool_parts_before_legacy_shadow_deltas() {
         .into_iter()
         .map(|event| event.expect("event ok"))
         .collect();
-    let stable_start_pos = start_events
-        .iter()
-        .position(|event| {
-            matches!(
-                event,
-                ChatStreamEvent::Part {
-                    part: crate::types::ChatStreamPart::ToolInputStart { id, tool_name, .. }
-                } if id == "call_1" && tool_name == "lookup"
-            )
-        })
-        .expect("stable tool-input-start");
-    let legacy_start_pos = start_events
-        .iter()
-        .position(|event| {
-            matches!(
-                event,
-                ChatStreamEvent::ToolCallDelta {
-                    id,
-                    function_name,
-                    arguments_delta,
-                    ..
-                } if id == "call_1"
-                    && function_name.as_deref() == Some("lookup")
-                    && arguments_delta.as_deref() == Some("")
-            )
-        })
-        .expect("legacy shadow tool-call delta");
+    assert!(start_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputStart { id, tool_name, .. }
+        } if id == "call_1" && tool_name == "lookup"
+    )));
     assert!(
-        stable_start_pos < legacy_start_pos,
-        "stable part should be emitted before legacy shadow delta"
+        !start_events
+            .iter()
+            .any(|event| matches!(event, ChatStreamEvent::ToolCallDelta { .. })),
+        "parser should not emit legacy tool-call shadow deltas"
     );
 
     let delta_chunk = Event {
@@ -647,14 +642,12 @@ async fn parser_emits_stable_tool_parts_before_legacy_shadow_deltas() {
             && call.tool_name == "lookup"
             && call.input == "{\"q\":\"rust\"}"
     )));
-    assert!(delta_events.iter().any(|event| matches!(
-        event,
-        ChatStreamEvent::ToolCallDelta {
-            id,
-            arguments_delta,
-            ..
-        } if id == "call_1" && arguments_delta.as_deref() == Some("{\"q\":\"rust\"}")
-    )));
+    assert!(
+        !delta_events
+            .iter()
+            .any(|event| matches!(event, ChatStreamEvent::ToolCallDelta { .. })),
+        "parser should not emit legacy tool-call shadow deltas"
+    );
 }
 
 #[tokio::test]
@@ -733,7 +726,7 @@ async fn finish_reason_tool_calls_without_tool_calls_array_emits_stream_end() {
 async fn multi_event_sequence() {
     let converter = make_converter();
 
-    // 1) First chunk with content + metadata -> StreamStart + ContentDelta
+    // 1) First chunk with content + metadata -> StreamStart + typed text delta
     let event1 = Event {
         event: "".to_string(),
         data: r#"{"id":"chatcmpl-1","model":"gpt-4o-mini","created": 1731234567,
@@ -748,9 +741,8 @@ async fn multi_event_sequence() {
             .any(|e| matches!(e, Ok(ChatStreamEvent::StreamStart { .. })))
     );
     assert!(
-        r1.iter().any(
-            |e| matches!(e, Ok(ChatStreamEvent::ContentDelta{ delta, .. }) if delta == "Hello")
-        )
+        r1.iter()
+            .any(|e| matches!(e, Ok(event) if event.text_delta() == Some("Hello")))
     );
 
     // 2) Thinking delta
@@ -761,9 +753,10 @@ async fn multi_event_sequence() {
         retry: None,
     };
     let r2 = converter.convert_event(event2).await;
-    assert!(r2.iter().any(
-        |e| matches!(e, Ok(ChatStreamEvent::ThinkingDelta{ delta }) if delta == "Reasoning...")
-    ));
+    assert!(
+        r2.iter()
+            .any(|e| matches!(e, Ok(event) if event.reasoning_delta() == Some("Reasoning...")))
+    );
 
     // 3) Tool call delta (function)
     let event3 = Event {
@@ -776,8 +769,11 @@ async fn multi_event_sequence() {
     };
     let r3 = converter.convert_event(event3).await;
     assert!(r3.iter().any(|e| matches!(e,
-        Ok(ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, .. })
-        if id == "call_1" && function_name.as_deref() == Some("lookup") && arguments_delta.as_deref() == Some("{\"q\":\"rust\"}")
+        Ok(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolCall(call)
+        }) if call.tool_call_id == "call_1"
+            && call.tool_name == "lookup"
+            && call.input == "{\"q\":\"rust\"}"
     )));
 
     // 4) Usage update
@@ -789,13 +785,22 @@ async fn multi_event_sequence() {
         retry: None,
     };
     let r4 = converter.convert_event(event4).await;
-    assert!(r4.iter().any(|e| matches!(e,
-        Ok(ChatStreamEvent::UsageUpdate { usage }) if usage.prompt_tokens() == Some(5) && usage.completion_tokens() == Some(7) && usage.total_tokens() == Some(12)
-    )));
+    assert!(
+        r4.is_empty(),
+        "usage-only chunks should update terminal state without emitting a legacy usage event"
+    );
 
     // 5) End of stream ([DONE]) -> StreamEnd
     let end = converter.handle_stream_end().expect("end event");
-    assert!(matches!(end, Ok(ChatStreamEvent::StreamEnd { .. })));
+    assert!(matches!(
+        end,
+        Ok(ChatStreamEvent::StreamEnd { response })
+            if response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens())
+                == Some(12)
+    ));
 }
 
 #[tokio::test]
@@ -841,10 +846,11 @@ async fn parser_emits_stream_start_and_response_metadata_parts_on_first_chunk() 
             part: crate::types::ChatStreamPart::TextStart { .. }
         }
     )));
-    assert!(converted.iter().any(|event| matches!(
-        event,
-        ChatStreamEvent::ContentDelta { delta, .. } if delta == "Hello"
-    )));
+    assert!(
+        converted
+            .iter()
+            .any(|event| event.text_delta() == Some("Hello"))
+    );
 }
 
 #[tokio::test]
@@ -973,10 +979,10 @@ async fn parser_emits_text_reasoning_lifecycle_parts_without_duplicate_deltas() 
     assert_eq!(
         first_events
             .iter()
-            .filter(|event| matches!(event, ChatStreamEvent::ContentDelta { .. }))
+            .filter(|event| event.text_delta().is_some())
             .count(),
         1,
-        "first chunk should keep a single legacy content delta"
+        "first chunk should keep a single typed text delta"
     );
 
     let second = Event {
@@ -1009,10 +1015,10 @@ async fn parser_emits_text_reasoning_lifecycle_parts_without_duplicate_deltas() 
     assert_eq!(
         second_events
             .iter()
-            .filter(|event| matches!(event, ChatStreamEvent::ThinkingDelta { .. }))
+            .filter(|event| event.reasoning_delta().is_some())
             .count(),
         1,
-        "reasoning chunk should keep a single legacy thinking delta"
+        "reasoning chunk should keep a single typed reasoning delta"
     );
 
     let third = Event {
@@ -1122,21 +1128,11 @@ async fn compat_stream_same_chunk_reasoning_precedes_text_parts() {
         .expect("text start");
     let reasoning_delta_pos = events
         .iter()
-        .position(|event| {
-            matches!(
-                event,
-                ChatStreamEvent::ThinkingDelta { delta } if delta == "Think first"
-            )
-        })
+        .position(|event| event.reasoning_delta() == Some("Think first"))
         .expect("reasoning delta");
     let text_delta_pos = events
         .iter()
-        .position(|event| {
-            matches!(
-                event,
-                ChatStreamEvent::ContentDelta { delta, .. } if delta == "Answer second"
-            )
-        })
+        .position(|event| event.text_delta() == Some("Answer second"))
         .expect("text delta");
 
     assert!(
@@ -1165,10 +1161,11 @@ async fn compat_stream_reasoning_field_is_used_when_reasoning_content_is_missing
     )
     .await;
 
-    assert!(events.iter().any(|event| matches!(
-        event,
-        ChatStreamEvent::ThinkingDelta { delta } if delta == "Fallback reasoning"
-    )));
+    assert!(
+        events
+            .iter()
+            .any(|event| event.reasoning_delta() == Some("Fallback reasoning"))
+    );
 }
 
 #[tokio::test]
@@ -1187,14 +1184,16 @@ async fn compat_stream_reasoning_content_takes_priority_over_reasoning_field() {
     )
     .await;
 
-    assert!(events.iter().any(|event| matches!(
-        event,
-        ChatStreamEvent::ThinkingDelta { delta } if delta == "Preferred reasoning"
-    )));
-    assert!(!events.iter().any(|event| matches!(
-        event,
-        ChatStreamEvent::ThinkingDelta { delta } if delta == "Ignored reasoning"
-    )));
+    assert!(
+        events
+            .iter()
+            .any(|event| event.reasoning_delta() == Some("Preferred reasoning"))
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.reasoning_delta() == Some("Ignored reasoning"))
+    );
 }
 
 #[tokio::test]
@@ -1231,18 +1230,17 @@ async fn finish_reason_without_done_emits_stream_end() {
         let event: Event = item.expect("valid event");
         let converted = converter.convert_event(event).await;
         for e in converted {
-            match e.expect("ok") {
-                ChatStreamEvent::ContentDelta { delta, .. } => {
-                    assert_eq!(delta, "1\n2\n");
-                    saw_content = true;
-                }
-                ChatStreamEvent::StreamEnd { .. } => saw_end = true,
-                _ => {}
+            let event = e.expect("ok");
+            if event.text_delta() == Some("1\n2\n") {
+                saw_content = true;
+            }
+            if matches!(event, ChatStreamEvent::StreamEnd { .. }) {
+                saw_end = true;
             }
         }
     }
 
-    assert!(saw_content, "should see content delta");
+    assert!(saw_content, "should see typed text delta");
     assert!(saw_end, "should emit StreamEnd on finish_reason");
 }
 
@@ -1299,28 +1297,37 @@ async fn end_to_end_sse_multi_event_flow() {
         "first should be StreamStart"
     );
     assert!(
+        events.iter().any(|e| e.text_delta() == Some("Hello")),
+        "should contain typed text delta"
+    );
+    assert!(
         events
             .iter()
-            .any(|e| matches!(e, ChatStreamEvent::ContentDelta { delta, .. } if delta == "Hello")),
-        "should contain content delta"
+            .any(|e| e.reasoning_delta() == Some("Reasoning...")),
+        "should contain typed reasoning delta"
     );
     assert!(
-        events.iter().any(
-            |e| matches!(e, ChatStreamEvent::ThinkingDelta { delta } if delta == "Reasoning...")
-        ),
-        "should contain thinking delta"
-    );
-    assert!(
-        events.iter().any(|e| matches!(e, ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, .. }
-            if id == "call_1" && function_name.as_deref() == Some("lookup") && arguments_delta.as_deref() == Some("{\"q\":\"rust\"}")
+        events.iter().any(|e| matches!(
+            e,
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolCall(call)
+            } if call.tool_call_id == "call_1"
+                && call.tool_name == "lookup"
+                && call.input == "{\"q\":\"rust\"}"
         )),
-        "should contain tool call delta"
+        "should contain typed tool call"
     );
     assert!(
-        events.iter().any(
-            |e| matches!(e, ChatStreamEvent::UsageUpdate { usage } if usage.total_tokens() == Some(12))
-        ),
-        "should contain usage update"
+        events.iter().any(|e| matches!(
+            e,
+            ChatStreamEvent::StreamEnd { response }
+                if response
+                    .usage
+                    .as_ref()
+                    .and_then(|usage| usage.total_tokens())
+                    == Some(12)
+        )),
+        "should carry usage on StreamEnd"
     );
     assert!(
         matches!(events.last(), Some(ChatStreamEvent::StreamEnd { .. })),

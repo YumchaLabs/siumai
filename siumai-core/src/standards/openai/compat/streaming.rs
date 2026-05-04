@@ -197,7 +197,7 @@ pub struct OpenAiCompatibleEventConverter {
     state_tracker: StreamStateTracker,
     // Accumulate plain text content so StreamEnd can carry a fallback when no deltas were seen
     accumulated_content: Arc<tokio::sync::Mutex<String>>,
-    // Track whether we have emitted any ContentDelta to avoid duplicate injection
+    // Track whether we have emitted any typed text delta to avoid duplicate injection.
     emitted_content: std::sync::Arc<std::sync::atomic::AtomicBool>,
     // Track the latest usage snapshot so StreamEnd can carry final usage.
     latest_usage: Arc<std::sync::Mutex<Option<Usage>>>,
@@ -292,30 +292,55 @@ impl OpenAiCompatibleEventConverter {
 
         // Process content delta
         if let Some(content) = self.extract_content(&event) {
-            builder = builder.add_content_delta(
-                content.clone(),
-                Some(self.extract_choice_index(&event) as usize),
-            );
+            for part in self.open_text_lane() {
+                builder = builder.add_part(part);
+            }
+            {
+                let mut acc = self.accumulated_content.lock().await;
+                acc.push_str(&content);
+            }
+            self.emitted_content
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            builder = builder.add_part(ChatStreamPart::TextDelta {
+                id: self.active_text_part_id(),
+                delta: content.clone(),
+                provider_metadata: None,
+            });
         }
 
         // Process thinking/reasoning content using adapter
         if let Some(thinking) = self.extract_thinking(&event) {
-            builder = builder.add_thinking_delta(thinking.clone());
+            for part in self.open_reasoning_lane() {
+                builder = builder.add_part(part);
+            }
+            builder = builder.add_part(ChatStreamPart::ReasoningDelta {
+                id: self.active_reasoning_part_id(),
+                delta: thinking.clone(),
+                provider_metadata: None,
+            });
         }
 
         // Process tool calls
         if let Some((id, name, args)) = self.extract_tool_call(&event) {
-            builder = builder.add_tool_call_delta(
-                id,
-                Some(name),
-                Some(args),
-                Some(self.extract_choice_index(&event) as usize),
-            );
+            builder = builder
+                .add_part(ChatStreamPart::ToolInputStart {
+                    id: id.clone(),
+                    tool_name: name.clone(),
+                    provider_metadata: None,
+                    provider_executed: None,
+                    dynamic: None,
+                    title: None,
+                })
+                .add_part(ChatStreamPart::ToolInputDelta {
+                    id,
+                    delta: args,
+                    provider_metadata: None,
+                });
         }
 
         // Process usage updates
         if let Some(usage) = self.extract_usage(&event) {
-            builder = builder.add_usage_update(usage);
+            *self.latest_usage.lock().unwrap() = Some(usage);
         }
 
         builder.build()
@@ -369,7 +394,13 @@ impl OpenAiCompatibleEventConverter {
             }
             self.emitted_content
                 .store(true, std::sync::atomic::Ordering::Relaxed);
-            return builder.add_content_delta(s.to_string(), None).build();
+            return builder
+                .add_part(ChatStreamPart::TextDelta {
+                    id: self.active_text_part_id(),
+                    delta: s.to_string(),
+                    provider_metadata: None,
+                })
+                .build();
         }
 
         self.update_response_state_from_json(json);
@@ -383,7 +414,11 @@ impl OpenAiCompatibleEventConverter {
             for part in self.open_reasoning_lane() {
                 builder = builder.add_part(part);
             }
-            builder = builder.add_thinking_delta(thinking);
+            builder = builder.add_part(ChatStreamPart::ReasoningDelta {
+                id: self.active_reasoning_part_id(),
+                delta: thinking,
+                provider_metadata: None,
+            });
         }
 
         // Content (compatible with Chat Completions and Responses API)
@@ -395,7 +430,11 @@ impl OpenAiCompatibleEventConverter {
                 let mut acc = self.accumulated_content.lock().await;
                 acc.push_str(&content);
             }
-            builder = builder.add_content_delta(content, self.extract_choice_index_from_json(json));
+            builder = builder.add_part(ChatStreamPart::TextDelta {
+                id: self.active_text_part_id(),
+                delta: content,
+                provider_metadata: None,
+            });
             self.emitted_content
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
@@ -405,15 +444,6 @@ impl OpenAiCompatibleEventConverter {
         if !tool_call_events.is_empty() {
             for event in tool_call_events {
                 match event {
-                    ChatStreamEvent::ToolCallDelta {
-                        id,
-                        function_name,
-                        arguments_delta,
-                        index,
-                    } => {
-                        builder =
-                            builder.add_tool_call_delta(id, function_name, arguments_delta, index);
-                    }
                     ChatStreamEvent::Part { part } => {
                         builder = builder.add_part(part);
                     }
@@ -443,7 +473,6 @@ impl OpenAiCompatibleEventConverter {
         // Usage updates (optional)
         if let Some(usage) = self.extract_usage_from_json(json) {
             *self.latest_usage.lock().unwrap() = Some(usage.clone());
-            builder = builder.add_usage_update(usage);
         }
 
         {
@@ -477,16 +506,21 @@ impl OpenAiCompatibleEventConverter {
                 .try_lock()
                 .map(|g| g.clone())
                 .unwrap_or_default();
-            // If we have not emitted any ContentDelta during the stream but did
-            // accumulate text, emit a synthetic ContentDelta before StreamEnd so
-            // downstream consumers that assert on deltas can pass.
+            // If we have not emitted any text part during the stream but did
+            // accumulate text, emit a synthetic typed text delta before StreamEnd.
             if !text.is_empty()
                 && !self
                     .emitted_content
                     .load(std::sync::atomic::Ordering::Relaxed)
             {
-                builder = builder
-                    .add_content_delta(text.clone(), self.extract_choice_index_from_json(json));
+                for part in self.open_text_lane() {
+                    builder = builder.add_part(part);
+                }
+                builder = builder.add_part(ChatStreamPart::TextDelta {
+                    id: self.active_text_part_id(),
+                    delta: text.clone(),
+                    provider_metadata: None,
+                });
                 // Mark as emitted to prevent double insertion if multiple finish signals arrive
                 self.emitted_content
                     .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -727,6 +761,24 @@ impl OpenAiCompatibleEventConverter {
         }
 
         parts
+    }
+
+    fn active_text_part_id(&self) -> String {
+        self.parse_state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .active_text_part_id
+            .clone()
+            .unwrap_or_else(|| "text".to_string())
+    }
+
+    fn active_reasoning_part_id(&self) -> String {
+        self.parse_state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .active_reasoning_part_id
+            .clone()
+            .unwrap_or_else(|| "reasoning".to_string())
     }
 
     fn close_active_content_parts(&self) -> Vec<ChatStreamPart> {
@@ -1109,7 +1161,7 @@ impl OpenAiCompatibleEventConverter {
         Some((id, name, arguments))
     }
 
-    /// Extract OpenAI-compatible tool-call chunks as stable parts plus legacy shadow deltas.
+    /// Extract OpenAI-compatible tool-call chunks as stable typed parts.
     fn extract_tool_call_events_from_json(&self, json: &serde_json::Value) -> Vec<ChatStreamEvent> {
         let mut out = Vec::new();
         if let Some(arr) = json
@@ -1125,8 +1177,6 @@ impl OpenAiCompatibleEventConverter {
                 .and_then(|choice| choice.get("index"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32;
-            let idx = Some(choice_index as usize);
-
             let mut state = self
                 .parse_state
                 .lock()
@@ -1161,20 +1211,19 @@ impl OpenAiCompatibleEventConverter {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string());
-                let function_name_to_emit = match name_in_chunk {
+                match name_in_chunk {
                     Some(name) => {
                         if entry.name.is_empty() {
                             entry.name = name.clone();
-                            Some(name)
+                            entry.name = name;
                         } else if entry.name == name {
-                            None
+                            // Nothing to update.
                         } else {
-                            entry.name = name.clone();
-                            Some(name)
+                            entry.name = name;
                         }
                     }
-                    None => None,
-                };
+                    None => {}
+                }
 
                 let args_in_chunk = function
                     .and_then(|f| f.get("arguments"))
@@ -1258,15 +1307,6 @@ impl OpenAiCompatibleEventConverter {
                         }),
                     });
                     entry.stable_tool_call_emitted = true;
-                }
-
-                if function_name_to_emit.is_some() || args_in_chunk.is_some() {
-                    out.push(ChatStreamEvent::ToolCallDelta {
-                        id: entry.id.clone(),
-                        function_name: function_name_to_emit,
-                        arguments_delta: args_in_chunk,
-                        index: idx,
-                    });
                 }
             }
         }
@@ -1402,15 +1442,6 @@ impl OpenAiCompatibleEventConverter {
             .and_then(|choices| choices.first())
             .and_then(|choice| choice.index)
             .unwrap_or(0)
-    }
-
-    /// Extract choice index from raw JSON
-    fn extract_choice_index_from_json(&self, json: &serde_json::Value) -> Option<usize> {
-        json.get("choices")
-            .and_then(|c| c.get(0))
-            .and_then(|choice| choice.get("index"))
-            .and_then(|v| v.as_u64())
-            .map(|i| i as usize)
     }
 
     /// Extract usage information
@@ -1550,8 +1581,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
         // a finish reason (e.g., connection lost, server error, client cancelled).
         // Always emit StreamEnd with Unknown reason so users can detect this.
         //
-        // Carry accumulated text into StreamEnd so the factory can inject a synthetic
-        // ContentDelta when no deltas were observed during the stream.
+        // Carry accumulated text into StreamEnd so consumers can still recover text
+        // if a provider terminates without a finish_reason chunk.
 
         // Check if StreamEnd was already emitted
         if !self.state_tracker.needs_stream_end() {
@@ -2560,7 +2591,7 @@ mod tests {
         let r1 = converter.convert_event(first).await;
         assert!(r1.iter().any(|event| matches!(
             event,
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "Rust"
+            Ok(event) if event.text_delta() == Some("Rust")
         )));
         let source_parts: Vec<(String, String, Option<String>)> = r1
             .iter()
@@ -2600,7 +2631,9 @@ mod tests {
         )));
         assert!(r2.iter().any(|event| matches!(
             event,
-            Ok(ChatStreamEvent::UsageUpdate { usage })
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish { usage, .. },
+            })
                 if usage.prompt_tokens() == Some(11)
                     && usage.completion_tokens() == Some(17)
                     && usage.total_tokens() == Some(28)
@@ -2670,10 +2703,12 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                Ok(ChatStreamEvent::UsageUpdate { usage }) => Some(usage),
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::Finish { usage, .. },
+                }) => Some(usage),
                 _ => None,
             })
-            .expect("usage update");
+            .expect("finish usage");
 
         assert_eq!(usage.prompt_tokens(), Some(10));
         assert_eq!(usage.completion_tokens(), Some(5));
@@ -2731,7 +2766,7 @@ mod tests {
 
         let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
 
-        // First chunk: StreamStart + ContentDelta.
+        // First chunk: StreamStart + typed text delta.
         let first = Event {
             event: "".to_string(),
             data: r#"{"id":"1","model":"deepseek-chat","created":1718345013,"choices":[{"index":0,"delta":{"content":"Hello","role":"assistant"},"finish_reason":null}]}"#.to_string(),
@@ -2745,7 +2780,7 @@ mod tests {
         );
         assert!(r1.iter().any(|e| matches!(
             e,
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "Hello"
+            Ok(event) if event.text_delta() == Some("Hello")
         )));
 
         // Final chunk (DeepSeek docs): finish_reason + usage before data:[DONE].
@@ -2758,7 +2793,9 @@ mod tests {
         let r2 = converter.convert_event(final_chunk).await;
         assert!(r2.iter().any(|e| matches!(
             e,
-            Ok(ChatStreamEvent::UsageUpdate { usage })
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish { usage, .. },
+            })
                 if usage.prompt_tokens() == Some(17)
                     && usage.completion_tokens() == Some(9)
                     && usage.total_tokens() == Some(26)
@@ -2877,7 +2914,7 @@ mod tests {
         let events = converter.convert_event(chunk).await;
         assert!(events.iter().any(|event| matches!(
             event,
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "Partial"
+            Ok(event) if event.text_delta() == Some("Partial")
         )));
 
         let stream_end = converter
