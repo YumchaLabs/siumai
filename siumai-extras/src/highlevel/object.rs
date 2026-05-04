@@ -176,12 +176,6 @@ pub enum StreamObjectEvent<T> {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ToolArgumentStreamSource {
-    LegacyDelta,
-    StablePart,
-}
-
 fn maybe_extract_partial_object(
     acc: &str,
     emit_partial: bool,
@@ -238,21 +232,13 @@ fn maybe_accumulate_text_from_loose_part(
 fn maybe_accumulate_tool_arguments_from_runtime_part(
     part: &ChatStreamPart,
     tool_args_acc: &mut String,
-    tool_args_source: &mut Option<ToolArgumentStreamSource>,
 ) -> bool {
     match part {
         ChatStreamPart::ToolInputDelta { delta, .. } => {
-            match tool_args_source {
-                Some(ToolArgumentStreamSource::LegacyDelta) => return true,
-                Some(ToolArgumentStreamSource::StablePart) | None => {
-                    *tool_args_source = Some(ToolArgumentStreamSource::StablePart);
-                }
-            }
             tool_args_acc.push_str(delta);
             true
         }
         ChatStreamPart::ToolCall(call) => {
-            *tool_args_source = Some(ToolArgumentStreamSource::StablePart);
             *tool_args_acc = call.input.clone();
             true
         }
@@ -263,7 +249,6 @@ fn maybe_accumulate_tool_arguments_from_runtime_part(
 fn maybe_accumulate_tool_arguments_from_loose_part(
     data: &serde_json::Value,
     tool_args_acc: &mut String,
-    tool_args_source: &mut Option<ToolArgumentStreamSource>,
 ) -> bool {
     let Some(part) =
         siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)
@@ -276,17 +261,10 @@ fn maybe_accumulate_tool_arguments_from_loose_part(
             delta,
             ..
         } => {
-            match tool_args_source {
-                Some(ToolArgumentStreamSource::LegacyDelta) => return true,
-                Some(ToolArgumentStreamSource::StablePart) | None => {
-                    *tool_args_source = Some(ToolArgumentStreamSource::StablePart);
-                }
-            }
             tool_args_acc.push_str(&delta);
             true
         }
         siumai::experimental::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
-            *tool_args_source = Some(ToolArgumentStreamSource::StablePart);
             *tool_args_acc = call.input;
             true
         }
@@ -330,28 +308,9 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
         let mut acc = String::new();
         let mut final_resp: Option<ChatResponse> = None;
         let mut tool_args_acc = String::new();
-        let mut tool_args_source: Option<ToolArgumentStreamSource> = None;
         let mut last_partial: Option<serde_json::Value> = None;
         while let Some(item) = stream.next().await {
             match item? {
-                ChatStreamEvent::ContentDelta { delta, .. } => {
-                    acc.push_str(&delta);
-                    yield StreamObjectEvent::TextDelta { delta };
-                    if let Some(partial) =
-                        maybe_extract_partial_object(&acc, emit_partial, &mut last_partial)
-                    {
-                        yield StreamObjectEvent::PartialObject { partial };
-                    }
-                }
-                ChatStreamEvent::ToolCallDelta { arguments_delta: Some(d), .. } => {
-                    match tool_args_source {
-                        Some(ToolArgumentStreamSource::StablePart) => {}
-                        Some(ToolArgumentStreamSource::LegacyDelta) | None => {
-                            tool_args_source = Some(ToolArgumentStreamSource::LegacyDelta);
-                            tool_args_acc.push_str(&d);
-                        }
-                    }
-                }
                 ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
                     if let Some(delta) = maybe_accumulate_text_from_runtime_part(&part, &mut acc) {
                         yield StreamObjectEvent::TextDelta { delta };
@@ -364,8 +323,12 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                     let _ = maybe_accumulate_tool_arguments_from_runtime_part(
                         &part,
                         &mut tool_args_acc,
-                        &mut tool_args_source,
                     );
+                    if let ChatStreamPart::Finish { usage, .. } = &part {
+                        yield StreamObjectEvent::UsageUpdate {
+                            usage: usage.clone(),
+                        };
+                    }
                 }
                 ChatStreamEvent::Custom { data, .. } => {
                     if let Some(delta) = maybe_accumulate_text_from_loose_part(&data, &mut acc) {
@@ -379,11 +342,7 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                     let _ = maybe_accumulate_tool_arguments_from_loose_part(
                         &data,
                         &mut tool_args_acc,
-                        &mut tool_args_source,
                     );
-                }
-                ChatStreamEvent::UsageUpdate { usage } => {
-                    yield StreamObjectEvent::UsageUpdate { usage };
                 }
                 ChatStreamEvent::StreamEnd { response } => {
                     final_resp = Some(response);
@@ -730,15 +689,6 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
 
         while let Some(item) = stream.next().await {
             match item? {
-                ChatStreamEvent::ContentDelta { delta, .. } => {
-                    acc.push_str(&delta);
-                    yield StreamObjectEvent::TextDelta { delta };
-                    if let Some(partial) =
-                        maybe_extract_partial_object(&acc, emit_partial, &mut last_partial)
-                    {
-                        yield StreamObjectEvent::PartialObject { partial };
-                    }
-                }
                 ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
                     if let Some(delta) = maybe_accumulate_text_from_runtime_part(&part, &mut acc) {
                         yield StreamObjectEvent::TextDelta { delta };

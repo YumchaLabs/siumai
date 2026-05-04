@@ -404,11 +404,8 @@ impl JsonEventConverter for OllamaEventConverter {
                 let body = serde_json::json!({ "error": error });
                 serialize_json_line(body)
             }
-            ChatStreamEvent::ContentDelta { .. }
-            | ChatStreamEvent::ThinkingDelta { .. }
-            | ChatStreamEvent::UsageUpdate { .. }
-            | ChatStreamEvent::ToolCallDelta { .. }
-            | ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+            ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+            _ => Ok(Vec::new()),
         }
     }
 }

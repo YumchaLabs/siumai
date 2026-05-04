@@ -765,7 +765,9 @@ mod tests {
         .unwrap();
 
         let events: Vec<_> = chat_stream.try_collect().await.unwrap();
-        assert!(events.iter().any(|e| matches!(e, crate::types::ChatStreamEvent::ContentDelta { delta, .. } if delta == "hi")));
+        assert!(events
+            .iter()
+            .any(|e| e.text_delta() == Some("hi")));
         assert!(
             events
                 .iter()

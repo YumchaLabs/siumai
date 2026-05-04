@@ -481,6 +481,105 @@ pub type AudioStream =
     Pin<Box<dyn Stream<Item = Result<AudioStreamEvent, LlmError>> + Send + Sync>>;
 
 impl ChatStreamEvent {
+    /// Build a typed text delta event.
+    pub fn text_delta_part(id: impl Into<String>, delta: impl Into<String>) -> Self {
+        Self::Part {
+            part: ChatStreamPart::TextDelta {
+                id: id.into(),
+                delta: delta.into(),
+                provider_metadata: None,
+            },
+        }
+    }
+
+    /// Build a typed text delta event using a choice index as the stream part id.
+    pub fn text_delta_for_index(index: Option<usize>, delta: impl Into<String>) -> Self {
+        Self::text_delta_part(
+            index
+                .map(|index| index.to_string())
+                .unwrap_or_else(|| "0".to_string()),
+            delta,
+        )
+    }
+
+    /// Build a typed reasoning delta event.
+    pub fn reasoning_delta_part(id: impl Into<String>, delta: impl Into<String>) -> Self {
+        Self::Part {
+            part: ChatStreamPart::ReasoningDelta {
+                id: id.into(),
+                delta: delta.into(),
+                provider_metadata: None,
+            },
+        }
+    }
+
+    /// Build a typed tool input start event.
+    pub fn tool_input_start_part(id: impl Into<String>, tool_name: impl Into<String>) -> Self {
+        Self::Part {
+            part: ChatStreamPart::ToolInputStart {
+                id: id.into(),
+                tool_name: tool_name.into(),
+                provider_metadata: None,
+                provider_executed: None,
+                dynamic: None,
+                title: None,
+            },
+        }
+    }
+
+    /// Build a typed tool input delta event.
+    pub fn tool_input_delta_part(id: impl Into<String>, delta: impl Into<String>) -> Self {
+        Self::Part {
+            part: ChatStreamPart::ToolInputDelta {
+                id: id.into(),
+                delta: delta.into(),
+                provider_metadata: None,
+            },
+        }
+    }
+
+    /// Build a typed tool input end event.
+    pub fn tool_input_end_part(id: impl Into<String>) -> Self {
+        Self::Part {
+            part: ChatStreamPart::ToolInputEnd {
+                id: id.into(),
+                provider_metadata: None,
+            },
+        }
+    }
+
+    /// Build a typed completed tool call event.
+    pub fn tool_call_part(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        input: impl Into<String>,
+    ) -> Self {
+        Self::Part {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: tool_call_id.into(),
+                tool_name: tool_name.into(),
+                input: input.into(),
+                provider_executed: None,
+                dynamic: None,
+                provider_metadata: None,
+            }),
+        }
+    }
+
+    /// Build a typed finish event.
+    pub fn finish_part(usage: Usage, finish_reason: FinishReason) -> Self {
+        Self::Part {
+            part: ChatStreamPart::Finish {
+                usage,
+                finish_reason: ChatStreamFinishInfo {
+                    unified: finish_reason,
+                    raw: None,
+                },
+                provider_metadata: None,
+            },
+        }
+    }
+
     /// Borrow the structured stream part if this is a part-bearing event.
     pub fn part_ref(&self) -> Option<&ChatStreamPart> {
         match self {
@@ -515,6 +614,14 @@ impl ChatStreamEvent {
     pub fn reasoning_delta(&self) -> Option<&str> {
         match self.part_ref() {
             Some(ChatStreamPart::ReasoningDelta { delta, .. }) => Some(delta.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Borrow typed finish usage from this event.
+    pub fn finish_usage(&self) -> Option<&Usage> {
+        match self.part_ref() {
+            Some(ChatStreamPart::Finish { usage, .. }) => Some(usage),
             _ => None,
         }
     }
@@ -626,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_event_text_delta_reads_typed_part_only() {
+    fn stream_event_text_delta_reads_typed_part() {
         let typed = ChatStreamEvent::Part {
             part: ChatStreamPart::TextDelta {
                 id: "0".to_string(),
@@ -634,17 +741,12 @@ mod tests {
                 provider_metadata: None,
             },
         };
-        let legacy = ChatStreamEvent::ContentDelta {
-            delta: "legacy".to_string(),
-            index: None,
-        };
 
         assert_eq!(typed.text_delta(), Some("hello"));
-        assert_eq!(legacy.text_delta(), None);
     }
 
     #[test]
-    fn stream_event_reasoning_delta_reads_typed_part_only() {
+    fn stream_event_reasoning_delta_reads_typed_part() {
         let typed = ChatStreamEvent::Part {
             part: ChatStreamPart::ReasoningDelta {
                 id: "0".to_string(),
@@ -652,12 +754,8 @@ mod tests {
                 provider_metadata: None,
             },
         };
-        let legacy = ChatStreamEvent::ThinkingDelta {
-            delta: "legacy".to_string(),
-        };
 
         assert_eq!(typed.reasoning_delta(), Some("think"));
-        assert_eq!(legacy.reasoning_delta(), None);
     }
 
     #[test]

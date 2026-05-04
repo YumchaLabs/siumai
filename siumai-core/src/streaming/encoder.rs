@@ -184,13 +184,11 @@ mod tests {
                     body: None,
                 },
             }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "Hello".to_string(),
-                index: None,
-            }),
-            Ok(ChatStreamEvent::UsageUpdate {
-                usage: Usage::new(1, 2),
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "Hello")),
+            Ok(ChatStreamEvent::finish_part(
+                Usage::new(1, 2),
+                FinishReason::Unknown,
+            )),
         ]);
 
         let events: Vec<_> = ensure_stream_end(stream).collect().await;

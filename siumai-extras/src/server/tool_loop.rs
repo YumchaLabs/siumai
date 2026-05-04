@@ -50,13 +50,6 @@ struct ToolCallAcc {
     tool_name: Option<String>,
     args_json: String,
     provider_executed: Option<bool>,
-    source: Option<ToolCallAccSource>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ToolCallAccSource {
-    LegacyDelta,
-    StablePart,
 }
 
 fn parse_json_best_effort(s: &str) -> Value {
@@ -71,28 +64,13 @@ fn ensure_tool_call_acc<'a>(
     acc: &'a mut HashMap<String, ToolCallAcc>,
     order: &mut Vec<String>,
     id: &str,
-    source: ToolCallAccSource,
-) -> Option<&'a mut ToolCallAcc> {
+) -> &'a mut ToolCallAcc {
     match acc.entry(id.to_string()) {
         Entry::Vacant(entry) => {
             order.push(id.to_string());
-            let slot = entry.insert(ToolCallAcc {
-                source: Some(source),
-                ..ToolCallAcc::default()
-            });
-            Some(slot)
+            entry.insert(ToolCallAcc::default())
         }
-        Entry::Occupied(entry) => {
-            let slot = entry.into_mut();
-            match slot.source {
-                Some(existing) if existing != source => None,
-                Some(_) => Some(slot),
-                None => {
-                    slot.source = Some(source);
-                    Some(slot)
-                }
-            }
-        }
+        Entry::Occupied(entry) => entry.into_mut(),
     }
 }
 
@@ -108,31 +86,18 @@ fn accumulate_runtime_tool_part(
             provider_executed,
             ..
         } => {
-            let Some(entry) = ensure_tool_call_acc(acc, order, id, ToolCallAccSource::StablePart)
-            else {
-                return true;
-            };
+            let entry = ensure_tool_call_acc(acc, order, id);
             entry.tool_name = Some(tool_name.clone());
             entry.provider_executed = *provider_executed;
             true
         }
         ChatStreamPart::ToolInputDelta { id, delta, .. } => {
-            let Some(entry) = ensure_tool_call_acc(acc, order, id, ToolCallAccSource::StablePart)
-            else {
-                return true;
-            };
+            let entry = ensure_tool_call_acc(acc, order, id);
             entry.args_json.push_str(delta);
             true
         }
         ChatStreamPart::ToolCall(call) => {
-            let Some(entry) = ensure_tool_call_acc(
-                acc,
-                order,
-                &call.tool_call_id,
-                ToolCallAccSource::StablePart,
-            ) else {
-                return true;
-            };
+            let entry = ensure_tool_call_acc(acc, order, &call.tool_call_id);
             entry.tool_name = Some(call.tool_name.clone());
             entry.args_json = call.input.clone();
             entry.provider_executed = call.provider_executed;
@@ -170,10 +135,7 @@ fn accumulate_loose_tool_part(
             provider_executed,
             ..
         } => {
-            let Some(entry) = ensure_tool_call_acc(acc, order, &id, ToolCallAccSource::StablePart)
-            else {
-                return true;
-            };
+            let entry = ensure_tool_call_acc(acc, order, &id);
             entry.tool_name = Some(tool_name);
             entry.provider_executed = provider_executed;
             true
@@ -183,22 +145,12 @@ fn accumulate_loose_tool_part(
             delta,
             ..
         } => {
-            let Some(entry) = ensure_tool_call_acc(acc, order, &id, ToolCallAccSource::StablePart)
-            else {
-                return true;
-            };
+            let entry = ensure_tool_call_acc(acc, order, &id);
             entry.args_json.push_str(&delta);
             true
         }
         siumai::experimental::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
-            let Some(entry) = ensure_tool_call_acc(
-                acc,
-                order,
-                &call.tool_call_id,
-                ToolCallAccSource::StablePart,
-            ) else {
-                return true;
-            };
+            let entry = ensure_tool_call_acc(acc, order, &call.tool_call_id);
             entry.tool_name = Some(call.tool_name);
             entry.args_json = call.input;
             entry.provider_executed = call.provider_executed;
@@ -389,50 +341,6 @@ pub async fn tool_loop_chat_stream(
                                 cancel.cancel();
                                 break 'outer;
                             }
-                        }
-                    }
-                    ChatStreamEvent::ContentDelta { delta, .. } => {
-                        acc_text.push_str(delta);
-                        if sender.send(Ok(ev)).await.is_err() {
-                            cancel.cancel();
-                            break 'outer;
-                        }
-                    }
-                    ChatStreamEvent::ThinkingDelta { .. } => {
-                        if sender.send(Ok(ev)).await.is_err() {
-                            cancel.cancel();
-                            break 'outer;
-                        }
-                    }
-                    ChatStreamEvent::ToolCallDelta {
-                        id,
-                        function_name,
-                        arguments_delta,
-                        ..
-                    } => {
-                        let Some(entry) = ensure_tool_call_acc(
-                            &mut tool_calls_acc,
-                            &mut tool_call_order,
-                            id,
-                            ToolCallAccSource::LegacyDelta,
-                        ) else {
-                            if sender.send(Ok(ev)).await.is_err() {
-                                cancel.cancel();
-                                break 'outer;
-                            }
-                            continue;
-                        };
-                        if let Some(name) = function_name.clone()
-                            && !name.trim().is_empty()
-                        {
-                            entry.tool_name = Some(name);
-                        }
-                        if let Some(delta) = arguments_delta.clone() {
-                            entry.args_json.push_str(&delta);
-                        }
-                        if sender.send(Ok(ev)).await.is_err() {
-                            cancel.cancel();
-                            break 'outer;
                         }
                     }
                     ChatStreamEvent::Part { part }

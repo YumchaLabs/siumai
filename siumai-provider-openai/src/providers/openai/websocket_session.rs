@@ -1139,8 +1139,8 @@ mod tests {
 
         let first_delta = loop {
             let ev = s1.next().await.unwrap().unwrap();
-            if let ChatStreamEvent::ContentDelta { delta, .. } = ev {
-                break delta;
+            if let Some(delta) = ev.text_delta() {
+                break delta.to_string();
             }
         };
         assert_eq!(first_delta, "A");
@@ -1156,8 +1156,8 @@ mod tests {
             let mut out = String::new();
             while let Some(item) = s2.next().await {
                 let ev = item.unwrap();
-                if let ChatStreamEvent::ContentDelta { delta, .. } = ev {
-                    out.push_str(&delta);
+                if let Some(delta) = ev.text_delta() {
+                    out.push_str(delta);
                 }
             }
             out
@@ -1241,8 +1241,8 @@ mod tests {
         let mut out = String::new();
         while let Some(item) = s.next().await {
             let ev = item.unwrap();
-            if let ChatStreamEvent::ContentDelta { delta, .. } = ev {
-                out.push_str(&delta);
+            if let Some(delta) = ev.text_delta() {
+                out.push_str(delta);
             }
         }
         assert_eq!(out, "OK");
@@ -1344,8 +1344,8 @@ mod tests {
         let mut out = String::new();
         while let Some(item) = s.next().await {
             let ev = item.unwrap();
-            if let ChatStreamEvent::ContentDelta { delta, .. } = ev {
-                out.push_str(&delta);
+            if let Some(delta) = ev.text_delta() {
+                out.push_str(delta);
             }
         }
         assert_eq!(out, "OK");
@@ -1499,8 +1499,8 @@ mod tests {
         let mut out = String::new();
         while let Some(item) = s.next().await {
             let ev = item.unwrap();
-            if let ChatStreamEvent::ContentDelta { delta, .. } = ev {
-                out.push_str(&delta);
+            if let Some(delta) = ev.text_delta() {
+                out.push_str(delta);
             }
         }
         assert_eq!(out, "OK");
@@ -1669,8 +1669,8 @@ mod tests {
         let mut out = String::new();
         while let Some(item) = s.next().await {
             let ev = item.unwrap();
-            if let ChatStreamEvent::ContentDelta { delta, .. } = ev {
-                out.push_str(&delta);
+            if let Some(delta) = ev.text_delta() {
+                out.push_str(delta);
             }
         }
         assert_eq!(out, "OK");

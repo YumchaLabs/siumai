@@ -1965,13 +1965,10 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     });
                     sse_data_frame(&payload)
                 }
-                ChatStreamEvent::ContentDelta { .. }
-                | ChatStreamEvent::ToolCallDelta { .. }
-                | ChatStreamEvent::UsageUpdate { .. }
-                | ChatStreamEvent::ThinkingDelta { .. }
-                | ChatStreamEvent::Custom { .. }
+                ChatStreamEvent::Custom { .. }
                 | ChatStreamEvent::Part { .. }
                 | ChatStreamEvent::PartWithReplay { .. } => Ok(Vec::new()),
+                _ => Ok(Vec::new()),
             }
         };
 
@@ -3693,7 +3690,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_ignores_later_legacy_tool_deltas_after_typed_parts() {
+    fn openai_compatible_serializes_typed_tool_input_parts() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
@@ -3746,19 +3743,8 @@ mod tests {
                 })
                 .expect("serialize tool-input-delta"),
         );
-        bytes.extend_from_slice(
-            &conv
-                .serialize_event(&ChatStreamEvent::ToolCallDelta {
-                    id: "call_1".to_string(),
-                    function_name: Some("lookup".to_string()),
-                    arguments_delta: Some("{\"q\":\"rust\"}".to_string()),
-                    index: None,
-                })
-                .expect("ignore later legacy tool delta"),
-        );
-
         let frames = parse_sse_data_frames(&bytes);
-        assert_eq!(frames.len(), 2, "later legacy delta should be ignored");
+        assert_eq!(frames.len(), 2);
         assert_eq!(
             frames[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
             serde_json::json!("lookup")

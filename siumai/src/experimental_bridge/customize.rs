@@ -513,45 +513,6 @@ pub(crate) fn remap_stream_event(
     remapper: &dyn BridgePrimitiveRemapper,
 ) -> ChatStreamEvent {
     match event {
-        ChatStreamEvent::ToolCallDelta {
-            mut id,
-            mut function_name,
-            arguments_delta,
-            index,
-        } => {
-            remap_tool_call_id(
-                remapper,
-                primitive_context(
-                    ctx.source,
-                    ctx.target,
-                    ctx.mode,
-                    ctx.route_label.as_ref(),
-                    ctx.path_label.as_ref(),
-                    BridgePrimitiveKind::ToolCall,
-                ),
-                &mut id,
-            );
-            if let Some(name) = function_name.as_mut() {
-                remap_tool_name(
-                    remapper,
-                    primitive_context(
-                        ctx.source,
-                        ctx.target,
-                        ctx.mode,
-                        ctx.route_label.as_ref(),
-                        ctx.path_label.as_ref(),
-                        BridgePrimitiveKind::ToolCall,
-                    ),
-                    name,
-                );
-            }
-            ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name,
-                arguments_delta,
-                index,
-            }
-        }
         ChatStreamEvent::Part { mut part } => {
             remap_stream_part(
                 &mut part,

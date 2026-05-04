@@ -1114,12 +1114,13 @@ mod tests {
 
     #[tokio::test]
     async fn extracts_json_from_stream_tool_call_deltas_without_stream_end() {
-        let events = vec![Ok(ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: Some("json".to_string()),
-            arguments_delta: Some("{\"value\":\"ok\"}".to_string()),
-            index: Some(0),
-        })];
+        let events = vec![
+            Ok(ChatStreamEvent::tool_input_start_part("call_1", "json")),
+            Ok(ChatStreamEvent::tool_input_delta_part(
+                "call_1",
+                "{\"value\":\"ok\"}",
+            )),
+        ];
         let stream = Box::pin(futures::stream::iter(events));
         let v = extract_json_value_from_stream(stream).await.expect("parse");
         assert_eq!(v["value"], "ok");
@@ -1127,12 +1128,13 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_truncated_json_tool_call_deltas_without_stream_end() {
-        let events = vec![Ok(ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: Some("json".to_string()),
-            arguments_delta: Some("{\"value\":".to_string()),
-            index: Some(0),
-        })];
+        let events = vec![
+            Ok(ChatStreamEvent::tool_input_start_part("call_1", "json")),
+            Ok(ChatStreamEvent::tool_input_delta_part(
+                "call_1",
+                "{\"value\":",
+            )),
+        ];
         let stream = Box::pin(futures::stream::iter(events));
 
         let err = extract_json_value_from_stream(stream)

@@ -157,10 +157,7 @@ mod tests {
     async fn emits_generation_event_on_stream_end() {
         // Prepare a short stream with a final StreamEnd event
         let events = vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hi".into(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hi")),
             Ok(ChatStreamEvent::StreamEnd {
                 response: crate::types::ChatResponse::empty_with_finish_reason(
                     crate::types::FinishReason::Stop,

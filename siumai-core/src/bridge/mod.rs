@@ -939,7 +939,7 @@ impl From<BridgeOptions> for BridgeOptionsOverride {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ChatRequest, MessageContent};
+    use crate::types::{ChatRequest, ChatStreamPart, MessageContent};
     use serde_json::json;
 
     struct CompositeCustomization;
@@ -999,10 +999,38 @@ mod tests {
             event: ChatStreamEvent,
         ) -> Vec<ChatStreamEvent> {
             match event {
-                ChatStreamEvent::ContentDelta { delta, index } => {
-                    vec![ChatStreamEvent::ContentDelta {
-                        delta: delta.to_uppercase(),
-                        index,
+                ChatStreamEvent::Part {
+                    part:
+                        ChatStreamPart::TextDelta {
+                            id,
+                            delta,
+                            provider_metadata,
+                        },
+                } => {
+                    vec![ChatStreamEvent::Part {
+                        part: ChatStreamPart::TextDelta {
+                            id,
+                            delta: delta.to_uppercase(),
+                            provider_metadata,
+                        },
+                    }]
+                }
+                ChatStreamEvent::PartWithReplay {
+                    part:
+                        ChatStreamPart::TextDelta {
+                            id,
+                            delta,
+                            provider_metadata,
+                        },
+                    replay,
+                } => {
+                    vec![ChatStreamEvent::PartWithReplay {
+                        part: ChatStreamPart::TextDelta {
+                            id,
+                            delta: delta.to_uppercase(),
+                            provider_metadata,
+                        },
+                        replay,
                     }]
                 }
                 other => vec![other],
@@ -1294,19 +1322,12 @@ mod tests {
             .stream_hook
             .as_ref()
             .expect("stream hook")
-            .map_event(
-                &stream_ctx,
-                ChatStreamEvent::ContentDelta {
-                    delta: "hello".to_string(),
-                    index: None,
-                },
-            );
+            .map_event(&stream_ctx, ChatStreamEvent::text_delta_part("0", "hello"));
         assert_eq!(stream_events.len(), 1);
-        let ChatStreamEvent::ContentDelta { delta, index } = &stream_events[0] else {
-            panic!("expected content delta");
+        let Some(ChatStreamPart::TextDelta { delta, .. }) = stream_events[0].part_ref() else {
+            panic!("expected text delta part");
         };
         assert_eq!(delta, "HELLO");
-        assert_eq!(*index, None);
 
         let mut lossy_report =
             BridgeReport::with_source(request_ctx.source, request_ctx.target, request_ctx.mode);

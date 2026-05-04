@@ -1470,10 +1470,7 @@ mod tests {
 
         let content = events
             .iter()
-            .filter_map(|event| match event {
-                crate::types::ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-                _ => None,
-            })
+            .filter_map(crate::types::ChatStreamEvent::text_delta)
             .collect::<String>();
         assert_eq!(content, "{\"value\":\"test\"}");
 
@@ -1632,9 +1629,10 @@ mod tests {
         let mut reasoning = String::new();
         let mut end = None;
         while let Some(item) = stream.next().await {
-            match item.expect("stream event ok") {
-                crate::types::ChatStreamEvent::ThinkingDelta { delta } => {
-                    reasoning.push_str(&delta)
+            let event = item.expect("stream event ok");
+            match event {
+                event if event.reasoning_delta().is_some() => {
+                    reasoning.push_str(event.reasoning_delta().expect("reasoning delta"))
                 }
                 crate::types::ChatStreamEvent::StreamEnd { response } => {
                     end = Some(response);

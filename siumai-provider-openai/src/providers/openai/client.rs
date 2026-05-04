@@ -1992,24 +1992,20 @@ mod tests {
         while let Some(item) = stream.next().await {
             let ev = item.unwrap();
             match ev {
-                crate::streaming::ChatStreamEvent::ToolCallDelta {
-                    id,
-                    function_name,
-                    arguments_delta,
-                    ..
-                } => {
-                    // Both the "item added" and the "arguments delta" should use call_id (call_1).
-                    assert_eq!(id, "call_1");
-                    if function_name.as_deref() == Some("get_weather") && arguments_delta.is_none()
-                    {
+                crate::streaming::ChatStreamEvent::Part { part }
+                | crate::streaming::ChatStreamEvent::PartWithReplay { part, .. } => match part {
+                    crate::types::ChatStreamPart::ToolInputStart { id, tool_name, .. } => {
+                        assert_eq!(id, "call_1");
+                        assert_eq!(tool_name, "get_weather");
                         saw_added = true;
                     }
-                    if function_name.is_none()
-                        && arguments_delta.as_deref() == Some("{\"location\":\"tokyo\"}")
-                    {
+                    crate::types::ChatStreamPart::ToolInputDelta { id, delta, .. } => {
+                        assert_eq!(id, "call_1");
+                        assert_eq!(delta, "{\"location\":\"tokyo\"}");
                         saw_args_delta = true;
                     }
-                }
+                    _ => {}
+                },
                 crate::streaming::ChatStreamEvent::StreamEnd { response } => {
                     assert_eq!(response.content_text(), Some("Done."));
                     break;
@@ -2076,8 +2072,8 @@ mod tests {
 
         while let Some(item) = stream.next().await {
             match item.unwrap() {
-                crate::streaming::ChatStreamEvent::ThinkingDelta { delta } => {
-                    reasoning.push_str(&delta);
+                event if event.reasoning_delta().is_some() => {
+                    reasoning.push_str(event.reasoning_delta().expect("reasoning delta"));
                 }
                 crate::streaming::ChatStreamEvent::StreamEnd { response } => {
                     end = Some(response);

@@ -784,10 +784,6 @@ pub(super) fn serialize_event(
             });
             sse_event_frame("response.created", &payload)
         }
-        crate::streaming::ChatStreamEvent::ContentDelta { .. }
-        | crate::streaming::ChatStreamEvent::ToolCallDelta { .. }
-        | crate::streaming::ChatStreamEvent::ThinkingDelta { .. }
-        | crate::streaming::ChatStreamEvent::UsageUpdate { .. } => Ok(Vec::new()),
         crate::streaming::ChatStreamEvent::StreamEnd { response } => {
             if state.response_completed_emitted {
                 *state = OpenAiResponsesSerializeState::default();
@@ -2446,5 +2442,6 @@ pub(super) fn serialize_event(
                 _ => Ok(Vec::new()),
             }
         }
+        _ => Ok(Vec::new()),
     }
 }

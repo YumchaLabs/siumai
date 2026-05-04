@@ -487,61 +487,6 @@ where
                         Ok(ev) => {
                             let mut extra_event: Option<ChatStreamEvent> = None;
                             match &ev {
-                                ChatStreamEvent::ContentDelta { delta, .. } => {
-                                    acc_text.push_str(delta)
-                                }
-                                ChatStreamEvent::ToolCallDelta {
-                                    id,
-                                    function_name,
-                                    arguments_delta,
-                                    ..
-                                } => {
-                                    let state = tool_input_states.entry(id.clone()).or_default();
-
-                                    if let Some(tool_name) = function_name {
-                                        state.tool_name = Some(tool_name.clone());
-                                        if !state.input_start_invoked
-                                            && let Some(metadata) =
-                                                resolver.as_ref().and_then(|resolver| {
-                                                    resolver.runtime_tool_metadata(tool_name)
-                                                })
-                                        {
-                                            stream_or_break!(
-                                                metadata
-                                                    .invoke_on_input_start(input_start_context(
-                                                        id,
-                                                        &step_input_messages,
-                                                        &current_context,
-                                                        Some(orchestrator_cancel_clone.clone()),
-                                                    ))
-                                                    .await
-                                            );
-                                            state.input_start_invoked = true;
-                                        }
-                                    }
-
-                                    if let Some(delta) = arguments_delta {
-                                        state.input_text.push_str(delta);
-                                        if let Some(tool_name) = state.tool_name.as_deref()
-                                            && let Some(metadata) =
-                                                resolver.as_ref().and_then(|resolver| {
-                                                    resolver.runtime_tool_metadata(tool_name)
-                                                })
-                                        {
-                                            stream_or_break!(
-                                                metadata
-                                                    .invoke_on_input_delta(input_delta_context(
-                                                        id,
-                                                        delta,
-                                                        &step_input_messages,
-                                                        &current_context,
-                                                        Some(orchestrator_cancel_clone.clone()),
-                                                    ))
-                                                    .await
-                                            );
-                                        }
-                                    }
-                                }
                                 ChatStreamEvent::Part { part }
                                 | ChatStreamEvent::PartWithReplay { part, .. } => match part {
                                     ChatStreamPart::TextDelta { .. } => {

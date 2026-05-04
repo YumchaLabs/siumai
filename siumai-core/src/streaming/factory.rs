@@ -892,16 +892,6 @@ mod tests {
                 })
             )
         }));
-        assert!(
-            !events
-                .iter()
-                .any(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })))
-        );
-        assert!(
-            !events
-                .iter()
-                .any(|event| matches!(event, Ok(ChatStreamEvent::ThinkingDelta { .. })))
-        );
         assert!(events.iter().any(|event| {
             matches!(
                 event,
@@ -938,9 +928,9 @@ mod tests {
 
     #[test]
     fn saw_content_in_events_ignores_legacy_text_deltas() {
-        let events = vec![Ok(ChatStreamEvent::ContentDelta {
-            delta: "legacy".to_string(),
-            index: None,
+        let events = vec![Ok(ChatStreamEvent::Custom {
+            event_type: "legacy:content-delta".to_string(),
+            data: serde_json::json!({ "delta": "legacy" }),
         })];
 
         assert!(!StreamFactory::saw_content_in_events(&events));

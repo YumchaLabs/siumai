@@ -223,12 +223,7 @@ fn apply_openai_responses_v3_policy(
                 siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop => Vec::new(),
                 siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText => part
                     .to_lossy_text()
-                    .map(|text| {
-                        vec![ChatStreamEvent::ContentDelta {
-                            delta: text,
-                            index: None,
-                        }]
-                    })
+                    .map(|text| vec![ChatStreamEvent::text_delta_part("fallback", text)])
                     .unwrap_or_default(),
             }
         }
@@ -927,15 +922,6 @@ mod transcode_tests {
 
     fn uppercase_textual_event(event: ChatStreamEvent) -> Vec<ChatStreamEvent> {
         match event {
-            ChatStreamEvent::ContentDelta { delta, index } => {
-                vec![ChatStreamEvent::ContentDelta {
-                    delta: delta.to_uppercase(),
-                    index,
-                }]
-            }
-            ChatStreamEvent::ThinkingDelta { delta } => vec![ChatStreamEvent::ThinkingDelta {
-                delta: delta.to_uppercase(),
-            }],
             ChatStreamEvent::Part { part } => vec![ChatStreamEvent::Part {
                 part: uppercase_textual_part(part),
             }],

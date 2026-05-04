@@ -1986,47 +1986,8 @@ impl LanguageModelV3StreamPart {
     ///
     /// This is primarily intended for protocol re-serialization, where a target
     /// provider's encoder might not understand the source provider's custom events.
-    ///
-    /// Notes:
-    /// - Not all Vercel stream parts have a lossless representation in `ChatStreamEvent`.
-    /// - Unsupported parts are dropped (empty vec).
     pub fn to_best_effort_chat_events(&self) -> Vec<ChatStreamEvent> {
-        match self {
-            LanguageModelV3StreamPart::TextDelta { delta, .. } => {
-                vec![ChatStreamEvent::ContentDelta {
-                    delta: delta.clone(),
-                    index: None,
-                }]
-            }
-            LanguageModelV3StreamPart::ReasoningDelta { delta, .. } => {
-                vec![ChatStreamEvent::ThinkingDelta {
-                    delta: delta.clone(),
-                }]
-            }
-            LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
-                vec![ChatStreamEvent::ToolCallDelta {
-                    id: id.clone(),
-                    function_name: Some(tool_name.clone()),
-                    arguments_delta: None,
-                    index: None,
-                }]
-            }
-            LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
-                vec![ChatStreamEvent::ToolCallDelta {
-                    id: id.clone(),
-                    function_name: None,
-                    arguments_delta: Some(delta.clone()),
-                    index: None,
-                }]
-            }
-            LanguageModelV3StreamPart::ToolCall(call) => vec![ChatStreamEvent::ToolCallDelta {
-                id: call.tool_call_id.clone(),
-                function_name: Some(call.tool_name.clone()),
-                arguments_delta: Some(call.input.clone()),
-                index: None,
-            }],
-            _ => vec![self.to_part_event()],
-        }
+        vec![self.to_part_event()]
     }
 
     /// Convert a v3 stream part into a lossy text representation.

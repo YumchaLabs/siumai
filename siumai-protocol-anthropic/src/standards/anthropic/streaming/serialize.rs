@@ -357,10 +357,6 @@ pub(super) fn serialize_event(
                 let payload = build_message_start_payload(state);
                 sse_typed_frame(&payload)
             }
-            ChatStreamEvent::ContentDelta { .. }
-            | ChatStreamEvent::ThinkingDelta { .. }
-            | ChatStreamEvent::ToolCallDelta { .. }
-            | ChatStreamEvent::UsageUpdate { .. } => Ok(Vec::new()),
             ChatStreamEvent::StreamEnd { response } => {
                 if state.ignore_next_stream_end {
                     state.ignore_next_stream_end = false;
@@ -445,6 +441,7 @@ pub(super) fn serialize_event(
             }
             ChatStreamEvent::Part { .. } | ChatStreamEvent::PartWithReplay { .. } => Ok(Vec::new()),
             ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+            _ => Ok(Vec::new()),
         }
     }
 

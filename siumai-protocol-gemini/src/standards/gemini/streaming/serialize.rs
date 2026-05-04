@@ -384,10 +384,6 @@ pub(super) fn serialize_event(
     match event {
         // Gemini streaming does not have an explicit "start" frame; the first chunk carries data.
         ChatStreamEvent::StreamStart { .. } => Ok(Vec::new()),
-        ChatStreamEvent::ContentDelta { .. }
-        | ChatStreamEvent::ThinkingDelta { .. }
-        | ChatStreamEvent::UsageUpdate { .. }
-        | ChatStreamEvent::ToolCallDelta { .. } => Ok(Vec::new()),
         ChatStreamEvent::StreamEnd { response } => {
             let reason = response
                 .finish_reason
@@ -826,5 +822,6 @@ pub(super) fn serialize_event(
                 }
             }
         }
+        _ => Ok(Vec::new()),
     }
 }

@@ -1117,10 +1117,7 @@ mod tests {
 
         let content = events
             .iter()
-            .filter_map(|event| match event {
-                ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-                _ => None,
-            })
+            .filter_map(ChatStreamEvent::text_delta)
             .collect::<String>();
         assert_eq!(content, "{\"value\":\"test\"}");
 

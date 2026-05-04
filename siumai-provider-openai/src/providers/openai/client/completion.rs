@@ -409,14 +409,7 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
             }
 
             if !delta.is_empty() {
-                events.push(Ok(ChatStreamEvent::Part {
-                    part: ChatStreamPart::TextDelta {
-                        id: "0".to_string(),
-                        delta: delta.clone(),
-                        provider_metadata: None,
-                    },
-                }));
-                events.push(Ok(ChatStreamEvent::ContentDelta { delta, index: None }));
+                events.push(Ok(ChatStreamEvent::text_delta_part("0", delta)));
             }
 
             events
@@ -928,7 +921,9 @@ mod tests {
         let mut end = None;
         while let Some(item) = stream.next().await {
             match item.expect("stream event") {
-                ChatStreamEvent::ContentDelta { delta, .. } => deltas.push(delta),
+                event if event.text_delta().is_some() => {
+                    deltas.push(event.text_delta().expect("text delta").to_string());
+                }
                 ChatStreamEvent::StreamEnd { response } => {
                     end = Some(response);
                     break;

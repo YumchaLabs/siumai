@@ -522,14 +522,6 @@ async fn tool_call_deltas_without_id_are_mapped_by_tool_call_index() {
             && call.tool_name == "lookup"
             && call.input == "{\"q\": \"rust\"}"
     )));
-    assert!(
-        !out1
-            .iter()
-            .chain(out2.iter())
-            .chain(out3.iter())
-            .any(|e| matches!(e, Ok(ChatStreamEvent::ToolCallDelta { .. }))),
-        "typed tool parts should not emit legacy tool-call deltas"
-    );
 }
 
 #[tokio::test]
@@ -580,7 +572,7 @@ async fn multi_tool_calls_are_mapped_by_index() {
 }
 
 #[tokio::test]
-async fn parser_emits_stable_tool_parts_without_legacy_shadow_deltas() {
+async fn parser_emits_stable_tool_parts() {
     let conv = make_converter();
 
     let start_chunk = Event {
@@ -602,12 +594,6 @@ async fn parser_emits_stable_tool_parts_without_legacy_shadow_deltas() {
             part: crate::types::ChatStreamPart::ToolInputStart { id, tool_name, .. }
         } if id == "call_1" && tool_name == "lookup"
     )));
-    assert!(
-        !start_events
-            .iter()
-            .any(|event| matches!(event, ChatStreamEvent::ToolCallDelta { .. })),
-        "parser should not emit legacy tool-call shadow deltas"
-    );
 
     let delta_chunk = Event {
         event: "".to_string(),
@@ -642,12 +628,6 @@ async fn parser_emits_stable_tool_parts_without_legacy_shadow_deltas() {
             && call.tool_name == "lookup"
             && call.input == "{\"q\":\"rust\"}"
     )));
-    assert!(
-        !delta_events
-            .iter()
-            .any(|event| matches!(event, ChatStreamEvent::ToolCallDelta { .. })),
-        "parser should not emit legacy tool-call shadow deltas"
-    );
 }
 
 #[tokio::test]

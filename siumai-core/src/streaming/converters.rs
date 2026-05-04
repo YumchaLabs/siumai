@@ -19,7 +19,7 @@ pub type JsonEventFuture<'a> =
 /// Trait for converting provider-specific SSE events to ChatStreamEvent
 ///
 /// This trait supports multi-event emission, allowing a single provider event
-/// to generate multiple ChatStreamEvents (e.g., StreamStart + ContentDelta).
+/// to generate multiple ChatStreamEvents (e.g., StreamStart + typed text part).
 ///
 /// # Example
 /// ```rust,ignore
@@ -29,10 +29,7 @@ pub type JsonEventFuture<'a> =
 ///     fn convert_event(&self, event: Event) -> SseEventFuture<'_> {
 ///         Box::pin(async move {
 ///             // Parse event.data and return ChatStreamEvents
-///             vec![Ok(ChatStreamEvent::ContentDelta {
-///                 delta: event.data,
-///                 index: None,
-///             })]
+///             vec![Ok(ChatStreamEvent::text_delta_part("0", event.data))]
 ///         })
 ///     }
 /// }
@@ -99,10 +96,7 @@ pub trait SseEventConverter: Send + Sync {
 ///     fn convert_json<'a>(&'a self, json_data: &'a str) -> JsonEventFuture<'a> {
 ///         Box::pin(async move {
 ///             // Parse JSON and return ChatStreamEvents
-///             vec![Ok(ChatStreamEvent::ContentDelta {
-///                 delta: json_data.to_string(),
-///                 index: None,
-///             })]
+///             vec![Ok(ChatStreamEvent::text_delta_part("0", json_data))]
 ///         })
 ///     }
 /// }

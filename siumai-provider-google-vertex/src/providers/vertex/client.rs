@@ -2119,7 +2119,13 @@ mod tests {
             _ => None,
         });
         let tool_call_id = events.iter().find_map(|event| match event {
-            ChatStreamEvent::ToolCallDelta { id, .. } => Some(id.as_str()),
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolInputStart { id, .. },
+            }
+            | ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ToolInputStart { id, .. },
+                ..
+            } => Some(id.as_str()),
             _ => None,
         });
         let has_raw = events.iter().any(|event| {
@@ -2165,10 +2171,7 @@ mod tests {
 
         let content = events
             .iter()
-            .filter_map(|event| match event {
-                ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-                _ => None,
-            })
+            .filter_map(ChatStreamEvent::text_delta)
             .collect::<String>();
         assert_eq!(content, "{\"value\":\"test\"}");
 

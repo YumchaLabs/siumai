@@ -291,7 +291,7 @@ impl CustomProvider for HuggingFaceProvider {
                 } else {
                     format!(" {word}")
                 };
-                Ok(ChatStreamEvent::ContentDelta { delta, index: None })
+                Ok(ChatStreamEvent::text_delta_part("0", delta))
             })
             .collect();
 

@@ -118,10 +118,6 @@ impl StreamProcessor {
     /// Process a stream event and return the processed result
     pub fn process_event(&mut self, event: ChatStreamEvent) -> ProcessedEvent {
         match event {
-            ChatStreamEvent::ContentDelta { .. }
-            | ChatStreamEvent::ToolCallDelta { .. }
-            | ChatStreamEvent::ThinkingDelta { .. }
-            | ChatStreamEvent::UsageUpdate { .. } => ProcessedEvent::Ignored,
             ChatStreamEvent::StreamStart { metadata } => {
                 self.start_metadata = Some(metadata.clone());
                 ProcessedEvent::StreamStart { metadata }
@@ -151,6 +147,7 @@ impl StreamProcessor {
             ChatStreamEvent::Custom { event_type, data } => {
                 ProcessedEvent::Custom { event_type, data }
             }
+            _ => ProcessedEvent::Ignored,
         }
     }
 
@@ -1082,90 +1079,6 @@ mod tests {
         let b = sp.tool_calls.get("id1").unwrap();
         assert!(b.arguments.len() <= 8);
         assert!(called.load(std::sync::atomic::Ordering::Relaxed));
-    }
-
-    #[test]
-    fn legacy_tool_deltas_are_ignored_after_typed_tool_parts() {
-        let mut sp = StreamProcessor::new();
-
-        let _ = sp.process_event(ChatStreamEvent::Part {
-            part: ChatStreamPart::ToolInputStart {
-                id: "call_1".to_string(),
-                tool_name: "search".to_string(),
-                provider_metadata: None,
-                provider_executed: None,
-                dynamic: None,
-                title: None,
-            },
-        });
-        let _ = sp.process_event(ChatStreamEvent::Part {
-            part: ChatStreamPart::ToolInputDelta {
-                id: "call_1".to_string(),
-                delta: "{\"query\":\"rust\"}".to_string(),
-                provider_metadata: None,
-            },
-        });
-
-        let legacy_result = sp.process_event(ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: Some("search".to_string()),
-            arguments_delta: Some("{\"query\":\"rust\"}".to_string()),
-            index: Some(0),
-        });
-        assert!(matches!(legacy_result, ProcessedEvent::Ignored));
-
-        let builder = sp.tool_calls.get("call_1").expect("tool call builder");
-        assert_eq!(builder.name, "search");
-        assert_eq!(builder.arguments, "{\"query\":\"rust\"}");
-    }
-
-    #[test]
-    fn legacy_text_deltas_are_ignored_after_typed_text_parts() {
-        let mut sp = StreamProcessor::new();
-
-        let _ = sp.process_event(ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta {
-                id: "text_1".to_string(),
-                delta: "hello".to_string(),
-                provider_metadata: None,
-            },
-        });
-        let legacy_result = sp.process_event(ChatStreamEvent::ContentDelta {
-            delta: "hello".to_string(),
-            index: Some(0),
-        });
-        assert!(matches!(legacy_result, ProcessedEvent::Ignored));
-
-        let final_resp = sp.build_final_response();
-        assert_eq!(final_resp.content_text(), Some("hello"));
-    }
-
-    #[test]
-    fn legacy_reasoning_deltas_are_ignored_after_typed_reasoning_parts() {
-        let mut sp = StreamProcessor::new();
-
-        let _ = sp.process_event(ChatStreamEvent::Part {
-            part: ChatStreamPart::ReasoningDelta {
-                id: "reasoning_1".to_string(),
-                delta: "thinking".to_string(),
-                provider_metadata: None,
-            },
-        });
-        let legacy_result = sp.process_event(ChatStreamEvent::ThinkingDelta {
-            delta: "thinking".to_string(),
-        });
-        assert!(matches!(legacy_result, ProcessedEvent::Ignored));
-
-        let final_resp = sp.build_final_response();
-        assert_eq!(
-            final_resp
-                .provider_metadata
-                .as_ref()
-                .and_then(|meta| meta.get("stream"))
-                .and_then(|meta| meta.get("thinking"))
-                .and_then(|value| value.as_str()),
-            Some("thinking")
-        );
     }
 
     #[test]
