@@ -16,20 +16,6 @@
 use futures::StreamExt;
 use siumai::prelude::*;
 
-fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
-    match event {
-        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta { delta, .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::TextDelta { delta, .. },
-            ..
-        } => Some(delta.as_str()),
-        _ => None,
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🌊 Siumai Streaming Example\n");
@@ -46,11 +32,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         text::StreamOptions::default(),
     )
     .await?;
+    let mut deltas = text::StreamDeltaExtractor::new();
 
     // Process stream events
     while let Some(event) = stream.next().await {
         let event = event?;
-        if let Some(delta) = stream_text_delta(&event) {
+        if let Some(delta) = deltas.text_delta(&event) {
             print!("{}", delta);
             std::io::Write::flush(&mut std::io::stdout())?;
             continue;

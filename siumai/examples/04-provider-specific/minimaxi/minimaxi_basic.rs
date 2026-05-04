@@ -12,34 +12,6 @@ use siumai::prelude::unified::*;
 use siumai::provider_ext::minimaxi::options::MinimaxiTtsRequestBuilder;
 use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
 
-fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
-    match event {
-        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta { delta, .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::TextDelta { delta, .. },
-            ..
-        } => Some(delta.as_str()),
-        _ => None,
-    }
-}
-
-fn stream_reasoning_delta(event: &ChatStreamEvent) -> Option<&str> {
-    match event {
-        ChatStreamEvent::ThinkingDelta { delta } => Some(delta.as_str()),
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::ReasoningDelta { delta, .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::ReasoningDelta { delta, .. },
-            ..
-        } => Some(delta.as_str()),
-        _ => None,
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("MiniMaxi Basic Chat Example\n");
@@ -68,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Print final answer text (without reasoning tags)
     println!("AI: {}", resp.content_text().unwrap_or_default());
 
-    // --- Streaming demo: prints reasoning and text deltas from both legacy and stable lanes ---
+    // --- Streaming demo: prints de-duplicated reasoning and text deltas ---
     println!("\nStreaming (answer only):\n");
     let mut stream = text::stream(
         &client,
@@ -80,13 +52,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     let mut printed_any_content = false;
+    let mut deltas = text::StreamDeltaExtractor::new();
 
     // Toggle to display streamed thinking via env var
     let show_stream_thinking = std::env::var("SIUMAI_SHOW_THINKING").ok().as_deref() == Some("1");
 
     while let Some(event) = stream.next().await {
         let event = event?;
-        if let Some(delta) = stream_reasoning_delta(&event) {
+        if let Some(delta) = deltas.reasoning_delta(&event) {
             if show_stream_thinking {
                 if !printed_any_content {
                     println!("Thinking: ");
@@ -96,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             continue;
         }
-        if let Some(delta) = stream_text_delta(&event) {
+        if let Some(delta) = deltas.text_delta(&event) {
             if !printed_any_content {
                 println!("\n\nAI: ");
                 printed_any_content = true;

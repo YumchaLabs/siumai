@@ -16,20 +16,6 @@ use siumai::provider_ext::openai::{
     OpenAiConfig, OpenAiIncrementalWebSocketSession, OpenAiWebSocketSession,
 };
 
-fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
-    match event {
-        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta { delta, .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::TextDelta { delta, .. },
-            ..
-        } => Some(delta.as_str()),
-        _ => None,
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("OPENAI_API_KEY")?;
@@ -54,10 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             mut stream,
             cancel: _,
         } = inc.stream_next_with_cancel().await?;
+        let mut deltas = text::StreamDeltaExtractor::new();
 
         while let Some(item) = stream.next().await {
             let ev = item?;
-            if let Some(delta) = stream_text_delta(&ev) {
+            if let Some(delta) = deltas.text_delta(&ev) {
                 print!("{delta}");
             }
         }

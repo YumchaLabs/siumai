@@ -21,20 +21,6 @@ use siumai::prelude::unified::*;
 use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 use std::sync::Arc;
 
-fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
-    match event {
-        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta { delta, .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::TextDelta { delta, .. },
-            ..
-        } => Some(delta.as_str()),
-        _ => None,
-    }
-}
-
 // Middleware 1: Logging middleware using wrap_generate_async
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -76,11 +62,12 @@ impl LanguageModelMiddleware for LoggingMiddleware {
 
                 let stream = next(req).await?;
                 let mut event_count = 0;
+                let mut deltas = text::StreamDeltaExtractor::new();
 
                 let logged_stream = stream.map(move |event| {
                     event_count += 1;
                     if let Ok(ev) = &event {
-                        if let Some(delta) = stream_text_delta(ev) {
+                        if let Some(delta) = deltas.text_delta(ev) {
                             println!("📝 [Logging] Delta #{}: {} chars", event_count, delta.len());
                         } else if matches!(ev, ChatStreamEvent::StreamEnd { .. }) {
                             println!("✅ [Logging] Stream ended after {} events", event_count);
@@ -152,14 +139,21 @@ impl LanguageModelMiddleware for StreamFilterMiddleware {
         _req: &ChatRequest,
         ev: ChatStreamEvent,
     ) -> Result<Vec<ChatStreamEvent>, LlmError> {
-        if let Some(delta) = stream_text_delta(&ev) {
-            // Filter out empty deltas
-            if delta.is_empty() {
-                println!("🚫 [Filter] Filtered empty delta");
-                Ok(vec![]) // Return empty vec to filter out this event
-            } else {
-                Ok(vec![ev])
+        let is_empty_text_delta = match &ev {
+            ChatStreamEvent::ContentDelta { delta, .. } => delta.is_empty(),
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta { delta, .. },
             }
+            | ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::TextDelta { delta, .. },
+                ..
+            } => delta.is_empty(),
+            _ => false,
+        };
+
+        if is_empty_text_delta {
+            println!("🚫 [Filter] Filtered empty delta");
+            Ok(vec![]) // Return empty vec to filter out this event
         } else {
             Ok(vec![ev])
         }

@@ -21,14 +21,15 @@ pub use siumai_core::text::{
 };
 pub use siumai_core::types::StreamRequestOptions;
 use siumai_core::types::{
-    AssistantContent, AssistantModelMessage, CallWarning, ChatMessage, ContentPart, CustomOutput,
-    FileOutput, FinishReason, GenerateTextContentPart, GenerateTextModelInfo,
-    GenerateTextReasoningPart, GenerateTextResponseMetadata, GenerateTextResult,
-    GenerateTextStepReasoningPart, GenerateTextStepResult, GeneratedFile, HttpConfig, JSONValue,
-    LanguageModelRequestMetadata, LanguageModelResponseMetadata, MessageContent, MessageMetadata,
-    MessageRole, ModelMessage, ProviderOptionsMap, ReasoningFileOutput, ReasoningOutput,
-    RequestOptions, ResponseMessage, Source, TextOutput, Tool, ToolCall as GenerateTextToolCall,
-    ToolChoice, ToolResult as GenerateTextToolResult, ToolResultOutput,
+    AssistantContent, AssistantModelMessage, CallWarning, ChatMessage, ChatStreamEvent,
+    ChatStreamPart, ContentPart, CustomOutput, FileOutput, FinishReason, GenerateTextContentPart,
+    GenerateTextModelInfo, GenerateTextReasoningPart, GenerateTextResponseMetadata,
+    GenerateTextResult, GenerateTextStepReasoningPart, GenerateTextStepResult, GeneratedFile,
+    HttpConfig, JSONValue, LanguageModelRequestMetadata, LanguageModelResponseMetadata,
+    MessageContent, MessageMetadata, MessageRole, ModelMessage, ProviderOptionsMap,
+    ReasoningFileOutput, ReasoningOutput, RequestOptions, ResponseMessage, Source, TextOutput,
+    Tool, ToolCall as GenerateTextToolCall, ToolChoice, ToolResult as GenerateTextToolResult,
+    ToolResultOutput,
 };
 
 /// AI SDK-style non-streaming `generateText` result returned by `text::generate_text`.
@@ -127,6 +128,80 @@ pub struct StreamOptions {
     pub telemetry: Option<siumai_core::observability::telemetry::TelemetryConfig>,
     /// Include provider raw chunks on the stream part lane.
     pub include_raw_chunks: bool,
+}
+
+/// Extract text and reasoning deltas from a `text::stream` event stream.
+///
+/// Siumai currently emits legacy transport deltas and typed AI SDK-style stream parts during the
+/// compatibility transition. This helper lets app-level examples consume both lanes without
+/// printing duplicate text when a provider emits both representations for the same chunk.
+#[derive(Debug, Default, Clone)]
+pub struct StreamDeltaExtractor {
+    last_typed_text_delta: Option<String>,
+    last_typed_reasoning_delta: Option<String>,
+}
+
+impl StreamDeltaExtractor {
+    /// Create a new stream delta extractor.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the next user-visible text delta, suppressing typed/legacy mirror duplicates.
+    pub fn text_delta<'a>(&mut self, event: &'a ChatStreamEvent) -> Option<&'a str> {
+        match event {
+            ChatStreamEvent::ContentDelta { delta, .. } => {
+                if self.last_typed_text_delta.as_deref() == Some(delta.as_str()) {
+                    self.last_typed_text_delta = None;
+                    return None;
+                }
+                self.last_typed_text_delta = None;
+                Some(delta.as_str())
+            }
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta { delta, .. },
+            }
+            | ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::TextDelta { delta, .. },
+                ..
+            } => {
+                self.last_typed_text_delta = Some(delta.clone());
+                Some(delta.as_str())
+            }
+            _ => {
+                self.last_typed_text_delta = None;
+                None
+            }
+        }
+    }
+
+    /// Return the next reasoning delta, suppressing typed/legacy mirror duplicates.
+    pub fn reasoning_delta<'a>(&mut self, event: &'a ChatStreamEvent) -> Option<&'a str> {
+        match event {
+            ChatStreamEvent::ThinkingDelta { delta } => {
+                if self.last_typed_reasoning_delta.as_deref() == Some(delta.as_str()) {
+                    self.last_typed_reasoning_delta = None;
+                    return None;
+                }
+                self.last_typed_reasoning_delta = None;
+                Some(delta.as_str())
+            }
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::ReasoningDelta { delta, .. },
+            }
+            | ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ReasoningDelta { delta, .. },
+                ..
+            } => {
+                self.last_typed_reasoning_delta = Some(delta.clone());
+                Some(delta.as_str())
+            }
+            _ => {
+                self.last_typed_reasoning_delta = None;
+                None
+            }
+        }
+    }
 }
 
 fn apply_text_call_options(
@@ -786,6 +861,48 @@ mod tests {
         ) -> Result<TextStreamHandle, LlmError> {
             unreachable!("generate_text does not call stream_with_cancel")
         }
+    }
+
+    #[test]
+    fn stream_delta_extractor_suppresses_text_mirror_duplicates() {
+        let mut extractor = StreamDeltaExtractor::new();
+        let typed = ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "0".to_string(),
+                delta: "hello".to_string(),
+                provider_metadata: None,
+            },
+        };
+        let legacy = ChatStreamEvent::ContentDelta {
+            delta: "hello".to_string(),
+            index: None,
+        };
+        let next = ChatStreamEvent::ContentDelta {
+            delta: " world".to_string(),
+            index: None,
+        };
+
+        assert_eq!(extractor.text_delta(&typed), Some("hello"));
+        assert_eq!(extractor.text_delta(&legacy), None);
+        assert_eq!(extractor.text_delta(&next), Some(" world"));
+    }
+
+    #[test]
+    fn stream_delta_extractor_suppresses_reasoning_mirror_duplicates() {
+        let mut extractor = StreamDeltaExtractor::new();
+        let typed = ChatStreamEvent::Part {
+            part: ChatStreamPart::ReasoningDelta {
+                id: "0".to_string(),
+                delta: "think".to_string(),
+                provider_metadata: None,
+            },
+        };
+        let legacy = ChatStreamEvent::ThinkingDelta {
+            delta: "think".to_string(),
+        };
+
+        assert_eq!(extractor.reasoning_delta(&typed), Some("think"));
+        assert_eq!(extractor.reasoning_delta(&legacy), None);
     }
 
     #[tokio::test]

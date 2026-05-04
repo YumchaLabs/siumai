@@ -20,20 +20,6 @@ use siumai::prelude::unified::*;
 use std::collections::VecDeque;
 use std::io::{self, Write};
 
-fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
-    match event {
-        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta { delta, .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::TextDelta { delta, .. },
-            ..
-        } => Some(delta.as_str()),
-        _ => None,
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🤖 Interactive Chatbot\n");
@@ -95,9 +81,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
         let mut full_response = String::new();
+        let mut deltas = text::StreamDeltaExtractor::new();
         while let Some(event) = stream.next().await {
             let event = event?;
-            if let Some(delta) = stream_text_delta(&event) {
+            if let Some(delta) = deltas.text_delta(&event) {
                 print!("{}", delta);
                 io::stdout().flush()?;
                 full_response.push_str(delta);
