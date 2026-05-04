@@ -254,8 +254,12 @@ async fn anthropic_public_feature_surface_preserves_thinking_signature_and_singl
     for delta in ["I ", "am ", "thinking"] {
         bytes.extend_from_slice(
             &encoder
-                .serialize_event(&ChatStreamEvent::ThinkingDelta {
-                    delta: delta.to_string(),
+                .serialize_event(&ChatStreamEvent::Part {
+                    part: ChatStreamPart::ReasoningDelta {
+                        id: "0".to_string(),
+                        delta: delta.to_string(),
+                        provider_metadata: None,
+                    },
                 })
                 .expect("serialize thinking delta"),
         );

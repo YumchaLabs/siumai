@@ -36,9 +36,6 @@ struct AnthropicSerializeState {
     latest_usage: Option<Usage>,
     terminal_emitted: bool,
     ignore_next_stream_end: bool,
-    last_v3_text_delta: Option<String>,
-    last_v3_thinking_delta: Option<String>,
-    last_v3_tool_call: Option<AnthropicToolDeltaSignature>,
     seen_tool_call_ids: HashSet<String>,
     provider_executed_tool_input_ids: HashSet<String>,
     provider_executed_tool_call_ids: HashSet<String>,
@@ -59,13 +56,6 @@ enum AnthropicSerializeBlockKind {
     Thinking,
     RedactedThinking,
     Tool { id: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct AnthropicToolDeltaSignature {
-    id: String,
-    function_name: Option<String>,
-    arguments_delta: Option<String>,
 }
 
 /// Citation document metadata extracted from the prompt (Vercel-aligned).

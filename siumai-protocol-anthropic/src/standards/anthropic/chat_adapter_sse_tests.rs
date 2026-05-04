@@ -67,7 +67,9 @@ async fn anthropic_standard_adapter_transforms_sse_events() {
 
     let mut found_transformed = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
+        if let Ok(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextDelta { delta, .. },
+        }) = event_result
             && delta.starts_with("[ADAPTED] ")
         {
             found_transformed = true;
@@ -100,7 +102,10 @@ async fn anthropic_standard_without_adapter_no_transformation() {
 
     let mut found_content = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result {
+        if let Ok(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextDelta { delta, .. },
+        }) = event_result
+        {
             found_content = true;
             assert_eq!(delta, "Hello", "content should not be transformed");
         }

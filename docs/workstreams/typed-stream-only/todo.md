@@ -29,11 +29,11 @@
 
 ## Milestone 4 - Protocol Serializers
 
-- [ ] Remove serializer-local duplicate text/reasoning suppression state (Anthropic pending).
+- [x] Remove serializer-local duplicate text/reasoning suppression state.
 - [x] Make OpenAI Chat serializer consume typed text/tool/finish parts only.
 - [x] Make OpenAI Responses serializer consume typed parts only.
 - [x] Make Gemini serializer consume typed parts only.
-- [ ] Make Anthropic serializer consume typed parts only.
+- [x] Make Anthropic serializer consume typed parts only.
 
 ## Milestone 5 - Removal
 

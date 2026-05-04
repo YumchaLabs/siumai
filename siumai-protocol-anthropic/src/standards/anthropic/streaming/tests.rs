@@ -16,6 +16,49 @@ fn stream_part(
     crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event.as_ref().ok()?)
 }
 
+fn text_delta_event(id: &str, delta: &str) -> ChatStreamEvent {
+    ChatStreamEvent::Part {
+        part: ChatStreamPart::TextDelta {
+            id: id.to_string(),
+            delta: delta.to_string(),
+            provider_metadata: None,
+        },
+    }
+}
+
+fn reasoning_delta_event(id: &str, delta: &str) -> ChatStreamEvent {
+    ChatStreamEvent::Part {
+        part: ChatStreamPart::ReasoningDelta {
+            id: id.to_string(),
+            delta: delta.to_string(),
+            provider_metadata: None,
+        },
+    }
+}
+
+fn tool_input_start_event(id: &str, tool_name: &str) -> ChatStreamEvent {
+    ChatStreamEvent::Part {
+        part: ChatStreamPart::ToolInputStart {
+            id: id.to_string(),
+            tool_name: tool_name.to_string(),
+            provider_metadata: None,
+            provider_executed: None,
+            dynamic: None,
+            title: None,
+        },
+    }
+}
+
+fn tool_input_delta_event(id: &str, delta: &str) -> ChatStreamEvent {
+    ChatStreamEvent::Part {
+        part: ChatStreamPart::ToolInputDelta {
+            id: id.to_string(),
+            delta: delta.to_string(),
+            provider_metadata: None,
+        },
+    }
+}
+
 #[tokio::test]
 async fn test_anthropic_streaming_conversion() {
     let config = create_test_config();
@@ -2400,10 +2443,7 @@ fn serializes_text_stream_events_to_anthropic_sse() {
     );
 
     let delta = converter
-        .serialize_event(&ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
-        })
+        .serialize_event(&text_delta_event("0", "Hello"))
         .expect("serialize delta");
     let delta_frames = parse_sse_frames(&delta);
     assert!(
@@ -2535,38 +2575,28 @@ fn serializes_blocks_in_order_and_closes_before_message_stop() {
     );
     bytes.extend_from_slice(
         &converter
-            .serialize_event(&ChatStreamEvent::ContentDelta {
-                delta: "Hello".to_string(),
-                index: None,
-            })
+            .serialize_event(&text_delta_event("0", "Hello"))
             .expect("serialize text delta"),
     );
     bytes.extend_from_slice(
         &converter
-            .serialize_event(&ChatStreamEvent::ThinkingDelta {
-                delta: "Thinking".to_string(),
-            })
+            .serialize_event(&reasoning_delta_event("1", "Thinking"))
             .expect("serialize thinking delta"),
     );
     bytes.extend_from_slice(
         &converter
-            .serialize_event(&ChatStreamEvent::ToolCallDelta {
-                id: "call_1".to_string(),
-                function_name: Some("get_weather".to_string()),
-                arguments_delta: Some("{\"city\":".to_string()),
-                index: None,
-            })
-            .expect("serialize tool call delta"),
+            .serialize_event(&tool_input_start_event("call_1", "get_weather"))
+            .expect("serialize tool input start"),
     );
     bytes.extend_from_slice(
         &converter
-            .serialize_event(&ChatStreamEvent::ToolCallDelta {
-                id: "call_1".to_string(),
-                function_name: None,
-                arguments_delta: Some("\"Tokyo\"}".to_string()),
-                index: None,
-            })
-            .expect("serialize tool call delta 2"),
+            .serialize_event(&tool_input_delta_event("call_1", "{\"city\":"))
+            .expect("serialize tool input delta"),
+    );
+    bytes.extend_from_slice(
+        &converter
+            .serialize_event(&tool_input_delta_event("call_1", "\"Tokyo\"}"))
+            .expect("serialize tool input delta 2"),
     );
     bytes.extend_from_slice(
         &converter
@@ -2759,25 +2789,17 @@ fn serializes_interleaved_blocks_as_separate_monotonic_content_blocks() {
     );
     bytes.extend_from_slice(
         &converter
-            .serialize_event(&ChatStreamEvent::ContentDelta {
-                delta: "Hello".to_string(),
-                index: None,
-            })
+            .serialize_event(&text_delta_event("0", "Hello"))
             .expect("serialize text delta 1"),
     );
     bytes.extend_from_slice(
         &converter
-            .serialize_event(&ChatStreamEvent::ThinkingDelta {
-                delta: "Thinking".to_string(),
-            })
+            .serialize_event(&reasoning_delta_event("1", "Thinking"))
             .expect("serialize thinking delta"),
     );
     bytes.extend_from_slice(
         &converter
-            .serialize_event(&ChatStreamEvent::ContentDelta {
-                delta: " world".to_string(),
-                index: None,
-            })
+            .serialize_event(&text_delta_event("2", " world"))
             .expect("serialize text delta 2"),
     );
     bytes.extend_from_slice(
@@ -2888,9 +2910,7 @@ fn serializes_repeated_thinking_deltas_with_single_start_and_single_stop() {
     for delta in ["I ", "am ", "thinking"] {
         bytes.extend_from_slice(
             &converter
-                .serialize_event(&ChatStreamEvent::ThinkingDelta {
-                    delta: delta.to_string(),
-                })
+                .serialize_event(&reasoning_delta_event("0", delta))
                 .expect("serialize thinking delta"),
         );
     }
@@ -2969,10 +2989,7 @@ fn stream_end_clears_open_block_state_before_next_end() {
         })
         .expect("serialize first start");
     let _ = converter
-        .serialize_event(&ChatStreamEvent::ContentDelta {
-            delta: "hello".to_string(),
-            index: None,
-        })
+        .serialize_event(&text_delta_event("0", "hello"))
         .expect("serialize first delta");
     let _ = converter
         .serialize_event(&ChatStreamEvent::StreamEnd {
