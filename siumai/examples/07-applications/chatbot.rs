@@ -81,10 +81,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
         let mut full_response = String::new();
-        let mut deltas = text::StreamDeltaExtractor::new();
         while let Some(event) = stream.next().await {
             let event = event?;
-            if let Some(delta) = deltas.text_delta(&event) {
+            if let Some(delta) = event.text_delta() {
                 print!("{}", delta);
                 io::stdout().flush()?;
                 full_response.push_str(delta);

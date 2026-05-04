@@ -28,8 +28,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ChatRequest::new(vec![user!("Search the web: What is Rust 1.85?")]).with_tools(vec![tool]);
 
     let mut stream = text::stream(&model, request, text::StreamOptions::default()).await?;
-    let mut deltas = text::StreamDeltaExtractor::new();
-
     while let Some(ev) = stream.next().await {
         let ev = ev?;
 
@@ -52,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        if let Some(delta) = deltas.text_delta(&ev) {
+        if let Some(delta) = ev.text_delta() {
             print!("{delta}");
             continue;
         }

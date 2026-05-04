@@ -52,14 +52,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     let mut printed_any_content = false;
-    let mut deltas = text::StreamDeltaExtractor::new();
 
     // Toggle to display streamed thinking via env var
     let show_stream_thinking = std::env::var("SIUMAI_SHOW_THINKING").ok().as_deref() == Some("1");
 
     while let Some(event) = stream.next().await {
         let event = event?;
-        if let Some(delta) = deltas.reasoning_delta(&event) {
+        if let Some(delta) = event.reasoning_delta() {
             if show_stream_thinking {
                 if !printed_any_content {
                     println!("Thinking: ");
@@ -69,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             continue;
         }
-        if let Some(delta) = deltas.text_delta(&event) {
+        if let Some(delta) = event.text_delta() {
             if !printed_any_content {
                 println!("\n\nAI: ");
                 printed_any_content = true;
@@ -80,13 +79,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         match event {
-            ChatStreamEvent::ContentDelta { .. } | ChatStreamEvent::ThinkingDelta { .. } => {}
-            ChatStreamEvent::StreamStart { .. }
-            | ChatStreamEvent::UsageUpdate { .. }
-            | ChatStreamEvent::ToolCallDelta { .. }
-            | ChatStreamEvent::Part { .. }
-            | ChatStreamEvent::PartWithReplay { .. }
-            | ChatStreamEvent::Custom { .. } => {}
             ChatStreamEvent::StreamEnd { response } => {
                 if !printed_any_content {
                     // If no deltas were printed (rare), show the final content snapshot
@@ -108,6 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ChatStreamEvent::Error { error } => {
                 eprintln!("\n[stream error] {}", error);
             }
+            _ => {}
         }
     }
 

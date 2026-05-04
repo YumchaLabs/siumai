@@ -496,6 +496,28 @@ impl ChatStreamEvent {
             _ => None,
         }
     }
+
+    /// Borrow a typed text delta from this event.
+    ///
+    /// This intentionally reads only the typed stream-part lane. Legacy transport-style deltas are
+    /// being removed from the public streaming model.
+    pub fn text_delta(&self) -> Option<&str> {
+        match self.part_ref() {
+            Some(ChatStreamPart::TextDelta { delta, .. }) => Some(delta.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Borrow a typed reasoning delta from this event.
+    ///
+    /// This intentionally reads only the typed stream-part lane. Legacy transport-style reasoning
+    /// deltas are being removed from the public streaming model.
+    pub fn reasoning_delta(&self) -> Option<&str> {
+        match self.part_ref() {
+            Some(ChatStreamPart::ReasoningDelta { delta, .. }) => Some(delta.as_str()),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -601,6 +623,41 @@ mod tests {
 
         let value = serde_json::to_value(&event).expect("serialize event");
         assert!(value.get("Part").is_some());
+    }
+
+    #[test]
+    fn stream_event_text_delta_reads_typed_part_only() {
+        let typed = ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "0".to_string(),
+                delta: "hello".to_string(),
+                provider_metadata: None,
+            },
+        };
+        let legacy = ChatStreamEvent::ContentDelta {
+            delta: "legacy".to_string(),
+            index: None,
+        };
+
+        assert_eq!(typed.text_delta(), Some("hello"));
+        assert_eq!(legacy.text_delta(), None);
+    }
+
+    #[test]
+    fn stream_event_reasoning_delta_reads_typed_part_only() {
+        let typed = ChatStreamEvent::Part {
+            part: ChatStreamPart::ReasoningDelta {
+                id: "0".to_string(),
+                delta: "think".to_string(),
+                provider_metadata: None,
+            },
+        };
+        let legacy = ChatStreamEvent::ThinkingDelta {
+            delta: "legacy".to_string(),
+        };
+
+        assert_eq!(typed.reasoning_delta(), Some("think"));
+        assert_eq!(legacy.reasoning_delta(), None);
     }
 
     #[test]

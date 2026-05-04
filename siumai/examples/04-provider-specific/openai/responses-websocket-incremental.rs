@@ -40,11 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             mut stream,
             cancel: _,
         } = inc.stream_next_with_cancel().await?;
-        let mut deltas = text::StreamDeltaExtractor::new();
-
         while let Some(item) = stream.next().await {
             let ev = item?;
-            if let Some(delta) = deltas.text_delta(&ev) {
+            if let Some(delta) = ev.text_delta() {
                 print!("{delta}");
             }
         }

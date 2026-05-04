@@ -33,10 +33,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ = async {
             let stream = handle.stream;
             futures::pin_mut!(stream);
-            let mut deltas = text::StreamDeltaExtractor::new();
             while let Some(event) = stream.next().await {
                 if let Ok(event) = event {
-                    if let Some(delta) = deltas.text_delta(&event) {
+                    if let Some(delta) = event.text_delta() {
                         print!("{}", delta);
                         std::io::Write::flush(&mut std::io::stdout()).ok();
                     }

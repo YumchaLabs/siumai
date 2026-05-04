@@ -32,8 +32,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
     let mut stream = text::stream(&model, request, text::StreamOptions::default()).await?;
-    let mut deltas = text::StreamDeltaExtractor::new();
-
     while let Some(ev) = stream.next().await {
         let ev = ev?;
         if let Some(custom) =
@@ -55,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        if let Some(delta) = deltas.text_delta(&ev) {
+        if let Some(delta) = ev.text_delta() {
             print!("{delta}");
             continue;
         }
