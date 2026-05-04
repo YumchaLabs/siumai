@@ -167,13 +167,19 @@ mod tests {
         ) -> Result<ChatStream, LlmError> {
             let end = crate::types::ChatResponse::new(MessageContent::Text("ok".to_string()));
             let events = vec![
-                Ok(ChatStreamEvent::ContentDelta {
-                    delta: "o".to_string(),
-                    index: None,
+                Ok(ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
+                        delta: "o".to_string(),
+                        provider_metadata: None,
+                    },
                 }),
-                Ok(ChatStreamEvent::ContentDelta {
-                    delta: "k".to_string(),
-                    index: None,
+                Ok(ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
+                        delta: "k".to_string(),
+                        provider_metadata: None,
+                    },
                 }),
                 Ok(ChatStreamEvent::StreamEnd { response: end }),
             ];
@@ -205,8 +211,11 @@ mod tests {
 
         let mut acc = String::new();
         while let Some(ev) = stream.next().await {
-            match ev.unwrap() {
-                ChatStreamEvent::ContentDelta { delta, .. } => acc.push_str(&delta),
+            let event = ev.unwrap();
+            if let Some(delta) = event.text_delta() {
+                acc.push_str(delta);
+            }
+            match event {
                 ChatStreamEvent::StreamEnd { response } => {
                     assert_eq!(response.content_text(), Some("ok"));
                 }

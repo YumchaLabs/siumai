@@ -107,13 +107,19 @@ mod tests {
             _request: CompletionRequest,
         ) -> Result<CompletionStream, LlmError> {
             let events = vec![
-                Ok(ChatStreamEvent::ContentDelta {
-                    delta: "o".to_string(),
-                    index: None,
+                Ok(ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
+                        delta: "o".to_string(),
+                        provider_metadata: None,
+                    },
                 }),
-                Ok(ChatStreamEvent::ContentDelta {
-                    delta: "k".to_string(),
-                    index: None,
+                Ok(ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
+                        delta: "k".to_string(),
+                        provider_metadata: None,
+                    },
                 }),
                 Ok(ChatStreamEvent::StreamEnd {
                     response: ChatResponse::empty_with_finish_reason(FinishReason::Stop),
@@ -142,8 +148,11 @@ mod tests {
 
         let mut text = String::new();
         while let Some(event) = stream.next().await {
-            match event.unwrap() {
-                ChatStreamEvent::ContentDelta { delta, .. } => text.push_str(&delta),
+            let event = event.unwrap();
+            if let Some(delta) = event.text_delta() {
+                text.push_str(delta);
+            }
+            match event {
                 ChatStreamEvent::StreamEnd { response } => {
                     assert_eq!(response.finish_reason, Some(FinishReason::Stop));
                 }

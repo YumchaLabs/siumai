@@ -49,27 +49,13 @@ pub fn chain_default_and_clamp() -> Vec<Arc<dyn LanguageModelMiddleware>> {
 /// Simulate streaming by chunking final text when provider emits no deltas.
 ///
 fn event_has_text_delta(event: &ChatStreamEvent) -> bool {
-    match event {
-        ChatStreamEvent::ContentDelta { .. } => true,
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta { .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::TextDelta { .. },
-            ..
-        } => true,
-        ChatStreamEvent::Custom { data, .. } => {
-            data.get("type").and_then(|value| value.as_str()) == Some("text-delta")
-        }
-        _ => false,
-    }
+    event.text_delta().is_some()
 }
 
-/// - If the underlying stream already emits text deltas on either the legacy or stable lane,
-///   events pass through unchanged.
+/// - If the underlying stream already emits typed text deltas, events pass through unchanged.
 /// - If the stream only emits a final `StreamEnd` with text, this middleware will
-///   synthesize `ContentDelta` events by splitting the text, optionally inserting delays,
-///   and then forward the original `StreamEnd`.
+///   synthesize typed text parts by splitting the text, optionally inserting delays, and then
+///   forward the original `StreamEnd`.
 #[derive(Clone)]
 pub struct SimulateStreamingMiddleware {
     chunk_size: usize,
@@ -107,12 +93,6 @@ impl LanguageModelMiddleware for SimulateStreamingMiddleware {
                             saw_text_delta = true;
                         }
                         match event {
-                            ChatStreamEvent::ContentDelta { delta, index } => {
-                                yield ChatStreamEvent::ContentDelta { delta, index };
-                            }
-                            ChatStreamEvent::UsageUpdate { usage } => {
-                                yield ChatStreamEvent::UsageUpdate { usage };
-                            }
                             ChatStreamEvent::StreamStart { .. } => {
                                 // pass through
                             }
@@ -130,6 +110,13 @@ impl LanguageModelMiddleware for SimulateStreamingMiddleware {
                         if !saw_text_delta {
                             let text = resp.content_text().map(|s| s.to_string()).unwrap_or_default();
                             if !text.is_empty() {
+                                let text_id = "simulate".to_string();
+                                yield ChatStreamEvent::Part {
+                                    part: ChatStreamPart::TextStart {
+                                        id: text_id.clone(),
+                                        provider_metadata: None,
+                                    },
+                                };
                                 let mut start = 0;
                                 while start < text.len() {
                                     let mut end = start;
@@ -150,10 +137,22 @@ impl LanguageModelMiddleware for SimulateStreamingMiddleware {
                                         }
                                     }
                                     let piece = text[start..end].to_string();
-                                    yield ChatStreamEvent::ContentDelta { delta: piece, index: None };
+                                    yield ChatStreamEvent::Part {
+                                        part: ChatStreamPart::TextDelta {
+                                            id: text_id.clone(),
+                                            delta: piece,
+                                            provider_metadata: None,
+                                        },
+                                    };
                                     if let Some(ms) = delay { tokio::time::sleep(std::time::Duration::from_millis(ms)).await; }
                                     start = end;
                                 }
+                                yield ChatStreamEvent::Part {
+                                    part: ChatStreamPart::TextEnd {
+                                        id: text_id,
+                                        provider_metadata: None,
+                                    },
+                                };
                             }
                         }
                         // Always forward the original StreamEnd
@@ -196,15 +195,29 @@ mod tests {
         let req = ChatRequest::new(vec![]);
         let s = wrapped(req).await.expect("stream");
         let evs: Vec<_> = s.collect().await;
-        // Expect deltas: he, ll, o then StreamEnd
+        // Expect typed deltas: he, ll, o then StreamEnd
         let deltas: Vec<String> = evs
             .iter()
-            .filter_map(|e| match e {
-                Ok(ChatStreamEvent::ContentDelta { delta, .. }) => Some(delta.clone()),
-                _ => None,
-            })
+            .filter_map(|e| e.as_ref().ok().and_then(ChatStreamEvent::text_delta))
+            .map(str::to_string)
             .collect();
         assert_eq!(deltas, vec!["he", "ll", "o"]);
+        assert!(evs.iter().any(|e| {
+            matches!(
+                e,
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextStart { id, .. },
+                }) if id == "simulate"
+            )
+        }));
+        assert!(evs.iter().any(|e| {
+            matches!(
+                e,
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextEnd { id, .. },
+                }) if id == "simulate"
+            )
+        }));
         assert!(
             evs.iter()
                 .any(|e| matches!(e, Ok(ChatStreamEvent::StreamEnd { .. })))
@@ -217,7 +230,13 @@ mod tests {
         let base: Arc<StreamAsyncFn> = Arc::new(|_req: ChatRequest| {
             Box::pin(async move {
                 let s = async_stream::try_stream! {
-                    yield ChatStreamEvent::ContentDelta{ delta: "a".into(), index: None };
+                    yield ChatStreamEvent::Part {
+                        part: ChatStreamPart::TextDelta {
+                            id: "txt_1".into(),
+                            delta: "a".into(),
+                            provider_metadata: None,
+                        }
+                    };
                     yield ChatStreamEvent::StreamEnd { response: crate::types::ChatResponse::new(crate::types::MessageContent::Text("ab".into())) };
                 };
                 Ok(Box::pin(s) as crate::streaming::ChatStream)
@@ -229,11 +248,11 @@ mod tests {
         let s = wrapped(req).await.expect("stream");
         let evs: Vec<_> = s.collect().await;
         // Should only see original one delta, not split into more
-        let delta_count = evs
+        let deltas: Vec<_> = evs
             .iter()
-            .filter(|e| matches!(e, Ok(ChatStreamEvent::ContentDelta { .. })))
-            .count();
-        assert_eq!(delta_count, 1);
+            .filter_map(|e| e.as_ref().ok().and_then(ChatStreamEvent::text_delta))
+            .collect();
+        assert_eq!(deltas, vec!["a"]);
     }
 
     #[tokio::test]
@@ -263,10 +282,6 @@ mod tests {
         let s = wrapped(req).await.expect("stream");
         let evs: Vec<_> = s.collect().await;
 
-        let content_delta_count = evs
-            .iter()
-            .filter(|e| matches!(e, Ok(ChatStreamEvent::ContentDelta { .. })))
-            .count();
         let text_part_count = evs
             .iter()
             .filter(|e| {
@@ -279,7 +294,6 @@ mod tests {
             })
             .count();
 
-        assert_eq!(content_delta_count, 0);
         assert_eq!(text_part_count, 1);
         assert!(
             evs.iter()

@@ -6,9 +6,7 @@
 
 use crate::error::LlmError;
 use crate::streaming::{ChatStream, StreamProcessor};
-use crate::types::{
-    ChatResponse, ChatStreamEvent, ChatStreamPart, ContentPart, FinishReason, MessageContent,
-};
+use crate::types::{ChatResponse, ChatStreamEvent, ContentPart, FinishReason, MessageContent};
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
 
@@ -406,17 +404,7 @@ pub fn parse_partial_json(json_text: Option<&str>) -> PartialJsonParseResult {
 }
 
 fn text_delta_from_stream_event(event: &ChatStreamEvent) -> Option<&str> {
-    match event {
-        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta),
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta { delta, .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::TextDelta { delta, .. },
-            ..
-        } => Some(delta),
-        _ => None,
-    }
+    event.text_delta()
 }
 
 fn partial_json_event_if_changed(
@@ -858,9 +846,19 @@ pub fn extract_json_from_response<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ChatResponse, MessageContent, Usage};
+    use crate::types::{ChatResponse, ChatStreamPart, MessageContent, Usage};
     use futures::StreamExt;
     use serde::Deserialize;
+
+    fn text_delta_event(delta: impl Into<String>) -> Result<ChatStreamEvent, LlmError> {
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "txt_1".to_string(),
+                delta: delta.into(),
+                provider_metadata: None,
+            },
+        })
+    }
 
     #[test]
     fn fix_partial_json_matches_ai_sdk_scalar_repairs() {
@@ -928,18 +926,9 @@ mod tests {
     #[tokio::test]
     async fn partial_json_value_stream_emits_changed_partials_and_finish() {
         let events = vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: r#"{"foo":"#.to_string(),
-                index: Some(0),
-            }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "1".to_string(),
-                index: Some(0),
-            }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "}".to_string(),
-                index: Some(0),
-            }),
+            text_delta_event(r#"{"foo":"#),
+            text_delta_event("1"),
+            text_delta_event("}"),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text(r#"{"foo":1}"#.to_string())),
             }),
@@ -1047,12 +1036,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extracts_json_from_stream_content_deltas() {
+    async fn extracts_json_from_stream_text_delta_parts() {
         let events = vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "{\"value\":\"ok\"}".to_string(),
-                index: Some(0),
-            }),
+            text_delta_event("{\"value\":\"ok\"}"),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("{\"value\":\"ok\"}".to_string())),
             }),
@@ -1063,12 +1049,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extracts_json_from_unknown_stream_end_using_accumulated_deltas() {
+    async fn extracts_json_from_unknown_stream_end_using_accumulated_text_parts() {
         let events = vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "{\"value\":\"ok\"}".to_string(),
-                index: Some(0),
-            }),
+            text_delta_event("{\"value\":\"ok\"}"),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::empty_with_finish_reason(FinishReason::Unknown),
             }),
@@ -1101,10 +1084,6 @@ mod tests {
         };
 
         let events = vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "{\"value\":\"ok\"}".to_string(),
-                index: Some(0),
-            }),
             Ok(ChatStreamEvent::Part {
                 part: crate::types::ChatStreamPart::TextDelta {
                     id: "0".to_string(),
@@ -1192,10 +1171,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_truncated_json_when_stream_ends_without_stream_end_event() {
-        let events = vec![Ok(ChatStreamEvent::ContentDelta {
-            delta: "{\"value\":".to_string(),
-            index: Some(0),
-        })];
+        let events = vec![text_delta_event("{\"value\":")];
         let stream = Box::pin(futures::stream::iter(events));
 
         let err = extract_json_value_from_stream(stream)
@@ -1210,12 +1186,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_truncated_json_when_unknown_stream_end_uses_accumulated_deltas() {
+    async fn rejects_truncated_json_when_unknown_stream_end_uses_accumulated_text_parts() {
         let events = vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "{\"value\":".to_string(),
-                index: Some(0),
-            }),
+            text_delta_event("{\"value\":"),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::empty_with_finish_reason(FinishReason::Unknown),
             }),
@@ -1235,10 +1208,7 @@ mod tests {
 
     #[tokio::test]
     async fn accepts_complete_json_when_stream_ends_without_stream_end_event() {
-        let events = vec![Ok(ChatStreamEvent::ContentDelta {
-            delta: "{\"value\":\"ok\"}".to_string(),
-            index: Some(0),
-        })];
+        let events = vec![text_delta_event("{\"value\":\"ok\"}")];
         let stream = Box::pin(futures::stream::iter(events));
 
         let v = extract_json_value_from_stream(stream).await.expect("parse");
