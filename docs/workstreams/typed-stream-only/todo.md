@@ -18,6 +18,7 @@
 ## Milestone 3 - Consumers
 
 - [x] Update stream simulation middleware to synthesize typed text parts.
+- [x] Update Axum text/SSE helpers to consume typed parts.
 - [ ] Update `StreamProcessor` to aggregate typed parts only.
 - [ ] Update structured-output stream parsing to consume typed text and typed tool input parts.
 - [ ] Update gateway SSE rendering to consume typed parts only.

@@ -29,9 +29,9 @@ struct SsePartEnvelope<'a> {
 /// Controls which events are included in the SSE stream and how errors are handled.
 #[derive(Debug, Clone)]
 pub struct SseOptions {
-    /// Whether to include usage updates frames.
+    /// Whether to include legacy usage update frames.
     ///
-    /// When `true`, emits `event: usage` with token usage information.
+    /// Typed `finish` parts are emitted through the stable `event: part` envelope.
     /// Default: `true`
     pub include_usage: bool,
 
@@ -150,42 +150,9 @@ pub fn to_sse_response(
                     None
                 }
             }
-            Ok(ChatStreamEvent::ContentDelta { delta, index }) => {
-                let data = serde_json::json!({"delta": delta, "index": index});
-                let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
-                Some(Event::default().event("delta").data(data_str))
-            }
-            Ok(ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name,
-                arguments_delta,
-                index,
-            }) => {
-                let data = serde_json::json!({
-                    "id": id,
-                    "name": function_name,
-                    "arguments_delta": arguments_delta,
-                    "index": index
-                });
-                let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
-                Some(Event::default().event("tool").data(data_str))
-            }
-            Ok(ChatStreamEvent::ThinkingDelta { delta }) => {
-                let data = serde_json::json!({"delta": delta});
-                let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
-                Some(Event::default().event("reasoning").data(data_str))
-            }
             Ok(ChatStreamEvent::Part { part }) => Some(encode_part_event(&part, None)),
             Ok(ChatStreamEvent::PartWithReplay { part, replay }) => {
                 Some(encode_part_event(&part, Some(&replay)))
-            }
-            Ok(ChatStreamEvent::UsageUpdate { usage }) => {
-                if opts.include_usage {
-                    let data = serde_json::to_string(&usage).unwrap_or_else(|_| "{}".to_string());
-                    Some(Event::default().event("usage").data(data))
-                } else {
-                    None
-                }
             }
             Ok(ChatStreamEvent::StreamEnd { response }) => {
                 if opts.include_end {
@@ -214,6 +181,7 @@ pub fn to_sse_response(
                 let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
                 Some(Event::default().event(&event_type).data(data_str))
             }
+            Ok(_) => None,
             Err(e) => {
                 let msg = if opts.mask_errors {
                     opts.masked_error_message
@@ -243,14 +211,9 @@ pub fn to_text_stream(
 ) -> Pin<Box<dyn Stream<Item = Result<String, Infallible>> + Send>> {
     let text_stream = stream.filter_map(|item| async move {
         match item {
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) => Some(Ok(delta)),
-            Ok(ChatStreamEvent::Part {
-                part: siumai::prelude::unified::ChatStreamPart::TextDelta { delta, .. },
-            })
-            | Ok(ChatStreamEvent::PartWithReplay {
-                part: siumai::prelude::unified::ChatStreamPart::TextDelta { delta, .. },
-                ..
-            }) => Some(Ok(delta)),
+            Ok(event) if event.text_delta().is_some() => {
+                Some(Ok(event.text_delta().expect("checked").to_string()))
+            }
             Ok(ChatStreamEvent::Error { error }) => Some(Ok(format!("\n[Error: {}]\n", error))),
             Err(e) => Some(Ok(format!("\n[Error: {}]\n", e.user_message()))),
             _ => None,
@@ -303,6 +266,16 @@ mod tests {
         String::from_utf8(body.to_vec()).expect("utf8")
     }
 
+    fn text_delta(delta: impl Into<String>) -> ChatStreamEvent {
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "txt_1".to_string(),
+                delta: delta.into(),
+                provider_metadata: None,
+            },
+        }
+    }
+
     #[tokio::test]
     async fn test_to_sse_response_basic() {
         let events = vec![
@@ -317,16 +290,17 @@ mod tests {
                     body: None,
                 },
             }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "Hello".to_string(),
-                index: Some(0),
-            }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: " world".to_string(),
-                index: Some(0),
-            }),
-            Ok(ChatStreamEvent::UsageUpdate {
-                usage: Usage::new(1, 2),
+            Ok(text_delta("Hello")),
+            Ok(text_delta(" world")),
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish {
+                    usage: Usage::new(1, 2),
+                    finish_reason: siumai::prelude::unified::ChatStreamFinishInfo {
+                        unified: siumai::prelude::unified::FinishReason::Stop,
+                        raw: Some("stop".to_string()),
+                    },
+                    provider_metadata: None,
+                },
             }),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("Hello world".to_string())),
@@ -336,23 +310,15 @@ mod tests {
         let chat_stream: ChatStream = Box::pin(stream::iter(events));
         let text = sse_body_text(chat_stream, SseOptions::default()).await;
         assert!(text.contains("event: start"));
-        assert!(text.contains("event: delta"));
-        assert!(text.contains("event: usage"));
+        assert!(text.contains("event: part"));
+        assert!(text.contains(r#""type":"text-delta""#));
+        assert!(text.contains(r#""type":"finish""#));
         assert!(text.contains("event: end"));
     }
 
     #[tokio::test]
     async fn test_to_text_stream_basic() {
-        let events = vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "Hello".to_string(),
-                index: None,
-            }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: " world".to_string(),
-                index: None,
-            }),
-        ];
+        let events = vec![Ok(text_delta("Hello")), Ok(text_delta(" world"))];
 
         let chat_stream: ChatStream = Box::pin(stream::iter(events));
         let mut text_stream = to_text_stream(chat_stream);
@@ -366,16 +332,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_to_text_stream_response_sets_text_plain_header() {
-        let events = vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "Hello".to_string(),
-                index: None,
-            }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: " world".to_string(),
-                index: None,
-            }),
-        ];
+        let events = vec![Ok(text_delta("Hello")), Ok(text_delta(" world"))];
 
         let chat_stream: ChatStream = Box::pin(stream::iter(events));
         let response = to_text_stream_response(chat_stream);
@@ -396,10 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_to_text_stream_response_with_options_preserves_custom_headers() {
-        let events = vec![Ok(ChatStreamEvent::ContentDelta {
-            delta: "Accepted".to_string(),
-            index: None,
-        })];
+        let events = vec![Ok(text_delta("Accepted"))];
         let mut headers = HeaderMap::new();
         headers.insert("x-test", HeaderValue::from_static("ok"));
 
