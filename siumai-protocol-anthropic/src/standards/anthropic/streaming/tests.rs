@@ -33,10 +33,11 @@ async fn test_anthropic_streaming_conversion() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = result.first() {
-        assert_eq!(delta, "Hello");
-    } else {
-        panic!("Expected ContentDelta event");
+    match stream_part(result.first().expect("event")).expect("text part") {
+        crate::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+            assert_eq!(delta, "Hello");
+        }
+        other => panic!("Expected TextDelta part, got {other:?}"),
     }
 }
 

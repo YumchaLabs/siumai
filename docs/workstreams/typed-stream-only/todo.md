@@ -15,6 +15,7 @@
 - [ ] Replace `EventBuilder::add_tool_call_delta` with typed tool input/call parts or remove it.
 - [ ] Audit `UsageUpdate` and route usage through `ChatStreamPart::Finish` or a typed usage part.
 - [x] Move Gemini stream parser off legacy text/reasoning/tool/usage shadow events.
+- [x] Move Anthropic stream parser off legacy text/reasoning/usage shadow events.
 
 ## Milestone 3 - Consumers
 

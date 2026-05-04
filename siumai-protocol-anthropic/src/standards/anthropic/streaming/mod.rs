@@ -874,6 +874,44 @@ impl AnthropicEventConverter {
         }
     }
 
+    fn add_text_delta_part(
+        builder: crate::streaming::EventBuilder,
+        index: Option<usize>,
+        delta: String,
+        provider_metadata: Option<crate::types::StreamProviderMetadata>,
+    ) -> crate::streaming::EventBuilder {
+        if delta.is_empty() {
+            return builder;
+        }
+
+        builder.add_part(ChatStreamPart::TextDelta {
+            id: index
+                .map(|idx| idx.to_string())
+                .unwrap_or_else(|| "text".to_string()),
+            delta,
+            provider_metadata,
+        })
+    }
+
+    fn add_reasoning_delta_part(
+        builder: crate::streaming::EventBuilder,
+        index: Option<usize>,
+        delta: String,
+        provider_metadata: Option<crate::types::StreamProviderMetadata>,
+    ) -> crate::streaming::EventBuilder {
+        if delta.is_empty() {
+            return builder;
+        }
+
+        builder.add_part(ChatStreamPart::ReasoningDelta {
+            id: index
+                .map(|idx| idx.to_string())
+                .unwrap_or_else(|| "reasoning".to_string()),
+            delta,
+            provider_metadata,
+        })
+    }
+
     fn vercel_json_tool_text_start_event(id: usize, tool_call_id: &str) -> ChatStreamEvent {
         ChatStreamEvent::Part {
             part: ChatStreamPart::TextStart {
@@ -1608,15 +1646,15 @@ impl AnthropicEventConverter {
                                 if let Some(idx) = event.index
                                     && self.get_content_block_type(idx).as_deref() == Some("text")
                                 {
-                                    builder = builder.add_part(ChatStreamPart::TextDelta {
-                                        id: idx.to_string(),
-                                        delta: text,
-                                        provider_metadata: Some(
-                                            Self::anthropic_content_block_provider_metadata(idx),
-                                        ),
-                                    });
+                                    builder = Self::add_text_delta_part(
+                                        builder,
+                                        Some(idx),
+                                        text,
+                                        Some(Self::anthropic_content_block_provider_metadata(idx)),
+                                    );
                                 } else {
-                                    builder = builder.add_content_delta(text, None);
+                                    builder =
+                                        Self::add_text_delta_part(builder, event.index, text, None);
                                 }
                             }
                         }
@@ -1632,7 +1670,12 @@ impl AnthropicEventConverter {
                                         ),
                                     });
                                 } else {
-                                    builder = builder.add_thinking_delta(thinking);
+                                    builder = Self::add_reasoning_delta_part(
+                                        builder,
+                                        event.index,
+                                        thinking,
+                                        None,
+                                    );
                                 }
                             }
                         }
@@ -1651,7 +1694,12 @@ impl AnthropicEventConverter {
                                         ),
                                     });
                                 } else {
-                                    builder = builder.add_content_delta(content, None);
+                                    builder = Self::add_text_delta_part(
+                                        builder,
+                                        Some(idx),
+                                        content,
+                                        Some(Self::anthropic_content_block_provider_metadata(idx)),
+                                    );
                                 }
                             }
                         }
@@ -1848,9 +1896,6 @@ impl AnthropicEventConverter {
                                     });
                                     if self.should_stream_json_tool_as_text() {
                                         self.append_text_content(idx, &partial_json);
-                                    } else {
-                                        builder =
-                                            builder.add_content_delta(partial_json.clone(), None);
                                     }
                                 } else if let Ok(map) = self.tool_use_ids_by_index.lock()
                                     && let Some(tool_call_id) = map.get(&idx)
@@ -1876,15 +1921,15 @@ impl AnthropicEventConverter {
                                 if let Some(idx) = event.index
                                     && self.get_content_block_type(idx).as_deref() == Some("text")
                                 {
-                                    builder = builder.add_part(ChatStreamPart::TextDelta {
-                                        id: idx.to_string(),
-                                        delta: text,
-                                        provider_metadata: Some(
-                                            Self::anthropic_content_block_provider_metadata(idx),
-                                        ),
-                                    });
+                                    builder = Self::add_text_delta_part(
+                                        builder,
+                                        Some(idx),
+                                        text,
+                                        Some(Self::anthropic_content_block_provider_metadata(idx)),
+                                    );
                                 } else {
-                                    builder = builder.add_content_delta(text, None);
+                                    builder =
+                                        Self::add_text_delta_part(builder, event.index, text, None);
                                 }
                             }
                             if let Some(thinking) = delta.thinking {
@@ -1894,7 +1939,15 @@ impl AnthropicEventConverter {
                                 {
                                     self.append_thinking_content(idx, &thinking);
                                 }
-                                builder = builder.add_thinking_delta(thinking);
+                                let provider_metadata = event
+                                    .index
+                                    .map(Self::anthropic_content_block_provider_metadata);
+                                builder = Self::add_reasoning_delta_part(
+                                    builder,
+                                    event.index,
+                                    thinking,
+                                    provider_metadata,
+                                );
                             }
                             if let Some(partial_json) = delta.partial_json
                                 && !partial_json.is_empty()
@@ -1920,10 +1973,6 @@ impl AnthropicEventConverter {
                                         delta: partial_json.clone(),
                                         provider_metadata: Some(provider_metadata),
                                     });
-                                    if !self.should_stream_json_tool_as_text() {
-                                        builder =
-                                            builder.add_content_delta(partial_json.clone(), None);
-                                    }
                                 } else if let Ok(map) = self.tool_use_ids_by_index.lock()
                                     && let Some(tool_call_id) = map.get(&idx)
                                 {
@@ -2090,33 +2139,12 @@ impl AnthropicEventConverter {
                     && let Some(thinking) = &delta.thinking
                     && !thinking.is_empty()
                 {
-                    builder = builder.add_thinking_delta(thinking.clone());
+                    builder = Self::add_reasoning_delta_part(builder, None, thinking.clone(), None);
                 }
 
                 // Usage update
                 if let Some(usage) = &event.usage {
                     self.merge_vercel_usage(usage);
-
-                    let usage_update = self
-                        .current_vercel_usage()
-                        .as_ref()
-                        .and_then(|raw| super::utils::create_usage_from_json_value(Some(raw)))
-                        .or_else(|| {
-                            let prompt_tokens = usage
-                                .get("input_tokens")
-                                .and_then(|v| v.as_u64())
-                                .and_then(|v| u32::try_from(v).ok())
-                                .unwrap_or(0);
-                            let completion_tokens = usage
-                                .get("output_tokens")
-                                .and_then(|v| v.as_u64())
-                                .and_then(|v| u32::try_from(v).ok())
-                                .unwrap_or(0);
-                            Some(Usage::new(prompt_tokens, completion_tokens))
-                        });
-                    if let Some(usage_update) = usage_update {
-                        builder = builder.add_usage_update(usage_update);
-                    }
                 }
 
                 if let Some(cm) = event
