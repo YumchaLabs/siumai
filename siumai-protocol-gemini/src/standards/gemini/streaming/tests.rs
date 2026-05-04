@@ -55,6 +55,19 @@ fn stream_end_usage(events: &[Result<ChatStreamEvent, crate::error::LlmError>]) 
     })
 }
 
+fn finish_part_event(usage: Usage) -> ChatStreamEvent {
+    ChatStreamEvent::Part {
+        part: crate::types::ChatStreamPart::Finish {
+            usage,
+            finish_reason: crate::types::ChatStreamFinishInfo {
+                unified: FinishReason::Stop,
+                raw: Some("STOP".to_string()),
+            },
+            provider_metadata: None,
+        },
+    }
+}
+
 #[tokio::test]
 async fn test_gemini_streaming_conversion() {
     let config = create_test_config();
@@ -1014,13 +1027,16 @@ fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
 }
 
 #[tokio::test]
-async fn gemini_stream_proxy_serializes_content_delta() {
+async fn gemini_stream_proxy_serializes_typed_text_delta() {
     let converter = GeminiEventConverter::new(create_test_config());
 
     let bytes = converter
-        .serialize_event(&ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextDelta {
+                id: "text_1".to_string(),
+                delta: "Hello".to_string(),
+                provider_metadata: None,
+            },
         })
         .expect("serialize ok");
     let frames = parse_sse_json_frames(&bytes);
@@ -1071,12 +1087,16 @@ fn gemini_serializes_direct_text_delta_part_with_thought_signature() {
 }
 
 #[tokio::test]
-async fn gemini_stream_proxy_serializes_thinking_delta() {
+async fn gemini_stream_proxy_serializes_typed_reasoning_delta() {
     let converter = GeminiEventConverter::new(create_test_config());
 
     let bytes = converter
-        .serialize_event(&ChatStreamEvent::ThinkingDelta {
-            delta: "think".to_string(),
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningDelta {
+                id: "rs_1".to_string(),
+                delta: "think".to_string(),
+                provider_metadata: None,
+            },
         })
         .expect("serialize ok");
     let frames = parse_sse_json_frames(&bytes);
@@ -1104,17 +1124,17 @@ async fn gemini_stream_proxy_serializes_thinking_delta() {
 }
 
 #[tokio::test]
-async fn gemini_stream_proxy_serializes_usage_update() {
+async fn gemini_stream_proxy_serializes_finish_part_usage() {
     let converter = GeminiEventConverter::new(create_test_config());
 
     let bytes = converter
-        .serialize_event(&ChatStreamEvent::UsageUpdate {
-            usage: Usage::builder()
+        .serialize_event(&finish_part_event(
+            Usage::builder()
                 .prompt_tokens(3)
                 .completion_tokens(5)
                 .total_tokens(8)
                 .build(),
-        })
+        ))
         .expect("serialize ok");
     let frames = parse_sse_json_frames(&bytes);
     assert_eq!(frames.len(), 1);
@@ -1135,12 +1155,11 @@ async fn gemini_stream_proxy_serializes_usage_update() {
             .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
     );
 
-    let finish = converter.convert_event(finish_event()).await;
-    let usage = finish_part_usage(&finish).expect("finish usage");
+    let usage = finish_part_usage(&out).expect("finish usage");
     assert_eq!(usage.prompt_tokens(), Some(3));
     assert_eq!(usage.completion_tokens(), Some(5));
     assert_eq!(usage.total_tokens(), Some(8));
-    let response_usage = stream_end_usage(&finish).expect("stream-end usage");
+    let response_usage = stream_end_usage(&out).expect("stream-end usage");
     assert_eq!(response_usage.prompt_tokens(), Some(3));
 }
 
@@ -1149,8 +1168,8 @@ async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals(
     let converter = GeminiEventConverter::new(create_test_config());
 
     let bytes = converter
-        .serialize_event(&ChatStreamEvent::UsageUpdate {
-            usage: Usage::builder()
+        .serialize_event(&finish_part_event(
+            Usage::builder()
                 .with_raw_usage_value(serde_json::json!({
                     "trafficType": "ON_DEMAND",
                     "promptTokensDetails": [
@@ -1162,7 +1181,7 @@ async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals(
                     ]
                 }))
                 .build(),
-        })
+        ))
         .expect("serialize ok");
     let frames = parse_sse_json_frames(&bytes);
     assert_eq!(frames.len(), 1);
@@ -1200,8 +1219,7 @@ async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals(
             .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
     );
 
-    let finish = converter.convert_event(finish_event()).await;
-    let usage = finish_part_usage(&finish).expect("finish usage");
+    let usage = finish_part_usage(&out).expect("finish usage");
     assert!(usage.prompt_tokens_value().is_none());
     assert!(usage.completion_tokens_value().is_none());
     assert!(usage.total_tokens_value().is_none());
@@ -1236,14 +1254,14 @@ async fn gemini_stream_proxy_preserves_raw_cached_content_counts() {
     let converter = GeminiEventConverter::new(create_test_config());
 
     let bytes = converter
-        .serialize_event(&ChatStreamEvent::UsageUpdate {
-            usage: Usage::builder()
+        .serialize_event(&finish_part_event(
+            Usage::builder()
                 .with_raw_usage_value(serde_json::json!({
                     "cachedContentTokenCount": 5,
                     "trafficType": "ON_DEMAND"
                 }))
                 .build(),
-        })
+        ))
         .expect("serialize ok");
     let frames = parse_sse_json_frames(&bytes);
     assert_eq!(
@@ -1263,8 +1281,7 @@ async fn gemini_stream_proxy_preserves_raw_cached_content_counts() {
             .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
     );
 
-    let finish = converter.convert_event(finish_event()).await;
-    let usage = finish_part_usage(&finish).expect("finish usage");
+    let usage = finish_part_usage(&out).expect("finish usage");
     assert_eq!(usage.normalized_input_tokens().cache_read, Some(5));
     assert_eq!(
         usage
@@ -1488,18 +1505,33 @@ fn gemini_serializes_direct_error_part_as_error_chunk() {
 }
 
 #[test]
-fn gemini_serializes_tool_call_delta_as_function_call_part() {
+fn gemini_serializes_typed_tool_input_as_function_call_part() {
     let config = create_test_config();
     let converter = GeminiEventConverter::new(config);
 
-    let bytes = converter
-        .serialize_event(&ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: Some("get_weather".to_string()),
-            arguments_delta: Some(r#"{"city":"Tokyo"}"#.to_string()),
-            index: None,
+    let start_bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputStart {
+                id: "call_1".to_string(),
+                tool_name: "get_weather".to_string(),
+                provider_metadata: None,
+                provider_executed: None,
+                dynamic: None,
+                title: None,
+            },
         })
-        .expect("serialize tool call delta");
+        .expect("serialize tool input start");
+    assert!(start_bytes.is_empty());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputDelta {
+                id: "call_1".to_string(),
+                delta: r#"{"city":"Tokyo"}"#.to_string(),
+                provider_metadata: None,
+            },
+        })
+        .expect("serialize tool input delta");
 
     let text = String::from_utf8(bytes).expect("utf8");
     let json_line = text
@@ -1721,7 +1753,7 @@ fn gemini_serializes_provider_executed_code_execution_tool_call_as_executable_co
 }
 
 #[test]
-fn gemini_serializes_reasoning_metadata_through_thinking_delta_without_duplicate_chunk() {
+fn gemini_serializes_reasoning_metadata_through_typed_reasoning_delta() {
     let config = create_test_config();
     let converter = GeminiEventConverter::new(config);
 
@@ -1751,42 +1783,12 @@ fn gemini_serializes_reasoning_metadata_through_thinking_delta_without_duplicate
             },
         })
         .expect("serialize reasoning-delta");
-    assert!(
-        delta_bytes.is_empty(),
-        "reasoning-delta should wait for the paired ThinkingDelta"
-    );
 
-    let duplicate_custom_delta_bytes = converter
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "gemini:reasoning".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-delta",
-                "id": "rs_1",
-                "delta": "thinking...",
-                "providerMetadata": {
-                    "google": {
-                        "thoughtSignature": "stream_sig"
-                    }
-                }
-            }),
-        })
-        .expect("serialize duplicate reasoning-delta custom event");
-    assert!(
-        duplicate_custom_delta_bytes.is_empty(),
-        "duplicate reasoning-delta custom event should be suppressed after the typed part"
-    );
-
-    let thinking_bytes = converter
-        .serialize_event(&ChatStreamEvent::ThinkingDelta {
-            delta: "thinking...".to_string(),
-        })
-        .expect("serialize ThinkingDelta");
-
-    let frames = parse_sse_json_frames(&thinking_bytes);
+    let frames = parse_sse_json_frames(&delta_bytes);
     assert_eq!(
         frames.len(),
         1,
-        "expected one reasoning chunk after suppression"
+        "expected one reasoning chunk from the typed delta"
     );
     assert_eq!(
         frames[0]["candidates"][0]["content"]["parts"][0]["thought"],

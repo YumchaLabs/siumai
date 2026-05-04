@@ -32,16 +32,7 @@ struct GeminiFunctionCallSerializeState {
 struct GeminiSerializeState {
     function_calls_by_id: std::collections::HashMap<String, GeminiFunctionCallSerializeState>,
     active_reasoning_provider_metadata: Option<SharedV3ProviderMetadata>,
-    pending_reasoning_chunk: Option<GeminiPendingReasoningSerializeState>,
-    expect_reasoning_delta_custom_duplicate: bool,
-    last_v3_text_delta: Option<String>,
     terminal_emitted: bool,
-}
-
-#[derive(Debug, Default, Clone)]
-struct GeminiPendingReasoningSerializeState {
-    delta: String,
-    provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
 /// Gemini stream response structure

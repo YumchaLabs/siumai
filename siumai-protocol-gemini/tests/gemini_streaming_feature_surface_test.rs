@@ -159,7 +159,7 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
 }
 
 #[tokio::test]
-async fn gemini_public_feature_surface_preserves_reasoning_metadata_without_duplicate_chunk() {
+async fn gemini_public_feature_surface_preserves_reasoning_metadata_from_typed_delta() {
     let encoder = GeminiEventConverter::new(create_test_config());
 
     let start_bytes = encoder
@@ -183,22 +183,12 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_without_dupl
             },
         })
         .expect("serialize reasoning-delta");
-    let thinking_bytes = encoder
-        .serialize_event(&ChatStreamEvent::ThinkingDelta {
-            delta: "thinking...".to_string(),
-        })
-        .expect("serialize ThinkingDelta");
-
     assert!(
         start_bytes.is_empty(),
         "reasoning-start should not emit a standalone chunk"
     );
-    assert!(
-        delta_bytes.is_empty(),
-        "reasoning-delta should wait for the paired ThinkingDelta"
-    );
 
-    let frames = parse_sse_json_frames(&thinking_bytes);
+    let frames = parse_sse_json_frames(&delta_bytes);
     assert_eq!(frames.len(), 1);
     assert_eq!(
         frames[0]["candidates"][0]["content"]["parts"][0]["thought"],
