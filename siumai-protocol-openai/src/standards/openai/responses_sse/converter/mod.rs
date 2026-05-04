@@ -25,7 +25,6 @@ mod sse;
 /// OpenAI Responses SSE event converter using unified streaming utilities
 #[derive(Clone)]
 pub struct OpenAiResponsesEventConverter {
-    function_call_ids_by_output_index: Arc<Mutex<HashMap<u64, String>>>,
     function_call_meta_by_item_id: Arc<Mutex<HashMap<String, (String, String)>>>,
     emitted_function_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_function_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
@@ -113,7 +112,6 @@ pub(super) struct OpenAiResponsesEventExtras {
 impl Default for OpenAiResponsesEventConverter {
     fn default() -> Self {
         Self {
-            function_call_ids_by_output_index: Arc::new(Mutex::new(HashMap::new())),
             function_call_meta_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             emitted_function_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_function_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),

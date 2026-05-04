@@ -784,147 +784,10 @@ pub(super) fn serialize_event(
             });
             sse_event_frame("response.created", &payload)
         }
-        crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
-            if state.last_v3_text_delta.as_deref() == Some(delta.as_str()) {
-                state.last_v3_text_delta = None;
-                return Ok(Vec::new());
-            }
-            state.last_v3_text_delta = None;
-            state.last_v3_reasoning_delta = None;
-
-            maybe_emit_response_created(this, &mut state)?;
-            let (response_id, _, _) = ensure_response_metadata(this, &mut state);
-            let (item_id, output_index) =
-                ensure_message_item(&mut state, None, Some(response_id.as_str()), false);
-            let mut out = ensure_message_scaffold_emitted(&mut state, &item_id, output_index)?;
-
-            state.message.text.push_str(delta);
-            let payload = serde_json::json!({
-                "type": "response.output_text.delta",
-                "sequence_number": next_sequence_number(&mut state),
-                "item_id": item_id,
-                "output_index": output_index,
-                "content_index": state.message.content_index,
-                "delta": delta,
-                "logprobs": [],
-            });
-            out.extend_from_slice(&sse_event_frame("response.output_text.delta", &payload)?);
-            Ok(out)
-        }
-        crate::streaming::ChatStreamEvent::ToolCallDelta {
-            id,
-            function_name,
-            arguments_delta,
-            index,
-        } => {
-            state.last_v3_text_delta = None;
-            state.last_v3_reasoning_delta = None;
-
-            maybe_emit_response_created(this, &mut state)?;
-            ensure_response_metadata(this, &mut state);
-
-            // Map ToolCallDelta into Responses-style function_call item + arguments deltas.
-            // This aligns better with real `response.output_item.added` + `response.function_call_arguments.delta`.
-            let mut emit_added: Option<(String, u64, String, String)> = None;
-            let mut emit_args_delta: Option<(String, u64, String)> = None;
-
-            {
-                let output_index_fallback = index
-                    .map(|i| i as u64)
-                    .filter(|idx| !state.used_output_indices.contains(idx));
-                let call = ensure_function_call_state(&mut state, id, output_index_fallback, None);
-
-                if let Some(name) = function_name.clone()
-                    && call.name.is_none()
-                {
-                    call.name = Some(name);
-                    emit_added = Some((
-                        call.item_id.clone(),
-                        call.output_index,
-                        id.clone(),
-                        call.name.clone().unwrap_or_else(|| "tool".to_string()),
-                    ));
-                }
-
-                if let Some(delta) = arguments_delta.clone() {
-                    call.arguments.push_str(&delta);
-                    emit_args_delta = Some((call.item_id.clone(), call.output_index, delta));
-                }
-            }
-
-            let mut out = Vec::new();
-            if let Some((item_id, output_index, call_id, name)) = emit_added {
-                let item = build_function_call_item(&item_id, &call_id, &name, "in_progress", "");
-                if let Some(added) = emit_deduped_output_item_frame(
-                    &mut state,
-                    "response.output_item.added",
-                    output_index,
-                    item,
-                )? {
-                    out.extend_from_slice(&added);
-                }
-            }
-
-            if let Some((item_id, output_index, delta)) = emit_args_delta {
-                out.extend_from_slice(&emit_function_call_arguments_delta_frame(
-                    &mut state,
-                    &item_id,
-                    output_index,
-                    &delta,
-                )?);
-            }
-
-            Ok(out)
-        }
-        crate::streaming::ChatStreamEvent::ThinkingDelta { delta } => {
-            if state.last_v3_reasoning_delta.as_deref() == Some(delta.as_str()) {
-                state.last_v3_reasoning_delta = None;
-                return Ok(Vec::new());
-            }
-            state.last_v3_text_delta = None;
-            state.last_v3_reasoning_delta = None;
-
-            // Best-effort mapping into Responses reasoning summary text deltas.
-            maybe_emit_response_created(this, &mut state)?;
-            ensure_response_metadata(this, &mut state);
-
-            let (item_id, output_index) = ensure_reasoning_item(&mut state, None);
-            let emit_added = state.emitted_output_item_added_ids.insert(item_id.clone());
-
-            let mut out = Vec::new();
-            if emit_added {
-                out.extend_from_slice(&emit_output_item_frame(
-                    &mut state,
-                    "response.output_item.added",
-                    output_index,
-                    build_reasoning_item(&item_id),
-                )?);
-            }
-
-            let payload = serde_json::json!({
-                "type": "response.reasoning_summary_text.delta",
-                "sequence_number": next_sequence_number(&mut state),
-                "item_id": item_id,
-                "output_index": output_index,
-                "summary_index": 0,
-                "delta": delta,
-            });
-            out.extend_from_slice(&sse_event_frame(
-                "response.reasoning_summary_text.delta",
-                &payload,
-            )?);
-            Ok(out)
-        }
-        crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
-            maybe_emit_response_created(this, &mut state)?;
-            state.latest_usage = Some(usage.clone());
-            let payload = serde_json::json!({
-                "type": "response.usage",
-                "sequence_number": next_sequence_number(&mut state),
-                "usage": openai_responses_usage_json(usage),
-            });
-            sse_event_frame("response.usage", &payload)
-        }
+        crate::streaming::ChatStreamEvent::ContentDelta { .. }
+        | crate::streaming::ChatStreamEvent::ToolCallDelta { .. }
+        | crate::streaming::ChatStreamEvent::ThinkingDelta { .. }
+        | crate::streaming::ChatStreamEvent::UsageUpdate { .. } => Ok(Vec::new()),
         crate::streaming::ChatStreamEvent::StreamEnd { response } => {
             if state.response_completed_emitted {
                 *state = OpenAiResponsesSerializeState::default();
@@ -1555,8 +1418,6 @@ pub(super) fn serialize_event(
                         "response.output_text.delta",
                         &payload,
                     )?);
-                    state.last_v3_text_delta = Some(delta.to_string());
-                    state.last_v3_reasoning_delta = None;
                     Ok(out)
                 }
                 "openai:text-start" => {
@@ -1655,8 +1516,6 @@ pub(super) fn serialize_event(
                         "response.reasoning_summary_text.delta",
                         &payload,
                     )?);
-                    state.last_v3_text_delta = None;
-                    state.last_v3_reasoning_delta = Some(delta.to_string());
                     Ok(out)
                 }
                 "openai:reasoning-start" => {

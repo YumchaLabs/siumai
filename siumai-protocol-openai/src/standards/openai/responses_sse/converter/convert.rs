@@ -217,29 +217,35 @@ impl OpenAiResponsesEventConverter {
     pub(super) fn convert_responses_event(
         &self,
         json: &serde_json::Value,
-    ) -> Option<crate::streaming::ChatStreamEvent> {
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
         // Handle delta as plain text or delta.content
         if let Some(delta) = json.get("delta") {
             // Case 1: delta is a plain string (response.output_text.delta)
             if let Some(s) = delta.as_str()
                 && !s.is_empty()
             {
-                return Some(crate::streaming::ChatStreamEvent::ContentDelta {
-                    delta: s.to_string(),
-                    index: None,
-                });
+                return Some(vec![crate::streaming::ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::TextDelta {
+                        id: "text".to_string(),
+                        delta: s.to_string(),
+                        provider_metadata: None,
+                    },
+                }]);
             }
             // Case 2: delta.content is a string (message.delta simplified)
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                return Some(crate::streaming::ChatStreamEvent::ContentDelta {
-                    delta: content.to_string(),
-                    index: None,
-                });
+                return Some(vec![crate::streaming::ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::TextDelta {
+                        id: "text".to_string(),
+                        delta: content.to_string(),
+                        provider_metadata: None,
+                    },
+                }]);
             }
 
             // Handle tool_calls delta (first item only; downstream can coalesce)
             if let Some(tool_calls) = delta.get("tool_calls").and_then(|tc| tc.as_array())
-                && let Some((index, tool_call)) = tool_calls.iter().enumerate().next()
+                && let Some((_index, tool_call)) = tool_calls.iter().enumerate().next()
             {
                 let id = tool_call
                     .get("id")
@@ -259,12 +265,52 @@ impl OpenAiResponsesEventConverter {
                     .and_then(|a| a.as_str())
                     .map(std::string::ToString::to_string);
 
-                return Some(crate::streaming::ChatStreamEvent::ToolCallDelta {
-                    id,
-                    function_name,
-                    arguments_delta,
-                    index: Some(index),
-                });
+                let mut events = Vec::new();
+                if let Some(name) = function_name.as_ref() {
+                    events.push(crate::streaming::ChatStreamEvent::Part {
+                        part: crate::types::ChatStreamPart::ToolInputStart {
+                            id: id.clone(),
+                            tool_name: name.clone(),
+                            provider_metadata: None,
+                            provider_executed: None,
+                            dynamic: None,
+                            title: None,
+                        },
+                    });
+                }
+                if let Some(arguments_delta) = arguments_delta.as_ref() {
+                    events.push(crate::streaming::ChatStreamEvent::Part {
+                        part: crate::types::ChatStreamPart::ToolInputDelta {
+                            id: id.clone(),
+                            delta: arguments_delta.clone(),
+                            provider_metadata: None,
+                        },
+                    });
+                }
+                if let (Some(name), Some(input)) =
+                    (function_name.as_ref(), arguments_delta.as_ref())
+                    && serde_json::from_str::<serde_json::Value>(input).is_ok()
+                {
+                    events.push(crate::streaming::ChatStreamEvent::Part {
+                        part: crate::types::ChatStreamPart::ToolInputEnd {
+                            id: id.clone(),
+                            provider_metadata: None,
+                        },
+                    });
+                    events.push(crate::streaming::ChatStreamEvent::Part {
+                        part: crate::types::ChatStreamPart::ToolCall(
+                            crate::types::ChatStreamToolCall {
+                                tool_call_id: id,
+                                tool_name: name.clone(),
+                                input: input.clone(),
+                                provider_executed: None,
+                                dynamic: None,
+                                provider_metadata: None,
+                            },
+                        ),
+                    });
+                }
+                return (!events.is_empty()).then_some(events);
             }
         }
 
@@ -273,9 +319,18 @@ impl OpenAiResponsesEventConverter {
             .get("usage")
             .or_else(|| json.get("response")?.get("usage"))
         {
-            return self
-                .parse_responses_usage_value(usage)
-                .map(|usage| crate::streaming::ChatStreamEvent::UsageUpdate { usage });
+            return self.parse_responses_usage_value(usage).map(|usage| {
+                vec![crate::streaming::ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::Finish {
+                        usage,
+                        finish_reason: crate::types::ChatStreamFinishInfo {
+                            unified: crate::types::FinishReason::Unknown,
+                            raw: None,
+                        },
+                        provider_metadata: None,
+                    },
+                }]
+            });
         }
 
         None
@@ -996,76 +1051,6 @@ impl OpenAiResponsesEventConverter {
         }
 
         None
-    }
-
-    pub(super) fn convert_function_call_arguments_delta(
-        &self,
-        json: &serde_json::Value,
-    ) -> Option<crate::streaming::ChatStreamEvent> {
-        // Handle response.function_call_arguments.delta events
-        let delta = json.get("delta").and_then(|d| d.as_str())?;
-        let output_index = json
-            .get("output_index")
-            .and_then(|idx| idx.as_u64())
-            .unwrap_or(0);
-
-        let id = self
-            .function_call_ids_by_output_index
-            .lock()
-            .ok()
-            .and_then(|map| map.get(&output_index).cloned())
-            .or_else(|| {
-                json.get("item_id")
-                    .and_then(|id| id.as_str())
-                    .map(|s| s.to_string())
-            })
-            .unwrap_or_default();
-
-        Some(crate::streaming::ChatStreamEvent::ToolCallDelta {
-            id,
-            function_name: None, // Function name is set in the initial item.added event
-            arguments_delta: Some(delta.to_string()),
-            index: Some(output_index as usize),
-        })
-    }
-
-    pub(super) fn convert_output_item_added(
-        &self,
-        json: &serde_json::Value,
-    ) -> Option<crate::streaming::ChatStreamEvent> {
-        // Handle response.output_item.added events for function calls
-        let item = json.get("item")?;
-        if item.get("type").and_then(|t| t.as_str()) != Some("function_call") {
-            return None;
-        }
-
-        let id = item.get("call_id").and_then(|id| id.as_str()).unwrap_or("");
-        let function_name = item.get("name").and_then(|name| name.as_str());
-        let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let output_index = json
-            .get("output_index")
-            .and_then(|idx| idx.as_u64())
-            .unwrap_or(0);
-
-        if !item_id.is_empty()
-            && !id.is_empty()
-            && let Some(name) = function_name
-        {
-            self.record_function_call_meta(item_id, id, name);
-        }
-
-        if !id.is_empty()
-            && let Ok(mut map) = self.function_call_ids_by_output_index.lock()
-        {
-            map.insert(output_index, id.to_string());
-        }
-
-        Some(crate::streaming::ChatStreamEvent::ToolCallDelta {
-            id: id.to_string(),
-            function_name: function_name.map(|s| s.to_string()),
-            arguments_delta: None, // Arguments will come in subsequent delta events
-            index: Some(output_index as usize),
-        })
     }
 
     pub(super) fn convert_function_call_output_item_added_tool_input(

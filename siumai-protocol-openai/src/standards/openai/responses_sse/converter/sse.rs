@@ -185,15 +185,19 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     if let Some(mut extra) = self.convert_output_text_delta_events(&json) {
                         out.append(&mut extra);
                     }
-                    if let Some(evt) = self.convert_responses_event(&json) {
-                        out.push(evt);
+                    if out.is_empty()
+                        && let Some(mut events) = self.convert_responses_event(&json)
+                    {
+                        out.append(&mut events);
                     }
 
                     return out.into_iter().map(Ok).collect();
                 }
                 "response.tool_call.delta" | "response.function_call.delta" | "response.usage" => {
-                    if let Some(evt) = self.convert_responses_event(&json) {
-                        return vec![Ok(evt)];
+                    if let Some(events) = self.convert_responses_event(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
                     }
                 }
                 "response.output_text.annotation.added" => {
@@ -225,16 +229,9 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     ];
                 }
                 "response.function_call_arguments.delta" => {
-                    let mut out: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
                     if let Some(evt) = self.convert_function_call_arguments_delta_tool_input(&json)
                     {
-                        out.push(evt);
-                    }
-                    if let Some(evt) = self.convert_function_call_arguments_delta(&json) {
-                        out.push(evt);
-                    }
-                    if !out.is_empty() {
-                        return out.into_iter().map(Ok).collect();
+                        return vec![Ok(evt)];
                     }
                 }
                 "response.function_call_arguments.done" => {
@@ -327,17 +324,10 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         return events.into_iter().map(Ok).collect();
                     }
 
-                    let mut extra: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
                     if let Some(evt) =
                         self.convert_function_call_output_item_added_tool_input(&json)
                     {
-                        extra.push(evt);
-                    }
-                    if let Some(evt) = self.convert_output_item_added(&json) {
-                        extra.push(evt);
-                    }
-                    if !extra.is_empty() {
-                        return extra.into_iter().map(Ok).collect();
+                        return vec![Ok(evt)];
                     }
                 }
                 "response.output_item.done" => {
@@ -363,24 +353,8 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     }
                 }
                 "response.reasoning_summary_text.delta" => {
-                    let mut out: Vec<
-                        Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>,
-                    > = Vec::new();
-
-                    if let Some(delta) = json.get("delta").and_then(|v| v.as_str())
-                        && !delta.is_empty()
-                    {
-                        out.push(Ok(crate::streaming::ChatStreamEvent::ThinkingDelta {
-                            delta: delta.to_string(),
-                        }));
-                    }
-
                     if let Some(evt) = self.convert_reasoning_summary_text_delta(&json) {
-                        out.push(Ok(evt));
-                    }
-
-                    if !out.is_empty() {
-                        return out;
+                        return vec![Ok(evt)];
                     }
                 }
                 "response.reasoning_summary_part.done" => {
@@ -389,8 +363,10 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     }
                 }
                 _ => {
-                    if let Some(evt) = self.convert_responses_event(&json) {
-                        return vec![Ok(evt)];
+                    if let Some(events) = self.convert_responses_event(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
                     }
                 }
             }

@@ -67,6 +67,4 @@ pub(super) struct OpenAiResponsesSerializeState {
 
     pub(super) latest_usage: Option<crate::types::Usage>,
     pub(super) latest_error_message: Option<String>,
-    pub(super) last_v3_text_delta: Option<String>,
-    pub(super) last_v3_reasoning_delta: Option<String>,
 }

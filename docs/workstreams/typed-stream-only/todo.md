@@ -31,7 +31,7 @@
 
 - [ ] Remove serializer-local duplicate text/reasoning suppression state (OpenAI Chat done; OpenAI Responses, Gemini, and Anthropic pending).
 - [x] Make OpenAI Chat serializer consume typed text/tool/finish parts only.
-- [ ] Make OpenAI Responses serializer consume typed parts only.
+- [x] Make OpenAI Responses serializer consume typed parts only.
 - [ ] Make Gemini serializer consume typed parts only.
 - [ ] Make Anthropic serializer consume typed parts only.
 

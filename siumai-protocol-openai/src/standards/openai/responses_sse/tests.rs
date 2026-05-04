@@ -32,6 +32,12 @@ fn stream_part(
     crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event.as_ref().ok()?)
 }
 
+fn typed_event(
+    part: crate::streaming::LanguageModelV3StreamPart,
+) -> crate::streaming::ChatStreamEvent {
+    part.to_part_event()
+}
+
 fn append_tool_input_deltas(
     events: &[Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>],
     out: &mut String,
@@ -82,12 +88,7 @@ fn test_responses_event_converter_content_delta() {
     let events = futures::executor::block_on(fut);
     assert!(!events.is_empty());
     let ev = events.first().unwrap().as_ref().unwrap();
-    match ev {
-        crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, "hello")
-        }
-        _ => panic!("expected ContentDelta"),
-    }
+    assert_eq!(ev.text_delta(), Some("hello"));
 }
 
 #[test]
@@ -102,20 +103,29 @@ fn test_responses_event_converter_tool_call_delta() {
     let fut = conv.convert_event(event);
     let events = futures::executor::block_on(fut);
     assert!(!events.is_empty());
-    let ev = events.first().unwrap().as_ref().unwrap();
-    match ev {
-        crate::streaming::ChatStreamEvent::ToolCallDelta {
+    assert!(events.iter().any(|event| matches!(
+        stream_part(event),
+        Some(crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
             id,
-            function_name,
-            arguments_delta,
+            tool_name,
             ..
-        } => {
-            assert_eq!(id, "t1");
-            assert_eq!(function_name.clone().unwrap(), "lookup");
-            assert_eq!(arguments_delta.clone().unwrap(), "{\"q\":\"x\"}");
-        }
-        _ => panic!("expected ToolCallDelta"),
-    }
+        }) if id == "t1" && tool_name == "lookup"
+    )));
+    assert!(events.iter().any(|event| matches!(
+        stream_part(event),
+        Some(crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+            id,
+            delta,
+            ..
+        }) if id == "t1" && delta == "{\"q\":\"x\"}"
+    )));
+    assert!(events.iter().any(|event| matches!(
+        stream_part(event),
+        Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+            if call.tool_call_id == "t1"
+                && call.tool_name == "lookup"
+                && call.input == "{\"q\":\"x\"}"
+    )));
 }
 
 #[test]
@@ -130,22 +140,20 @@ fn test_responses_event_converter_usage_update() {
     let fut = conv.convert_event(event);
     let events = futures::executor::block_on(fut);
     assert!(!events.is_empty());
-    let ev = events.first().unwrap().as_ref().unwrap();
-    match ev {
-        crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
-            assert_eq!(usage.prompt_tokens(), Some(3));
-            assert_eq!(usage.completion_tokens(), Some(5));
-            assert_eq!(usage.total_tokens(), Some(8));
-            assert_eq!(usage.normalized_input_tokens().cache_read, Some(1));
-            assert_eq!(usage.normalized_input_tokens().no_cache, Some(2));
-            assert_eq!(usage.normalized_output_tokens().reasoning, Some(2));
-            assert_eq!(usage.normalized_output_tokens().text, Some(3));
+    match stream_part(events.first().unwrap()) {
+        Some(crate::streaming::LanguageModelV3StreamPart::Finish { usage, .. }) => {
+            assert_eq!(usage.input_tokens.total, Some(3));
+            assert_eq!(usage.input_tokens.cache_read, Some(1));
+            assert_eq!(usage.input_tokens.no_cache, Some(2));
+            assert_eq!(usage.output_tokens.total, Some(5));
+            assert_eq!(usage.output_tokens.reasoning, Some(2));
+            assert_eq!(usage.output_tokens.text, Some(3));
             assert_eq!(
-                usage.raw_usage_value().expect("raw usage")["prompt_tokens"],
+                usage.raw.as_ref().expect("raw usage")["prompt_tokens"],
                 serde_json::json!(3)
             );
         }
-        _ => panic!("expected UsageUpdate"),
+        other => panic!("expected typed finish usage, got {other:?}"),
     }
 }
 
@@ -164,21 +172,20 @@ fn xai_responses_event_converter_usage_update_uses_xai_semantics() {
     let fut = conv.convert_event(event);
     let events = futures::executor::block_on(fut);
     assert!(!events.is_empty());
-    let ev = events.first().unwrap().as_ref().unwrap();
-    match ev {
-        crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
-            assert_eq!(usage.normalized_input_tokens().total, Some(8470));
-            assert_eq!(usage.normalized_input_tokens().no_cache, Some(4142));
-            assert_eq!(usage.normalized_input_tokens().cache_read, Some(4328));
-            assert_eq!(usage.normalized_output_tokens().total, Some(254));
-            assert_eq!(usage.normalized_output_tokens().text, Some(244));
-            assert_eq!(usage.normalized_output_tokens().reasoning, Some(10));
+    match stream_part(events.first().unwrap()) {
+        Some(crate::streaming::LanguageModelV3StreamPart::Finish { usage, .. }) => {
+            assert_eq!(usage.input_tokens.total, Some(8470));
+            assert_eq!(usage.input_tokens.no_cache, Some(4142));
+            assert_eq!(usage.input_tokens.cache_read, Some(4328));
+            assert_eq!(usage.output_tokens.total, Some(254));
+            assert_eq!(usage.output_tokens.text, Some(244));
+            assert_eq!(usage.output_tokens.reasoning, Some(10));
             assert_eq!(
-                usage.raw_usage_value().expect("raw usage")["input_tokens"],
+                usage.raw.as_ref().expect("raw usage")["input_tokens"],
                 serde_json::json!(4142)
             );
         }
-        _ => panic!("expected UsageUpdate"),
+        other => panic!("expected typed finish usage, got {other:?}"),
     }
 }
 
@@ -315,12 +322,7 @@ fn test_sse_named_events_routing() {
     let events1 = futures::executor::block_on(conv.convert_event(ev1));
     assert!(!events1.is_empty());
     let out1 = events1.first().unwrap().as_ref().unwrap();
-    match out1 {
-        crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, "abc")
-        }
-        _ => panic!("expected ContentDelta"),
-    }
+    assert_eq!(out1.text_delta(), Some("abc"));
 
     // tool call delta via named event
     let ev2 = eventsource_stream::Event {
@@ -332,20 +334,13 @@ fn test_sse_named_events_routing() {
     };
     let events2 = futures::executor::block_on(conv.convert_event(ev2));
     assert!(!events2.is_empty());
-    let out2 = events2.first().unwrap().as_ref().unwrap();
-    match out2 {
-        crate::streaming::ChatStreamEvent::ToolCallDelta {
-            id,
-            function_name,
-            arguments_delta,
-            ..
-        } => {
-            assert_eq!(id, "t1");
-            assert_eq!(function_name.clone().unwrap(), "fn");
-            assert_eq!(arguments_delta.clone().unwrap(), "{}");
-        }
-        _ => panic!("expected ToolCallDelta"),
-    }
+    assert!(events2.iter().any(|event| matches!(
+        stream_part(event),
+        Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+            if call.tool_call_id == "t1"
+                && call.tool_name == "fn"
+                && call.input == "{}"
+    )));
 
     // usage via named event camelCase
     let ev3 = eventsource_stream::Event {
@@ -356,16 +351,14 @@ fn test_sse_named_events_routing() {
     };
     let events3 = futures::executor::block_on(conv.convert_event(ev3));
     assert!(!events3.is_empty());
-    let out3 = events3.first().unwrap().as_ref().unwrap();
-    match out3 {
-        crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
-            assert_eq!(usage.prompt_tokens(), Some(4));
-            assert_eq!(usage.completion_tokens(), Some(6));
-            assert_eq!(usage.total_tokens(), Some(10));
-            assert_eq!(usage.normalized_input_tokens().no_cache, Some(4));
-            assert_eq!(usage.normalized_output_tokens().text, Some(6));
+    match stream_part(events3.first().unwrap()) {
+        Some(crate::streaming::LanguageModelV3StreamPart::Finish { usage, .. }) => {
+            assert_eq!(usage.input_tokens.total, Some(4));
+            assert_eq!(usage.input_tokens.no_cache, Some(4));
+            assert_eq!(usage.output_tokens.total, Some(6));
+            assert_eq!(usage.output_tokens.text, Some(6));
         }
-        _ => panic!("expected UsageUpdate"),
+        other => panic!("expected typed finish usage, got {other:?}"),
     }
 
     // provider tool output_item.added emits custom tool-call event
@@ -1564,7 +1557,7 @@ fn responses_output_text_annotation_added_emits_source() {
 }
 
 #[test]
-fn responses_reasoning_summary_text_delta_emits_thinking_delta_and_part() {
+fn responses_reasoning_summary_text_delta_emits_typed_reasoning_part() {
     let conv = OpenAiResponsesEventConverter::new();
 
     let ev = eventsource_stream::Event {
@@ -1576,14 +1569,7 @@ fn responses_reasoning_summary_text_delta_emits_thinking_delta_and_part() {
     };
 
     let out = futures::executor::block_on(conv.convert_event(ev));
-    assert_eq!(out.len(), 2);
-    assert!(out.iter().any(|event| {
-        matches!(
-            event.as_ref().expect("thinking delta event"),
-            crate::streaming::ChatStreamEvent::ThinkingDelta { delta }
-                if delta == "Let me think."
-        )
-    }));
+    assert_eq!(out.len(), 1);
     assert!(out.iter().any(|event| {
         matches!(
             stream_part(event),
@@ -1671,12 +1657,6 @@ fn responses_message_output_text_events_emit_text_parts() {
             stream_part(event),
             Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { id, delta, .. })
                 if id == "msg_1" && delta == "Hello"
-        )
-    }));
-    assert!(delta_out.iter().any(|event| {
-        matches!(
-            event.as_ref().expect("content delta event"),
-            crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } if delta == "Hello"
         )
     }));
 
@@ -1885,12 +1865,6 @@ fn responses_reasoning_item_events_emit_reasoning_parts() {
                 if id == "rs_1:0" && delta == "Let me think."
         )
     }));
-    assert!(delta_out.iter().any(|event| {
-        matches!(
-            event.as_ref().expect("thinking delta event"),
-            crate::streaming::ChatStreamEvent::ThinkingDelta { delta } if delta == "Let me think."
-        )
-    }));
 
     let done = eventsource_stream::Event {
         event: "".to_string(),
@@ -1915,7 +1889,7 @@ fn responses_reasoning_item_events_emit_reasoning_parts() {
 }
 
 #[test]
-fn responses_stream_proxy_serializes_basic_text_deltas() {
+fn responses_stream_proxy_serializes_typed_text_delta() {
     let conv = OpenAiResponsesEventConverter::new();
 
     let start_bytes = conv
@@ -1940,10 +1914,13 @@ fn responses_stream_proxy_serializes_basic_text_deltas() {
     );
 
     let delta_bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
-        })
+        .serialize_event(&typed_event(
+            crate::streaming::LanguageModelV3StreamPart::TextDelta {
+                id: "msg_1".to_string(),
+                delta: "Hello".to_string(),
+                provider_metadata: None,
+            },
+        ))
         .expect("serialize delta");
     let delta_frames = parse_sse_frames(&delta_bytes);
     assert!(
@@ -3740,19 +3717,33 @@ fn responses_stream_proxy_serializes_error_part_as_response_error() {
 }
 
 #[test]
-fn responses_stream_proxy_serializes_tool_call_delta() {
+fn responses_stream_proxy_serializes_typed_tool_input_delta() {
     let conv = OpenAiResponsesEventConverter::new();
 
-    let bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: Some("lookup".to_string()),
-            arguments_delta: Some("{\"q\":\"rust\"}".to_string()),
-            index: None,
-        })
-        .expect("serialize tool delta");
+    let start_bytes = conv
+        .serialize_event(&typed_event(
+            crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+                id: "call_1".to_string(),
+                tool_name: "lookup".to_string(),
+                provider_metadata: None,
+                provider_executed: None,
+                dynamic: None,
+                title: None,
+            },
+        ))
+        .expect("serialize tool input start");
+    let delta_bytes = conv
+        .serialize_event(&typed_event(
+            crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+                id: "call_1".to_string(),
+                delta: "{\"q\":\"rust\"}".to_string(),
+                provider_metadata: None,
+            },
+        ))
+        .expect("serialize tool input delta");
 
-    let frames = parse_sse_frames(&bytes);
+    let mut frames = parse_sse_frames(&start_bytes);
+    frames.extend(parse_sse_frames(&delta_bytes));
     assert!(frames.iter().any(|(ev, v)| {
         ev == "response.output_item.added"
             && v["item"]["type"] == serde_json::json!("function_call")
@@ -3784,13 +3775,17 @@ fn responses_stream_proxy_serializes_response_error() {
 }
 
 #[test]
-fn responses_stream_proxy_serializes_reasoning_delta() {
+fn responses_stream_proxy_serializes_typed_reasoning_delta() {
     let conv = OpenAiResponsesEventConverter::new();
 
     let bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::ThinkingDelta {
-            delta: "think".to_string(),
-        })
+        .serialize_event(&typed_event(
+            crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+                id: "rs_1:0".to_string(),
+                delta: "think".to_string(),
+                provider_metadata: None,
+            },
+        ))
         .expect("serialize reasoning delta");
     let frames = parse_sse_frames(&bytes);
 
@@ -3819,21 +3814,35 @@ fn responses_stream_proxy_closes_function_call_on_stream_end() {
     });
 
     let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: Some("lookup".to_string()),
-            arguments_delta: Some("{\"q\":\"rust".to_string()),
-            index: Some(0),
-        })
-        .expect("serialize tool delta 1");
+        .serialize_event(&typed_event(
+            crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+                id: "call_1".to_string(),
+                tool_name: "lookup".to_string(),
+                provider_metadata: None,
+                provider_executed: None,
+                dynamic: None,
+                title: None,
+            },
+        ))
+        .expect("serialize tool input start");
     let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: None,
-            arguments_delta: Some("\"}".to_string()),
-            index: Some(0),
-        })
-        .expect("serialize tool delta 2");
+        .serialize_event(&typed_event(
+            crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+                id: "call_1".to_string(),
+                delta: "{\"q\":\"rust".to_string(),
+                provider_metadata: None,
+            },
+        ))
+        .expect("serialize tool input delta 1");
+    let _ = conv
+        .serialize_event(&typed_event(
+            crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+                id: "call_1".to_string(),
+                delta: "\"}".to_string(),
+                provider_metadata: None,
+            },
+        ))
+        .expect("serialize tool input delta 2");
 
     let end_bytes = conv
         .serialize_event(&crate::streaming::ChatStreamEvent::StreamEnd {
