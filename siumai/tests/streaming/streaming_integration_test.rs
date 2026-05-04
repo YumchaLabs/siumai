@@ -499,11 +499,14 @@ async fn test_error_handling() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    let error_event = result.iter().find(|event| event.is_err());
-
-    if error_event.is_some() {
-        // Expected error
-    } else {
-        panic!("Expected error for invalid JSON");
-    }
+    assert!(result.iter().any(|event| {
+        matches!(
+            event,
+            Ok(ChatStreamEvent::Part {
+                part: siumai::prelude::unified::ChatStreamPart::Error { error }
+            }) if error
+                .as_str()
+                .is_some_and(|message| message.contains("Failed to parse OpenAI-compatible event"))
+        )
+    }));
 }

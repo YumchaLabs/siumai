@@ -77,10 +77,12 @@ pub fn replay_server_tool_result_block_type(
     output: &ToolResultOutput,
 ) -> String {
     match tool_name {
-        "web_search" => "web_search_tool_result".to_string(),
-        "web_fetch" => "web_fetch_tool_result".to_string(),
-        "tool_search" => "tool_search_tool_result".to_string(),
-        "code_execution" => {
+        "web_search" | "webSearch" | "web_search_preview" | "webSearchPreview" => {
+            "web_search_tool_result".to_string()
+        }
+        "web_fetch" | "webFetch" => "web_fetch_tool_result".to_string(),
+        "tool_search" | "toolSearch" => "tool_search_tool_result".to_string(),
+        "code_execution" | "codeExecution" => {
             let raw_name = raw_server_tool_name
                 .map(ToString::to_string)
                 .or_else(|| infer_code_execution_server_tool_name_from_output(output));

@@ -58,9 +58,9 @@ pub(crate) fn transform_chat_request_to_json(
         BridgeTarget::OpenAiChatCompletions => {
             #[cfg(feature = "openai")]
             {
-                let tx =
-                    siumai_protocol_openai::standards::openai::transformers::request::OpenAiRequestTransformer;
-                tx.transform_chat(request)
+                let tx = siumai_protocol_openai::standards::openai::chat::OpenAiChatStandard::new()
+                    .create_transformers("openai");
+                tx.request.transform_chat(request)
             }
             #[cfg(not(feature = "openai"))]
             {

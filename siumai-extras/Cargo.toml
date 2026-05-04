@@ -73,6 +73,10 @@ groq = ["siumai/groq"]
 minimaxi = ["siumai/minimaxi"]
 all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
 
+# Keep structured message support feature-unified with provider/protocol crates in mixed
+# package builds.
+structured-messages = ["siumai/structured-messages"]
+
 # Schema validation feature
 schema = ["dep:jsonschema"]
 

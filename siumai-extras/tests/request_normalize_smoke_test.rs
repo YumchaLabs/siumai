@@ -218,7 +218,7 @@ fn request_normalize_smoke_restores_anthropic_messages_request() {
         .expect("provider-defined tool");
     assert_eq!(provider_tool.id, "anthropic.web_search_20250305");
     assert_eq!(provider_tool.name, "web_search");
-    assert_eq!(provider_tool.args["max_uses"], json!(1));
+    assert_eq!(provider_tool.args["maxUses"], json!(1));
 
     let anthropic_options = request
         .provider_option("anthropic")

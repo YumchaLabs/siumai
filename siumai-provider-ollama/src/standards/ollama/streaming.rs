@@ -246,7 +246,7 @@ impl JsonEventConverter for OllamaEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
     {
         Box::pin(async move {
-            match crate::streaming::parse_json_with_repair::<OllamaStreamResponse>(json_data) {
+            match serde_json::from_str::<OllamaStreamResponse>(json_data) {
                 Ok(ollama_response) => self
                     .convert_ollama_response_async(ollama_response)
                     .await

@@ -821,10 +821,10 @@ async fn test_invalid_json_emits_error() {
     }));
 }
 
-// In tolerant mode (json-repair enabled), invalid JSON should not error with ParseError
+// Protocol SSE frames are parsed strictly even when json-repair is enabled.
 #[cfg(feature = "json-repair")]
 #[tokio::test]
-async fn test_invalid_json_is_tolerated_with_repair() {
+async fn test_invalid_json_emits_error_with_repair_enabled() {
     let config = create_test_config();
     let converter = GeminiEventConverter::new(config);
     let event = eventsource_stream::Event {
@@ -834,8 +834,16 @@ async fn test_invalid_json_is_tolerated_with_repair() {
         retry: None,
     };
     let result = converter.convert_event(event).await;
-    assert_eq!(result.len(), 1);
-    assert!(!matches!(result[0], Err(LlmError::ParseError(_))));
+    assert!(result.iter().all(|event| event.is_ok()));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Error { error })
+                if error
+                    .as_str()
+                    .is_some_and(|message| message.contains("Failed to parse Gemini SSE JSON"))
+        )
+    }));
 }
 
 #[tokio::test]

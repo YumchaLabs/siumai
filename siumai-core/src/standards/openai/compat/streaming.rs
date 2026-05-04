@@ -38,6 +38,7 @@ struct OpenAiCompatSerializeState {
     tool_call_state_by_id: std::collections::HashMap<String, OpenAiCompatSerializeToolCallState>,
     next_tool_call_index: u32,
     finished: bool,
+    last_v3_text_delta: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1857,6 +1858,46 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
             .lock()
             .map_err(|_| LlmError::InternalError("serialize_state lock poisoned".to_string()))?;
 
+        fn serialize_content_delta_frame(
+            state: &mut OpenAiCompatSerializeState,
+            delta: &str,
+            index: Option<usize>,
+        ) -> Result<Vec<u8>, LlmError> {
+            let choice_index = index.unwrap_or(0) as u32;
+
+            // Some clients expect a role delta before the first content delta.
+            let mut out = Vec::new();
+            if !state.emitted_role {
+                let role_payload = chunk_payload(
+                    state,
+                    serde_json::json!([
+                        {
+                            "index": choice_index,
+                            "delta": { "role": "assistant" },
+                            "finish_reason": serde_json::Value::Null
+                        }
+                    ]),
+                    None,
+                );
+                out.extend_from_slice(&sse_data_frame(&role_payload)?);
+                state.emitted_role = true;
+            }
+
+            let payload = chunk_payload(
+                state,
+                serde_json::json!([
+                    {
+                        "index": choice_index,
+                        "delta": { "content": delta },
+                        "finish_reason": serde_json::Value::Null
+                    }
+                ]),
+                None,
+            );
+            out.extend_from_slice(&sse_data_frame(&payload)?);
+            Ok(out)
+        }
+
         let mut serialize_inner = |event: &ChatStreamEvent| -> Result<Vec<u8>, LlmError> {
             match event {
                 ChatStreamEvent::StreamStart { metadata } => {
@@ -1880,39 +1921,13 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     sse_data_frame(&payload)
                 }
                 ChatStreamEvent::ContentDelta { delta, index } => {
-                    let choice_index = index.unwrap_or(0) as u32;
-
-                    // Some clients expect a role delta before the first content delta.
-                    let mut out = Vec::new();
-                    if !state.emitted_role {
-                        let role_payload = chunk_payload(
-                            &state,
-                            serde_json::json!([
-                                {
-                                    "index": choice_index,
-                                    "delta": { "role": "assistant" },
-                                    "finish_reason": serde_json::Value::Null
-                                }
-                            ]),
-                            None,
-                        );
-                        out.extend_from_slice(&sse_data_frame(&role_payload)?);
-                        state.emitted_role = true;
+                    if state.last_v3_text_delta.as_deref() == Some(delta.as_str()) {
+                        state.last_v3_text_delta = None;
+                        return Ok(Vec::new());
                     }
+                    state.last_v3_text_delta = None;
 
-                    let payload = chunk_payload(
-                        &state,
-                        serde_json::json!([
-                            {
-                                "index": choice_index,
-                                "delta": { "content": delta },
-                                "finish_reason": serde_json::Value::Null
-                            }
-                        ]),
-                        None,
-                    );
-                    out.extend_from_slice(&sse_data_frame(&payload)?);
-                    Ok(out)
+                    serialize_content_delta_frame(&mut state, delta, *index)
                 }
                 ChatStreamEvent::ToolCallDelta {
                     id,
@@ -1920,6 +1935,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     arguments_delta,
                     index,
                 } => {
+                    state.last_v3_text_delta = None;
+
                     let choice_index = index.unwrap_or(0) as u32;
                     let Some(tool_state) = ensure_serialize_tool_call_state(
                         &mut state,
@@ -1945,6 +1962,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     )
                 }
                 ChatStreamEvent::UsageUpdate { usage } => {
+                    state.last_v3_text_delta = None;
+
                     let payload = chunk_payload(
                         &state,
                         serde_json::json!([]),
@@ -1953,6 +1972,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     sse_data_frame(&payload)
                 }
                 ChatStreamEvent::StreamEnd { response } => {
+                    state.last_v3_text_delta = None;
+
                     if state.finished {
                         return Ok(Vec::new());
                     }
@@ -1989,6 +2010,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     serialize_terminal_frame(&mut state, finish_reason, usage, logprobs)
                 }
                 ChatStreamEvent::Error { error } => {
+                    state.last_v3_text_delta = None;
+
                     let payload = serde_json::json!({
                         "error": { "message": error },
                     });
@@ -2015,6 +2038,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     provider_metadata,
                 } = &part
                 {
+                    state.last_v3_text_delta = None;
+
                     if state.finished {
                         return Ok(Vec::new());
                     }
@@ -2038,6 +2063,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 }
 
                 if let LanguageModelV3StreamPart::ResponseMetadata(metadata) = &part {
+                    state.last_v3_text_delta = None;
+
                     if let Some(id) = metadata.id.clone() {
                         state.id = Some(id);
                     }
@@ -2051,6 +2078,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 }
 
                 if let LanguageModelV3StreamPart::Error { error } = &part {
+                    state.last_v3_text_delta = None;
+
                     let payload = match error {
                         serde_json::Value::String(message) => serde_json::json!({
                             "error": { "message": message }
@@ -2072,7 +2101,16 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     ..
                 }) = &part
                 {
+                    state.last_v3_text_delta = None;
                     return serialize_source_annotation_frame(&state, 0, url, title.as_deref());
+                }
+
+                if let LanguageModelV3StreamPart::TextDelta { delta, .. } = &part {
+                    let delta = delta.clone();
+                    state.last_v3_text_delta = None;
+                    let out = serialize_content_delta_frame(&mut state, &delta, None)?;
+                    state.last_v3_text_delta = Some(delta);
+                    return Ok(out);
                 }
 
                 match part {

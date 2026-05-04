@@ -324,6 +324,22 @@ pub(super) fn serialize_event(
         // Gemini streaming does not have an explicit "start" frame; the first chunk carries data.
         ChatStreamEvent::StreamStart { .. } => flush_pending_reasoning_chunk(this),
         ChatStreamEvent::ContentDelta { delta, .. } => {
+            let suppress_duplicate = {
+                let mut state = this.serialize_state.lock().map_err(|_| {
+                    LlmError::InternalError("serialize_state lock poisoned".to_string())
+                })?;
+                if state.last_v3_text_delta.as_deref() == Some(delta.as_str()) {
+                    state.last_v3_text_delta = None;
+                    true
+                } else {
+                    state.last_v3_text_delta = None;
+                    false
+                }
+            };
+            if suppress_duplicate {
+                return Ok(Vec::new());
+            }
+
             let mut out = flush_pending_reasoning_chunk(this)?;
             out.extend_from_slice(&serialize_text_chunk(delta, None)?);
             Ok(out)
@@ -360,6 +376,12 @@ pub(super) fn serialize_event(
             serialize_reasoning_chunk(delta, active_provider_metadata.as_ref())
         }
         ChatStreamEvent::UsageUpdate { usage } => {
+            {
+                let mut state = this.serialize_state.lock().map_err(|_| {
+                    LlmError::InternalError("serialize_state lock poisoned".to_string())
+                })?;
+                state.last_v3_text_delta = None;
+            }
             let mut out = flush_pending_reasoning_chunk(this)?;
             let payload = serde_json::json!({
                 "usageMetadata": usage_metadata_payload(usage)
@@ -373,6 +395,12 @@ pub(super) fn serialize_event(
             arguments_delta,
             ..
         } => {
+            {
+                let mut state = this.serialize_state.lock().map_err(|_| {
+                    LlmError::InternalError("serialize_state lock poisoned".to_string())
+                })?;
+                state.last_v3_text_delta = None;
+            }
             let mut out = flush_pending_reasoning_chunk(this)?;
             let mut state = this.serialize_state.lock().map_err(|_| {
                 LlmError::InternalError("serialize_state lock poisoned".to_string())
@@ -444,6 +472,12 @@ pub(super) fn serialize_event(
             Ok(out)
         }
         ChatStreamEvent::StreamEnd { response } => {
+            {
+                let mut state = this.serialize_state.lock().map_err(|_| {
+                    LlmError::InternalError("serialize_state lock poisoned".to_string())
+                })?;
+                state.last_v3_text_delta = None;
+            }
             let reason = response
                 .finish_reason
                 .as_ref()
@@ -456,6 +490,12 @@ pub(super) fn serialize_event(
             )
         }
         ChatStreamEvent::Error { error } => {
+            {
+                let mut state = this.serialize_state.lock().map_err(|_| {
+                    LlmError::InternalError("serialize_state lock poisoned".to_string())
+                })?;
+                state.last_v3_text_delta = None;
+            }
             let mut out = flush_pending_reasoning_chunk(this)?;
             let payload = serialize_error_payload(&serde_json::Value::String(error.clone()));
             out.extend_from_slice(&sse_data_frame(&payload)?);
@@ -473,14 +513,32 @@ pub(super) fn serialize_event(
                         delta,
                         provider_metadata.as_ref(),
                     )?);
+                    {
+                        let mut state = this.serialize_state.lock().map_err(|_| {
+                            LlmError::InternalError("serialize_state lock poisoned".to_string())
+                        })?;
+                        state.last_v3_text_delta = Some(delta.clone());
+                    }
                     return Ok(out);
                 }
                 ChatStreamPart::File(file) => {
+                    {
+                        let mut state = this.serialize_state.lock().map_err(|_| {
+                            LlmError::InternalError("serialize_state lock poisoned".to_string())
+                        })?;
+                        state.last_v3_text_delta = None;
+                    }
                     let mut out = flush_pending_reasoning_chunk(this)?;
                     out.extend_from_slice(&serialize_inline_data_chunk(file, false)?);
                     return Ok(out);
                 }
                 ChatStreamPart::ReasoningFile(file) => {
+                    {
+                        let mut state = this.serialize_state.lock().map_err(|_| {
+                            LlmError::InternalError("serialize_state lock poisoned".to_string())
+                        })?;
+                        state.last_v3_text_delta = None;
+                    }
                     let mut out = flush_pending_reasoning_chunk(this)?;
                     out.extend_from_slice(&serialize_inline_data_chunk(file, true)?);
                     return Ok(out);
@@ -490,6 +548,12 @@ pub(super) fn serialize_event(
                     finish_reason,
                     ..
                 } => {
+                    {
+                        let mut state = this.serialize_state.lock().map_err(|_| {
+                            LlmError::InternalError("serialize_state lock poisoned".to_string())
+                        })?;
+                        state.last_v3_text_delta = None;
+                    }
                     return serialize_terminal_chunk(
                         this,
                         &finish_reason.unified,
@@ -498,6 +562,12 @@ pub(super) fn serialize_event(
                     );
                 }
                 ChatStreamPart::Error { error } => {
+                    {
+                        let mut state = this.serialize_state.lock().map_err(|_| {
+                            LlmError::InternalError("serialize_state lock poisoned".to_string())
+                        })?;
+                        state.last_v3_text_delta = None;
+                    }
                     let mut out = flush_pending_reasoning_chunk(this)?;
                     let payload = serialize_error_payload(error);
                     out.extend_from_slice(&sse_data_frame(&payload)?);
@@ -507,6 +577,12 @@ pub(super) fn serialize_event(
                 | ChatStreamPart::TextStart { .. }
                 | ChatStreamPart::TextEnd { .. }
                 | ChatStreamPart::ResponseMetadata(_) => {
+                    {
+                        let mut state = this.serialize_state.lock().map_err(|_| {
+                            LlmError::InternalError("serialize_state lock poisoned".to_string())
+                        })?;
+                        state.last_v3_text_delta = None;
+                    }
                     return flush_pending_reasoning_chunk(this);
                 }
                 _ => {}

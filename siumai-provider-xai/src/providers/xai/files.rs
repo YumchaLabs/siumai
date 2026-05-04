@@ -311,7 +311,7 @@ fn map_xai_file_object(
         "content_type",
     ]);
 
-    let mut metadata = value
+    let metadata = value
         .as_object()
         .map(|object| {
             object
@@ -321,15 +321,6 @@ fn map_xai_file_object(
                 .collect::<HashMap<_, _>>()
         })
         .unwrap_or_default();
-    if let Some(filename) = &filename {
-        metadata.insert("filename".to_string(), serde_json::json!(filename));
-    }
-    if let Some(bytes) = get_u64_field(value, &["bytes", "size_bytes"]) {
-        metadata.insert("bytes".to_string(), serde_json::json!(bytes));
-    }
-    if let Some(created_at) = get_timestamp_field(value, &["created_at"]) {
-        metadata.insert("createdAt".to_string(), serde_json::json!(created_at));
-    }
 
     Ok(FileObject {
         id,
@@ -496,15 +487,7 @@ mod tests {
         let result = files.upload_file(request).await.expect("upload result");
         assert_eq!(result.id, "file-123");
         assert_eq!(result.filename.as_deref(), Some("hello.txt"));
-        assert_eq!(
-            result.metadata.get("filename"),
-            Some(&serde_json::json!("hello.txt"))
-        );
-        assert_eq!(result.metadata.get("bytes"), Some(&serde_json::json!(3)));
-        assert_eq!(
-            result.metadata.get("createdAt"),
-            Some(&serde_json::json!(1))
-        );
+        assert!(result.metadata.is_empty());
 
         let requests = transport.take_multipart_requests();
         assert_eq!(requests.len(), 1);

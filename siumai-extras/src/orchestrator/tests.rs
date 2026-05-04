@@ -2881,13 +2881,8 @@ async fn contract_invalid_tool_args_skips_resolver_and_emits_tool_error() {
     let out = serde_json::to_value(info.output).expect("tool output should be serializable");
     #[cfg(feature = "schema")]
     {
-        assert_eq!(out["type"], json!("error-text"));
-        let value = out["value"]
-            .as_str()
-            .expect("error-text value should be a string");
-        let err_json: Value =
-            serde_json::from_str(value).expect("error-text should be JSON string");
-        assert_eq!(err_json["error"], json!("invalid_args"));
+        assert_eq!(out["type"], json!("error-json"));
+        assert_eq!(out["value"]["error"], json!("invalid_args"));
     }
 
     #[cfg(not(feature = "schema"))]

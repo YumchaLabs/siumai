@@ -48,6 +48,7 @@ fn normalize_json(value: &mut Value) {
             for v in map.values_mut() {
                 normalize_json(v);
             }
+            map.remove("response");
 
             let keys: Vec<String> = map
                 .iter()

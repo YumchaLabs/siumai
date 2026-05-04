@@ -557,9 +557,15 @@ fn apply_effort_overlay(request: &ChatRequest, body: &mut Value) {
         return;
     };
 
-    body["output_config"] = json!({
-        "effort": effort,
-    });
+    let Some(body_obj) = body.as_object_mut() else {
+        return;
+    };
+    let output_config = body_obj
+        .entry("output_config".to_string())
+        .or_insert_with(|| json!({}));
+    if let Some(output_config) = output_config.as_object_mut() {
+        output_config.insert("effort".to_string(), Value::String(effort.to_string()));
+    }
 }
 
 fn set_anthropic_option(request: &mut ChatRequest, key: &str, value: Value) {

@@ -275,9 +275,9 @@ async fn test_stream_event_ordering() {
     match &results[0] {
         ChatStreamEvent::StreamStart { metadata } => {
             assert_eq!(metadata.provider, "openai");
-            // Should have default/empty metadata since first event had no metadata
+            // The wire chunk had no response id, but the configured request model is still known.
             assert_eq!(metadata.id, None);
-            assert_eq!(metadata.model, None);
+            assert_eq!(metadata.model.as_deref(), Some("gpt-4"));
         }
         _ => panic!("Expected StreamStart as first event"),
     }

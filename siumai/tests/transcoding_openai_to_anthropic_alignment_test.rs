@@ -145,20 +145,20 @@ fn openai_responses_web_search_transcodes_to_anthropic_messages_sse() {
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "mcp_tool_use"
+                && v["content_block"]["type"] == "server_tool_use"
                 && v["content_block"]["name"] == "webSearch"
                 && v["content_block"]["id"].as_str().is_some()
         }),
-        "expected mcp_tool_use content_block_start for webSearch: {frames:?}"
+        "expected server_tool_use content_block_start for webSearch: {frames:?}"
     );
 
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "mcp_tool_result"
+                && v["content_block"]["type"] == "web_search_tool_result"
                 && v["content_block"]["tool_use_id"].as_str().is_some()
         }),
-        "expected mcp_tool_result content_block_start: {frames:?}"
+        "expected web_search_tool_result content_block_start: {frames:?}"
     );
 
     assert!(

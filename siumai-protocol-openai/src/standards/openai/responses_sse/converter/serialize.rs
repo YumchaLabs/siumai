@@ -785,6 +785,13 @@ pub(super) fn serialize_event(
             sse_event_frame("response.created", &payload)
         }
         crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
+            if state.last_v3_text_delta.as_deref() == Some(delta.as_str()) {
+                state.last_v3_text_delta = None;
+                return Ok(Vec::new());
+            }
+            state.last_v3_text_delta = None;
+            state.last_v3_reasoning_delta = None;
+
             maybe_emit_response_created(this, &mut state)?;
             let (response_id, _, _) = ensure_response_metadata(this, &mut state);
             let (item_id, output_index) =
@@ -810,6 +817,9 @@ pub(super) fn serialize_event(
             arguments_delta,
             index,
         } => {
+            state.last_v3_text_delta = None;
+            state.last_v3_reasoning_delta = None;
+
             maybe_emit_response_created(this, &mut state)?;
             ensure_response_metadata(this, &mut state);
 
@@ -867,6 +877,13 @@ pub(super) fn serialize_event(
             Ok(out)
         }
         crate::streaming::ChatStreamEvent::ThinkingDelta { delta } => {
+            if state.last_v3_reasoning_delta.as_deref() == Some(delta.as_str()) {
+                state.last_v3_reasoning_delta = None;
+                return Ok(Vec::new());
+            }
+            state.last_v3_text_delta = None;
+            state.last_v3_reasoning_delta = None;
+
             // Best-effort mapping into Responses reasoning summary text deltas.
             maybe_emit_response_created(this, &mut state)?;
             ensure_response_metadata(this, &mut state);
@@ -1538,6 +1555,8 @@ pub(super) fn serialize_event(
                         "response.output_text.delta",
                         &payload,
                     )?);
+                    state.last_v3_text_delta = Some(delta.to_string());
+                    state.last_v3_reasoning_delta = None;
                     Ok(out)
                 }
                 "openai:text-start" => {
@@ -1636,6 +1655,8 @@ pub(super) fn serialize_event(
                         "response.reasoning_summary_text.delta",
                         &payload,
                     )?);
+                    state.last_v3_text_delta = None;
+                    state.last_v3_reasoning_delta = Some(delta.to_string());
                     Ok(out)
                 }
                 "openai:reasoning-start" => {

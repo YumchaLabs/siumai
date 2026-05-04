@@ -184,7 +184,8 @@ pub(crate) fn provider_tool_use_block(
     mcp_server_name: Option<&str>,
 ) -> serde_json::Value {
     match tool_name {
-        "web_search" | "web_fetch" | "tool_search" | "code_execution" => {
+        "web_search" | "webSearch" | "web_search_preview" | "webSearchPreview" | "web_fetch"
+        | "webFetch" | "tool_search" | "toolSearch" | "code_execution" | "codeExecution" => {
             let server_tool_name =
                 server_tools::replay_server_tool_name(tool_name, raw_server_tool_name, Some(input));
             let mut block = serde_json::json!({
@@ -568,22 +569,24 @@ pub(crate) fn provider_tool_result_block(
         server_tools::replay_server_tool_result_block_type(tool_name, raw_server_tool_name, output);
 
     match tool_name {
-        "web_search" => serde_json::json!({
-            "type": block_type,
-            "tool_use_id": tool_call_id,
-            "content": anthropic_web_search_result_content(output),
-        }),
-        "web_fetch" => serde_json::json!({
+        "web_search" | "webSearch" | "web_search_preview" | "webSearchPreview" => {
+            serde_json::json!({
+                "type": block_type,
+                "tool_use_id": tool_call_id,
+                "content": anthropic_web_search_result_content(output),
+            })
+        }
+        "web_fetch" | "webFetch" => serde_json::json!({
             "type": block_type,
             "tool_use_id": tool_call_id,
             "content": anthropic_web_fetch_result_content(output),
         }),
-        "tool_search" => serde_json::json!({
+        "tool_search" | "toolSearch" => serde_json::json!({
             "type": block_type,
             "tool_use_id": tool_call_id,
             "content": anthropic_tool_search_result_content(output),
         }),
-        "code_execution" => serde_json::json!({
+        "code_execution" | "codeExecution" => serde_json::json!({
             "type": block_type,
             "tool_use_id": tool_call_id,
             "content": content,

@@ -12173,9 +12173,29 @@ mod deepseek_public_path {
             req.body["messages"],
             serde_json::json!([{ "role": "user", "content": "hi" }])
         );
-        assert_eq!(req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(req.body["reasoning_budget"], serde_json::json!(4096));
+        assert_deepseek_thinking_enabled(&req.body);
         assert_eq!(req.body["foo"], serde_json::json!("bar"));
+    }
+
+    fn assert_deepseek_thinking_enabled(body: &serde_json::Value) {
+        assert_eq!(
+            body["thinking"],
+            serde_json::json!({
+                "type": "enabled"
+            })
+        );
+        assert!(body.get("enableReasoning").is_none());
+        assert!(body.get("enable_reasoning").is_none());
+        assert!(body.get("reasoningBudget").is_none());
+        assert!(body.get("reasoning_budget").is_none());
+    }
+
+    fn assert_deepseek_legacy_reasoning_budget_removed(body: &serde_json::Value) {
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("enableReasoning").is_none());
+        assert!(body.get("enable_reasoning").is_none());
+        assert!(body.get("reasoningBudget").is_none());
+        assert!(body.get("reasoning_budget").is_none());
     }
 
     fn assert_deepseek_default_options_stream_request(
@@ -12344,10 +12364,7 @@ mod deepseek_public_path {
 
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(4096));
-        assert!(siumai_req.body.get("enableReasoning").is_none());
-        assert!(siumai_req.body.get("reasoningBudget").is_none());
+        assert_deepseek_thinking_enabled(&siumai_req.body);
     }
 
     #[tokio::test]
@@ -12396,17 +12413,8 @@ mod deepseek_public_path {
             registry_req.url,
             "https://example.com/custom/v1/chat/completions"
         );
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_thinking_enabled(&registry_req.body);
         assert_eq!(registry_req.body["foo"], serde_json::json!("bar"));
-        assert!(registry_req.body.get("enableReasoning").is_none());
-        assert!(registry_req.body.get("reasoningBudget").is_none());
     }
 
     #[tokio::test]
@@ -12449,14 +12457,7 @@ mod deepseek_public_path {
 
         assert_requests_equivalent(&config_req, &registry_req);
         assert_eq!(registry_req.body["model"], serde_json::json!(request_model));
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_thinking_enabled(&registry_req.body);
     }
 
     #[tokio::test]
@@ -12512,8 +12513,7 @@ mod deepseek_public_path {
 
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(4096));
+        assert_deepseek_thinking_enabled(&siumai_req.body);
         assert_eq!(siumai_req.body["foo"], serde_json::json!("bar"));
     }
 
@@ -12699,8 +12699,7 @@ mod deepseek_public_path {
             .await;
 
         let captured = transport.take().expect("captured request");
-        assert_eq!(captured.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(captured.body["reasoning_budget"], serde_json::json!(4096));
+        assert_deepseek_thinking_enabled(&captured.body);
     }
 
     #[tokio::test]
@@ -12766,14 +12765,7 @@ mod deepseek_public_path {
         let registry_req = registry_transport.take().expect("registry request");
 
         assert_requests_equivalent(&config_req, &registry_req);
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_thinking_enabled(&registry_req.body);
         assert_eq!(registry_req.body["foo"], serde_json::json!("bar"));
     }
 
@@ -12857,8 +12849,7 @@ mod deepseek_public_path {
         assert_requests_equivalent(&siumai_req, &config_req);
         assert_requests_equivalent(&siumai_req, &registry_req);
         assert_eq!(siumai_req.body["tool_choice"], serde_json::json!("none"));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(4096));
-        assert!(siumai_req.body.get("reasoningBudget").is_none());
+        assert_deepseek_legacy_reasoning_budget_removed(&siumai_req.body);
         assert_eq!(
             siumai_req.body["tools"][0]["function"]["name"],
             serde_json::json!("get_weather")
@@ -12918,10 +12909,7 @@ mod deepseek_public_path {
 
         assert_requests_equivalent(&config_req, &registry_req);
         assert_eq!(registry_req.body["tool_choice"], serde_json::json!("none"));
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_legacy_reasoning_budget_removed(&registry_req.body);
         assert_eq!(
             registry_req.body["tools"][0]["function"]["name"],
             serde_json::json!("get_weather")
@@ -13059,18 +13047,10 @@ data: [DONE]
             header_value(&siumai_req, "accept"),
             Some("text/event-stream".to_string())
         );
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(2048));
-        assert!(siumai_req.body.get("reasoningBudget").is_none());
+        assert_deepseek_legacy_reasoning_budget_removed(&siumai_req.body);
         assert_eq!(
             siumai_req.body["response_format"],
-            serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
-                }
-            })
+            serde_json::json!({ "type": "json_object" })
         );
     }
 
@@ -13207,18 +13187,10 @@ data: [DONE]
             header_value(&siumai_req, "accept"),
             Some("text/event-stream".to_string())
         );
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(2048));
-        assert!(siumai_req.body.get("reasoningBudget").is_none());
+        assert_deepseek_legacy_reasoning_budget_removed(&siumai_req.body);
         assert_eq!(
             siumai_req.body["response_format"],
-            serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
-                }
-            })
+            serde_json::json!({ "type": "json_object" })
         );
     }
 
@@ -13658,17 +13630,8 @@ data: [DONE]
             "https://example.com/custom/v1/chat/completions"
         );
         assert_eq!(registry_req.body["stream"], serde_json::json!(true));
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_thinking_enabled(&registry_req.body);
         assert_eq!(registry_req.body["foo"], serde_json::json!("bar"));
-        assert!(registry_req.body.get("enableReasoning").is_none());
-        assert!(registry_req.body.get("reasoningBudget").is_none());
     }
 
     #[tokio::test]
@@ -13786,11 +13749,8 @@ data: [DONE]
         );
         assert_eq!(req.url, "https://example.com/deepseek/v1/chat/completions");
         assert_eq!(req.body["model"], serde_json::json!("deepseek-chat"));
-        assert_eq!(req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(req.body["reasoning_budget"], serde_json::json!(4096));
+        assert_deepseek_thinking_enabled(&req.body);
         assert_eq!(req.body["foo"], serde_json::json!("bar"));
-        assert!(req.body.get("enableReasoning").is_none());
-        assert!(req.body.get("reasoningBudget").is_none());
     }
 
     #[tokio::test]
@@ -13850,8 +13810,7 @@ data: [DONE]
         assert_eq!(req.url, "https://example.com/deepseek/v1/chat/completions");
         assert_eq!(req.body["model"], serde_json::json!("deepseek-chat"));
         assert_eq!(req.body["stream"], serde_json::json!(true));
-        assert_eq!(req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(req.body["reasoning_budget"], serde_json::json!(4096));
+        assert_deepseek_thinking_enabled(&req.body);
         assert_eq!(req.body["foo"], serde_json::json!("bar"));
     }
 
@@ -13928,8 +13887,7 @@ data: [DONE]
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
         assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(4096));
+        assert_deepseek_thinking_enabled(&siumai_req.body);
         assert_eq!(siumai_req.body["foo"], serde_json::json!("bar"));
         assert_eq!(
             header_value(&siumai_req, "accept"),
@@ -13986,14 +13944,7 @@ data: [DONE]
 
         assert_requests_equivalent(&config_req, &registry_req);
         assert_eq!(registry_req.body["stream"], serde_json::json!(true));
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_thinking_enabled(&registry_req.body);
         assert_eq!(registry_req.body["foo"], serde_json::json!("bar"));
         assert_eq!(
             header_value(&registry_req, "accept"),
@@ -14056,8 +14007,7 @@ data: [DONE]
 
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(2048));
+        assert_deepseek_thinking_enabled(&siumai_req.body);
     }
 
     #[tokio::test]
@@ -14098,14 +14048,7 @@ data: [DONE]
         let registry_req = registry_transport.take().expect("registry request");
 
         assert_requests_equivalent(&config_req, &registry_req);
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(1024)
-        );
+        assert_deepseek_thinking_enabled(&registry_req.body);
     }
 
     #[tokio::test]
@@ -14146,14 +14089,7 @@ data: [DONE]
         let registry_req = registry_transport.take().expect("registry request");
 
         assert_requests_equivalent(&config_req, &registry_req);
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(1024)
-        );
+        assert_deepseek_thinking_enabled(&registry_req.body);
     }
 
     #[tokio::test]
@@ -14279,8 +14215,7 @@ data: [DONE]
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
         assert_requests_equivalent(&siumai_req, &registry_req);
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(1536));
+        assert_deepseek_thinking_enabled(&siumai_req.body);
         assert_eq!(siumai_req.body["foo"], serde_json::json!("bar"));
     }
 
@@ -14441,8 +14376,7 @@ data: [DONE]
             header_value(&siumai_req, "accept"),
             Some("text/event-stream".to_string())
         );
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(1536));
+        assert_deepseek_thinking_enabled(&siumai_req.body);
         assert_eq!(siumai_req.body["foo"], serde_json::json!("bar"));
     }
 
@@ -43707,7 +43641,7 @@ mod xai_public_path {
             req.body["messages"],
             serde_json::json!([{ "role": "user", "content": "hi" }])
         );
-        assert_eq!(req.body["reasoning_effort"], serde_json::json!("high"));
+        assert_xai_reasoning_effort_high(&req.body);
         assert_eq!(
             req.body["search_parameters"]["mode"],
             serde_json::json!("on")
@@ -43772,11 +43706,17 @@ mod xai_public_path {
         assert_eq!(req.body["model"], serde_json::json!(model));
         assert_eq!(req.body["logprobs"], serde_json::json!(true));
         assert_eq!(req.body["top_logprobs"], serde_json::json!(2));
-        assert_eq!(req.body["reasoning_effort"], serde_json::json!("high"));
+        assert_xai_reasoning_effort_high(&req.body);
         assert!(req.body.get("reasoning_summary").is_none());
         assert!(req.body.get("previous_response_id").is_none());
         assert!(req.body.get("include").is_none());
         assert!(req.body.get("store").is_none());
+    }
+
+    fn assert_xai_reasoning_effort_high(body: &serde_json::Value) {
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert!(body.get("enable_reasoning").is_none());
+        assert!(body.get("reasoning_budget").is_none());
     }
 
     fn make_xai_image_generation_request(model: &str) -> ImageGenerationRequest {
@@ -44596,8 +44536,7 @@ mod xai_public_path {
 
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(2048));
+        assert_xai_reasoning_effort_high(&siumai_req.body);
     }
 
     #[tokio::test]
@@ -44637,14 +44576,7 @@ mod xai_public_path {
         let registry_req = registry_transport.take().expect("registry request");
 
         assert_requests_equivalent(&config_req, &registry_req);
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(1024)
-        );
+        assert_xai_reasoning_effort_high(&registry_req.body);
     }
 
     #[tokio::test]
@@ -44684,14 +44616,7 @@ mod xai_public_path {
         let registry_req = registry_transport.take().expect("registry request");
 
         assert_requests_equivalent(&config_req, &registry_req);
-        assert_eq!(
-            registry_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            registry_req.body["reasoning_budget"],
-            serde_json::json!(1024)
-        );
+        assert_xai_reasoning_effort_high(&registry_req.body);
     }
 
     #[tokio::test]
@@ -44824,8 +44749,7 @@ mod xai_public_path {
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
         assert_requests_equivalent(&siumai_req, &registry_req);
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(1536));
+        assert_xai_reasoning_effort_high(&siumai_req.body);
     }
 
     #[tokio::test]
@@ -44992,8 +44916,7 @@ data: [DONE]
             header_value(&siumai_req, "accept"),
             Some("text/event-stream".to_string())
         );
-        assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(1536));
+        assert_xai_reasoning_effort_high(&siumai_req.body);
     }
 
     #[tokio::test]

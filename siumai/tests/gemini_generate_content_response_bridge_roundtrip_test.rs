@@ -93,7 +93,7 @@ fn gemini_generate_content_response_bridge_roundtrip_preserves_projected_visible
     .expect("bridge");
 
     assert!(!bridged.is_rejected());
-    assert!(bridged.report.is_lossy());
+    assert!(!bridged.report.is_lossy());
     assert!(
         !bridged
             .report

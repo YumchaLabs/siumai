@@ -467,19 +467,76 @@ fn ws_recovery_custom_event(
     }
 }
 
-fn openai_error_code_from_event(ev: &crate::types::ChatStreamEvent) -> Option<String> {
-    let crate::types::ChatStreamEvent::Custom { event_type, data } = ev else {
-        return None;
-    };
-    if event_type != "openai:error" {
-        return None;
-    }
-
+fn openai_error_code_from_value(data: &serde_json::Value) -> Option<String> {
     let code = data
         .pointer("/error/error/code")
         .and_then(|v| v.as_str())
-        .or_else(|| data.pointer("/error/code").and_then(|v| v.as_str()));
+        .or_else(|| data.pointer("/error/code").and_then(|v| v.as_str()))
+        .or_else(|| data.pointer("/code").and_then(|v| v.as_str()));
     code.map(|s| s.to_string())
+}
+
+fn openai_error_code_from_event(ev: &crate::types::ChatStreamEvent) -> Option<String> {
+    match ev {
+        crate::types::ChatStreamEvent::Custom { event_type, data }
+            if event_type == "openai:error" =>
+        {
+            openai_error_code_from_value(data)
+        }
+        crate::types::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Error { error },
+        }
+        | crate::types::ChatStreamEvent::PartWithReplay {
+            part: crate::types::ChatStreamPart::Error { error },
+            ..
+        } => openai_error_code_from_value(error),
+        crate::types::ChatStreamEvent::Error { error } => serde_json::from_str(error)
+            .ok()
+            .as_ref()
+            .and_then(openai_error_code_from_value),
+        _ => None,
+    }
+}
+
+fn is_openai_stream_error_event(ev: &crate::types::ChatStreamEvent) -> bool {
+    match ev {
+        crate::types::ChatStreamEvent::Error { .. } => true,
+        crate::types::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Error { .. },
+        }
+        | crate::types::ChatStreamEvent::PartWithReplay {
+            part: crate::types::ChatStreamPart::Error { .. },
+            ..
+        } => true,
+        crate::types::ChatStreamEvent::Custom { event_type, .. } => event_type == "openai:error",
+        _ => false,
+    }
+}
+
+fn recovery_action_from_buffered_events(
+    buffered: &[Result<crate::types::ChatStreamEvent, LlmError>],
+) -> Option<StreamRecoveryAction> {
+    buffered.iter().find_map(|it| match it {
+        Ok(ev) => openai_error_code_from_event(ev)
+            .and_then(|code| recovery_action_from_openai_error_code(&code)),
+        _ => None,
+    })
+}
+
+fn is_stream_recovery_preamble(item: &Result<crate::types::ChatStreamEvent, LlmError>) -> bool {
+    matches!(
+        item,
+        Ok(crate::types::ChatStreamEvent::StreamStart { .. })
+            | Ok(crate::types::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::StreamStart { .. }
+            })
+            | Ok(crate::types::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ResponseMetadata(_)
+            })
+            | Ok(crate::types::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::Raw { .. }
+            })
+    )
 }
 
 fn recovery_action_from_openai_error_code(code: &str) -> Option<StreamRecoveryAction> {
@@ -584,35 +641,15 @@ impl ChatCapability for OpenAiWebSocketSession {
                     pending_action = recovery_action_from_openai_error_code(&code);
                 }
 
-                let is_errorish = matches!(item, Err(_) | Ok(crate::types::ChatStreamEvent::Error { .. }))
-                    || matches!(
-                        item,
-                        Ok(crate::types::ChatStreamEvent::Custom {
-                            ref event_type,
-                            ..
-                        })
-                            if event_type == "openai:error"
-                    );
+                let is_errorish = match item.as_ref() {
+                    Err(_) => true,
+                    Ok(ev) => is_openai_stream_error_event(ev),
+                };
 
                 if is_errorish {
                     buffered.push(item);
 
-                    let action = pending_action.or_else(|| {
-                        buffered.iter().find_map(|it| match it {
-                            Ok(crate::types::ChatStreamEvent::Custom { event_type, data }) => {
-                                if event_type == "openai:error" {
-                                    let code = data
-                                        .pointer("/error/error/code")
-                                        .and_then(|v| v.as_str())
-                                        .or_else(|| data.pointer("/error/code").and_then(|v| v.as_str()))?;
-                                    recovery_action_from_openai_error_code(code)
-                                } else {
-                                    None
-                                }
-                            }
-                            _ => None,
-                        })
-                    });
+                    let action = pending_action.or_else(|| recovery_action_from_buffered_events(&buffered));
 
                     let should_recover = action.is_some()
                         || buffered.iter().any(|it| matches!(it, Err(e) if is_ws_connect_error(e)));
@@ -686,6 +723,11 @@ impl ChatCapability for OpenAiWebSocketSession {
                         yield it;
                     }
                     emitted_any = true;
+                    continue;
+                }
+
+                if is_stream_recovery_preamble(&item) {
+                    buffered.push(item);
                     continue;
                 }
 
@@ -800,35 +842,15 @@ impl ChatCapability for OpenAiWebSocketSession {
                     pending_action = recovery_action_from_openai_error_code(&code);
                 }
 
-                let is_errorish = matches!(item, Err(_) | Ok(crate::types::ChatStreamEvent::Error { .. }))
-                    || matches!(
-                        item,
-                        Ok(crate::types::ChatStreamEvent::Custom {
-                            ref event_type,
-                            ..
-                        })
-                            if event_type == "openai:error"
-                    );
+                let is_errorish = match item.as_ref() {
+                    Err(_) => true,
+                    Ok(ev) => is_openai_stream_error_event(ev),
+                };
 
                 if is_errorish {
                     buffered.push(item);
 
-                    let action = pending_action.or_else(|| {
-                        buffered.iter().find_map(|it| match it {
-                            Ok(crate::types::ChatStreamEvent::Custom { event_type, data }) => {
-                                if event_type == "openai:error" {
-                                    let code = data
-                                        .pointer("/error/error/code")
-                                        .and_then(|v| v.as_str())
-                                        .or_else(|| data.pointer("/error/code").and_then(|v| v.as_str()))?;
-                                    recovery_action_from_openai_error_code(code)
-                                } else {
-                                    None
-                                }
-                            }
-                            _ => None,
-                        })
-                    });
+                    let action = pending_action.or_else(|| recovery_action_from_buffered_events(&buffered));
 
                     let should_recover = action.is_some()
                         || buffered.iter().any(|it| matches!(it, Err(e) if is_ws_connect_error(e)));
@@ -901,6 +923,11 @@ impl ChatCapability for OpenAiWebSocketSession {
                         yield it;
                     }
                     emitted_any = true;
+                    continue;
+                }
+
+                if is_stream_recovery_preamble(&item) {
+                    buffered.push(item);
                     continue;
                 }
 

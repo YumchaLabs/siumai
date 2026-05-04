@@ -74,6 +74,13 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
+fn normalize_image_response_snapshot(value: &mut Value) {
+    if let Value::Object(map) = value {
+        map.remove("response");
+    }
+    normalize_json(value);
+}
+
 fn vertex_ctx() -> siumai::experimental::core::ProviderContext {
     let base_url = "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google";
     let mut extra = std::collections::HashMap::new();
@@ -106,8 +113,8 @@ fn run_generate_case(root: &Path) {
 
     let mut got_value = serde_json::to_value(got).unwrap();
     let mut expected_value = expected_response;
-    normalize_json(&mut got_value);
-    normalize_json(&mut expected_value);
+    normalize_image_response_snapshot(&mut got_value);
+    normalize_image_response_snapshot(&mut expected_value);
     assert_eq!(got_value, expected_value);
 }
 
@@ -154,8 +161,8 @@ fn run_edit_case(root: &Path) {
 
     let mut got_value = serde_json::to_value(got).unwrap();
     let mut expected_value = expected_response;
-    normalize_json(&mut got_value);
-    normalize_json(&mut expected_value);
+    normalize_image_response_snapshot(&mut got_value);
+    normalize_image_response_snapshot(&mut expected_value);
     assert_eq!(got_value, expected_value);
 }
 

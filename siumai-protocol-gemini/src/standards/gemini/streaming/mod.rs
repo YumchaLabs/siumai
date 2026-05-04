@@ -34,6 +34,7 @@ struct GeminiSerializeState {
     active_reasoning_provider_metadata: Option<SharedV3ProviderMetadata>,
     pending_reasoning_chunk: Option<GeminiPendingReasoningSerializeState>,
     expect_reasoning_delta_custom_duplicate: bool,
+    last_v3_text_delta: Option<String>,
     terminal_emitted: bool,
 }
 
@@ -697,6 +698,7 @@ impl GeminiEventConverter {
                                     provider_metadata,
                                 },
                             );
+                            builder = builder.add_content_delta(text.clone(), None);
                         }
                         continue;
                     }
@@ -1190,11 +1192,7 @@ impl SseEventConverter for GeminiEventConverter {
                 return vec![];
             }
 
-            #[cfg(not(feature = "json-repair"))]
             let parsed_value: Result<serde_json::Value, _> = serde_json::from_str(&event.data);
-            #[cfg(feature = "json-repair")]
-            let parsed_value: Result<serde_json::Value, _> =
-                crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data);
 
             match parsed_value {
                 Ok(raw_json) => {

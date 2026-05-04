@@ -793,6 +793,20 @@ fn v3_tool_parts(
             {
                 Some(data.clone())
             }
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                match (kind, part) {
+                    ("tool-call", siumai::prelude::unified::ChatStreamPart::ToolCall(call))
+                        if call.tool_name == tool_name =>
+                    {
+                        serde_json::to_value(part).ok()
+                    }
+                    (
+                        "tool-result",
+                        siumai::prelude::unified::ChatStreamPart::ToolResult(result),
+                    ) if result.tool_name == tool_name => serde_json::to_value(part).ok(),
+                    _ => None,
+                }
+            }
             _ => None,
         })
         .collect()

@@ -1865,22 +1865,21 @@ impl JsonEventConverter for BedrockEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
     {
         Box::pin(async move {
-            let raw_value: serde_json::Value =
-                match crate::streaming::parse_json_with_repair(json_data) {
-                    Ok(value) => value,
-                    Err(e) => {
-                        let mut out = Vec::new();
-                        self.append_stream_preamble(&mut out);
-                        self.append_raw_chunk(
-                            &mut out,
-                            &serde_json::Value::String(json_data.to_string()),
-                        );
-                        out.push(Err(LlmError::ParseError(format!(
-                            "Failed to parse Bedrock JSON chunk: {e}"
-                        ))));
-                        return out;
-                    }
-                };
+            let raw_value: serde_json::Value = match serde_json::from_str(json_data) {
+                Ok(value) => value,
+                Err(e) => {
+                    let mut out = Vec::new();
+                    self.append_stream_preamble(&mut out);
+                    self.append_raw_chunk(
+                        &mut out,
+                        &serde_json::Value::String(json_data.to_string()),
+                    );
+                    out.push(Err(LlmError::ParseError(format!(
+                        "Failed to parse Bedrock JSON chunk: {e}"
+                    ))));
+                    return out;
+                }
+            };
 
             let chunk: BedrockStreamChunk = match serde_json::from_value(raw_value.clone()) {
                 Ok(chunk) => chunk,

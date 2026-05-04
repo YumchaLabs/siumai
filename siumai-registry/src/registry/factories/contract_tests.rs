@@ -602,6 +602,29 @@ fn assert_requests_equivalent(left: &HttpTransportRequest, right: &HttpTransport
     assert_eq!(left.body, right.body);
 }
 
+#[allow(dead_code)]
+fn assert_deepseek_thinking_enabled(body: &serde_json::Value) {
+    assert_eq!(
+        body["thinking"],
+        serde_json::json!({
+            "type": "enabled"
+        })
+    );
+    assert!(body.get("enableReasoning").is_none());
+    assert!(body.get("enable_reasoning").is_none());
+    assert!(body.get("reasoningBudget").is_none());
+    assert!(body.get("reasoning_budget").is_none());
+}
+
+#[allow(dead_code)]
+fn assert_deepseek_legacy_reasoning_budget_removed(body: &serde_json::Value) {
+    assert!(body.get("thinking").is_none());
+    assert!(body.get("enableReasoning").is_none());
+    assert!(body.get("enable_reasoning").is_none());
+    assert!(body.get("reasoningBudget").is_none());
+    assert!(body.get("reasoning_budget").is_none());
+}
+
 #[cfg(feature = "azure")]
 mod azure_contract {
     use super::*;
@@ -7451,6 +7474,7 @@ data: [DONE]
                 .with_seed(7)
                 .with_reasoning(true)
                 .with_reasoning_budget(2048)
+                .with_include_usage(true)
                 .with_http_transport(Arc::new(config_transport.clone())),
             )
             .await
@@ -7503,15 +7527,8 @@ data: [DONE]
         assert_eq!(builder_req.body["max_tokens"], serde_json::json!(256));
         assert_eq!(builder_req.body["top_p"], serde_json::json!(0.9));
         assert_eq!(builder_req.body["stop"], serde_json::json!(["END"]));
-        assert_eq!(builder_req.body["seed"], serde_json::json!(7));
-        assert_eq!(
-            builder_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            builder_req.body["reasoning_budget"],
-            serde_json::json!(2048)
-        );
+        assert!(builder_req.body.get("seed").is_none());
+        assert_deepseek_thinking_enabled(&builder_req.body);
         assert_eq!(builder_req.body["foo"], serde_json::json!("bar"));
     }
 
@@ -7892,11 +7909,13 @@ data: [DONE]
             builder_req.body["prompt"],
             serde_json::json!("a tiny blue robot")
         );
-        assert_eq!(builder_req.body["size"], serde_json::json!("1024x1024"));
-        assert_eq!(builder_req.body["n"], serde_json::json!(1));
+        assert_eq!(builder_req.body["width"], serde_json::json!(1024));
+        assert_eq!(builder_req.body["height"], serde_json::json!(1024));
+        assert!(builder_req.body.get("size").is_none());
+        assert!(builder_req.body.get("n").is_none());
         assert_eq!(
             builder_req.body["response_format"],
-            serde_json::json!("url")
+            serde_json::json!("base64")
         );
     }
 
@@ -8049,9 +8068,11 @@ data: [DONE]
             serde_json::json!("black-forest-labs/FLUX.1-schnell")
         );
         assert_eq!(req.body["prompt"], serde_json::json!("a tiny blue robot"));
-        assert_eq!(req.body["size"], serde_json::json!("1024x1024"));
-        assert_eq!(req.body["n"], serde_json::json!(1));
-        assert_eq!(req.body["response_format"], serde_json::json!("url"));
+        assert_eq!(req.body["width"], serde_json::json!(1024));
+        assert_eq!(req.body["height"], serde_json::json!(1024));
+        assert!(req.body.get("size").is_none());
+        assert!(req.body.get("n").is_none());
+        assert_eq!(req.body["response_format"], serde_json::json!("base64"));
     }
 
     #[tokio::test]
@@ -8108,6 +8129,7 @@ data: [DONE]
                 .with_seed(7)
                 .with_reasoning(true)
                 .with_reasoning_budget(2048)
+                .with_include_usage(true)
                 .with_http_transport(Arc::new(config_transport.clone())),
             )
             .await
@@ -8168,15 +8190,8 @@ data: [DONE]
             Some("text/event-stream".to_string())
         );
         assert_eq!(builder_req.body["top_p"], serde_json::json!(0.9));
-        assert_eq!(builder_req.body["seed"], serde_json::json!(7));
-        assert_eq!(
-            builder_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            builder_req.body["reasoning_budget"],
-            serde_json::json!(2048)
-        );
+        assert!(builder_req.body.get("seed").is_none());
+        assert_deepseek_thinking_enabled(&builder_req.body);
         assert_eq!(builder_req.body["foo"], serde_json::json!("bar"));
     }
 
@@ -8696,16 +8711,7 @@ mod deepseek_contract {
 
         assert_requests_equivalent(&builder_req, &config_req);
         assert_requests_equivalent(&builder_req, &registry_req);
-        assert_eq!(
-            builder_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            builder_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
-        assert!(builder_req.body.get("enableReasoning").is_none());
-        assert!(builder_req.body.get("reasoningBudget").is_none());
+        assert_deepseek_thinking_enabled(&builder_req.body);
     }
 
     #[tokio::test]
@@ -8774,14 +8780,7 @@ mod deepseek_contract {
         assert_requests_equivalent(&builder_req, &config_req);
         assert_requests_equivalent(&builder_req, &registry_req);
         assert_eq!(builder_req.body["model"], serde_json::json!(request_model));
-        assert_eq!(
-            builder_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            builder_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_thinking_enabled(&builder_req.body);
     }
 
     #[tokio::test]
@@ -8844,14 +8843,7 @@ mod deepseek_contract {
 
         assert_requests_equivalent(&builder_req, &config_req);
         assert_requests_equivalent(&builder_req, &registry_req);
-        assert_eq!(
-            builder_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            builder_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_thinking_enabled(&builder_req.body);
         assert_eq!(builder_req.body["foo"], serde_json::json!("bar"));
     }
 
@@ -9073,14 +9065,7 @@ mod deepseek_contract {
         assert_requests_equivalent(&builder_req, &config_req);
         assert_requests_equivalent(&builder_req, &registry_req);
         assert_eq!(builder_req.body["stream"], serde_json::json!(true));
-        assert_eq!(
-            builder_req.body["enable_reasoning"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            builder_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
+        assert_deepseek_thinking_enabled(&builder_req.body);
         assert_eq!(builder_req.body["foo"], serde_json::json!("bar"));
         assert_eq!(
             header_value(&builder_req, "accept"),
@@ -9166,11 +9151,7 @@ mod deepseek_contract {
         assert_requests_equivalent(&builder_req, &config_req);
         assert_requests_equivalent(&builder_req, &registry_req);
         assert_eq!(builder_req.body["tool_choice"], serde_json::json!("none"));
-        assert_eq!(
-            builder_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
-        assert!(builder_req.body.get("reasoningBudget").is_none());
+        assert_deepseek_legacy_reasoning_budget_removed(&builder_req.body);
         assert_eq!(
             builder_req.body["tools"][0]["function"]["name"],
             serde_json::json!("get_weather")
@@ -9256,20 +9237,9 @@ mod deepseek_contract {
         assert_requests_equivalent(&builder_req, &registry_req);
         assert_eq!(
             builder_req.body["response_format"],
-            serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
-                }
-            })
+            serde_json::json!({ "type": "json_object" })
         );
-        assert_eq!(
-            builder_req.body["reasoning_budget"],
-            serde_json::json!(4096)
-        );
-        assert!(builder_req.body.get("reasoningBudget").is_none());
+        assert_deepseek_legacy_reasoning_budget_removed(&builder_req.body);
     }
 
     #[tokio::test]
@@ -9323,8 +9293,7 @@ mod deepseek_contract {
         assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
         assert_eq!(req.url, "https://example.com/deepseek/v1/chat/completions");
         assert_eq!(req.body["model"], serde_json::json!("deepseek-chat"));
-        assert_eq!(req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(req.body["reasoning_budget"], serde_json::json!(4096));
+        assert_deepseek_thinking_enabled(&req.body);
     }
 
     #[tokio::test]
@@ -9388,8 +9357,7 @@ mod deepseek_contract {
         assert_eq!(req.url, "https://example.com/deepseek/v1/chat/completions");
         assert_eq!(req.body["model"], serde_json::json!("deepseek-chat"));
         assert_eq!(req.body["stream"], serde_json::json!(true));
-        assert_eq!(req.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(req.body["reasoning_budget"], serde_json::json!(4096));
+        assert_deepseek_thinking_enabled(&req.body);
         assert_eq!(req.body["foo"], serde_json::json!("bar"));
     }
 

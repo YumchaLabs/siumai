@@ -100,6 +100,7 @@ fn openai_chat_request_bridge_roundtrip_fixture_exact_cases_match() {
         "openai-chat-assistant-tool-call-with-text.1",
         "openai-chat-assistant-tool-call-and-tool-result-json.1",
         "openai-chat-response-format-json-schema.1",
+        "openai-chat-user-pdf-file-id.1",
     ];
 
     for case in exact_cases {
@@ -113,20 +114,12 @@ fn openai_chat_request_bridge_roundtrip_fixture_exact_cases_match() {
 }
 
 #[test]
-fn openai_chat_request_bridge_roundtrip_documents_unsupported_pdf_file_id_case() {
-    let root = fixtures_dir().join("openai-chat-user-pdf-file-id.1");
-    let request: ChatRequest = read_json(root.join("request.json"));
-
-    let err = bridge_chat_request_to_openai_chat_completions_json(
-        &request,
-        Some(BridgeTarget::OpenAiChatCompletions),
-        BridgeMode::BestEffort,
-    )
-    .expect_err("pdf file-id case should be unsupported");
-
-    let msg = err.user_message();
-    assert!(
-        msg.contains("application/pdf"),
-        "expected unsupported pdf message, got: {msg}"
+fn openai_chat_request_bridge_roundtrip_documents_supports_pdf_file_id_case() {
+    let case = "openai-chat-user-pdf-file-id.1";
+    assert_eq!(
+        roundtrip_request_json(case),
+        expected_body_json(case),
+        "fixture case: {}",
+        fixtures_dir().join(case).display()
     );
 }

@@ -28,6 +28,7 @@ use crate::types::{
 #[derive(Debug, Default, Clone)]
 pub struct OpenAiResponsesStreamPartsBridge {
     emitted_tool_call_ids: HashSet<String>,
+    provider_executed_tool_input_ids: HashSet<String>,
     tool_input_by_call_id: HashMap<String, String>,
     tool_name_by_call_id: HashMap<String, String>,
 }
@@ -47,6 +48,10 @@ impl OpenAiResponsesStreamPartsBridge {
             ChatStreamEvent::Custom { event_type, data } => {
                 self.bridge_custom_event(event_type, data)
             }
+            ChatStreamEvent::Part { part } => self.bridge_runtime_part(part, None),
+            ChatStreamEvent::PartWithReplay { part, replay } => {
+                self.bridge_runtime_part(part, Some(replay))
+            }
             other => vec![other],
         }
     }
@@ -61,6 +66,154 @@ impl OpenAiResponsesStreamPartsBridge {
         }
 
         vec![ChatStreamEvent::Custom { event_type, data }]
+    }
+
+    fn bridge_runtime_part(
+        &mut self,
+        part: ChatStreamPart,
+        replay: Option<ChatStreamReplay>,
+    ) -> Vec<ChatStreamEvent> {
+        match part {
+            ChatStreamPart::ToolInputStart {
+                id,
+                tool_name,
+                provider_executed: Some(true),
+                ..
+            } => {
+                self.provider_executed_tool_input_ids.insert(id.clone());
+                self.tool_input_by_call_id.entry(id.clone()).or_default();
+                self.tool_name_by_call_id.insert(id, tool_name);
+                Vec::new()
+            }
+            ChatStreamPart::ToolInputDelta { id, delta, .. }
+                if self.provider_executed_tool_input_ids.contains(&id) =>
+            {
+                self.tool_input_by_call_id
+                    .entry(id)
+                    .or_default()
+                    .push_str(&delta);
+                Vec::new()
+            }
+            ChatStreamPart::ToolInputEnd { id, .. }
+                if self.provider_executed_tool_input_ids.contains(&id) =>
+            {
+                Vec::new()
+            }
+            ChatStreamPart::ToolCall(call)
+                if call.provider_executed.unwrap_or(false)
+                    || self
+                        .provider_executed_tool_input_ids
+                        .contains(&call.tool_call_id) =>
+            {
+                self.bridge_runtime_tool_call(call, replay)
+            }
+            ChatStreamPart::ToolResult(result)
+                if self
+                    .provider_executed_tool_input_ids
+                    .contains(&result.tool_call_id) =>
+            {
+                self.bridge_runtime_tool_result(result, replay)
+            }
+            part => vec![restore_runtime_part(part, replay)],
+        }
+    }
+
+    fn bridge_runtime_tool_call(
+        &mut self,
+        mut call: ChatStreamToolCall,
+        replay: Option<ChatStreamReplay>,
+    ) -> Vec<ChatStreamEvent> {
+        if replay_has_openai_raw_item(replay.as_ref()) {
+            return vec![restore_runtime_part(ChatStreamPart::ToolCall(call), replay)];
+        }
+
+        let input_str = self
+            .tool_input_by_call_id
+            .get(&call.tool_call_id)
+            .filter(|input| !input.is_empty())
+            .cloned()
+            .unwrap_or_else(|| call.input.clone());
+        call.input = input_str.clone();
+        call.provider_executed = Some(true);
+
+        self.tool_input_by_call_id
+            .insert(call.tool_call_id.clone(), input_str.clone());
+        self.tool_name_by_call_id
+            .insert(call.tool_call_id.clone(), call.tool_name.clone());
+        self.emitted_tool_call_ids.insert(call.tool_call_id.clone());
+
+        let output_index = replay_output_index(replay.as_ref());
+        let raw_item =
+            openai_provider_tool_call_raw_item(&call.tool_call_id, &call.tool_name, &input_str);
+        let replay =
+            ChatStreamReplay::openai_responses(output_index, Some(raw_item)).expect("replay");
+
+        vec![ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolCall(call),
+            replay,
+        }]
+    }
+
+    fn bridge_runtime_tool_result(
+        &mut self,
+        result: ChatStreamToolResult,
+        replay: Option<ChatStreamReplay>,
+    ) -> Vec<ChatStreamEvent> {
+        if replay_has_openai_raw_item(replay.as_ref()) {
+            return vec![restore_runtime_part(
+                ChatStreamPart::ToolResult(result),
+                replay,
+            )];
+        }
+
+        let input_str = self
+            .tool_input_by_call_id
+            .get(&result.tool_call_id)
+            .cloned()
+            .unwrap_or_else(|| "{}".to_string());
+        self.tool_name_by_call_id
+            .entry(result.tool_call_id.clone())
+            .or_insert_with(|| result.tool_name.clone());
+
+        let mut out = Vec::new();
+        let output_index = replay_output_index(replay.as_ref());
+
+        if !self.emitted_tool_call_ids.contains(&result.tool_call_id) {
+            self.emitted_tool_call_ids
+                .insert(result.tool_call_id.clone());
+            let raw_item = openai_provider_tool_call_raw_item(
+                &result.tool_call_id,
+                &result.tool_name,
+                &input_str,
+            );
+            out.push(ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                    tool_call_id: result.tool_call_id.clone(),
+                    tool_name: result.tool_name.clone(),
+                    input: input_str.clone(),
+                    provider_executed: Some(true),
+                    dynamic: result.dynamic,
+                    provider_metadata: result.provider_metadata.clone(),
+                }),
+                replay: ChatStreamReplay::openai_responses(output_index, Some(raw_item))
+                    .expect("replay"),
+            });
+        }
+
+        let raw_item = openai_provider_tool_result_raw_item(
+            &result.tool_call_id,
+            &result.tool_name,
+            &input_str,
+            &result.result,
+            result.is_error.unwrap_or(false),
+        );
+        out.push(ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolResult(result),
+            replay: ChatStreamReplay::openai_responses(output_index, Some(raw_item))
+                .expect("replay"),
+        });
+
+        out
     }
 
     fn bridge_v3_custom_event(&mut self, data: &serde_json::Value) -> Option<Vec<ChatStreamEvent>> {
@@ -238,6 +391,25 @@ impl OpenAiResponsesStreamPartsBridge {
 
         out
     }
+}
+
+fn restore_runtime_part(part: ChatStreamPart, replay: Option<ChatStreamReplay>) -> ChatStreamEvent {
+    match replay {
+        Some(replay) => ChatStreamEvent::PartWithReplay { part, replay },
+        None => ChatStreamEvent::Part { part },
+    }
+}
+
+fn replay_has_openai_raw_item(replay: Option<&ChatStreamReplay>) -> bool {
+    replay
+        .and_then(ChatStreamReplay::openai_responses_ref)
+        .is_some_and(|replay| replay.raw_item.is_some())
+}
+
+fn replay_output_index(replay: Option<&ChatStreamReplay>) -> Option<u64> {
+    replay
+        .and_then(ChatStreamReplay::openai_responses_ref)
+        .and_then(|replay| replay.output_index)
 }
 
 fn normalize_json_string(value: Option<&serde_json::Value>) -> Option<String> {
