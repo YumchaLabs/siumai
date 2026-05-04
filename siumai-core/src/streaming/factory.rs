@@ -98,70 +98,20 @@ impl StreamFactory {
         }
     }
 
-    pub(crate) fn expand_textual_part_shadow_events(
-        events: Vec<Result<ChatStreamEvent, LlmError>>,
-    ) -> Vec<Result<ChatStreamEvent, LlmError>> {
-        let has_content_delta = events
-            .iter()
-            .any(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
-        let has_thinking_delta = events
-            .iter()
-            .any(|event| matches!(event, Ok(ChatStreamEvent::ThinkingDelta { .. })));
-        let mut out = Vec::with_capacity(events.len());
-
-        for event in events {
-            match event {
-                Ok(event) => {
-                    if let Some(part) =
-                        crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(&event)
-                    {
-                        out.push(Ok(event));
-                        for shadow in part.to_best_effort_chat_events() {
-                            match shadow {
-                                ChatStreamEvent::ContentDelta { .. } if !has_content_delta => {
-                                    out.push(Ok(shadow));
-                                }
-                                ChatStreamEvent::ThinkingDelta { .. } if !has_thinking_delta => {
-                                    out.push(Ok(shadow));
-                                }
-                                _ => {}
-                            }
-                        }
-                    } else {
-                        out.push(Ok(event));
-                    }
-                }
-                Err(err) => out.push(Err(err)),
-            }
+    fn fallback_text_delta_event(text: String) -> ChatStreamEvent {
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "fallback".to_string(),
+                delta: text,
+                provider_metadata: None,
+            },
         }
-
-        out
-    }
-
-    fn is_textual_custom_event(event: &ChatStreamEvent) -> bool {
-        let ChatStreamEvent::Custom { data, .. } = event else {
-            return false;
-        };
-
-        matches!(
-            data.get("type").and_then(|v| v.as_str()),
-            Some("text-delta") | Some("reasoning-delta")
-        )
     }
 
     fn saw_content_in_events(events: &[Result<ChatStreamEvent, LlmError>]) -> bool {
-        events.iter().any(|ev| match ev {
-            Ok(ChatStreamEvent::ContentDelta { .. }) => true,
-            Ok(ChatStreamEvent::Part {
-                part: crate::types::ChatStreamPart::TextDelta { .. },
-            })
-            | Ok(ChatStreamEvent::PartWithReplay {
-                part: crate::types::ChatStreamPart::TextDelta { .. },
-                ..
-            }) => true,
-            Ok(other) => Self::is_textual_custom_event(other),
-            Err(_) => false,
-        })
+        events
+            .iter()
+            .any(|ev| matches!(ev, Ok(event) if event.text_delta().is_some()))
     }
 
     fn drain_stream_end_events<C: SseEventConverter>(
@@ -200,8 +150,7 @@ impl StreamFactory {
                 id: "0".to_string(),
                 retry: None,
             };
-            let mut events =
-                Self::expand_textual_part_shadow_events(converter.clone().convert_event(evt).await);
+            let mut events = converter.clone().convert_event(evt).await;
             let saw_content = Self::saw_content_in_events(&events);
 
             let end_events = Self::drain_stream_end_events(&converter);
@@ -215,10 +164,7 @@ impl StreamFactory {
                         && !text.is_empty()
                     {
                         injected = true;
-                        events.push(Ok(ChatStreamEvent::ContentDelta {
-                            delta: text.to_string(),
-                            index: None,
-                        }));
+                        events.push(Ok(Self::fallback_text_delta_event(text.to_string())));
                     }
                     events.push(end);
                 }
@@ -237,7 +183,7 @@ impl StreamFactory {
 
         let sse_stream = byte_stream.into_sse_stream();
 
-        // Track whether any ContentDelta was emitted
+        // Track whether any canonical text delta part was emitted.
         let saw_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let saw_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
@@ -274,10 +220,9 @@ impl StreamFactory {
                                             && !text.is_empty()
                                         {
                                             injected = true;
-                                            out.push(Ok(ChatStreamEvent::ContentDelta {
-                                                delta: text.to_string(),
-                                                index: None,
-                                            }));
+                                            out.push(Ok(StreamFactory::fallback_text_delta_event(
+                                                text.to_string(),
+                                            )));
                                         }
                                         out.push(end);
                                     }
@@ -287,10 +232,8 @@ impl StreamFactory {
                             if event.data.trim().is_empty() {
                                 return vec![];
                             }
-                            let events = StreamFactory::expand_textual_part_shadow_events(
-                                converter.convert_event(event).await,
-                            );
-                            // Mark if any ContentDelta is present
+                            let events = converter.convert_event(event).await;
+                            // Mark if any canonical text delta part is present.
                             let has_content = StreamFactory::saw_content_in_events(&events);
                             if has_content {
                                 saw_content.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -332,10 +275,9 @@ impl StreamFactory {
                                 && !text.is_empty()
                             {
                                 injected = true;
-                                out.push(Ok(ChatStreamEvent::ContentDelta {
-                                    delta: text.to_string(),
-                                    index: None,
-                                }));
+                                out.push(Ok(StreamFactory::fallback_text_delta_event(
+                                    text.to_string(),
+                                )));
                             }
                             out.push(end);
                         }
@@ -384,8 +326,7 @@ impl StreamFactory {
                 retry: None,
             };
 
-            let mut events =
-                Self::expand_textual_part_shadow_events(converter.clone().convert_event(evt).await);
+            let mut events = converter.clone().convert_event(evt).await;
             let saw_content = Self::saw_content_in_events(&events);
 
             let end_events = Self::drain_stream_end_events(&converter);
@@ -399,10 +340,7 @@ impl StreamFactory {
                         && !text.is_empty()
                     {
                         injected = true;
-                        events.push(Ok(ChatStreamEvent::ContentDelta {
-                            delta: text.to_string(),
-                            index: None,
-                        }));
+                        events.push(Ok(Self::fallback_text_delta_event(text.to_string())));
                     }
                     events.push(end);
                 }
@@ -452,10 +390,9 @@ impl StreamFactory {
                                             && !text.is_empty()
                                         {
                                             injected = true;
-                                            out.push(Ok(ChatStreamEvent::ContentDelta {
-                                                delta: text.to_string(),
-                                                index: None,
-                                            }));
+                                            out.push(Ok(StreamFactory::fallback_text_delta_event(
+                                                text.to_string(),
+                                            )));
                                         }
                                         out.push(end);
                                     }
@@ -466,9 +403,7 @@ impl StreamFactory {
                             if event.data.trim().is_empty() {
                                 return vec![];
                             }
-                            let events = StreamFactory::expand_textual_part_shadow_events(
-                                converter.convert_event(event).await,
-                            );
+                            let events = converter.convert_event(event).await;
                             let has_content = StreamFactory::saw_content_in_events(&events);
                             if has_content {
                                 saw_content.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -508,10 +443,9 @@ impl StreamFactory {
                                 && !text.is_empty()
                             {
                                 injected = true;
-                                out.push(Ok(ChatStreamEvent::ContentDelta {
-                                    delta: text.to_string(),
-                                    index: None,
-                                }));
+                                out.push(Ok(StreamFactory::fallback_text_delta_event(
+                                    text.to_string(),
+                                )));
                             }
                             out.push(end);
                         }
@@ -731,9 +665,7 @@ impl StreamFactory {
                             if trimmed.is_empty() {
                                 return vec![];
                             }
-                            StreamFactory::expand_textual_part_shadow_events(
-                                converter.convert_json(trimmed).await,
-                            )
+                            converter.convert_json(trimmed).await
                         }
                         Err(e) => vec![Err(e)],
                     }
@@ -818,9 +750,12 @@ mod tests {
             Box::pin(async move {
                 let value: serde_json::Value =
                     serde_json::from_str(json_data).expect("valid JSON line");
-                vec![Ok(ChatStreamEvent::ContentDelta {
-                    delta: value["delta"].as_str().expect("delta string").to_string(),
-                    index: None,
+                vec![Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
+                        delta: value["delta"].as_str().expect("delta string").to_string(),
+                        provider_metadata: None,
+                    },
                 })]
             })
         }
@@ -896,7 +831,7 @@ mod tests {
         assert_eq!(events.len(), 3);
 
         match &events[0] {
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) => assert_eq!(delta, "hello"),
+            Ok(event) => assert_eq!(event.text_delta(), Some("hello")),
             other => panic!("unexpected first event: {other:?}"),
         }
 
@@ -919,7 +854,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reqwest_json_stream_emits_legacy_shadow_deltas_for_textual_parts() {
+    async fn reqwest_json_stream_preserves_typed_textual_parts_without_legacy_shadows() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
             .mock("GET", "/json-part-stream")
@@ -952,23 +887,21 @@ mod tests {
         assert!(events.iter().any(|event| {
             matches!(
                 event,
-                Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "hello"
-            )
-        }));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
                 Ok(ChatStreamEvent::Part {
                     part: ChatStreamPart::ReasoningDelta { .. }
                 })
             )
         }));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                Ok(ChatStreamEvent::ThinkingDelta { delta }) if delta == "think"
-            )
-        }));
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })))
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Ok(ChatStreamEvent::ThinkingDelta { .. })))
+        );
         assert!(events.iter().any(|event| {
             matches!(
                 event,
@@ -978,45 +911,6 @@ mod tests {
         }));
 
         mock.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn shadow_deltas_are_not_duplicated_when_converter_already_emits_legacy_deltas() {
-        let events = StreamFactory::expand_textual_part_shadow_events(vec![
-            Ok(ChatStreamEvent::Part {
-                part: ChatStreamPart::ReasoningDelta {
-                    id: "0".to_string(),
-                    delta: "think".to_string(),
-                    provider_metadata: None,
-                },
-            }),
-            Ok(ChatStreamEvent::ThinkingDelta {
-                delta: "think".to_string(),
-            }),
-            Ok(ChatStreamEvent::Part {
-                part: ChatStreamPart::TextDelta {
-                    id: "0".to_string(),
-                    delta: "hello".to_string(),
-                    provider_metadata: None,
-                },
-            }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
-        ]);
-
-        let content_delta_count = events
-            .iter()
-            .filter(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })))
-            .count();
-        let thinking_delta_count = events
-            .iter()
-            .filter(|event| matches!(event, Ok(ChatStreamEvent::ThinkingDelta { .. })))
-            .count();
-
-        assert_eq!(content_delta_count, 1);
-        assert_eq!(thinking_delta_count, 1);
     }
 
     #[test]
@@ -1040,5 +934,15 @@ mod tests {
         ];
 
         assert!(StreamFactory::saw_content_in_events(&events));
+    }
+
+    #[test]
+    fn saw_content_in_events_ignores_legacy_text_deltas() {
+        let events = vec![Ok(ChatStreamEvent::ContentDelta {
+            delta: "legacy".to_string(),
+            index: None,
+        })];
+
+        assert!(!StreamFactory::saw_content_in_events(&events));
     }
 }

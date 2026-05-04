@@ -9,6 +9,7 @@
 
 ## Milestone 2 - Core Producers
 
+- [x] Remove `StreamFactory` typed-to-legacy textual shadow expansion.
 - [ ] Replace `EventBuilder::add_content_delta` with typed text part emission or remove it.
 - [ ] Replace `EventBuilder::add_thinking_delta` with typed reasoning part emission or remove it.
 - [ ] Replace `EventBuilder::add_tool_call_delta` with typed tool input/call parts or remove it.

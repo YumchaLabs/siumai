@@ -271,9 +271,7 @@ where
                         if trimmed.is_empty() {
                             return vec![];
                         }
-                        crate::streaming::StreamFactory::expand_textual_part_shadow_events(
-                            converter.convert_json(trimmed).await,
-                        )
+                        converter.convert_json(trimmed).await
                     }
                     Err(e) => vec![Err(e)],
                 }
@@ -312,9 +310,12 @@ mod tests {
             Box::pin(async move {
                 let value: serde_json::Value =
                     serde_json::from_str(json_data).expect("valid JSON line");
-                vec![Ok(ChatStreamEvent::ContentDelta {
-                    delta: value["delta"].as_str().expect("delta string").to_string(),
-                    index: None,
+                vec![Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
+                        delta: value["delta"].as_str().expect("delta string").to_string(),
+                        provider_metadata: None,
+                    },
                 })]
             })
         }
@@ -344,7 +345,7 @@ mod tests {
         assert_eq!(events.len(), 3);
 
         match &events[0] {
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) => assert_eq!(delta, "hello"),
+            Ok(event) => assert_eq!(event.text_delta(), Some("hello")),
             other => panic!("unexpected first event: {other:?}"),
         }
 
@@ -381,19 +382,13 @@ mod tests {
                 let delta = value["delta"].as_str().expect("delta string");
                 self.text.lock().expect("lock").push_str(delta);
 
-                vec![
-                    Ok(ChatStreamEvent::ContentDelta {
+                vec![Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
                         delta: delta.to_string(),
-                        index: None,
-                    }),
-                    Ok(ChatStreamEvent::Part {
-                        part: ChatStreamPart::TextDelta {
-                            id: "0".to_string(),
-                            delta: delta.to_string(),
-                            provider_metadata: None,
-                        },
-                    }),
-                ]
+                        provider_metadata: None,
+                    },
+                })]
             })
         }
 
