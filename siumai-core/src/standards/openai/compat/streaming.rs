@@ -1191,18 +1191,10 @@ impl OpenAiCompatibleEventConverter {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string());
-                match name_in_chunk {
-                    Some(name) => {
-                        if entry.name.is_empty() {
-                            entry.name = name.clone();
-                            entry.name = name;
-                        } else if entry.name == name {
-                            // Nothing to update.
-                        } else {
-                            entry.name = name;
-                        }
-                    }
-                    None => {}
+                if let Some(name) = name_in_chunk
+                    && entry.name != name
+                {
+                    entry.name = name;
                 }
 
                 let args_in_chunk = function

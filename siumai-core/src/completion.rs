@@ -152,11 +152,8 @@ mod tests {
             if let Some(delta) = event.text_delta() {
                 text.push_str(delta);
             }
-            match event {
-                ChatStreamEvent::StreamEnd { response } => {
-                    assert_eq!(response.finish_reason, Some(FinishReason::Stop));
-                }
-                _ => {}
+            if let ChatStreamEvent::StreamEnd { response } = event {
+                assert_eq!(response.finish_reason, Some(FinishReason::Stop));
             }
         }
 

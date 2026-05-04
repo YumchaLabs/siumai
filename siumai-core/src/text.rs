@@ -215,11 +215,8 @@ mod tests {
             if let Some(delta) = event.text_delta() {
                 acc.push_str(delta);
             }
-            match event {
-                ChatStreamEvent::StreamEnd { response } => {
-                    assert_eq!(response.content_text(), Some("ok"));
-                }
-                _ => {}
+            if let ChatStreamEvent::StreamEnd { response } = event {
+                assert_eq!(response.content_text(), Some("ok"));
             }
         }
         assert_eq!(acc, "ok");
