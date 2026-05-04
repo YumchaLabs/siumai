@@ -243,6 +243,6 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_without_dupl
         })
         .count();
 
-    assert_eq!(thinking_deltas, 1);
+    assert_eq!(thinking_deltas, 0);
     assert_eq!(reasoning_deltas, 1);
 }

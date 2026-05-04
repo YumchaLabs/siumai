@@ -27,6 +27,34 @@ fn google_provider_metadata(value: serde_json::Value) -> crate::types::StreamPro
     provider_metadata
 }
 
+fn finish_event() -> eventsource_stream::Event {
+    eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "candidates": [{ "finishReason": "STOP" }]
+        })
+        .to_string(),
+        id: "".to_string(),
+        retry: None,
+    }
+}
+
+fn finish_part_usage(events: &[Result<ChatStreamEvent, crate::error::LlmError>]) -> Option<&Usage> {
+    events.iter().find_map(|event| match event.as_ref().ok()? {
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish { usage, .. },
+        } => Some(usage),
+        _ => None,
+    })
+}
+
+fn stream_end_usage(events: &[Result<ChatStreamEvent, crate::error::LlmError>]) -> Option<&Usage> {
+    events.iter().find_map(|event| match event.as_ref().ok()? {
+        ChatStreamEvent::StreamEnd { response } => response.usage.as_ref(),
+        _ => None,
+    })
+}
+
 #[tokio::test]
 async fn test_gemini_streaming_conversion() {
     let config = create_test_config();
@@ -242,12 +270,13 @@ async fn test_gemini_streaming_emits_reasoning_parts_with_signature() {
                     == Some(&serde_json::json!("sig_1"))
         )
     }));
-    assert!(result.iter().any(|event| {
-        matches!(
-            event.as_ref().expect("thinking delta event"),
-            ChatStreamEvent::ThinkingDelta { delta } if delta == "thinking.."
-        )
-    }));
+    assert!(
+        !result.iter().any(|event| matches!(
+            event.as_ref().ok(),
+            Some(ChatStreamEvent::ThinkingDelta { .. })
+        )),
+        "reasoning stable parts should not emit legacy ThinkingDelta shadows: {result:?}"
+    );
 
     assert!(
         !result.iter().any(|event| matches!(
@@ -383,9 +412,8 @@ async fn test_gemini_streaming_emits_provider_executed_code_execution_parts() {
 }
 
 #[tokio::test]
-async fn test_gemini_emit_v3_tool_call_parts_uses_part_channel() {
-    let converter =
-        GeminiEventConverter::new(create_test_config()).with_emit_v3_tool_call_parts(true);
+async fn test_gemini_function_calls_use_part_channel() {
+    let converter = GeminiEventConverter::new(create_test_config());
     let json = r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"weather","args":{"city":"Tokyo"}},"thoughtSignature":"sig_2"}]}}]}"#;
     let event = eventsource_stream::Event {
         event: "".into(),
@@ -549,8 +577,7 @@ async fn custom_generate_id_is_used_for_stream_tool_calls_and_sources() {
     let converter = GeminiEventConverter::new(create_test_config().with_generate_id({
         let counter = Arc::clone(&counter);
         move || format!("stream-id-{}", counter.fetch_add(1, Ordering::Relaxed))
-    }))
-    .with_emit_v3_tool_call_parts(true);
+    }));
 
     let json_data = serde_json::json!({
         "candidates": [{
@@ -959,8 +986,12 @@ async fn test_thinking_delta_extraction() {
         retry: None,
     };
     let result = converter.convert_event(event).await;
+    assert!(result.iter().any(|e| matches!(
+        stream_part(e),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { .. })
+    )));
     assert!(
-        result
+        !result
             .iter()
             .any(|e| matches!(e, Ok(ChatStreamEvent::ThinkingDelta { .. })))
     );
@@ -1063,9 +1094,13 @@ async fn gemini_stream_proxy_serializes_thinking_delta() {
     };
     let out = converter.convert_event(event).await;
     assert!(out.iter().any(|e| matches!(
-        e,
-        Ok(ChatStreamEvent::ThinkingDelta { delta }) if delta == "think"
+        stream_part(e),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { delta, .. }) if delta == "think"
     )));
+    assert!(
+        !out.iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::ThinkingDelta { .. })))
+    );
 }
 
 #[tokio::test]
@@ -1095,10 +1130,18 @@ async fn gemini_stream_proxy_serializes_usage_update() {
         retry: None,
     };
     let out = converter.convert_event(event).await;
-    assert!(out.iter().any(|e| matches!(
-        e,
-        Ok(ChatStreamEvent::UsageUpdate { usage }) if usage.prompt_tokens() == Some(3)
-    )));
+    assert!(
+        !out.iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
+    );
+
+    let finish = converter.convert_event(finish_event()).await;
+    let usage = finish_part_usage(&finish).expect("finish usage");
+    assert_eq!(usage.prompt_tokens(), Some(3));
+    assert_eq!(usage.completion_tokens(), Some(5));
+    assert_eq!(usage.total_tokens(), Some(8));
+    let response_usage = stream_end_usage(&finish).expect("stream-end usage");
+    assert_eq!(response_usage.prompt_tokens(), Some(3));
 }
 
 #[tokio::test]
@@ -1152,31 +1195,40 @@ async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals(
         retry: None,
     };
     let out = converter.convert_event(event).await;
-    assert!(out.iter().any(|e| matches!(
-        e,
-        Ok(ChatStreamEvent::UsageUpdate { usage })
-            if usage.prompt_tokens_value().is_none()
-                && usage.completion_tokens_value().is_none()
-                && usage.total_tokens_value().is_none()
-                && usage
-                    .raw_usage_value()
-                    .as_ref()
-                    .and_then(|raw| raw.get("trafficType"))
-                    == Some(&serde_json::json!("ON_DEMAND"))
-                && usage
-                    .raw_usage_value()
-                    .as_ref()
-                    .and_then(|raw| raw.get("promptTokensDetails"))
-                    == Some(&serde_json::json!([
-                        { "modality": "TEXT", "tokenCount": 10 },
-                        { "modality": "IMAGE", "tokenCount": 2 }
-                    ]))
-                && usage
-                    .raw_usage_value()
-                    .as_ref()
-                    .and_then(|raw| raw.get("candidatesTokensDetails"))
-                    == Some(&serde_json::json!([{ "modality": "TEXT", "tokenCount": 6 }]))
-    )));
+    assert!(
+        !out.iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
+    );
+
+    let finish = converter.convert_event(finish_event()).await;
+    let usage = finish_part_usage(&finish).expect("finish usage");
+    assert!(usage.prompt_tokens_value().is_none());
+    assert!(usage.completion_tokens_value().is_none());
+    assert!(usage.total_tokens_value().is_none());
+    assert_eq!(
+        usage
+            .raw_usage_value()
+            .as_ref()
+            .and_then(|raw| raw.get("trafficType")),
+        Some(&serde_json::json!("ON_DEMAND"))
+    );
+    assert_eq!(
+        usage
+            .raw_usage_value()
+            .as_ref()
+            .and_then(|raw| raw.get("promptTokensDetails")),
+        Some(&serde_json::json!([
+            { "modality": "TEXT", "tokenCount": 10 },
+            { "modality": "IMAGE", "tokenCount": 2 }
+        ]))
+    );
+    assert_eq!(
+        usage
+            .raw_usage_value()
+            .as_ref()
+            .and_then(|raw| raw.get("candidatesTokensDetails")),
+        Some(&serde_json::json!([{ "modality": "TEXT", "tokenCount": 6 }]))
+    );
 }
 
 #[tokio::test]
@@ -1206,16 +1258,21 @@ async fn gemini_stream_proxy_preserves_raw_cached_content_counts() {
         retry: None,
     };
     let out = converter.convert_event(event).await;
-    assert!(out.iter().any(|e| matches!(
-        e,
-        Ok(ChatStreamEvent::UsageUpdate { usage })
-            if usage.normalized_input_tokens().cache_read == Some(5)
-                && usage
-                    .raw_usage_value()
-                    .as_ref()
-                    .and_then(|raw| raw.get("trafficType"))
-                    == Some(&serde_json::json!("ON_DEMAND"))
-    )));
+    assert!(
+        !out.iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
+    );
+
+    let finish = converter.convert_event(finish_event()).await;
+    let usage = finish_part_usage(&finish).expect("finish usage");
+    assert_eq!(usage.normalized_input_tokens().cache_read, Some(5));
+    assert_eq!(
+        usage
+            .raw_usage_value()
+            .as_ref()
+            .and_then(|raw| raw.get("trafficType")),
+        Some(&serde_json::json!("ON_DEMAND"))
+    );
 }
 
 #[tokio::test]
@@ -1240,22 +1297,27 @@ async fn gemini_stream_proxy_parses_reasoning_usage_into_output_totals() {
     };
 
     let out = converter.convert_event(event).await;
-    assert!(out.iter().any(|e| matches!(
-        e,
-        Ok(ChatStreamEvent::UsageUpdate { usage })
-            if usage.prompt_tokens() == Some(12)
-                && usage.completion_tokens() == Some(9)
-                && usage.total_tokens() == Some(21)
-                && usage.normalized_input_tokens().no_cache == Some(7)
-                && usage.normalized_input_tokens().cache_read == Some(5)
-                && usage.normalized_output_tokens().text == Some(6)
-                && usage.normalized_output_tokens().reasoning == Some(3)
-                && usage
-                    .raw_usage_value()
-                    .as_ref()
-                    .and_then(|raw| raw.get("trafficType"))
-                    == Some(&serde_json::json!("ON_DEMAND"))
-    )));
+    assert!(
+        !out.iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
+    );
+
+    let finish = converter.convert_event(finish_event()).await;
+    let usage = finish_part_usage(&finish).expect("finish usage");
+    assert_eq!(usage.prompt_tokens(), Some(12));
+    assert_eq!(usage.completion_tokens(), Some(9));
+    assert_eq!(usage.total_tokens(), Some(21));
+    assert_eq!(usage.normalized_input_tokens().no_cache, Some(7));
+    assert_eq!(usage.normalized_input_tokens().cache_read, Some(5));
+    assert_eq!(usage.normalized_output_tokens().text, Some(6));
+    assert_eq!(usage.normalized_output_tokens().reasoning, Some(3));
+    assert_eq!(
+        usage
+            .raw_usage_value()
+            .as_ref()
+            .and_then(|raw| raw.get("trafficType")),
+        Some(&serde_json::json!("ON_DEMAND"))
+    );
 }
 
 #[tokio::test]

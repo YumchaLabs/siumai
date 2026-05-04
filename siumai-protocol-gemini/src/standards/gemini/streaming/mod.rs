@@ -288,7 +288,6 @@ pub struct GeminiEventConverter {
 
     serialize_state: Arc<Mutex<GeminiSerializeState>>,
     v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
-    emit_v3_tool_call_parts: bool,
     emit_function_response_tool_results: bool,
 }
 
@@ -306,7 +305,6 @@ impl GeminiEventConverter {
             latest_usage: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(GeminiSerializeState::default())),
             v3_unsupported_part_behavior: V3UnsupportedPartBehavior::default(),
-            emit_v3_tool_call_parts: false,
             emit_function_response_tool_results: false,
         }
     }
@@ -321,19 +319,6 @@ impl GeminiEventConverter {
 
     pub fn with_include_raw_chunks(mut self, include_raw_chunks: bool) -> Self {
         self.include_raw_chunks = include_raw_chunks;
-        self
-    }
-
-    /// Emit Vercel-aligned v3 `tool-call` parts (as `ChatStreamEvent::Part`) for `functionCall`
-    /// stream chunks.
-    ///
-    /// Notes:
-    /// - When enabled, the converter emits first-class `ChatStreamEvent::Part` tool-call events
-    ///   instead of `ChatStreamEvent::ToolCallDelta` for `functionCall` chunks.
-    /// - This is useful for gateways/proxies that want to preserve Gemini-only metadata such as
-    ///   `thoughtSignature` across transcoding.
-    pub fn with_emit_v3_tool_call_parts(mut self, enabled: bool) -> Self {
-        self.emit_v3_tool_call_parts = enabled;
         self
     }
 
@@ -684,7 +669,6 @@ impl GeminiEventConverter {
                                     provider_metadata,
                                 },
                             );
-                            builder = builder.add_thinking_delta(text.clone());
                         } else {
                             let (lane_parts, id) = self.open_text_lane(provider_metadata.clone());
                             for lane_part in lane_parts {
@@ -698,7 +682,6 @@ impl GeminiEventConverter {
                                     provider_metadata,
                                 },
                             );
-                            builder = builder.add_content_delta(text.clone(), None);
                         }
                         continue;
                     }
@@ -733,22 +716,17 @@ impl GeminiEventConverter {
         for (tool_name, args_json, thought_sig) in self.extract_function_call_events(&response) {
             let call_id = self.generate_id();
 
-            if self.emit_v3_tool_call_parts {
-                builder = builder.add_part(crate::types::ChatStreamPart::ToolCall(
-                    crate::types::ChatStreamToolCall {
-                        tool_call_id: call_id,
-                        tool_name,
-                        input: args_json,
-                        provider_executed: None,
-                        dynamic: None,
-                        provider_metadata: self
-                            .thought_signature_provider_metadata(thought_sig.as_ref()),
-                    },
-                ));
-            } else {
-                builder =
-                    builder.add_tool_call_delta(call_id, Some(tool_name), Some(args_json), None);
-            }
+            builder = builder.add_part(crate::types::ChatStreamPart::ToolCall(
+                crate::types::ChatStreamToolCall {
+                    tool_call_id: call_id,
+                    tool_name,
+                    input: args_json,
+                    provider_executed: None,
+                    dynamic: None,
+                    provider_metadata: self
+                        .thought_signature_provider_metadata(thought_sig.as_ref()),
+                },
+            ));
         }
 
         // Process client-provided tool results (functionResponse parts).
@@ -776,7 +754,6 @@ impl GeminiEventConverter {
         // Process usage update if available
         if let Some(usage) = self.extract_usage(&response) {
             self.remember_usage(&usage);
-            builder = builder.add_usage_update(usage);
         }
 
         // Handle completion/finish reason
