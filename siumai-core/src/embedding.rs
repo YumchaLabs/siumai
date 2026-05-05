@@ -1,9 +1,9 @@
-//! Embedding model family (V3).
+//! Embedding model family.
 //!
 //! This module provides a Rust-first, family-oriented abstraction for embeddings.
-//! In V3-M2 it is intentionally implemented as an adapter over the existing
-//! `EmbeddingCapability` so we can ship the new surface quickly, then iterate
-//! towards a fully decoupled family-first foundation.
+//! It is intentionally implemented as an adapter over the existing
+//! `EmbeddingCapability` while provider construction continues moving toward
+//! model-family traits.
 
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -14,9 +14,9 @@ use crate::types::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingRequest, EmbeddingResponse,
 };
 
-/// V3 interface for embedding models.
+/// Stable Rust interface for embedding models.
 #[async_trait]
-pub trait EmbeddingModelV3: Send + Sync {
+pub trait EmbeddingModel: ModelMetadata + Send + Sync {
     /// Generate embeddings for a single request.
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError>;
 
@@ -27,16 +27,11 @@ pub trait EmbeddingModelV3: Send + Sync {
     ) -> Result<BatchEmbeddingResponse, LlmError>;
 }
 
-/// Stable embedding-model contract for the V4 refactor spike.
-pub trait EmbeddingModel: EmbeddingModelV3 + ModelMetadata + Send + Sync {}
-
-impl<T> EmbeddingModel for T where T: EmbeddingModelV3 + ModelMetadata + Send + Sync + ?Sized {}
-
-/// Adapter: any `EmbeddingCapability` can be used as an `EmbeddingModelV3`.
+/// Adapter: any `EmbeddingCapability` with metadata can be used as an `EmbeddingModel`.
 #[async_trait]
-impl<T> EmbeddingModelV3 for T
+impl<T> EmbeddingModel for T
 where
-    T: EmbeddingCapability + Send + Sync + ?Sized,
+    T: EmbeddingCapability + ModelMetadata + Send + Sync + ?Sized,
 {
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
         if let Some(extensions) = EmbeddingCapability::as_embedding_extensions(self) {
@@ -111,7 +106,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_embed_uses_capability() {
         let model = FakeEmbedding { dim: 3 };
-        let resp = EmbeddingModelV3::embed(
+        let resp = EmbeddingModel::embed(
             &model,
             EmbeddingRequest {
                 input: vec!["a".to_string(), "abcd".to_string()],
@@ -156,7 +151,7 @@ mod tests {
         }
 
         let model = FailOnSecond;
-        let resp = EmbeddingModelV3::embed_many(
+        let resp = EmbeddingModel::embed_many(
             &model,
             BatchEmbeddingRequest {
                 requests: vec![
@@ -268,7 +263,7 @@ mod tests {
             seen: Arc::clone(&seen),
         };
 
-        let response = EmbeddingModelV3::embed(
+        let response = EmbeddingModel::embed(
             &model,
             EmbeddingRequest::single("hello")
                 .with_model("embed-model")

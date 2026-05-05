@@ -2132,9 +2132,10 @@ pub mod provider_catalog;
 /// Prefer `siumai::prelude::unified` for the stable unified surface.
 pub mod extensions {
     pub use siumai_core::traits::{
-        AudioCapability, FileManagementCapability, ImageExtras, ModelListingCapability,
-        ModerationCapability, MusicGenerationCapability, RerankCapability, SkillsCapability,
-        SpeechExtras, TimeoutCapability, TranscriptionExtras, VideoGenerationCapability,
+        AudioCapability, EmbeddingCapability, FileManagementCapability, ImageExtras,
+        ModelListingCapability, ModerationCapability, MusicGenerationCapability, RerankCapability,
+        SkillsCapability, SpeechExtras, TimeoutCapability, TranscriptionExtras,
+        VideoGenerationCapability,
     };
 
     /// Types used by non-unified extension capabilities.
@@ -2276,9 +2277,8 @@ pub mod prelude {
             LanguageModel, LanguageModelV4, LanguageModelV4DoStreamResult, LanguageModelV4Stream,
         };
         pub use siumai_core::traits::{
-            ChatCapability, CompletionCapability, EmbeddingCapability, EmbeddingExtensions,
-            ImageGenerationCapability, ModelMetadata, ProviderCapabilities, SpeechCapability,
-            TranscriptionCapability,
+            ChatCapability, CompletionCapability, EmbeddingExtensions, ImageGenerationCapability,
+            ModelMetadata, ProviderCapabilities, SpeechCapability, TranscriptionCapability,
         };
         pub use siumai_core::transcription::TranscriptionModel;
         pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4};

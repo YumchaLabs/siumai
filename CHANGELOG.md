@@ -13,6 +13,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Speech and transcription family APIs now use `SpeechModel` and `TranscriptionModel` directly,
   removing the Siumai-local `SpeechModelV3` and `TranscriptionModelV3` compatibility traits from
   the public facade.
+- Embedding family APIs now use `EmbeddingModel` directly. The Siumai-local `EmbeddingModelV3`
+  compatibility trait has been removed from the public facade, and low-level
+  `EmbeddingCapability` access remains available through `siumai::extensions`.
 
 ## [0.11.0-beta.7] - 2026-05-03
 

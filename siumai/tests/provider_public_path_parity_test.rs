@@ -29,7 +29,7 @@ use siumai::extensions::{AudioCapability, ImageExtras};
 #[allow(unused_imports)]
 use siumai::prelude::unified::{
     ChatCapability, ChatMessage, ChatRequest, CompletionCapability, CompletionRequest,
-    EmbeddingCapability, ImageGenerationCapability, ImageGenerationRequest, LlmError,
+    EmbeddingModel, EmbeddingRequest, ImageGenerationCapability, ImageGenerationRequest, LlmError,
     RerankRequest, RerankingModel, Siumai, SttRequest, TtsRequest,
 };
 #[cfg(feature = "google-vertex")]
@@ -5548,14 +5548,18 @@ mod azure_public_path {
             .embed(vec!["hello azure embedding".to_string()])
             .await
             .expect("provider embedding ok");
-        let config_resp = config_client
-            .embed(vec!["hello azure embedding".to_string()])
-            .await
-            .expect("config embedding ok");
-        let registry_resp = registry_model
-            .embed(vec!["hello azure embedding".to_string()])
-            .await
-            .expect("registry embedding ok");
+        let config_resp = EmbeddingModel::embed(
+            &config_client,
+            EmbeddingRequest::single("hello azure embedding"),
+        )
+        .await
+        .expect("config embedding ok");
+        let registry_resp = EmbeddingModel::embed(
+            &registry_model,
+            EmbeddingRequest::single("hello azure embedding"),
+        )
+        .await
+        .expect("registry embedding ok");
 
         assert_eq!(siumai_resp.embeddings.len(), 1);
         assert_eq!(provider_resp.embeddings.len(), 1);
@@ -6227,14 +6231,18 @@ mod azure_public_path {
             .embed(vec!["hello azure embedding".to_string()])
             .await
             .expect("provider embedding ok");
-        let config_resp = config_client
-            .embed(vec!["hello azure embedding".to_string()])
-            .await
-            .expect("config embedding ok");
-        let registry_resp = registry_model
-            .embed(vec!["hello azure embedding".to_string()])
-            .await
-            .expect("registry embedding ok");
+        let config_resp = EmbeddingModel::embed(
+            &config_client,
+            EmbeddingRequest::single("hello azure embedding"),
+        )
+        .await
+        .expect("config embedding ok");
+        let registry_resp = EmbeddingModel::embed(
+            &registry_model,
+            EmbeddingRequest::single("hello azure embedding"),
+        )
+        .await
+        .expect("registry embedding ok");
 
         assert_eq!(siumai_resp.embeddings[0].len(), 2);
         assert_eq!(provider_resp.embeddings[0].len(), 2);
@@ -42222,8 +42230,8 @@ mod vertex_public_path {
         let input = vec!["hello vertex".to_string(), "embedding parity".to_string()];
 
         let _ = siumai_client.embed(input.clone()).await;
-        let _ = provider_client.embed(input.clone()).await;
-        let _ = config_client.embed(input).await;
+        let _ = EmbeddingModel::embed(&provider_client, EmbeddingRequest::new(input.clone())).await;
+        let _ = EmbeddingModel::embed(&config_client, EmbeddingRequest::new(input)).await;
 
         let siumai_req = siumai_transport.take().expect("siumai request");
         let provider_req = provider_transport.take().expect("provider request");

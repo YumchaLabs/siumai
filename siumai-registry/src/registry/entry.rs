@@ -460,7 +460,7 @@ impl EmbeddingExtensions for ClientBackedEmbeddingModel {
             return extensions.embed_with_config(request).await;
         }
 
-        self.embed(request.input).await
+        EmbeddingCapability::embed(self, request.input).await
     }
 
     async fn embed_batch(
@@ -473,8 +473,7 @@ impl EmbeddingExtensions for ClientBackedEmbeddingModel {
 
         let mut responses = Vec::new();
         for request in requests.requests {
-            let result = self
-                .embed(request.input)
+            let result = EmbeddingCapability::embed(self, request.input)
                 .await
                 .map_err(|error| error.to_string());
             responses.push(result);

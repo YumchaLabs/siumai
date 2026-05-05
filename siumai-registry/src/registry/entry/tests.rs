@@ -856,8 +856,13 @@ async fn embedding_and_image_handles_inherit_interceptors() {
     );
     let eh = reg.embedding_model("testprov_embed:model").unwrap();
     assert_eq!(eh.http_interceptors.len(), 1);
-    // Call embed to ensure path runs without panic
-    let _ = eh.embed(vec!["hello".into()]).await.unwrap();
+    // Call embed to ensure path runs without panic.
+    let _ = siumai_core::embedding::EmbeddingModel::embed(
+        &eh,
+        crate::types::EmbeddingRequest::single("hello"),
+    )
+    .await
+    .unwrap();
 
     let ih = reg.image_model("testprov_image:model").unwrap();
     assert_eq!(ih.http_interceptors.len(), 1);

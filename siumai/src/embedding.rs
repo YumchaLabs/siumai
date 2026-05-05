@@ -14,7 +14,7 @@ use siumai_core::types::{
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::embedding::{EmbeddingModel, EmbeddingModelV3};
+pub use siumai_core::embedding::EmbeddingModel;
 pub use siumai_core::types::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingRequest, EmbeddingResponse,
 };
@@ -58,7 +58,7 @@ fn apply_embedding_call_options(
 }
 
 /// Generate embeddings for a single request.
-pub async fn embed<M: EmbeddingModelV3 + ?Sized>(
+pub async fn embed<M: EmbeddingModel + ?Sized>(
     model: &M,
     request: EmbeddingRequest,
     options: EmbedOptions,
@@ -79,7 +79,7 @@ pub async fn embed<M: EmbeddingModelV3 + ?Sized>(
 }
 
 /// Generate embeddings for a batch of requests.
-pub async fn embed_many<M: EmbeddingModelV3 + ?Sized>(
+pub async fn embed_many<M: EmbeddingModel + ?Sized>(
     model: &M,
     requests: BatchEmbeddingRequest,
     options: EmbedOptions,
@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl EmbeddingModelV3 for FakeEmbeddingModel {
+    impl EmbeddingModel for FakeEmbeddingModel {
         async fn embed(&self, _request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
             Ok(self.response.clone())
         }

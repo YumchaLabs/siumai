@@ -27,6 +27,7 @@ Do not introduce or re-export Siumai-local `V3` names that are not upstream prov
 - `CompletionModelV3`
 - `LanguageModelV3StreamPart`
 - `RerankModelV3`
+- Siumai-local `EmbeddingModelV3` compatibility trait
 - Siumai-local `SpeechModelV3` compatibility trait
 - Siumai-local `TranscriptionModelV3` compatibility trait
 
@@ -40,6 +41,7 @@ Current Rust helpers should use the canonical family traits instead:
 
 `RerankCapability` remains available as a low-level non-unified extension under
 `siumai::extensions`; it should not be imported by `prelude::unified::*`.
+`EmbeddingCapability` follows the same rule.
 
 Historical workstream notes may still mention removed names as design history. Current examples,
 tests, registry handles, and facade exports should not depend on them.
@@ -50,5 +52,5 @@ Use this as the first-pass cleanup check, then classify any remaining hits as ei
 upstream contracts, model identifiers, or historical documentation:
 
 ```powershell
-rg -n "\b(TextModelV3|CompletionModelV3|LanguageModelV3StreamPart|RerankModelV3)\b" siumai-core/src siumai/src siumai-registry/src siumai/tests docs CHANGELOG.md -g "*.rs" -g "*.md"
+rg -n "\b(TextModelV3|CompletionModelV3|LanguageModelV3StreamPart|RerankModelV3|EmbeddingModelV3|SpeechModelV3|TranscriptionModelV3)\b" siumai-core/src siumai/src siumai-registry/src siumai/tests docs CHANGELOG.md -g "*.rs" -g "*.md"
 ```

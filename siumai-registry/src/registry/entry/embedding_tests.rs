@@ -12,7 +12,15 @@ async fn embedding_model_handle_builds_client() {
     let reg = create_provider_registry(providers, None);
     let handle = reg.embedding_model("testprov_embed:model").unwrap();
 
-    let out = handle.embed(vec!["a".into(), "b".into()]).await.unwrap();
+    let out = siumai_core::embedding::EmbeddingModel::embed(
+        &handle,
+        EmbeddingRequest {
+            input: vec!["a".into(), "b".into()],
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(out.embeddings[0][0], 2.0);
 }
 
@@ -107,7 +115,7 @@ async fn provider_factory_native_embedding_family_path_works() {
     }
 
     #[async_trait::async_trait]
-    impl crate::embedding::EmbeddingModelV3 for NativeEmbeddingModel {
+    impl crate::embedding::EmbeddingModel for NativeEmbeddingModel {
         async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
             Ok(EmbeddingResponse::new(
                 vec![vec![request.input.len() as f32]],
@@ -201,7 +209,7 @@ async fn embedding_model_handle_uses_native_family_path_when_available() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::embedding::EmbeddingModelV3 for NativeEmbeddingModel {
+    impl siumai_core::embedding::EmbeddingModel for NativeEmbeddingModel {
         async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
             Ok(EmbeddingResponse::new(
                 vec![vec![request.input.len() as f32]],
@@ -238,7 +246,9 @@ async fn embedding_model_handle_uses_native_family_path_when_available() {
         }
 
         async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-            panic!("legacy embedding client path should not be used by embedding handle")
+            Err(LlmError::UnsupportedOperation(
+                "legacy embedding client path is not available".to_string(),
+            ))
         }
 
         async fn embedding_model_family_with_ctx(
@@ -266,10 +276,15 @@ async fn embedding_model_handle_uses_native_family_path_when_available() {
     let reg = create_provider_registry(providers, None);
     let handle = reg.embedding_model("native-embed-handle:model").unwrap();
 
-    let response = handle
-        .embed(vec!["a".to_string(), "b".to_string()])
-        .await
-        .unwrap();
+    let response = siumai_core::embedding::EmbeddingModel::embed(
+        &handle,
+        EmbeddingRequest {
+            input: vec!["a".to_string(), "b".to_string()],
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(response.embeddings[0][0], 2.0);
 }
 
@@ -381,7 +396,7 @@ async fn embedding_model_handle_family_trait_preserves_request_config_on_bridge_
         .embedding_model("request-aware-embed:model")
         .expect("embedding handle");
 
-    let response = siumai_core::embedding::EmbeddingModelV3::embed(
+    let response = siumai_core::embedding::EmbeddingModel::embed(
         &handle,
         EmbeddingRequest::single("hello")
             .with_model("request-model")
@@ -426,7 +441,7 @@ async fn embedding_model_handle_prefers_request_aware_client_extensions_over_los
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::embedding::EmbeddingModelV3 for LossyNativeFamilyEmbeddingModel {
+    impl siumai_core::embedding::EmbeddingModel for LossyNativeFamilyEmbeddingModel {
         async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
             Ok(EmbeddingResponse::new(
                 vec![vec![request.input.len() as f32]],
@@ -611,7 +626,7 @@ async fn embedding_model_handle_embed_many_uses_native_family_batch_path_when_av
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::embedding::EmbeddingModelV3 for NativeBatchOnlyEmbeddingModel {
+    impl siumai_core::embedding::EmbeddingModel for NativeBatchOnlyEmbeddingModel {
         async fn embed(&self, _request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
             panic!("native batch test should not fall back to single-request embedding path")
         }
@@ -678,7 +693,7 @@ async fn embedding_model_handle_embed_many_uses_native_family_batch_path_when_av
         .embedding_model("native-batch-embed:model")
         .expect("embedding handle");
 
-    let response = siumai_core::embedding::EmbeddingModelV3::embed_many(
+    let response = siumai_core::embedding::EmbeddingModel::embed_many(
         &handle,
         BatchEmbeddingRequest {
             requests: vec![

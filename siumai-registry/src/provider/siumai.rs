@@ -62,6 +62,20 @@ impl std::fmt::Debug for Siumai {
     }
 }
 
+impl ModelMetadata for Siumai {
+    fn provider_id(&self) -> &str {
+        &self.metadata.provider_id
+    }
+
+    fn model_id(&self) -> &str {
+        self.metadata
+            .supported_models
+            .first()
+            .map(String::as_str)
+            .unwrap_or_default()
+    }
+}
+
 /// Metadata about the provider
 #[derive(Debug, Clone)]
 pub struct ProviderMetadata {

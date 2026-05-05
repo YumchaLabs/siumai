@@ -865,16 +865,13 @@ async fn test_streaming_chat<T: ChatCapability>(
 }
 
 /// Test embedding functionality
-async fn test_embedding<T: EmbeddingCapability>(
-    client: &T,
-    provider_name: &str,
-) -> LiveCheckOutcome {
+async fn test_embedding<T: EmbeddingModel>(client: &T, provider_name: &str) -> LiveCheckOutcome {
     let texts = vec![
         "Hello world".to_string(),
         "Artificial intelligence".to_string(),
     ];
 
-    match client.embed(texts.clone()).await {
+    match client.embed(EmbeddingRequest::new(texts.clone())).await {
         Ok(response) => {
             if response.embeddings.len() != texts.len() {
                 return LiveCheckOutcome::fail(
