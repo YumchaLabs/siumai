@@ -142,7 +142,7 @@ async fn provider_factory_native_image_family_path_works() {
     }
 
     #[async_trait::async_trait]
-    impl crate::image::ImageModelV3 for NativeImageModel {
+    impl crate::image::ImageModel for NativeImageModel {
         async fn generate(
             &self,
             request: ImageGenerationRequest,
@@ -230,7 +230,7 @@ async fn image_model_handle_uses_native_family_path_when_available() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::image::ImageModelV3 for NativeImageModel {
+    impl siumai_core::image::ImageModel for NativeImageModel {
         async fn generate(
             &self,
             request: ImageGenerationRequest,

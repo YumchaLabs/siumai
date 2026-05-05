@@ -16,6 +16,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Embedding family APIs now use `EmbeddingModel` directly. The Siumai-local `EmbeddingModelV3`
   compatibility trait has been removed from the public facade, and low-level
   `EmbeddingCapability` access remains available through `siumai::extensions`.
+- Image family APIs now use `ImageModel` directly. The Siumai-local `ImageModelV3` compatibility
+  trait has been removed from the public facade; `ImageModelV4` remains as the intentional
+  AI SDK-facing marker.
 
 ## [0.11.0-beta.7] - 2026-05-03
 

@@ -516,7 +516,7 @@ impl crate::traits::ModelMetadata for ClientBackedImageModel {
 }
 
 #[async_trait::async_trait]
-impl crate::image::ImageModelV3 for ClientBackedImageModel {
+impl crate::image::ImageModel for ClientBackedImageModel {
     async fn generate(
         &self,
         request: ImageGenerationRequest,

@@ -1,10 +1,9 @@
-//! Image generation model family (V3/V4-compatible).
+//! Image generation model family.
 //!
 //! This module provides a Rust-first, family-oriented abstraction for image generation.
-//! The stable runtime request/response contract now also exposes AI SDK-style
-//! `ImageModelV4` naming while keeping the historical `ImageModelV3` /
-//! `ImageModel` aliases for compatibility.
-//! In V3-M2 it is implemented as an adapter over `ImageGenerationCapability`.
+//! It is intentionally implemented as an adapter over the existing
+//! `ImageGenerationCapability` while provider construction continues moving toward
+//! model-family traits.
 
 use async_trait::async_trait;
 
@@ -12,9 +11,9 @@ use crate::error::LlmError;
 use crate::traits::{ImageGenerationCapability, ModelMetadata};
 use crate::types::{ImageGenerationRequest, ImageGenerationResponse};
 
-/// V3 interface for image generation models.
+/// Stable Rust interface for image generation models.
 #[async_trait]
-pub trait ImageModelV3: Send + Sync {
+pub trait ImageModel: ModelMetadata + Send + Sync {
     /// Generate images from a request.
     async fn generate(
         &self,
@@ -30,21 +29,19 @@ pub trait ImageModelV3: Send + Sync {
     }
 }
 
-/// Stable image-model contract aligned with AI SDK `ImageModelV4`.
-pub trait ImageModelV4: ImageModelV3 + ModelMetadata + Send + Sync {}
+/// AI SDK V4 provider-facing image-model marker.
+///
+/// The current Rust execution surface is carried by `ImageModel`; this marker remains available
+/// for code that wants to express intentional alignment with upstream `ImageModelV4` naming.
+pub trait ImageModelV4: ImageModel {}
 
-impl<T> ImageModelV4 for T where T: ImageModelV3 + ModelMetadata + Send + Sync + ?Sized {}
+impl<T> ImageModelV4 for T where T: ImageModel + ?Sized {}
 
-/// Short compatibility alias kept for the Rust facade.
-pub trait ImageModel: ImageModelV4 {}
-
-impl<T> ImageModel for T where T: ImageModelV4 + ?Sized {}
-
-/// Adapter: any `ImageGenerationCapability` can be used as an `ImageModelV3`.
+/// Adapter: any `ImageGenerationCapability` with metadata can be used as an `ImageModel`.
 #[async_trait]
-impl<T> ImageModelV3 for T
+impl<T> ImageModel for T
 where
-    T: ImageGenerationCapability + Send + Sync + ?Sized,
+    T: ImageGenerationCapability + ModelMetadata + Send + Sync + ?Sized,
 {
     async fn generate(
         &self,
@@ -106,7 +103,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_generate_uses_capability() {
         let model = FakeImage;
-        let resp = ImageModelV3::generate(
+        let resp = ImageModel::generate(
             &model,
             ImageGenerationRequest {
                 prompt: "cat".to_string(),
@@ -146,6 +143,6 @@ mod tests {
     fn adapter_preserves_capability_batch_limit() {
         let model = FakeImage;
 
-        assert_eq!(ImageModelV3::max_images_per_call(&model), Some(3));
+        assert_eq!(ImageModel::max_images_per_call(&model), Some(3));
     }
 }

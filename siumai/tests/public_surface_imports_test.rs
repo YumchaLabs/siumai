@@ -1301,7 +1301,7 @@ async fn public_surface_tooling_imports_compile() {
 fn registry_handles_compile_as_family_models() {
     use siumai::completion::CompletionModel;
     use siumai::embedding::EmbeddingModel;
-    use siumai::image::{ImageModel, ImageModelV3, ImageModelV4};
+    use siumai::image::{ImageModel, ImageModelV4};
     use siumai::prelude::unified::{ModelMetadata, registry::*};
     use siumai::rerank::RerankingModel;
     use siumai::speech::SpeechModel;
@@ -1312,7 +1312,7 @@ fn registry_handles_compile_as_family_models() {
     fn _assert_completion_handle<T: CompletionModel + ModelMetadata>() {}
     fn _assert_text_handle<T: LanguageModel + TextModel + ModelMetadata>() {}
     fn _assert_embedding_handle<T: EmbeddingModel + ModelMetadata>() {}
-    fn _assert_image_handle<T: ImageModel + ImageModelV3 + ImageModelV4 + ModelMetadata>() {}
+    fn _assert_image_handle<T: ImageModel + ImageModelV4 + ModelMetadata>() {}
     fn _assert_rerank_handle<T: RerankingModel + ModelMetadata>() {}
     fn _assert_speech_handle<T: SpeechModel + ModelMetadata>() {}
     fn _assert_transcription_handle<T: TranscriptionModel + ModelMetadata>() {}

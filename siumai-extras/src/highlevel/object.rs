@@ -580,14 +580,14 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
     }
 
     // Call chat_request and parse the response
-    let resp = client.generate(request).await?;
+    let resp = TextModel::generate(client, request).await?;
 
     // Extract text content (prefer tool call arguments if present)
     let text = {
         let tool_calls = resp.tool_calls();
         if let Some(first) = tool_calls.first() {
             if let ContentPart::ToolCall { arguments, .. } = first {
-                serde_json::to_string(arguments).unwrap_or_default()
+                serde_json::to_string(&arguments).unwrap_or_default()
             } else {
                 resp.content_text()
                     .map(|s| s.to_string())

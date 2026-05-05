@@ -23,7 +23,7 @@ use siumai_core::utils::{
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::image::{ImageModel, ImageModelV3, ImageModelV4};
+pub use siumai_core::image::{ImageModel, ImageModelV4};
 pub use siumai_core::types::{
     GenerateImagePrompt, GenerateImageRequest, GenerateImageResult, GeneratedFile, GeneratedImage,
     ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse,
@@ -150,7 +150,7 @@ fn split_call_image_counts(total_images: u32, max_images_per_call: u32) -> Vec<u
     counts
 }
 
-async fn generate_single<M: ImageModelV3 + ?Sized>(
+async fn generate_single<M: ImageModel + ?Sized>(
     model: &M,
     request: ImageGenerationRequest,
     retry: Option<RetryOptions>,
@@ -169,7 +169,7 @@ async fn generate_single<M: ImageModelV3 + ?Sized>(
     }
 }
 
-async fn edit_single<M: ImageModelV3 + ImageExtras + ?Sized>(
+async fn edit_single<M: ImageModel + ImageExtras + ?Sized>(
     model: &M,
     request: ImageEditRequest,
     retry: Option<RetryOptions>,
@@ -188,7 +188,7 @@ async fn edit_single<M: ImageModelV3 + ImageExtras + ?Sized>(
     }
 }
 
-async fn variation_single<M: ImageModelV3 + ImageExtras + ?Sized>(
+async fn variation_single<M: ImageModel + ImageExtras + ?Sized>(
     model: &M,
     request: ImageVariationRequest,
     retry: Option<RetryOptions>,
@@ -515,7 +515,7 @@ async fn dispatch_generate_image<M: ImageModelV4 + ImageExtras + ?Sized>(
 }
 
 /// Generate images directly through the generation request family.
-pub async fn generate<M: ImageModelV3 + ?Sized>(
+pub async fn generate<M: ImageModel + ?Sized>(
     model: &M,
     request: ImageGenerationRequest,
     options: GenerateOptions,
@@ -551,7 +551,7 @@ pub async fn generate<M: ImageModelV3 + ?Sized>(
 }
 
 /// Edit or inpaint images through the provider-owned image-extras lane.
-pub async fn edit<M: ImageModelV3 + ImageExtras + ?Sized>(
+pub async fn edit<M: ImageModel + ImageExtras + ?Sized>(
     model: &M,
     request: ImageEditRequest,
     options: GenerateOptions,
@@ -587,7 +587,7 @@ pub async fn edit<M: ImageModelV3 + ImageExtras + ?Sized>(
 }
 
 /// Create image variations through the provider-owned image-extras lane.
-pub async fn variation<M: ImageModelV3 + ImageExtras + ?Sized>(
+pub async fn variation<M: ImageModel + ImageExtras + ?Sized>(
     model: &M,
     request: ImageVariationRequest,
     options: GenerateOptions,

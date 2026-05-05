@@ -743,7 +743,7 @@ impl ImageGenerationCapability for TogetherAiUnifiedClient {
     }
 
     fn max_images_per_call(&self) -> Option<u32> {
-        self.image_client.max_images_per_call()
+        ImageGenerationCapability::max_images_per_call(&self.image_client)
     }
 }
 
