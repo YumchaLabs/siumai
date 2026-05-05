@@ -80,7 +80,7 @@ SIUMAI_TEST_PROXY="http://127.0.0.1:10809" ./scripts/test-env-smoke.sh
 # Optional: run the full provider matrix
 SIUMAI_ENV_SMOKE_PROFILE=all-providers ./scripts/test-env-smoke.sh
 
-# Optional: fail on known account/region denials instead of self-skipping them
+# Optional: fail on known account/region/quota denials instead of self-skipping them
 SIUMAI_ENV_SMOKE_PROFILE=all-providers SIUMAI_ENV_SMOKE_STRICT=1 ./scripts/test-env-smoke.sh
 ```
 
@@ -95,7 +95,7 @@ REM Optional: run the full provider matrix
 set SIUMAI_ENV_SMOKE_PROFILE=all-providers
 scripts\test-env-smoke.bat
 
-REM Optional: fail on known account/region denials instead of self-skipping them
+REM Optional: fail on known account/region/quota denials instead of self-skipping them
 set SIUMAI_ENV_SMOKE_STRICT=1
 scripts\test-env-smoke.bat
 ```

@@ -64,6 +64,6 @@ echo Notes:
 echo   - Tests are ignored by default and make real API calls.
 echo   - If a provider API key is absent, the corresponding test self-skips.
 echo   - core-default avoids providers commonly blocked by account or region.
-echo   - Gemini/Groq also self-skip on known region/account access denials unless
+echo   - Gemini/Groq also self-skip on known region/account/quota access denials unless
 echo     SIUMAI_ENV_SMOKE_STRICT is enabled.
 exit /b 0

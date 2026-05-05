@@ -43,7 +43,7 @@ Notes:
   - Tests are ignored by default and make real API calls.
   - If a provider API key is absent, the corresponding test self-skips.
   - `core-default` avoids providers that are commonly blocked by account or region.
-  - Gemini/Groq also self-skip on known region/account access denials unless
+  - Gemini/Groq also self-skip on known region/account/quota access denials unless
     `SIUMAI_ENV_SMOKE_STRICT=1`.
 EOF
 }

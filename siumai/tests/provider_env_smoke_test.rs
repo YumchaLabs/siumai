@@ -19,7 +19,7 @@ const OPENAI_DEFAULT_MODEL: &str = "gpt-4o-mini";
 const ANTHROPIC_DEFAULT_MODEL: &str = "claude-3-5-haiku-20241022";
 
 #[cfg(feature = "google")]
-const GEMINI_DEFAULT_MODEL: &str = "gemini-2.5-flash";
+const GEMINI_DEFAULT_MODEL: &str = "gemini-2.5-flash-lite";
 
 #[cfg(feature = "deepseek")]
 const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-chat";
@@ -29,6 +29,8 @@ const GROQ_DEFAULT_MODEL: &str = "llama-3.1-8b-instant";
 
 const LIVE_SMOKE_MAX_TOKENS: u32 = 256;
 const LIVE_SMOKE_TEMPERATURE: f64 = 0.0;
+const LIVE_SMOKE_MAX_ATTEMPTS: usize = 3;
+const LIVE_SMOKE_RETRY_DELAY_SECS: u64 = 2;
 
 #[cfg(feature = "anthropic")]
 const ANTHROPIC_FALLBACK_MODELS: &[&str] = &[
@@ -80,6 +82,30 @@ fn is_present(env_name: &str) -> bool {
     )
 }
 
+fn is_transient_live_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("api error: 429")
+        || lower.contains("http=429")
+        || lower.contains("rate limit exceeded")
+        || lower.contains("api error: 500")
+        || lower.contains("api error: 502")
+        || lower.contains("api error: 503")
+        || lower.contains("api error: 504")
+        || lower.contains("service unavailable")
+        || lower.contains("too many requests")
+        || lower.contains("connection error")
+        || lower.contains("request timed out")
+        || lower.contains("stream setup timed out")
+        || lower.contains("stream iteration timed out")
+}
+
+async fn sleep_before_live_retry(step: &str, attempt: usize, err: &str) {
+    eprintln!(
+        "[retry] {step} attempt {attempt}/{LIVE_SMOKE_MAX_ATTEMPTS} failed with a transient error: {err}"
+    );
+    tokio::time::sleep(Duration::from_secs(LIVE_SMOKE_RETRY_DELAY_SECS)).await;
+}
+
 #[cfg(any(feature = "google", feature = "groq"))]
 fn is_truthy_env(env_name: &str) -> bool {
     matches!(
@@ -99,7 +125,13 @@ fn is_known_live_access_restriction(provider: &str, err: &str) -> bool {
     }
 
     match provider {
-        "gemini" => err.contains("User location is not supported for the API use."),
+        "gemini" => {
+            let lower = err.to_ascii_lowercase();
+            err.contains("User location is not supported for the API use.")
+                || (lower.contains("quota")
+                    && (lower.contains("exceeded") || lower.contains("billing")))
+                || lower.contains("rate limit exceeded")
+        }
         "groq" => {
             let lower = err.to_ascii_lowercase();
             lower.contains("api error: 403") && lower.contains("groq api error: forbidden")
@@ -120,7 +152,7 @@ fn unwrap_live_step(provider: &str, step: &str, result: Result<String, String>) 
     }
 }
 
-async fn generate_text<M>(model: &M, request: ChatRequest) -> Result<String, String>
+async fn generate_text_once<M>(model: &M, request: ChatRequest) -> Result<String, String>
 where
     M: ChatCapability + ?Sized,
 {
@@ -140,7 +172,24 @@ where
     }
 }
 
-async fn collect_stream_text<M>(model: &M, request: ChatRequest) -> Result<String, String>
+async fn generate_text<M>(model: &M, request: ChatRequest) -> Result<String, String>
+where
+    M: ChatCapability + ?Sized,
+{
+    for attempt in 1..=LIVE_SMOKE_MAX_ATTEMPTS {
+        match generate_text_once(model, request.clone()).await {
+            Ok(value) => return Ok(value),
+            Err(err) if attempt < LIVE_SMOKE_MAX_ATTEMPTS && is_transient_live_error(&err) => {
+                sleep_before_live_retry("generate_text", attempt, &err).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err("live generate_text retry loop exhausted without a final error".to_string())
+}
+
+async fn collect_stream_text_once<M>(model: &M, request: ChatRequest) -> Result<String, String>
 where
     M: ChatCapability + ?Sized,
 {
@@ -178,6 +227,23 @@ where
     } else {
         Ok(compact(&collected))
     }
+}
+
+async fn collect_stream_text<M>(model: &M, request: ChatRequest) -> Result<String, String>
+where
+    M: ChatCapability + ?Sized,
+{
+    for attempt in 1..=LIVE_SMOKE_MAX_ATTEMPTS {
+        match collect_stream_text_once(model, request.clone()).await {
+            Ok(value) => return Ok(value),
+            Err(err) if attempt < LIVE_SMOKE_MAX_ATTEMPTS && is_transient_live_error(&err) => {
+                sleep_before_live_retry("collect_stream_text", attempt, &err).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err("live collect_stream_text retry loop exhausted without a final error".to_string())
 }
 
 #[cfg(feature = "openai")]
