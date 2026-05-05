@@ -1,9 +1,10 @@
-//! Video generation model family (task-oriented, V3/V4-compatible).
+//! Video generation model family (task-oriented).
 //!
 //! This module provides a Rust-first, family-oriented abstraction for video generation.
 //! Unlike the AI SDK's auto-polling `doGenerate()` shape, the stable Rust contract keeps
 //! explicit task submission and task-status querying as first-class operations.
-//! The stable naming still exposes `VideoModelV4` for package-surface auditability.
+//! The stable Rust execution contract is `VideoModel`; `VideoModelV4` is kept as an
+//! upstream provider-contract marker for package-surface auditability.
 
 use async_trait::async_trait;
 
@@ -54,9 +55,9 @@ impl VideoPollingOptions {
     }
 }
 
-/// V3 interface for task-oriented video generation models.
+/// Stable Rust interface for task-oriented video generation models.
 #[async_trait]
-pub trait VideoModelV3: Send + Sync {
+pub trait VideoModel: ModelMetadata + Send + Sync {
     /// Submit a new video-generation task.
     async fn create_task(
         &self,
@@ -112,24 +113,20 @@ pub trait VideoModelV3: Send + Sync {
     }
 }
 
-/// Stable metadata-bearing video-model contract.
+/// AI SDK V4 provider-facing video-model marker.
 ///
-/// The name stays aligned with AI SDK `VideoModelV4`, but the execution semantics remain
-/// explicitly task-oriented on the Rust side.
-pub trait VideoModelV4: VideoModelV3 + ModelMetadata + Send + Sync {}
+/// The current Rust execution surface is task-oriented and carried by `VideoModel`; this marker
+/// remains available for code that wants to express intentional alignment with upstream
+/// `VideoModelV4` naming.
+pub trait VideoModelV4: VideoModel {}
 
-impl<T> VideoModelV4 for T where T: VideoModelV3 + ModelMetadata + Send + Sync + ?Sized {}
+impl<T> VideoModelV4 for T where T: VideoModel + ?Sized {}
 
-/// Short compatibility alias kept for the Rust facade.
-pub trait VideoModel: VideoModelV4 {}
-
-impl<T> VideoModel for T where T: VideoModelV4 + ?Sized {}
-
-/// Adapter: any `VideoGenerationCapability` can be used as a `VideoModelV3`.
+/// Adapter: any `VideoGenerationCapability` with metadata can be used as a `VideoModel`.
 #[async_trait]
-impl<T> VideoModelV3 for T
+impl<T> VideoModel for T
 where
-    T: VideoGenerationCapability + Send + Sync + ?Sized,
+    T: VideoGenerationCapability + ModelMetadata + Send + Sync + ?Sized,
 {
     async fn create_task(
         &self,
@@ -261,7 +258,7 @@ mod tests {
     async fn adapter_create_task_uses_capability() {
         let model = FakeVideo;
         let response =
-            VideoModelV3::create_task(&model, VideoGenerationRequest::new("fake-video", "robot"))
+            VideoModel::create_task(&model, VideoGenerationRequest::new("fake-video", "robot"))
                 .await
                 .unwrap();
 
@@ -271,9 +268,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_query_task_uses_capability() {
         let model = FakeVideo;
-        let response = VideoModelV3::query_task(&model, "task:robot")
-            .await
-            .unwrap();
+        let response = VideoModel::query_task(&model, "task:robot").await.unwrap();
 
         assert_eq!(response.status, VideoTaskStatus::Success);
         assert_eq!(
@@ -285,7 +280,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_materialize_video_reference_uses_capability() {
         let model = FakeVideo;
-        let asset = VideoModelV3::materialize_video_reference(
+        let asset = VideoModel::materialize_video_reference(
             &model,
             &ProviderReference::single("fake", "file-123"),
         )
@@ -319,14 +314,14 @@ mod tests {
     fn adapter_preserves_supported_metadata_helpers() {
         let model = FakeVideo;
 
-        assert_eq!(VideoModelV3::max_videos_per_call(&model), Some(4));
-        assert_eq!(VideoModelV3::supported_models(&model), vec!["fake-video"]);
+        assert_eq!(VideoModel::max_videos_per_call(&model), Some(4));
+        assert_eq!(VideoModel::supported_models(&model), vec!["fake-video"]);
         assert_eq!(
-            VideoModelV3::supported_resolutions(&model, "fake-video"),
+            VideoModel::supported_resolutions(&model, "fake-video"),
             vec!["720p"]
         );
         assert_eq!(
-            VideoModelV3::supported_durations(&model, "fake-video"),
+            VideoModel::supported_durations(&model, "fake-video"),
             vec![6]
         );
     }

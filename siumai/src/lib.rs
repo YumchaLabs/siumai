@@ -2281,7 +2281,7 @@ pub mod prelude {
             ModelMetadata, ProviderCapabilities, SpeechCapability, TranscriptionCapability,
         };
         pub use siumai_core::transcription::TranscriptionModel;
-        pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4};
+        pub use siumai_core::video::{VideoModel, VideoModelV4};
 
         pub use siumai_core::embedding::EmbeddingModel;
         // Core request/response types for the six stable model families.

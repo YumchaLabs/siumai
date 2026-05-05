@@ -632,7 +632,7 @@ impl crate::traits::ModelMetadata for ClientBackedVideoModel {
 }
 
 #[async_trait::async_trait]
-impl siumai_core::video::VideoModelV3 for ClientBackedVideoModel {
+impl siumai_core::video::VideoModel for ClientBackedVideoModel {
     async fn create_task(
         &self,
         request: VideoGenerationRequest,

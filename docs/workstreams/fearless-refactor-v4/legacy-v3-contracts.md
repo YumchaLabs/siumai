@@ -31,12 +31,14 @@ Do not introduce or re-export Siumai-local `V3` names that are not upstream prov
 - Siumai-local `ImageModelV3` compatibility trait
 - Siumai-local `SpeechModelV3` compatibility trait
 - Siumai-local `TranscriptionModelV3` compatibility trait
+- Siumai-local `VideoModelV3` compatibility trait
 
 Current Rust helpers should use the canonical family traits instead:
 
 - `TextModel` / `LanguageModel`
 - `CompletionModel`
 - `RerankingModel`
+- `EmbeddingModel` / `ImageModel` / `SpeechModel` / `TranscriptionModel` / `VideoModel`
 - `TypedStreamPart` for the provider-agnostic typed stream overlay
 - `LanguageModelV4StreamPart` only for the AI SDK V4 provider-facing stream union
 
@@ -53,5 +55,5 @@ Use this as the first-pass cleanup check, then classify any remaining hits as ei
 upstream contracts, model identifiers, or historical documentation:
 
 ```powershell
-rg -n "\b(TextModelV3|CompletionModelV3|LanguageModelV3StreamPart|RerankModelV3|EmbeddingModelV3|ImageModelV3|SpeechModelV3|TranscriptionModelV3)\b" siumai-core/src siumai/src siumai-registry/src siumai/tests docs CHANGELOG.md -g "*.rs" -g "*.md"
+rg -n "\b(TextModelV3|CompletionModelV3|LanguageModelV3StreamPart|RerankModelV3|EmbeddingModelV3|ImageModelV3|SpeechModelV3|TranscriptionModelV3|VideoModelV3)\b" siumai-core/src siumai/src siumai-registry/src siumai/tests docs CHANGELOG.md -g "*.rs" -g "*.md"
 ```

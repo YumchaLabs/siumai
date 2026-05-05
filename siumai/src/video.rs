@@ -30,7 +30,7 @@ pub use siumai_core::types::{
     VideoModelProviderMetadata, VideoModelResponseMetadata, VideoTaskStatus,
     VideoTaskStatusResponse,
 };
-pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4, VideoPollingOptions};
+pub use siumai_core::video::{VideoModel, VideoModelV4, VideoPollingOptions};
 
 const DEFAULT_VIDEO_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const DEFAULT_VIDEO_POLL_TIMEOUT: Duration = Duration::from_secs(300);
@@ -565,7 +565,7 @@ fn apply_video_call_options(
 }
 
 /// Submit a video-generation task.
-pub async fn create_task<M: VideoModelV3 + ?Sized>(
+pub async fn create_task<M: VideoModel + ?Sized>(
     model: &M,
     request: VideoGenerationRequest,
     options: CreateTaskOptions,
@@ -585,7 +585,7 @@ pub async fn create_task<M: VideoModelV3 + ?Sized>(
 }
 
 /// Query a video-generation task.
-pub async fn query_task<M: VideoModelV3 + ?Sized>(
+pub async fn query_task<M: VideoModel + ?Sized>(
     model: &M,
     task_id: &str,
     options: QueryTaskOptions,
@@ -613,7 +613,7 @@ fn validate_poll_interval(poll_interval: Duration) -> Result<(), LlmError> {
     Ok(())
 }
 
-fn resolve_generate_polling_options<M: VideoModelV3 + ?Sized>(
+fn resolve_generate_polling_options<M: VideoModel + ?Sized>(
     model: &M,
     request: &VideoGenerationRequest,
     options: &GenerateOptions,
@@ -1237,7 +1237,7 @@ fn merge_provider_metadata(
 /// Returns the final successful `VideoTaskStatusResponse`. Failed tasks surface as
 /// `LlmError::ProcessingError`, and unfinished tasks past the polling deadline surface as
 /// `LlmError::TimeoutError`.
-pub async fn wait_for_task<M: VideoModelV3 + ?Sized>(
+pub async fn wait_for_task<M: VideoModel + ?Sized>(
     model: &M,
     task_id: &str,
     options: WaitForTaskOptions,
@@ -1696,7 +1696,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl VideoModelV3 for FakeGenerateVideoModel {
+    impl VideoModel for FakeGenerateVideoModel {
         async fn create_task(
             &self,
             request: VideoGenerationRequest,
@@ -1862,7 +1862,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl VideoModelV3 for FakeInlineMaterializedVideoModel {
+    impl VideoModel for FakeInlineMaterializedVideoModel {
         async fn create_task(
             &self,
             request: VideoGenerationRequest,
@@ -1908,7 +1908,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl VideoModelV3 for FakeNoAssetsVideoModel {
+    impl VideoModel for FakeNoAssetsVideoModel {
         async fn create_task(
             &self,
             request: VideoGenerationRequest,
@@ -1954,7 +1954,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl VideoModelV3 for FakeDownloadableUrlVideoModel {
+    impl VideoModel for FakeDownloadableUrlVideoModel {
         async fn create_task(
             &self,
             request: VideoGenerationRequest,
@@ -2011,7 +2011,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl VideoModelV3 for FakeProviderReferenceMaterializingVideoModel {
+    impl VideoModel for FakeProviderReferenceMaterializingVideoModel {
         async fn create_task(
             &self,
             request: VideoGenerationRequest,
@@ -2061,7 +2061,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl VideoModelV3 for FakeUnsupportedProviderReferenceVideoModel {
+    impl VideoModel for FakeUnsupportedProviderReferenceVideoModel {
         async fn create_task(
             &self,
             request: VideoGenerationRequest,
@@ -2100,7 +2100,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl VideoModelV3 for FakeNonMaterializableUrlVideoModel {
+    impl VideoModel for FakeNonMaterializableUrlVideoModel {
         async fn create_task(
             &self,
             request: VideoGenerationRequest,
@@ -2144,7 +2144,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl VideoModelV3 for FakeGoogleVertexAliasMetadataVideoModel {
+    impl VideoModel for FakeGoogleVertexAliasMetadataVideoModel {
         async fn create_task(
             &self,
             request: VideoGenerationRequest,

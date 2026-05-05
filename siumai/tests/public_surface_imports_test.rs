@@ -493,7 +493,6 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<*const dyn SpeechModel>();
     let _ = size_of::<*const dyn TranscriptionModel>();
     let _ = size_of::<*const dyn VideoModel>();
-    let _ = size_of::<*const dyn VideoModelV3>();
     let _ = size_of::<*const dyn VideoModelV4>();
     let _ = get_total_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_step_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
@@ -1307,7 +1306,7 @@ fn registry_handles_compile_as_family_models() {
     use siumai::speech::SpeechModel;
     use siumai::text::{LanguageModel, TextModel};
     use siumai::transcription::TranscriptionModel;
-    use siumai::video::{VideoModel, VideoModelV3, VideoModelV4};
+    use siumai::video::{VideoModel, VideoModelV4};
 
     fn _assert_completion_handle<T: CompletionModel + ModelMetadata>() {}
     fn _assert_text_handle<T: LanguageModel + TextModel + ModelMetadata>() {}
@@ -1316,7 +1315,7 @@ fn registry_handles_compile_as_family_models() {
     fn _assert_rerank_handle<T: RerankingModel + ModelMetadata>() {}
     fn _assert_speech_handle<T: SpeechModel + ModelMetadata>() {}
     fn _assert_transcription_handle<T: TranscriptionModel + ModelMetadata>() {}
-    fn _assert_video_handle<T: VideoModel + VideoModelV3 + VideoModelV4 + ModelMetadata>() {}
+    fn _assert_video_handle<T: VideoModel + VideoModelV4 + ModelMetadata>() {}
 
     let _ = size_of::<CompletionModelHandle>();
     let _ = size_of::<LanguageModelHandle>();
@@ -1547,7 +1546,7 @@ fn public_surface_video_family_imports_compile() {
         GeneratedVideo, GeneratedVideoData, MaterializeVideoOptions, MaterializedVideo,
         MaterializedVideoAsset, QueryTaskOptions, VideoGenerationFileData, VideoGenerationInput,
         VideoGenerationPrompt, VideoGenerationRequest, VideoGenerationResponse, VideoModel,
-        VideoModelV3, VideoModelV4, VideoTaskStatus, VideoTaskStatusResponse, WaitForTaskOptions,
+        VideoModelV4, VideoTaskStatus, VideoTaskStatusResponse, WaitForTaskOptions,
     };
 
     let _ = size_of::<VideoGenerationFileData>();
@@ -1572,7 +1571,6 @@ fn public_surface_video_family_imports_compile() {
     let _ = size_of::<MaterializeVideoOptions>();
     let _ = size_of::<MaterializedVideo>();
     let _ = size_of::<*const dyn VideoModel>();
-    let _ = size_of::<*const dyn VideoModelV3>();
     let _ = size_of::<*const dyn VideoModelV4>();
     let _ = VideoGenerationRequest::new_without_prompt("video-model")
         .with_image(VideoGenerationInput::url("https://example.com/image.png"));

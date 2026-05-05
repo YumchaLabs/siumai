@@ -252,7 +252,7 @@ async fn provider_factory_native_video_family_path_works() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::video::VideoModelV3 for NativeVideoModel {
+    impl siumai_core::video::VideoModel for NativeVideoModel {
         async fn create_task(
             &self,
             request: crate::types::VideoGenerationRequest,
@@ -355,7 +355,7 @@ async fn video_model_handle_uses_native_family_path_when_available() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::video::VideoModelV3 for NativeHandleVideoModel {
+    impl siumai_core::video::VideoModel for NativeHandleVideoModel {
         async fn create_task(
             &self,
             request: crate::types::VideoGenerationRequest,
@@ -430,7 +430,7 @@ async fn video_model_handle_uses_native_family_path_when_available() {
     let reg = create_provider_registry(providers, None);
     let handle = reg.video_model("native-video-handle:model").unwrap();
 
-    let response = siumai_core::video::VideoModelV3::create_task(
+    let response = siumai_core::video::VideoModel::create_task(
         &handle,
         crate::types::VideoGenerationRequest::new("", "family path"),
     )
@@ -455,7 +455,7 @@ async fn video_model_handle_reuses_cached_family_model() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::video::VideoModelV3 for CountingVideoModel {
+    impl siumai_core::video::VideoModel for CountingVideoModel {
         async fn create_task(
             &self,
             request: crate::types::VideoGenerationRequest,
@@ -531,13 +531,13 @@ async fn video_model_handle_reuses_cached_family_model() {
     let reg = create_provider_registry(providers, None);
     let handle = reg.video_model("cached-video:model").unwrap();
 
-    let first = siumai_core::video::VideoModelV3::create_task(
+    let first = siumai_core::video::VideoModel::create_task(
         &handle,
         crate::types::VideoGenerationRequest::new("model", "once"),
     )
     .await
     .unwrap();
-    let second = siumai_core::video::VideoModelV3::query_task(&handle, &first.task_id)
+    let second = siumai_core::video::VideoModel::query_task(&handle, &first.task_id)
         .await
         .unwrap();
 

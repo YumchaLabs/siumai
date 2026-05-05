@@ -19,6 +19,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Image family APIs now use `ImageModel` directly. The Siumai-local `ImageModelV3` compatibility
   trait has been removed from the public facade; `ImageModelV4` remains as the intentional
   AI SDK-facing marker.
+- Video family APIs now use `VideoModel` directly. The Siumai-local `VideoModelV3` compatibility
+  trait has been removed from the public facade; `VideoModelV4` remains as the intentional
+  AI SDK-facing marker.
 
 ## [0.11.0-beta.7] - 2026-05-03
 
