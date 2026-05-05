@@ -4,7 +4,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
-- Nothing yet.
+### Changed
+
+- Rerank family APIs now use `RerankingModel` directly. The old Siumai-local
+  `RerankModelV3` name has been removed from the public facade, and `prelude::unified::*` no
+  longer imports `RerankCapability`, so method-style `rerank(...)` calls resolve to the canonical
+  family trait. Low-level capability access remains available through `siumai::extensions`.
 
 ## [0.11.0-beta.7] - 2026-05-03
 

@@ -1,7 +1,9 @@
-//! Rerank model family (V3).
+//! Rerank model family.
 //!
 //! This module provides a Rust-first, family-oriented abstraction for reranking.
-//! In V3-M2 it is implemented as an adapter over `RerankCapability`.
+//! It is intentionally implemented as an adapter over the existing
+//! `RerankCapability` while provider construction continues moving toward
+//! model-family traits.
 
 use async_trait::async_trait;
 
@@ -9,23 +11,18 @@ use crate::error::LlmError;
 use crate::traits::{ModelMetadata, RerankCapability};
 use crate::types::{RerankRequest, RerankResponse};
 
-/// V3 interface for reranking models.
+/// Stable Rust interface for reranking models.
 #[async_trait]
-pub trait RerankModelV3: Send + Sync {
+pub trait RerankingModel: ModelMetadata + Send + Sync {
     /// Rerank candidates for a query.
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError>;
 }
 
-/// Stable reranking-model contract for the V4 refactor spike.
-pub trait RerankingModel: RerankModelV3 + ModelMetadata + Send + Sync {}
-
-impl<T> RerankingModel for T where T: RerankModelV3 + ModelMetadata + Send + Sync + ?Sized {}
-
-/// Adapter: any `RerankCapability` can be used as a `RerankModelV3`.
+/// Adapter: any `RerankCapability` with metadata can be used as a `RerankingModel`.
 #[async_trait]
-impl<T> RerankModelV3 for T
+impl<T> RerankingModel for T
 where
-    T: RerankCapability + Send + Sync + ?Sized,
+    T: RerankCapability + ModelMetadata + Send + Sync + ?Sized,
 {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
         RerankCapability::rerank(self, request).await
@@ -76,7 +73,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_rerank_uses_capability() {
         let model = FakeRerank;
-        let resp = RerankModelV3::rerank(
+        let resp = RerankingModel::rerank(
             &model,
             RerankRequest::new(
                 "fake".into(),

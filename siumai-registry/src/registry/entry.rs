@@ -725,7 +725,7 @@ impl crate::traits::ModelMetadata for ClientBackedRerankingModel {
 }
 
 #[async_trait::async_trait]
-impl siumai_core::rerank::RerankModelV3 for ClientBackedRerankingModel {
+impl RerankCapability for ClientBackedRerankingModel {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
         let rerank = self.client.as_rerank_capability().ok_or_else(|| {
             LlmError::UnsupportedOperation("Provider does not support reranking".to_string())

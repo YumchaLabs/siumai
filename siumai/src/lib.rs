@@ -2133,8 +2133,8 @@ pub mod provider_catalog;
 pub mod extensions {
     pub use siumai_core::traits::{
         AudioCapability, FileManagementCapability, ImageExtras, ModelListingCapability,
-        ModerationCapability, MusicGenerationCapability, SkillsCapability, SpeechExtras,
-        TimeoutCapability, TranscriptionExtras, VideoGenerationCapability,
+        ModerationCapability, MusicGenerationCapability, RerankCapability, SkillsCapability,
+        SpeechExtras, TimeoutCapability, TranscriptionExtras, VideoGenerationCapability,
     };
 
     /// Types used by non-unified extension capabilities.
@@ -2277,8 +2277,8 @@ pub mod prelude {
         };
         pub use siumai_core::traits::{
             ChatCapability, CompletionCapability, EmbeddingCapability, EmbeddingExtensions,
-            ImageGenerationCapability, ModelMetadata, ProviderCapabilities, RerankCapability,
-            SpeechCapability, TranscriptionCapability,
+            ImageGenerationCapability, ModelMetadata, ProviderCapabilities, SpeechCapability,
+            TranscriptionCapability,
         };
         pub use siumai_core::transcription::TranscriptionModel;
         pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4};

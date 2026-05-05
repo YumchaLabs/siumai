@@ -147,7 +147,7 @@ async fn provider_factory_native_reranking_family_path_works() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::rerank::RerankModelV3 for NativeRerankingModel {
+    impl siumai_core::rerank::RerankingModel for NativeRerankingModel {
         async fn rerank(
             &self,
             request: crate::types::RerankRequest,
@@ -239,7 +239,7 @@ async fn reranking_model_handle_uses_native_family_path_when_available() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::rerank::RerankModelV3 for NativeHandleRerankingModel {
+    impl siumai_core::rerank::RerankingModel for NativeHandleRerankingModel {
         async fn rerank(
             &self,
             request: crate::types::RerankRequest,
@@ -300,14 +300,16 @@ async fn reranking_model_handle_uses_native_family_path_when_available() {
     let reg = create_provider_registry(providers, None);
     let handle = reg.reranking_model("native-rerank-handle:model").unwrap();
 
-    let response = handle
-        .rerank(crate::types::RerankRequest::new(
+    let response = siumai_core::rerank::RerankingModel::rerank(
+        &handle,
+        crate::types::RerankRequest::new(
             "model".to_string(),
             "query".to_string(),
             vec!["a".to_string(), "b".to_string()],
-        ))
-        .await
-        .unwrap();
+        ),
+    )
+    .await
+    .unwrap();
     assert_eq!(response.id, "native-handle-rerank");
     assert_eq!(response.results.len(), 2);
 }

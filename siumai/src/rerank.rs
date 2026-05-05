@@ -14,7 +14,7 @@ use siumai_core::types::{
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::rerank::{RerankModelV3, RerankingModel};
+pub use siumai_core::rerank::RerankingModel;
 pub use siumai_core::types::{RerankRankingEntry, RerankRequest, RerankResponse};
 
 /// Options for `rerank::rerank`.
@@ -56,7 +56,7 @@ fn apply_rerank_call_options(
 }
 
 /// Rerank candidates for a query.
-pub async fn rerank<M: RerankModelV3 + ?Sized>(
+pub async fn rerank<M: RerankingModel + ?Sized>(
     model: &M,
     request: RerankRequest,
     options: RerankOptions,
@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl RerankModelV3 for FakeRerankModel {
+    impl RerankingModel for FakeRerankModel {
         async fn rerank(&self, _request: RerankRequest) -> Result<RerankResponse, LlmError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(self.response.clone())

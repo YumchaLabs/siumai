@@ -619,7 +619,9 @@ async fn reranking_model_handle_builds_and_calls() {
         "query".to_string(),
         vec!["a".into(), "b".into(), "c".into()],
     );
-    let resp = handle.rerank(req).await.unwrap();
+    let resp = siumai_core::rerank::RerankingModel::rerank(&handle, req)
+        .await
+        .unwrap();
     assert_eq!(resp.id, "rerank-test");
     assert_eq!(resp.results.len(), 3);
     assert_eq!(resp.top_result_index(), Some(0));

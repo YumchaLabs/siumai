@@ -154,11 +154,14 @@ Status legend:
 
 - [x] Add a migration adapter path from current chat capability to `LanguageModel`.
 
+- [x] Document the legacy V3 cleanup boundary.
+  - `legacy-v3-contracts.md` now separates intentional AI SDK V3/V4 provider contracts from Siumai-local legacy `V3` names that should stay out of current public APIs.
+
 
 
 - [~] Add no-network unit tests for all trait adapters.
 
-  - `RerankingModel` now exists as a metadata-bearing family trait over `RerankModelV3`, with no-network adapter coverage in `siumai-core`.
+  - `RerankingModel` now exists as the canonical metadata-bearing family trait, with no-network adapter coverage from legacy rerank capability implementations in `siumai-core`.
   - `SpeechModel` and `TranscriptionModel` now also have metadata-bearing family traits plus no-network adapter coverage in `siumai-core`.
   - `siumai-core` now also covers injected-transport execution for JSON, JSON-bytes, multipart JSON, and multipart-bytes request helpers, including single-401 retry parity for OpenAI-style upload flows.
 

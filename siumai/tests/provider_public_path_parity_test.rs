@@ -30,7 +30,7 @@ use siumai::extensions::{AudioCapability, ImageExtras};
 use siumai::prelude::unified::{
     ChatCapability, ChatMessage, ChatRequest, CompletionCapability, CompletionRequest,
     EmbeddingCapability, ImageGenerationCapability, ImageGenerationRequest, LlmError,
-    RerankCapability, RerankRequest, Siumai, SttRequest, TtsRequest,
+    RerankRequest, RerankingModel, Siumai, SttRequest, TtsRequest,
 };
 #[cfg(feature = "google-vertex")]
 use siumai::provider_ext::anthropic_vertex::{
@@ -1231,13 +1231,13 @@ mod openai_public_path {
             .await
             .expect_err("native openai rerank should be unsupported");
         let provider_err =
-            <siumai::provider_ext::openai::OpenAiClient as RerankCapability>::rerank(
+            <siumai::provider_ext::openai::OpenAiClient as siumai::extensions::RerankCapability>::rerank(
                 &provider_client,
                 request.clone(),
             )
             .await
             .expect_err("native openai rerank should be unsupported");
-        let config_err = <siumai::provider_ext::openai::OpenAiClient as RerankCapability>::rerank(
+        let config_err = <siumai::provider_ext::openai::OpenAiClient as siumai::extensions::RerankCapability>::rerank(
             &config_client,
             request,
         )
