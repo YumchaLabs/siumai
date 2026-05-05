@@ -91,19 +91,22 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 
 
-## Migration (beta.6)
+## Migration
 
 
 
 
 
-Upgrading from `0.11.0-beta.4` (or earlier)?
+- Upgrading from `0.11.0-beta.6`?
+  - See `docs/migration/migration-0.11.0-beta.7.md`
+
+- Upgrading from `0.11.0-beta.5` (or earlier)?
 
 
 
 
 
-- See `docs/migration/migration-0.11.0-beta.6.md`
+  - See `docs/migration/migration-0.11.0-beta.6.md`
 
 
   - Note: legacy method-style entry points are treated as compatibility surface; the explicit module is `siumai::compat`.

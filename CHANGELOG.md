@@ -31,6 +31,34 @@ read the upgrade notes below.
 - Live smoke coverage now verifies OpenAI, Anthropic, Gemini, DeepSeek, and Groq through both
   builder and registry construction paths.
 
+### Migration from `0.11.0-beta.6`
+
+Most chat/text applications can upgrade by changing the Cargo version only. Review the migration
+items below if your code implements models, matches stream events, uses struct literals for shared
+types, or snapshots serialized responses.
+
+- Replace transitional Rust text-family trait imports such as `TextModelV3` with `TextModel`.
+  Use `LanguageModel` for normal text-generation models and reserve `LanguageModelV4` for
+  AI SDK provider-contract integrations.
+- Prefer the canonical family traits in application generics:
+  `TextModel`, `EmbeddingModel`, `ImageModel`, `RerankingModel`, `SpeechModel`,
+  `TranscriptionModel`, and `VideoModel`. Only use `ImageModelV4` / `VideoModelV4` when calling
+  the explicit AI SDK V4 helper surface or implementing provider-contract adapters.
+- If you match stream events directly, read semantic stream data through
+  `event.text_delta()`, `event.reasoning_delta()`, `event.finish_usage()`, or
+  `event.part_ref()` instead of matching older text/reasoning/tool delta variants or provider
+  custom payloads.
+- If you construct `Usage` with struct literals or read legacy usage fields directly, switch to
+  `Usage::new(...)`, `Usage::builder()`, `prompt_tokens()`, `completion_tokens()`,
+  `total_tokens()`, `input_tokens`, and `output_tokens`.
+- Update JSON snapshots for AI SDK-aligned public field names and metadata shapes, especially
+  `ToolChoice`, `FinishReason`, `Warning`, `Usage`, `ResponseMetadata`, `providerMetadata`, and
+  stream parts.
+- If you need raw provider envelopes for audit/debugging, opt into the new request/response body
+  retention controls instead of parsing formatted debug strings.
+
+Full guide: `docs/migration/migration-0.11.0-beta.7.md`
+
 ### Added
 
 - Added AI SDK-style `generate_text` projection controls, including optional request/response body
@@ -87,19 +115,11 @@ read the upgrade notes below.
 
 ### Upgrade Notes
 
-- No broad runtime migration is expected for normal chat/text usage.
-- If you snapshot serialized compatibility types, update snapshots for AI SDK-aligned
-  `ToolChoice`, `FinishReason`, provider metadata, provider options, warning, usage, and stream
-  part shapes.
-- If you match on streaming events directly, replace old text/reasoning/tool/usage delta variants
-  with `event.text_delta()`, `event.reasoning_delta()`, `event.finish_usage()`, or
-  `event.part_ref()` over `ChatStreamPart`.
-- If you rely on raw provider request/response metadata, prefer the new include controls and inspect
-  the provider-specific metadata objects rather than parsing debug strings.
-- If you imported transitional local V3 family aliases directly, switch to the canonical family
-  traits listed above. Lower-level capability traits remain available through `siumai::extensions`.
 - Google Vertex Gemini image requests now reject unsupported mask and multi-image count settings on
   the Gemini image path instead of silently routing them through the wrong provider mode.
+- Live provider smoke tests now default Gemini to `gemini-2.5-flash-lite` and retry transient
+  network/provider errors. Set `SIUMAI_ENV_SMOKE_STRICT=1` to fail instead of self-skipping known
+  account, region, or quota denials.
 
 ## [0.11.0-beta.6] - 2026-03-24
 
