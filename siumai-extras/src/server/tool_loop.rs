@@ -122,14 +122,13 @@ fn accumulate_loose_tool_part(
     acc: &mut HashMap<String, ToolCallAcc>,
     order: &mut Vec<String>,
 ) -> bool {
-    let Some(part) =
-        siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)
+    let Some(part) = siumai::experimental::streaming::TypedStreamPart::parse_loose_json(data)
     else {
         return false;
     };
 
     match part {
-        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        siumai::experimental::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_executed,
@@ -140,16 +139,12 @@ fn accumulate_loose_tool_part(
             entry.provider_executed = provider_executed;
             true
         }
-        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolInputDelta {
-            id,
-            delta,
-            ..
-        } => {
+        siumai::experimental::streaming::TypedStreamPart::ToolInputDelta { id, delta, .. } => {
             let entry = ensure_tool_call_acc(acc, order, &id);
             entry.args_json.push_str(&delta);
             true
         }
-        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        siumai::experimental::streaming::TypedStreamPart::ToolCall(call) => {
             let entry = ensure_tool_call_acc(acc, order, &call.tool_call_id);
             entry.tool_name = Some(call.tool_name);
             entry.args_json = call.input;
@@ -161,14 +156,13 @@ fn accumulate_loose_tool_part(
 }
 
 fn accumulate_loose_text_part(data: &Value, acc_text: &mut String) -> bool {
-    let Some(part) =
-        siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)
+    let Some(part) = siumai::experimental::streaming::TypedStreamPart::parse_loose_json(data)
     else {
         return false;
     };
 
     match part {
-        siumai::experimental::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+        siumai::experimental::streaming::TypedStreamPart::TextDelta { delta, .. } => {
             acc_text.push_str(&delta);
             true
         }
@@ -266,8 +260,8 @@ fn gateway_tool_result_events(
 /// This function:
 /// - emits the upstream `StreamStart` only once (from the first step)
 /// - suppresses intermediate `StreamEnd` events until the final step completes
-/// - emits stable `tool-result` parts plus legacy v3 `tool-result` custom events between steps so
-///   downstream protocols and older consumers can both surface results
+/// - emits stable `tool-result` parts plus typed stream `tool-result` custom events between steps so
+///   downstream protocol serializers can surface results
 pub async fn tool_loop_chat_stream(
     model: Arc<dyn ChatCapability + Send + Sync>,
     initial_messages: Vec<ChatMessage>,

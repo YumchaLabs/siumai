@@ -48,13 +48,14 @@ pub enum TargetSseFormat {
 pub struct TranscodeSseOptions {
     /// Optional known protocol view of the upstream stream before target transcoding.
     pub bridge_source: Option<BridgeTarget>,
-    /// Controls lossy fallback for v3 parts that do not have a native representation
+    /// Controls lossy fallback for typed stream parts that do not have a native representation
     /// in the target protocol stream.
-    pub v3_unsupported_part_behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+    pub unsupported_stream_part_behavior:
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior,
     /// Whether to bridge multiplexed Vercel-aligned tool parts into richer OpenAI Responses
     /// output_item frames (adds rawItem scaffolding when possible).
     pub bridge_openai_responses_stream_parts: bool,
-    /// Whether to serialize v3 tool results as Gemini `functionResponse` frames (gateway-only).
+    /// Whether to serialize typed stream tool results as Gemini `functionResponse` frames.
     pub gemini_emit_function_response_tool_results: bool,
     /// Optional bridge customization applied before target SSE serialization.
     pub bridge_options: Option<BridgeOptions>,
@@ -69,8 +70,8 @@ impl fmt::Debug for TranscodeSseOptions {
         f.debug_struct("TranscodeSseOptions")
             .field("bridge_source", &self.bridge_source)
             .field(
-                "v3_unsupported_part_behavior",
-                &self.v3_unsupported_part_behavior,
+                "unsupported_stream_part_behavior",
+                &self.unsupported_stream_part_behavior,
             )
             .field(
                 "bridge_openai_responses_stream_parts",
@@ -94,8 +95,8 @@ impl Default for TranscodeSseOptions {
     fn default() -> Self {
         Self {
             bridge_source: None,
-            v3_unsupported_part_behavior:
-                siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+            unsupported_stream_part_behavior:
+                siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop,
             bridge_openai_responses_stream_parts: true,
             gemini_emit_function_response_tool_results: false,
             bridge_options: None,
@@ -112,16 +113,16 @@ impl TranscodeSseOptions {
         self
     }
 
-    /// Strict/default transcoding options (drops unsupported v3 parts).
+    /// Strict/default transcoding options (drops unsupported typed stream parts).
     pub fn strict() -> Self {
         Self::default()
     }
 
-    /// Lossy transcoding options (downgrades unsupported v3 parts to text deltas when possible).
+    /// Lossy transcoding options (downgrades unsupported typed stream parts to text deltas).
     pub fn lossy_text() -> Self {
         Self {
-            v3_unsupported_part_behavior:
-                siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+            unsupported_stream_part_behavior:
+                siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
             ..Self::default()
         }
     }
@@ -174,7 +175,7 @@ impl TranscodeSseOptions {
 }
 
 #[cfg(feature = "openai")]
-fn openai_responses_supports_v3_part_type(tpe: &str) -> bool {
+fn openai_responses_supports_typed_stream_part_type(tpe: &str) -> bool {
     matches!(
         tpe,
         "stream-start"
@@ -198,11 +199,11 @@ fn openai_responses_supports_v3_part_type(tpe: &str) -> bool {
 }
 
 #[cfg(feature = "openai")]
-fn apply_openai_responses_v3_policy(
+fn apply_openai_responses_typed_stream_policy(
     stream: ChatStream,
-    behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+    behavior: siumai::experimental::streaming::UnsupportedStreamPartBehavior,
 ) -> ChatStream {
-    use siumai::experimental::streaming::{LanguageModelV3StreamPart, transform_chat_event_stream};
+    use siumai::experimental::streaming::{TypedStreamPart, transform_chat_event_stream};
 
     transform_chat_event_stream(stream, move |ev| match ev {
         ChatStreamEvent::Custom { event_type, data } => {
@@ -210,18 +211,18 @@ fn apply_openai_responses_v3_policy(
                 return vec![ChatStreamEvent::Custom { event_type, data }];
             };
 
-            if openai_responses_supports_v3_part_type(tpe) {
+            if openai_responses_supports_typed_stream_part_type(tpe) {
                 return vec![ChatStreamEvent::Custom { event_type, data }];
             }
 
-            let Some(part) = LanguageModelV3StreamPart::parse_loose_json(&data) else {
+            let Some(part) = TypedStreamPart::parse_loose_json(&data) else {
                 // Unknown shape; keep it and let the downstream serializer decide.
                 return vec![ChatStreamEvent::Custom { event_type, data }];
             };
 
             match behavior {
-                siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop => Vec::new(),
-                siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText => part
+                siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop => Vec::new(),
+                siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText => part
                     .to_lossy_text()
                     .map(|text| vec![ChatStreamEvent::text_delta_part("fallback", text)])
                     .unwrap_or_default(),
@@ -240,7 +241,7 @@ pub fn to_openai_responses_sse_stream(
 }
 
 /// Convert a `ChatStream` into an OpenAI Responses-compatible SSE byte stream with configurable
-/// v3 fallback options.
+/// typed stream fallback options.
 #[cfg(feature = "openai")]
 pub fn to_openai_responses_sse_stream_with_options(
     stream: ChatStream,
@@ -256,7 +257,7 @@ pub fn to_openai_responses_sse_response(stream: ChatStream) -> Response<Body> {
 }
 
 /// Convert a `ChatStream` into an Axum `Response<Body>` in OpenAI Responses SSE format with
-/// configurable v3 fallback options.
+/// configurable typed stream fallback options.
 #[cfg(feature = "openai")]
 pub fn to_openai_responses_sse_response_with_options(
     stream: ChatStream,
@@ -272,7 +273,7 @@ pub fn to_openai_chat_completions_sse_response(stream: ChatStream) -> Response<B
 }
 
 /// Convert a `ChatStream` into an OpenAI-compatible Chat Completions SSE response with configurable
-/// v3 fallback options.
+/// typed stream fallback options.
 #[cfg(feature = "openai")]
 pub fn to_openai_chat_completions_sse_response_with_options(
     stream: ChatStream,
@@ -528,7 +529,8 @@ fn encode_openai_responses_sse_stream(
     };
     use siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter;
 
-    let stream = apply_openai_responses_v3_policy(stream, opts.v3_unsupported_part_behavior);
+    let stream =
+        apply_openai_responses_typed_stream_policy(stream, opts.unsupported_stream_part_behavior);
     let stream = if opts.bridge_openai_responses_stream_parts {
         let mut bridge = OpenAiResponsesStreamPartsBridge::new();
         transform_chat_event_stream(stream, move |ev| bridge.bridge_event(ev))
@@ -581,7 +583,7 @@ fn encode_openai_chat_completions_sse_stream(
     .with_model("gpt-4o-mini");
 
     let converter = OpenAiCompatibleEventConverter::new(cfg, adapter)
-        .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior);
+        .with_unsupported_stream_part_behavior(opts.unsupported_stream_part_behavior);
     let bytes = encode_chat_stream_as_sse(ensure_stream_end(stream), converter);
 
     Box::pin(bytes.map(|item| match item {
@@ -603,7 +605,7 @@ fn encode_anthropic_messages_sse_stream(
     use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
 
     let converter = AnthropicEventConverter::new(AnthropicParams::default())
-        .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior);
+        .with_unsupported_stream_part_behavior(opts.unsupported_stream_part_behavior);
     let bytes = encode_chat_stream_as_sse(ensure_stream_end(stream), converter);
 
     Box::pin(bytes.map(|item| match item {
@@ -628,7 +630,7 @@ fn encode_gemini_generate_content_sse_stream(
     use siumai::protocol::gemini::types::GeminiConfig;
 
     let converter = GeminiEventConverter::new(GeminiConfig::default())
-        .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior)
+        .with_unsupported_stream_part_behavior(opts.unsupported_stream_part_behavior)
         .with_emit_function_response_tool_results(opts.gemini_emit_function_response_tool_results);
     let bytes = encode_chat_stream_as_sse(ensure_stream_end(stream), converter);
 
@@ -939,8 +941,8 @@ mod transcode_tests {
     fn transcode_options_defaults_are_stable() {
         let opts = TranscodeSseOptions::default();
         assert_eq!(
-            opts.v3_unsupported_part_behavior,
-            siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop
+            opts.unsupported_stream_part_behavior,
+            siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop
         );
         assert!(opts.bridge_openai_responses_stream_parts);
     }

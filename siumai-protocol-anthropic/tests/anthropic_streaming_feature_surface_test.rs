@@ -5,9 +5,7 @@ use siumai_protocol_anthropic::ChatResponse;
 use siumai_protocol_anthropic::provider_metadata::anthropic::AnthropicChatResponseExt;
 use siumai_protocol_anthropic::standards::anthropic::params::AnthropicParams;
 use siumai_protocol_anthropic::standards::anthropic::streaming::AnthropicEventConverter;
-use siumai_protocol_anthropic::streaming::{
-    ChatStreamEvent, LanguageModelV3StreamPart, SseEventConverter,
-};
+use siumai_protocol_anthropic::streaming::{ChatStreamEvent, SseEventConverter, TypedStreamPart};
 use siumai_protocol_anthropic::types::{
     ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult, FinishReason, MessageContent,
     ResponseMetadata,
@@ -17,8 +15,8 @@ fn create_test_config() -> AnthropicParams {
     AnthropicParams::default()
 }
 
-fn stream_part(event: &ChatStreamEvent) -> Option<LanguageModelV3StreamPart> {
-    LanguageModelV3StreamPart::try_from_chat_event(event)
+fn stream_part(event: &ChatStreamEvent) -> Option<TypedStreamPart> {
+    TypedStreamPart::try_from_chat_event(event)
 }
 
 fn anthropic_provider_metadata(
@@ -142,7 +140,7 @@ async fn anthropic_public_feature_surface_roundtrips_provider_tool_stream_parts(
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(LanguageModelV3StreamPart::ToolCall(ref call))
+                Some(TypedStreamPart::ToolCall(ref call))
                     if call.tool_name == "web_search"
                         && call.provider_executed == Some(true)
             )
@@ -153,7 +151,7 @@ async fn anthropic_public_feature_surface_roundtrips_provider_tool_stream_parts(
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(LanguageModelV3StreamPart::ToolResult(ref result))
+                Some(TypedStreamPart::ToolResult(ref result))
                     if result.tool_name == "web_search"
                         && result.is_error == Some(false)
             )
@@ -164,8 +162,8 @@ async fn anthropic_public_feature_surface_roundtrips_provider_tool_stream_parts(
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(LanguageModelV3StreamPart::Source(
-                    siumai_protocol_anthropic::streaming::LanguageModelV3Source::Url { url, .. }
+                Some(TypedStreamPart::Source(
+                    siumai_protocol_anthropic::streaming::TypedStreamSource::Url { url, .. }
                 )) if url == "https://www.rust-lang.org"
             )
         })
@@ -201,7 +199,7 @@ async fn anthropic_public_feature_surface_preserves_thinking_signature_and_singl
 
     assert!(signature_events.iter().any(|event| matches!(
         stream_part(event.as_ref().expect("decode signature frame")),
-        Some(LanguageModelV3StreamPart::ReasoningDelta {
+        Some(TypedStreamPart::ReasoningDelta {
             ref id,
             ref delta,
             provider_metadata: Some(ref provider_metadata),

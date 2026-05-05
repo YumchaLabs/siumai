@@ -101,7 +101,7 @@ Conventions:
 This is where module boundaries matter most:
 
 - Bridge parts: `siumai-core/src/streaming/stream_part.rs`, `siumai-core/src/streaming/bridge.rs`
-- Transcoding policy: `siumai::experimental::streaming::V3UnsupportedPartBehavior`
+- Transcoding policy: `siumai::experimental::streaming::UnsupportedStreamPartBehavior`
 - Multi-target SSE gateway helpers: `siumai-extras/src/server/axum.rs`
 
 Recommended workflow for new parity items:

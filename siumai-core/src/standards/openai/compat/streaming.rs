@@ -6,8 +6,8 @@
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{
-    ChatStreamEvent, LanguageModelV3Source, LanguageModelV3StreamPart, StreamStateTracker,
-    V3UnsupportedPartBehavior,
+    ChatStreamEvent, StreamStateTracker, TypedStreamPart, TypedStreamSource,
+    UnsupportedStreamPartBehavior,
 };
 use crate::types::{
     ChatResponse, ChatStreamFinishInfo, ChatStreamPart, FinishReason, MessageContent,
@@ -190,7 +190,7 @@ pub struct OpenAiCompatibleEventConverter {
 
     // Serialize state for reverse SSE encoding (ChatStreamEvent -> OpenAI-compatible SSE).
     serialize_state: Arc<std::sync::Mutex<OpenAiCompatSerializeState>>,
-    v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
+    unsupported_stream_part_behavior: UnsupportedStreamPartBehavior,
 }
 
 impl OpenAiCompatibleEventConverter {
@@ -221,15 +221,15 @@ impl OpenAiCompatibleEventConverter {
             )),
             parse_state: Arc::new(std::sync::Mutex::new(OpenAiCompatParseState::default())),
             serialize_state: Arc::new(std::sync::Mutex::new(OpenAiCompatSerializeState::default())),
-            v3_unsupported_part_behavior: V3UnsupportedPartBehavior::Drop,
+            unsupported_stream_part_behavior: UnsupportedStreamPartBehavior::Drop,
         }
     }
 
-    pub fn with_v3_unsupported_part_behavior(
+    pub fn with_unsupported_stream_part_behavior(
         mut self,
-        behavior: V3UnsupportedPartBehavior,
+        behavior: UnsupportedStreamPartBehavior,
     ) -> Self {
-        self.v3_unsupported_part_behavior = behavior;
+        self.unsupported_stream_part_behavior = behavior;
         self
     }
 
@@ -1739,7 +1739,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
         }
 
         fn finish_reason_str_from_v3(
-            reason: &crate::streaming::LanguageModelV3FinishReason,
+            reason: &crate::streaming::TypedStreamFinishReason,
         ) -> Option<&'static str> {
             fn map_candidate(candidate: &str) -> Option<&'static str> {
                 let normalized = candidate.trim().to_ascii_lowercase();
@@ -1788,7 +1788,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
         }
 
         fn openai_chat_usage_payload_from_v3(
-            usage: &crate::streaming::LanguageModelV3Usage,
+            usage: &crate::streaming::TypedStreamUsage,
         ) -> serde_json::Value {
             let clamp = |value: Option<u64>| value.map(|value| value.min(u32::MAX as u64) as u32);
 
@@ -1975,11 +1975,11 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
             ChatStreamEvent::Custom { .. }
             | ChatStreamEvent::Part { .. }
             | ChatStreamEvent::PartWithReplay { .. } => {
-                let Some(part) = LanguageModelV3StreamPart::try_from_chat_event(event) else {
+                let Some(part) = TypedStreamPart::try_from_chat_event(event) else {
                     return Ok(Vec::new());
                 };
 
-                if let LanguageModelV3StreamPart::Finish {
+                if let TypedStreamPart::Finish {
                     usage,
                     finish_reason,
                     provider_metadata,
@@ -2007,7 +2007,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     );
                 }
 
-                if let LanguageModelV3StreamPart::ResponseMetadata(metadata) = &part {
+                if let TypedStreamPart::ResponseMetadata(metadata) = &part {
                     if let Some(id) = metadata.id.clone() {
                         state.id = Some(id);
                     }
@@ -2020,7 +2020,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     return Ok(Vec::new());
                 }
 
-                if let LanguageModelV3StreamPart::Error { error } = &part {
+                if let TypedStreamPart::Error { error } = &part {
                     let payload = match error {
                         serde_json::Value::String(message) => serde_json::json!({
                             "error": { "message": message }
@@ -2036,21 +2036,16 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     return sse_data_frame(&payload);
                 }
 
-                if let LanguageModelV3StreamPart::Source(LanguageModelV3Source::Url {
-                    url,
-                    title,
-                    ..
-                }) = &part
-                {
+                if let TypedStreamPart::Source(TypedStreamSource::Url { url, title, .. }) = &part {
                     return serialize_source_annotation_frame(&state, 0, url, title.as_deref());
                 }
 
-                if let LanguageModelV3StreamPart::TextDelta { delta, .. } = &part {
+                if let TypedStreamPart::TextDelta { delta, .. } = &part {
                     return serialize_content_delta_frame(&mut state, delta, None);
                 }
 
                 match part {
-                    LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
+                    TypedStreamPart::ToolInputStart { id, tool_name, .. } => {
                         let Some(tool_state) = ensure_serialize_tool_call_state(&mut state, &id)
                         else {
                             return Ok(Vec::new());
@@ -2069,7 +2064,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                             None,
                         );
                     }
-                    LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+                    TypedStreamPart::ToolInputDelta { id, delta, .. } => {
                         let Some(tool_state) = ensure_serialize_tool_call_state(&mut state, &id)
                         else {
                             return Ok(Vec::new());
@@ -2085,10 +2080,10 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                             Some(delta),
                         );
                     }
-                    LanguageModelV3StreamPart::ToolInputEnd { .. } => {
+                    TypedStreamPart::ToolInputEnd { .. } => {
                         return Ok(Vec::new());
                     }
-                    LanguageModelV3StreamPart::ToolCall(call) => {
+                    TypedStreamPart::ToolCall(call) => {
                         let Some(tool_state) =
                             ensure_serialize_tool_call_state(&mut state, &call.tool_call_id)
                         else {
@@ -2125,7 +2120,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     _ => {}
                 }
 
-                if self.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+                if self.unsupported_stream_part_behavior == UnsupportedStreamPartBehavior::AsText
                     && let Some(text) = part.to_lossy_text()
                 {
                     return serialize_content_delta_frame(&mut state, &text, None);
@@ -3493,7 +3488,7 @@ mod tests {
                     }
                 }),
             })
-            .expect("serialize v3 finish");
+            .expect("serialize typed stream finish");
 
         let stream_end_bytes = stream_end_conv
             .serialize_event(&ChatStreamEvent::StreamEnd {
@@ -3526,7 +3521,7 @@ mod tests {
 
         let finish_frame = parse_sse_data_frames(&finish_bytes)
             .pop()
-            .expect("v3 finish frame");
+            .expect("typed stream finish frame");
         let stream_end_frame = parse_sse_data_frames(&stream_end_bytes)
             .pop()
             .expect("stream end frame");
@@ -3838,7 +3833,7 @@ mod tests {
         )
         .with_model("gpt-test");
         let conv = OpenAiCompatibleEventConverter::new(cfg, adapter)
-            .with_v3_unsupported_part_behavior(V3UnsupportedPartBehavior::AsText);
+            .with_unsupported_stream_part_behavior(UnsupportedStreamPartBehavior::AsText);
 
         let bytes = conv
             .serialize_event(&ChatStreamEvent::Part {
@@ -3893,7 +3888,7 @@ mod tests {
         )
         .with_model("gpt-test");
         let conv = OpenAiCompatibleEventConverter::new(cfg, adapter)
-            .with_v3_unsupported_part_behavior(V3UnsupportedPartBehavior::AsText);
+            .with_unsupported_stream_part_behavior(UnsupportedStreamPartBehavior::AsText);
 
         let custom_bytes = conv
             .serialize_event(&ChatStreamEvent::Custom {

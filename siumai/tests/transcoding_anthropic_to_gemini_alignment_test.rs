@@ -87,13 +87,13 @@ fn encode_gemini_generate_content_sse(
     events: Vec<ChatStreamEvent>,
     emit_function_response_tool_results: bool,
 ) -> Vec<u8> {
-    use siumai::experimental::streaming::V3UnsupportedPartBehavior;
+    use siumai::experimental::streaming::UnsupportedStreamPartBehavior;
     use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::gemini::streaming::GeminiEventConverter;
     use siumai::protocol::gemini::types::GeminiConfig;
 
     let conv = GeminiEventConverter::new(GeminiConfig::default())
-        .with_v3_unsupported_part_behavior(V3UnsupportedPartBehavior::AsText)
+        .with_unsupported_stream_part_behavior(UnsupportedStreamPartBehavior::AsText)
         .with_emit_function_response_tool_results(emit_function_response_tool_results);
 
     let mut out = Vec::new();

@@ -18,7 +18,7 @@ Target:
 - ✅ Language chat + streaming
 - ✅ Function tools (tool-calls + tool-results)
 - ✅ Provider-defined tools (web search / file search / code execution / MCP) via `Tool::ProviderDefined`
-- ✅ Vercel-aligned v3 stream parts end-to-end for gateway use-cases:
+- ✅ Vercel-aligned typed stream parts end-to-end for gateway use-cases:
   - tool-call / tool-result / tool-input-* / source / reasoning / finish / error
 - ✅ Cross-protocol streaming transcoding for:
   - OpenAI Responses SSE

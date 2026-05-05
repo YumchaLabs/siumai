@@ -52,8 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata accessors now all keep explicit provider-rooted object payloads instead of
   lane-specific nested `HashMap` conventions.
 - OpenAI Responses cross-protocol bridging now prefers the stable semantic part lane: parseable
-  legacy/custom v3 stream-part payloads are promoted into `ChatStreamEvent::Part` /
-  `PartWithReplay`, and `LanguageModelV3StreamPart::to_runtime_part()` is public so adapters can
+  legacy/custom typed stream-part payloads are promoted into `ChatStreamEvent::Part` /
+  `PartWithReplay`, and `TypedStreamPart::to_runtime_part()` is public so adapters can
   project the typed overlay back into the runtime contract without reusing provider-prefixed
   custom events.
 - Injectable HTTP transport parity now also covers non-stream `GET` / binary `GET` executor
@@ -114,9 +114,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completion-surface providers: `mistral` and `perplexity` no longer inherit completion capability
   just because they expose chat, while `fireworks` keeps explicit completion support.
 - OpenAI-compatible chat/stream response decoding now normalizes usage through the shared AI SDK-style `inputTokens` / `outputTokens` / `raw` model instead of only preserving legacy totals and partial detail fields.
-- The historical `LanguageModelV3StreamPart` typed overlay is now a V4-capable superset with first-class `custom` and `reasoning-file` parts, and OpenAI-compatible `AsText` fallback can now degrade those parts into explicit text instead of silently dropping them.
-- The upgraded typed stream-part overlay now also exposes public `LanguageModelV4*` aliases so new code can use AI SDK-aligned names without losing compatibility with the historical `LanguageModelV3*` surface.
-- `LanguageModelV3StreamPart` can now convert to and from the new spec-level `ChatStreamEvent::Part(ChatStreamPart)` runtime semantic channel, and `EventBuilder` exposes a first-class `add_part(...)` helper.
+- The `TypedStreamPart` overlay is now a V4-capable superset with first-class `custom` and `reasoning-file` parts, and OpenAI-compatible `AsText` fallback can now degrade those parts into explicit text instead of silently dropping them.
+- The upgraded typed stream-part overlay now also exposes public `LanguageModelV4*` provider-facing aliases alongside provider-agnostic `TypedStream*` names.
+- `TypedStreamPart` can now convert to and from the new spec-level `ChatStreamEvent::Part(ChatStreamPart)` runtime semantic channel, and `EventBuilder` exposes a first-class `add_part(...)` helper.
 - `EventBuilder` now also exposes `add_part_with_replay(...)`, and the shared stream processor / encoder helpers treat runtime replay-bearing part events the same as ordinary semantic part events.
 - Anthropic `reasoning-*` typed custom-event conversion now preserves stable `id` and `providerMetadata`, so protocol serializers can replay AI SDK-style reasoning signatures and redacted-thinking metadata from the semantic part surface instead of dropping to ad hoc custom payloads.
 - `StreamProcessor` now preserves terminal response envelope fields from `StreamEnd`, including `id`, `model`, `audio`, `system_fingerprint`, `service_tier`, and `warnings`.

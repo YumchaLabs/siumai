@@ -11,8 +11,8 @@ fn create_test_config() -> GeminiConfig {
 
 fn stream_part(
     event: &ChatStreamEvent,
-) -> Option<siumai_protocol_gemini::streaming::LanguageModelV3StreamPart> {
-    siumai_protocol_gemini::streaming::LanguageModelV3StreamPart::try_from_chat_event(event)
+) -> Option<siumai_protocol_gemini::streaming::TypedStreamPart> {
+    siumai_protocol_gemini::streaming::TypedStreamPart::try_from_chat_event(event)
 }
 
 fn google_provider_metadata(
@@ -137,7 +137,7 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(siumai_protocol_gemini::streaming::LanguageModelV3StreamPart::ToolCall(call))
+                Some(siumai_protocol_gemini::streaming::TypedStreamPart::ToolCall(call))
                     if call.tool_name == "code_execution"
                         && call.provider_executed == Some(true)
             )
@@ -148,7 +148,7 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(siumai_protocol_gemini::streaming::LanguageModelV3StreamPart::ToolResult(result))
+                Some(siumai_protocol_gemini::streaming::TypedStreamPart::ToolResult(result))
                     if result.tool_name == "code_execution"
             )
         })
@@ -211,7 +211,7 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_from_typed_d
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(siumai_protocol_gemini::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+                Some(siumai_protocol_gemini::streaming::TypedStreamPart::ReasoningDelta {
                     delta,
                     provider_metadata,
                     ..

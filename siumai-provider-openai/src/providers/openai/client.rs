@@ -1955,7 +1955,7 @@ mod tests {
 
         let sse = concat!(
             "event: response.output_item.added\n",
-            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_weather\",\"arguments\":\"\"}}\n\n",
+            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"item_abc\",\"call_id\":\"call_1\",\"name\":\"get_weather\",\"arguments\":\"\"}}\n\n",
             "event: response.function_call_arguments.delta\n",
             "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"item_abc\",\"output_index\":0,\"delta\":\"{\\\"location\\\":\\\"tokyo\\\"}\",\"sequence_number\":1}\n\n",
             "event: response.completed\n",

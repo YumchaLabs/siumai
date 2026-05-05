@@ -51,7 +51,7 @@ pub(super) fn serialize_event(
     }
 
     fn thought_signature_from_provider_metadata(
-        provider_metadata: Option<&SharedV3ProviderMetadata>,
+        provider_metadata: Option<&TypedStreamProviderMetadata>,
     ) -> Option<String> {
         let provider_metadata = provider_metadata?;
 
@@ -75,7 +75,7 @@ pub(super) fn serialize_event(
 
     fn serialize_reasoning_chunk(
         delta: &str,
-        provider_metadata: Option<&SharedV3ProviderMetadata>,
+        provider_metadata: Option<&TypedStreamProviderMetadata>,
     ) -> Result<Vec<u8>, LlmError> {
         let mut part = serde_json::Map::new();
         part.insert(
@@ -104,7 +104,7 @@ pub(super) fn serialize_event(
 
     fn serialize_text_chunk(
         delta: &str,
-        provider_metadata: Option<&SharedV3ProviderMetadata>,
+        provider_metadata: Option<&TypedStreamProviderMetadata>,
     ) -> Result<Vec<u8>, LlmError> {
         let mut part = serde_json::Map::new();
         part.insert(
@@ -462,11 +462,11 @@ pub(super) fn serialize_event(
                 _ => {}
             }
 
-            let part = LanguageModelV3StreamPart::from_runtime_part(part.clone());
+            let part = TypedStreamPart::from_runtime_part(part.clone());
             let Some(custom_event) =
                 part.to_protocol_custom_event(crate::streaming::StreamPartNamespace::Gemini)
             else {
-                if this.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+                if this.unsupported_stream_part_behavior == UnsupportedStreamPartBehavior::AsText
                     && let Some(text) = part.to_lossy_text()
                 {
                     let mut out = Vec::new();
@@ -478,12 +478,12 @@ pub(super) fn serialize_event(
             serialize_event(this, &custom_event)
         }
         ChatStreamEvent::Custom { data, .. } => {
-            let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) else {
+            let Some(part) = TypedStreamPart::parse_loose_json(data) else {
                 return Ok(Vec::new());
             };
 
             match part {
-                LanguageModelV3StreamPart::TextDelta {
+                TypedStreamPart::TextDelta {
                     delta,
                     provider_metadata,
                     ..
@@ -495,38 +495,38 @@ pub(super) fn serialize_event(
                     )?);
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
+                TypedStreamPart::ToolInputStart { id, tool_name, .. } => {
                     serialize_tool_input_chunk(this, &id, Some(&tool_name), None)
                 }
-                LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+                TypedStreamPart::ToolInputDelta { id, delta, .. } => {
                     serialize_tool_input_chunk(this, &id, None, Some(&delta))
                 }
-                LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+                TypedStreamPart::ToolInputEnd { id, .. } => {
                     serialize_tool_input_chunk(this, &id, None, None)
                 }
-                LanguageModelV3StreamPart::File(file) => {
+                TypedStreamPart::File(file) => {
                     let file: crate::types::ChatStreamFilePart = file.into();
                     let mut out = Vec::new();
                     out.extend_from_slice(&serialize_inline_data_chunk(&file, false)?);
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::ReasoningFile(file) => {
+                TypedStreamPart::ReasoningFile(file) => {
                     let file: crate::types::ChatStreamFilePart = file.into();
                     let mut out = Vec::new();
                     out.extend_from_slice(&serialize_inline_data_chunk(&file, true)?);
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::Error { error } => {
+                TypedStreamPart::Error { error } => {
                     let mut out = Vec::new();
                     let payload = serialize_error_payload(&error);
                     out.extend_from_slice(&sse_data_frame(&payload)?);
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::StreamStart { .. }
-                | LanguageModelV3StreamPart::TextStart { .. }
-                | LanguageModelV3StreamPart::TextEnd { .. }
-                | LanguageModelV3StreamPart::ResponseMetadata(_) => Ok(Vec::new()),
-                LanguageModelV3StreamPart::ReasoningStart {
+                TypedStreamPart::StreamStart { .. }
+                | TypedStreamPart::TextStart { .. }
+                | TypedStreamPart::TextEnd { .. }
+                | TypedStreamPart::ResponseMetadata(_) => Ok(Vec::new()),
+                TypedStreamPart::ReasoningStart {
                     provider_metadata, ..
                 } => {
                     let out = Vec::new();
@@ -536,7 +536,7 @@ pub(super) fn serialize_event(
                     state.active_reasoning_provider_metadata = provider_metadata;
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::ReasoningDelta {
+                TypedStreamPart::ReasoningDelta {
                     delta,
                     provider_metadata,
                     ..
@@ -559,7 +559,7 @@ pub(super) fn serialize_event(
 
                     serialize_reasoning_chunk(&delta, carry_provider_metadata.as_ref())
                 }
-                LanguageModelV3StreamPart::ReasoningEnd { .. } => {
+                TypedStreamPart::ReasoningEnd { .. } => {
                     let out = Vec::new();
                     let mut state = this.serialize_state.lock().map_err(|_| {
                         LlmError::InternalError("serialize_state lock poisoned".to_string())
@@ -567,10 +567,10 @@ pub(super) fn serialize_event(
                     state.active_reasoning_provider_metadata = None;
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::Source(source) => {
+                TypedStreamPart::Source(source) => {
                     let mut out = Vec::new();
                     let chunk = match source {
-                        LanguageModelV3Source::Url { url, title, .. } => {
+                        TypedStreamSource::Url { url, title, .. } => {
                             let mut web = serde_json::Map::new();
                             web.insert("uri".to_string(), serde_json::Value::String(url));
                             if let Some(title) = title {
@@ -578,7 +578,7 @@ pub(super) fn serialize_event(
                             }
                             serde_json::json!({ "web": serde_json::Value::Object(web) })
                         }
-                        LanguageModelV3Source::Document {
+                        TypedStreamSource::Document {
                             title,
                             filename,
                             media_type: _,
@@ -610,7 +610,7 @@ pub(super) fn serialize_event(
                     out.extend_from_slice(&sse_data_frame(&payload)?);
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::Finish {
+                TypedStreamPart::Finish {
                     usage,
                     finish_reason,
                     ..
@@ -652,7 +652,7 @@ pub(super) fn serialize_event(
                     out.extend_from_slice(&sse_data_frame(&payload)?);
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::ToolCall(call) => {
+                TypedStreamPart::ToolCall(call) => {
                     let mut out = Vec::new();
                     let parsed: serde_json::Value =
                         crate::streaming::parse_json_with_repair(&call.input).map_err(|e| {
@@ -715,7 +715,7 @@ pub(super) fn serialize_event(
                     out.extend_from_slice(&sse_data_frame(&payload)?);
                     Ok(out)
                 }
-                LanguageModelV3StreamPart::ToolResult(tr) => {
+                TypedStreamPart::ToolResult(tr) => {
                     let mut out = Vec::new();
                     if tr.tool_name == "code_execution" {
                         let outcome = tr
@@ -800,9 +800,9 @@ pub(super) fn serialize_event(
                         return Ok(out);
                     }
 
-                    if this.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
-                        && let Some(text) =
-                            LanguageModelV3StreamPart::ToolResult(tr).to_lossy_text()
+                    if this.unsupported_stream_part_behavior
+                        == UnsupportedStreamPartBehavior::AsText
+                        && let Some(text) = TypedStreamPart::ToolResult(tr).to_lossy_text()
                     {
                         out.extend_from_slice(&serialize_text_chunk(&text, None)?);
                         return Ok(out);
@@ -812,7 +812,8 @@ pub(super) fn serialize_event(
                 }
                 other => {
                     let mut out = Vec::new();
-                    if this.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+                    if this.unsupported_stream_part_behavior
+                        == UnsupportedStreamPartBehavior::AsText
                         && let Some(text) = other.to_lossy_text()
                     {
                         out.extend_from_slice(&serialize_text_chunk(&text, None)?);

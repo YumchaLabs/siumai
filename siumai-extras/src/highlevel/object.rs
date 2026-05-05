@@ -218,10 +218,10 @@ fn maybe_accumulate_text_from_loose_part(
     data: &serde_json::Value,
     acc: &mut String,
 ) -> Option<String> {
-    let part = siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)?;
+    let part = siumai::experimental::streaming::TypedStreamPart::parse_loose_json(data)?;
 
     match part {
-        siumai::experimental::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+        siumai::experimental::streaming::TypedStreamPart::TextDelta { delta, .. } => {
             acc.push_str(&delta);
             Some(delta)
         }
@@ -250,21 +250,17 @@ fn maybe_accumulate_tool_arguments_from_loose_part(
     data: &serde_json::Value,
     tool_args_acc: &mut String,
 ) -> bool {
-    let Some(part) =
-        siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)
+    let Some(part) = siumai::experimental::streaming::TypedStreamPart::parse_loose_json(data)
     else {
         return false;
     };
 
     match part {
-        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolInputDelta {
-            delta,
-            ..
-        } => {
+        siumai::experimental::streaming::TypedStreamPart::ToolInputDelta { delta, .. } => {
             tool_args_acc.push_str(&delta);
             true
         }
-        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        siumai::experimental::streaming::TypedStreamPart::ToolCall(call) => {
             *tool_args_acc = call.input;
             true
         }

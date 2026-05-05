@@ -712,8 +712,7 @@ pub(super) fn serialize_event(
         crate::streaming::ChatStreamEvent::Part { .. }
             | crate::streaming::ChatStreamEvent::PartWithReplay { .. }
     ) {
-        let Some(part) = crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event)
-        else {
+        let Some(part) = crate::streaming::TypedStreamPart::try_from_chat_event(event) else {
             return Ok(Vec::new());
         };
         let Some(mut custom_event) =
@@ -1341,7 +1340,7 @@ pub(super) fn serialize_event(
                 Some(serde_json::Value::Object(item))
             }
 
-            // Best-effort: ignore the custom event prefix and rely on the v3 part tag
+            // Best-effort: ignore the custom event prefix and rely on the typed stream part tag
             // (`data.type`) to select the OpenAI stream part handler.
             let effective_event_type = if event_type.starts_with("openai:") {
                 event_type.as_str()
@@ -2217,7 +2216,7 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
-                    // Best-effort fallback: synthesize a completed tool item from v3 parts.
+                    // Best-effort fallback: synthesize a completed tool item from typed stream parts.
                     let call_id = data
                         .get("toolCallId")
                         .and_then(|v| v.as_str())

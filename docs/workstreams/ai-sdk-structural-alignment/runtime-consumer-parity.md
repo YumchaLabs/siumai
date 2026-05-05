@@ -168,7 +168,7 @@ Even after these consumer fixes, Siumai still has:
 
 - `ChatStreamEvent`
 - `ChatStreamPart`
-- `LanguageModelV3StreamPart`
+- `TypedStreamPart`
 - `LanguageModelV4StreamPart`
 
 That is workable, but the preferred mental model should continue to converge on:
@@ -182,4 +182,4 @@ That is workable, but the preferred mental model should continue to converge on:
 If we continue the fearless refactor, the next runtime-consumer-focused cut should be:
 
 1. continue trimming consumers that still inspect loose custom payloads before stable parts
-2. decide whether `LanguageModelV3StreamPart` aliases still earn their migration weight
+2. decide whether `TypedStreamPart` aliases still earn their migration weight

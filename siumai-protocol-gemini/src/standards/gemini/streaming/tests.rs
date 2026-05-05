@@ -17,8 +17,8 @@ fn create_test_config() -> GeminiConfig {
 
 fn stream_part(
     event: &Result<ChatStreamEvent, crate::error::LlmError>,
-) -> Option<crate::streaming::LanguageModelV3StreamPart> {
-    crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event.as_ref().ok()?)
+) -> Option<crate::streaming::TypedStreamPart> {
+    crate::streaming::TypedStreamPart::try_from_chat_event(event.as_ref().ok()?)
 }
 
 fn google_provider_metadata(value: serde_json::Value) -> crate::types::StreamProviderMetadata {
@@ -88,13 +88,13 @@ async fn test_gemini_streaming_conversion() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::TextStart { .. })
+            Some(crate::streaming::TypedStreamPart::TextStart { .. })
         )
     }));
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. })
+            Some(crate::streaming::TypedStreamPart::TextDelta { delta, .. })
                 if delta == "Hello"
         )
     }));
@@ -114,15 +114,15 @@ async fn test_gemini_streaming_emits_file_and_reasoning_file_parts() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::File(file))
+            Some(crate::streaming::TypedStreamPart::File(file))
                 if file.media_type == "image/png"
-                    && matches!(file.data, crate::streaming::LanguageModelV3FileData::Base64(ref data) if data == "aGVsbG8=")
+                    && matches!(file.data, crate::streaming::TypedStreamFileData::Base64(ref data) if data == "aGVsbG8=")
         )
     }));
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningFile(file))
+            Some(crate::streaming::TypedStreamPart::ReasoningFile(file))
                 if file.media_type == "application/pdf"
                     && file
                         .provider_metadata
@@ -159,7 +159,7 @@ async fn test_gemini_streaming_emits_raw_parts_when_enabled() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Raw { raw_value })
+            Some(crate::streaming::TypedStreamPart::Raw { raw_value })
                 if raw_value == raw_json
         )
     }));
@@ -186,14 +186,14 @@ async fn test_gemini_top_level_error_chunk_emits_stable_error_part() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Error { error })
+            Some(crate::streaming::TypedStreamPart::Error { error })
                 if error == raw_json["error"]
         )
     }));
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Raw { raw_value })
+            Some(crate::streaming::TypedStreamPart::Raw { raw_value })
                 if raw_value == raw_json
         )
     }));
@@ -217,8 +217,8 @@ async fn test_gemini_streaming_emits_source_parts_and_dedups() {
         r1.iter().any(|event| {
             matches!(
                 stream_part(event),
-                Some(crate::streaming::LanguageModelV3StreamPart::Source(
-                    crate::streaming::LanguageModelV3Source::Url { url, .. }
+                Some(crate::streaming::TypedStreamPart::Source(
+                    crate::streaming::TypedStreamSource::Url { url, .. }
                 )) if url == "https://www.rust-lang.org/"
             )
         }),
@@ -236,7 +236,7 @@ async fn test_gemini_streaming_emits_source_parts_and_dedups() {
     assert!(
         !r2.iter().any(|event| matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Source(_))
+            Some(crate::streaming::TypedStreamPart::Source(_))
         )),
         "expected no duplicate source part in second chunk: {r2:?}"
     );
@@ -258,7 +258,7 @@ async fn test_gemini_streaming_emits_reasoning_parts_with_signature() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart {
+            Some(crate::streaming::TypedStreamPart::ReasoningStart {
                 provider_metadata,
                 ..
             }) if provider_metadata
@@ -271,7 +271,7 @@ async fn test_gemini_streaming_emits_reasoning_parts_with_signature() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+            Some(crate::streaming::TypedStreamPart::ReasoningDelta {
                 delta,
                 provider_metadata,
                 ..
@@ -317,9 +317,8 @@ async fn test_vertex_streaming_emits_reasoning_parts_with_vertex_namespace() {
     let reasoning_starts: Vec<_> = result
         .iter()
         .filter_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart {
-                provider_metadata,
-                ..
+            Some(crate::streaming::TypedStreamPart::ReasoningStart {
+                provider_metadata, ..
             }) => Some(provider_metadata),
             _ => None,
         })
@@ -327,9 +326,8 @@ async fn test_vertex_streaming_emits_reasoning_parts_with_vertex_namespace() {
     let reasoning_deltas: Vec<_> = result
         .iter()
         .filter_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
-                provider_metadata,
-                ..
+            Some(crate::streaming::TypedStreamPart::ReasoningDelta {
+                provider_metadata, ..
             }) => Some(provider_metadata),
             _ => None,
         })
@@ -337,9 +335,8 @@ async fn test_vertex_streaming_emits_reasoning_parts_with_vertex_namespace() {
     let reasoning_ends: Vec<_> = result
         .iter()
         .filter_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
-                provider_metadata,
-                ..
+            Some(crate::streaming::TypedStreamPart::ReasoningEnd {
+                provider_metadata, ..
             }) => Some(provider_metadata),
             _ => None,
         })
@@ -400,7 +397,7 @@ async fn test_gemini_streaming_emits_provider_executed_code_execution_parts() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+            Some(crate::streaming::TypedStreamPart::ToolCall(call))
                 if call.tool_name == "code_execution"
                     && call.provider_executed == Some(true)
                     && call.input.contains("\"language\":\"PYTHON\"")
@@ -409,7 +406,7 @@ async fn test_gemini_streaming_emits_provider_executed_code_execution_parts() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ToolResult(result))
+            Some(crate::streaming::TypedStreamPart::ToolResult(result))
                 if result.tool_name == "code_execution"
                     && result.result["output"] == serde_json::json!("1")
         )
@@ -431,7 +428,7 @@ async fn test_gemini_function_calls_use_part_channel() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+            Some(crate::streaming::TypedStreamPart::ToolCall(call))
                 if call.tool_name == "weather"
                     && call.input.contains("\"city\":\"Tokyo\"")
                     && call
@@ -476,7 +473,7 @@ async fn test_gemini_finish_reason() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 finish_reason,
                 ..
             }) if finish_reason.unified == "stop" && finish_reason.raw.as_deref() == Some("STOP")
@@ -814,20 +811,20 @@ async fn test_invalid_json_emits_error() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::StreamStart { .. })
+            Some(crate::streaming::TypedStreamPart::StreamStart { .. })
         )
     }));
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Raw { raw_value })
+            Some(crate::streaming::TypedStreamPart::Raw { raw_value })
                 if raw_value == serde_json::Value::String("{ not json".to_string())
         )
     }));
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Error { error })
+            Some(crate::streaming::TypedStreamPart::Error { error })
                 if error
                     .as_str()
                     .is_some_and(|message| message.contains("Failed to parse Gemini SSE JSON"))
@@ -838,7 +835,7 @@ async fn test_invalid_json_emits_error() {
     assert!(end_events.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 finish_reason,
                 ..
             }) if finish_reason.unified == "unknown"
@@ -870,7 +867,7 @@ async fn test_invalid_json_emits_error_with_repair_enabled() {
     assert!(result.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Error { error })
+            Some(crate::streaming::TypedStreamPart::Error { error })
                 if error
                     .as_str()
                     .is_some_and(|message| message.contains("Failed to parse Gemini SSE JSON"))
@@ -908,7 +905,7 @@ async fn test_stream_start_emitted_once_across_events() {
     assert!(r1.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::StreamStart { .. })
+            Some(crate::streaming::TypedStreamPart::StreamStart { .. })
         )
     }));
 }
@@ -929,13 +926,13 @@ async fn test_gemini_handle_stream_end_events_closes_text_lane_and_emits_unknown
     assert!(end_events.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::TextEnd { .. })
+            Some(crate::streaming::TypedStreamPart::TextEnd { .. })
         )
     }));
     assert!(end_events.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 finish_reason,
                 ..
             }) if finish_reason.unified == "unknown" && finish_reason.raw.is_none()
@@ -965,9 +962,7 @@ async fn test_multi_parts_emit_multiple_deltas_in_order() {
     let deltas: Vec<_> = result
         .into_iter()
         .filter_map(|event| match stream_part(&event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. }) => {
-                Some(delta)
-            }
+            Some(crate::streaming::TypedStreamPart::TextDelta { delta, .. }) => Some(delta),
             _ => None,
         })
         .collect();
@@ -993,7 +988,7 @@ async fn test_thinking_delta_extraction() {
     let result = converter.convert_event(event).await;
     assert!(result.iter().any(|e| matches!(
         stream_part(e),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { .. })
+        Some(crate::streaming::TypedStreamPart::ReasoningDelta { .. })
     )));
 }
 
@@ -1042,7 +1037,7 @@ async fn gemini_stream_proxy_serializes_typed_text_delta() {
     let out = converter.convert_event(event).await;
     assert!(out.iter().any(|e| matches!(
         stream_part(e),
-        Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. }) if delta == "Hello"
+        Some(crate::streaming::TypedStreamPart::TextDelta { delta, .. }) if delta == "Hello"
     )));
 }
 
@@ -1102,7 +1097,7 @@ async fn gemini_stream_proxy_serializes_typed_reasoning_delta() {
     let out = converter.convert_event(event).await;
     assert!(out.iter().any(|e| matches!(
         stream_part(e),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { delta, .. }) if delta == "think"
+        Some(crate::streaming::TypedStreamPart::ReasoningDelta { delta, .. }) if delta == "think"
     )));
 }
 
@@ -1572,7 +1567,7 @@ fn gemini_serializes_v3_source_part_as_grounding_chunk() {
                 provider_metadata: None,
             },
         })
-        .expect("serialize v3 source");
+        .expect("serialize typed stream source");
 
     let frames = parse_sse_json_frames(&bytes);
     assert_eq!(
@@ -1643,7 +1638,7 @@ fn gemini_serializes_v3_finish_part_as_finish_reason_chunk() {
                 "finishReason": { "unified": "content-filter", "raw": "PROHIBITED_CONTENT" }
             }),
         })
-        .expect("serialize v3 finish");
+        .expect("serialize typed stream finish");
 
     let frames = parse_sse_json_frames(&bytes);
     assert_eq!(
@@ -1673,7 +1668,7 @@ fn gemini_serializes_v3_code_execution_tool_result_as_code_execution_result_part
                 provider_metadata: None,
             }),
         })
-        .expect("serialize v3 tool-result");
+        .expect("serialize typed stream tool-result");
 
     let frames = parse_sse_json_frames(&bytes);
     assert_eq!(

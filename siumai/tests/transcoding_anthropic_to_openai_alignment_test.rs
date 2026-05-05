@@ -182,7 +182,7 @@ fn decode_openai_responses(bytes: &[u8]) -> Vec<ChatStreamEvent> {
 
 fn encode_openai_chat_completions(
     events: Vec<ChatStreamEvent>,
-    behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+    behavior: siumai::experimental::streaming::UnsupportedStreamPartBehavior,
 ) -> Vec<u8> {
     use siumai::protocol::openai::compat::openai_config::OpenAiCompatibleConfig;
     use siumai::protocol::openai::compat::provider_registry::{
@@ -211,7 +211,7 @@ fn encode_openai_chat_completions(
     .with_model("gpt-4o-mini");
 
     let encoder = OpenAiCompatibleEventConverter::new(cfg, adapter)
-        .with_v3_unsupported_part_behavior(behavior);
+        .with_unsupported_stream_part_behavior(behavior);
 
     let mut out = Vec::new();
     for ev in events {
@@ -337,7 +337,7 @@ fn anthropic_mcp_transcodes_to_openai_chat_completions_with_lossy_tool_result_fa
 
     let bytes = encode_openai_chat_completions(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
     );
     let downstream = decode_openai_chat_completions(&bytes);
 
@@ -371,7 +371,7 @@ fn anthropic_message_delta_transcodes_to_openai_chat_completions_with_single_sto
     let upstream = run_anthropic_converter(lines);
     let bytes = encode_openai_chat_completions(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop,
     );
 
     let encoded = String::from_utf8_lossy(&bytes);
@@ -413,7 +413,7 @@ fn anthropic_typed_finish_part_serializes_to_openai_chat_completion_finish_chunk
                 provider_metadata: None,
             },
         }],
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop,
     );
 
     let encoded = String::from_utf8_lossy(&bytes);

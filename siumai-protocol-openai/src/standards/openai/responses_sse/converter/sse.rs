@@ -112,22 +112,22 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         .insert("responseId".to_string(), serde_json::Value::String(id));
                 }
 
-                let finish_evt = crate::streaming::LanguageModelV3StreamPart::Finish {
-                    usage: crate::streaming::LanguageModelV3Usage {
-                        input_tokens: crate::streaming::LanguageModelV3InputTokens {
+                let finish_evt = crate::streaming::TypedStreamPart::Finish {
+                    usage: crate::streaming::TypedStreamUsage {
+                        input_tokens: crate::streaming::TypedStreamInputTokens {
                             total: None,
                             no_cache: None,
                             cache_read: None,
                             cache_write: None,
                         },
-                        output_tokens: crate::streaming::LanguageModelV3OutputTokens {
+                        output_tokens: crate::streaming::TypedStreamOutputTokens {
                             total: None,
                             text: None,
                             reasoning: None,
                         },
                         raw: None,
                     },
-                    finish_reason: crate::streaming::LanguageModelV3FinishReason {
+                    finish_reason: crate::streaming::TypedStreamFinishReason {
                         unified: "other".to_string(),
                         raw: None,
                     },

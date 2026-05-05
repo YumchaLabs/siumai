@@ -1,8 +1,8 @@
 use super::*;
 
 use crate::streaming::{
-    LanguageModelV3StreamPart, LanguageModelV3ToolApprovalRequest, LanguageModelV3ToolCall,
-    LanguageModelV3ToolResult, SharedV3ProviderMetadata,
+    TypedStreamPart, TypedStreamProviderMetadata, TypedStreamToolApprovalRequest,
+    TypedStreamToolCall, TypedStreamToolResult,
 };
 
 fn normalize_tool_input_value(value: serde_json::Value) -> String {
@@ -13,7 +13,7 @@ fn normalize_tool_input_value(value: serde_json::Value) -> String {
     }
 }
 
-fn into_provider_metadata(value: Option<serde_json::Value>) -> Option<SharedV3ProviderMetadata> {
+fn into_provider_metadata(value: Option<serde_json::Value>) -> Option<TypedStreamProviderMetadata> {
     match value {
         Some(serde_json::Value::Object(map)) => Some(map.into_iter().collect()),
         _ => None,
@@ -21,10 +21,7 @@ fn into_provider_metadata(value: Option<serde_json::Value>) -> Option<SharedV3Pr
 }
 
 impl OpenAiResponsesEventConverter {
-    fn openai_stream_part_event(
-        &self,
-        part: LanguageModelV3StreamPart,
-    ) -> crate::types::ChatStreamEvent {
+    fn openai_stream_part_event(&self, part: TypedStreamPart) -> crate::types::ChatStreamEvent {
         part.to_part_event()
     }
 
@@ -56,7 +53,7 @@ impl OpenAiResponsesEventConverter {
         title: Option<String>,
         provider_metadata: Option<serde_json::Value>,
     ) -> crate::types::ChatStreamEvent {
-        self.openai_stream_part_event(LanguageModelV3StreamPart::ToolInputStart {
+        self.openai_stream_part_event(TypedStreamPart::ToolInputStart {
             id: id.to_string(),
             tool_name: tool_name.to_string(),
             provider_metadata: into_provider_metadata(provider_metadata),
@@ -71,7 +68,7 @@ impl OpenAiResponsesEventConverter {
         id: &str,
         delta: &str,
     ) -> crate::types::ChatStreamEvent {
-        self.openai_stream_part_event(LanguageModelV3StreamPart::ToolInputDelta {
+        self.openai_stream_part_event(TypedStreamPart::ToolInputDelta {
             id: id.to_string(),
             delta: delta.to_string(),
             provider_metadata: None,
@@ -83,7 +80,7 @@ impl OpenAiResponsesEventConverter {
         id: &str,
         provider_metadata: Option<serde_json::Value>,
     ) -> crate::types::ChatStreamEvent {
-        self.openai_stream_part_event(LanguageModelV3StreamPart::ToolInputEnd {
+        self.openai_stream_part_event(TypedStreamPart::ToolInputEnd {
             id: id.to_string(),
             provider_metadata: into_provider_metadata(provider_metadata),
         })
@@ -100,16 +97,14 @@ impl OpenAiResponsesEventConverter {
         provider_metadata: Option<serde_json::Value>,
         extras: OpenAiResponsesEventExtras,
     ) -> crate::types::ChatStreamEvent {
-        let event = self.openai_stream_part_event(LanguageModelV3StreamPart::ToolCall(
-            LanguageModelV3ToolCall {
-                tool_call_id: tool_call_id.to_string(),
-                tool_name: tool_name.to_string(),
-                input: normalize_tool_input_value(input),
-                provider_executed,
-                dynamic,
-                provider_metadata: into_provider_metadata(provider_metadata),
-            },
-        ));
+        let event = self.openai_stream_part_event(TypedStreamPart::ToolCall(TypedStreamToolCall {
+            tool_call_id: tool_call_id.to_string(),
+            tool_name: tool_name.to_string(),
+            input: normalize_tool_input_value(input),
+            provider_executed,
+            dynamic,
+            provider_metadata: into_provider_metadata(provider_metadata),
+        }));
         self.attach_event_extras(event, extras)
     }
 
@@ -149,8 +144,8 @@ impl OpenAiResponsesEventConverter {
         provider_metadata: Option<serde_json::Value>,
         extras: OpenAiResponsesEventExtras,
     ) -> crate::types::ChatStreamEvent {
-        let event = self.openai_stream_part_event(LanguageModelV3StreamPart::ToolResult(
-            LanguageModelV3ToolResult {
+        let event =
+            self.openai_stream_part_event(TypedStreamPart::ToolResult(TypedStreamToolResult {
                 tool_call_id: tool_call_id.to_string(),
                 tool_name: tool_name.to_string(),
                 result,
@@ -158,8 +153,7 @@ impl OpenAiResponsesEventConverter {
                 preliminary,
                 dynamic,
                 provider_metadata: into_provider_metadata(provider_metadata),
-            },
-        ));
+            }));
         self.attach_event_extras(event, extras)
     }
 
@@ -170,8 +164,8 @@ impl OpenAiResponsesEventConverter {
         provider_metadata: Option<serde_json::Value>,
         extras: OpenAiResponsesEventExtras,
     ) -> crate::types::ChatStreamEvent {
-        let event = self.openai_stream_part_event(LanguageModelV3StreamPart::ToolApprovalRequest(
-            LanguageModelV3ToolApprovalRequest {
+        let event = self.openai_stream_part_event(TypedStreamPart::ToolApprovalRequest(
+            TypedStreamToolApprovalRequest {
                 approval_id: approval_id.to_string(),
                 tool_call_id: tool_call_id.to_string(),
                 provider_metadata: into_provider_metadata(provider_metadata),

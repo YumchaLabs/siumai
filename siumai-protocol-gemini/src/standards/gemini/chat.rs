@@ -354,7 +354,7 @@ impl ProviderSpec for GeminiChatSpec {
 mod tests {
     use super::*;
     use crate::core::ProviderContext;
-    use crate::streaming::LanguageModelV3StreamPart;
+    use crate::streaming::TypedStreamPart;
     use crate::types::{ChatMessage, ChatRequest};
 
     #[test]
@@ -510,8 +510,8 @@ mod tests {
                 event
                     .as_ref()
                     .ok()
-                    .and_then(LanguageModelV3StreamPart::try_from_chat_event),
-                Some(LanguageModelV3StreamPart::Raw { .. })
+                    .and_then(TypedStreamPart::try_from_chat_event),
+                Some(TypedStreamPart::Raw { .. })
             )
         }));
     }

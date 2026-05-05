@@ -203,11 +203,11 @@ Current examples:
 Today the repository has:
 
 - a thin stable `ChatStreamEvent`
-- a richer typed `LanguageModelV3StreamPart` overlay
+- a richer typed `TypedStreamPart` overlay
 
 First-phase decision already landed:
 
-- keep the historical `LanguageModelV3StreamPart` name for compatibility
+- keep the historical `TypedStreamPart` name for compatibility
 - upgrade that overlay into a V4-capable superset instead of introducing a second primary type
   immediately
 - add a first-class runtime semantic channel:

@@ -76,7 +76,7 @@ fn decode_openai_responses(lines: Vec<String>) -> Vec<ChatStreamEvent> {
 
 fn encode_openai_chat_completions_sse(
     events: Vec<ChatStreamEvent>,
-    behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+    behavior: siumai::experimental::streaming::UnsupportedStreamPartBehavior,
 ) -> Vec<u8> {
     use siumai::protocol::openai::compat::openai_config::OpenAiCompatibleConfig;
     use siumai::protocol::openai::compat::provider_registry::{
@@ -105,7 +105,7 @@ fn encode_openai_chat_completions_sse(
     .with_model("gpt-4o-mini");
 
     let encoder = OpenAiCompatibleEventConverter::new(cfg, adapter)
-        .with_v3_unsupported_part_behavior(behavior);
+        .with_unsupported_stream_part_behavior(behavior);
 
     let mut out = Vec::new();
     for ev in events {
@@ -133,7 +133,7 @@ fn openai_responses_mcp_tool_approval_request_is_dropped_in_strict_openai_chat_c
 
     let bytes = encode_openai_chat_completions_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop,
     );
     let frames = parse_sse_json_frames(&bytes);
 
@@ -166,7 +166,7 @@ fn openai_responses_mcp_tool_approval_request_is_downgraded_in_lossy_openai_chat
 
     let bytes = encode_openai_chat_completions_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
     );
     let frames = parse_sse_json_frames(&bytes);
 

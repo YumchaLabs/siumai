@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::streaming::{ChatStreamEvent, LanguageModelV3StreamPart};
+use crate::streaming::{ChatStreamEvent, TypedStreamPart};
 use crate::types::{
     ChatStreamPart, ChatStreamReplay, ChatStreamToolCall, ChatStreamToolResult,
     StreamProviderMetadata,
@@ -221,34 +221,30 @@ impl OpenAiResponsesStreamPartsBridge {
             return Some(self.bridge_tool_result_custom_event(data));
         }
 
-        let part = LanguageModelV3StreamPart::parse_loose_json(data)?;
+        let part = TypedStreamPart::parse_loose_json(data)?;
 
         match part {
-            LanguageModelV3StreamPart::ToolCall(_) => {
-                Some(self.bridge_tool_call_custom_event(data))
-            }
-            LanguageModelV3StreamPart::ToolResult(_) => {
-                Some(self.bridge_tool_result_custom_event(data))
-            }
-            LanguageModelV3StreamPart::StreamStart { .. }
-            | LanguageModelV3StreamPart::ResponseMetadata(_)
-            | LanguageModelV3StreamPart::TextStart { .. }
-            | LanguageModelV3StreamPart::TextDelta { .. }
-            | LanguageModelV3StreamPart::TextEnd { .. }
-            | LanguageModelV3StreamPart::ReasoningStart { .. }
-            | LanguageModelV3StreamPart::ReasoningDelta { .. }
-            | LanguageModelV3StreamPart::ReasoningEnd { .. }
-            | LanguageModelV3StreamPart::ToolInputStart { .. }
-            | LanguageModelV3StreamPart::ToolInputDelta { .. }
-            | LanguageModelV3StreamPart::ToolInputEnd { .. }
-            | LanguageModelV3StreamPart::ToolApprovalRequest(_)
-            | LanguageModelV3StreamPart::Raw { .. }
-            | LanguageModelV3StreamPart::Custom(_)
-            | LanguageModelV3StreamPart::File(_)
-            | LanguageModelV3StreamPart::ReasoningFile(_)
-            | LanguageModelV3StreamPart::Source(_)
-            | LanguageModelV3StreamPart::Finish { .. }
-            | LanguageModelV3StreamPart::Error { .. } => Some(vec![part.to_part_event()]),
+            TypedStreamPart::ToolCall(_) => Some(self.bridge_tool_call_custom_event(data)),
+            TypedStreamPart::ToolResult(_) => Some(self.bridge_tool_result_custom_event(data)),
+            TypedStreamPart::StreamStart { .. }
+            | TypedStreamPart::ResponseMetadata(_)
+            | TypedStreamPart::TextStart { .. }
+            | TypedStreamPart::TextDelta { .. }
+            | TypedStreamPart::TextEnd { .. }
+            | TypedStreamPart::ReasoningStart { .. }
+            | TypedStreamPart::ReasoningDelta { .. }
+            | TypedStreamPart::ReasoningEnd { .. }
+            | TypedStreamPart::ToolInputStart { .. }
+            | TypedStreamPart::ToolInputDelta { .. }
+            | TypedStreamPart::ToolInputEnd { .. }
+            | TypedStreamPart::ToolApprovalRequest(_)
+            | TypedStreamPart::Raw { .. }
+            | TypedStreamPart::Custom(_)
+            | TypedStreamPart::File(_)
+            | TypedStreamPart::ReasoningFile(_)
+            | TypedStreamPart::Source(_)
+            | TypedStreamPart::Finish { .. }
+            | TypedStreamPart::Error { .. } => Some(vec![part.to_part_event()]),
         }
     }
 

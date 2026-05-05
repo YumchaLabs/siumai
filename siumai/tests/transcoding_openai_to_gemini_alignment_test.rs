@@ -75,7 +75,7 @@ fn decode_openai_responses(lines: Vec<String>, tools: Vec<Tool>) -> Vec<ChatStre
 
 fn encode_gemini_generate_content_sse(
     events: Vec<ChatStreamEvent>,
-    behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+    behavior: siumai::experimental::streaming::UnsupportedStreamPartBehavior,
     emit_function_response_tool_results: bool,
 ) -> Vec<u8> {
     use siumai::prelude::unified::SseEventConverter;
@@ -83,7 +83,7 @@ fn encode_gemini_generate_content_sse(
     use siumai::protocol::gemini::types::GeminiConfig;
 
     let conv = GeminiEventConverter::new(GeminiConfig::default())
-        .with_v3_unsupported_part_behavior(behavior)
+        .with_unsupported_stream_part_behavior(behavior)
         .with_emit_function_response_tool_results(emit_function_response_tool_results);
 
     let mut out = Vec::new();
@@ -117,7 +117,7 @@ fn openai_responses_web_search_transcodes_to_gemini_sse() {
 
     let bytes = encode_gemini_generate_content_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
         false,
     );
     let frames = parse_sse_json_frames(&bytes);
@@ -179,7 +179,7 @@ fn openai_responses_mcp_transcodes_to_gemini_sse() {
 
     let bytes = encode_gemini_generate_content_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
         false,
     );
     let frames = parse_sse_json_frames(&bytes);
@@ -241,7 +241,7 @@ fn openai_responses_mcp_tool_approval_request_is_dropped_in_strict_gemini_transc
 
     let bytes = encode_gemini_generate_content_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop,
         false,
     );
     let frames = parse_sse_json_frames(&bytes);
@@ -277,7 +277,7 @@ fn openai_responses_mcp_tool_approval_request_is_downgraded_in_lossy_gemini_tran
 
     let bytes = encode_gemini_generate_content_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
         false,
     );
     let frames = parse_sse_json_frames(&bytes);
@@ -318,7 +318,7 @@ fn openai_responses_web_search_can_replay_tool_results_as_gemini_function_respon
 
     let bytes = encode_gemini_generate_content_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop,
         true,
     );
     let frames = parse_sse_json_frames(&bytes);
@@ -379,7 +379,7 @@ fn openai_responses_mcp_can_replay_tool_results_as_gemini_function_response_fram
 
     let bytes = encode_gemini_generate_content_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop,
         true,
     );
     let frames = parse_sse_json_frames(&bytes);

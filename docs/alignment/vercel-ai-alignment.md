@@ -43,9 +43,9 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 - Provider-defined tool factories are available under `siumai::tools::*` (implemented in `siumai-core::tools`) and serialize to the Vercel `{ type: "provider", id, name, args }` shape; `Tool::provider_defined(id, name)` remains the escape hatch for unknown tools.
 - Streaming converters support bidirectional mapping (parse + serialize) for selected providers (Anthropic SSE, Ollama JSONL) to enable cross-provider stream proxying (Vercel-aligned `parseStreamPart`/`formatStreamPart` concept).
 - Typed stream parts (Vercel AI SDK aligned) are available for advanced gateway/proxy integrations:
-  - `siumai_core::streaming::LanguageModelV3StreamPart` + `to_data_sse_bytes()`
-  - `LanguageModelV3StreamPart::try_from_chat_event(...)` and `to_protocol_custom_event(...)` for best-effort protocol serializer interop with `ChatStreamEvent::Custom`
-  - `siumai_core::streaming::V3UnsupportedPartBehavior` can be used to control how unsupported v3 parts are handled during protocol re-serialization (drop vs lossy text fallback)
+  - `siumai_core::streaming::TypedStreamPart` + `to_data_sse_bytes()`
+  - `TypedStreamPart::try_from_chat_event(...)` and `to_protocol_custom_event(...)` for best-effort protocol serializer interop with `ChatStreamEvent::Custom`
+  - `siumai_core::streaming::UnsupportedStreamPartBehavior` can be used to control how unsupported typed stream parts are handled during protocol re-serialization (drop vs lossy text fallback)
 
 ## Streaming wire format alignment
 
@@ -64,13 +64,13 @@ For Siumai, the equivalent is a provider-specific event converter that supports 
 ### Provider support (as of alpha.5)
 
 - Anthropic: SSE serialization implemented (message_start, content/thinking/tool deltas, message_delta/stop).
-  - Anthropic SSE serialization can synthesize a message_stop sequence from v3 `finish` parts; unsupported v3 parts can be downgraded to text deltas when configured.
+  - Anthropic SSE serialization can synthesize a message_stop sequence from typed `finish` parts; unsupported typed stream parts can be downgraded to text deltas when configured.
 - Ollama: JSONL serialization implemented (content/thinking deltas + done frame).
 - OpenAI (Responses): SSE serialization implemented (response.created, message scaffolding via output_item/content_part, output_text.delta/done, function_call output_item + function_call_arguments delta/done, response.usage, response.completed, response.error).
 - OpenAI (Responses): stream parts reverse mapping implemented for start/metadata/finish/error (`openai:stream-start`, `openai:response-metadata`, `openai:finish`, `openai:error`), text/reasoning parts (`openai:text-*`, `openai:reasoning-*`, `openai:source` as `response.output_text.annotation.added`), and tool parts (`openai:tool-input-*`, `openai:tool-call`, `openai:tool-result`, `openai:tool-approval-request`) to support Vercel-style `formatStreamPart` proxying.
 - OpenAI-compatible (Chat Completions): SSE serialization implemented (chat.completion.chunk deltas + [DONE]).
 - Gemini / Vertex (GenerateContent): SSE serialization implemented (candidates.parts text/thought chunks + usageMetadata + finishReason).
-  - Gemini SSE serialization supports v3 `source` parts (as groundingChunks), v3 `finish` parts (as finishReason + usageMetadata), and v3 code execution tool results (as codeExecutionResult parts).
+  - Gemini SSE serialization supports typed `source` parts (as groundingChunks), typed `finish` parts (as finishReason + usageMetadata), and typed code execution tool results (as codeExecutionResult parts).
 
 ### Next candidates
 

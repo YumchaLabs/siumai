@@ -75,14 +75,14 @@ fn decode_openai_responses(lines: Vec<String>, tools: Vec<Tool>) -> Vec<ChatStre
 
 fn encode_anthropic_messages_sse(
     events: Vec<ChatStreamEvent>,
-    behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+    behavior: siumai::experimental::streaming::UnsupportedStreamPartBehavior,
 ) -> Vec<u8> {
     use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::anthropic::params::AnthropicParams;
     use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
 
     let conv = AnthropicEventConverter::new(AnthropicParams::default())
-        .with_v3_unsupported_part_behavior(behavior);
+        .with_unsupported_stream_part_behavior(behavior);
 
     let mut out = Vec::new();
 
@@ -133,7 +133,7 @@ fn openai_responses_web_search_transcodes_to_anthropic_messages_sse() {
 
     let bytes = encode_anthropic_messages_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
     );
     let frames = parse_sse_json_frames(&bytes);
 
@@ -216,7 +216,7 @@ fn openai_responses_mcp_transcodes_to_anthropic_messages_sse() {
 
     let bytes = encode_anthropic_messages_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
     );
     let frames = parse_sse_json_frames(&bytes);
 
@@ -299,7 +299,7 @@ fn openai_responses_mcp_tool_approval_request_is_dropped_in_strict_anthropic_tra
 
     let bytes = encode_anthropic_messages_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::Drop,
     );
     let frames = parse_sse_json_frames(&bytes);
 
@@ -371,7 +371,7 @@ fn openai_responses_mcp_tool_approval_request_is_downgraded_in_lossy_anthropic_t
 
     let bytes = encode_anthropic_messages_sse(
         upstream,
-        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        siumai::experimental::streaming::UnsupportedStreamPartBehavior::AsText,
     );
     let frames = parse_sse_json_frames(&bytes);
 

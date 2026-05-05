@@ -51,7 +51,7 @@ small **example**.
 
 ## 4) V3 stream parts (gateway parts)
 
-- [x] Typed v3 parts exist and can be parsed/formatted
+- [x] Typed stream parts exist and can be parsed/formatted
   - Code: `siumai-core/src/streaming/stream_part.rs`
 - [x] Bridge Gemini/Anthropic custom parts → OpenAI Responses parts (gateway fidelity)
   - Doc: `docs/alignment/streaming-bridge-alignment.md`
@@ -74,7 +74,7 @@ small **example**.
 
 ## 6) Tool-loop gateway (execute tools in-process, keep one stream open)
 
-- [x] Tool-loop stream helper (inject v3 tool-result between steps)
+- [x] Tool-loop stream helper (inject typed tool-result between steps)
   - Code: `siumai-extras/src/server/tool_loop.rs`
 - [x] Multi-protocol gateway example using tool-loop
   - Example: `siumai-extras/examples/tool-loop-gateway.rs`
@@ -89,7 +89,7 @@ small **example**.
 
 ## Known limitations (accepted in M1)
 
-- V3 parts are not always representable in every target wire protocol; gateways must choose a policy:
+- Typed stream parts are not always representable in every target wire protocol; gateways must choose a policy:
   - Drop (strict)
   - Lossy downgrade to text (best-effort)
   - Target-specific replay (e.g. Gemini `functionResponse`)
@@ -102,7 +102,7 @@ small **example**.
   - Tests: `siumai/tests/transcoding_openai_to_anthropic_alignment_test.rs`,
     `siumai/tests/transcoding_openai_to_gemini_alignment_test.rs`,
     `siumai/tests/transcoding_openai_to_openai_chat_completions_tool_approval_policy_test.rs`
-- [x] Expand v3 parts coverage for `raw` / `file` in gateway pipelines (documented behavior + tests)
+- [x] Expand typed stream-part coverage for `raw` / `file` in gateway pipelines (documented behavior + tests)
   - Test: `siumai-extras/src/server/axum.rs:1`
 - [x] Add a small “M1 smoke matrix” command (single script) that runs only the core-trio gateway/transcoding tests
   - Windows: `scripts/test-m1.bat`

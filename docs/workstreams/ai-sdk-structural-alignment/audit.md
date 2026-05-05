@@ -163,7 +163,7 @@ The current branch has now closed four concrete structural gaps:
   terminal `finish` on both successful and failed responses, and provider-hosted tool / MCP /
   approval semantics; protocol-only `rawItem` / `outputIndex` fidelity now rides a separate
   runtime replay carrier instead of staying inside loose custom payloads.
-- `LanguageModelV3StreamPart::{from_runtime_part,to_runtime_part}` are now both public and
+- `TypedStreamPart::{from_runtime_part,to_runtime_part}` are now both public and
   test-backed, so bridge/gateway code can move directly between `ChatStreamPart` and the
   V4-capable typed overlay without detouring through provider-prefixed custom payloads.
 - Experimental bridge primitive remappers now operate on direct `Part/PartWithReplay` tool
@@ -176,10 +176,10 @@ The current branch has now closed four concrete structural gaps:
   `Custom` emission for source or provider-hosted tool inspection.
 - The typed stream-part overlay now also names its protocol serializer escape hatch explicitly:
   `to_protocol_custom_event(...)` is the canonical lowering API for provider-native custom-event
-  reserialization, while the older `to_custom_event(...)` remains only as a thin compatibility
-  alias instead of implying that `Custom` is the preferred runtime lane.
+  reserialization, and the older `to_custom_event(...)` alias has been removed instead of implying
+  that `Custom` is the preferred runtime lane.
 - The shared OpenAI Responses bridge is now narrower too: it upgrades legacy custom payloads only
-  when they already parse as stable V3/part shapes, and it no longer keeps bespoke event-type
+  when they already parse as stable typed part shapes, and it no longer keeps bespoke event-type
   special cases for parser-era Gemini/Anthropic reasoning/tool shadow events that the audited
   mainline parsers no longer emit.
 - Anthropic parsing now emits the runtime part channel directly for `stream-start`,
@@ -266,11 +266,11 @@ Today:
 
 - `ChatStreamEvent` remains the runtime transport enum
 - it now includes a first-class `Part(ChatStreamPart)` semantic channel
-- `LanguageModelV3StreamPart` remains the historical typed overlay used by gateway/protocol work
+- `TypedStreamPart` remains the historical typed overlay used by gateway/protocol work
 
 Recent improvement:
 
-- `LanguageModelV3StreamPart` already carried the missing V4 `custom` and `reasoning-file` slots.
+- `TypedStreamPart` already carried the missing V4 `custom` and `reasoning-file` slots.
 - `ChatStreamEvent::Part(ChatStreamPart)` now mirrors the important V4 stream-part semantics at the
   stable runtime layer.
 - `StreamProcessor` and the main OpenAI/OpenAI-compatible/Anthropic/Gemini serializers can bridge

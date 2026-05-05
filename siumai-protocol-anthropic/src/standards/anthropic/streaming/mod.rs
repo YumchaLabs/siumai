@@ -11,7 +11,7 @@ use super::utils::parse_finish_reason;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{
-    ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker, V3UnsupportedPartBehavior,
+    ChatStreamEvent, StreamStateTracker, TypedStreamPart, UnsupportedStreamPartBehavior,
 };
 use crate::types::{
     ChatResponse, ChatStreamFinishInfo, ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult,
@@ -218,7 +218,7 @@ pub struct AnthropicEventConverter {
     vercel_container: Arc<Mutex<Option<serde_json::Value>>>,
     vercel_context_management: Arc<Mutex<Option<serde_json::Value>>>,
     serialize_state: Arc<Mutex<AnthropicSerializeState>>,
-    v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
+    unsupported_stream_part_behavior: UnsupportedStreamPartBehavior,
 }
 
 impl AnthropicEventConverter {
@@ -252,7 +252,7 @@ impl AnthropicEventConverter {
             vercel_container: Arc::new(Mutex::new(None)),
             vercel_context_management: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(AnthropicSerializeState::default())),
-            v3_unsupported_part_behavior: V3UnsupportedPartBehavior::default(),
+            unsupported_stream_part_behavior: UnsupportedStreamPartBehavior::default(),
         }
     }
 
@@ -261,11 +261,11 @@ impl AnthropicEventConverter {
         self
     }
 
-    pub fn with_v3_unsupported_part_behavior(
+    pub fn with_unsupported_stream_part_behavior(
         mut self,
-        behavior: V3UnsupportedPartBehavior,
+        behavior: UnsupportedStreamPartBehavior,
     ) -> Self {
-        self.v3_unsupported_part_behavior = behavior;
+        self.unsupported_stream_part_behavior = behavior;
         self
     }
 

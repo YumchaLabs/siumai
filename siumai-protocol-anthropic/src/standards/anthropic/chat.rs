@@ -553,13 +553,13 @@ mod tests {
 
         let out = stream_tx.convert_event(ev).await;
         assert_eq!(out.len(), 1);
-        match crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(
+        match crate::streaming::TypedStreamPart::try_from_chat_event(
             out.first().unwrap().as_ref().unwrap(),
         )
         .expect("source part")
         {
-            crate::streaming::LanguageModelV3StreamPart::Source(
-                crate::streaming::LanguageModelV3Source::Document { title, .. },
+            crate::streaming::TypedStreamPart::Source(
+                crate::streaming::TypedStreamSource::Document { title, .. },
             ) => {
                 assert_eq!(title, "My PDF");
             }
@@ -617,13 +617,13 @@ mod tests {
 
         let out = stream_tx.convert_event(ev).await;
         assert_eq!(out.len(), 1);
-        match crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(
+        match crate::streaming::TypedStreamPart::try_from_chat_event(
             out.first().unwrap().as_ref().unwrap(),
         )
         .expect("source part")
         {
-            crate::streaming::LanguageModelV3StreamPart::Source(
-                crate::streaming::LanguageModelV3Source::Document { title, .. },
+            crate::streaming::TypedStreamPart::Source(
+                crate::streaming::TypedStreamSource::Document { title, .. },
             ) => {
                 assert_eq!(title, "fallback.pdf");
             }

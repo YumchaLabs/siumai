@@ -1,9 +1,7 @@
-//! Vercel AI SDK aligned stream parts (typed).
+//! Vercel AI SDK aligned typed stream parts.
 //!
-//! Historical `LanguageModelV3*` names are kept for compatibility, but the
-//! shapes now track a V4-capable superset of the AI SDK stream-part contract.
-//! In particular, this layer now includes V4-only `custom` and
-//! `reasoning-file` parts in addition to the older V3-compatible surface.
+//! This layer is a V4-capable superset of the AI SDK stream-part contract and
+//! includes stream-only shapes such as `custom` and `reasoning-file`.
 //!
 //! It is intentionally kept as a lightweight, typed representation so users can:
 //! - parse provider-specific `ChatStreamEvent::Custom` payloads into a stable schema
@@ -24,13 +22,13 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 ///
 /// Vercel AI SDK uses `Record<string, JSONObject>`. We keep this type permissive
 /// to preserve metadata for forward compatibility.
-pub type SharedV3ProviderMetadata = crate::types::ProviderMetadataMap;
+pub type TypedStreamProviderMetadata = crate::types::ProviderMetadataMap;
 
 /// Provider-facing V4 metadata root.
 ///
 /// The Rust carrier stays compatible with the shared stable map, but V4 serde/projection helpers
 /// enforce AI SDK `SharedV4ProviderMetadata = Record<string, JSONObject>` at provider boundaries.
-pub type SharedV4ProviderMetadata = SharedV3ProviderMetadata;
+pub type SharedV4ProviderMetadata = TypedStreamProviderMetadata;
 
 fn serialize_stream_part_non_null_json_value<S>(
     value: &serde_json::Value,
@@ -153,7 +151,7 @@ where
 /// Shared warning type (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum SharedV3Warning {
+pub enum TypedStreamWarning {
     Unsupported {
         feature: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -173,23 +171,23 @@ pub enum SharedV3Warning {
     },
 }
 
-/// V4-capable warning alias kept alongside the historical V3 compatibility name.
-pub type SharedV4Warning = SharedV3Warning;
+/// Provider-facing V4 warning payload alias.
+pub type SharedV4Warning = TypedStreamWarning;
 
 /// Finish reason (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LanguageModelV3FinishReason {
+pub struct TypedStreamFinishReason {
     pub unified: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
 }
 
-/// V4 stream finish-reason payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamFinishReason = LanguageModelV3FinishReason;
+/// Provider-facing V4 finish-reason payload alias.
+pub type LanguageModelV4StreamFinishReason = TypedStreamFinishReason;
 
 /// Response metadata (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3ResponseMetadata {
+pub struct TypedStreamResponseMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,25 +196,25 @@ pub struct LanguageModelV3ResponseMetadata {
     pub model_id: Option<String>,
 }
 
-/// V4 stream response-metadata payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamResponseMetadata = LanguageModelV3ResponseMetadata;
+/// Provider-facing V4 response-metadata payload alias.
+pub type LanguageModelV4StreamResponseMetadata = TypedStreamResponseMetadata;
 
 /// Usage (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3Usage {
+pub struct TypedStreamUsage {
     #[serde(rename = "inputTokens")]
-    pub input_tokens: LanguageModelV3InputTokens,
+    pub input_tokens: TypedStreamInputTokens,
     #[serde(rename = "outputTokens")]
-    pub output_tokens: LanguageModelV3OutputTokens,
+    pub output_tokens: TypedStreamOutputTokens,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
-/// V4 stream usage payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamUsage = LanguageModelV3Usage;
+/// Provider-facing V4 usage payload alias.
+pub type LanguageModelV4StreamUsage = TypedStreamUsage;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3InputTokens {
+pub struct TypedStreamInputTokens {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "noCache")]
@@ -231,11 +229,11 @@ pub struct LanguageModelV3InputTokens {
     pub cache_write: Option<u64>,
 }
 
-/// V4 stream input-token payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamInputTokens = LanguageModelV3InputTokens;
+/// Provider-facing V4 input-token payload alias.
+pub type LanguageModelV4StreamInputTokens = TypedStreamInputTokens;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3OutputTokens {
+pub struct TypedStreamOutputTokens {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -244,12 +242,12 @@ pub struct LanguageModelV3OutputTokens {
     pub reasoning: Option<u64>,
 }
 
-/// V4 stream output-token payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamOutputTokens = LanguageModelV3OutputTokens;
+/// Provider-facing V4 output-token payload alias.
+pub type LanguageModelV4StreamOutputTokens = TypedStreamOutputTokens;
 
 /// Tool call (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3ToolCall {
+pub struct TypedStreamToolCall {
     #[serde(rename = "toolCallId")]
     pub tool_call_id: String,
     #[serde(rename = "toolName")]
@@ -269,7 +267,7 @@ pub struct LanguageModelV3ToolCall {
         skip_serializing_if = "Option::is_none",
         rename = "providerMetadata"
     )]
-    pub provider_metadata: Option<SharedV3ProviderMetadata>,
+    pub provider_metadata: Option<TypedStreamProviderMetadata>,
 }
 
 /// V4 stream tool-call payload.
@@ -301,7 +299,7 @@ pub struct LanguageModelV4StreamToolCall {
 
 /// Tool result (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3ToolResult {
+pub struct TypedStreamToolResult {
     #[serde(rename = "toolCallId")]
     pub tool_call_id: String,
     #[serde(rename = "toolName")]
@@ -322,7 +320,7 @@ pub struct LanguageModelV3ToolResult {
         skip_serializing_if = "Option::is_none",
         rename = "providerMetadata"
     )]
-    pub provider_metadata: Option<SharedV3ProviderMetadata>,
+    pub provider_metadata: Option<TypedStreamProviderMetadata>,
 }
 
 /// V4 stream tool-result payload.
@@ -355,7 +353,7 @@ pub struct LanguageModelV4StreamToolResult {
 
 /// Tool approval request (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LanguageModelV3ToolApprovalRequest {
+pub struct TypedStreamToolApprovalRequest {
     #[serde(rename = "approvalId")]
     pub approval_id: String,
     #[serde(rename = "toolCallId")]
@@ -365,7 +363,7 @@ pub struct LanguageModelV3ToolApprovalRequest {
         skip_serializing_if = "Option::is_none",
         rename = "providerMetadata"
     )]
-    pub provider_metadata: Option<SharedV3ProviderMetadata>,
+    pub provider_metadata: Option<TypedStreamProviderMetadata>,
 }
 
 /// V4 stream tool-approval payload.
@@ -387,16 +385,16 @@ pub struct LanguageModelV4StreamToolApprovalRequest {
 
 /// File part (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3File {
+pub struct TypedStreamFile {
     #[serde(rename = "mediaType")]
     pub media_type: String,
-    pub data: LanguageModelV3FileData,
+    pub data: TypedStreamFileData,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "providerMetadata"
     )]
-    pub provider_metadata: Option<SharedV3ProviderMetadata>,
+    pub provider_metadata: Option<TypedStreamProviderMetadata>,
 }
 
 /// V4 stream file payload.
@@ -417,26 +415,26 @@ pub struct LanguageModelV4StreamFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
-pub enum LanguageModelV3FileData {
+pub enum TypedStreamFileData {
     Base64(String),
     Bytes(Vec<u8>),
 }
 
-/// V4 stream file-data payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamFileData = LanguageModelV3FileData;
+/// Provider-facing V4 file-data payload alias.
+pub type LanguageModelV4StreamFileData = TypedStreamFileData;
 
 /// Reasoning file part (Vercel AI SDK V4 aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3ReasoningFile {
+pub struct TypedStreamReasoningFile {
     #[serde(rename = "mediaType")]
     pub media_type: String,
-    pub data: LanguageModelV3FileData,
+    pub data: TypedStreamFileData,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "providerMetadata"
     )]
-    pub provider_metadata: Option<SharedV3ProviderMetadata>,
+    pub provider_metadata: Option<TypedStreamProviderMetadata>,
 }
 
 /// V4 stream reasoning-file payload.
@@ -457,14 +455,14 @@ pub struct LanguageModelV4StreamReasoningFile {
 
 /// Custom content part (Vercel AI SDK V4 aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LanguageModelV3CustomContent {
+pub struct TypedStreamCustomContent {
     pub kind: String,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "providerMetadata"
     )]
-    pub provider_metadata: Option<SharedV3ProviderMetadata>,
+    pub provider_metadata: Option<TypedStreamProviderMetadata>,
 }
 
 /// V4 stream custom-content payload.
@@ -488,7 +486,7 @@ pub struct LanguageModelV4StreamCustomContent {
 /// Source part (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "sourceType", rename_all = "lowercase")]
-pub enum LanguageModelV3Source {
+pub enum TypedStreamSource {
     Url {
         id: String,
         url: String,
@@ -499,7 +497,7 @@ pub enum LanguageModelV3Source {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
     Document {
         id: String,
@@ -513,7 +511,7 @@ pub enum LanguageModelV3Source {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
 }
 
@@ -556,7 +554,7 @@ pub enum LanguageModelV4StreamSource {
 /// Typed Vercel stream part union.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum LanguageModelV3StreamPart {
+pub enum TypedStreamPart {
     TextStart {
         id: String,
         #[serde(
@@ -564,7 +562,7 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
     TextDelta {
         id: String,
@@ -574,7 +572,7 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
     TextEnd {
         id: String,
@@ -583,7 +581,7 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
 
     ReasoningStart {
@@ -593,7 +591,7 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
     ReasoningDelta {
         id: String,
@@ -603,7 +601,7 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
     ReasoningEnd {
         id: String,
@@ -612,7 +610,7 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
 
     ToolInputStart {
@@ -624,7 +622,7 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -644,7 +642,7 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
     ToolInputEnd {
         id: String,
@@ -653,33 +651,33 @@ pub enum LanguageModelV3StreamPart {
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
 
-    ToolApprovalRequest(LanguageModelV3ToolApprovalRequest),
-    ToolCall(LanguageModelV3ToolCall),
-    ToolResult(LanguageModelV3ToolResult),
-    Custom(LanguageModelV3CustomContent),
-    File(LanguageModelV3File),
-    ReasoningFile(LanguageModelV3ReasoningFile),
-    Source(LanguageModelV3Source),
+    ToolApprovalRequest(TypedStreamToolApprovalRequest),
+    ToolCall(TypedStreamToolCall),
+    ToolResult(TypedStreamToolResult),
+    Custom(TypedStreamCustomContent),
+    File(TypedStreamFile),
+    ReasoningFile(TypedStreamReasoningFile),
+    Source(TypedStreamSource),
 
     StreamStart {
-        warnings: Vec<SharedV3Warning>,
+        warnings: Vec<TypedStreamWarning>,
     },
 
-    ResponseMetadata(LanguageModelV3ResponseMetadata),
+    ResponseMetadata(TypedStreamResponseMetadata),
 
     Finish {
-        usage: LanguageModelV3Usage,
+        usage: TypedStreamUsage,
         #[serde(rename = "finishReason")]
-        finish_reason: LanguageModelV3FinishReason,
+        finish_reason: TypedStreamFinishReason,
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             rename = "providerMetadata"
         )]
-        provider_metadata: Option<SharedV3ProviderMetadata>,
+        provider_metadata: Option<TypedStreamProviderMetadata>,
     },
 
     Raw {
@@ -859,10 +857,10 @@ pub enum StreamPartNamespace {
     Gemini,
 }
 
-/// Controls how v3 stream parts that cannot be represented in `ChatStreamEvent`
+/// Controls how typed stream parts that cannot be represented in `ChatStreamEvent`
 /// should be handled during protocol re-serialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum V3UnsupportedPartBehavior {
+pub enum UnsupportedStreamPartBehavior {
     /// Drop the part (strictest behavior).
     #[default]
     Drop,
@@ -872,51 +870,49 @@ pub enum V3UnsupportedPartBehavior {
 
 fn stream_metadata_from_hashmap(
     metadata: Option<crate::types::ProviderMetadataMap>,
-) -> Option<SharedV3ProviderMetadata> {
+) -> Option<TypedStreamProviderMetadata> {
     metadata
 }
 
 fn stream_metadata_to_hashmap(
-    metadata: Option<SharedV3ProviderMetadata>,
+    metadata: Option<TypedStreamProviderMetadata>,
 ) -> Option<crate::types::ProviderMetadataMap> {
     metadata
 }
 
-fn finish_reason_to_stream_payload(
-    finish_reason: ChatStreamFinishInfo,
-) -> LanguageModelV3FinishReason {
+fn finish_reason_to_stream_payload(finish_reason: ChatStreamFinishInfo) -> TypedStreamFinishReason {
     match finish_reason.unified {
-        crate::types::FinishReason::Stop => LanguageModelV3FinishReason {
+        crate::types::FinishReason::Stop => TypedStreamFinishReason {
             unified: "stop".to_string(),
             raw: finish_reason.raw,
         },
-        crate::types::FinishReason::Length => LanguageModelV3FinishReason {
+        crate::types::FinishReason::Length => TypedStreamFinishReason {
             unified: "length".to_string(),
             raw: finish_reason.raw,
         },
-        crate::types::FinishReason::ToolCalls => LanguageModelV3FinishReason {
+        crate::types::FinishReason::ToolCalls => TypedStreamFinishReason {
             unified: "tool-calls".to_string(),
             raw: finish_reason.raw,
         },
-        crate::types::FinishReason::ContentFilter => LanguageModelV3FinishReason {
+        crate::types::FinishReason::ContentFilter => TypedStreamFinishReason {
             unified: "content-filter".to_string(),
             raw: finish_reason.raw,
         },
-        crate::types::FinishReason::StopSequence => LanguageModelV3FinishReason {
+        crate::types::FinishReason::StopSequence => TypedStreamFinishReason {
             unified: "stop".to_string(),
             raw: finish_reason
                 .raw
                 .or_else(|| Some("stop_sequence".to_string())),
         },
-        crate::types::FinishReason::Error => LanguageModelV3FinishReason {
+        crate::types::FinishReason::Error => TypedStreamFinishReason {
             unified: "error".to_string(),
             raw: finish_reason.raw,
         },
-        crate::types::FinishReason::Other(value) => LanguageModelV3FinishReason {
+        crate::types::FinishReason::Other(value) => TypedStreamFinishReason {
             unified: "other".to_string(),
             raw: finish_reason.raw.or(Some(value)),
         },
-        crate::types::FinishReason::Unknown => LanguageModelV3FinishReason {
+        crate::types::FinishReason::Unknown => TypedStreamFinishReason {
             unified: "unknown".to_string(),
             raw: finish_reason.raw,
         },
@@ -924,7 +920,7 @@ fn finish_reason_to_stream_payload(
 }
 
 fn finish_reason_from_stream_payload(
-    finish_reason: &LanguageModelV3FinishReason,
+    finish_reason: &TypedStreamFinishReason,
 ) -> crate::types::FinishReason {
     match finish_reason.unified.as_str() {
         "stop" if finish_reason.raw.as_deref() == Some("stop_sequence") => {
@@ -947,7 +943,7 @@ fn finish_reason_from_stream_payload(
     }
 }
 
-impl From<ChatStreamFileData> for LanguageModelV3FileData {
+impl From<ChatStreamFileData> for TypedStreamFileData {
     fn from(value: ChatStreamFileData) -> Self {
         match value {
             ChatStreamFileData::Base64(data) => Self::Base64(data),
@@ -956,16 +952,16 @@ impl From<ChatStreamFileData> for LanguageModelV3FileData {
     }
 }
 
-impl From<LanguageModelV3FileData> for ChatStreamFileData {
-    fn from(value: LanguageModelV3FileData) -> Self {
+impl From<TypedStreamFileData> for ChatStreamFileData {
+    fn from(value: TypedStreamFileData) -> Self {
         match value {
-            LanguageModelV3FileData::Base64(data) => Self::Base64(data),
-            LanguageModelV3FileData::Bytes(data) => Self::Bytes(data),
+            TypedStreamFileData::Base64(data) => Self::Base64(data),
+            TypedStreamFileData::Bytes(data) => Self::Bytes(data),
         }
     }
 }
 
-impl From<ChatStreamToolApprovalRequest> for LanguageModelV3ToolApprovalRequest {
+impl From<ChatStreamToolApprovalRequest> for TypedStreamToolApprovalRequest {
     fn from(value: ChatStreamToolApprovalRequest) -> Self {
         Self {
             approval_id: value.approval_id,
@@ -975,8 +971,8 @@ impl From<ChatStreamToolApprovalRequest> for LanguageModelV3ToolApprovalRequest 
     }
 }
 
-impl From<LanguageModelV3ToolApprovalRequest> for ChatStreamToolApprovalRequest {
-    fn from(value: LanguageModelV3ToolApprovalRequest) -> Self {
+impl From<TypedStreamToolApprovalRequest> for ChatStreamToolApprovalRequest {
+    fn from(value: TypedStreamToolApprovalRequest) -> Self {
         Self {
             approval_id: value.approval_id,
             tool_call_id: value.tool_call_id,
@@ -985,7 +981,7 @@ impl From<LanguageModelV3ToolApprovalRequest> for ChatStreamToolApprovalRequest 
     }
 }
 
-impl From<ChatStreamToolCall> for LanguageModelV3ToolCall {
+impl From<ChatStreamToolCall> for TypedStreamToolCall {
     fn from(value: ChatStreamToolCall) -> Self {
         Self {
             tool_call_id: value.tool_call_id,
@@ -998,8 +994,8 @@ impl From<ChatStreamToolCall> for LanguageModelV3ToolCall {
     }
 }
 
-impl From<LanguageModelV3ToolCall> for ChatStreamToolCall {
-    fn from(value: LanguageModelV3ToolCall) -> Self {
+impl From<TypedStreamToolCall> for ChatStreamToolCall {
+    fn from(value: TypedStreamToolCall) -> Self {
         Self {
             tool_call_id: value.tool_call_id,
             tool_name: value.tool_name,
@@ -1011,7 +1007,7 @@ impl From<LanguageModelV3ToolCall> for ChatStreamToolCall {
     }
 }
 
-impl From<ChatStreamToolResult> for LanguageModelV3ToolResult {
+impl From<ChatStreamToolResult> for TypedStreamToolResult {
     fn from(value: ChatStreamToolResult) -> Self {
         Self {
             tool_call_id: value.tool_call_id,
@@ -1025,8 +1021,8 @@ impl From<ChatStreamToolResult> for LanguageModelV3ToolResult {
     }
 }
 
-impl From<LanguageModelV3ToolResult> for ChatStreamToolResult {
-    fn from(value: LanguageModelV3ToolResult) -> Self {
+impl From<TypedStreamToolResult> for ChatStreamToolResult {
+    fn from(value: TypedStreamToolResult) -> Self {
         Self {
             tool_call_id: value.tool_call_id,
             tool_name: value.tool_name,
@@ -1039,7 +1035,7 @@ impl From<LanguageModelV3ToolResult> for ChatStreamToolResult {
     }
 }
 
-impl From<ChatStreamCustomContent> for LanguageModelV3CustomContent {
+impl From<ChatStreamCustomContent> for TypedStreamCustomContent {
     fn from(value: ChatStreamCustomContent) -> Self {
         Self {
             kind: value.kind,
@@ -1048,8 +1044,8 @@ impl From<ChatStreamCustomContent> for LanguageModelV3CustomContent {
     }
 }
 
-impl From<LanguageModelV3CustomContent> for ChatStreamCustomContent {
-    fn from(value: LanguageModelV3CustomContent) -> Self {
+impl From<TypedStreamCustomContent> for ChatStreamCustomContent {
+    fn from(value: TypedStreamCustomContent) -> Self {
         Self {
             kind: value.kind,
             provider_metadata: stream_metadata_to_hashmap(value.provider_metadata),
@@ -1057,7 +1053,7 @@ impl From<LanguageModelV3CustomContent> for ChatStreamCustomContent {
     }
 }
 
-impl From<ChatStreamFilePart> for LanguageModelV3File {
+impl From<ChatStreamFilePart> for TypedStreamFile {
     fn from(value: ChatStreamFilePart) -> Self {
         Self {
             media_type: value.media_type,
@@ -1067,8 +1063,8 @@ impl From<ChatStreamFilePart> for LanguageModelV3File {
     }
 }
 
-impl From<LanguageModelV3File> for ChatStreamFilePart {
-    fn from(value: LanguageModelV3File) -> Self {
+impl From<TypedStreamFile> for ChatStreamFilePart {
+    fn from(value: TypedStreamFile) -> Self {
         Self {
             media_type: value.media_type,
             data: value.data.into(),
@@ -1077,7 +1073,7 @@ impl From<LanguageModelV3File> for ChatStreamFilePart {
     }
 }
 
-impl From<ChatStreamFilePart> for LanguageModelV3ReasoningFile {
+impl From<ChatStreamFilePart> for TypedStreamReasoningFile {
     fn from(value: ChatStreamFilePart) -> Self {
         Self {
             media_type: value.media_type,
@@ -1087,8 +1083,8 @@ impl From<ChatStreamFilePart> for LanguageModelV3ReasoningFile {
     }
 }
 
-impl From<LanguageModelV3ReasoningFile> for ChatStreamFilePart {
-    fn from(value: LanguageModelV3ReasoningFile) -> Self {
+impl From<TypedStreamReasoningFile> for ChatStreamFilePart {
+    fn from(value: TypedStreamReasoningFile) -> Self {
         Self {
             media_type: value.media_type,
             data: value.data.into(),
@@ -1097,8 +1093,8 @@ impl From<LanguageModelV3ReasoningFile> for ChatStreamFilePart {
     }
 }
 
-impl From<LanguageModelV3ToolApprovalRequest> for LanguageModelV4StreamToolApprovalRequest {
-    fn from(value: LanguageModelV3ToolApprovalRequest) -> Self {
+impl From<TypedStreamToolApprovalRequest> for LanguageModelV4StreamToolApprovalRequest {
+    fn from(value: TypedStreamToolApprovalRequest) -> Self {
         Self {
             approval_id: value.approval_id,
             tool_call_id: value.tool_call_id,
@@ -1107,7 +1103,7 @@ impl From<LanguageModelV3ToolApprovalRequest> for LanguageModelV4StreamToolAppro
     }
 }
 
-impl From<LanguageModelV4StreamToolApprovalRequest> for LanguageModelV3ToolApprovalRequest {
+impl From<LanguageModelV4StreamToolApprovalRequest> for TypedStreamToolApprovalRequest {
     fn from(value: LanguageModelV4StreamToolApprovalRequest) -> Self {
         Self {
             approval_id: value.approval_id,
@@ -1117,8 +1113,8 @@ impl From<LanguageModelV4StreamToolApprovalRequest> for LanguageModelV3ToolAppro
     }
 }
 
-impl From<LanguageModelV3ToolCall> for LanguageModelV4StreamToolCall {
-    fn from(value: LanguageModelV3ToolCall) -> Self {
+impl From<TypedStreamToolCall> for LanguageModelV4StreamToolCall {
+    fn from(value: TypedStreamToolCall) -> Self {
         Self {
             tool_call_id: value.tool_call_id,
             tool_name: value.tool_name,
@@ -1130,7 +1126,7 @@ impl From<LanguageModelV3ToolCall> for LanguageModelV4StreamToolCall {
     }
 }
 
-impl From<LanguageModelV4StreamToolCall> for LanguageModelV3ToolCall {
+impl From<LanguageModelV4StreamToolCall> for TypedStreamToolCall {
     fn from(value: LanguageModelV4StreamToolCall) -> Self {
         Self {
             tool_call_id: value.tool_call_id,
@@ -1143,8 +1139,8 @@ impl From<LanguageModelV4StreamToolCall> for LanguageModelV3ToolCall {
     }
 }
 
-impl From<LanguageModelV3ToolResult> for LanguageModelV4StreamToolResult {
-    fn from(value: LanguageModelV3ToolResult) -> Self {
+impl From<TypedStreamToolResult> for LanguageModelV4StreamToolResult {
+    fn from(value: TypedStreamToolResult) -> Self {
         Self {
             tool_call_id: value.tool_call_id,
             tool_name: value.tool_name,
@@ -1157,7 +1153,7 @@ impl From<LanguageModelV3ToolResult> for LanguageModelV4StreamToolResult {
     }
 }
 
-impl From<LanguageModelV4StreamToolResult> for LanguageModelV3ToolResult {
+impl From<LanguageModelV4StreamToolResult> for TypedStreamToolResult {
     fn from(value: LanguageModelV4StreamToolResult) -> Self {
         Self {
             tool_call_id: value.tool_call_id,
@@ -1171,8 +1167,8 @@ impl From<LanguageModelV4StreamToolResult> for LanguageModelV3ToolResult {
     }
 }
 
-impl From<LanguageModelV3CustomContent> for LanguageModelV4StreamCustomContent {
-    fn from(value: LanguageModelV3CustomContent) -> Self {
+impl From<TypedStreamCustomContent> for LanguageModelV4StreamCustomContent {
+    fn from(value: TypedStreamCustomContent) -> Self {
         Self {
             kind: value.kind,
             provider_metadata: stream_v4_provider_metadata_from_stable(value.provider_metadata),
@@ -1180,7 +1176,7 @@ impl From<LanguageModelV3CustomContent> for LanguageModelV4StreamCustomContent {
     }
 }
 
-impl From<LanguageModelV4StreamCustomContent> for LanguageModelV3CustomContent {
+impl From<LanguageModelV4StreamCustomContent> for TypedStreamCustomContent {
     fn from(value: LanguageModelV4StreamCustomContent) -> Self {
         Self {
             kind: value.kind,
@@ -1189,8 +1185,8 @@ impl From<LanguageModelV4StreamCustomContent> for LanguageModelV3CustomContent {
     }
 }
 
-impl From<LanguageModelV3File> for LanguageModelV4StreamFile {
-    fn from(value: LanguageModelV3File) -> Self {
+impl From<TypedStreamFile> for LanguageModelV4StreamFile {
+    fn from(value: TypedStreamFile) -> Self {
         Self {
             media_type: value.media_type,
             data: value.data,
@@ -1199,7 +1195,7 @@ impl From<LanguageModelV3File> for LanguageModelV4StreamFile {
     }
 }
 
-impl From<LanguageModelV4StreamFile> for LanguageModelV3File {
+impl From<LanguageModelV4StreamFile> for TypedStreamFile {
     fn from(value: LanguageModelV4StreamFile) -> Self {
         Self {
             media_type: value.media_type,
@@ -1209,8 +1205,8 @@ impl From<LanguageModelV4StreamFile> for LanguageModelV3File {
     }
 }
 
-impl From<LanguageModelV3ReasoningFile> for LanguageModelV4StreamReasoningFile {
-    fn from(value: LanguageModelV3ReasoningFile) -> Self {
+impl From<TypedStreamReasoningFile> for LanguageModelV4StreamReasoningFile {
+    fn from(value: TypedStreamReasoningFile) -> Self {
         Self {
             media_type: value.media_type,
             data: value.data,
@@ -1219,7 +1215,7 @@ impl From<LanguageModelV3ReasoningFile> for LanguageModelV4StreamReasoningFile {
     }
 }
 
-impl From<LanguageModelV4StreamReasoningFile> for LanguageModelV3ReasoningFile {
+impl From<LanguageModelV4StreamReasoningFile> for TypedStreamReasoningFile {
     fn from(value: LanguageModelV4StreamReasoningFile) -> Self {
         Self {
             media_type: value.media_type,
@@ -1229,10 +1225,10 @@ impl From<LanguageModelV4StreamReasoningFile> for LanguageModelV3ReasoningFile {
     }
 }
 
-impl From<LanguageModelV3Source> for LanguageModelV4StreamSource {
-    fn from(value: LanguageModelV3Source) -> Self {
+impl From<TypedStreamSource> for LanguageModelV4StreamSource {
+    fn from(value: TypedStreamSource) -> Self {
         match value {
-            LanguageModelV3Source::Url {
+            TypedStreamSource::Url {
                 id,
                 url,
                 title,
@@ -1243,7 +1239,7 @@ impl From<LanguageModelV3Source> for LanguageModelV4StreamSource {
                 title,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3Source::Document {
+            TypedStreamSource::Document {
                 id,
                 media_type,
                 title,
@@ -1260,7 +1256,7 @@ impl From<LanguageModelV3Source> for LanguageModelV4StreamSource {
     }
 }
 
-impl From<LanguageModelV4StreamSource> for LanguageModelV3Source {
+impl From<LanguageModelV4StreamSource> for TypedStreamSource {
     fn from(value: LanguageModelV4StreamSource) -> Self {
         match value {
             LanguageModelV4StreamSource::Url {
@@ -1291,17 +1287,17 @@ impl From<LanguageModelV4StreamSource> for LanguageModelV3Source {
     }
 }
 
-impl From<LanguageModelV3StreamPart> for LanguageModelV4StreamPart {
-    fn from(value: LanguageModelV3StreamPart) -> Self {
+impl From<TypedStreamPart> for LanguageModelV4StreamPart {
+    fn from(value: TypedStreamPart) -> Self {
         match value {
-            LanguageModelV3StreamPart::TextStart {
+            TypedStreamPart::TextStart {
                 id,
                 provider_metadata,
             } => Self::TextStart {
                 id,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::TextDelta {
+            TypedStreamPart::TextDelta {
                 id,
                 delta,
                 provider_metadata,
@@ -1310,21 +1306,21 @@ impl From<LanguageModelV3StreamPart> for LanguageModelV4StreamPart {
                 delta,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::TextEnd {
+            TypedStreamPart::TextEnd {
                 id,
                 provider_metadata,
             } => Self::TextEnd {
                 id,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::ReasoningStart {
+            TypedStreamPart::ReasoningStart {
                 id,
                 provider_metadata,
             } => Self::ReasoningStart {
                 id,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::ReasoningDelta {
+            TypedStreamPart::ReasoningDelta {
                 id,
                 delta,
                 provider_metadata,
@@ -1333,14 +1329,14 @@ impl From<LanguageModelV3StreamPart> for LanguageModelV4StreamPart {
                 delta,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::ReasoningEnd {
+            TypedStreamPart::ReasoningEnd {
                 id,
                 provider_metadata,
             } => Self::ReasoningEnd {
                 id,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::ToolInputStart {
+            TypedStreamPart::ToolInputStart {
                 id,
                 tool_name,
                 provider_metadata,
@@ -1355,7 +1351,7 @@ impl From<LanguageModelV3StreamPart> for LanguageModelV4StreamPart {
                 dynamic,
                 title,
             },
-            LanguageModelV3StreamPart::ToolInputDelta {
+            TypedStreamPart::ToolInputDelta {
                 id,
                 delta,
                 provider_metadata,
@@ -1364,27 +1360,25 @@ impl From<LanguageModelV3StreamPart> for LanguageModelV4StreamPart {
                 delta,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::ToolInputEnd {
+            TypedStreamPart::ToolInputEnd {
                 id,
                 provider_metadata,
             } => Self::ToolInputEnd {
                 id,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::ToolApprovalRequest(request) => {
+            TypedStreamPart::ToolApprovalRequest(request) => {
                 Self::ToolApprovalRequest(request.into())
             }
-            LanguageModelV3StreamPart::ToolCall(call) => Self::ToolCall(call.into()),
-            LanguageModelV3StreamPart::ToolResult(result) => Self::ToolResult(result.into()),
-            LanguageModelV3StreamPart::Custom(custom) => Self::Custom(custom.into()),
-            LanguageModelV3StreamPart::File(file) => Self::File(file.into()),
-            LanguageModelV3StreamPart::ReasoningFile(file) => Self::ReasoningFile(file.into()),
-            LanguageModelV3StreamPart::Source(source) => Self::Source(source.into()),
-            LanguageModelV3StreamPart::StreamStart { warnings } => Self::StreamStart { warnings },
-            LanguageModelV3StreamPart::ResponseMetadata(metadata) => {
-                Self::ResponseMetadata(metadata)
-            }
-            LanguageModelV3StreamPart::Finish {
+            TypedStreamPart::ToolCall(call) => Self::ToolCall(call.into()),
+            TypedStreamPart::ToolResult(result) => Self::ToolResult(result.into()),
+            TypedStreamPart::Custom(custom) => Self::Custom(custom.into()),
+            TypedStreamPart::File(file) => Self::File(file.into()),
+            TypedStreamPart::ReasoningFile(file) => Self::ReasoningFile(file.into()),
+            TypedStreamPart::Source(source) => Self::Source(source.into()),
+            TypedStreamPart::StreamStart { warnings } => Self::StreamStart { warnings },
+            TypedStreamPart::ResponseMetadata(metadata) => Self::ResponseMetadata(metadata),
+            TypedStreamPart::Finish {
                 usage,
                 finish_reason,
                 provider_metadata,
@@ -1393,13 +1387,13 @@ impl From<LanguageModelV3StreamPart> for LanguageModelV4StreamPart {
                 finish_reason,
                 provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
             },
-            LanguageModelV3StreamPart::Raw { raw_value } => Self::Raw { raw_value },
-            LanguageModelV3StreamPart::Error { error } => Self::Error { error },
+            TypedStreamPart::Raw { raw_value } => Self::Raw { raw_value },
+            TypedStreamPart::Error { error } => Self::Error { error },
         }
     }
 }
 
-impl From<LanguageModelV4StreamPart> for LanguageModelV3StreamPart {
+impl From<LanguageModelV4StreamPart> for TypedStreamPart {
     fn from(value: LanguageModelV4StreamPart) -> Self {
         match value {
             LanguageModelV4StreamPart::TextStart {
@@ -1507,7 +1501,7 @@ impl From<LanguageModelV4StreamPart> for LanguageModelV3StreamPart {
     }
 }
 
-impl LanguageModelV3StreamPart {
+impl TypedStreamPart {
     /// Convert a stable runtime semantic part into the typed V4-capable overlay.
     pub fn from_runtime_part(part: ChatStreamPart) -> Self {
         match part {
@@ -1601,7 +1595,7 @@ impl LanguageModelV3StreamPart {
                 source,
                 provider_metadata,
             } => Self::Source(match source {
-                crate::types::SourcePart::Url { url, title } => LanguageModelV3Source::Url {
+                crate::types::SourcePart::Url { url, title } => TypedStreamSource::Url {
                     id,
                     url,
                     title,
@@ -1611,7 +1605,7 @@ impl LanguageModelV3StreamPart {
                     media_type,
                     title,
                     filename,
-                } => LanguageModelV3Source::Document {
+                } => TypedStreamSource::Document {
                     id,
                     media_type,
                     title,
@@ -1624,34 +1618,34 @@ impl LanguageModelV3StreamPart {
                     .into_iter()
                     .map(|warning| match warning {
                         crate::types::Warning::Unsupported { feature, details } => {
-                            SharedV3Warning::Unsupported { feature, details }
+                            TypedStreamWarning::Unsupported { feature, details }
                         }
                         crate::types::Warning::UnsupportedSetting { setting, details } => {
-                            SharedV3Warning::Unsupported {
+                            TypedStreamWarning::Unsupported {
                                 feature: setting,
                                 details,
                             }
                         }
                         crate::types::Warning::UnsupportedTool { tool_name, details } => {
-                            SharedV3Warning::Unsupported {
+                            TypedStreamWarning::Unsupported {
                                 feature: tool_name,
                                 details,
                             }
                         }
                         crate::types::Warning::Compatibility { feature, details } => {
-                            SharedV3Warning::Compatibility { feature, details }
+                            TypedStreamWarning::Compatibility { feature, details }
                         }
                         crate::types::Warning::Deprecated { setting, message } => {
-                            SharedV3Warning::Deprecated { setting, message }
+                            TypedStreamWarning::Deprecated { setting, message }
                         }
                         crate::types::Warning::Other { message } => {
-                            SharedV3Warning::Other { message }
+                            TypedStreamWarning::Other { message }
                         }
                     })
                     .collect(),
             },
             ChatStreamPart::ResponseMetadata(metadata) => {
-                Self::ResponseMetadata(LanguageModelV3ResponseMetadata {
+                Self::ResponseMetadata(TypedStreamResponseMetadata {
                     id: metadata.id,
                     timestamp: metadata.created,
                     model_id: metadata.model,
@@ -1666,14 +1660,14 @@ impl LanguageModelV3StreamPart {
                     let input_tokens = usage.normalized_input_tokens();
                     let output_tokens = usage.normalized_output_tokens();
 
-                    LanguageModelV3Usage {
-                        input_tokens: LanguageModelV3InputTokens {
+                    TypedStreamUsage {
+                        input_tokens: TypedStreamInputTokens {
                             total: input_tokens.total.map(u64::from),
                             no_cache: input_tokens.no_cache.map(u64::from),
                             cache_read: input_tokens.cache_read.map(u64::from),
                             cache_write: input_tokens.cache_write.map(u64::from),
                         },
-                        output_tokens: LanguageModelV3OutputTokens {
+                        output_tokens: TypedStreamOutputTokens {
                             total: output_tokens.total.map(u64::from),
                             text: output_tokens.text.map(u64::from),
                             reasoning: output_tokens.reasoning.map(u64::from),
@@ -1778,7 +1772,7 @@ impl LanguageModelV3StreamPart {
             Self::File(file) => ChatStreamPart::File(file.clone().into()),
             Self::ReasoningFile(file) => ChatStreamPart::ReasoningFile(file.clone().into()),
             Self::Source(source) => match source.clone() {
-                LanguageModelV3Source::Url {
+                TypedStreamSource::Url {
                     id,
                     url,
                     title,
@@ -1788,7 +1782,7 @@ impl LanguageModelV3StreamPart {
                     source: crate::types::SourcePart::Url { url, title },
                     provider_metadata: stream_metadata_to_hashmap(provider_metadata),
                 },
-                LanguageModelV3Source::Document {
+                TypedStreamSource::Document {
                     id,
                     media_type,
                     title,
@@ -1809,16 +1803,16 @@ impl LanguageModelV3StreamPart {
                     .iter()
                     .cloned()
                     .map(|warning| match warning {
-                        SharedV3Warning::Unsupported { feature, details } => {
+                        TypedStreamWarning::Unsupported { feature, details } => {
                             crate::types::Warning::Unsupported { feature, details }
                         }
-                        SharedV3Warning::Compatibility { feature, details } => {
+                        TypedStreamWarning::Compatibility { feature, details } => {
                             crate::types::Warning::Compatibility { feature, details }
                         }
-                        SharedV3Warning::Deprecated { setting, message } => {
+                        TypedStreamWarning::Deprecated { setting, message } => {
                             crate::types::Warning::Deprecated { setting, message }
                         }
-                        SharedV3Warning::Other { message } => {
+                        TypedStreamWarning::Other { message } => {
                             crate::types::Warning::Other { message }
                         }
                     })
@@ -1881,7 +1875,7 @@ impl LanguageModelV3StreamPart {
         }
     }
 
-    /// Best-effort parse a v3 stream part from a JSON payload that is close to the
+    /// Best-effort parse a typed stream part from a JSON payload that is close to the
     /// Vercel schema but may contain minor shape differences.
     ///
     /// This is mainly used for cross-provider stream transcoding, where some
@@ -1925,7 +1919,7 @@ impl LanguageModelV3StreamPart {
         }
 
         normalize_in_place(&mut v);
-        serde_json::from_value::<LanguageModelV3StreamPart>(v).ok()
+        serde_json::from_value::<TypedStreamPart>(v).ok()
     }
 
     /// Best-effort parse from a `ChatStreamEvent`.
@@ -1939,7 +1933,7 @@ impl LanguageModelV3StreamPart {
                 Some(Self::from_runtime_part(part.clone()))
             }
             ChatStreamEvent::Custom { data, .. } => Self::parse_loose_json(data),
-            ChatStreamEvent::Error { error } => Some(LanguageModelV3StreamPart::Error {
+            ChatStreamEvent::Error { error } => Some(TypedStreamPart::Error {
                 error: serde_json::json!(error),
             }),
             _ => None,
@@ -1959,12 +1953,6 @@ impl LanguageModelV3StreamPart {
         };
 
         Some(ChatStreamEvent::Custom { event_type, data })
-    }
-
-    /// Legacy compatibility alias for provider protocol serializers.
-    #[inline]
-    pub fn to_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
-        self.to_protocol_custom_event(ns)
     }
 
     /// Convert this typed stream part into a first-class runtime stream part event.
@@ -1990,16 +1978,16 @@ impl LanguageModelV3StreamPart {
         vec![self.to_part_event()]
     }
 
-    /// Convert a v3 stream part into a lossy text representation.
+    /// Convert a typed stream part into a lossy text representation.
     pub fn to_lossy_text(&self) -> Option<String> {
         match self {
-            LanguageModelV3StreamPart::Source(src) => match src {
-                LanguageModelV3Source::Url { url, title, .. } => Some(format!(
+            TypedStreamPart::Source(src) => match src {
+                TypedStreamSource::Url { url, title, .. } => Some(format!(
                     "[source] {} {}",
                     title.clone().unwrap_or_else(|| "url".to_string()),
                     url
                 )),
-                LanguageModelV3Source::Document {
+                TypedStreamSource::Document {
                     title,
                     filename,
                     media_type,
@@ -2014,39 +2002,39 @@ impl LanguageModelV3StreamPart {
                         .unwrap_or_default()
                 )),
             },
-            LanguageModelV3StreamPart::ToolResult(tr) => Some(format!(
+            TypedStreamPart::ToolResult(tr) => Some(format!(
                 "[tool-result] {}: {}",
                 tr.tool_name,
                 serde_json::to_string(&tr.result).unwrap_or_else(|_| "{}".to_string())
             )),
-            LanguageModelV3StreamPart::ToolApprovalRequest(req) => Some(format!(
+            TypedStreamPart::ToolApprovalRequest(req) => Some(format!(
                 "[tool-approval-request] approvalId={} toolCallId={}",
                 req.approval_id, req.tool_call_id
             )),
-            LanguageModelV3StreamPart::Finish { finish_reason, .. } => {
+            TypedStreamPart::Finish { finish_reason, .. } => {
                 Some(format!("[finish] {}", finish_reason.unified))
             }
-            LanguageModelV3StreamPart::Error { error } => Some(format!(
+            TypedStreamPart::Error { error } => Some(format!(
                 "[error] {}",
                 serde_json::to_string(error).unwrap_or_else(|_| "\"error\"".to_string())
             )),
-            LanguageModelV3StreamPart::Raw { raw_value } => Some(format!(
+            TypedStreamPart::Raw { raw_value } => Some(format!(
                 "[raw] {}",
                 serde_json::to_string(raw_value).unwrap_or_else(|_| "\"raw\"".to_string())
             )),
-            LanguageModelV3StreamPart::Custom(custom) => Some(format!("[custom] {}", custom.kind)),
-            LanguageModelV3StreamPart::File(file) => {
+            TypedStreamPart::Custom(custom) => Some(format!("[custom] {}", custom.kind)),
+            TypedStreamPart::File(file) => {
                 let len_hint = match &file.data {
-                    LanguageModelV3FileData::Base64(s) => format!("base64_len={}", s.len()),
-                    LanguageModelV3FileData::Bytes(b) => format!("bytes_len={}", b.len()),
+                    TypedStreamFileData::Base64(s) => format!("base64_len={}", s.len()),
+                    TypedStreamFileData::Bytes(b) => format!("bytes_len={}", b.len()),
                 };
 
                 Some(format!("[file] mediaType={} {}", file.media_type, len_hint))
             }
-            LanguageModelV3StreamPart::ReasoningFile(file) => {
+            TypedStreamPart::ReasoningFile(file) => {
                 let len_hint = match &file.data {
-                    LanguageModelV3FileData::Base64(s) => format!("base64_len={}", s.len()),
-                    LanguageModelV3FileData::Bytes(b) => format!("bytes_len={}", b.len()),
+                    TypedStreamFileData::Base64(s) => format!("base64_len={}", s.len()),
+                    TypedStreamFileData::Bytes(b) => format!("bytes_len={}", b.len()),
                 };
 
                 Some(format!(
@@ -2061,26 +2049,26 @@ impl LanguageModelV3StreamPart {
     fn to_openai_custom_event_payload(&self) -> Option<(String, serde_json::Value)> {
         let data = serde_json::to_value(self).ok()?;
         let event_type = match self {
-            LanguageModelV3StreamPart::TextStart { .. } => "openai:text-start",
-            LanguageModelV3StreamPart::TextDelta { .. } => "openai:text-delta",
-            LanguageModelV3StreamPart::TextEnd { .. } => "openai:text-end",
-            LanguageModelV3StreamPart::ReasoningStart { .. } => "openai:reasoning-start",
-            LanguageModelV3StreamPart::ReasoningDelta { .. } => "openai:reasoning-delta",
-            LanguageModelV3StreamPart::ReasoningEnd { .. } => "openai:reasoning-end",
-            LanguageModelV3StreamPart::ToolInputStart { .. } => "openai:tool-input-start",
-            LanguageModelV3StreamPart::ToolInputDelta { .. } => "openai:tool-input-delta",
-            LanguageModelV3StreamPart::ToolInputEnd { .. } => "openai:tool-input-end",
-            LanguageModelV3StreamPart::ToolApprovalRequest(_) => "openai:tool-approval-request",
-            LanguageModelV3StreamPart::ToolCall(_) => "openai:tool-call",
-            LanguageModelV3StreamPart::ToolResult(_) => "openai:tool-result",
-            LanguageModelV3StreamPart::Custom(_) => "openai:custom",
-            LanguageModelV3StreamPart::Source(_) => "openai:source",
-            LanguageModelV3StreamPart::StreamStart { .. } => "openai:stream-start",
-            LanguageModelV3StreamPart::ResponseMetadata(_) => "openai:response-metadata",
-            LanguageModelV3StreamPart::Finish { .. } => "openai:finish",
-            LanguageModelV3StreamPart::Error { .. } => "openai:error",
-            LanguageModelV3StreamPart::ReasoningFile(_) => "openai:reasoning-file",
-            LanguageModelV3StreamPart::Raw { .. } | LanguageModelV3StreamPart::File(_) => {
+            TypedStreamPart::TextStart { .. } => "openai:text-start",
+            TypedStreamPart::TextDelta { .. } => "openai:text-delta",
+            TypedStreamPart::TextEnd { .. } => "openai:text-end",
+            TypedStreamPart::ReasoningStart { .. } => "openai:reasoning-start",
+            TypedStreamPart::ReasoningDelta { .. } => "openai:reasoning-delta",
+            TypedStreamPart::ReasoningEnd { .. } => "openai:reasoning-end",
+            TypedStreamPart::ToolInputStart { .. } => "openai:tool-input-start",
+            TypedStreamPart::ToolInputDelta { .. } => "openai:tool-input-delta",
+            TypedStreamPart::ToolInputEnd { .. } => "openai:tool-input-end",
+            TypedStreamPart::ToolApprovalRequest(_) => "openai:tool-approval-request",
+            TypedStreamPart::ToolCall(_) => "openai:tool-call",
+            TypedStreamPart::ToolResult(_) => "openai:tool-result",
+            TypedStreamPart::Custom(_) => "openai:custom",
+            TypedStreamPart::Source(_) => "openai:source",
+            TypedStreamPart::StreamStart { .. } => "openai:stream-start",
+            TypedStreamPart::ResponseMetadata(_) => "openai:response-metadata",
+            TypedStreamPart::Finish { .. } => "openai:finish",
+            TypedStreamPart::Error { .. } => "openai:error",
+            TypedStreamPart::ReasoningFile(_) => "openai:reasoning-file",
+            TypedStreamPart::Raw { .. } | TypedStreamPart::File(_) => {
                 return None;
             }
         };
@@ -2090,28 +2078,28 @@ impl LanguageModelV3StreamPart {
     fn to_anthropic_custom_event_payload(&self) -> Option<(String, serde_json::Value)> {
         let data = serde_json::to_value(self).ok()?;
         let event_type = match self {
-            LanguageModelV3StreamPart::TextStart { .. } => "anthropic:text-start",
-            LanguageModelV3StreamPart::TextDelta { .. } => "anthropic:text-delta",
-            LanguageModelV3StreamPart::TextEnd { .. } => "anthropic:text-end",
-            LanguageModelV3StreamPart::ReasoningStart { .. } => "anthropic:reasoning-start",
-            LanguageModelV3StreamPart::ReasoningDelta { .. } => "anthropic:reasoning-delta",
-            LanguageModelV3StreamPart::ReasoningEnd { .. } => "anthropic:reasoning-end",
-            LanguageModelV3StreamPart::ToolInputStart { .. } => "anthropic:tool-input-start",
-            LanguageModelV3StreamPart::ToolInputDelta { .. } => "anthropic:tool-input-delta",
-            LanguageModelV3StreamPart::ToolInputEnd { .. } => "anthropic:tool-input-end",
-            LanguageModelV3StreamPart::ToolCall(_) => "anthropic:tool-call",
-            LanguageModelV3StreamPart::ToolResult(_) => "anthropic:tool-result",
-            LanguageModelV3StreamPart::Custom(_) => "anthropic:custom",
-            LanguageModelV3StreamPart::Source(_) => "anthropic:source",
-            LanguageModelV3StreamPart::StreamStart { .. } => "anthropic:stream-start",
-            LanguageModelV3StreamPart::ResponseMetadata(_) => "anthropic:response-metadata",
-            LanguageModelV3StreamPart::Finish { .. } => "anthropic:finish",
-            LanguageModelV3StreamPart::Error { .. } => "anthropic:error",
+            TypedStreamPart::TextStart { .. } => "anthropic:text-start",
+            TypedStreamPart::TextDelta { .. } => "anthropic:text-delta",
+            TypedStreamPart::TextEnd { .. } => "anthropic:text-end",
+            TypedStreamPart::ReasoningStart { .. } => "anthropic:reasoning-start",
+            TypedStreamPart::ReasoningDelta { .. } => "anthropic:reasoning-delta",
+            TypedStreamPart::ReasoningEnd { .. } => "anthropic:reasoning-end",
+            TypedStreamPart::ToolInputStart { .. } => "anthropic:tool-input-start",
+            TypedStreamPart::ToolInputDelta { .. } => "anthropic:tool-input-delta",
+            TypedStreamPart::ToolInputEnd { .. } => "anthropic:tool-input-end",
+            TypedStreamPart::ToolCall(_) => "anthropic:tool-call",
+            TypedStreamPart::ToolResult(_) => "anthropic:tool-result",
+            TypedStreamPart::Custom(_) => "anthropic:custom",
+            TypedStreamPart::Source(_) => "anthropic:source",
+            TypedStreamPart::StreamStart { .. } => "anthropic:stream-start",
+            TypedStreamPart::ResponseMetadata(_) => "anthropic:response-metadata",
+            TypedStreamPart::Finish { .. } => "anthropic:finish",
+            TypedStreamPart::Error { .. } => "anthropic:error",
 
-            LanguageModelV3StreamPart::ToolApprovalRequest(_)
-            | LanguageModelV3StreamPart::Raw { .. }
-            | LanguageModelV3StreamPart::File(_)
-            | LanguageModelV3StreamPart::ReasoningFile(_) => return None,
+            TypedStreamPart::ToolApprovalRequest(_)
+            | TypedStreamPart::Raw { .. }
+            | TypedStreamPart::File(_)
+            | TypedStreamPart::ReasoningFile(_) => return None,
         };
         Some((event_type.to_string(), data))
     }
@@ -2119,15 +2107,13 @@ impl LanguageModelV3StreamPart {
     fn to_gemini_custom_event_payload(&self) -> Option<(String, serde_json::Value)> {
         let data = serde_json::to_value(self).ok()?;
         let event_type = match self {
-            LanguageModelV3StreamPart::ToolCall(_) | LanguageModelV3StreamPart::ToolResult(_) => {
-                "gemini:tool"
-            }
-            LanguageModelV3StreamPart::Custom(_) => "gemini:custom",
-            LanguageModelV3StreamPart::Source(_) => "gemini:source",
-            LanguageModelV3StreamPart::ReasoningStart { .. }
-            | LanguageModelV3StreamPart::ReasoningDelta { .. }
-            | LanguageModelV3StreamPart::ReasoningEnd { .. } => "gemini:reasoning",
-            LanguageModelV3StreamPart::ReasoningFile(_) => "gemini:reasoning-file",
+            TypedStreamPart::ToolCall(_) | TypedStreamPart::ToolResult(_) => "gemini:tool",
+            TypedStreamPart::Custom(_) => "gemini:custom",
+            TypedStreamPart::Source(_) => "gemini:source",
+            TypedStreamPart::ReasoningStart { .. }
+            | TypedStreamPart::ReasoningDelta { .. }
+            | TypedStreamPart::ReasoningEnd { .. } => "gemini:reasoning",
+            TypedStreamPart::ReasoningFile(_) => "gemini:reasoning-file",
             _ => return None,
         };
         Some((event_type.to_string(), data))
@@ -2137,13 +2123,13 @@ impl LanguageModelV3StreamPart {
 impl LanguageModelV4StreamPart {
     /// Convert a stable runtime semantic part into the provider-facing V4 overlay.
     pub fn from_runtime_part(part: ChatStreamPart) -> Self {
-        LanguageModelV3StreamPart::from_runtime_part(part).into()
+        TypedStreamPart::from_runtime_part(part).into()
     }
 
     /// Convert this V4 stream part into the stable runtime semantic part.
     pub fn to_runtime_part(&self) -> ChatStreamPart {
-        let v3: LanguageModelV3StreamPart = self.clone().into();
-        v3.to_runtime_part()
+        let typed_part: TypedStreamPart = self.clone().into();
+        typed_part.to_runtime_part()
     }
 
     /// Best-effort parse a V4 stream part from JSON while preserving V4 serde validation.
@@ -2207,18 +2193,13 @@ impl LanguageModelV4StreamPart {
     /// Format as a provider-specific protocol-side `ChatStreamEvent::Custom` (best-effort).
     pub fn to_protocol_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
         let data = serde_json::to_value(self).ok()?;
-        let v3: LanguageModelV3StreamPart = self.clone().into();
-        let ChatStreamEvent::Custom { event_type, .. } = v3.to_protocol_custom_event(ns)? else {
+        let typed_part: TypedStreamPart = self.clone().into();
+        let ChatStreamEvent::Custom { event_type, .. } = typed_part.to_protocol_custom_event(ns)?
+        else {
             return None;
         };
 
         Some(ChatStreamEvent::Custom { event_type, data })
-    }
-
-    /// Legacy compatibility alias for provider protocol serializers.
-    #[inline]
-    pub fn to_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
-        self.to_protocol_custom_event(ns)
     }
 
     /// Convert this typed stream part into a first-class runtime stream part event.
@@ -2238,14 +2219,14 @@ impl LanguageModelV4StreamPart {
 
     /// Convert this typed stream part into best-effort `ChatStreamEvent`s.
     pub fn to_best_effort_chat_events(&self) -> Vec<ChatStreamEvent> {
-        let v3: LanguageModelV3StreamPart = self.clone().into();
-        v3.to_best_effort_chat_events()
+        let typed_part: TypedStreamPart = self.clone().into();
+        typed_part.to_best_effort_chat_events()
     }
 
     /// Convert a V4 stream part into a lossy text representation.
     pub fn to_lossy_text(&self) -> Option<String> {
-        let v3: LanguageModelV3StreamPart = self.clone().into();
-        v3.to_lossy_text()
+        let typed_part: TypedStreamPart = self.clone().into();
+        typed_part.to_lossy_text()
     }
 }
 
@@ -2255,14 +2236,14 @@ mod tests {
 
     #[test]
     fn stream_usage_omits_unknown_token_fields() {
-        let usage = LanguageModelV3Usage {
-            input_tokens: LanguageModelV3InputTokens {
+        let usage = TypedStreamUsage {
+            input_tokens: TypedStreamInputTokens {
                 total: None,
                 no_cache: None,
                 cache_read: None,
                 cache_write: None,
             },
-            output_tokens: LanguageModelV3OutputTokens {
+            output_tokens: TypedStreamOutputTokens {
                 total: None,
                 text: None,
                 reasoning: None,
@@ -2286,9 +2267,9 @@ mod tests {
             }),
         };
 
-        let part = LanguageModelV3StreamPart::try_from_chat_event(&ev).expect("parsed");
+        let part = TypedStreamPart::try_from_chat_event(&ev).expect("parsed");
         match part {
-            LanguageModelV3StreamPart::TextDelta { id, delta, .. } => {
+            TypedStreamPart::TextDelta { id, delta, .. } => {
                 assert_eq!(id, "0");
                 assert_eq!(delta, "hello");
             }
@@ -2298,7 +2279,7 @@ mod tests {
 
     #[test]
     fn stream_part_formats_to_openai_protocol_custom_event() {
-        let part = LanguageModelV3StreamPart::ToolCall(LanguageModelV3ToolCall {
+        let part = TypedStreamPart::ToolCall(TypedStreamToolCall {
             tool_call_id: "call_1".to_string(),
             tool_name: "web_search".to_string(),
             input: "{}".to_string(),
@@ -2334,9 +2315,9 @@ mod tests {
             )])),
         });
 
-        let part = LanguageModelV3StreamPart::from_runtime_part(runtime_part);
+        let part = TypedStreamPart::from_runtime_part(runtime_part);
         match &part {
-            LanguageModelV3StreamPart::ToolCall(call) => {
+            TypedStreamPart::ToolCall(call) => {
                 assert_eq!(call.tool_call_id, "call_1");
                 assert_eq!(call.tool_name, "weather");
                 assert_eq!(call.input, "{\"city\":\"Tokyo\"}");
@@ -2376,7 +2357,7 @@ mod tests {
 
     #[test]
     fn stream_part_formats_reasoning_to_anthropic_protocol_custom_event_with_provider_metadata() {
-        let part = LanguageModelV3StreamPart::ReasoningStart {
+        let part = TypedStreamPart::ReasoningStart {
             id: "0".to_string(),
             provider_metadata: Some(std::collections::HashMap::from([(
                 "anthropic".to_string(),
@@ -2410,7 +2391,7 @@ mod tests {
 
     #[test]
     fn stream_part_formats_as_data_sse_frame() {
-        let part = LanguageModelV3StreamPart::TextStart {
+        let part = TypedStreamPart::TextStart {
             id: "0".to_string(),
             provider_metadata: None,
         };
@@ -2429,9 +2410,9 @@ mod tests {
             "input": { "query": "rust" }
         });
 
-        let part = LanguageModelV3StreamPart::parse_loose_json(&v).expect("parsed");
+        let part = TypedStreamPart::parse_loose_json(&v).expect("parsed");
         match part {
-            LanguageModelV3StreamPart::ToolCall(call) => {
+            TypedStreamPart::ToolCall(call) => {
                 assert_eq!(call.tool_call_id, "call_1");
                 assert_eq!(call.tool_name, "web_search");
                 assert!(call.input.contains("\"query\""));
@@ -2451,9 +2432,9 @@ mod tests {
             "finishReason": "stop"
         });
 
-        let part = LanguageModelV3StreamPart::parse_loose_json(&v).expect("parsed");
+        let part = TypedStreamPart::parse_loose_json(&v).expect("parsed");
         match part {
-            LanguageModelV3StreamPart::Finish { finish_reason, .. } => {
+            TypedStreamPart::Finish { finish_reason, .. } => {
                 assert_eq!(finish_reason.unified, "stop");
             }
             other => panic!("unexpected part: {other:?}"),
@@ -2463,7 +2444,7 @@ mod tests {
     #[test]
     fn stream_part_finish_reason_uses_ai_sdk_v4_unified_values() {
         let usage = crate::types::Usage::unknown();
-        let part = LanguageModelV3StreamPart::from_runtime_part(ChatStreamPart::Finish {
+        let part = TypedStreamPart::from_runtime_part(ChatStreamPart::Finish {
             usage,
             finish_reason: ChatStreamFinishInfo {
                 unified: crate::types::FinishReason::ToolCalls,
@@ -2482,7 +2463,7 @@ mod tests {
     #[test]
     fn stream_part_finish_reason_preserves_unknown_unified_value() {
         let usage = crate::types::Usage::unknown();
-        let part = LanguageModelV3StreamPart::from_runtime_part(ChatStreamPart::Finish {
+        let part = TypedStreamPart::from_runtime_part(ChatStreamPart::Finish {
             usage,
             finish_reason: ChatStreamFinishInfo {
                 unified: crate::types::FinishReason::Unknown,
@@ -2510,7 +2491,7 @@ mod tests {
     #[test]
     fn stream_part_finish_reason_preserves_stop_sequence_as_raw() {
         let usage = crate::types::Usage::unknown();
-        let part = LanguageModelV3StreamPart::from_runtime_part(ChatStreamPart::Finish {
+        let part = TypedStreamPart::from_runtime_part(ChatStreamPart::Finish {
             usage,
             finish_reason: ChatStreamFinishInfo {
                 unified: crate::types::FinishReason::StopSequence,
@@ -2544,22 +2525,22 @@ mod tests {
 
     #[test]
     fn stream_part_finish_reason_accepts_legacy_underscore_values() {
-        let part = LanguageModelV3StreamPart::Finish {
-            usage: LanguageModelV3Usage {
-                input_tokens: LanguageModelV3InputTokens {
+        let part = TypedStreamPart::Finish {
+            usage: TypedStreamUsage {
+                input_tokens: TypedStreamInputTokens {
                     total: None,
                     no_cache: None,
                     cache_read: None,
                     cache_write: None,
                 },
-                output_tokens: LanguageModelV3OutputTokens {
+                output_tokens: TypedStreamOutputTokens {
                     total: None,
                     text: None,
                     reasoning: None,
                 },
                 raw: None,
             },
-            finish_reason: LanguageModelV3FinishReason {
+            finish_reason: TypedStreamFinishReason {
                 unified: "content_filter".to_string(),
                 raw: Some("safety".to_string()),
             },
@@ -2591,9 +2572,9 @@ mod tests {
             }
         });
 
-        let part = LanguageModelV3StreamPart::parse_loose_json(&v).expect("parsed");
+        let part = TypedStreamPart::parse_loose_json(&v).expect("parsed");
         match part {
-            LanguageModelV3StreamPart::Custom(custom) => {
+            TypedStreamPart::Custom(custom) => {
                 assert_eq!(custom.kind, "openai.compaction");
                 assert_eq!(
                     custom
@@ -2619,7 +2600,7 @@ mod tests {
             }
         });
         assert!(serde_json::from_value::<LanguageModelV4StreamPart>(invalid.clone()).is_err());
-        assert!(serde_json::from_value::<LanguageModelV3StreamPart>(invalid).is_ok());
+        assert!(serde_json::from_value::<TypedStreamPart>(invalid).is_ok());
 
         let invalid_part = LanguageModelV4StreamPart::ToolCall(LanguageModelV4StreamToolCall {
             tool_call_id: "call_1".to_string(),
@@ -2705,9 +2686,9 @@ mod tests {
             "result": null
         });
 
-        assert!(serde_json::from_value::<LanguageModelV3StreamPart>(invalid).is_err());
+        assert!(serde_json::from_value::<TypedStreamPart>(invalid).is_err());
 
-        let part = LanguageModelV3StreamPart::ToolResult(LanguageModelV3ToolResult {
+        let part = TypedStreamPart::ToolResult(TypedStreamToolResult {
             tool_call_id: "call_1".to_string(),
             tool_name: "weather".to_string(),
             result: serde_json::Value::Null,
@@ -2721,9 +2702,9 @@ mod tests {
 
     #[test]
     fn stream_part_formats_reasoning_file_to_openai_protocol_custom_event() {
-        let part = LanguageModelV3StreamPart::ReasoningFile(LanguageModelV3ReasoningFile {
+        let part = TypedStreamPart::ReasoningFile(TypedStreamReasoningFile {
             media_type: "image/png".to_string(),
-            data: LanguageModelV3FileData::Base64("ZmFrZQ==".to_string()),
+            data: TypedStreamFileData::Base64("ZmFrZQ==".to_string()),
             provider_metadata: Some(std::collections::HashMap::from([(
                 "openai".to_string(),
                 serde_json::json!({ "itemId": "rs_1" }),
@@ -2752,7 +2733,7 @@ mod tests {
 
     #[test]
     fn stream_part_lossy_text_includes_custom_kind_and_reasoning_file_hint() {
-        let custom = LanguageModelV3StreamPart::Custom(LanguageModelV3CustomContent {
+        let custom = TypedStreamPart::Custom(TypedStreamCustomContent {
             kind: "openai.compaction".to_string(),
             provider_metadata: None,
         });
@@ -2761,12 +2742,11 @@ mod tests {
             Some("[custom] openai.compaction")
         );
 
-        let reasoning_file =
-            LanguageModelV3StreamPart::ReasoningFile(LanguageModelV3ReasoningFile {
-                media_type: "image/png".to_string(),
-                data: LanguageModelV3FileData::Base64("ZmFrZQ==".to_string()),
-                provider_metadata: None,
-            });
+        let reasoning_file = TypedStreamPart::ReasoningFile(TypedStreamReasoningFile {
+            media_type: "image/png".to_string(),
+            data: TypedStreamFileData::Base64("ZmFrZQ==".to_string()),
+            provider_metadata: None,
+        });
         assert_eq!(
             reasoning_file.to_lossy_text().as_deref(),
             Some("[reasoning-file] mediaType=image/png base64_len=8")

@@ -313,7 +313,7 @@ Acceptance criteria:
 
 Current state:
 
-- The historical `LanguageModelV3StreamPart` overlay is now being treated as the compatibility
+- The historical `TypedStreamPart` overlay is now being treated as the compatibility
   carrier for a V4-capable typed stream-part contract.
 - The upgraded overlay now also exposes public `LanguageModelV4*` aliases, so new code can use
   AI SDK-aligned names without losing compatibility with the historical V3 surface.
@@ -322,7 +322,7 @@ Current state:
 - `ChatStreamEvent` now exposes a first-class `Part(ChatStreamPart)` semantic channel so the
   runtime layer can represent AI SDK stream-part semantics without tunneling them through
   provider-scoped `Custom` events.
-- `LanguageModelV3StreamPart::{from_runtime_part,to_runtime_part}` are now both public and
+- `TypedStreamPart::{from_runtime_part,to_runtime_part}` are now both public and
   covered by roundtrip tests, so bridge code can switch between the runtime semantic carrier and
   the typed V4-capable overlay without re-entering through custom-event JSON.
 - `StreamProcessor` plus the OpenAI/OpenAI-compatible/Anthropic/Gemini serializers now bridge that
@@ -353,20 +353,20 @@ Current state:
 - Provider-facing OpenAI Responses, Anthropic, and Gemini stream helpers now consume stable
   `Part` / `PartWithReplay` events first and keep legacy custom-event parsing only as a backward
   compatibility fallback.
-- The shared OpenAI Responses bridge now upgrades more of that legacy V3 payload family directly
+- The shared OpenAI Responses bridge now upgrades more of that legacy/custom typed payload family directly
   onto the runtime semantic lane too: `raw`, `custom`, `file`, and `reasoning-file` custom
   payloads no longer have to stay provider-prefixed `Custom` events once their stable meaning is
   already known.
 - The typed stream-part overlay now makes the serializer-only downgrade boundary explicit too:
-  `to_protocol_custom_event(...)` is the canonical provider-wire lowering API, while
-  `to_custom_event(...)` is kept only as a thin compatibility alias.
+  `to_protocol_custom_event(...)` is the canonical provider-wire lowering API and the older
+  `to_custom_event(...)` alias has been removed.
 - Gemini parser-side text/reasoning streaming now stays on the runtime semantic lane: stable
   `stream-start`, `text-*`, `reasoning-*`, `file` / `reasoning-file`, and successful `finish`
   parts are emitted directly, shared shadow expansion has been removed, and the older
   `gemini:reasoning` custom shadow is no longer emitted from the audited parser.
 - The shared OpenAI Responses bridge no longer carries bespoke `gemini:*` / `anthropic:*`
   event-type upgrade branches once those parser-era shadows disappeared from the audited mainline
-  protocol paths; stable-shape custom payloads still upgrade through the generic V3 parser.
+  protocol paths; stable-shape custom payloads still upgrade through the generic typed parser.
 - OpenAI Responses provider-hosted tool / MCP / approval replay now uses an explicit runtime replay
   carrier instead of leaving `rawItem` / `outputIndex` inside loose provider-scoped custom event
   payloads.

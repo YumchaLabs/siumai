@@ -1072,7 +1072,7 @@ mod tests {
         HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
         HttpTransportStreamResponse,
     };
-    use crate::streaming::LanguageModelV3StreamPart;
+    use crate::streaming::TypedStreamPart;
     use crate::types::{ChatStreamEvent, ChatStreamPart, FinishReason, ResponseFormat};
     use async_trait::async_trait;
     use futures_util::StreamExt;
@@ -2120,18 +2120,18 @@ mod tests {
         });
         let tool_call_id = events.iter().find_map(|event| match event {
             ChatStreamEvent::Part {
-                part: ChatStreamPart::ToolInputStart { id, .. },
+                part: ChatStreamPart::ToolCall(call),
             }
             | ChatStreamEvent::PartWithReplay {
-                part: ChatStreamPart::ToolInputStart { id, .. },
+                part: ChatStreamPart::ToolCall(call),
                 ..
-            } => Some(id.as_str()),
+            } => Some(call.tool_call_id.as_str()),
             _ => None,
         });
         let has_raw = events.iter().any(|event| {
             matches!(
-                LanguageModelV3StreamPart::try_from_chat_event(event),
-                Some(LanguageModelV3StreamPart::Raw { .. })
+                TypedStreamPart::try_from_chat_event(event),
+                Some(TypedStreamPart::Raw { .. })
             )
         });
 

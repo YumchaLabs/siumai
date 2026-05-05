@@ -29,7 +29,7 @@ If you want a high-level capability matrix instead, see `docs/alignment/provider
 - **Single source of truth for “what a provider supports”**: `siumai-registry/src/native_provider_metadata.rs`
 - **Fixtures-driven parity**: `docs/alignment/vercel-ai-fixtures-alignment.md` + `scripts/audit_vercel_fixtures.py`
 - **Gateway streaming bridge**: `docs/alignment/streaming-bridge-alignment.md`
-- **Unsupported v3 stream parts**: `V3UnsupportedPartBehavior` (Drop vs AsText)
+- **Unsupported typed stream parts**: `UnsupportedStreamPartBehavior` (Drop vs AsText)
 
 ## Vercel package ↔ Siumai crates (quick map)
 
@@ -377,7 +377,7 @@ If you want a high-level capability matrix instead, see `docs/alignment/provider
 **What to verify (official API + Vercel parity)**
 - [x] Base URL + endpoints (`/chat/completions`, `/responses`)
 - [x] Provider-defined tools mapping (e.g. `web_search`, `x_search`)
-- [x] Responses SSE parsing/serialization parity (v3 parts)
+- [x] Responses SSE parsing/serialization parity (typed stream parts)
 - [x] OpenAI-style error envelope mapping
 
 **Parity tests**
@@ -458,16 +458,16 @@ If you want a high-level capability matrix instead, see `docs/alignment/provider
 ## Gateway/proxy (cross-provider streaming)
 
 **Goal**
-- Preserve semantic events across protocols by bridging through Vercel-aligned v3 stream parts.
+- Preserve semantic events across protocols by bridging through Vercel-aligned typed stream parts.
 
 **Key docs/code**
 - Doc: `docs/alignment/streaming-bridge-alignment.md`
-- V3 parts: `siumai-core/src/streaming/stream_part.rs`
+- Typed stream parts: `siumai-core/src/streaming/stream_part.rs`
 - Bridge: `siumai-core/src/streaming/bridge.rs`
 
 **What to verify**
 - [ ] Cross-protocol transcoding tests cover text + tool-call + tool-result + finish + error paths
-- [ ] `tool-approval-request`, `raw`, `file` v3 parts follow `V3UnsupportedPartBehavior`
+- [ ] `tool-approval-request`, `raw`, `file` typed stream parts follow `UnsupportedStreamPartBehavior`
 - [ ] Tool-loop gateway keeps exactly one downstream stream open across tool rounds
 
 **Tests/examples**

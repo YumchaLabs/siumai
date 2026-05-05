@@ -23,7 +23,7 @@ See also: `docs/alignment/provider-implementation-alignment.md`.
 ## Cross-protocol streaming transcoding (Alpha.5)
 
 This suite validates gateway/proxy use-cases where an upstream provider stream is re-serialized into
-another provider’s streaming wire protocol, using Vercel-aligned v3 stream parts as the bridge.
+another provider’s streaming wire protocol, using Vercel-aligned typed stream parts as the bridge.
 
 ### Done
 
@@ -42,10 +42,10 @@ another provider’s streaming wire protocol, using Vercel-aligned v3 stream par
 - [x] Gemini GenerateContent SSE -> OpenAI Chat Completions SSE + OpenAI Responses SSE (multi tool-call in one chunk)
   - Test: `siumai/tests/transcoding_gemini_to_openai_alignment_test.rs`
   - Upstream fixture: `siumai/tests/fixtures/gemini/multi_function_calls_then_finish.sse`
-- [x] Gemini GenerateContent SSE v3 tool-call part exposes `thoughtSignature` (optional mode)
+- [x] Gemini GenerateContent SSE typed tool-call part exposes `thoughtSignature` (optional mode)
   - Test: `siumai/tests/transcoding_gemini_to_openai_alignment_test.rs`
   - Upstream fixture: `siumai/tests/fixtures/gemini/function_call_with_thought_signature.sse`
-- [x] Gemini GenerateContent SSE can parse gateway-replayed `functionResponse` as v3 `tool-result` (gateway-only)
+- [x] Gemini GenerateContent SSE can parse gateway-replayed `functionResponse` as typed `tool-result` (gateway-only)
   - Test: `siumai/tests/gemini_function_response_gateway_roundtrip_test.rs`
   - Fixture: `siumai/tests/fixtures/gemini/function_response_then_finish.sse`
 - [x] Gemini GenerateContent SSE (`functionResponse`) -> OpenAI Responses SSE (tool-result preserved; gateway-only)

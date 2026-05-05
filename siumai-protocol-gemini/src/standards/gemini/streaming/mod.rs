@@ -7,8 +7,8 @@ use super::types::GeminiConfig;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{
-    ChatStreamEvent, LanguageModelV3Source, LanguageModelV3StreamPart, SharedV3ProviderMetadata,
-    StreamStateTracker, V3UnsupportedPartBehavior,
+    ChatStreamEvent, StreamStateTracker, TypedStreamPart, TypedStreamProviderMetadata,
+    TypedStreamSource, UnsupportedStreamPartBehavior,
 };
 use crate::types::Usage;
 use crate::types::{
@@ -31,7 +31,7 @@ struct GeminiFunctionCallSerializeState {
 #[derive(Debug, Default, Clone)]
 struct GeminiSerializeState {
     function_calls_by_id: std::collections::HashMap<String, GeminiFunctionCallSerializeState>,
-    active_reasoning_provider_metadata: Option<SharedV3ProviderMetadata>,
+    active_reasoning_provider_metadata: Option<TypedStreamProviderMetadata>,
     terminal_emitted: bool,
 }
 
@@ -278,7 +278,7 @@ pub struct GeminiEventConverter {
     latest_usage: Arc<Mutex<Option<Usage>>>,
 
     serialize_state: Arc<Mutex<GeminiSerializeState>>,
-    v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
+    unsupported_stream_part_behavior: UnsupportedStreamPartBehavior,
     emit_function_response_tool_results: bool,
 }
 
@@ -295,16 +295,16 @@ impl GeminiEventConverter {
             current_reasoning_block_id: Arc::new(Mutex::new(None)),
             latest_usage: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(GeminiSerializeState::default())),
-            v3_unsupported_part_behavior: V3UnsupportedPartBehavior::default(),
+            unsupported_stream_part_behavior: UnsupportedStreamPartBehavior::default(),
             emit_function_response_tool_results: false,
         }
     }
 
-    pub fn with_v3_unsupported_part_behavior(
+    pub fn with_unsupported_stream_part_behavior(
         mut self,
-        behavior: V3UnsupportedPartBehavior,
+        behavior: UnsupportedStreamPartBehavior,
     ) -> Self {
-        self.v3_unsupported_part_behavior = behavior;
+        self.unsupported_stream_part_behavior = behavior;
         self
     }
 
@@ -313,7 +313,7 @@ impl GeminiEventConverter {
         self
     }
 
-    /// Emit Gemini `functionResponse` frames for v3 `tool-result` parts when serializing.
+    /// Emit Gemini `functionResponse` frames for typed stream `tool-result` parts when serializing.
     ///
     /// Notes:
     /// - This is primarily a gateway/proxy feature: Gemini responses usually don't contain
@@ -401,11 +401,11 @@ impl GeminiEventConverter {
     fn open_text_lane(
         &self,
         provider_metadata: Option<crate::types::StreamProviderMetadata>,
-    ) -> (Vec<LanguageModelV3StreamPart>, String) {
+    ) -> (Vec<TypedStreamPart>, String) {
         let mut parts = Vec::new();
 
         if let Some(id) = self.take_reasoning_block_id() {
-            parts.push(LanguageModelV3StreamPart::ReasoningEnd {
+            parts.push(TypedStreamPart::ReasoningEnd {
                 id,
                 provider_metadata: None,
             });
@@ -421,7 +421,7 @@ impl GeminiEventConverter {
             } else {
                 let id = self.next_block_id_string();
                 *lock = Some(id.clone());
-                parts.push(LanguageModelV3StreamPart::TextStart {
+                parts.push(TypedStreamPart::TextStart {
                     id: id.clone(),
                     provider_metadata,
                 });
@@ -435,11 +435,11 @@ impl GeminiEventConverter {
     fn open_reasoning_lane(
         &self,
         provider_metadata: Option<crate::types::StreamProviderMetadata>,
-    ) -> (Vec<LanguageModelV3StreamPart>, String) {
+    ) -> (Vec<TypedStreamPart>, String) {
         let mut parts = Vec::new();
 
         if let Some(id) = self.take_text_block_id() {
-            parts.push(LanguageModelV3StreamPart::TextEnd {
+            parts.push(TypedStreamPart::TextEnd {
                 id,
                 provider_metadata: None,
             });
@@ -455,7 +455,7 @@ impl GeminiEventConverter {
             } else {
                 let id = self.next_block_id_string();
                 *lock = Some(id.clone());
-                parts.push(LanguageModelV3StreamPart::ReasoningStart {
+                parts.push(TypedStreamPart::ReasoningStart {
                     id: id.clone(),
                     provider_metadata,
                 });
@@ -466,18 +466,18 @@ impl GeminiEventConverter {
         (parts, id)
     }
 
-    fn close_active_content_parts(&self) -> Vec<LanguageModelV3StreamPart> {
+    fn close_active_content_parts(&self) -> Vec<TypedStreamPart> {
         let mut parts = Vec::new();
 
         if let Some(id) = self.take_text_block_id() {
-            parts.push(LanguageModelV3StreamPart::TextEnd {
+            parts.push(TypedStreamPart::TextEnd {
                 id,
                 provider_metadata: None,
             });
         }
 
         if let Some(id) = self.take_reasoning_block_id() {
-            parts.push(LanguageModelV3StreamPart::ReasoningEnd {
+            parts.push(TypedStreamPart::ReasoningEnd {
                 id,
                 provider_metadata: None,
             });
@@ -580,7 +580,7 @@ impl GeminiEventConverter {
     fn add_gemini_stream_part(
         &self,
         builder: crate::streaming::EventBuilder,
-        part: LanguageModelV3StreamPart,
+        part: TypedStreamPart,
     ) -> crate::streaming::EventBuilder {
         match part.to_part_event() {
             ChatStreamEvent::Part { part } => builder.add_part(part),
@@ -636,7 +636,7 @@ impl GeminiEventConverter {
                             {
                                 builder = self.add_gemini_stream_part(
                                     builder,
-                                    LanguageModelV3StreamPart::TextDelta {
+                                    TypedStreamPart::TextDelta {
                                         id,
                                         delta: String::new(),
                                         provider_metadata,
@@ -654,7 +654,7 @@ impl GeminiEventConverter {
                             }
                             builder = self.add_gemini_stream_part(
                                 builder,
-                                LanguageModelV3StreamPart::ReasoningDelta {
+                                TypedStreamPart::ReasoningDelta {
                                     id,
                                     delta: text.clone(),
                                     provider_metadata,
@@ -667,7 +667,7 @@ impl GeminiEventConverter {
                             }
                             builder = self.add_gemini_stream_part(
                                 builder,
-                                LanguageModelV3StreamPart::TextDelta {
+                                TypedStreamPart::TextDelta {
                                     id,
                                     delta: text.clone(),
                                     provider_metadata,

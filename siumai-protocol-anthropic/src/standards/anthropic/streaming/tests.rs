@@ -12,8 +12,8 @@ fn create_test_config() -> AnthropicParams {
 
 fn stream_part(
     event: &Result<ChatStreamEvent, crate::error::LlmError>,
-) -> Option<crate::streaming::LanguageModelV3StreamPart> {
-    crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event.as_ref().ok()?)
+) -> Option<crate::streaming::TypedStreamPart> {
+    crate::streaming::TypedStreamPart::try_from_chat_event(event.as_ref().ok()?)
 }
 
 fn text_delta_event(id: &str, delta: &str) -> ChatStreamEvent {
@@ -77,7 +77,7 @@ async fn test_anthropic_streaming_conversion() {
     assert!(!result.is_empty());
 
     match stream_part(result.first().expect("event")).expect("text part") {
-        crate::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+        crate::streaming::TypedStreamPart::TextDelta { delta, .. } => {
             assert_eq!(delta, "Hello");
         }
         other => panic!("Expected TextDelta part, got {other:?}"),
@@ -110,7 +110,7 @@ async fn indexed_text_delta_emits_runtime_text_part() {
 
     assert_eq!(result.len(), 1);
     match stream_part(result.first().unwrap()).expect("text part") {
-        crate::streaming::LanguageModelV3StreamPart::TextDelta {
+        crate::streaming::TypedStreamPart::TextDelta {
             id,
             delta,
             provider_metadata,
@@ -335,7 +335,7 @@ async fn test_anthropic_stream_finish_includes_context_management_provider_metad
     let finish = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 finish_reason,
                 provider_metadata,
                 ..
@@ -420,7 +420,7 @@ async fn test_anthropic_stream_finish_replays_container_from_non_terminal_messag
     let finish = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 provider_metadata, ..
             }) => Some(provider_metadata),
             _ => None,
@@ -498,7 +498,7 @@ async fn test_anthropic_message_delta_without_container_clears_message_start_con
     let finish = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 provider_metadata, ..
             }) => Some(provider_metadata),
             _ => None,
@@ -576,7 +576,7 @@ async fn test_anthropic_stream_finish_replays_stop_sequence_from_non_terminal_me
     let finish = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 provider_metadata, ..
             }) => Some(provider_metadata),
             _ => None,
@@ -638,7 +638,7 @@ async fn custom_provider_key_duplicates_finish_and_stream_end_metadata() {
     let finish = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 provider_metadata, ..
             }) => Some(provider_metadata),
             _ => None,
@@ -714,7 +714,7 @@ async fn test_anthropic_message_delta_without_stop_sequence_clears_older_value()
     let finish = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 provider_metadata, ..
             }) => Some(provider_metadata),
             _ => None,
@@ -767,7 +767,7 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     let (finish_usage, finish_metadata) = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+            Some(crate::streaming::TypedStreamPart::Finish {
                 usage,
                 provider_metadata,
                 ..
@@ -903,14 +903,14 @@ async fn message_start_emits_runtime_stream_start_and_response_metadata_parts() 
     assert!(out.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::StreamStart { warnings })
+            Some(crate::streaming::TypedStreamPart::StreamStart { warnings })
                 if warnings.is_empty()
         )
     }));
     assert!(out.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ResponseMetadata(metadata))
+            Some(crate::streaming::TypedStreamPart::ResponseMetadata(metadata))
                 if metadata.id.as_deref() == Some("msg_test")
                     && metadata.model_id.as_deref() == Some("claude-test")
         )
@@ -1011,7 +1011,7 @@ async fn thinking_blocks_emit_runtime_reasoning_parts() {
         .await;
     assert!(matches!(
         stream_part(start.first().expect("start event")),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart { ref id, .. })
+        Some(crate::streaming::TypedStreamPart::ReasoningStart { ref id, .. })
             if id == "0"
     ));
 
@@ -1026,7 +1026,7 @@ async fn thinking_blocks_emit_runtime_reasoning_parts() {
         .await;
     assert!(matches!(
         stream_part(delta.first().expect("delta event")),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { ref id, ref delta, .. })
+        Some(crate::streaming::TypedStreamPart::ReasoningDelta { ref id, ref delta, .. })
             if id == "0" && delta == "reasoning..."
     ));
 
@@ -1040,7 +1040,7 @@ async fn thinking_blocks_emit_runtime_reasoning_parts() {
         .await;
     assert!(matches!(
         stream_part(end.first().expect("end event")),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd { ref id, .. })
+        Some(crate::streaming::TypedStreamPart::ReasoningEnd { ref id, .. })
             if id == "0"
     ));
 }
@@ -1060,7 +1060,7 @@ async fn compaction_blocks_emit_runtime_text_parts_with_provider_metadata() {
         })
         .await;
     match stream_part(start.first().expect("start event")).expect("text-start part") {
-        crate::streaming::LanguageModelV3StreamPart::TextStart {
+        crate::streaming::TypedStreamPart::TextStart {
             id,
             provider_metadata,
         } => {
@@ -1093,7 +1093,7 @@ async fn compaction_blocks_emit_runtime_text_parts_with_provider_metadata() {
         })
         .await;
     match stream_part(delta.first().expect("delta event")).expect("text-delta part") {
-        crate::streaming::LanguageModelV3StreamPart::TextDelta {
+        crate::streaming::TypedStreamPart::TextDelta {
             id,
             delta,
             provider_metadata,
@@ -1120,7 +1120,7 @@ async fn compaction_blocks_emit_runtime_text_parts_with_provider_metadata() {
         })
         .await;
     match stream_part(end.first().expect("end event")).expect("text-end part") {
-        crate::streaming::LanguageModelV3StreamPart::TextEnd {
+        crate::streaming::TypedStreamPart::TextEnd {
             id,
             provider_metadata,
         } => {
@@ -1209,7 +1209,7 @@ async fn message_start_preloaded_tool_use_emits_runtime_tool_parts_and_caller_me
     assert!(out.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+            Some(crate::streaming::TypedStreamPart::ToolInputStart {
                 ref id,
                 ref tool_name,
                 ..
@@ -1220,7 +1220,7 @@ async fn message_start_preloaded_tool_use_emits_runtime_tool_parts_and_caller_me
     let input_delta = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+            Some(crate::streaming::TypedStreamPart::ToolInputDelta {
                 id,
                 delta,
                 provider_metadata,
@@ -1244,7 +1244,7 @@ async fn message_start_preloaded_tool_use_emits_runtime_tool_parts_and_caller_me
     let tool_call = out
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+            Some(crate::streaming::TypedStreamPart::ToolCall(call))
                 if call.tool_call_id == "toolu_1" =>
             {
                 Some(call)
@@ -1303,7 +1303,7 @@ async fn tool_use_blocks_preserve_caller_metadata_on_tool_call() {
     let tool_call = end
         .iter()
         .find_map(|event| match stream_part(event) {
-            Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+            Some(crate::streaming::TypedStreamPart::ToolCall(call))
                 if call.tool_call_id == "toolu_1" =>
             {
                 Some(call)
@@ -1352,7 +1352,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     let evs = converter.convert_event(web_search_start).await;
     assert_eq!(evs.len(), 2);
     match stream_part(evs.first().unwrap()).expect("web_search tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_executed,
@@ -1375,7 +1375,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
         other => panic!("Expected ToolInputStart part, got {:?}", other),
     }
     match stream_part(evs.get(1).unwrap()).expect("web_search initial tool-input-delta part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputDelta { id, delta, .. } => {
             assert_eq!(id, "srvtoolu_1");
             assert_eq!(
                 serde_json::from_str::<serde_json::Value>(&delta).expect("web_search input json"),
@@ -1396,11 +1396,11 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     assert_eq!(evs.len(), 2);
     assert!(matches!(
         stream_part(evs.first().unwrap()),
-        Some(crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { ref id, .. })
+        Some(crate::streaming::TypedStreamPart::ToolInputEnd { ref id, .. })
             if id == "srvtoolu_1"
     ));
     match stream_part(evs.get(1).unwrap()).expect("web_search tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "srvtoolu_1");
             assert_eq!(call.tool_name, "web_search");
             assert_eq!(call.provider_executed, Some(true));
@@ -1425,7 +1425,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     let evs = converter.convert_event(web_search_result).await;
     assert_eq!(evs.len(), 2);
     match stream_part(evs.first().unwrap()).expect("web_search tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "srvtoolu_1");
             assert_eq!(result.tool_name, "web_search");
             assert_eq!(result.is_error, Some(false));
@@ -1483,7 +1483,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     let evs = converter.convert_event(web_fetch_result).await;
     assert_eq!(evs.len(), 1);
     match stream_part(evs.first().unwrap()).expect("web_fetch tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "srvtoolu_2");
             assert_eq!(result.tool_name, "web_fetch");
             assert_eq!(result.is_error, Some(false));
@@ -1511,7 +1511,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     let evs = converter.convert_event(tool_search_start).await;
     assert_eq!(evs.len(), 2);
     match stream_part(evs.first().unwrap()).expect("tool_search tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_executed,
@@ -1532,7 +1532,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
         other => panic!("Expected ToolInputStart part, got {:?}", other),
     }
     match stream_part(evs.get(1).unwrap()).expect("tool_search initial tool-input-delta part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputDelta { id, delta, .. } => {
             assert_eq!(id, "srvtoolu_3");
             assert_eq!(
                 serde_json::from_str::<serde_json::Value>(&delta).expect("tool_search input json"),
@@ -1552,7 +1552,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
         .await;
     assert_eq!(evs.len(), 2);
     match stream_part(evs.get(1).unwrap()).expect("tool_search tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "srvtoolu_3");
             assert_eq!(call.tool_name, "tool_search");
             assert_eq!(call.provider_executed, Some(true));
@@ -1578,7 +1578,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     let evs = converter.convert_event(tool_search_result).await;
     assert_eq!(evs.len(), 1);
     match stream_part(evs.first().unwrap()).expect("tool_search tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "srvtoolu_3");
             assert_eq!(result.tool_name, "tool_search");
             assert_eq!(result.is_error, Some(false));
@@ -1610,7 +1610,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     let evs = converter.convert_event(code_exec_start).await;
     assert_eq!(evs.len(), 2);
     match stream_part(evs.first().unwrap()).expect("code_execution tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_executed,
@@ -1623,7 +1623,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
         other => panic!("Expected ToolInputStart part, got {:?}", other),
     }
     match stream_part(evs.get(1).unwrap()).expect("code_execution initial tool-input-delta part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputDelta { delta, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputDelta { delta, .. } => {
             assert_eq!(
                 serde_json::from_str::<serde_json::Value>(&delta)
                     .expect("code_execution input json"),
@@ -1646,7 +1646,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
         .await;
     assert_eq!(evs.len(), 2);
     match stream_part(evs.get(1).unwrap()).expect("code_execution tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "srvtoolu_4");
             assert_eq!(call.tool_name, "code_execution");
             assert_eq!(call.provider_executed, Some(true));
@@ -1673,7 +1673,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     let evs = converter.convert_event(code_exec_result).await;
     assert_eq!(evs.len(), 1);
     match stream_part(evs.first().unwrap()).expect("code_execution tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "srvtoolu_4");
             assert_eq!(result.tool_name, "code_execution");
             assert_eq!(result.is_error, Some(false));
@@ -1704,7 +1704,7 @@ async fn marks_code_execution_dynamic_for_2026_web_tool_injection() {
         .await;
 
     match stream_part(evs.first().unwrap()).expect("code_execution tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart { dynamic, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputStart { dynamic, .. } => {
             assert_eq!(dynamic, Some(true));
         }
         other => panic!("Expected ToolInputStart part, got {:?}", other),
@@ -1720,7 +1720,7 @@ async fn marks_code_execution_dynamic_for_2026_web_tool_injection() {
         .await;
 
     match stream_part(evs.get(1).unwrap()).expect("code_execution tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "srvtoolu_dyn");
             assert_eq!(call.dynamic, Some(true));
         }
@@ -1746,7 +1746,7 @@ async fn explicit_code_execution_tool_disables_dynamic_marking_for_2026_web_tool
         .await;
 
     match stream_part(evs.first().unwrap()).expect("code_execution tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart { dynamic, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputStart { dynamic, .. } => {
             assert_eq!(dynamic, None);
         }
         other => panic!("Expected ToolInputStart part, got {:?}", other),
@@ -1762,7 +1762,7 @@ async fn explicit_code_execution_tool_disables_dynamic_marking_for_2026_web_tool
         .await;
 
     match stream_part(evs.get(1).unwrap()).expect("code_execution tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "srvtoolu_static");
             assert_eq!(call.dynamic, None);
         }
@@ -1786,7 +1786,7 @@ async fn emits_runtime_parts_for_mcp_tool_use_and_result() {
 
     assert_eq!(evs.len(), 1);
     match stream_part(evs.first().unwrap()).expect("mcp tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "mcptoolu_1");
             assert_eq!(call.tool_name, "echo");
             assert_eq!(call.provider_executed, Some(true));
@@ -1825,7 +1825,7 @@ async fn emits_runtime_parts_for_mcp_tool_use_and_result() {
 
     assert_eq!(evs.len(), 1);
     match stream_part(evs.first().unwrap()).expect("mcp tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "mcptoolu_1");
             assert_eq!(result.tool_name, "echo");
             assert_eq!(result.is_error, Some(false));
@@ -1871,7 +1871,7 @@ async fn emits_runtime_tool_input_parts_for_local_tool_use_input_json_delta() {
     let evs = converter.convert_event(start).await;
     assert_eq!(evs.len(), 2);
     match stream_part(evs.first().unwrap()).expect("tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_metadata,
@@ -1890,7 +1890,7 @@ async fn emits_runtime_tool_input_parts_for_local_tool_use_input_json_delta() {
         other => panic!("Expected ToolInputStart, got {:?}", other),
     }
     match stream_part(evs.get(1).unwrap()).expect("tool-input-delta part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+        crate::streaming::TypedStreamPart::ToolInputDelta {
             id,
             delta,
             provider_metadata,
@@ -1919,7 +1919,7 @@ async fn emits_runtime_tool_input_parts_for_local_tool_use_input_json_delta() {
     let evs = converter.convert_event(delta).await;
     assert_eq!(evs.len(), 1);
     match stream_part(evs.first().unwrap()).expect("tool-input-delta part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+        crate::streaming::TypedStreamPart::ToolInputDelta {
             id,
             delta,
             provider_metadata,
@@ -1972,7 +1972,7 @@ async fn tool_use_stop_emits_runtime_tool_input_end_and_tool_call_part() {
 
     assert_eq!(evs.len(), 2);
     match stream_part(evs.first().unwrap()).expect("tool-input-end part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd {
+        crate::streaming::TypedStreamPart::ToolInputEnd {
             id,
             provider_metadata,
         } => {
@@ -1988,7 +1988,7 @@ async fn tool_use_stop_emits_runtime_tool_input_end_and_tool_call_part() {
         other => panic!("Expected ToolInputEnd, got {:?}", other),
     }
     match stream_part(evs.get(1).unwrap()).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "toolu_1");
             assert_eq!(call.tool_name, "get_weather");
             assert_eq!(call.input, r#"{"city":"Tokyo"}"#);
@@ -2184,7 +2184,7 @@ async fn captures_thinking_signature_delta_and_exposes_in_stream_end() {
     let evs = converter.convert_event(sig_delta).await;
     assert_eq!(evs.len(), 1);
     match stream_part(evs.first().unwrap()).expect("reasoning-delta part") {
-        crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+        crate::streaming::TypedStreamPart::ReasoningDelta {
             id,
             delta,
             provider_metadata,
@@ -2237,7 +2237,7 @@ async fn captures_redacted_thinking_data_in_stream_end() {
     let evs = converter.convert_event(redacted_start).await;
     assert_eq!(evs.len(), 1);
     match stream_part(evs.first().unwrap()).expect("reasoning-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ReasoningStart {
+        crate::streaming::TypedStreamPart::ReasoningStart {
             id,
             provider_metadata,
         } => {
@@ -2295,8 +2295,8 @@ async fn emits_source_event_for_citations_delta_with_document_location() {
     let out = converter.convert_event(ev).await;
     assert_eq!(out.len(), 1);
     match stream_part(out.first().unwrap()).expect("source part") {
-        crate::streaming::LanguageModelV3StreamPart::Source(
-            crate::streaming::LanguageModelV3Source::Document {
+        crate::streaming::TypedStreamPart::Source(
+            crate::streaming::TypedStreamSource::Document {
                 id,
                 media_type,
                 title,
@@ -3518,7 +3518,7 @@ fn serializes_v3_finish_part_as_message_stop_sequence() {
                 "finishReason": { "unified": "stop" }
             }),
         })
-        .expect("serialize v3 finish");
+        .expect("serialize typed stream finish");
 
     let frames = parse_sse_json_frames(&bytes);
     assert!(
@@ -3733,7 +3733,7 @@ fn serializes_v3_finish_replays_raw_usage_and_context_management() {
                 }
             }),
         })
-        .expect("serialize v3 finish");
+        .expect("serialize typed stream finish");
 
     let frames = parse_sse_json_frames(&bytes);
     let message_delta = frames
@@ -3778,7 +3778,9 @@ fn serializes_v3_finish_replays_raw_usage_and_context_management() {
 #[test]
 fn serializes_v3_tool_result_as_text_when_configured() {
     let converter = AnthropicEventConverter::new(create_test_config())
-        .with_v3_unsupported_part_behavior(crate::streaming::V3UnsupportedPartBehavior::AsText);
+        .with_unsupported_stream_part_behavior(
+            crate::streaming::UnsupportedStreamPartBehavior::AsText,
+        );
 
     let _ = converter
         .serialize_event(&ChatStreamEvent::StreamStart {
@@ -3804,7 +3806,7 @@ fn serializes_v3_tool_result_as_text_when_configured() {
                 "result": [{ "type": "web_search_result", "url": "https://example.com" }]
             }),
         })
-        .expect("serialize v3 tool-result");
+        .expect("serialize typed stream tool-result");
 
     let frames = parse_sse_json_frames(&bytes);
     assert!(
@@ -3820,7 +3822,9 @@ fn serializes_v3_tool_result_as_text_when_configured() {
 #[test]
 fn serializes_v3_tool_approval_request_part_with_replay_as_text_when_configured() {
     let converter = AnthropicEventConverter::new(create_test_config())
-        .with_v3_unsupported_part_behavior(crate::streaming::V3UnsupportedPartBehavior::AsText);
+        .with_unsupported_stream_part_behavior(
+            crate::streaming::UnsupportedStreamPartBehavior::AsText,
+        );
 
     let _ = converter
         .serialize_event(&ChatStreamEvent::StreamStart {
@@ -3847,7 +3851,7 @@ fn serializes_v3_tool_approval_request_part_with_replay_as_text_when_configured(
             ),
             replay: crate::types::ChatStreamReplay::default(),
         })
-        .expect("serialize v3 tool approval request");
+        .expect("serialize typed stream tool approval request");
 
     let frames = parse_sse_json_frames(&bytes);
     assert!(

@@ -28,13 +28,11 @@ fn parse_sse_frames(bytes: &[u8]) -> Vec<(String, serde_json::Value)> {
 
 fn stream_part(
     event: &Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>,
-) -> Option<crate::streaming::LanguageModelV3StreamPart> {
-    crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event.as_ref().ok()?)
+) -> Option<crate::streaming::TypedStreamPart> {
+    crate::streaming::TypedStreamPart::try_from_chat_event(event.as_ref().ok()?)
 }
 
-fn typed_event(
-    part: crate::streaming::LanguageModelV3StreamPart,
-) -> crate::streaming::ChatStreamEvent {
+fn typed_event(part: crate::streaming::TypedStreamPart) -> crate::streaming::ChatStreamEvent {
     part.to_part_event()
 }
 
@@ -43,7 +41,7 @@ fn append_tool_input_deltas(
     out: &mut String,
 ) {
     for event in events {
-        if let Some(crate::streaming::LanguageModelV3StreamPart::ToolInputDelta { delta, .. }) =
+        if let Some(crate::streaming::TypedStreamPart::ToolInputDelta { delta, .. }) =
             stream_part(event)
         {
             out.push_str(&delta);
@@ -105,7 +103,7 @@ fn test_responses_event_converter_tool_call_delta() {
     assert!(!events.is_empty());
     assert!(events.iter().any(|event| matches!(
         stream_part(event),
-        Some(crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        Some(crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             ..
@@ -113,7 +111,7 @@ fn test_responses_event_converter_tool_call_delta() {
     )));
     assert!(events.iter().any(|event| matches!(
         stream_part(event),
-        Some(crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+        Some(crate::streaming::TypedStreamPart::ToolInputDelta {
             id,
             delta,
             ..
@@ -121,7 +119,7 @@ fn test_responses_event_converter_tool_call_delta() {
     )));
     assert!(events.iter().any(|event| matches!(
         stream_part(event),
-        Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+        Some(crate::streaming::TypedStreamPart::ToolCall(call))
             if call.tool_call_id == "t1"
                 && call.tool_name == "lookup"
                 && call.input == "{\"q\":\"x\"}"
@@ -141,7 +139,7 @@ fn test_responses_event_converter_usage_update() {
     let events = futures::executor::block_on(fut);
     assert!(!events.is_empty());
     match stream_part(events.first().unwrap()) {
-        Some(crate::streaming::LanguageModelV3StreamPart::Finish { usage, .. }) => {
+        Some(crate::streaming::TypedStreamPart::Finish { usage, .. }) => {
             assert_eq!(usage.input_tokens.total, Some(3));
             assert_eq!(usage.input_tokens.cache_read, Some(1));
             assert_eq!(usage.input_tokens.no_cache, Some(2));
@@ -173,7 +171,7 @@ fn xai_responses_event_converter_usage_update_uses_xai_semantics() {
     let events = futures::executor::block_on(fut);
     assert!(!events.is_empty());
     match stream_part(events.first().unwrap()) {
-        Some(crate::streaming::LanguageModelV3StreamPart::Finish { usage, .. }) => {
+        Some(crate::streaming::TypedStreamPart::Finish { usage, .. }) => {
             assert_eq!(usage.input_tokens.total, Some(8470));
             assert_eq!(usage.input_tokens.no_cache, Some(4142));
             assert_eq!(usage.input_tokens.cache_read, Some(4328));
@@ -336,7 +334,7 @@ fn test_sse_named_events_routing() {
     assert!(!events2.is_empty());
     assert!(events2.iter().any(|event| matches!(
         stream_part(event),
-        Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+        Some(crate::streaming::TypedStreamPart::ToolCall(call))
             if call.tool_call_id == "t1"
                 && call.tool_name == "fn"
                 && call.input == "{}"
@@ -352,7 +350,7 @@ fn test_sse_named_events_routing() {
     let events3 = futures::executor::block_on(conv.convert_event(ev3));
     assert!(!events3.is_empty());
     match stream_part(events3.first().unwrap()) {
-        Some(crate::streaming::LanguageModelV3StreamPart::Finish { usage, .. }) => {
+        Some(crate::streaming::TypedStreamPart::Finish { usage, .. }) => {
             assert_eq!(usage.input_tokens.total, Some(4));
             assert_eq!(usage.input_tokens.no_cache, Some(4));
             assert_eq!(usage.output_tokens.total, Some(6));
@@ -371,7 +369,7 @@ fn test_sse_named_events_routing() {
     let out_added = futures::executor::block_on(conv.convert_event(ev_added));
     assert_eq!(out_added.len(), 3);
     match stream_part(&out_added[0]).expect("tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_executed,
@@ -384,13 +382,13 @@ fn test_sse_named_events_routing() {
         other => panic!("expected tool-input-start part, got {other:?}"),
     }
     match stream_part(&out_added[1]).expect("tool-input-end part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputEnd { id, .. } => {
             assert_eq!(id, "ws_1");
         }
         other => panic!("expected tool-input-end part, got {other:?}"),
     }
     match stream_part(&out_added[2]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "ws_1");
             assert_eq!(call.tool_name, "web_search");
             assert_eq!(call.provider_executed, Some(true));
@@ -413,7 +411,7 @@ fn test_sse_named_events_routing() {
     let out_done = futures::executor::block_on(conv.convert_event(ev_done));
     assert_eq!(out_done.len(), 1);
     match stream_part(&out_done[0]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "ws_1");
             assert_eq!(result.tool_name, "web_search");
             assert_eq!(result.result["action"]["query"], serde_json::json!("rust"));
@@ -437,16 +435,17 @@ fn test_sse_named_events_routing() {
     let out_done = futures::executor::block_on(conv.convert_event(ev_done_with_results));
     assert_eq!(out_done.len(), 2);
     match stream_part(&out_done[0]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "ws_1");
         }
         other => panic!("expected tool-result part, got {other:?}"),
     }
 
     match stream_part(&out_done[1]).expect("source part") {
-        crate::streaming::LanguageModelV3StreamPart::Source(
-            crate::streaming::LanguageModelV3Source::Url { url, .. },
-        ) => {
+        crate::streaming::TypedStreamPart::Source(crate::streaming::TypedStreamSource::Url {
+            url,
+            ..
+        }) => {
             assert_eq!(url, "https://www.rust-lang.org");
         }
         other => panic!("expected url source part, got {other:?}"),
@@ -477,17 +476,17 @@ fn responses_provider_tool_name_uses_configured_web_search_preview() {
     // Vercel alignment: web search emits tool-input-start/end even with empty input.
     assert_eq!(out_added.len(), 3);
     match stream_part(&out_added[0]).expect("tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart { tool_name, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputStart { tool_name, .. } => {
             assert_eq!(tool_name, "web_search_preview");
         }
         other => panic!("expected tool-input-start part, got {other:?}"),
     }
     match stream_part(&out_added[1]).expect("tool-input-end part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { .. } => {}
+        crate::streaming::TypedStreamPart::ToolInputEnd { .. } => {}
         other => panic!("expected tool-input-end part, got {other:?}"),
     }
     match stream_part(&out_added[2]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_name, "web_search_preview");
         }
         other => panic!("expected tool-call part, got {other:?}"),
@@ -503,7 +502,7 @@ fn responses_provider_tool_name_uses_configured_web_search_preview() {
     let out_done = futures::executor::block_on(conv.convert_event(ev_done));
     assert_eq!(out_done.len(), 1);
     match stream_part(&out_done[0]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_name, "web_search_preview");
         }
         other => panic!("expected tool-result part, got {other:?}"),
@@ -540,7 +539,7 @@ fn responses_web_search_stream_maps_ai_sdk_result_shape() {
     assert_eq!(out.len(), 1);
 
     match stream_part(&out[0]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "ws_1");
             assert_eq!(result.tool_name, "web_search");
             assert_eq!(result.result["action"]["type"], serde_json::json!("search"));
@@ -578,7 +577,7 @@ fn responses_image_generation_partial_image_emits_preliminary_tool_result() {
     assert_eq!(out.len(), 1);
 
     match stream_part(&out[0]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "ig_1");
             assert_eq!(result.tool_name, "generateImage");
             assert_eq!(result.result["result"], serde_json::json!("b64_partial"));
@@ -602,7 +601,7 @@ fn responses_computer_call_stream_matches_ai_sdk_lifecycle() {
     let out_added = futures::executor::block_on(conv.convert_event(ev_added));
     assert_eq!(out_added.len(), 1);
     match stream_part(&out_added[0]).expect("tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_executed,
@@ -626,14 +625,14 @@ fn responses_computer_call_stream_matches_ai_sdk_lifecycle() {
     assert_eq!(out_done.len(), 3);
 
     match stream_part(&out_done[0]).expect("tool-input-end part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputEnd { id, .. } => {
             assert_eq!(id, "cu_1");
         }
         other => panic!("expected tool-input-end part, got {other:?}"),
     }
 
     match stream_part(&out_done[1]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "cu_1");
             assert_eq!(call.tool_name, "computer_use");
             assert_eq!(call.input, "");
@@ -643,7 +642,7 @@ fn responses_computer_call_stream_matches_ai_sdk_lifecycle() {
     }
 
     match stream_part(&out_done[2]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "cu_1");
             assert_eq!(result.tool_name, "computer_use");
             assert_eq!(
@@ -693,7 +692,7 @@ fn responses_local_shell_stream_maps_ai_sdk_action_keys() {
     assert_eq!(out.len(), 1);
 
     match stream_part(&out[0]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "call_local");
             assert_eq!(call.tool_name, "shell");
             assert_eq!(call.provider_executed, None);
@@ -744,7 +743,7 @@ fn responses_shell_stream_omits_provider_executed_for_local_environment() {
     assert_eq!(out.len(), 1);
 
     match stream_part(&out[0]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "call_shell");
             assert_eq!(call.tool_name, "shell");
             assert_eq!(call.provider_executed, None);
@@ -773,7 +772,7 @@ fn responses_shell_stream_marks_container_environment_provider_executed() {
     assert_eq!(out.len(), 1);
 
     match stream_part(&out[0]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "call_shell");
             assert_eq!(call.tool_name, "shell");
             assert_eq!(call.provider_executed, Some(true));
@@ -798,7 +797,7 @@ fn responses_file_search_stream_maps_ai_sdk_result_shape() {
     assert_eq!(out.len(), 1);
 
     match stream_part(&out[0]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "fs_1");
             assert_eq!(result.tool_name, "fileSearch");
             assert_eq!(result.result["queries"], serde_json::json!(["rust"]));
@@ -887,7 +886,7 @@ fn responses_code_interpreter_code_delta_escapes_json_string() {
         .iter()
         .filter_map(stream_part)
         .find_map(|part| match part {
-            crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => Some(call),
+            crate::streaming::TypedStreamPart::ToolCall(call) => Some(call),
             _ => None,
         })
         .expect("code.done should emit tool-call");
@@ -922,20 +921,14 @@ fn responses_code_interpreter_code_delta_escapes_json_string() {
         out_item_done
             .iter()
             .filter_map(stream_part)
-            .all(|part| !matches!(
-                part,
-                crate::streaming::LanguageModelV3StreamPart::ToolCall(_)
-            )),
+            .all(|part| !matches!(part, crate::streaming::TypedStreamPart::ToolCall(_))),
         "output_item.done should not duplicate code interpreter tool-call"
     );
     assert!(
         out_item_done
             .iter()
             .filter_map(stream_part)
-            .any(|part| matches!(
-                part,
-                crate::streaming::LanguageModelV3StreamPart::ToolResult(_)
-            )),
+            .any(|part| matches!(part, crate::streaming::TypedStreamPart::ToolResult(_))),
         "output_item.done should still emit code interpreter tool-result"
     );
 }
@@ -1084,7 +1077,7 @@ fn responses_apply_patch_done_omits_provider_executed_and_preserves_delete_input
     assert_eq!(out_done.len(), 1);
 
     match stream_part(&out_done[0]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "call_delete_1");
             assert_eq!(call.tool_name, "apply_patch");
             assert_eq!(call.provider_executed, None);
@@ -1117,7 +1110,7 @@ fn responses_tool_search_stream_maps_call_and_output() {
     let call_events = futures::executor::block_on(conv.convert_event(call_done));
     assert_eq!(call_events.len(), 1);
     match stream_part(&call_events[0]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "tsc_1");
             assert_eq!(call.tool_name, "toolSearch");
             assert_eq!(call.provider_executed, Some(true));
@@ -1142,7 +1135,7 @@ fn responses_tool_search_stream_maps_call_and_output() {
     let result_events = futures::executor::block_on(conv.convert_event(output_done));
     assert_eq!(result_events.len(), 1);
     match stream_part(&result_events[0]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "tsc_1");
             assert_eq!(result.tool_name, "toolSearch");
             assert_eq!(
@@ -1169,7 +1162,7 @@ fn responses_tool_search_stream_emits_hosted_input_lifecycle() {
     let added_events = futures::executor::block_on(conv.convert_event(call_added));
     assert_eq!(added_events.len(), 1);
     match stream_part(&added_events[0]).expect("tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_executed,
@@ -1192,13 +1185,13 @@ fn responses_tool_search_stream_emits_hosted_input_lifecycle() {
     let done_events = futures::executor::block_on(conv.convert_event(call_done));
     assert_eq!(done_events.len(), 2);
     match stream_part(&done_events[0]).expect("tool-input-end part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputEnd { id, .. } => {
             assert_eq!(id, "tsc_hosted");
         }
         other => panic!("expected tool-input-end part, got {other:?}"),
     }
     match stream_part(&done_events[1]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "tsc_hosted");
             assert_eq!(call.tool_name, "toolSearch");
             assert_eq!(call.provider_executed, Some(true));
@@ -1242,7 +1235,7 @@ fn responses_mcp_approval_request_emits_call_and_approval_on_done() {
     assert_eq!(out_done.len(), 2);
 
     match stream_part(&out_done[0]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "id-0");
             assert_eq!(call.tool_name, "mcp.create_short_url");
             assert_eq!(call.provider_executed, Some(true));
@@ -1253,7 +1246,7 @@ fn responses_mcp_approval_request_emits_call_and_approval_on_done() {
     }
 
     match stream_part(&out_done[1]).expect("tool-approval-request part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolApprovalRequest(request) => {
+        crate::streaming::TypedStreamPart::ToolApprovalRequest(request) => {
             assert_eq!(request.approval_id, "mcpr_1");
             assert_eq!(request.tool_call_id, "id-0");
         }
@@ -1299,7 +1292,7 @@ fn responses_mcp_call_waits_for_done_and_maps_result_shape() {
     assert_eq!(out_done.len(), 2);
 
     match stream_part(&out_done[0]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "mcp_1");
             assert_eq!(call.tool_name, "mcp.search");
             assert_eq!(call.provider_executed, Some(true));
@@ -1310,7 +1303,7 @@ fn responses_mcp_call_waits_for_done_and_maps_result_shape() {
     }
 
     match stream_part(&out_done[1]).expect("tool-result part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+        crate::streaming::TypedStreamPart::ToolResult(result) => {
             assert_eq!(result.tool_call_id, "mcp_1");
             assert_eq!(result.tool_name, "mcp.search");
             assert_eq!(result.dynamic, Some(true));
@@ -1357,7 +1350,7 @@ fn responses_client_tool_search_stream_uses_final_call_id() {
     assert_eq!(events.len(), 3);
 
     match stream_part(&events[0]).expect("tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+        crate::streaming::TypedStreamPart::ToolInputStart {
             id,
             tool_name,
             provider_executed,
@@ -1370,13 +1363,13 @@ fn responses_client_tool_search_stream_uses_final_call_id() {
         other => panic!("expected tool-input-start part, got {other:?}"),
     }
     match stream_part(&events[1]).expect("tool-input-end part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputEnd { id, .. } => {
             assert_eq!(id, "call_final");
         }
         other => panic!("expected tool-input-end part, got {other:?}"),
     }
     match stream_part(&events[2]).expect("tool-call part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+        crate::streaming::TypedStreamPart::ToolCall(call) => {
             assert_eq!(call.tool_call_id, "call_final");
             assert_eq!(call.tool_name, "toolSearch");
             assert_eq!(call.provider_executed, None);
@@ -1407,9 +1400,10 @@ fn responses_output_text_annotation_added_emits_source() {
     let out = futures::executor::block_on(conv.convert_event(ev));
     assert_eq!(out.len(), 1);
     match stream_part(&out[0]).expect("source part") {
-        crate::streaming::LanguageModelV3StreamPart::Source(
-            crate::streaming::LanguageModelV3Source::Url { url, .. },
-        ) => {
+        crate::streaming::TypedStreamPart::Source(crate::streaming::TypedStreamSource::Url {
+            url,
+            ..
+        }) => {
             assert_eq!(url, "https://www.rust-lang.org");
         }
         other => panic!("expected url source part, got {other:?}"),
@@ -1426,8 +1420,8 @@ fn responses_output_text_annotation_added_emits_source() {
     let out = futures::executor::block_on(conv.convert_event(ev));
     assert_eq!(out.len(), 1);
     match stream_part(&out[0]).expect("source part") {
-        crate::streaming::LanguageModelV3StreamPart::Source(
-            crate::streaming::LanguageModelV3Source::Document {
+        crate::streaming::TypedStreamPart::Source(
+            crate::streaming::TypedStreamSource::Document {
                 media_type,
                 title,
                 filename,
@@ -1474,8 +1468,8 @@ fn responses_output_text_annotation_added_emits_source() {
     let out = futures::executor::block_on(conv.convert_event(ev));
     assert_eq!(out.len(), 1);
     match stream_part(&out[0]).expect("source part") {
-        crate::streaming::LanguageModelV3StreamPart::Source(
-            crate::streaming::LanguageModelV3Source::Document {
+        crate::streaming::TypedStreamPart::Source(
+            crate::streaming::TypedStreamSource::Document {
                 media_type,
                 filename,
                 provider_metadata,
@@ -1520,8 +1514,8 @@ fn responses_output_text_annotation_added_emits_source() {
     let out = futures::executor::block_on(conv.convert_event(ev));
     assert_eq!(out.len(), 1);
     match stream_part(&out[0]).expect("source part") {
-        crate::streaming::LanguageModelV3StreamPart::Source(
-            crate::streaming::LanguageModelV3Source::Document {
+        crate::streaming::TypedStreamPart::Source(
+            crate::streaming::TypedStreamSource::Document {
                 media_type,
                 filename,
                 provider_metadata,
@@ -1573,7 +1567,7 @@ fn responses_reasoning_summary_text_delta_emits_typed_reasoning_part() {
     assert!(out.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+            Some(crate::streaming::TypedStreamPart::ReasoningDelta {
                 delta,
                 provider_metadata,
                 ..
@@ -1604,14 +1598,14 @@ fn responses_created_emits_part_stream_start_and_response_metadata() {
     assert!(out.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::StreamStart { warnings })
+            Some(crate::streaming::TypedStreamPart::StreamStart { warnings })
                 if warnings.is_empty()
         )
     }));
     assert!(out.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ResponseMetadata(metadata))
+            Some(crate::streaming::TypedStreamPart::ResponseMetadata(metadata))
                 if metadata.id.as_deref() == Some("resp_1")
                     && metadata.model_id.as_deref() == Some("gpt-test")
                     && metadata.timestamp == Some(parse_test_timestamp("2025-01-01T00:00:00Z"))
@@ -1633,7 +1627,7 @@ fn responses_message_output_text_events_emit_text_parts() {
     let added_out = futures::executor::block_on(conv.convert_event(added));
     assert!(matches!(
         stream_part(&added_out[0]),
-        Some(crate::streaming::LanguageModelV3StreamPart::TextStart {
+        Some(crate::streaming::TypedStreamPart::TextStart {
             id,
             provider_metadata,
         }) if id == "msg_1"
@@ -1655,7 +1649,7 @@ fn responses_message_output_text_events_emit_text_parts() {
     assert!(delta_out.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { id, delta, .. })
+            Some(crate::streaming::TypedStreamPart::TextDelta { id, delta, .. })
                 if id == "msg_1" && delta == "Hello"
         )
     }));
@@ -1670,7 +1664,7 @@ fn responses_message_output_text_events_emit_text_parts() {
     let done_out = futures::executor::block_on(conv.convert_event(done));
     assert!(matches!(
         stream_part(&done_out[0]),
-        Some(crate::streaming::LanguageModelV3StreamPart::TextEnd {
+        Some(crate::streaming::TypedStreamPart::TextEnd {
             id,
             provider_metadata,
         }) if id == "msg_1"
@@ -1696,7 +1690,7 @@ fn responses_reasoning_summary_part_done_waits_for_final_item_by_default() {
     let added_out = futures::executor::block_on(conv.convert_event(added));
     assert!(matches!(
         stream_part(&added_out[0]),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart { id, .. })
+        Some(crate::streaming::TypedStreamPart::ReasoningStart { id, .. })
             if id == "rs_1:0"
     ));
 
@@ -1723,7 +1717,7 @@ fn responses_reasoning_summary_part_done_waits_for_final_item_by_default() {
     assert_eq!(added1_out.len(), 2);
     assert!(matches!(
         stream_part(&added1_out[0]),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+        Some(crate::streaming::TypedStreamPart::ReasoningEnd {
             id,
             provider_metadata,
         }) if id == "rs_1:0"
@@ -1735,7 +1729,7 @@ fn responses_reasoning_summary_part_done_waits_for_final_item_by_default() {
     ));
     assert!(matches!(
         stream_part(&added1_out[1]),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart { id, .. })
+        Some(crate::streaming::TypedStreamPart::ReasoningStart { id, .. })
             if id == "rs_1:1"
     ));
 
@@ -1761,7 +1755,7 @@ fn responses_reasoning_summary_part_done_waits_for_final_item_by_default() {
     assert_eq!(final_out.len(), 1);
     assert!(matches!(
         stream_part(&final_out[0]),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+        Some(crate::streaming::TypedStreamPart::ReasoningEnd {
             id,
             provider_metadata,
         }) if id == "rs_1:1"
@@ -1798,7 +1792,7 @@ fn responses_reasoning_summary_part_done_ends_immediately_when_store_requested()
     assert_eq!(done_out.len(), 1);
     assert!(matches!(
         stream_part(&done_out[0]),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+        Some(crate::streaming::TypedStreamPart::ReasoningEnd {
             id,
             provider_metadata,
         }) if id == "rs_1:0"
@@ -1839,7 +1833,7 @@ fn responses_reasoning_item_events_emit_reasoning_parts() {
     let added_out = futures::executor::block_on(conv.convert_event(added));
     assert!(matches!(
         stream_part(&added_out[0]),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart {
+        Some(crate::streaming::TypedStreamPart::ReasoningStart {
             id,
             provider_metadata,
         }) if id == "rs_1:0"
@@ -1861,7 +1855,7 @@ fn responses_reasoning_item_events_emit_reasoning_parts() {
     assert!(delta_out.iter().any(|event| {
         matches!(
             stream_part(event),
-            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { id, delta, .. })
+            Some(crate::streaming::TypedStreamPart::ReasoningDelta { id, delta, .. })
                 if id == "rs_1:0" && delta == "Let me think."
         )
     }));
@@ -1876,7 +1870,7 @@ fn responses_reasoning_item_events_emit_reasoning_parts() {
     let done_out = futures::executor::block_on(conv.convert_event(done));
     assert!(matches!(
         stream_part(&done_out[0]),
-        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+        Some(crate::streaming::TypedStreamPart::ReasoningEnd {
             id,
             provider_metadata,
         }) if id == "rs_1:0"
@@ -1914,13 +1908,11 @@ fn responses_stream_proxy_serializes_typed_text_delta() {
     );
 
     let delta_bytes = conv
-        .serialize_event(&typed_event(
-            crate::streaming::LanguageModelV3StreamPart::TextDelta {
-                id: "msg_1".to_string(),
-                delta: "Hello".to_string(),
-                provider_metadata: None,
-            },
-        ))
+        .serialize_event(&typed_event(crate::streaming::TypedStreamPart::TextDelta {
+            id: "msg_1".to_string(),
+            delta: "Hello".to_string(),
+            provider_metadata: None,
+        }))
         .expect("serialize delta");
     let delta_frames = parse_sse_frames(&delta_bytes);
     assert!(
@@ -2885,7 +2877,7 @@ fn responses_stream_decoder_maps_hosted_dynamic_output_items() {
     let local_result = local_events
         .iter()
         .find_map(|event| match stream_part(event)? {
-            crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => Some(result),
+            crate::streaming::TypedStreamPart::ToolResult(result) => Some(result),
             _ => None,
         })
         .expect("local shell output should decode as tool-result");
@@ -2919,7 +2911,7 @@ fn responses_stream_decoder_maps_hosted_dynamic_output_items() {
     let shell_result = shell_events
         .iter()
         .find_map(|event| match stream_part(event)? {
-            crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => Some(result),
+            crate::streaming::TypedStreamPart::ToolResult(result) => Some(result),
             _ => None,
         })
         .expect("shell output should decode as tool-result");
@@ -2950,7 +2942,7 @@ fn responses_stream_decoder_maps_hosted_dynamic_output_items() {
     let apply_patch_result = apply_patch_events
         .iter()
         .find_map(|event| match stream_part(event)? {
-            crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => Some(result),
+            crate::streaming::TypedStreamPart::ToolResult(result) => Some(result),
             _ => None,
         })
         .expect("apply_patch output should decode as tool-result");
@@ -3440,7 +3432,7 @@ fn responses_failed_event_buffers_finish_with_unknown_usage_totals() {
     assert_eq!(pending.len(), 1);
 
     match stream_part(&pending[0]).expect("pending finish part") {
-        crate::streaming::LanguageModelV3StreamPart::Finish {
+        crate::streaming::TypedStreamPart::Finish {
             usage,
             finish_reason,
             ..
@@ -3468,7 +3460,7 @@ fn responses_custom_tool_input_stream_events_emit_stable_tool_input_parts() {
     let added_events = futures::executor::block_on(conv.convert_event(added));
     assert_eq!(added_events.len(), 1);
     match stream_part(&added_events[0]).expect("tool-input-start part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputStart { id, tool_name, .. } => {
             assert_eq!(id, "ct_1");
             assert_eq!(tool_name, "x_keyword_search");
         }
@@ -3485,7 +3477,7 @@ fn responses_custom_tool_input_stream_events_emit_stable_tool_input_parts() {
     let delta_events = futures::executor::block_on(conv.convert_event(delta));
     assert_eq!(delta_events.len(), 1);
     match stream_part(&delta_events[0]).expect("tool-input-delta part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputDelta { id, delta, .. } => {
             assert_eq!(id, "ct_1");
             assert_eq!(delta, "{\"q\":\"rust\"");
         }
@@ -3502,7 +3494,7 @@ fn responses_custom_tool_input_stream_events_emit_stable_tool_input_parts() {
     let done_events = futures::executor::block_on(conv.convert_event(done));
     assert_eq!(done_events.len(), 1);
     match stream_part(&done_events[0]).expect("tool-input-end part") {
-        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+        crate::streaming::TypedStreamPart::ToolInputEnd { id, .. } => {
             assert_eq!(id, "ct_1");
         }
         other => panic!("expected tool-input-end part, got {other:?}"),
@@ -3722,7 +3714,7 @@ fn responses_stream_proxy_serializes_typed_tool_input_delta() {
 
     let start_bytes = conv
         .serialize_event(&typed_event(
-            crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+            crate::streaming::TypedStreamPart::ToolInputStart {
                 id: "call_1".to_string(),
                 tool_name: "lookup".to_string(),
                 provider_metadata: None,
@@ -3734,7 +3726,7 @@ fn responses_stream_proxy_serializes_typed_tool_input_delta() {
         .expect("serialize tool input start");
     let delta_bytes = conv
         .serialize_event(&typed_event(
-            crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+            crate::streaming::TypedStreamPart::ToolInputDelta {
                 id: "call_1".to_string(),
                 delta: "{\"q\":\"rust\"}".to_string(),
                 provider_metadata: None,
@@ -3780,7 +3772,7 @@ fn responses_stream_proxy_serializes_typed_reasoning_delta() {
 
     let bytes = conv
         .serialize_event(&typed_event(
-            crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+            crate::streaming::TypedStreamPart::ReasoningDelta {
                 id: "rs_1:0".to_string(),
                 delta: "think".to_string(),
                 provider_metadata: None,
@@ -3815,7 +3807,7 @@ fn responses_stream_proxy_closes_function_call_on_stream_end() {
 
     let _ = conv
         .serialize_event(&typed_event(
-            crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+            crate::streaming::TypedStreamPart::ToolInputStart {
                 id: "call_1".to_string(),
                 tool_name: "lookup".to_string(),
                 provider_metadata: None,
@@ -3827,7 +3819,7 @@ fn responses_stream_proxy_closes_function_call_on_stream_end() {
         .expect("serialize tool input start");
     let _ = conv
         .serialize_event(&typed_event(
-            crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+            crate::streaming::TypedStreamPart::ToolInputDelta {
                 id: "call_1".to_string(),
                 delta: "{\"q\":\"rust".to_string(),
                 provider_metadata: None,
@@ -3836,7 +3828,7 @@ fn responses_stream_proxy_closes_function_call_on_stream_end() {
         .expect("serialize tool input delta 1");
     let _ = conv
         .serialize_event(&typed_event(
-            crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+            crate::streaming::TypedStreamPart::ToolInputDelta {
                 id: "call_1".to_string(),
                 delta: "\"}".to_string(),
                 provider_metadata: None,

@@ -533,7 +533,7 @@ pub(super) fn serialize_event(
         text: &str,
         state: &mut AnthropicSerializeState,
     ) -> Result<Vec<u8>, LlmError> {
-        let part = LanguageModelV3StreamPart::TextDelta {
+        let part = TypedStreamPart::TextDelta {
             id: "text_lossy".to_string(),
             delta: text.to_string(),
             provider_metadata: None,
@@ -620,12 +620,12 @@ pub(super) fn serialize_event(
     }
 
     fn serialize_json_tool_text_part(
-        part: &LanguageModelV3StreamPart,
+        part: &TypedStreamPart,
         data: &serde_json::Value,
         state: &mut AnthropicSerializeState,
     ) -> Result<Option<Vec<u8>>, LlmError> {
         match part {
-            LanguageModelV3StreamPart::TextStart { .. } => {
+            TypedStreamPart::TextStart { .. } => {
                 let index = provider_content_block_index(data, state);
                 let tool_call_id = json_tool_call_id(data, index);
                 let mut out = ensure_message_start_emitted(state)?;
@@ -651,7 +651,7 @@ pub(super) fn serialize_event(
                 out.extend_from_slice(&block_out);
                 Ok(Some(out))
             }
-            LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+            TypedStreamPart::TextDelta { delta, .. } => {
                 let index = provider_content_block_index(data, state);
                 let tool_call_id = json_tool_call_id(data, index);
                 let mut out = ensure_message_start_emitted(state)?;
@@ -684,7 +684,7 @@ pub(super) fn serialize_event(
                 out.extend_from_slice(&sse_typed_frame(&delta_payload)?);
                 Ok(Some(out))
             }
-            LanguageModelV3StreamPart::TextEnd { .. } => {
+            TypedStreamPart::TextEnd { .. } => {
                 let target_index = provider_content_block_index(data, state);
                 let tool_call_id = json_tool_call_id(data, target_index);
                 let active_json_index = state.active_block.as_ref().and_then(|active| {
@@ -713,7 +713,7 @@ pub(super) fn serialize_event(
     }
 
     fn serialize_text_part(
-        part: &LanguageModelV3StreamPart,
+        part: &TypedStreamPart,
         data: &serde_json::Value,
         state: &mut AnthropicSerializeState,
     ) -> Result<Option<Vec<u8>>, LlmError> {
@@ -730,7 +730,7 @@ pub(super) fn serialize_event(
         };
 
         match part {
-            LanguageModelV3StreamPart::TextStart { .. } => {
+            TypedStreamPart::TextStart { .. } => {
                 let index = provider_content_block_index(data, state);
                 let mut out = ensure_message_start_emitted(state)?;
                 let (block_out, _) =
@@ -752,7 +752,7 @@ pub(super) fn serialize_event(
                 out.extend_from_slice(&block_out);
                 Ok(Some(out))
             }
-            LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+            TypedStreamPart::TextDelta { delta, .. } => {
                 let index = provider_content_block_index(data, state);
                 let mut out = ensure_message_start_emitted(state)?;
                 let (block_out, idx) =
@@ -789,7 +789,7 @@ pub(super) fn serialize_event(
                 out.extend_from_slice(&sse_typed_frame(&delta_payload)?);
                 Ok(Some(out))
             }
-            LanguageModelV3StreamPart::TextEnd { .. } => {
+            TypedStreamPart::TextEnd { .. } => {
                 let active_text_index = state.active_block.as_ref().and_then(|active| {
                     if matches!(
                         active.kind,
@@ -819,12 +819,12 @@ pub(super) fn serialize_event(
     }
 
     fn serialize_reasoning_part(
-        part: &LanguageModelV3StreamPart,
+        part: &TypedStreamPart,
         data: &serde_json::Value,
         state: &mut AnthropicSerializeState,
     ) -> Result<Option<Vec<u8>>, LlmError> {
         match part {
-            LanguageModelV3StreamPart::ReasoningStart { .. } => {
+            TypedStreamPart::ReasoningStart { .. } => {
                 let redacted_data = anthropic_provider_metadata_string(data, "redactedData")
                     .filter(|value| !value.is_empty());
                 let index = provider_content_block_index(data, state);
@@ -860,7 +860,7 @@ pub(super) fn serialize_event(
                 out.extend_from_slice(&block_out);
                 Ok(Some(out))
             }
-            LanguageModelV3StreamPart::ReasoningDelta { delta, .. } => {
+            TypedStreamPart::ReasoningDelta { delta, .. } => {
                 let signature = anthropic_provider_metadata_string(data, "signature")
                     .filter(|value| !value.is_empty());
                 if delta.is_empty() && signature.is_none() {
@@ -906,7 +906,7 @@ pub(super) fn serialize_event(
 
                 Ok(Some(out))
             }
-            LanguageModelV3StreamPart::ReasoningEnd { .. } => {
+            TypedStreamPart::ReasoningEnd { .. } => {
                 let active_reasoning_index = state.active_block.as_ref().and_then(|active| {
                     if matches!(
                         active.kind,
@@ -1139,7 +1139,7 @@ pub(super) fn serialize_event(
         event,
         ChatStreamEvent::Part { .. } | ChatStreamEvent::PartWithReplay { .. }
     ) {
-        let Some(part) = LanguageModelV3StreamPart::try_from_chat_event(event) else {
+        let Some(part) = TypedStreamPart::try_from_chat_event(event) else {
             return Ok(Vec::new());
         };
         if let Some(custom_event) =
@@ -1148,7 +1148,7 @@ pub(super) fn serialize_event(
             return serialize_event(this, &custom_event);
         }
 
-        if this.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+        if this.unsupported_stream_part_behavior == UnsupportedStreamPartBehavior::AsText
             && let Some(text) = part.to_lossy_text()
         {
             let mut state = this.serialize_state.lock().map_err(|_| {
@@ -1203,41 +1203,41 @@ pub(super) fn serialize_event(
                 return Ok(out);
             }
 
-            let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) else {
+            let Some(part) = TypedStreamPart::parse_loose_json(data) else {
                 return Ok(Vec::new());
             };
 
             let mut out = Vec::new();
             match &part {
-                LanguageModelV3StreamPart::TextStart { .. }
-                | LanguageModelV3StreamPart::TextDelta { .. }
-                | LanguageModelV3StreamPart::TextEnd { .. } => {
+                TypedStreamPart::TextStart { .. }
+                | TypedStreamPart::TextDelta { .. }
+                | TypedStreamPart::TextEnd { .. } => {
                     if let Some(out) = serialize_text_part(&part, data, &mut state)? {
                         return Ok(out);
                     }
                     return Ok(out);
                 }
-                LanguageModelV3StreamPart::ReasoningStart { .. }
-                | LanguageModelV3StreamPart::ReasoningDelta { .. }
-                | LanguageModelV3StreamPart::ReasoningEnd { .. } => {
+                TypedStreamPart::ReasoningStart { .. }
+                | TypedStreamPart::ReasoningDelta { .. }
+                | TypedStreamPart::ReasoningEnd { .. } => {
                     if let Some(out) = serialize_reasoning_part(&part, data, &mut state)? {
                         return Ok(out);
                     }
                     return Ok(out);
                 }
-                LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
+                TypedStreamPart::ToolInputStart { id, tool_name, .. } => {
                     let index = provider_content_block_index(data, &state);
                     return serialize_tool_input_part(&mut state, id, Some(tool_name), None, index);
                 }
-                LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+                TypedStreamPart::ToolInputDelta { id, delta, .. } => {
                     let index = provider_content_block_index(data, &state);
                     return serialize_tool_input_part(&mut state, id, None, Some(delta), index);
                 }
-                LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+                TypedStreamPart::ToolInputEnd { id, .. } => {
                     let index = provider_content_block_index(data, &state);
                     return serialize_tool_input_end_part(&mut state, id, index);
                 }
-                LanguageModelV3StreamPart::ToolCall(call) => {
+                TypedStreamPart::ToolCall(call) => {
                     if state.seen_tool_call_ids.contains(&call.tool_call_id) {
                         return Ok(Vec::new());
                     }
@@ -1251,7 +1251,7 @@ pub(super) fn serialize_event(
                         index,
                     );
                 }
-                LanguageModelV3StreamPart::Finish {
+                TypedStreamPart::Finish {
                     usage: _,
                     finish_reason,
                     ..
@@ -1312,7 +1312,7 @@ pub(super) fn serialize_event(
                 _ => {}
             }
 
-            if this.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+            if this.unsupported_stream_part_behavior == UnsupportedStreamPartBehavior::AsText
                 && let Some(text) = part.to_lossy_text()
             {
                 return serialize_lossy_text(&text, &mut state);

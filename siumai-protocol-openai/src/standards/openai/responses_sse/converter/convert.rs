@@ -1850,8 +1850,8 @@ impl OpenAiResponsesEventConverter {
                         let title = obj.get("title").and_then(|v| v.as_str());
 
                         extra_events.push(
-                            crate::streaming::LanguageModelV3StreamPart::Source(
-                                crate::streaming::LanguageModelV3Source::Url {
+                            crate::streaming::TypedStreamPart::Source(
+                                crate::streaming::TypedStreamSource::Url {
                                     id: format!("{tool_call_id}:{i}"),
                                     url: url.to_string(),
                                     title: title.map(ToString::to_string),

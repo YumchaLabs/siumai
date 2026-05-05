@@ -382,15 +382,15 @@ pub mod experimental {
     /// gateways/proxies that need to re-serialize streams into provider-native wire formats.
     pub mod streaming {
         pub use siumai_core::streaming::{
-            ChatByteStream, LanguageModelV3StreamPart, LanguageModelV4StreamCustomContent,
-            LanguageModelV4StreamFile, LanguageModelV4StreamFileData,
-            LanguageModelV4StreamFinishReason, LanguageModelV4StreamInputTokens,
-            LanguageModelV4StreamOutputTokens, LanguageModelV4StreamPart,
-            LanguageModelV4StreamReasoningFile, LanguageModelV4StreamResponseMetadata,
-            LanguageModelV4StreamSource, LanguageModelV4StreamToolApprovalRequest,
-            LanguageModelV4StreamToolCall, LanguageModelV4StreamToolResult,
-            LanguageModelV4StreamUsage, OpenAiResponsesStreamPartsBridge, SharedV4ProviderMetadata,
-            SharedV4Warning, StreamPartNamespace, V3UnsupportedPartBehavior,
+            ChatByteStream, LanguageModelV4StreamCustomContent, LanguageModelV4StreamFile,
+            LanguageModelV4StreamFileData, LanguageModelV4StreamFinishReason,
+            LanguageModelV4StreamInputTokens, LanguageModelV4StreamOutputTokens,
+            LanguageModelV4StreamPart, LanguageModelV4StreamReasoningFile,
+            LanguageModelV4StreamResponseMetadata, LanguageModelV4StreamSource,
+            LanguageModelV4StreamToolApprovalRequest, LanguageModelV4StreamToolCall,
+            LanguageModelV4StreamToolResult, LanguageModelV4StreamUsage,
+            OpenAiResponsesStreamPartsBridge, SharedV4ProviderMetadata, SharedV4Warning,
+            StreamPartNamespace, TypedStreamPart, UnsupportedStreamPartBehavior,
             encode_chat_stream_as_jsonl, encode_chat_stream_as_sse, ensure_stream_end,
             transform_chat_event_stream,
         };

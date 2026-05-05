@@ -124,7 +124,7 @@ Status legend:
     OpenAI Responses bridge drops invalid null tool-result custom events rather than surfacing a
     provider-facing part that violates upstream `NonNullable<JSONValue>`.
   - `LanguageModelV4StreamPart` now owns a dedicated V4 provider-facing stream union instead of
-    aliasing `LanguageModelV3StreamPart`, so streamed `providerMetadata` enforces upstream
+    aliasing `TypedStreamPart`, so streamed `providerMetadata` enforces upstream
     `SharedV4ProviderMetadata` object-only provider values while V3 compatibility parsing stays
     permissive.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
@@ -393,15 +393,15 @@ Status legend:
     `stream-start -> raw? -> error` on invalid-JSON / top-level-error chunks, with EOF fallback
     later closing active text/reasoning lanes and emitting `finish(unknown)`
 - [x] Narrow the typed stream-part protocol downgrade API.
-  - `LanguageModelV3StreamPart::to_protocol_custom_event(...)` is now the canonical
+  - `TypedStreamPart::to_protocol_custom_event(...)` is now the canonical
     provider-native serializer lowering hook
-  - `to_custom_event(...)` remains only as a thin compatibility alias instead of being the
-    primary documented API name
+  - the older `to_custom_event(...)` alias has been removed so the public API has one explicit
+    provider-wire lowering hook
   - OpenAI Responses, Anthropic, and Gemini serializers now call the explicit protocol-lowering
     API directly
-- [x] Promote legacy V3 non-tool stream-part payloads onto the runtime semantic lane.
+- [x] Promote legacy/custom typed non-tool stream-part payloads onto the runtime semantic lane.
   - `OpenAiResponsesStreamPartsBridge` now upgrades stable-shape `raw`, `custom`, `file`, and
-    `reasoning-file` payloads via `LanguageModelV3StreamPart::to_part_event()` instead of
+    `reasoning-file` payloads via `TypedStreamPart::to_part_event()` instead of
     preserving them as loose provider-scoped `Custom` events
   - targeted verification now covers both `siumai-core` bridge unit tests and the top-level
     Gemini/Vertex stream bridge roundtrip fixture test
@@ -867,7 +867,7 @@ Status legend:
 ## Track D - Strengthen the stable stream model
 
 - [x] Decide the stream-part direction:
-  - keep the historical `LanguageModelV3StreamPart` name for compatibility
+  - keep the historical `TypedStreamPart` name for compatibility
   - upgrade its shape into a V4-capable superset instead of introducing a second primary type first
 - [x] Document the intended relationship between:
   - `ChatStreamEvent`
@@ -886,13 +886,13 @@ Status legend:
     `Part(ChatStreamPart)`
 - [x] Add adapters between the runtime stream event layer and the chosen V4-capable stream-part
   layer.
-  - [x] `LanguageModelV3StreamPart::{from_runtime_part,to_runtime_part}` are now both public so
+  - [x] `TypedStreamPart::{from_runtime_part,to_runtime_part}` are now both public so
     bridges/gateways can move explicitly between the typed overlay and stable runtime
     `ChatStreamPart` contract without round-tripping through provider-prefixed custom JSON
   - [x] unit coverage now locks that dual adapter on runtime tool-call roundtrips
 - [x] Expose explicit `LanguageModelV4Stream*` public payload aliases for the upgraded typed
-  stream-part overlay so new code no longer has to use the historical `LanguageModelV3*` names or
-  collide with standalone provider-result `LanguageModelV4*` structures.
+  stream-part overlay alongside provider-agnostic `TypedStream*` names, avoiding collisions with
+  standalone provider-result `LanguageModelV4*` structures.
 - [x] Ensure bridge/gateway serializers use that stronger stream-part contract where appropriate.
   - [x] extras Axum SSE adapters now surface direct runtime `Part` / `PartWithReplay` as explicit
     `event: part` frames instead of dropping the upgraded semantic lane
@@ -908,7 +908,7 @@ Status legend:
   - [x] public streaming examples, migration snippets, gateway transform examples, and
     bridge/transcode tests now match stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` as
     first-class streamed text instead of teaching legacy-only `ContentDelta` consumers
-  - [x] `OpenAiResponsesStreamPartsBridge` now promotes parseable legacy/custom v3 payloads onto
+  - [x] `OpenAiResponsesStreamPartsBridge` now promotes parseable legacy/custom typed payloads onto
     stable `Part` / `PartWithReplay` events instead of only renaming them into `openai:*`
     custom prefixes, so OpenAI Responses gateway paths default to the stronger semantic contract
   - [x] bridge primitive remappers now also rewrite tool ids/names on direct
