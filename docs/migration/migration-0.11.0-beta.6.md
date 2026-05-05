@@ -83,16 +83,8 @@ let req = ChatRequest::new(vec![user!("stream a poem")]);
 let mut stream = text::stream(&client, req, text::StreamOptions::default()).await?;
 while let Some(ev) = stream.next().await {
     if let Ok(event) = ev {
-        match event {
-            ChatStreamEvent::ContentDelta { delta, .. }
-            | ChatStreamEvent::Part {
-                part: ChatStreamPart::TextDelta { delta, .. },
-            }
-            | ChatStreamEvent::PartWithReplay {
-                part: ChatStreamPart::TextDelta { delta, .. },
-                ..
-            } => print!("{delta}"),
-            _ => {}
+        if let Some(delta) = event.text_delta() {
+            print!("{delta}");
         }
     }
 }

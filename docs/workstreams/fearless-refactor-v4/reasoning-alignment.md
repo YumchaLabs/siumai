@@ -23,7 +23,7 @@ Current Stable reasoning contract is intentionally narrow:
   - builder / registry default reasoning budget
 - Response-side extraction:
   - non-streaming: `ChatResponse::reasoning()`
-  - streaming: `ChatStreamEvent::ThinkingDelta`
+  - streaming: `ChatStreamEvent::reasoning_delta()` / `ChatStreamPart::ReasoningDelta`
 
 Current non-goals for the Stable surface:
 
@@ -43,13 +43,13 @@ If a provider returns explicit reasoning / thinking text, the Stable response su
 
 If a provider emits incremental reasoning / thinking text, the Stable streaming surface should expose it through:
 
-- `ChatStreamEvent::ThinkingDelta`
+- `ChatStreamEvent::reasoning_delta()` / `ChatStreamPart::ReasoningDelta`
 
-Public parity should prefer `ThinkingDelta` accumulation over `StreamEnd.response.reasoning()` because:
+Public parity should prefer typed reasoning-delta accumulation over `StreamEnd.response.reasoning()` because:
 
 - some provider / compat streaming paths still finalize text content and usage on `StreamEnd`
   without also replaying accumulated reasoning into the final response object;
-- `ThinkingDelta` is the more stable event-level contract for cross-provider convergence today.
+- typed reasoning deltas are the more stable event-level contract for cross-provider convergence today.
 
 ### Usage-side counters
 
@@ -58,16 +58,16 @@ Reasoning token counters are useful, but they are **not** the same thing as reas
 - `usage.reasoning_tokens` or provider-owned typed metadata may exist even when no reasoning text
   is surfaced.
 - Those counters should be treated as metadata / cost telemetry, not as a substitute for
-  `ChatResponse::reasoning()` or `ThinkingDelta`.
+  `ChatResponse::reasoning()` or typed reasoning deltas.
 
 ## Provider status (audited public stories)
 
 | Provider | Stable request defaults | Provider-owned hint knobs | Non-stream reasoning text | Streaming reasoning text | Current note |
 | --- | --- | --- | --- | --- | --- |
-| DeepSeek | Yes | `DeepSeekOptions` | `ChatResponse::reasoning()` parity locked | `ThinkingDelta` parity locked | Stable `enable_reasoning` / `reasoning_budget` plus provider-specific normalization are both covered. |
-| xAI | Yes | `XaiOptions.reasoningEffort` | `ChatResponse::reasoning()` parity locked | `ThinkingDelta` parity locked | Stable defaults and xAI-specific effort knob are both covered. |
-| OpenRouter | Yes (compat vendor view) | `OpenRouterOptions` + compat reasoning defaults | `ChatResponse::reasoning()` parity locked | `ThinkingDelta` parity locked | Compat vendor-view path now has the same response-side parity as native wrappers. |
-| Groq | No | `GroqOptions.reasoning_effort` / `reasoning_format` | `ChatResponse::reasoning()` parity locked when provider returns thinking text | `ThinkingDelta` parity locked when provider returns thinking deltas | Groq keeps reasoning hints provider-owned; Stable `enable + budget` is intentionally not claimed. |
+| DeepSeek | Yes | `DeepSeekOptions` | `ChatResponse::reasoning()` parity locked | typed reasoning-delta parity locked | Stable `enable_reasoning` / `reasoning_budget` plus provider-specific normalization are both covered. |
+| xAI | Yes | `XaiOptions.reasoningEffort` | `ChatResponse::reasoning()` parity locked | typed reasoning-delta parity locked | Stable defaults and xAI-specific effort knob are both covered. |
+| OpenRouter | Yes (compat vendor view) | `OpenRouterOptions` + compat reasoning defaults | `ChatResponse::reasoning()` parity locked | typed reasoning-delta parity locked | Compat vendor-view path now has the same response-side parity as native wrappers. |
+| Groq | No | `GroqOptions.reasoning_effort` / `reasoning_format` | `ChatResponse::reasoning()` parity locked when provider returns thinking text | typed reasoning-delta parity locked when provider returns thinking deltas | Groq keeps reasoning hints provider-owned; Stable `enable + budget` is intentionally not claimed. |
 | Perplexity | No stable reasoning-text contract | hosted-search typed metadata only | Not currently promoted | Not currently promoted | Current typed boundary is metadata-side only: `usage.reasoning_tokens`, citations, images, search counters. |
 
 ## Public-path parity rule
@@ -77,7 +77,7 @@ construction should agree on:
 
 1. the final reasoning-related request shape that provider is supposed to support;
 2. the non-streaming reasoning extraction result, if the provider returned reasoning text;
-3. the streaming `ThinkingDelta` accumulation semantics, if the provider streamed reasoning text.
+3. the streaming typed reasoning-delta accumulation semantics, if the provider streamed reasoning text.
 
 That rule now explicitly covers:
 
@@ -93,7 +93,7 @@ That rule now explicitly covers:
 Use Stable only for:
 
 - default reasoning enable / budget where the provider contract is genuinely shared;
-- generic reasoning text extraction (`ChatResponse::reasoning()`, `ThinkingDelta`).
+- generic reasoning text extraction (`ChatResponse::reasoning()`, typed reasoning deltas).
 
 ### Keep provider hints provider-owned
 
@@ -119,7 +119,7 @@ When advancing reasoning parity for a provider:
 
 1. lock request shaping first;
 2. lock non-stream `ChatResponse::reasoning()` if the provider returns reasoning text;
-3. lock streaming `ThinkingDelta` accumulation if the provider streams reasoning text;
+3. lock streaming typed reasoning-delta accumulation if the provider streams reasoning text;
 4. only then decide whether `StreamEnd.response.reasoning()` is a guaranteed public contract.
 
 ## Known gaps / next steps

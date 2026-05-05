@@ -946,7 +946,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(ev) = stream.next().await {
 
 
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev { print!("{}", delta); }
+        let ev = ev?;
+
+
+        if let Some(delta) = ev.text_delta() { print!("{delta}"); }
 
 
     }
@@ -1195,7 +1198,10 @@ siumai = { version = "0.11.0-beta.6", features = ["openai-websocket"] }
     while let Some(ev) = stream.next().await {
 
 
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev {
+        let ev = ev?;
+
+
+        if let Some(delta) = ev.text_delta() {
 
 
             print!("{delta}");
@@ -1354,7 +1360,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(ev) = stream.next().await {
 
 
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev {
+        let ev = ev?;
+
+
+        if let Some(delta) = ev.text_delta() {
 
 
             print!("{delta}");

@@ -108,14 +108,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match event {
             Ok(event) => {
                 use siumai::streaming::ChatStreamEvent;
-                match event {
-                    ChatStreamEvent::ContentDelta { delta, .. } => {
-                        print!("{}", delta);
-                    }
-                    ChatStreamEvent::Done { .. } => {
-                        println!("\n");
-                    }
-                    _ => {}
+
+                if let Some(delta) = event.text_delta() {
+                    print!("{}", delta);
+                }
+                if matches!(event, ChatStreamEvent::StreamEnd { .. }) {
+                    println!("\n");
                 }
             }
             Err(e) => {

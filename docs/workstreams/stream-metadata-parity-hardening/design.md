@@ -7,13 +7,13 @@ Last updated: 2026-05-01
 The ongoing AI SDK alignment work exposed a second cluster of parity gaps around stream semantics
 and provider metadata extraction:
 
-- the shared stream factory now replays legacy textual shadow deltas for stable runtime
-  `TextDelta` / `ReasoningDelta` parts, but that replay could double-emit
-  `ContentDelta` / `ThinkingDelta` when a converter already emitted the legacy lane itself
+- the shared stream factory previously replayed textual shadow deltas for stable runtime
+  `TextDelta` / `ReasoningDelta` parts, but that replay could double-emit text/reasoning when a
+  converter already emitted typed parts itself
 - the Perplexity OpenAI-compatible metadata helper normalized hosted-search metadata into
   `providerMetadata.perplexity`, but it still dropped `usage.reasoningTokens`
-- Gemini / Vertex reasoning streams emitted stable runtime parts and `ThinkingDelta`, but they did
-  not also expose AI SDK-style custom `reasoning-*` events on the public stream surface
+- Gemini / Vertex reasoning streams emitted stable runtime parts, but they did not also expose
+  AI SDK-style custom `reasoning-*` events on the public stream surface
 - after adding those Gemini custom reasoning events, the Gemini GenerateContent serializer could
   see both the typed `Part` lane and the mirrored `Custom` lane during bridge round-trips and
   serialize the same reasoning delta twice
@@ -22,7 +22,7 @@ and provider metadata extraction:
   `promptCacheMissTokens` response metadata fields
 
 These are all parity regressions of the same general kind: the stable runtime lane is present, but
-the compatibility lane or metadata surface is still incomplete.
+the bridge/export metadata surface is still incomplete.
 
 ## Design
 

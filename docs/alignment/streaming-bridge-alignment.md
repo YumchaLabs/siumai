@@ -15,9 +15,10 @@ Examples:
 - Gemini emits `gemini:tool`, `gemini:source`, `gemini:reasoning` (legacy: `gemini:tool-call`, `gemini:tool-result`)
 - Anthropic emits `anthropic:tool-call`, `anthropic:tool-result`, `anthropic:source`, `anthropic:finish`, etc.
 
-The OpenAI Responses SSE serializer can only serialize:
+The OpenAI Responses SSE serializer serializes:
 
-- Standard events (`ContentDelta`, `ThinkingDelta`, `ToolCallDelta`, `UsageUpdate`, `StreamEnd`, `Error`, ...)
+- typed runtime parts (`ChatStreamEvent::Part` / `PartWithReplay`)
+- lifecycle/error envelopes (`StreamEnd`, `Error`, ...)
 - OpenAI stream parts (`openai:*`)
 
 So, to re-serialize a Gemini/Anthropic stream into OpenAI Responses SSE without losing tool/source/reasoning boundaries, we add a bridge:
@@ -31,7 +32,7 @@ The bridge focuses on the shared subset required for gateway usage:
 - Tool calls / tool results
 - Sources / citations
 - Reasoning boundaries (when available as custom parts)
-- Pass-through for standard deltas (`ContentDelta`, `ThinkingDelta`, `ToolCallDelta`, ...)
+- Pass-through for typed text/reasoning/tool/source parts
 
 Unknown custom event types are passed through unchanged.
 
