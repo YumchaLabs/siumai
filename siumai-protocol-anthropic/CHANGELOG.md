@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-anthropic-v0.11.0-beta.6...siumai-protocol-anthropic-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- align provider settings package surfaces
+- *(anthropic)* align metadata and request option surfaces
+- *(ai-sdk)* continue package surface parity alignment
+- *(types)* align shared ai sdk type surface
+- refactor
+- *(anthropic)* align messages replay and streaming surfaces
+
+### Fixed
+
+- align provider streaming bridges
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(text)* retain provider request metadata
+- *(completion)* preserve response bodies
+- *(chat)* preserve provider response bodies
+- *(text)* preserve raw response envelopes
+- *(anthropic)* prefer raw usage replay
+- *(anthropic)* sum usage iterations
+- *(anthropic)* replay raw stop reasons in bridges
+- *(anthropic)* preserve raw finish reasons
+- *(anthropic)* preserve extended usage roundtrips
+- *(streaming)* preserve anthropic provider tool replay
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- rename typed stream overlay
+- update stream examples for typed events
+- remove legacy chat stream events
+- stop emitting legacy stream deltas
+- make anthropic stream serializer typed-only
+- emit typed anthropic stream parts
+
 ### Fixed
 
 - Anthropic header construction now supports the audited alternate-auth path: when callers provide

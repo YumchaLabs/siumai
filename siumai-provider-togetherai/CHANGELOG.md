@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-togetherai-v0.11.0-beta.6...siumai-provider-togetherai-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- add AI SDK rerank result views
+- align provider settings package surfaces
+- *(togetherai)* align package alias names with ai sdk
+- *(provider)* align package surfaces across providers
+- refactor
+
+### Fixed
+
+- *(togetherai)* preserve rerank response metadata
+- *(rerank)* preserve raw response envelopes
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+
 ### Added
 
 - Add public `TogetherAiImageOptions` plus `TogetherAiImageRequestExt` for

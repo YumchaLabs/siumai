@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-groq-v0.11.0-beta.6...siumai-provider-groq-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- align groq provider settings surface
+- *(types)* align shared ai sdk type surface
+- *(audio)* preserve request metadata on audio results
+- *(speech)* align shared tts request options
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- refactor
+- *(audio)* align transcription input shape with ai sdk
+
+### Fixed
+
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(completion)* preserve response bodies
+- *(groq)* read streaming usage from x_groq
+- *(groq)* stabilize transcription options without feature gates
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- *(release)* prepare v0.11.0-beta.7
+- *(transcription)* move stt provider knobs to provider options
+﻿
 ### Added
 
 - Added AI SDK-style `GroqProviderSettings` and `VERSION` exports for the audited package-level

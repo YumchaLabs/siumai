@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-azure-v0.11.0-beta.6...siumai-provider-azure-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- align provider settings package surfaces
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(audio)* preserve request metadata on audio results
+- *(speech)* align shared tts request options
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- refactor
+- *(streaming)* align gemini stable parts and extras consumers
+
+### Fixed
+
+- *(ci)* satisfy clippy feature matrix
+- *(azure)* remove openai provider dependency
+- *(completion)* preserve response bodies
+- *(completion)* preserve raw finish reasons
+- align file upload provider option defaults
+- *(openai)* warn on unsupported speech options
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- stop emitting legacy stream deltas
+- *(release)* prepare v0.11.0-beta.7
+
 ### Added
 
 - Native Azure OpenAI provider now also exposes package-level `AzureOpenAIProviderSettings` plus

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-ollama-v0.11.0-beta.6...siumai-provider-ollama-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- add schema-less structured output helpers
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(types)* align shared ai sdk type surface
+- refactor
+- *(streaming)* align gemini stable parts and extras consumers
+
+### Fixed
+
+- align provider streaming bridges
+- *(text)* retain provider request metadata
+- *(completion)* preserve response bodies
+- *(build)* update chat response fixtures
+- *(ollama)* preserve raw usage counts
+- *(ollama)* preserve raw done reasons
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- remove legacy chat stream events
+- stop emitting legacy stream deltas
+- remove legacy event builder delta helpers
+
 ### Added
 
 - Ollama now exposes a provider-owned curated `models` surface for `chat` plus `embedding`, and

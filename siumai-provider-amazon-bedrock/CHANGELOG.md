@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-amazon-bedrock-v0.11.0-beta.6...siumai-provider-amazon-bedrock-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- add AI SDK rerank result views
+- align provider settings package surfaces
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(types)* align shared ai sdk type surface
+- refactor
+
+### Fixed
+
+- align provider streaming bridges
+- *(ci)* satisfy clippy feature matrix
+- *(completion)* preserve response bodies
+- *(image)* include direct response envelopes
+- *(bedrock)* preserve rerank response body
+- *(rerank)* preserve raw response envelopes
+- *(bedrock)* preserve streaming raw usage
+- *(bedrock)* preserve raw usage payload
+- *(provider)* align tool denial fallback text
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- remove legacy event builder delta helpers
+- format Bedrock provider settings
+
 ### Added
 
 - Native Bedrock provider now also exposes package-level `AmazonBedrockProviderSettings` plus

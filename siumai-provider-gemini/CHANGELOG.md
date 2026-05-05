@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-gemini-v0.11.0-beta.6...siumai-provider-gemini-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- *(google)* align package settings and streaming surfaces
+- *(video)* align result materialization with ai sdk
+- *(files)* align upload helper contract with ai sdk
+- *(provider)* align package surfaces across providers
+- *(video)* align task-based video model surface
+- refactor
+- *(alignment)* align image and media input contracts
+- *(streaming)* align gemini stable parts and extras consumers
+- *(media)* align provider-owned image and video surfaces with ai sdk
+
+### Fixed
+
+- *(ci)* align response fixtures and clippy checks
+- *(gemini)* align video provider metadata
+- *(video)* honor provider polling options
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- stop emitting legacy stream deltas
+- *(release)* prepare v0.11.0-beta.7
+
 ### Fixed
 
 - Gemini content-part metadata helpers now include stable `reasoning-file` and `custom` parts so

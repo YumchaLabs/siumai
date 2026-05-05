@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-v0.11.0-beta.6...siumai-provider-openai-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- add schema-less structured output helpers
+- align provider settings package surfaces
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(files)* align upload helper contract with ai sdk
+- *(types)* align shared ai sdk type surface
+- *(audio)* preserve request metadata on audio results
+- *(speech)* align shared tts request options
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- refactor
+- *(transcription)* require media type for audio inputs
+- *(audio)* align transcription input shape with ai sdk
+- *(core)* align ai sdk v4 stream parts and openai metadata surfaces
+
+### Fixed
+
+- align provider streaming bridges
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(openai)* preserve audio translation response body
+- *(completion)* preserve response bodies
+- *(rerank)* preserve raw response envelopes
+- *(openai)* handle reasoning summary done events
+- *(completion)* preserve raw finish reasons
+- align file upload provider option defaults
+- *(openai)* warn on unsupported speech options
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- rename typed stream overlay
+- update stream examples for typed events
+- stop emitting legacy stream deltas
+- *(release)* prepare v0.11.0-beta.7
+- *(skills)* reuse shared upload contract
+- *(transcription)* move stt provider knobs to provider options
+
 ### Added
 
 - Native OpenAI provider now also exposes a provider-owned `skills()` resource aligned with the

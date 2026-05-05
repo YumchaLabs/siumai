@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-anthropic-v0.11.0-beta.6...siumai-provider-anthropic-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- align provider settings package surfaces
+- *(anthropic)* align metadata and request option surfaces
+- *(files)* align upload helper contract with ai sdk
+- *(ai-sdk)* continue package surface parity alignment
+- refactor
+- *(anthropic)* align messages replay and streaming surfaces
+
+### Fixed
+
+- *(ci)* align response fixtures and clippy checks
+- *(anthropic)* warn for schema-less json response format
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- *(release)* prepare v0.11.0-beta.7
+- *(skills)* reuse shared upload contract
+
 ### Added
 
 - Native Anthropic now exposes an AI SDK-style package settings wrapper:

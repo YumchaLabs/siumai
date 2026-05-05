@@ -7,6 +7,137 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-core-v0.11.0-beta.6...siumai-core-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- *(openai-compatible)* align provider option facades
+- *(openai-compatible)* add alibaba qwen options parity
+- add AI SDK V4 language model trait
+- add provider defined output schema factory
+- add AI SDK URL support matcher
+- add AI SDK delay abort helpers
+- align provider tool ownership shape
+- add AI SDK runtime error helpers
+- add AI SDK array and uint8 utils
+- add AI SDK streaming tool call tracker
+- add image model file data URI helper
+- add AI SDK settings option helpers
+- add AI SDK reasoning validation helpers
+- add AI SDK provider reference helpers
+- add AI SDK provider options parser
+- add AI SDK JSON parse helpers
+- add AI SDK JSON instruction helpers
+- add AI SDK provider utility helpers
+- add AI SDK serial job executor helper
+- add AI SDK download utility helpers
+- align AI SDK UI stream options and safe validation
+- add AI SDK data utility helpers
+- add AI SDK rerank result views
+- add partial JSON value stream
+- add partial JSON parsing utility
+- expose json event stream parser
+- expose provider utils tool helpers
+- expose provider utils schema and id helpers
+- align provider settings package surfaces
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(prompt)* align shared prompt and data content surfaces
+- *(video)* align result materialization with ai sdk
+- *(files)* align upload helper contract with ai sdk
+- *(tooling)* align callback runtime contexts with shared execution options
+- *(extras)* thread tool runtime execution options
+- *(tooling)* align provider utils runtime helpers
+- *(types)* add shared request options surface
+- *(types)* align shared ai sdk type surface
+- *(audio)* preserve request metadata on audio results
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- *(video)* refine empty-result error semantics
+- *(video)* align task-based video model surface
+- refactor
+- *(transcription)* require media type for audio inputs
+- *(audio)* align transcription input shape with ai sdk
+- *(openai-compatible)* support query params and structured outputs policy
+- *(openai-compatible)* align request settings surface
+- *(openai-compatible)* expose metadata extractor hooks
+- *(core)* align ai sdk v4 stream parts and openai metadata surfaces
+
+### Fixed
+
+- align provider streaming bridges
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(streaming)* preserve metadata on synthetic stream end
+- *(streaming)* retain response headers
+- *(streaming)* retain provider request metadata
+- *(text)* retain provider request metadata
+- *(completion)* preserve response bodies
+- *(openai-compatible)* preserve chat response body
+- *(openai-compatible)* map image response wire shape
+- *(openai)* preserve embedding response body
+- *(openai-compatible)* preserve embedding metadata
+- *(deepseek)* expose prompt cache metadata
+- *(text)* preserve raw response envelopes
+- *(audio)* preserve raw JSON response bodies
+- *(rerank)* preserve raw response envelopes
+- *(provider)* align openai compatible chat conversion
+- *(provider)* align tool denial fallback text
+- *(deepseek)* align chat message conversion
+- *(perplexity)* align chat message conversion
+- *(perplexity)* emit citation sources from responses
+- *(xai)* default missing responses usage to zero
+- *(xai)* surface responses cost metadata
+- *(groq)* read streaming usage from x_groq
+- *(xai)* request streaming usage by default
+- *(openai-compatible)* align chat usage defaults
+- *(xai)* align reasoning defaults with AI SDK
+- *(openai-compatible)* align deepseek thinking options
+- *(openai-compatible)* align vendor finish and qwen usage
+- *(openai-compatible)* align provider usage semantics
+- *(gemini)* preserve raw finish reasons
+- *(video)* honor provider polling options
+- tighten AI SDK V4 stream provider metadata
+- tighten AI SDK V4 generated content overlays
+- align AI SDK V4 numeric usage overlays
+- align V4 stream finish reasons
+- *(openai-compat)* align deepinfra paths and stream terminal parity
+- *(core)* avoid duplicate fallback text for stable streams
+- *(openai)* align provider references and usage parsing
+- *(streaming)* prefer stable parts in openai responses bridge
+- *(parity)* align perplexity metadata and gemini reasoning streams
+- *(streaming)* avoid duplicate textual shadow deltas
+- *(streaming)* restore textual delta compatibility
+- *(openai-compatible)* map known chat provider options
+- *(openai-compatible)* align structured outputs default policy
+- *(streaming)* defer compat metadata for model-router preludes
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- fold video model trait
+- fold image model trait
+- fold embedding model trait
+- fold audio family traits
+- fold reranking model trait
+- fold completion model trait
+- rename typed stream overlay
+- rename text model trait
+- update stream examples for typed events
+- remove legacy chat stream events
+- stop emitting legacy stream deltas
+- remove legacy event builder delta helpers
+- satisfy core clippy warnings
+- make openai chat serializer typed-only
+- emit typed openai compatible stream parts
+- make stream processor typed-only
+- prefer typed stream text consumers
+- stop stream factory legacy shadows
+- *(completion)* cover core raw finish reasons
+- disambiguate AI SDK V4 stream payload aliases
+- *(image)* expose ai sdk image model v4 alias
+- *(compat)* move response metadata extraction into adapters
+
 ### Added
 
 - Add a first-class completion family surface: `traits::CompletionCapability`,

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-google-vertex-v0.11.0-beta.6...siumai-provider-google-vertex-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- align provider settings package surfaces
+- *(google-vertex)* align ai sdk package surface
+- *(video)* align task-based video model surface
+- refactor
+- *(alignment)* align image and media input contracts
+- *(streaming)* align gemini stable parts and extras consumers
+- *(media)* align provider-owned image and video surfaces with ai sdk
+
+### Fixed
+
+- *(ci)* satisfy clippy feature matrix
+- *(image)* include direct response envelopes
+- *(google)* preserve embedding response body
+- *(rerank)* preserve raw response envelopes
+- *(google)* align image provider metadata
+- *(video)* honor provider polling options
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- rename typed stream overlay
+- update stream examples for typed events
+- stop emitting legacy stream deltas
+- *(release)* prepare v0.11.0-beta.7
+
 ### Added
 
 - Curated `google_vertex::{chat, embedding, image}` and `anthropic_vertex::chat` model constants

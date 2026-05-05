@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-minimaxi-v0.11.0-beta.6...siumai-provider-minimaxi-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(files)* align upload helper contract with ai sdk
+- *(audio)* preserve request metadata on audio results
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- *(video)* align task-based video model surface
+- refactor
+- *(streaming)* align gemini stable parts and extras consumers
+- *(media)* align provider-owned image and video surfaces with ai sdk
+
+### Fixed
+
+- *(ci)* align response fixtures and clippy checks
+- *(minimaxi)* handle json object response format
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- *(release)* prepare v0.11.0-beta.7
+- *(minimaxi)* move video vendor fields behind provider options
+
 ### Added
 
 - MiniMaxi now exposes a provider-owned curated model surface for the public families (`chat`,

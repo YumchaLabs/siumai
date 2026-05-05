@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-registry-v0.11.0-beta.6...siumai-registry-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- add AI SDK rerank result views
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(anthropic)* align metadata and request option surfaces
+- *(video)* align result materialization with ai sdk
+- *(audio)* preserve request metadata on audio results
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- *(video)* align task-based video model surface
+- refactor
+- *(transcription)* require media type for audio inputs
+- *(alignment)* align image and media input contracts
+- *(media)* align provider-owned image and video surfaces with ai sdk
+
+### Fixed
+
+- align provider streaming bridges
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(text)* retain provider request metadata
+- *(completion)* preserve response bodies
+- *(rerank)* preserve raw response envelopes
+- *(registry)* honor fireworks image request config
+- *(video)* honor provider polling options
+- *(openai-compat)* align deepinfra paths and stream terminal parity
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- fold video model trait
+- fold image model trait
+- fold embedding model trait
+- fold audio family traits
+- fold reranking model trait
+- fold completion model trait
+- rename text model trait
+- update stream examples for typed events
+- remove legacy chat stream events
+- *(release)* prepare v0.11.0-beta.7
+- *(registry)* silence conditional provider catalog warning
+
 ### Added
 
 - Add completion-family registry plumbing: `ProviderFactory::completion_model_family*`,

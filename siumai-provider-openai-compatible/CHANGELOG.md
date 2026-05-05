@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-compatible-v0.11.0-beta.6...siumai-provider-openai-compatible-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- *(openai-compatible)* align provider option facades
+- *(openai-compatible)* align provider model catalogs
+- *(openai-compatible)* add provider settings facades
+- *(openai-compatible)* add alibaba video model
+- *(openai-compatible)* add alibaba provider settings
+- *(openai-compatible)* add alibaba qwen options parity
+- align provider settings package surfaces
+- align deepinfra provider settings surface
+- align moonshotai provider settings surface
+- align fireworks provider settings surface
+- align perplexity provider settings surface
+- align mistral provider settings surface
+- *(types)* align shared ai sdk type surface
+- *(openai-compatible)* add exact-case ai sdk aliases
+- *(provider)* align package surfaces across providers
+- *(audio)* preserve request metadata on audio results
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- refactor
+- *(transcription)* require media type for audio inputs
+- *(alignment)* align image and media input contracts
+- *(openai-compatible)* support query params and structured outputs policy
+- *(openai-compatible)* align request settings surface
+- *(openai-compatible)* expose metadata extractor hooks
+- *(core)* align ai sdk v4 stream parts and openai metadata surfaces
+
+### Fixed
+
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(completion)* preserve response bodies
+- *(rerank)* preserve raw response envelopes
+- *(provider)* align openai-compatible tool preparation
+- *(xai)* request streaming usage by default
+- *(openai-compatible)* default alibaba usage streaming
+- *(openai-compatible)* align chat usage defaults
+- *(openai-compatible)* align provider chat settings
+- *(togetherai)* align image requests with AI SDK
+- *(xai)* align reasoning defaults with AI SDK
+- *(openai-compatible)* align deepseek thinking options
+- *(openai-compatible)* add alibaba prompt cache control
+- *(openai-compatible)* align vendor finish and qwen usage
+- *(completion)* preserve raw finish reasons
+- *(openai-compat)* align deepinfra paths and stream terminal parity
+- *(openai-compatible)* align image provider options and warnings
+- *(openai-compatible)* warn on deprecated provider options key
+- *(openai-compatible)* surface provider-defined tool warnings
+- *(openai-compatible)* map known chat provider options
+- *(openai-compatible)* align structured outputs default policy
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- stop emitting legacy stream deltas
+- *(release)* prepare v0.11.0-beta.7
+- *(openai-compatible)* align perplexity transport expectations
+﻿
 ### Added
 
 - Add compat-backed AI SDK-style `DeepSeekProviderSettings`, `GroqProviderSettings`,

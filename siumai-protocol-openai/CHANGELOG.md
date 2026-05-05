@@ -7,6 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.6...siumai-protocol-openai-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- *(openai-compatible)* add alibaba qwen options parity
+- add AI SDK rerank result views
+- add schema-less structured output helpers
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(prompt)* align shared prompt and data content surfaces
+- *(types)* align shared ai sdk type surface
+- *(speech)* align shared tts request options
+- refactor
+- *(transcription)* require media type for audio inputs
+- *(audio)* align transcription input shape with ai sdk
+- *(alignment)* align image and media input contracts
+- *(openai-compatible)* support query params and structured outputs policy
+- *(openai-compatible)* align request settings surface
+- *(core)* align ai sdk v4 stream parts and openai metadata surfaces
+- *(media)* align provider-owned image and video surfaces with ai sdk
+
+### Fixed
+
+- align provider streaming bridges
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(text)* retain provider request metadata
+- *(completion)* preserve response bodies
+- *(openai)* include image response envelope
+- *(image)* include direct response envelopes
+- *(openai)* preserve responses api body
+- *(openai)* preserve embedding response body
+- *(openai)* preserve rerank response body
+- *(text)* preserve raw response envelopes
+- *(rerank)* preserve raw response envelopes
+- *(files)* align provider metadata
+- *(openai)* align image provider metadata
+- *(openai)* emit code interpreter call on code done
+- *(openai)* align tool search stream lifecycle
+- *(openai)* omit apply patch stream provider flag
+- *(openai)* preserve apply patch operation shape
+- *(openai)* align non-stream hosted tool outputs
+- *(openai)* align shell provider execution flag
+- *(openai)* align mcp stream lifecycle
+- *(openai)* align local shell stream input
+- *(openai)* align web search stream results
+- *(openai)* escape streamed tool input deltas
+- *(openai)* align file search stream results
+- *(openai)* align computer use stream parts
+- *(openai)* stream image generation partial results
+- *(openai)* handle reasoning summary done events
+- *(openai)* synthesize hosted dynamic response items
+- *(openai)* replay apply patch calls
+- *(openai)* preserve tool search response items
+- *(openai)* align responses provider tools
+- *(provider)* align openai-compatible tool preparation
+- *(provider)* align openai compatible chat conversion
+- *(deepseek)* align chat message conversion
+- *(xai)* default missing responses usage to zero
+- *(xai)* surface responses cost metadata
+- *(xai)* request streaming usage by default
+- *(openai-compatible)* align provider chat settings
+- *(openai-compatible)* align alibaba chat settings
+- *(openai-compatible)* align perplexity chat settings
+- *(openai-compatible)* align perplexity response format
+- *(openai-compatible)* inject mistral json instruction
+- *(openai-compatible)* enable qwen structured outputs by default
+- *(togetherai)* align image requests with AI SDK
+- *(xai)* align reasoning defaults with AI SDK
+- *(openai-compatible)* align deepseek thinking options
+- *(openai-compatible)* add alibaba prompt cache control
+- *(openai-compatible)* align vendor finish and qwen usage
+- *(openai)* replay responses incomplete reasons
+- *(openai-compatible)* align provider usage semantics
+- align file upload provider option defaults
+- *(openai-compat)* align deepinfra paths and stream terminal parity
+- *(openai-compatible)* align image provider options and warnings
+- *(openai-compatible)* map known chat provider options
+- *(openai-compatible)* align structured outputs default policy
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- rename typed stream overlay
+- update stream examples for typed events
+- remove legacy chat stream events
+- stop emitting legacy stream deltas
+- make openai responses stream typed-only
+- *(transcription)* move stt provider knobs to provider options
+- *(openai)* remove final responses request metadata fallback
+
 ### Fixed
 
 - OpenAI-compatible rerank response transformation now preserves an AI SDK-style response envelope

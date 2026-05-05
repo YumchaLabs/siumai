@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-provider-xai-v0.11.0-beta.6...siumai-provider-xai-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- align provider settings package surfaces
+- *(video)* align result materialization with ai sdk
+- *(files)* align upload helper contract with ai sdk
+- *(audio)* preserve request metadata on audio results
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- *(video)* align task-based video model surface
+- refactor
+- *(transcription)* require media type for audio inputs
+- *(alignment)* align image and media input contracts
+- *(xai)* align responses response and stream semantics
+- *(media)* align provider-owned image and video surfaces with ai sdk
+
+### Fixed
+
+- align provider streaming bridges
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(rerank)* preserve raw response envelopes
+- *(xai)* align image and video metadata
+- *(files)* align provider metadata
+- *(xai)* surface responses cost metadata
+- *(xai)* request streaming usage by default
+- *(xai)* align reasoning defaults with AI SDK
+- *(video)* honor provider polling options
+- align file upload provider option defaults
+- *(xai)* align responses request filtering with ai sdk
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- *(release)* prepare v0.11.0-beta.7
+﻿
 ### Added
 
 - Added AI SDK-style `XaiProviderSettings` and `VERSION` exports for the audited package-level

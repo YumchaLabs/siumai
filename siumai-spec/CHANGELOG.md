@@ -7,6 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.6...siumai-spec-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- add AI SDK V4 prompt projection
+- add AI SDK V4 generate result overlays
+- add AI SDK V4 call options overlay
+- add AI SDK V4 model tool projections
+- add AI SDK V4 tool choice projection
+- align provider tool ownership shape
+- add AI SDK generated data helper parity
+- add AI SDK download error shape
+- add AI SDK generate image prompt shape
+- add AI SDK no such provider error shape
+- add AI SDK telemetry options shape
+- add AI SDK UI stream alias parity
+- add AI SDK UI message helper parity
+- add AI SDK UI part aliases
+- add AI SDK UI chat passive shapes
+- add AI SDK provider error carriers
+- add AI SDK passive error carriers
+- add AI SDK UI client option shapes
+- align AI SDK UI stream options and safe validation
+- add AI SDK generate video result view
+- add AI SDK UI message stream chunks
+- add AI SDK generate object event views
+- add AI SDK rerank result views
+- add AI SDK media result views
+- add AI SDK language model stream views
+- add AI SDK generate text step control views
+- add AI SDK generate text callback event views
+- add AI SDK text stream part views
+- add AI SDK generate text result views
+- add AI SDK generate text content union
+- add AI SDK text content output views
+- add AI SDK tool failure output views
+- add AI SDK generated file reasoning views
+- add AI SDK tool approval output views
+- align AI SDK tool call result views
+- add schema-less structured output helpers
+- add no object generated error
+- expose provider utils schema and id helpers
+- expose ai sdk json schema alias
+- expose ai sdk source shape
+- expose ai sdk embedding alias
+- expose ai sdk usage helpers
+- *(ai-sdk)* align shared structural surfaces and builder helpers
+- *(prompt)* align shared prompt and data content surfaces
+- *(video)* align result materialization with ai sdk
+- *(prompt)* support tool result file url media type
+- *(prompt)* add prompt part metadata builders
+- *(prompt)* align tool result provider option helpers
+- *(prompt)* add single-provider option helpers
+- *(prompt)* add provider option builders
+- *(prompt)* add tool approval response builders
+- *(spec)* expose provider-defined tool provider options
+- *(tooling)* align provider utils runtime helpers
+- *(types)* add provider utils shared type aliases
+- *(types)* add shared prompt model message surface
+- *(types)* add prompt call settings compatibility
+- *(video)* add ai sdk response metadata views
+- *(types)* add shared request options surface
+- *(types)* add shared language model call options
+- *(types)* align shared ai sdk type surface
+- *(audio)* preserve request metadata on audio results
+- *(speech)* align shared tts request options
+- *(audio)* align speech and transcription helper results
+- *(media)* align helper empty-result semantics
+- *(video)* refine empty-result error semantics
+- *(video)* align task-based video model surface
+- refactor
+- *(transcription)* require media type for audio inputs
+- *(audio)* align transcription input shape with ai sdk
+- *(alignment)* align image and media input contracts
+- *(core)* align ai sdk v4 stream parts and openai metadata surfaces
+- *(media)* align provider-owned image and video surfaces with ai sdk
+
+### Fixed
+
+- *(ci)* align response fixtures and clippy checks
+- *(ci)* satisfy clippy feature matrix
+- *(text)* retain provider request metadata
+- *(completion)* preserve response bodies
+- *(text)* preserve raw response envelopes
+- *(audio)* preserve raw JSON response bodies
+- *(rerank)* preserve raw response envelopes
+- *(openai)* align responses provider tools
+- *(completion)* preserve raw finish reasons
+- tighten AI SDK V4 provider metadata
+- tighten AI SDK V4 prompt provider options
+- validate AI SDK V4 custom kinds
+- align AI SDK call warning shape
+- canonicalize AI SDK V4 tool result outputs
+- tighten AI SDK V4 tool object overlays
+- tighten AI SDK V4 generated content overlays
+- align AI SDK V4 numeric usage overlays
+- align V4 function tool input examples
+- preserve V4 approval response provider options
+- align AI SDK tool repair error shapes
+- align AI SDK tool view discriminators
+- align finish reason serde values
+- align tool choice serde shape
+- *(types)* enforce prompt discriminator invariants
+- *(openai)* align provider references and usage parsing
+- *(streaming)* restore textual delta compatibility
+
+### Other
+
+- add beta 7 migration guidance
+- prepare beta release notes
+- update stream examples for typed events
+- remove legacy chat stream events
+- stop emitting legacy stream deltas
+- start typed-only stream migration
+- *(ai-sdk)* cover response body metadata surfaces
+- *(transcription)* move stt provider knobs to provider options
+- *(minimaxi)* move video vendor fields behind provider options
+
 ### Added
 
 - Add shared `ProviderMetadataMap` helpers aligned with AI SDK `ProviderMetadata`:

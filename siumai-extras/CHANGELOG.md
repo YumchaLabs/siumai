@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.7](https://github.com/YumchaLabs/siumai/compare/siumai-extras-v0.11.0-beta.6...siumai-extras-v0.11.0-beta.7) - 2026-05-05
+
+### Added
+
+- add Axum text stream response helper
+- *(tooling)* align callback runtime contexts with shared execution options
+- *(extras)* thread tool runtime execution options
+- *(tooling)* align provider utils runtime helpers
+- *(types)* add shared request options surface
+- refactor
+- *(streaming)* align gemini stable parts and extras consumers
+
+### Fixed
+
+- align provider streaming bridges
+- *(ci)* satisfy clippy feature matrix
+- *(text)* retain provider request metadata
+- *(completion)* preserve response bodies
+- *(build)* update chat response fixtures
+- *(extras)* preserve runtime messages in approval continuation
+- *(extras)* consume stable text delta parts
+
+### Other
+
+- prepare beta release notes
+- fold image model trait
+- fold completion model trait
+- rename typed stream overlay
+- rename text model trait
+- clean typed stream examples and assertions
+- remove legacy chat stream events
+- stop emitting legacy stream deltas
+- make axum streams typed-only
+- *(examples)* consume stable text parts in streaming samples
+- *(streaming)* align public guidance with stable text parts
+
 ### Added
 
 - Runnable loss-policy bridge example:
