@@ -4,26 +4,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
-### Changed
+No unreleased changes yet.
 
-- Rerank family APIs now use `RerankingModel` directly. The old Siumai-local
-  `RerankModelV3` name has been removed from the public facade, and `prelude::unified::*` no
-  longer imports `RerankCapability`, so method-style `rerank(...)` calls resolve to the canonical
-  family trait. Low-level capability access remains available through `siumai::extensions`.
-- Speech and transcription family APIs now use `SpeechModel` and `TranscriptionModel` directly,
-  removing the Siumai-local `SpeechModelV3` and `TranscriptionModelV3` compatibility traits from
-  the public facade.
-- Embedding family APIs now use `EmbeddingModel` directly. The Siumai-local `EmbeddingModelV3`
-  compatibility trait has been removed from the public facade, and low-level
-  `EmbeddingCapability` access remains available through `siumai::extensions`.
-- Image family APIs now use `ImageModel` directly. The Siumai-local `ImageModelV3` compatibility
-  trait has been removed from the public facade; `ImageModelV4` remains as the intentional
-  AI SDK-facing marker.
-- Video family APIs now use `VideoModel` directly. The Siumai-local `VideoModelV3` compatibility
-  trait has been removed from the public facade; `VideoModelV4` remains as the intentional
-  AI SDK-facing marker.
-
-## [0.11.0-beta.7] - 2026-05-03
+## [0.11.0-beta.7] - 2026-05-05
 
 This beta focuses on AI SDK compatibility, provider metadata correctness, and making the public
 facade easier to use. Most regular chat/text callers should not need code changes, but users who
@@ -37,6 +20,9 @@ read the upgrade notes below.
   provider utility functions.
 - More complete provider response metadata across text, completion, streaming, structured output,
   embedding, rerank, image, video, audio, and transcription helpers.
+- Simpler model-family APIs across embedding, image, rerank, speech, transcription, and video:
+  helpers now use the canonical `*Model` traits directly, with AI SDK-facing V4 markers reserved
+  for provider-contract alignment.
 - Stronger OpenAI Responses API and OpenAI-compatible provider alignment, including xAI, Groq,
   DeepSeek, TogetherAI, Perplexity, Alibaba/Qwen, Mistral, Fireworks, MoonshotAI, DeepInfra, and
   Vertex MaaS paths.
@@ -78,8 +64,9 @@ read the upgrade notes below.
   hosted-tool, and response metadata.
 - Streaming now uses AI SDK-style `ChatStreamPart` as the canonical public stream model for text,
   reasoning, tools, usage, sources, and metadata.
-- The Rust text-family trait is now named `TextModel` instead of `TextModelV3`, removing the stale
-  V3 naming from examples and public extension points.
+- Rust model-family trait names are now consistent: `TextModel`, `EmbeddingModel`, `ImageModel`,
+  `RerankingModel`, `SpeechModel`, `TranscriptionModel`, and `VideoModel` are the primary public
+  extension points.
 - Google Vertex Gemini image generation now uses the Gemini content-generation path for Gemini
   image models, with provider-specific image options scoped to the Vertex provider options lane.
 
@@ -109,6 +96,8 @@ read the upgrade notes below.
   `event.part_ref()` over `ChatStreamPart`.
 - If you rely on raw provider request/response metadata, prefer the new include controls and inspect
   the provider-specific metadata objects rather than parsing debug strings.
+- If you imported transitional local V3 family aliases directly, switch to the canonical family
+  traits listed above. Lower-level capability traits remain available through `siumai::extensions`.
 - Google Vertex Gemini image requests now reject unsupported mask and multi-image count settings on
   the Gemini image path instead of silently routing them through the wrong provider mode.
 

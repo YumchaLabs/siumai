@@ -79,7 +79,8 @@ pub struct MusicGenerationRequest {
     /// Song lyrics with optional structure tags
     ///
     /// Optional field for providers that support lyrics-based generation.
-    /// Some providers support structure tags like [Intro], [Verse], [Chorus], [Bridge], [Outro].
+    /// Some providers support structure tags like `[Intro]`, `[Verse]`, `[Chorus]`, `[Bridge]`,
+    /// and `[Outro]`.
     /// Set to `None` for instrumental music.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lyrics: Option<String>,

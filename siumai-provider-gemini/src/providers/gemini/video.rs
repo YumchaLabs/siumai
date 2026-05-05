@@ -1,7 +1,7 @@
 //! Gemini Video Generation (Veo) helpers.
 //!
 //! Official docs:
-//! - https://ai.google.dev/gemini-api/docs/video
+//! - <https://ai.google.dev/gemini-api/docs/video>
 //!
 //! The REST API uses `models/{model}:predictLongRunning` and returns a long-running
 //! operation resource name (e.g. `operations/...`) that must be polled via `GET /{name}`.

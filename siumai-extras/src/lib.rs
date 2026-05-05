@@ -21,8 +21,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! siumai = "0.11.0-beta.6"
-//! siumai-extras = { version = "0.11.0-beta.6", features = ["schema", "telemetry", "mcp"] }
+//! siumai = "0.11.0-beta.7"
+//! siumai-extras = { version = "0.11.0-beta.7", features = ["schema", "telemetry", "mcp"] }
 //! ```
 //!
 //! ## MCP Integration

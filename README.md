@@ -79,7 +79,7 @@ This README keeps things straightforward: what you can do, how to customize, and
 [dependencies]
 
 
-siumai = "0.11.0-beta.6"
+siumai = "0.11.0-beta.7"
 
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
@@ -124,7 +124,7 @@ Feature flags (enable only what you need):
 # One provider
 
 
-siumai = { version = "0.11.0-beta.6", features = ["openai"] }
+siumai = { version = "0.11.0-beta.7", features = ["openai"] }
 
 
 
@@ -133,7 +133,7 @@ siumai = { version = "0.11.0-beta.6", features = ["openai"] }
 # Multiple providers
 
 
-siumai = { version = "0.11.0-beta.6", features = ["openai", "anthropic", "google"] }
+siumai = { version = "0.11.0-beta.7", features = ["openai", "anthropic", "google"] }
 
 
 
@@ -142,7 +142,7 @@ siumai = { version = "0.11.0-beta.6", features = ["openai", "anthropic", "google
 # All
 
 
-siumai = { version = "0.11.0-beta.6", features = ["all-providers"] }
+siumai = { version = "0.11.0-beta.7", features = ["all-providers"] }
 
 
 ```
@@ -169,10 +169,10 @@ Optional package for advanced utilities:
 [dependencies]
 
 
-siumai = "0.11.0-beta.6"
+siumai = "0.11.0-beta.7"
 
 
-siumai-extras = { version = "0.11.0-beta.6", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
+siumai-extras = { version = "0.11.0-beta.7", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
 
 
 ```
@@ -1087,7 +1087,7 @@ Chat Completions (`POST /chat/completions`).
 # Cargo.toml
 
 
-siumai = { version = "0.11.0-beta.6", features = ["openai-websocket"] }
+siumai = { version = "0.11.0-beta.7", features = ["openai-websocket"] }
 
 
 ```

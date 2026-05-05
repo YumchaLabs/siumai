@@ -21,7 +21,7 @@ pub trait StreamChunkTransformer: Send + Sync {
     /// Convert a single SSE event into zero or more ChatStreamEvents
     fn convert_event(&self, _event: Event) -> StreamEventFuture<'_>;
 
-    /// Optional end-of-stream event (e.g., [DONE] for OpenAI-compatible)
+    /// Optional end-of-stream event (e.g., `[DONE]` for OpenAI-compatible)
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         None
     }

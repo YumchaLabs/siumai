@@ -1,6 +1,6 @@
 //! Web search options for OpenAI
 //!
-//! Learn more: https://platform.openai.com/docs/guides/tools-web-search
+//! Learn more: <https://platform.openai.com/docs/guides/tools-web-search>
 
 use serde::{Deserialize, Serialize};
 

@@ -22,9 +22,9 @@
 /// ```
 #[derive(Debug, Clone)]
 pub struct TagConfig {
-    /// Opening tag (e.g., "<think>")
+    /// Opening tag (e.g., `<think>`)
     pub opening_tag: String,
-    /// Closing tag (e.g., "</think>")
+    /// Closing tag (e.g., `</think>`)
     pub closing_tag: String,
     /// Optional separator to insert when switching contexts
     pub separator: Option<String>,

@@ -1,6 +1,6 @@
 //! Predicted Outputs types for OpenAI
 //!
-//! Learn more: https://platform.openai.com/docs/guides/predicted-outputs
+//! Learn more: <https://platform.openai.com/docs/guides/predicted-outputs>
 
 use serde::{Deserialize, Serialize};
 

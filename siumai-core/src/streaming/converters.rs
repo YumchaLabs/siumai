@@ -76,7 +76,7 @@ pub trait SseEventConverter: Send + Sync {
 
     /// Handle the end of stream
     ///
-    /// Called when the stream ends (e.g., [DONE] event).
+    /// Called when the stream ends (e.g., `[DONE]` event).
     /// Return Some(event) to emit a final event, or None to end silently.
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         None

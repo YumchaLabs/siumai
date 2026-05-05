@@ -259,7 +259,7 @@ pub trait OpenAiImageAdapter: Send + Sync {
 
     /// Get provider-specific headers
     ///
-    /// Default is standard OpenAI headers (Authorization: Bearer <token>)
+    /// Default is standard OpenAI headers (`Authorization: Bearer <token>`).
     fn build_headers(
         &self,
         _api_key: &str,

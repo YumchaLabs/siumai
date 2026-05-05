@@ -91,7 +91,7 @@ impl OpenAiWebSocketSession {
         })
     }
 
-    /// Create a session from a plain [`OpenAiConfig`].
+    /// Create a session from a plain [`super::OpenAiConfig`].
     ///
     /// This is a convenience API for consumers that don't use the provider builder. It:
     /// - injects a WebSocket transport for streaming `/responses`, and
@@ -120,7 +120,7 @@ impl OpenAiWebSocketSession {
         })
     }
 
-    /// Create a session from an [`OpenAiConfig`] by building the HTTP client from `config.http_config`.
+    /// Create a session from a [`super::OpenAiConfig`] by building the HTTP client from `config.http_config`.
     ///
     /// This matches the config-first ergonomics of other provider clients:
     /// `OpenAiClient::from_config(OpenAiConfig)`.

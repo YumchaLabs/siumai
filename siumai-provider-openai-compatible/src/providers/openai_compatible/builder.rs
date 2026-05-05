@@ -149,7 +149,7 @@ impl OpenAiCompatibleBuilder {
     /// - Custom proxy or gateway configurations
     ///
     /// # Arguments
-    /// * `base_url` - The custom base URL to use (e.g., "https://my-server.com/v1")
+    /// * `base_url` - The custom base URL to use (e.g., `<https://my-server.com/v1>`)
     ///
     /// # Example
     /// ```rust,no_run

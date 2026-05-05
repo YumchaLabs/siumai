@@ -1,7 +1,7 @@
 //! Audio-related types for OpenAI Chat API
 //!
 //! This module contains types for audio input/output in OpenAI's multimodal chat models.
-//! Reference: https://platform.openai.com/docs/guides/audio
+//! Reference: <https://platform.openai.com/docs/guides/audio>
 
 use serde::{Deserialize, Serialize};
 

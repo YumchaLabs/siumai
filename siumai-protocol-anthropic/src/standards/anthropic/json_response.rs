@@ -772,6 +772,7 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                     }
                 }
             }
+            #[cfg(feature = "structured-messages")]
             crate::types::MessageContent::Json(value) => {
                 if response.raw_finish_reason.as_deref() == Some("tool_use")
                     && response.finish_reason.as_ref() == Some(&FinishReason::Stop)
