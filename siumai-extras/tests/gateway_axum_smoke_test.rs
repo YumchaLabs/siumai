@@ -764,7 +764,7 @@ fn collect_text_deltas(events: &[ChatStreamEvent]) -> String {
 }
 
 #[cfg(feature = "anthropic")]
-fn v3_tool_parts(
+fn typed_or_custom_tool_parts(
     events: &[ChatStreamEvent],
     kind: &str,
     tool_name: &str,
@@ -1071,8 +1071,8 @@ async fn gateway_route_smoke_transcodes_anthropic_fixture_to_openai_sse() {
         .await
         .expect("body bytes");
     let downstream = decode_openai_responses_sse_body(&body);
-    let calls = v3_tool_parts(&downstream, "tool-call", "web_fetch");
-    let results = v3_tool_parts(&downstream, "tool-result", "web_fetch");
+    let calls = typed_or_custom_tool_parts(&downstream, "tool-call", "web_fetch");
+    let results = typed_or_custom_tool_parts(&downstream, "tool-result", "web_fetch");
 
     assert!(!calls.is_empty(), "expected downstream web_fetch tool-call");
     assert!(

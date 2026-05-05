@@ -12,10 +12,6 @@ use futures::StreamExt;
 use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 
-fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
-    event.text_delta()
-}
-
 // Simple tool resolver
 struct NewsResolver;
 
@@ -117,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(event) = stream.next().await {
         match event {
             Ok(event) => {
-                if let Some(delta) = stream_text_delta(&event) {
+                if let Some(delta) = event.text_delta() {
                     print!("{}", delta);
                     current_text.push_str(delta);
                     std::io::Write::flush(&mut std::io::stdout())?;

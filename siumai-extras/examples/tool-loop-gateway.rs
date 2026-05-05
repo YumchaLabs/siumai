@@ -57,7 +57,7 @@ struct AppState {
 struct GatewayQuery {
     /// Prompt override.
     prompt: Option<String>,
-    /// Enable lossy downgrade for unsupported v3 parts.
+    /// Enable lossy downgrade for unsupported typed stream parts.
     lossy: Option<bool>,
     /// For Gemini target only: emit gateway tool results as `functionResponse` frames.
     emit_function_response: Option<bool>,

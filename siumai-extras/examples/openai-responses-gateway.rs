@@ -58,9 +58,9 @@ struct AppState {
 struct GatewayQuery {
     /// Prompt override.
     prompt: Option<String>,
-    /// Enable lossy downgrade for unsupported v3 parts.
+    /// Enable lossy downgrade for unsupported typed stream parts.
     lossy: Option<bool>,
-    /// Enable OpenAI Responses bridge (tool/source/reasoning v3 parts -> openai:*).
+    /// Enable OpenAI Responses bridge (tool/source/reasoning stream parts -> openai:*).
     bridge: Option<bool>,
 }
 

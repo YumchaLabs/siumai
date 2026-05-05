@@ -1,6 +1,6 @@
 #![cfg(all(feature = "anthropic", feature = "openai"))]
 
-//! Cross-protocol streaming transcoding alignment tests (Vercel-aligned v3 parts).
+//! Cross-protocol streaming transcoding alignment tests for typed stream parts.
 //!
 //! These tests validate that we can:
 //! 1) Parse Anthropic Messages SSE chunks into unified stream events, then
@@ -86,7 +86,7 @@ fn run_anthropic_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
     events
 }
 
-fn v3_tool_parts(
+fn typed_or_custom_tool_parts(
     events: &[ChatStreamEvent],
     kind: &str,
     tool_name: &str,
@@ -289,8 +289,8 @@ fn anthropic_web_fetch_transcodes_to_openai_responses_preserving_tool_call_and_r
     assert!(!lines.is_empty(), "fixture empty");
 
     let upstream = run_anthropic_converter(lines);
-    let upstream_calls = v3_tool_parts(&upstream, "tool-call", "web_fetch");
-    let upstream_results = v3_tool_parts(&upstream, "tool-result", "web_fetch");
+    let upstream_calls = typed_or_custom_tool_parts(&upstream, "tool-call", "web_fetch");
+    let upstream_results = typed_or_custom_tool_parts(&upstream, "tool-result", "web_fetch");
     assert!(!upstream_calls.is_empty(), "expected upstream tool-call");
     assert!(
         !upstream_results.is_empty(),
@@ -305,8 +305,8 @@ fn anthropic_web_fetch_transcodes_to_openai_responses_preserving_tool_call_and_r
     let bytes = encode_openai_responses_with_bridge(upstream);
     let downstream = decode_openai_responses(&bytes);
 
-    let calls = v3_tool_parts(&downstream, "tool-call", "web_fetch");
-    let results = v3_tool_parts(&downstream, "tool-result", "web_fetch");
+    let calls = typed_or_custom_tool_parts(&downstream, "tool-call", "web_fetch");
+    let results = typed_or_custom_tool_parts(&downstream, "tool-result", "web_fetch");
 
     assert!(!calls.is_empty(), "expected downstream tool-call");
     assert!(!results.is_empty(), "expected downstream tool-result");
@@ -327,8 +327,8 @@ fn anthropic_mcp_transcodes_to_openai_chat_completions_with_lossy_tool_result_fa
     assert!(!lines.is_empty(), "fixture empty");
 
     let upstream = run_anthropic_converter(lines);
-    let upstream_calls = v3_tool_parts(&upstream, "tool-call", "echo");
-    let upstream_results = v3_tool_parts(&upstream, "tool-result", "echo");
+    let upstream_calls = typed_or_custom_tool_parts(&upstream, "tool-call", "echo");
+    let upstream_results = typed_or_custom_tool_parts(&upstream, "tool-result", "echo");
     assert!(!upstream_calls.is_empty(), "expected upstream tool-call");
     assert!(
         !upstream_results.is_empty(),
@@ -401,7 +401,7 @@ fn anthropic_message_delta_transcodes_to_openai_chat_completions_with_single_sto
 }
 
 #[test]
-fn anthropic_v3_finish_part_serializes_to_openai_chat_completion_finish_chunk() {
+fn anthropic_typed_finish_part_serializes_to_openai_chat_completion_finish_chunk() {
     let bytes = encode_openai_chat_completions(
         vec![ChatStreamEvent::Part {
             part: ChatStreamPart::Finish {

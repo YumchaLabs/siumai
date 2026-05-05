@@ -2,7 +2,7 @@
 
 //! Cross-protocol streaming transcoding policy tests (OpenAI Responses -> OpenAI Chat Completions).
 //!
-//! This suite locks down how `tool-approval-request` v3 parts are handled when the target protocol
+//! This suite locks down how `tool-approval-request` stream parts are handled when the target protocol
 //! does not have a native representation (Chat Completions):
 //! - `Drop` => the part is omitted
 //! - `AsText` => the part is downgraded into a lossy assistant text delta

@@ -238,11 +238,14 @@ fn decode_openai_responses(bytes: &[u8]) -> Vec<ChatStreamEvent> {
     events
 }
 
-fn text_delta_compat(event: &ChatStreamEvent) -> Option<&str> {
+fn text_delta(event: &ChatStreamEvent) -> Option<&str> {
     event.text_delta()
 }
 
-fn custom_v3_tool_calls(events: &[ChatStreamEvent], tool_name: &str) -> Vec<serde_json::Value> {
+fn typed_or_custom_tool_calls(
+    events: &[ChatStreamEvent],
+    tool_name: &str,
+) -> Vec<serde_json::Value> {
     events
         .iter()
         .filter_map(|e| match e.part_ref() {
@@ -291,12 +294,12 @@ fn gemini_simple_text_transcodes_to_openai_chat_completions_and_responses() {
     assert!(!lines.is_empty(), "fixture empty");
 
     let upstream = run_gemini_converter(lines);
-    let upstream_text: String = upstream.iter().filter_map(text_delta_compat).collect();
+    let upstream_text: String = upstream.iter().filter_map(text_delta).collect();
     assert_eq!(upstream_text, "Hello world");
 
     let chat_bytes = encode_openai_chat_completions(upstream.clone());
     let chat_events = decode_openai_chat_completions(&chat_bytes);
-    let chat_text: String = chat_events.iter().filter_map(text_delta_compat).collect();
+    let chat_text: String = chat_events.iter().filter_map(text_delta).collect();
     assert_eq!(chat_text, "Hello world");
 
     let responses_bytes = encode_openai_responses_with_bridge(upstream);
@@ -324,7 +327,7 @@ fn gemini_function_call_transcodes_to_openai_chat_completions_and_responses() {
     assert!(!upstream.is_empty(), "fixture produced no events");
 
     assert!(
-        upstream.iter().any(|e| text_delta_compat(e).is_some()),
+        upstream.iter().any(|e| text_delta(e).is_some()),
         "expected initial text content delta"
     );
 
@@ -400,8 +403,8 @@ fn gemini_multi_function_calls_transcodes_to_openai_chat_completions_and_respons
 
     let responses_bytes = encode_openai_responses_with_bridge(upstream);
     let responses_events = decode_openai_responses(&responses_bytes);
-    let a = custom_v3_tool_calls(&responses_events, "tool_a");
-    let b = custom_v3_tool_calls(&responses_events, "tool_b");
+    let a = typed_or_custom_tool_calls(&responses_events, "tool_a");
+    let b = typed_or_custom_tool_calls(&responses_events, "tool_b");
     assert!(!a.is_empty(), "expected tool-call for tool_a");
     assert!(!b.is_empty(), "expected tool-call for tool_b");
 }
@@ -427,7 +430,7 @@ fn gemini_function_response_transcodes_to_openai_responses_tool_result() {
 }
 
 #[test]
-fn gemini_function_call_thought_signature_can_be_exposed_as_v3_part() {
+fn gemini_function_call_thought_signature_is_preserved_on_typed_tool_call() {
     let path = gemini_fixtures_dir().join("function_call_with_thought_signature.sse");
     assert!(path.exists(), "fixture missing: {:?}", path);
 
@@ -452,9 +455,9 @@ fn gemini_function_call_thought_signature_can_be_exposed_as_v3_part() {
         }
     }
 
-    let v3_calls = custom_v3_tool_calls(&events, "test-tool");
-    assert!(!v3_calls.is_empty(), "expected v3 tool-call event");
-    let pm = v3_calls[0]
+    let tool_calls = typed_or_custom_tool_calls(&events, "test-tool");
+    assert!(!tool_calls.is_empty(), "expected typed tool-call event");
+    let pm = tool_calls[0]
         .get("providerMetadata")
         .and_then(|v| v.get("google"))
         .and_then(|v| v.get("thoughtSignature"))
