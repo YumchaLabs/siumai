@@ -5,8 +5,8 @@ Last updated: 2026-04-21
 ## Completed
 
 - Audited the upstream AI SDK video model, registry, and generate-video references.
-- Added the core task-oriented `VideoModelV3` / `VideoModelV4` / `VideoModel` family in
-  `siumai-core`.
+- Added the core task-oriented `VideoModel` family in `siumai-core`, with `VideoModelV4` retained
+  as the AI SDK-facing marker.
 - Bridged legacy `VideoGenerationCapability` implementations into that family instead of forking a
   second video runtime.
 - Added dedicated registry factory hooks for video family-model construction.

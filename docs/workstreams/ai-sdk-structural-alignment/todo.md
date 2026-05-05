@@ -695,7 +695,8 @@ Status legend:
       use that provider-owned lane instead of shared top-level fields
   - [x] Promote video to a formal family-model / registry surface instead of leaving it on
     extension-only handles.
-    - `siumai-core` now exposes task-oriented `VideoModelV3` / `VideoModelV4` / `VideoModel`
+    - `siumai-core` now exposes task-oriented `VideoModel` plus the AI SDK-facing
+      `VideoModelV4` marker
     - `siumai-registry` now exposes dedicated `video_model_family_with_ctx(...)`,
       `ProviderRegistryHandle::video_model(...)`, and `VideoModelHandle`
     - `siumai::video::{create_task, query_task}` now provides the stable facade helper lane
@@ -707,7 +708,7 @@ Status legend:
   - [x] Add provider-owned materialization adapters for the audited provider-reference-only video
     results.
     - shared `MaterializedVideoAsset` now exists on the video type surface
-    - `VideoGenerationCapability` / `VideoModelV3` now expose
+    - `VideoGenerationCapability` / `VideoModel` now expose
       `materialize_video_reference(...)`
     - `siumai::video::generate(...)` now best-effort materializes audited provider references
       through the same model-capability dispatch chain
@@ -1287,7 +1288,7 @@ Status legend:
     request-level and default provider options, and Gemini now honors `displayName` plus poll
     interval/timeout provider options on the upload path
   - `generateVideo` polling control parity is now covered on the Rust task-oriented helper:
-    `VideoModelV3::polling_options(...)` / `VideoGenerationCapability::polling_options(...)`
+    `VideoModel::polling_options(...)` / `VideoGenerationCapability::polling_options(...)`
     feed provider-owned `pollIntervalMs` / `pollTimeoutMs` into `siumai::video::generate(...)`
     for the audited Vertex, Gemini/Google, and xAI video providers without leaking those
     runtime-only controls into task-submission request bodies

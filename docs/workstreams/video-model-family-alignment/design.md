@@ -49,9 +49,8 @@ family-centered architecture around video:
 
 `siumai-core` now exposes:
 
-- `VideoModelV3`
-- `VideoModelV4`
 - `VideoModel`
+- `VideoModelV4`
 
 The naming stays audit-friendly against AI SDK's `VideoModelV4`, but the Rust contract remains
 explicitly task-oriented:

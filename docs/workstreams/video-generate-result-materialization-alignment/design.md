@@ -7,7 +7,7 @@ Last updated: 2026-04-21
 The earlier `video-model-family-alignment` workstream already closed the biggest architectural
 gaps:
 
-- task-oriented `VideoModelV3` / `VideoModelV4` / `VideoModel`
+- task-oriented `VideoModel` plus the AI SDK-facing `VideoModelV4` marker
 - dedicated registry/factory video handles
 - stable public `siumai::video` helpers
 - high-level `generate(...)` batching and task polling

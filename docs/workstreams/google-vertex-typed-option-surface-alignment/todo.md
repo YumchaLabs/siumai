@@ -22,7 +22,7 @@ Last updated: 2026-04-28
 - [x] Decide the high-level Vertex video helper boundary.
   - the generic Rust-first `siumai::video::generate(...)` helper is sufficient for the audited
     polling semantics
-  - `VideoModelV3::polling_options(...)` / `VideoGenerationCapability::polling_options(...)` let
+  - `VideoModel::polling_options(...)` / `VideoGenerationCapability::polling_options(...)` let
     the Vertex provider consume `providerOptions.vertex.pollIntervalMs` and `pollTimeoutMs` in the
     shared helper loop, matching AI SDK `doGenerate()` polling controls without sending those
     runtime-only fields to `predictLongRunning`

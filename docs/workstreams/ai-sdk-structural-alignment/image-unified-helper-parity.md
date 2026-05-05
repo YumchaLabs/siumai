@@ -23,7 +23,7 @@ Upstream reference:
   - `edit(...)` and `variation(...)` as public facade helpers over `ImageExtras`
 - `GenerateImageRequest` can be constructed directly or derived from the older split request
   structs (`ImageGenerationRequest`, `ImageEditRequest`, `ImageVariationRequest`).
-- `ImageGenerationCapability` and `ImageModelV3` now also expose an object-safe
+- `ImageGenerationCapability` and `ImageModel` now expose an object-safe
   `max_images_per_call()` metadata getter so helper-level batching can mirror AI SDK
   `maxImagesPerCall` without breaking `dyn ImageModel` object safety.
 - `siumai::image::GenerateOptions` now also accepts `max_images_per_call`, and the public
@@ -66,7 +66,8 @@ Reasoning:
 
 So the stable Rust shape is now explicit:
 
-- `ImageModelV4` stays the object-safe family naming contract.
+- `ImageModel` is the object-safe Rust family execution contract.
+- `ImageModelV4` stays as the intentional upstream AI SDK V4 marker.
 - `siumai::image::generate_image(...)` owns unified request classification and fallback behavior.
 - Future parity work such as AI SDK-style `maxImagesPerCall` should be added through object-safe
   metadata/getter surfaces plus helper-level batching, not by turning the family trait into a

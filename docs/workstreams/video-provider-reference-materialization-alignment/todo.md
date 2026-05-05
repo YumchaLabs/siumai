@@ -13,7 +13,7 @@ Status legend:
 
 - [x] Identify the smallest shared type needed for provider-owned final-video downloads.
 - [x] Add `MaterializedVideoAsset` on the shared video type surface.
-- [x] Extend `VideoGenerationCapability` and `VideoModelV3` with a default unsupported
+- [x] Extend `VideoGenerationCapability` and `VideoModel` with a default unsupported
   `materialize_video_reference(...)` hook.
 
 ## Track B - Dispatch alignment

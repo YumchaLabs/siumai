@@ -7,7 +7,7 @@ Last updated: 2026-04-21
 The earlier video workstreams already closed most of the structural gap against
 `repo-ref/ai/packages/ai/src/generate-video/generate-video.ts`:
 
-- stable task-oriented `VideoModelV3` / `VideoModelV4` / `VideoModel`
+- stable task-oriented `VideoModel` plus the AI SDK-facing `VideoModelV4` marker
 - dedicated registry `video_model(...)` handles
 - high-level `siumai::video::generate(...)`
 - default URL materialization on the helper path
@@ -55,7 +55,7 @@ owns conversion into `GeneratedVideo` / `MaterializedVideo`.
 
 ### 2. Extend the existing video capability instead of forking a second trait hierarchy
 
-`VideoGenerationCapability` and `VideoModelV3` now expose:
+`VideoGenerationCapability` and `VideoModel` now expose:
 
 - `materialize_video_reference(&ProviderReference) -> MaterializedVideoAsset`
 
