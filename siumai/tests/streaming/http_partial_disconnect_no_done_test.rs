@@ -55,7 +55,7 @@ async fn http_partial_disconnect_without_done_yields_no_stream_end() {
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, Ok(ChatStreamEvent::ContentDelta { .. })))
+            .any(|e| matches!(e, Ok(event) if event.text_delta().is_some()))
     );
     // No StreamEnd because server closed without [DONE]
     assert!(

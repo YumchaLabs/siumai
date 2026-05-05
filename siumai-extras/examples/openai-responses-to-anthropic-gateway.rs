@@ -56,8 +56,8 @@ use siumai_extras::server::{
 };
 
 use crate::gateway_bridge_common::{
-    GatewayQuery, internal_error_response, normalize_source_request_for_backend,
-    read_source_request_json_or_prompt,
+    GatewayQuery, GatewayResponseResult, internal_error_response,
+    normalize_source_request_for_backend, read_source_request_json_or_prompt,
 };
 
 #[derive(Clone)]
@@ -100,7 +100,7 @@ fn normalize_request(
     backend_model_id: &str,
     stream: bool,
     policy: &GatewayBridgePolicy,
-) -> Result<ChatRequest, Response> {
+) -> GatewayResponseResult<ChatRequest> {
     // Normalize the downstream OpenAI Responses request first, then pin the request to the
     // backend Anthropic model selected by this example.
     normalize_source_request_for_backend(
@@ -137,7 +137,7 @@ async fn json_route(
     // Phase 2: explicit source normalization into `ChatRequest`.
     let request = match normalize_request(&body, &state.backend_model_id, false, &state.policy) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     // Phase 3: unified backend execution.
@@ -179,7 +179,7 @@ async fn sse_route(
     // Phase 2: explicit source normalization into `ChatRequest`.
     let request = match normalize_request(&body, &state.backend_model_id, true, &state.policy) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     // Phase 3: unified backend streaming execution.

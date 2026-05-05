@@ -150,8 +150,7 @@ Current Siumai behavior:
   - `siumai-extras/examples/streaming-orchestrator.rs`
 - the custom-provider example now emits stable `ChatStreamEvent::Part(ChatStreamPart::TextDelta)`
   directly instead of teaching new provider authors to synthesize only legacy `ContentDelta`
-- the MiniMaxi example now treats stable `ReasoningDelta` / `TextDelta` as the primary stream lane
-  while keeping legacy `ThinkingDelta` / `ContentDelta` as compatibility input
+- the MiniMaxi example now treats stable `ReasoningDelta` / `TextDelta` as the stream lane
 
 Why this matters:
 

@@ -118,10 +118,7 @@ async fn upstream_json_proxy_route(State(state): State<UpstreamProxyState>) -> R
 async fn upstream_keepalive_sse_route(State(state): State<UpstreamSseState>) -> Response<Body> {
     let chat_stream: ChatStream = Box::pin(stream! {
         tokio::time::sleep(Duration::from_millis(25)).await;
-        yield Ok(ChatStreamEvent::ContentDelta {
-            delta: "proxy-stream-ok".to_string(),
-            index: None,
-        });
+        yield Ok(ChatStreamEvent::text_delta_part("0", "proxy-stream-ok"));
         yield Ok(ChatStreamEvent::StreamEnd {
             response: ChatResponse::new(MessageContent::Text("proxy-stream-ok".to_string())),
         });
@@ -137,10 +134,7 @@ async fn upstream_keepalive_sse_route(State(state): State<UpstreamSseState>) -> 
 async fn upstream_idle_timeout_sse_route(State(state): State<UpstreamSseState>) -> Response<Body> {
     let chat_stream: ChatStream = Box::pin(stream! {
         tokio::time::sleep(Duration::from_millis(30)).await;
-        yield Ok(ChatStreamEvent::ContentDelta {
-            delta: "late".to_string(),
-            index: None,
-        });
+        yield Ok(ChatStreamEvent::text_delta_part("0", "late"));
     });
 
     to_transcoded_sse_response(

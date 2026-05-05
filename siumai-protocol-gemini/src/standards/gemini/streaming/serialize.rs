@@ -822,6 +822,5 @@ pub(super) fn serialize_event(
                 }
             }
         }
-        _ => Ok(Vec::new()),
     }
 }

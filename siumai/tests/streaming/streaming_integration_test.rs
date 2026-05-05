@@ -75,7 +75,9 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::prelude::unified::{ChatStreamEvent, JsonEventConverter, SseEventConverter};
+use siumai::prelude::unified::{
+    ChatStreamEvent, ChatStreamPart, JsonEventConverter, SseEventConverter,
+};
 
 #[tokio::test]
 async fn test_openai_event_conversion() {
@@ -89,18 +91,15 @@ async fn test_openai_event_conversion() {
         retry: None,
     };
 
-    let result = converter.convert_event(event).await;
+    let mut result = converter.convert_event(event).await;
+    result.extend(converter.handle_stream_end_events());
     assert!(!result.is_empty());
 
-    let content_event = result
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
-
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
-        assert_eq!(delta, "Hello");
-    } else {
-        panic!("Expected ContentDelta event");
-    }
+    assert!(
+        result
+            .iter()
+            .any(|event| matches!(event, Ok(event) if event.text_delta() == Some("Hello")))
+    );
 }
 
 #[tokio::test]
@@ -119,18 +118,15 @@ async fn test_anthropic_event_conversion() {
         retry: None,
     };
 
-    let result = converter.convert_event(event).await;
+    let mut result = converter.convert_event(event).await;
+    result.extend(converter.handle_stream_end_events());
     assert!(!result.is_empty());
 
-    let content_event = result
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
-
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
-        assert_eq!(delta, "Hello");
-    } else {
-        panic!("Expected ContentDelta event");
-    }
+    assert!(
+        result
+            .iter()
+            .any(|event| matches!(event, Ok(event) if event.text_delta() == Some("Hello")))
+    );
 }
 
 #[tokio::test]
@@ -151,15 +147,11 @@ async fn test_gemini_json_conversion() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    let content_event = result
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
-
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
-        assert_eq!(delta, "Hello");
-    } else {
-        panic!("Expected ContentDelta event");
-    }
+    assert!(
+        result
+            .iter()
+            .any(|event| matches!(event, Ok(event) if event.text_delta() == Some("Hello")))
+    );
 }
 
 #[tokio::test]
@@ -174,15 +166,11 @@ async fn test_ollama_json_conversion() {
     let result = converter.convert_json(json_data).await;
     assert!(!result.is_empty());
 
-    let content_event = result
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
-
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
-        assert_eq!(delta, "Hello");
-    } else {
-        panic!("Expected ContentDelta event");
-    }
+    assert!(
+        result
+            .iter()
+            .any(|event| matches!(event, Ok(event) if event.text_delta() == Some("Hello")))
+    );
 }
 
 #[tokio::test]
@@ -200,26 +188,19 @@ async fn test_openai_thinking_conversion() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    let thinking_event = result
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ThinkingDelta { .. })));
-
-    if let Some(Ok(ChatStreamEvent::ThinkingDelta { delta })) = thinking_event {
-        assert_eq!(delta, "Let me think...");
-    } else {
-        panic!("Expected ThinkingDelta event");
-    }
+    assert!(result.iter().any(
+        |event| matches!(event, Ok(event) if event.reasoning_delta() == Some("Let me think..."))
+    ));
 }
 
 #[tokio::test]
 async fn test_openai_usage_conversion() {
     let converter = make_openai_converter();
 
-    // Test usage update
+    // Test final usage update
     let event = Event {
         event: "".to_string(),
-        data: r#"{"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}"#
-            .to_string(),
+        data: r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}"#.to_string(),
         id: "".to_string(),
         retry: None,
     };
@@ -227,17 +208,13 @@ async fn test_openai_usage_conversion() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    let usage_event = result
+    let usage = result
         .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::UsageUpdate { .. })));
-
-    if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = usage_event {
-        assert_eq!(usage.prompt_tokens(), Some(10));
-        assert_eq!(usage.completion_tokens(), Some(20));
-        assert_eq!(usage.total_tokens(), Some(30));
-    } else {
-        panic!("Expected UsageUpdate event");
-    }
+        .find_map(|event| event.as_ref().ok().and_then(ChatStreamEvent::finish_usage))
+        .expect("Expected Finish usage event");
+    assert_eq!(usage.prompt_tokens(), Some(10));
+    assert_eq!(usage.completion_tokens(), Some(20));
+    assert_eq!(usage.total_tokens(), Some(30));
 }
 
 #[tokio::test]
@@ -255,16 +232,19 @@ async fn test_openai_content_prioritized_over_usage() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    // Should return ContentDelta, not UsageUpdate
-    let content_event = result
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
+    // Should return TextDelta, not a usage-only finish part
+    let content_event = result.iter().find_map(|event| match event {
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { id, delta, .. },
+        }) => Some((id, delta)),
+        _ => None,
+    });
 
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, index })) = content_event {
+    if let Some((id, delta)) = content_event {
         assert_eq!(delta, "` and");
-        assert_eq!(index, &Some(0));
+        assert!(!id.is_empty());
     } else {
-        panic!("Expected ContentDelta event, not UsageUpdate");
+        panic!("Expected TextDelta event, not usage-only finish");
     }
 }
 
@@ -301,16 +281,19 @@ async fn test_xai_content_prioritized_over_usage() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    // Should return ContentDelta, not UsageUpdate
-    let content_event = result
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
+    // Should return TextDelta, not a usage-only finish part
+    let content_event = result.iter().find_map(|event| match event {
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { id, delta, .. },
+        }) => Some((id, delta)),
+        _ => None,
+    });
 
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, index })) = content_event {
+    if let Some((id, delta)) = content_event {
         assert_eq!(delta, "Hello world");
-        assert_eq!(index, &Some(0));
+        assert!(!id.is_empty());
     } else {
-        panic!("Expected ContentDelta event, not UsageUpdate");
+        panic!("Expected TextDelta event, not usage-only finish");
     }
 }
 
@@ -407,17 +390,13 @@ async fn test_ollama_stream_end() {
     let result = converter.convert_json(json_data).await;
     assert!(!result.is_empty());
 
-    let usage_event = result
+    let usage = result
         .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::UsageUpdate { .. })));
-
-    if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = usage_event {
-        assert_eq!(usage.prompt_tokens(), Some(10));
-        assert_eq!(usage.completion_tokens(), Some(20));
-        assert_eq!(usage.total_tokens(), Some(30));
-    } else {
-        panic!("Expected UsageUpdate event");
-    }
+        .find_map(|event| event.as_ref().ok().and_then(ChatStreamEvent::finish_usage))
+        .expect("Expected Finish usage event");
+    assert_eq!(usage.prompt_tokens(), Some(10));
+    assert_eq!(usage.completion_tokens(), Some(20));
+    assert_eq!(usage.total_tokens(), Some(30));
 }
 
 #[tokio::test]

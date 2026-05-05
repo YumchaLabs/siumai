@@ -31,14 +31,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        match event {
-            ChatStreamEvent::StreamEnd { response } => {
-                println!("\n\n✅ Stream completed!");
-                if let Some(usage) = &response.usage {
-                    println!("📊 Tokens: {}", usage.total_tokens().unwrap_or(0));
-                }
+        if let ChatStreamEvent::StreamEnd { response } = event {
+            println!("\n\n✅ Stream completed!");
+            if let Some(usage) = &response.usage {
+                println!("📊 Tokens: {}", usage.total_tokens().unwrap_or(0));
             }
-            _ => {}
         }
     }
 

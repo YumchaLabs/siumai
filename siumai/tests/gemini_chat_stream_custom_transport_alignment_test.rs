@@ -87,7 +87,9 @@ async fn gemini_chat_stream_uses_custom_transport_and_passes_request_content() {
     while let Some(item) = stream.next().await {
         let evt = item.expect("event ok");
         match evt {
-            ChatStreamEvent::ContentDelta { delta, .. } => deltas.push(delta),
+            event if event.text_delta().is_some() => {
+                deltas.push(event.text_delta().expect("text delta").to_string());
+            }
             ChatStreamEvent::StreamEnd { .. } => {
                 saw_end = true;
                 break;

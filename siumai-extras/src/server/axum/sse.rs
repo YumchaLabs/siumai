@@ -181,7 +181,6 @@ pub fn to_sse_response(
                 let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
                 Some(Event::default().event(&event_type).data(data_str))
             }
-            Ok(_) => None,
             Err(e) => {
                 let msg = if opts.mask_errors {
                     opts.masked_error_message

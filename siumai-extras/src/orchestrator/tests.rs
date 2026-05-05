@@ -87,19 +87,13 @@ impl ChatCapability for MockChatModel {
             #[allow(unreachable_patterns)]
             match &response.content {
                 MessageContent::Text(text) if !text.is_empty() => {
-                    yield ChatStreamEvent::ContentDelta {
-                        delta: text.clone(),
-                        index: None,
-                    };
+                    yield ChatStreamEvent::text_delta_part("0", text.clone());
                 }
                 MessageContent::MultiModal(parts) => {
                     for part in parts {
                         match part {
                             ContentPart::Text { text, .. } if !text.is_empty() => {
-                                yield ChatStreamEvent::ContentDelta {
-                                    delta: text.clone(),
-                                    index: None,
-                                };
+                                yield ChatStreamEvent::text_delta_part("0", text.clone());
                             }
                             ContentPart::ToolCall {
                                 tool_call_id,
@@ -1632,10 +1626,9 @@ async fn test_generate_stream_basic_exposes_steps_and_total_usage() {
 
     let mut collected = String::new();
     while let Some(event) = stream.next().await {
-        match event.unwrap() {
-            ChatStreamEvent::ContentDelta { delta, .. } => collected.push_str(&delta),
-            ChatStreamEvent::StreamEnd { .. } => {}
-            _ => {}
+        let event = event.unwrap();
+        if let Some(delta) = event.text_delta() {
+            collected.push_str(delta);
         }
     }
 

@@ -223,10 +223,7 @@ fn synthetic_cross_protocol_stream() -> ChatStream {
                 body: None,
             },
         }),
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "gateway ok".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "gateway ok")),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]))
 }

@@ -13,7 +13,7 @@
 - [x] Replace `EventBuilder::add_content_delta` with typed text part emission or remove it.
 - [x] Replace `EventBuilder::add_thinking_delta` with typed reasoning part emission or remove it.
 - [x] Replace `EventBuilder::add_tool_call_delta` with typed tool input/call parts or remove it.
-- [ ] Audit `UsageUpdate` and route usage through `ChatStreamPart::Finish` or a typed usage part.
+- [x] Audit `UsageUpdate` and route usage through `ChatStreamPart::Finish` or a typed usage part.
 - [x] Move Gemini stream parser off legacy text/reasoning/tool/usage shadow events.
 - [x] Move Anthropic stream parser off legacy text/reasoning/usage shadow events.
 - [x] Move OpenAI-compatible stream parser off legacy text/reasoning/tool/usage shadow events.
@@ -23,9 +23,9 @@
 - [x] Update stream simulation middleware to synthesize typed text parts.
 - [x] Update Axum text/SSE helpers to consume typed parts.
 - [x] Update `StreamProcessor` to aggregate typed parts only.
-- [ ] Update structured-output stream parsing to consume typed text and typed tool input parts.
-- [ ] Update gateway SSE rendering to consume typed parts only.
-- [ ] Update orchestrator stream collection to consume typed parts only.
+- [x] Update structured-output stream parsing to consume typed text and typed tool input parts.
+- [x] Update gateway SSE rendering to consume typed parts only.
+- [x] Update orchestrator stream collection to consume typed parts only.
 
 ## Milestone 4 - Protocol Serializers
 
@@ -37,8 +37,8 @@
 
 ## Milestone 5 - Removal
 
-- [ ] Remove `ContentDelta`.
-- [ ] Remove `ThinkingDelta`.
-- [ ] Remove `ToolCallDelta`.
-- [ ] Remove `UsageUpdate`.
-- [ ] Remove legacy projection tests and update migration notes.
+- [x] Remove `ContentDelta`.
+- [x] Remove `ThinkingDelta`.
+- [x] Remove `ToolCallDelta`.
+- [x] Remove `UsageUpdate`.
+- [x] Remove legacy projection tests and update migration notes.

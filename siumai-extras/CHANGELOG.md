@@ -34,12 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `stream_object` and the extras tool-loop gateway now consume the upgraded stable
-  `ChatStreamEvent::Part` tool lifecycle directly instead of depending on legacy delta/custom-only
-  accumulation.
-- `stream_object`, tool-loop assistant-history accumulation, and streamed orchestrator fallback
-  now also consume stable `Part(TextDelta)` directly instead of depending on legacy
-  `ContentDelta` shadows.
+- `stream_object` and the extras tool-loop gateway now consume the stable `ChatStreamEvent::Part`
+  tool lifecycle directly.
+- `stream_object`, tool-loop assistant-history accumulation, and streamed orchestrator fallback now
+  consume stable `Part(TextDelta)` directly.
 - The extras tool-loop gateway now also emits stable runtime `Part(ToolResult)` between local
   tool-execution steps while keeping the legacy `gateway:tool-result` custom event for
   compatibility, so downstream protocol serializers can prefer the semantic lane.
@@ -47,14 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `event: part` frames, and both now use one stable `{ part, replay }` JSON envelope (`replay:
   null` when absent), so the AI-SDK-aligned semantic stream lane is observable outside the core
   crate without event-kind-dependent payload shape drift.
-- The Axum plain-text helper `to_text_stream()` now also reads stable `Part(TextDelta)` /
-  `PartWithReplay(TextDelta)` events instead of depending only on legacy `ContentDelta`.
-- Gateway bridge samples, Axum transcode tests, and bridge customization guidance now mutate
-  stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` directly instead of assuming the legacy
-  `ContentDelta` shadow lane is always present.
-- The streaming orchestrator example now also consumes stable `Part(TextDelta)` /
-  `PartWithReplay(TextDelta)` directly instead of teaching a legacy-only `ContentDelta`
-  consumption pattern.
+- The Axum plain-text helper `to_text_stream()` reads stable `Part(TextDelta)` /
+  `PartWithReplay(TextDelta)` events.
+- Gateway bridge samples, Axum transcode tests, and bridge customization guidance mutate stable
+  `Part(TextDelta)` / `PartWithReplay(TextDelta)` directly.
+- The streaming orchestrator example consumes stable `Part(TextDelta)` /
+  `PartWithReplay(TextDelta)` directly.
 - Orchestrator step-usage aggregation now follows AI SDK `totalUsage` semantics more closely:
   `StepResult::merge_usage()` / `AgentResult::total_usage()` still sum token/accounting fields
   across steps, but aggregated results no longer preserve per-step provider-native `Usage.raw`,

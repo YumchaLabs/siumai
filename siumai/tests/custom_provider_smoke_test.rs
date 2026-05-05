@@ -64,14 +64,8 @@ impl CustomProvider for MiniProvider {
                     body: None,
                 },
             }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "echo:".to_string(),
-                index: None,
-            }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: prompt.to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "echo:")),
+            Ok(ChatStreamEvent::text_delta_part("0", prompt)),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse {
                     id: None,
@@ -116,8 +110,8 @@ async fn custom_provider_chat_and_stream_smoke() -> Result<(), LlmError> {
         .await?;
     let mut acc = String::new();
     while let Some(ev) = stream.next().await {
-        if let ChatStreamEvent::ContentDelta { delta, .. } = ev? {
-            acc.push_str(&delta);
+        if let Some(delta) = ev?.text_delta() {
+            acc.push_str(delta);
         }
     }
     assert_eq!(acc, "echo:pong");

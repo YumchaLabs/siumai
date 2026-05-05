@@ -147,7 +147,6 @@ impl StreamProcessor {
             ChatStreamEvent::Custom { event_type, data } => {
                 ProcessedEvent::Custom { event_type, data }
             }
-            _ => ProcessedEvent::Ignored,
         }
     }
 

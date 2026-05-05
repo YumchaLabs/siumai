@@ -951,10 +951,7 @@ mod transcode_tests {
         use siumai::prelude::unified::{ChatResponse, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hello")),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
             }),
@@ -1047,10 +1044,7 @@ mod transcode_tests {
         use siumai::prelude::unified::{ChatResponse, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hello")),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
             }),
@@ -1074,10 +1068,7 @@ mod transcode_tests {
         use siumai::prelude::unified::{ChatResponse, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hello")),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
             }),
@@ -1103,10 +1094,7 @@ mod transcode_tests {
         use siumai::prelude::unified::{ChatResponse, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hello")),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
             }),
@@ -1150,10 +1138,7 @@ mod transcode_tests {
         use siumai::prelude::unified::{ChatResponse, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hello")),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
             }),
@@ -1186,10 +1171,7 @@ mod transcode_tests {
         use siumai::prelude::unified::{ChatResponse, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hello")),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
             }),
@@ -1236,10 +1218,7 @@ mod transcode_tests {
         use siumai::prelude::unified::{ChatResponse, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hello")),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
             }),
@@ -1272,10 +1251,7 @@ mod transcode_tests {
 
         let chat_stream: ChatStream = Box::pin(stream! {
             tokio::time::sleep(Duration::from_millis(25)).await;
-            yield Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            });
+            yield Ok(ChatStreamEvent::text_delta_part("0", "hello"));
             yield Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
             });
@@ -1305,10 +1281,7 @@ mod transcode_tests {
 
         let chat_stream: ChatStream = Box::pin(stream! {
             tokio::time::sleep(Duration::from_millis(30)).await;
-            yield Ok(ChatStreamEvent::ContentDelta {
-                delta: "late".to_string(),
-                index: None,
-            });
+            yield Ok(ChatStreamEvent::text_delta_part("0", "late"));
         });
 
         let resp = to_transcoded_sse_response(
@@ -1383,10 +1356,7 @@ mod transcode_tests {
                     body: None,
                 },
             }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", "hello")),
         ]));
 
         let resp = to_transcoded_sse_response(

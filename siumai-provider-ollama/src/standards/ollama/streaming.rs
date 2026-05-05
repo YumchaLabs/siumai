@@ -405,7 +405,6 @@ impl JsonEventConverter for OllamaEventConverter {
                 serialize_json_line(body)
             }
             ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
-            _ => Ok(Vec::new()),
         }
     }
 }

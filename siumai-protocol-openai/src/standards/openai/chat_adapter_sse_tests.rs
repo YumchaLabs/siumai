@@ -72,7 +72,8 @@ async fn openai_standard_adapter_transforms_sse_events() {
 
     let mut found_transformed = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
+        if let Ok(event) = event_result
+            && let Some(delta) = event.text_delta()
             && delta.starts_with("[TRANSFORMED] ")
         {
             found_transformed = true;
@@ -104,7 +105,9 @@ async fn openai_standard_without_adapter_no_transformation() {
 
     let mut found_content = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result {
+        if let Ok(event) = event_result
+            && let Some(delta) = event.text_delta()
+        {
             found_content = true;
             assert_eq!(delta, "Hello", "content should not be transformed");
         }
@@ -188,7 +191,7 @@ async fn openai_adapter_uses_first_choice_when_multiple() {
     let deltas = result
         .into_iter()
         .filter_map(|r| match r {
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) => Some(delta),
+            Ok(event) => event.text_delta().map(ToString::to_string),
             _ => None,
         })
         .collect::<Vec<_>>();

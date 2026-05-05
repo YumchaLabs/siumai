@@ -276,17 +276,6 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
             ChatStreamEvent::StreamStart { .. } => {
                 summary.has_stream_start = true;
             }
-            ChatStreamEvent::ContentDelta { delta, .. } => {
-                summary.text.push_str(delta);
-            }
-            ChatStreamEvent::UsageUpdate { usage }
-                if usage.prompt_tokens().unwrap_or(0) > 0
-                    || usage.completion_tokens().unwrap_or(0) > 0 =>
-            {
-                summary.prompt_tokens = usage.prompt_tokens();
-                summary.completion_tokens = usage.completion_tokens();
-                summary.total_tokens = usage.total_tokens();
-            }
             ChatStreamEvent::StreamEnd { response } => {
                 if summary.finish_reason.is_none() {
                     summary.finish_reason = response
@@ -306,6 +295,9 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
                 match part {
                     ChatStreamPart::StreamStart { .. } => {
                         summary.has_stream_start = true;
+                    }
+                    ChatStreamPart::TextDelta { delta, .. } => {
+                        summary.text.push_str(delta);
                     }
                     ChatStreamPart::Finish {
                         usage,

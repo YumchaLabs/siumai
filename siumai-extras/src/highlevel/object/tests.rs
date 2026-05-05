@@ -29,7 +29,7 @@ impl ChatCapability for StreamOnlyModel {
         let chunks = self.deltas.clone();
         let s = async_stream::try_stream! {
             for d in chunks {
-                yield ChatStreamEvent::ContentDelta { delta: d.to_string(), index: None };
+                yield ChatStreamEvent::text_delta_part("0", d);
             }
             yield ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(
@@ -166,10 +166,10 @@ async fn stream_object_emits_partial_updates() {
             _tools: Option<Vec<Tool>>,
         ) -> Result<ChatStream, LlmError> {
             let s = async_stream::try_stream! {
-                yield ChatStreamEvent::ContentDelta { delta: "{".into(), index: None };
-                yield ChatStreamEvent::ContentDelta { delta: "\"name\"".into(), index: None };
-                yield ChatStreamEvent::ContentDelta { delta: ":\"Ada\",".into(), index: None };
-                yield ChatStreamEvent::ContentDelta { delta: "\"age\":36}".into(), index: None };
+                yield ChatStreamEvent::text_delta_part("0", "{");
+                yield ChatStreamEvent::text_delta_part("0", "\"name\"");
+                yield ChatStreamEvent::text_delta_part("0", ":\"Ada\",");
+                yield ChatStreamEvent::text_delta_part("0", "\"age\":36}");
                 yield ChatStreamEvent::StreamEnd {
                     response: ChatResponse::new(
                         MessageContent::Text("".into())

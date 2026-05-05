@@ -1,6 +1,6 @@
 //! Factory-level SSE injection tests
 //!
-//! Validates StreamFactory's behavior to inject a synthetic ContentDelta when:
+//! Validates StreamFactory's behavior to inject a synthetic TextDelta when:
 //! - No content deltas were seen during the stream, and
 //! - The converter provides a final StreamEnd carrying non-empty content on [DONE].
 
@@ -60,12 +60,7 @@ impl SseEventConverter for DeltaThenEndConverter {
                 + '_,
         >,
     > {
-        Box::pin(async move {
-            vec![Ok(ChatStreamEvent::ContentDelta {
-                delta: "DELTA".to_string(),
-                index: None,
-            })]
-        })
+        Box::pin(async move { vec![Ok(ChatStreamEvent::text_delta_part("0", "DELTA"))] })
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
@@ -130,10 +125,8 @@ async fn factory_injects_contentdelta_when_end_with_text_and_no_deltas() {
         .map(|e| e.unwrap())
         .collect();
 
-    // Expect a synthetic ContentDelta with 'INJECT' followed by StreamEnd
-    assert!(
-        matches!(events.first(), Some(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "INJECT")
-    );
+    // Expect a synthetic TextDelta with 'INJECT' followed by StreamEnd
+    assert!(matches!(events.first(), Some(event) if event.text_delta() == Some("INJECT")));
     assert!(matches!(
         events.get(1),
         Some(ChatStreamEvent::StreamEnd { .. })
@@ -197,10 +190,8 @@ async fn factory_does_not_inject_when_delta_already_seen() {
         .map(|e| e.unwrap())
         .collect();
 
-    // Expect only one ContentDelta (DELTA) followed by StreamEnd, without synthetic injection from END
-    assert!(
-        matches!(events.first(), Some(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "DELTA")
-    );
+    // Expect only one TextDelta (DELTA) followed by StreamEnd, without synthetic injection from END
+    assert!(matches!(events.first(), Some(event) if event.text_delta() == Some("DELTA")));
     assert!(matches!(
         events.get(1),
         Some(ChatStreamEvent::StreamEnd { .. })
@@ -208,7 +199,7 @@ async fn factory_does_not_inject_when_delta_already_seen() {
     assert_eq!(
         events.len(),
         2,
-        "should not inject extra ContentDelta when delta already seen"
+        "should not inject extra TextDelta when delta already seen"
     );
 
     drop(server);
@@ -295,10 +286,7 @@ impl SseEventConverter for DeltaOnlyConverter {
             if event.data.trim().is_empty() || event.data.trim() == "[DONE]" {
                 return vec![];
             }
-            vec![Ok(ChatStreamEvent::ContentDelta {
-                delta: event.data,
-                index: None,
-            })]
+            vec![Ok(ChatStreamEvent::text_delta_part("0", event.data))]
         })
     }
 }
@@ -358,7 +346,7 @@ async fn factory_disconnect_mid_stream_after_delta_no_end() {
         .collect();
     assert!(matches!(
         events.as_slice(),
-        [ChatStreamEvent::ContentDelta { .. }]
+        [event] if event.text_delta().is_some()
     ));
 
     drop(server);
@@ -436,10 +424,10 @@ async fn factory_retries_on_401_then_succeeds() {
         .map(|e| e.unwrap())
         .collect();
     assert!(
-        events.iter().any(
-            |e| matches!(e, ChatStreamEvent::ContentDelta { delta, .. } if delta == "{\"ok\":true}")
-        ),
-        "expected ContentDelta for ok payload"
+        events
+            .iter()
+            .any(|e| e.text_delta() == Some("{\"ok\":true}")),
+        "expected TextDelta for ok payload"
     );
 
     drop(server);

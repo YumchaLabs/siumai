@@ -347,35 +347,6 @@ pub enum ChatStreamPart {
 /// Chat streaming event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChatStreamEvent {
-    /// Content delta (incremental text)
-    ContentDelta {
-        /// The incremental text content
-        delta: String,
-        /// Index of the choice (for multiple responses)
-        index: Option<usize>,
-    },
-    /// Tool call delta
-    ToolCallDelta {
-        /// Tool call ID
-        id: String,
-        /// Function name (if this is the start of a tool call)
-        function_name: Option<String>,
-        /// Incremental arguments
-        arguments_delta: Option<String>,
-        /// Index of the choice
-        index: Option<usize>,
-    },
-    /// Thinking/reasoning content delta (for models that support internal reasoning)
-    /// This includes content from `<think>` tags, reasoning fields, and thinking modes
-    ThinkingDelta {
-        /// The incremental thinking/reasoning content
-        delta: String,
-    },
-    /// Usage statistics update
-    UsageUpdate {
-        /// Token usage information
-        usage: Usage,
-    },
     /// Stream start event with metadata
     StreamStart {
         /// Response metadata
@@ -388,11 +359,9 @@ pub enum ChatStreamEvent {
     },
     /// Typed AI SDK-style stream part.
     ///
-    /// This is the structured semantic companion to the legacy transport-style
-    /// variants above. It allows the runtime layer to represent richer stream
-    /// semantics such as sources, response metadata, warnings, tool results,
-    /// custom content, and reasoning files without tunneling them through
-    /// `Custom`.
+    /// This is the structured semantic stream model. It represents text,
+    /// reasoning, tools, sources, response metadata, warnings, usage, and
+    /// custom content using AI SDK-aligned part variants.
     Part {
         /// Structured stream part.
         part: ChatStreamPart,

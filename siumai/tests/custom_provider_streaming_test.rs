@@ -6,8 +6,8 @@
 
 use futures_util::StreamExt;
 use siumai::prelude::unified::{
-    ChatCapability, ChatMessage, ChatResponse, ChatStream, ChatStreamEvent, FinishReason, LlmError,
-    MessageContent, ResponseMetadata, Tool, Usage,
+    ChatCapability, ChatMessage, ChatResponse, ChatStream, ChatStreamEvent, ChatStreamPart,
+    FinishReason, LlmError, MessageContent, ResponseMetadata, Tool, Usage,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -40,22 +40,10 @@ impl TestStreamingProvider {
                     body: None,
                 },
             },
-            ChatStreamEvent::ContentDelta {
-                delta: "Hello".to_string(),
-                index: None,
-            },
-            ChatStreamEvent::ContentDelta {
-                delta: " ".to_string(),
-                index: None,
-            },
-            ChatStreamEvent::ContentDelta {
-                delta: "World".to_string(),
-                index: None,
-            },
-            ChatStreamEvent::ContentDelta {
-                delta: "!".to_string(),
-                index: None,
-            },
+            ChatStreamEvent::text_delta_part("0", "Hello"),
+            ChatStreamEvent::text_delta_part("0", " "),
+            ChatStreamEvent::text_delta_part("0", "World"),
+            ChatStreamEvent::text_delta_part("0", "!"),
             ChatStreamEvent::StreamEnd {
                 response: ChatResponse {
                     id: Some("test-123".to_string()),
@@ -91,24 +79,15 @@ impl TestStreamingProvider {
                     body: None,
                 },
             },
-            ChatStreamEvent::ToolCallDelta {
-                id: "call_123".to_string(),
-                function_name: Some("get_weather".to_string()),
-                arguments_delta: None,
-                index: None,
-            },
-            ChatStreamEvent::ToolCallDelta {
-                id: "call_123".to_string(),
-                function_name: None,
-                arguments_delta: Some(r#"{"location":""#.to_string()),
-                index: None,
-            },
-            ChatStreamEvent::ToolCallDelta {
-                id: "call_123".to_string(),
-                function_name: None,
-                arguments_delta: Some(r#"San Francisco"}"#.to_string()),
-                index: None,
-            },
+            ChatStreamEvent::tool_input_start_part("call_123", "get_weather"),
+            ChatStreamEvent::tool_input_delta_part("call_123", r#"{"location":""#),
+            ChatStreamEvent::tool_input_delta_part("call_123", r#"San Francisco"}"#),
+            ChatStreamEvent::tool_input_end_part("call_123"),
+            ChatStreamEvent::tool_call_part(
+                "call_123",
+                "get_weather",
+                r#"{"location":"San Francisco"}"#,
+            ),
             ChatStreamEvent::StreamEnd {
                 response: ChatResponse {
                     id: Some("test-456".to_string()),
@@ -144,20 +123,10 @@ impl TestStreamingProvider {
                     body: None,
                 },
             },
-            ChatStreamEvent::ContentDelta {
-                delta: "Test".to_string(),
-                index: None,
-            },
-            ChatStreamEvent::UsageUpdate {
-                usage: Usage::new(5, 1),
-            },
-            ChatStreamEvent::ContentDelta {
-                delta: " response".to_string(),
-                index: None,
-            },
-            ChatStreamEvent::UsageUpdate {
-                usage: Usage::new(5, 3),
-            },
+            ChatStreamEvent::text_delta_part("0", "Test"),
+            ChatStreamEvent::finish_part(Usage::new(5, 1), FinishReason::Unknown),
+            ChatStreamEvent::text_delta_part("0", " response"),
+            ChatStreamEvent::finish_part(Usage::new(5, 3), FinishReason::Stop),
             ChatStreamEvent::StreamEnd {
                 response: ChatResponse {
                     id: Some("test-789".to_string()),
@@ -223,16 +192,10 @@ async fn test_custom_provider_content_streaming() {
     // Verify StreamStart
     assert!(matches!(events[0], ChatStreamEvent::StreamStart { .. }));
 
-    // Verify ContentDelta events
+    // Verify TextDelta events
     let content_deltas: Vec<String> = events
         .iter()
-        .filter_map(|e| {
-            if let ChatStreamEvent::ContentDelta { delta, .. } = e {
-                Some(delta.clone())
-            } else {
-                None
-            }
-        })
+        .filter_map(|e| e.text_delta().map(ToString::to_string))
         .collect();
     assert_eq!(content_deltas, vec!["Hello", " ", "World", "!"]);
 
@@ -266,42 +229,38 @@ async fn test_custom_provider_tool_call_streaming() {
     }
 
     // Verify we got all expected events
-    assert_eq!(events.len(), 5);
+    assert_eq!(events.len(), 7);
 
     // Verify StreamStart
     assert!(matches!(events[0], ChatStreamEvent::StreamStart { .. }));
 
-    // Verify ToolCallDelta events
-    let tool_call_deltas: Vec<_> = events
+    // Verify typed tool input events
+    let tool_input_parts: Vec<_> = events
         .iter()
-        .filter_map(|e| {
-            if let ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name,
-                arguments_delta,
-                ..
-            } = e
-            {
-                Some((id.clone(), function_name.clone(), arguments_delta.clone()))
-            } else {
-                None
+        .filter_map(|e| match e.part_ref()? {
+            ChatStreamPart::ToolInputStart { id, tool_name, .. } => {
+                Some((id.clone(), Some(tool_name.clone()), None))
             }
+            ChatStreamPart::ToolInputDelta { id, delta, .. } => {
+                Some((id.clone(), None, Some(delta.clone())))
+            }
+            _ => None,
         })
         .collect();
 
-    assert_eq!(tool_call_deltas.len(), 3);
-    assert_eq!(tool_call_deltas[0].0, "call_123");
-    assert_eq!(tool_call_deltas[0].1, Some("get_weather".to_string()));
+    assert_eq!(tool_input_parts.len(), 3);
+    assert_eq!(tool_input_parts[0].0, "call_123");
+    assert_eq!(tool_input_parts[0].1, Some("get_weather".to_string()));
 
     // Combine arguments
-    let combined_args: String = tool_call_deltas
+    let combined_args: String = tool_input_parts
         .iter()
         .filter_map(|(_, _, args)| args.clone())
         .collect();
     assert_eq!(combined_args, r#"{"location":"San Francisco"}"#);
 
     // Verify StreamEnd
-    if let ChatStreamEvent::StreamEnd { response } = &events[4] {
+    if let ChatStreamEvent::StreamEnd { response } = &events[6] {
         assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
     } else {
         panic!("Expected StreamEnd event");
@@ -325,16 +284,10 @@ async fn test_custom_provider_usage_updates() {
     // Verify we got all expected events
     assert_eq!(events.len(), 6);
 
-    // Verify UsageUpdate events
+    // Verify Finish usage events
     let usage_updates: Vec<Usage> = events
         .iter()
-        .filter_map(|e| {
-            if let ChatStreamEvent::UsageUpdate { usage } = e {
-                Some(usage.clone())
-            } else {
-                None
-            }
-        })
+        .filter_map(|e| e.finish_usage().cloned())
         .collect();
 
     assert_eq!(usage_updates.len(), 2);

@@ -41,19 +41,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        match event {
-            ChatStreamEvent::StreamEnd { response } => {
-                println!("\n");
-                if let Some(usage) = &response.usage {
-                    println!(
-                        "📊 Usage: {} tokens ({} prompt + {} completion)",
-                        usage.total_tokens().unwrap_or(0),
-                        usage.prompt_tokens().unwrap_or(0),
-                        usage.completion_tokens().unwrap_or(0)
-                    );
-                }
+        if let ChatStreamEvent::StreamEnd { response } = event {
+            println!("\n");
+            if let Some(usage) = &response.usage {
+                println!(
+                    "📊 Usage: {} tokens ({} prompt + {} completion)",
+                    usage.total_tokens().unwrap_or(0),
+                    usage.prompt_tokens().unwrap_or(0),
+                    usage.completion_tokens().unwrap_or(0)
+                );
             }
-            _ => {}
         }
     }
 

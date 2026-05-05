@@ -362,9 +362,8 @@ Current state:
   `to_custom_event(...)` is kept only as a thin compatibility alias.
 - Gemini parser-side text/reasoning streaming now stays on the runtime semantic lane: stable
   `stream-start`, `text-*`, `reasoning-*`, `file` / `reasoning-file`, and successful `finish`
-  parts are emitted directly, the legacy `ThinkingDelta` shadow remains only for compatibility,
-  shared shadow expansion owns the compatibility text delta, and the older `gemini:reasoning`
-  custom shadow is no longer emitted from the audited parser.
+  parts are emitted directly, shared shadow expansion has been removed, and the older
+  `gemini:reasoning` custom shadow is no longer emitted from the audited parser.
 - The shared OpenAI Responses bridge no longer carries bespoke `gemini:*` / `anthropic:*`
   event-type upgrade branches once those parser-era shadows disappeared from the audited mainline
   protocol paths; stable-shape custom payloads still upgrade through the generic V3 parser.

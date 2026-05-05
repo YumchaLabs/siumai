@@ -789,11 +789,17 @@ async fn test_streaming_chat<T: ChatCapability>(
             while let Some(event_result) = stream.next().await {
                 match event_result {
                     Ok(event) => match event {
-                        ChatStreamEvent::ContentDelta { delta, .. } => {
-                            content_chunks.push(delta);
+                        event if event.text_delta().is_some() => {
+                            content_chunks
+                                .push(event.text_delta().expect("text delta").to_string());
                         }
-                        ChatStreamEvent::ThinkingDelta { delta } => {
-                            thinking_chunks.push(delta);
+                        event if event.reasoning_delta().is_some() => {
+                            thinking_chunks.push(
+                                event
+                                    .reasoning_delta()
+                                    .expect("reasoning delta")
+                                    .to_string(),
+                            );
                         }
                         ChatStreamEvent::StreamEnd { response } => {
                             final_content = response.content_text().unwrap_or_default().to_string();

@@ -441,7 +441,6 @@ pub(super) fn serialize_event(
             }
             ChatStreamEvent::Part { .. } | ChatStreamEvent::PartWithReplay { .. } => Ok(Vec::new()),
             ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
-            _ => Ok(Vec::new()),
         }
     }
 

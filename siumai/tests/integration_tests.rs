@@ -189,10 +189,7 @@ mod tests {
         let mut processor = StreamProcessor::new();
 
         // Process content delta
-        let content_event = ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
-        };
+        let content_event = ChatStreamEvent::text_delta_part("0", "Hello");
 
         let processed = processor.process_event(content_event);
         match processed {
@@ -206,10 +203,7 @@ mod tests {
         }
 
         // Process another content delta
-        let content_event2 = ChatStreamEvent::ContentDelta {
-            delta: " World".to_string(),
-            index: None,
-        };
+        let content_event2 = ChatStreamEvent::text_delta_part("0", " World");
 
         let processed2 = processor.process_event(content_event2);
         match processed2 {

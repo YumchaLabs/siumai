@@ -142,10 +142,7 @@ async fn ingress_sse_route(
     let summary = summarize_request(&normalized, &report);
     let response = ChatResponse::new(MessageContent::Text(summary.clone()));
     let stream: ChatStream = Box::pin(stream::iter(vec![
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: summary,
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", summary)),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]));
 

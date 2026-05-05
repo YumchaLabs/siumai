@@ -168,8 +168,8 @@ Follow the naming convention: `{feature}_{type}_test.rs`
 
 The streaming tests now verify that all providers correctly emit:
 1. **StreamStart** - With proper metadata at stream beginning
-2. **ContentDelta** - Incremental content updates
-3. **ToolCallDelta** - Tool call information (where supported)
-4. **ThinkingDelta** - Reasoning content (where supported)
-5. **UsageUpdate** - Token usage information
+2. **ChatStreamPart::TextDelta** - Incremental content updates
+3. **ChatStreamPart::ToolInput*/ToolCall** - Tool input and final tool call information
+4. **ChatStreamPart::ReasoningDelta** - Reasoning content (where supported)
+5. **ChatStreamPart::Finish** - Token usage and finish information
 6. **StreamEnd** - Final response with complete data

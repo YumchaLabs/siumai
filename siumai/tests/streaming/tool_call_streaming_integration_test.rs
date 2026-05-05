@@ -6,7 +6,7 @@
 
 use futures::StreamExt;
 use serde_json::json;
-use siumai::prelude::unified::ChatStreamEvent;
+use siumai::prelude::unified::{ChatStreamEvent, ChatStreamPart};
 use siumai::prelude::*;
 
 #[tokio::test]
@@ -88,13 +88,15 @@ async fn test_tool_call_streaming_vs_non_streaming() {
 
     while let Some(event) = stream.next().await {
         match event {
-            Ok(ChatStreamEvent::ToolCallDelta {
-                arguments_delta, ..
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolInputDelta { delta, .. },
+            })
+            | Ok(ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ToolInputDelta { delta, .. },
+                ..
             }) => {
                 tool_call_deltas += 1;
-                if let Some(delta) = arguments_delta {
-                    accumulated_args.push_str(&delta);
-                }
+                accumulated_args.push_str(&delta);
             }
             Ok(ChatStreamEvent::StreamEnd { .. }) => {
                 stream_ended = true;
@@ -191,13 +193,15 @@ async fn test_deepseek_tool_call_streaming() {
 
     while let Some(event) = stream.next().await {
         match event {
-            Ok(ChatStreamEvent::ToolCallDelta {
-                arguments_delta, ..
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolInputDelta { delta, .. },
+            })
+            | Ok(ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ToolInputDelta { delta, .. },
+                ..
             }) => {
                 tool_call_deltas += 1;
-                if let Some(delta) = arguments_delta {
-                    accumulated_args.push_str(&delta);
-                }
+                accumulated_args.push_str(&delta);
             }
             Ok(ChatStreamEvent::StreamEnd { .. }) => {
                 stream_ended = true;

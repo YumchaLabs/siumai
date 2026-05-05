@@ -91,17 +91,11 @@ fn deepseek_text_stream_emits_content_usage_and_stream_end() {
 
     let content: String = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-            _ => None,
-        })
+        .filter_map(ChatStreamEvent::text_delta)
         .collect();
     assert!(!content.is_empty(), "expected non-empty content stream");
 
-    let usage = events.iter().find_map(|e| match e {
-        ChatStreamEvent::UsageUpdate { usage } => Some(usage),
-        _ => None,
-    });
+    let usage = events.iter().find_map(ChatStreamEvent::finish_usage);
     assert!(
         usage.is_some_and(|u| {
             u.prompt_tokens() == Some(13)
@@ -127,24 +121,17 @@ fn deepseek_reasoning_stream_emits_thinking_then_text() {
 
     let events = run_converter(lines, "deepseek-reasoner");
 
-    let first_thinking = events
-        .iter()
-        .position(|e| matches!(e, ChatStreamEvent::ThinkingDelta { .. }));
-    let first_text = events
-        .iter()
-        .position(|e| matches!(e, ChatStreamEvent::ContentDelta { .. }));
+    let first_thinking = events.iter().position(|e| e.reasoning_delta().is_some());
+    let first_text = events.iter().position(|e| e.text_delta().is_some());
 
-    assert!(first_thinking.is_some(), "expected ThinkingDelta");
-    assert!(first_text.is_some(), "expected ContentDelta");
+    assert!(first_thinking.is_some(), "expected reasoning delta");
+    assert!(first_text.is_some(), "expected text delta");
     assert!(
         first_thinking.unwrap() < first_text.unwrap(),
         "expected thinking deltas before text deltas"
     );
 
-    let usage = events.iter().find_map(|e| match e {
-        ChatStreamEvent::UsageUpdate { usage } => Some(usage),
-        _ => None,
-    });
+    let usage = events.iter().find_map(ChatStreamEvent::finish_usage);
     assert!(
         usage.is_some_and(|u| {
             u.prompt_tokens() == Some(18)
@@ -174,20 +161,25 @@ fn deepseek_tool_call_stream_emits_tool_call_deltas() {
     let mut args = String::new();
 
     for e in &events {
-        if let ChatStreamEvent::ToolCallDelta {
-            id,
-            function_name,
-            arguments_delta,
-            ..
-        } = e
-        {
-            tool_call_id.get_or_insert_with(|| id.clone());
-            if let Some(name) = function_name {
+        match e.part_ref() {
+            Some(ChatStreamPart::ToolInputStart {
+                id,
+                tool_name: name,
+                ..
+            }) => {
+                tool_call_id.get_or_insert_with(|| id.clone());
                 tool_name.get_or_insert_with(|| name.clone());
             }
-            if let Some(delta) = arguments_delta {
+            Some(ChatStreamPart::ToolInputDelta { id, delta, .. }) => {
+                tool_call_id.get_or_insert_with(|| id.clone());
                 args.push_str(delta);
             }
+            Some(ChatStreamPart::ToolCall(call)) => {
+                tool_call_id.get_or_insert_with(|| call.tool_call_id.clone());
+                tool_name.get_or_insert_with(|| call.tool_name.clone());
+                args.push_str(&call.input);
+            }
+            _ => {}
         }
     }
 
@@ -205,10 +197,7 @@ fn deepseek_tool_call_stream_emits_tool_call_deltas() {
         "expected tool arguments to contain location, got: {args}"
     );
 
-    let usage = events.iter().find_map(|e| match e {
-        ChatStreamEvent::UsageUpdate { usage } => Some(usage),
-        _ => None,
-    });
+    let usage = events.iter().find_map(ChatStreamEvent::finish_usage);
     assert!(
         usage.is_some_and(|u| {
             u.prompt_tokens() == Some(339)

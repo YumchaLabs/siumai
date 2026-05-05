@@ -34,20 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `data[].b64_json` / `data[].url` responses directly and returns an AI SDK-style response
   envelope instead of requiring callers to pre-normalize image payloads into Siumai's unified
   struct.
-- Shared textual shadow replay is now idempotent for mixed converters: when a stream batch already
-  contains legacy `ContentDelta` / `ThinkingDelta`, the shared stream factory no longer
-  synthesizes a second copy from stable textual runtime parts.
-- Shared stream wrappers now also treat stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` as
-  existing text when deciding whether to synthesize fallback legacy deltas, so `StreamFactory`
-  tail injection and `SimulateStreamingMiddleware` no longer append duplicate text after
-  semantic-only streams.
+- Shared stream factories now treat `ChatStreamPart::TextDelta` and
+  `ChatStreamPart::ReasoningDelta` as the canonical runtime text/reasoning stream model.
 - OpenAI-compatible Perplexity typed metadata now also preserves hosted-search
   `usage.reasoningTokens` instead of dropping that field while normalizing the response into the
   stable provider-rooted metadata surface.
-- Shared stream factories now replay legacy textual deltas for stable textual runtime parts:
-  `ChatStreamPart::TextDelta` and `ChatStreamPart::ReasoningDelta` emitted through SSE, direct
-  JSON streaming, or transport-backed JSON streaming once again surface compatible
-  `ContentDelta` / `ThinkingDelta` shadow events for callers that still consume the legacy lane.
+- Shared stream wrappers now keep semantic-only streams semantic-only, so `StreamFactory` tail
+  injection and `SimulateStreamingMiddleware` no longer append duplicate text after typed text
+  parts.
 - Shared provider metadata aggregation is now aligned around the spec-level
   `ProviderMetadataMap`: stream aggregation, OpenAI-compatible terminal metadata, and typed
   metadata accessors now all keep explicit provider-rooted object payloads instead of

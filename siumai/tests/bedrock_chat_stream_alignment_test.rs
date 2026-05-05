@@ -59,7 +59,7 @@ fn run_converter(lines: Vec<String>, uses_json_tool: bool) -> Vec<ChatStreamEven
 }
 
 #[test]
-fn bedrock_tool_call_stream_emits_tool_call_deltas() {
+fn bedrock_tool_call_stream_emits_typed_tool_parts() {
     let path = fixtures_dir().join("bedrock-tool-call.1.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);
 
@@ -77,20 +77,27 @@ fn bedrock_tool_call_stream_emits_tool_call_deltas() {
     let mut name: Option<String> = None;
     let mut id: Option<String> = None;
     for e in &events {
-        if let ChatStreamEvent::ToolCallDelta {
-            id: call_id,
-            function_name,
-            arguments_delta,
-            ..
-        } = e
-        {
-            id.get_or_insert_with(|| call_id.clone());
-            if let Some(n) = function_name {
-                name.get_or_insert_with(|| n.clone());
+        match e.part_ref() {
+            Some(ChatStreamPart::ToolInputStart {
+                id: call_id,
+                tool_name,
+                ..
+            }) => {
+                id.get_or_insert_with(|| call_id.clone());
+                name.get_or_insert_with(|| tool_name.clone());
             }
-            if let Some(delta) = arguments_delta {
+            Some(ChatStreamPart::ToolInputDelta {
+                id: call_id, delta, ..
+            }) => {
+                id.get_or_insert_with(|| call_id.clone());
                 args.push_str(delta);
             }
+            Some(ChatStreamPart::ToolCall(call)) => {
+                id.get_or_insert_with(|| call.tool_call_id.clone());
+                name.get_or_insert_with(|| call.tool_name.clone());
+                args.push_str(&call.input);
+            }
+            _ => {}
         }
     }
 
@@ -124,10 +131,7 @@ fn bedrock_json_tool_stream_emits_json_as_text() {
 
     let text: String = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-            _ => None,
-        })
+        .filter_map(ChatStreamEvent::text_delta)
         .collect();
     assert!(
         text.contains("\"value\":\"test\""),

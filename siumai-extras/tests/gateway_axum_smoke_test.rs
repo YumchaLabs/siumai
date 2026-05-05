@@ -185,10 +185,7 @@ async fn chat_json_route(State(state): State<AppState>) -> Response<Body> {
 async fn sse_route(State(state): State<AppState>) -> Response<Body> {
     let response = ChatResponse::new(MessageContent::Text("gateway ok".to_string()));
     let stream: ChatStream = Box::pin(stream::iter(vec![
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "gateway ok".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "gateway ok")),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]));
 
@@ -202,10 +199,7 @@ async fn sse_route(State(state): State<AppState>) -> Response<Body> {
 async fn chat_sse_route(State(state): State<AppState>) -> Response<Body> {
     let response = ChatResponse::new(MessageContent::Text("gateway ok".to_string()));
     let stream: ChatStream = Box::pin(stream::iter(vec![
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "gateway ok".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "gateway ok")),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]));
 
@@ -229,10 +223,7 @@ async fn anthropic_json_route(State(state): State<AppState>) -> Response<Body> {
 async fn anthropic_sse_route(State(state): State<AppState>) -> Response<Body> {
     let response = ChatResponse::new(MessageContent::Text("gateway ok".to_string()));
     let stream: ChatStream = Box::pin(stream::iter(vec![
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "gateway ok".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "gateway ok")),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]));
 
@@ -256,10 +247,7 @@ async fn gemini_json_route(State(state): State<AppState>) -> Response<Body> {
 async fn gemini_sse_route(State(state): State<AppState>) -> Response<Body> {
     let response = ChatResponse::new(MessageContent::Text("gateway ok".to_string()));
     let stream: ChatStream = Box::pin(stream::iter(vec![
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "gateway ok".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "gateway ok")),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]));
 
@@ -770,10 +758,7 @@ fn decode_openai_chat_completions_sse_body(bytes: &[u8]) -> Vec<ChatStreamEvent>
 fn collect_text_deltas(events: &[ChatStreamEvent]) -> String {
     events
         .iter()
-        .filter_map(|event| match event {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-            _ => None,
-        })
+        .filter_map(ChatStreamEvent::text_delta)
         .collect::<Vec<_>>()
         .join("")
 }
@@ -1050,10 +1035,11 @@ async fn gateway_sse_route_smoke_emits_gemini_sse() {
         .expect("body bytes");
     let downstream = decode_gemini_sse_body(&body);
 
-    assert!(downstream.iter().any(|event| matches!(
-        event,
-        ChatStreamEvent::ContentDelta { delta, .. } if delta == "gateway ok"
-    )));
+    assert!(
+        downstream
+            .iter()
+            .any(|event| event.text_delta() == Some("gateway ok"))
+    );
     assert!(downstream.iter().any(|event| matches!(
         event,
         ChatStreamEvent::StreamEnd { response }

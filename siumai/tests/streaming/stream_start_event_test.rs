@@ -313,7 +313,7 @@ async fn test_stream_start_only_emitted_once() {
         panic!("Expected StreamStart event for first event");
     }
 
-    // Second event should NOT generate StreamStart, should generate ContentDelta
+    // Second event should NOT generate StreamStart, should generate typed text delta
     let event2 = Event {
         event: "".to_string(),
         data: r#"{"choices":[{"delta":{"content":" World"}}]}"#.to_string(),
@@ -324,15 +324,12 @@ async fn test_stream_start_only_emitted_once() {
     let result2 = converter.convert_event(event2).await;
     assert!(!result2.is_empty());
 
-    let content_delta = result2
+    if !result2
         .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
-
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_delta {
-        assert_eq!(delta, " World");
-    } else {
+        .any(|event| matches!(event, Ok(event) if event.text_delta() == Some(" World")))
+    {
         panic!(
-            "Expected ContentDelta event for second event, got: {:?}",
+            "Expected TextDelta event for second event, got: {:?}",
             result2
         );
     }

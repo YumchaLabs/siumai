@@ -80,13 +80,6 @@ fn redact_textual_part(part: ChatStreamPart) -> ChatStreamPart {
 
 fn redact_textual_stream_event(event: ChatStreamEvent) -> Vec<ChatStreamEvent> {
     match event {
-        ChatStreamEvent::ContentDelta { index, .. } => vec![ChatStreamEvent::ContentDelta {
-            delta: "[REDACTED]\n".to_string(),
-            index,
-        }],
-        ChatStreamEvent::ThinkingDelta { .. } => vec![ChatStreamEvent::ThinkingDelta {
-            delta: "[REDACTED]\n".to_string(),
-        }],
         ChatStreamEvent::Part { part } => vec![ChatStreamEvent::Part {
             part: redact_textual_part(part),
         }],

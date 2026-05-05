@@ -56,13 +56,6 @@ fn uppercase_textual_part(part: ChatStreamPart) -> ChatStreamPart {
 
 fn uppercase_textual_event(event: ChatStreamEvent) -> Vec<ChatStreamEvent> {
     match event {
-        ChatStreamEvent::ContentDelta { delta, index } => vec![ChatStreamEvent::ContentDelta {
-            delta: delta.to_uppercase(),
-            index,
-        }],
-        ChatStreamEvent::ThinkingDelta { delta } => vec![ChatStreamEvent::ThinkingDelta {
-            delta: delta.to_uppercase(),
-        }],
         ChatStreamEvent::Part { part } => vec![ChatStreamEvent::Part {
             part: uppercase_textual_part(part),
         }],
@@ -144,29 +137,44 @@ impl BridgeCustomization for CompositeStreamCustomization {
         assert_eq!(ctx.path_label.as_deref(), Some("tests.stream.custom-path"));
 
         match event {
-            ChatStreamEvent::ContentDelta { .. }
-            | ChatStreamEvent::ThinkingDelta { .. }
-            | ChatStreamEvent::Part {
+            ChatStreamEvent::Part {
                 part: ChatStreamPart::TextDelta { .. } | ChatStreamPart::ReasoningDelta { .. },
             }
             | ChatStreamEvent::PartWithReplay {
                 part: ChatStreamPart::TextDelta { .. } | ChatStreamPart::ReasoningDelta { .. },
                 ..
             } => uppercase_textual_event(event),
-            ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name,
-                arguments_delta,
-                index,
+            ChatStreamEvent::Part {
+                part:
+                    ChatStreamPart::ToolInputStart {
+                        ref id,
+                        ref tool_name,
+                        ..
+                    },
+            }
+            | ChatStreamEvent::PartWithReplay {
+                part:
+                    ChatStreamPart::ToolInputStart {
+                        ref id,
+                        ref tool_name,
+                        ..
+                    },
+                ..
             } => {
                 assert_eq!(id, "bundle_call_1");
-                assert_eq!(function_name.as_deref(), Some("bundle_weather"));
-                vec![ChatStreamEvent::ToolCallDelta {
-                    id,
-                    function_name,
-                    arguments_delta,
-                    index,
-                }]
+                assert_eq!(tool_name, "bundle_weather");
+                vec![event]
+            }
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolCall(ref call),
+            }
+            | ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ToolCall(ref call),
+                ..
+            } => {
+                assert_eq!(call.tool_call_id, "bundle_call_1");
+                assert_eq!(call.tool_name, "bundle_weather");
+                vec![event]
             }
             other => vec![other],
         }
@@ -313,10 +321,7 @@ async fn anthropic_stream_bridge_serializes_standard_events() {
                 body: None,
             },
         }),
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "Hello")),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]);
 
@@ -405,10 +410,7 @@ async fn anthropic_stream_bridge_finalizes_clean_eof_without_stream_end() {
                 body: None,
             },
         }),
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "Hello")),
     ]);
 
     let bridged = bridge_chat_stream_to_anthropic_messages_sse(
@@ -456,17 +458,12 @@ async fn anthropic_stream_bridge_splits_interleaved_blocks_into_ordered_output()
                 body: None,
             },
         }),
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
-        }),
-        Ok(ChatStreamEvent::ThinkingDelta {
-            delta: "Thinking".to_string(),
-        }),
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: " world".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("text-0", "Hello")),
+        Ok(ChatStreamEvent::reasoning_delta_part(
+            "reasoning-0",
+            "Thinking",
+        )),
+        Ok(ChatStreamEvent::text_delta_part("text-1", " world")),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]);
 
@@ -503,10 +500,7 @@ async fn openai_responses_stream_bridge_finalizes_clean_eof_without_stream_end()
                 body: None,
             },
         }),
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "Hello")),
     ]);
 
     let bridged = bridge_chat_stream_to_openai_responses_sse(
@@ -578,10 +572,7 @@ async fn openai_chat_completions_stream_bridge_prefers_stream_end_terminal_envel
 #[cfg(feature = "anthropic")]
 #[tokio::test]
 async fn cross_protocol_stream_bridge_rejects_in_strict_mode() {
-    let stream = stream::iter(vec![Ok(ChatStreamEvent::ContentDelta {
-        delta: "Hello".to_string(),
-        index: None,
-    })]);
+    let stream = stream::iter(vec![Ok(ChatStreamEvent::text_delta_part("0", "Hello"))]);
 
     let bridged = bridge_chat_stream_to_anthropic_messages_sse(
         stream,
@@ -607,10 +598,7 @@ async fn cross_protocol_stream_bridge_rejects_in_strict_mode() {
 #[cfg(feature = "anthropic")]
 #[tokio::test]
 async fn best_effort_cross_protocol_stream_bridge_allows_lossy_route() {
-    let stream = stream::iter(vec![Ok(ChatStreamEvent::ContentDelta {
-        delta: "Hello".to_string(),
-        index: None,
-    })]);
+    let stream = stream::iter(vec![Ok(ChatStreamEvent::text_delta_part("0", "Hello"))]);
 
     let bridged = bridge_chat_stream_to_anthropic_messages_sse(
         stream,
@@ -636,10 +624,7 @@ async fn best_effort_cross_protocol_stream_bridge_allows_lossy_route() {
 #[cfg(feature = "openai")]
 #[tokio::test]
 async fn custom_stream_loss_policy_can_allow_cross_protocol_strict_mode() {
-    let stream = stream::iter(vec![Ok(ChatStreamEvent::ContentDelta {
-        delta: "Hello".to_string(),
-        index: None,
-    })]);
+    let stream = stream::iter(vec![Ok(ChatStreamEvent::text_delta_part("0", "Hello"))]);
 
     let bridged = super::bridge_chat_stream_to_openai_responses_sse_with_options(
         stream,
@@ -657,7 +642,7 @@ async fn custom_stream_loss_policy_can_allow_cross_protocol_strict_mode() {
 
 #[cfg(feature = "openai")]
 #[tokio::test]
-async fn stream_bridge_remapper_rewrites_tool_delta_and_final_response() {
+async fn stream_bridge_remapper_rewrites_tool_input_parts_and_final_response() {
     let response = ChatResponse {
         id: Some("resp_1".to_string()),
         model: Some("gpt-4.1-mini".to_string()),
@@ -680,12 +665,11 @@ async fn stream_bridge_remapper_rewrites_tool_delta_and_final_response() {
     };
 
     let stream = stream::iter(vec![
-        Ok(ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: Some("weather".to_string()),
-            arguments_delta: Some(r#"{"city":"Tokyo"}"#.to_string()),
-            index: Some(0),
-        }),
+        Ok(ChatStreamEvent::tool_input_start_part("call_1", "weather")),
+        Ok(ChatStreamEvent::tool_input_delta_part(
+            "call_1",
+            r#"{"city":"Tokyo"}"#,
+        )),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]);
 
@@ -701,16 +685,25 @@ async fn stream_bridge_remapper_rewrites_tool_delta_and_final_response() {
 
     let events = transformed.collect::<Vec<_>>().await;
 
-    let ChatStreamEvent::ToolCallDelta {
-        id, function_name, ..
-    } = events[0].as_ref().expect("tool delta")
+    let ChatStreamEvent::Part {
+        part: ChatStreamPart::ToolInputStart { id, tool_name, .. },
+    } = events[0].as_ref().expect("tool input start")
     else {
-        panic!("expected tool delta");
+        panic!("expected tool input start");
     };
     assert_eq!(id, "gw_call_1");
-    assert_eq!(function_name.as_deref(), Some("gw_weather"));
+    assert_eq!(tool_name, "gw_weather");
 
-    let ChatStreamEvent::StreamEnd { response } = events[1].as_ref().expect("stream end") else {
+    let ChatStreamEvent::Part {
+        part: ChatStreamPart::ToolInputDelta { id, delta, .. },
+    } = events[1].as_ref().expect("tool input delta")
+    else {
+        panic!("expected tool input delta");
+    };
+    assert_eq!(id, "gw_call_1");
+    assert_eq!(delta, r#"{"city":"Tokyo"}"#);
+
+    let ChatStreamEvent::StreamEnd { response } = events[2].as_ref().expect("stream end") else {
         panic!("expected stream end");
     };
     let MessageContent::MultiModal(parts) = &response.content else {
@@ -860,12 +853,11 @@ async fn stream_bridge_customization_bundle_can_transform_events_and_remap_tools
                 provider_metadata: None,
             },
         }),
-        Ok(ChatStreamEvent::ToolCallDelta {
-            id: "call_1".to_string(),
-            function_name: Some("weather".to_string()),
-            arguments_delta: Some(r#"{"city":"Tokyo"}"#.to_string()),
-            index: Some(0),
-        }),
+        Ok(ChatStreamEvent::tool_call_part(
+            "call_1",
+            "weather",
+            r#"{"city":"Tokyo"}"#,
+        )),
         Ok(ChatStreamEvent::StreamEnd { response }),
     ]);
 
@@ -889,14 +881,14 @@ async fn stream_bridge_customization_bundle_can_transform_events_and_remap_tools
     };
     assert_eq!(delta, "HELLO");
 
-    let ChatStreamEvent::ToolCallDelta {
-        id, function_name, ..
-    } = events[1].as_ref().expect("tool delta")
+    let ChatStreamEvent::Part {
+        part: ChatStreamPart::ToolCall(call),
+    } = events[1].as_ref().expect("tool call part")
     else {
-        panic!("expected tool delta");
+        panic!("expected tool call part");
     };
-    assert_eq!(id, "bundle_call_1");
-    assert_eq!(function_name.as_deref(), Some("bundle_weather"));
+    assert_eq!(call.tool_call_id, "bundle_call_1");
+    assert_eq!(call.tool_name, "bundle_weather");
 
     let ChatStreamEvent::StreamEnd { response } = events[2].as_ref().expect("stream end") else {
         panic!("expected stream end");
@@ -931,10 +923,7 @@ async fn same_protocol_stream_bridge_allows_strict_mode() {
                 body: None,
             },
         }),
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "Hello".to_string(),
-            index: None,
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "Hello")),
     ]);
 
     let bridged = bridge_chat_stream_to_openai_responses_sse(

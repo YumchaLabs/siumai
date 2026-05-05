@@ -142,21 +142,33 @@ async fn test_streaming_tool_calling<T: ChatCapability>(client: &T, provider_nam
             while let Some(event_result) = stream.next().await {
                 match event_result {
                     Ok(event) => match event {
-                        ChatStreamEvent::ContentDelta { delta, .. } => {
-                            content_chunks.push(delta);
+                        event if event.text_delta().is_some() => {
+                            content_chunks
+                                .push(event.text_delta().expect("text delta").to_string());
                         }
-                        ChatStreamEvent::ToolCallDelta {
-                            id,
-                            function_name,
-                            arguments_delta,
-                            ..
-                        } => {
+                        event
+                            if matches!(
+                                event.part_ref(),
+                                Some(ChatStreamPart::ToolInputStart { .. })
+                                    | Some(ChatStreamPart::ToolInputDelta { .. })
+                                    | Some(ChatStreamPart::ToolCall(_))
+                            ) =>
+                        {
                             tool_calls_received += 1;
-                            if let Some(name) = &function_name {
-                                println!("    🔧 Tool call: {} (ID: {})", name, id);
-                            }
-                            if let Some(args) = &arguments_delta {
-                                println!("    📝 Arguments delta: {}", args);
+                            match event.part_ref() {
+                                Some(ChatStreamPart::ToolInputStart { id, tool_name, .. }) => {
+                                    println!("    🔧 Tool call: {} (ID: {})", tool_name, id);
+                                }
+                                Some(ChatStreamPart::ToolInputDelta { delta, .. }) => {
+                                    println!("    📝 Arguments delta: {}", delta);
+                                }
+                                Some(ChatStreamPart::ToolCall(call)) => {
+                                    println!(
+                                        "    🔧 Tool call complete: {} (ID: {})",
+                                        call.tool_name, call.tool_call_id
+                                    );
+                                }
+                                _ => {}
                             }
                         }
                         ChatStreamEvent::StreamEnd { response } => {

@@ -1,4 +1,4 @@
-//! Factory-level test: non-SSE fallback should still produce ContentDelta + StreamEnd.
+//! Factory-level test: non-SSE fallback should still produce typed text deltas + StreamEnd.
 //! We simulate a server that returns `application/json` (no SSE) on a streaming
 //! endpoint and verify that the StreamFactory fallback kicks in.
 
@@ -73,8 +73,11 @@ async fn non_sse_json_fallback_yields_delta_and_end() {
     let mut deltas = Vec::new();
     let mut saw_end = false;
     while let Some(ev) = stream.next().await {
-        match ev.expect("event ok") {
-            ChatStreamEvent::ContentDelta { delta, .. } => deltas.push(delta),
+        let event = ev.expect("event ok");
+        match event {
+            event if event.text_delta().is_some() => {
+                deltas.push(event.text_delta().expect("text delta").to_string())
+            }
             ChatStreamEvent::StreamEnd { .. } => {
                 saw_end = true;
                 break;

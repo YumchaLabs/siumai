@@ -12,9 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gemini embedding response transformation now preserves an AI SDK-style response envelope with
   the raw response body on direct transformer usage.
 - Gemini / Vertex reasoning streams now emit AI SDK-style custom `reasoning-start`,
-  `reasoning-delta`, and `reasoning-end` events alongside the stable runtime part and
-  `ThinkingDelta` lanes, preserving `providerMetadata.{google|vertex}.thoughtSignature` on the
-  public stream surface.
+  `reasoning-delta`, and `reasoning-end` events alongside stable runtime reasoning parts,
+  preserving `providerMetadata.{google|vertex}.thoughtSignature` on the public stream surface.
 - Gemini GenerateContent stream serialization now suppresses duplicate reasoning deltas when a
   bridge feeds the serializer both the typed `Part` lane and the mirrored Gemini custom
   `reasoning-delta` event for the same chunk.

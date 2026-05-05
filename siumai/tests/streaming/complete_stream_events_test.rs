@@ -25,17 +25,7 @@ use std::sync::Arc;
 fn text_deltas(events: &[ChatStreamEvent]) -> Vec<String> {
     events
         .iter()
-        .filter_map(|event| match event {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.clone()),
-            ChatStreamEvent::Part {
-                part: ChatStreamPart::TextDelta { delta, .. },
-            }
-            | ChatStreamEvent::PartWithReplay {
-                part: ChatStreamPart::TextDelta { delta, .. },
-                ..
-            } => Some(delta.clone()),
-            _ => None,
-        })
+        .filter_map(|event| event.text_delta().map(ToString::to_string))
         .collect()
 }
 
@@ -104,7 +94,7 @@ async fn test_complete_openai_stream_sequence() {
             id: "".to_string(),
             retry: None,
         },
-        // 2. ContentDelta events
+        // 2. Typed text delta events
         Event {
             event: "".to_string(),
             data: r#"{"choices":[{"delta":{"content":" world"}}]}"#.to_string(),
@@ -160,9 +150,12 @@ async fn test_complete_openai_stream_sequence() {
             results.push(result.unwrap());
         }
     }
+    for result in converter.handle_stream_end_events() {
+        results.push(result.unwrap());
+    }
 
     // Verify the complete sequence - with multi-event architecture we may get 6-7 events
-    // First event generates StreamStart + ContentDelta; tool call args may coalesce
+    // First event generates StreamStart + typed text delta; tool call args may coalesce
     assert!(
         results.len() >= 6,
         "Expected at least 6 events, got {}",
@@ -189,49 +182,49 @@ async fn test_complete_openai_stream_sequence() {
     assert_eq!(deltas[1], " world");
     assert_eq!(deltas[2], "!");
 
-    // 5. Tool call start (find first ToolCallDelta)
+    // 5. Tool call start (find first typed tool input start)
     if let Some(tc_pos) = results
         .iter()
-        .position(|e| matches!(e, ChatStreamEvent::ToolCallDelta { .. }))
+        .position(|e| matches!(e.part_ref(), Some(ChatStreamPart::ToolInputStart { .. })))
     {
-        match &results[tc_pos] {
-            ChatStreamEvent::ToolCallDelta {
-                id, function_name, ..
-            } => {
+        match results[tc_pos].part_ref() {
+            Some(ChatStreamPart::ToolInputStart { id, tool_name, .. }) => {
                 assert_eq!(id, "call_123");
-                assert_eq!(function_name.as_deref(), Some("get_weather"));
+                assert_eq!(tool_name, "get_weather");
             }
             _ => unreachable!(),
         }
     } else {
         // Some adapters may coalesce tool-call info into content; ensure we still proceed
-        eprintln!("ℹ️ No ToolCallDelta emitted for this synthetic payload; continuing");
+        eprintln!("No typed tool input start emitted for this synthetic payload; continuing");
     }
 
     // 6. Thinking content (position may vary if tool args are coalesced)
     let thinking_pos = results
         .iter()
-        .position(|e| matches!(e, ChatStreamEvent::ThinkingDelta { .. }))
-        .expect("Expected a ThinkingDelta event");
+        .position(|e| e.reasoning_delta().is_some())
+        .expect("Expected a ReasoningDelta event");
     match &results[thinking_pos] {
-        ChatStreamEvent::ThinkingDelta { delta } => {
+        event if event.reasoning_delta().is_some() => {
+            let delta = event.reasoning_delta().expect("reasoning delta");
             assert_eq!(delta, "Let me think about this...");
         }
-        _ => panic!("Expected ThinkingDelta"),
+        _ => panic!("Expected ReasoningDelta"),
     }
 
-    // 7. Usage update (final)
+    // 7. Usage update (typed finish part)
     let usage_pos = results
         .iter()
-        .rposition(|e| matches!(e, ChatStreamEvent::UsageUpdate { .. }))
-        .expect("Expected a UsageUpdate event");
+        .rposition(|e| e.finish_usage().is_some())
+        .expect("Expected a Finish usage event");
     match &results[usage_pos] {
-        ChatStreamEvent::UsageUpdate { usage } => {
+        event if event.finish_usage().is_some() => {
+            let usage = event.finish_usage().expect("finish usage");
             assert_eq!(usage.prompt_tokens(), Some(10));
             assert_eq!(usage.completion_tokens(), Some(20));
             assert_eq!(usage.total_tokens(), Some(30));
         }
-        _ => panic!("Expected UsageUpdate"),
+        _ => panic!("Expected Finish usage"),
     }
 }
 
@@ -408,9 +401,9 @@ async fn test_complete_ollama_stream_sequence() {
     }
 
     // Verify the sequence - with multi-event architecture we get more events
-    // - first chunk: StreamStart + ContentDelta
-    // - middle chunks: ContentDelta
-    // - final chunk: UsageUpdate + StreamEnd
+    // - first chunk: StreamStart + TextDelta
+    // - middle chunks: TextDelta
+    // - final chunk: Finish + StreamEnd
     assert_eq!(results.len(), 6);
 
     // 1. First event should be StreamStart
@@ -422,38 +415,14 @@ async fn test_complete_ollama_stream_sequence() {
         _ => panic!("Expected StreamStart as first event"),
     }
 
-    // 2. Content delta from first event
-    match &results[1] {
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, "Hello");
-        }
-        _ => panic!("Expected ContentDelta"),
-    }
+    assert_eq!(
+        text_deltas(&results),
+        vec!["Hello".to_string(), " world".to_string(), "!".to_string()]
+    );
 
-    // 3. Content delta from second event
-    match &results[2] {
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, " world");
-        }
-        _ => panic!("Expected ContentDelta"),
-    }
-
-    // 4. Content delta from third event
-    match &results[3] {
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, "!");
-        }
-        _ => panic!("Expected ContentDelta"),
-    }
-
-    // 5. Usage update (final chunk)
-    match &results[4] {
-        ChatStreamEvent::UsageUpdate { usage } => {
-            assert_eq!(usage.prompt_tokens(), Some(10));
-            assert_eq!(usage.completion_tokens(), Some(20));
-        }
-        _ => panic!("Expected UsageUpdate"),
-    }
+    let usage = results[4].finish_usage().expect("finish usage");
+    assert_eq!(usage.prompt_tokens(), Some(10));
+    assert_eq!(usage.completion_tokens(), Some(20));
 
     // 6. Stream end
     assert!(matches!(results[5], ChatStreamEvent::StreamEnd { .. }));

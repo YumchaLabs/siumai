@@ -160,7 +160,9 @@ where
         .map_err(|_| "stream iteration timed out after 90s".to_string())?
     {
         match event.map_err(|err| err.to_string())? {
-            ChatStreamEvent::ContentDelta { delta, .. } => collected.push_str(&delta),
+            event if event.text_delta().is_some() => {
+                collected.push_str(event.text_delta().expect("text delta"));
+            }
             ChatStreamEvent::StreamEnd { .. } => {
                 saw_stream_end = true;
                 break;

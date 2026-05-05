@@ -45,6 +45,8 @@ pub fn bad_request_response(message: impl Into<String>) -> Response {
         .unwrap_or_else(|_| Response::new(Body::from("bad request")))
 }
 
+pub type GatewayResponseResult<T> = Result<T, Box<Response>>;
+
 /// Convert a rejected request-normalization report into a readable example response.
 pub fn rejected_normalize_response(source_name: &str, report: &BridgeReport) -> Response {
     let detail = report
@@ -94,21 +96,21 @@ pub fn normalize_source_request_for_backend(
     backend_model_id: &str,
     stream: bool,
     policy: &GatewayBridgePolicy,
-) -> Result<ChatRequest, Response> {
+) -> GatewayResponseResult<ChatRequest> {
     let bridged = normalize_request_json_with_options(
         body,
         source,
         &NormalizeRequestOptions::default().with_policy(policy.clone()),
     )
     .map_err(|error| {
-        bad_request_response(format!(
+        Box::new(bad_request_response(format!(
             "failed to normalize {source_name} request: {}",
             error.user_message()
-        ))
+        )))
     })?;
     let (request, report) = bridged
         .into_result()
-        .map_err(|report| rejected_normalize_response(source_name, &report))?;
+        .map_err(|report| Box::new(rejected_normalize_response(source_name, &report)))?;
 
     let _ = report;
     Ok(pin_request_to_backend_model(

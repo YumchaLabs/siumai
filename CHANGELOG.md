@@ -59,6 +59,8 @@ read the upgrade notes below.
 - OpenAI, Azure, Bedrock, Google Vertex, Anthropic-on-Vertex, Gemini, xAI, Groq, DeepSeek, Ollama,
   and OpenAI-compatible provider paths now preserve more raw usage, finish reason, source,
   hosted-tool, and response metadata.
+- Streaming now uses AI SDK-style `ChatStreamPart` as the canonical public stream model for text,
+  reasoning, tools, usage, sources, and metadata.
 - Google Vertex Gemini image generation now uses the Gemini content-generation path for Gemini
   image models, with provider-specific image options scoped to the Vertex provider options lane.
 
@@ -83,6 +85,9 @@ read the upgrade notes below.
 - If you snapshot serialized compatibility types, update snapshots for AI SDK-aligned
   `ToolChoice`, `FinishReason`, provider metadata, provider options, warning, usage, and stream
   part shapes.
+- If you match on streaming events directly, replace old text/reasoning/tool/usage delta variants
+  with `event.text_delta()`, `event.reasoning_delta()`, `event.finish_usage()`, or
+  `event.part_ref()` over `ChatStreamPart`.
 - If you rely on raw provider request/response metadata, prefer the new include controls and inspect
   the provider-specific metadata objects rather than parsing debug strings.
 - Google Vertex Gemini image requests now reject unsupported mask and multi-image count settings on

@@ -58,9 +58,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        match ev {
-            ChatStreamEvent::StreamEnd { .. } => break,
-            _ => {}
+        if let ChatStreamEvent::StreamEnd { .. } = ev {
+            break;
         }
     }
 

@@ -1968,7 +1968,6 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 ChatStreamEvent::Custom { .. }
                 | ChatStreamEvent::Part { .. }
                 | ChatStreamEvent::PartWithReplay { .. } => Ok(Vec::new()),
-                _ => Ok(Vec::new()),
             }
         };
 

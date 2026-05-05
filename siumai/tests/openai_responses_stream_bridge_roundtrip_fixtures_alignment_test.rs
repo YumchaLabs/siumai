@@ -201,16 +201,6 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
             ChatStreamEvent::StreamStart { .. } => {
                 summary.has_stream_start = true;
             }
-            ChatStreamEvent::ContentDelta { delta, .. } => {
-                push_adjacent_unique(&mut text_deltas, delta.clone());
-            }
-            ChatStreamEvent::UsageUpdate { usage }
-                if usage.prompt_tokens().unwrap_or(0) > 0
-                    || usage.completion_tokens().unwrap_or(0) > 0 =>
-            {
-                summary.prompt_tokens = usage.prompt_tokens();
-                summary.completion_tokens = usage.completion_tokens();
-            }
             ChatStreamEvent::StreamEnd { response } => {
                 if summary.finish_reason.is_none() {
                     summary.finish_reason = response
@@ -235,6 +225,9 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                         saw_part_metadata = true;
                         summary.has_metadata_id = metadata.id.is_some();
                         summary.metadata_model = metadata.model.clone();
+                    }
+                    ChatStreamPart::TextDelta { delta, .. } => {
+                        push_adjacent_unique(&mut text_deltas, delta.clone());
                     }
                     ChatStreamPart::Finish {
                         usage,
@@ -417,7 +410,6 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
             ChatStreamEvent::Error { error } => {
                 push_adjacent_unique(&mut summary.stream_errors, error.clone());
             }
-            _ => {}
         }
     }
 

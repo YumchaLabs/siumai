@@ -209,8 +209,8 @@ mod minimaxi_tests {
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => match event {
-                    ChatStreamEvent::ContentDelta { delta, .. } => {
-                        content.push_str(&delta);
+                    event if event.text_delta().is_some() => {
+                        content.push_str(event.text_delta().expect("text delta"));
                     }
                     ChatStreamEvent::StreamEnd { .. } => {
                         has_end = true;

@@ -206,15 +206,6 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_from_typed_d
     let decoder = GeminiEventConverter::new(create_test_config());
     let events = decode_frames(&decoder, &frames).await;
 
-    let thinking_deltas = events
-        .iter()
-        .filter(|event| {
-            matches!(
-                event,
-                ChatStreamEvent::ThinkingDelta { delta } if delta == "thinking..."
-            )
-        })
-        .count();
     let reasoning_deltas = events
         .iter()
         .filter(|event| {
@@ -233,6 +224,5 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_from_typed_d
         })
         .count();
 
-    assert_eq!(thinking_deltas, 0);
     assert_eq!(reasoning_deltas, 1);
 }

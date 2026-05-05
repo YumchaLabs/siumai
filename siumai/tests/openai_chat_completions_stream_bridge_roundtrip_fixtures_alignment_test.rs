@@ -209,40 +209,6 @@ fn summarize_openai_chat_events(events: &[ChatStreamEvent]) -> OpenAiChatStreamS
                 summary.start_id = metadata.id.clone();
                 summary.start_model = metadata.model.clone();
             }
-            ChatStreamEvent::ContentDelta { delta, .. } => {
-                summary.text.push_str(delta);
-            }
-            ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name,
-                arguments_delta,
-                ..
-            } => {
-                let entry = tool_calls
-                    .entry(id.clone())
-                    .or_insert_with(|| ToolCallSummary {
-                        id: id.clone(),
-                        name: None,
-                        arguments: String::new(),
-                    });
-
-                if let Some(function_name) = function_name.clone()
-                    && !function_name.is_empty()
-                {
-                    entry.name = Some(function_name);
-                }
-                if let Some(arguments_delta) = arguments_delta {
-                    entry.arguments.push_str(arguments_delta);
-                }
-            }
-            ChatStreamEvent::UsageUpdate { usage }
-                if usage.prompt_tokens().unwrap_or(0) > 0
-                    || usage.completion_tokens().unwrap_or(0) > 0 =>
-            {
-                summary.prompt_tokens = usage.prompt_tokens();
-                summary.completion_tokens = usage.completion_tokens();
-                summary.total_tokens = usage.total_tokens();
-            }
             ChatStreamEvent::StreamEnd { response } => {
                 if summary.finish_reason.is_none() {
                     summary.finish_reason = response
@@ -256,6 +222,62 @@ fn summarize_openai_chat_events(events: &[ChatStreamEvent]) -> OpenAiChatStreamS
                     summary.prompt_tokens = usage.prompt_tokens();
                     summary.completion_tokens = usage.completion_tokens();
                     summary.total_tokens = usage.total_tokens();
+                }
+            }
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                match part {
+                    ChatStreamPart::TextDelta { delta, .. } => {
+                        summary.text.push_str(delta);
+                    }
+                    ChatStreamPart::ToolInputStart { id, tool_name, .. } => {
+                        let entry =
+                            tool_calls
+                                .entry(id.clone())
+                                .or_insert_with(|| ToolCallSummary {
+                                    id: id.clone(),
+                                    name: None,
+                                    arguments: String::new(),
+                                });
+                        if !tool_name.is_empty() {
+                            entry.name = Some(tool_name.clone());
+                        }
+                    }
+                    ChatStreamPart::ToolInputDelta { id, delta, .. } => {
+                        let entry =
+                            tool_calls
+                                .entry(id.clone())
+                                .or_insert_with(|| ToolCallSummary {
+                                    id: id.clone(),
+                                    name: None,
+                                    arguments: String::new(),
+                                });
+                        entry.arguments.push_str(delta);
+                    }
+                    ChatStreamPart::ToolCall(call) => {
+                        let entry =
+                            tool_calls
+                                .entry(call.tool_call_id.clone())
+                                .or_insert_with(|| ToolCallSummary {
+                                    id: call.tool_call_id.clone(),
+                                    name: None,
+                                    arguments: String::new(),
+                                });
+                        entry.name = Some(call.tool_name.clone());
+                        entry.arguments = call.input.clone();
+                    }
+                    ChatStreamPart::Finish {
+                        usage,
+                        finish_reason,
+                        ..
+                    } => {
+                        summary.finish_reason = finish_reason_to_string(&finish_reason.unified)
+                            .or_else(|| summary.finish_reason.clone());
+                        summary.prompt_tokens = usage.prompt_tokens().or(summary.prompt_tokens);
+                        summary.completion_tokens =
+                            usage.completion_tokens().or(summary.completion_tokens);
+                        summary.total_tokens = usage.total_tokens().or(summary.total_tokens);
+                    }
+                    _ => {}
                 }
             }
             _ => {}

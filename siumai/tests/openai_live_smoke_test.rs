@@ -58,7 +58,9 @@ async fn openai_gpt_5_2_registry_text_and_stream_smoke() {
 
     while let Some(event) = stream.next().await {
         match event.expect("stream event") {
-            ChatStreamEvent::ContentDelta { delta, .. } => collected.push_str(&delta),
+            event if event.text_delta().is_some() => {
+                collected.push_str(event.text_delta().expect("text delta"));
+            }
             ChatStreamEvent::StreamEnd { .. } => {
                 saw_stream_end = true;
                 break;

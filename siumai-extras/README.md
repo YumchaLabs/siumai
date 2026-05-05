@@ -276,9 +276,9 @@ fn handler(stream: ChatStream) -> Response<Body> {
 }
 ```
 
-When mutating streamed text, handle both the legacy `ContentDelta` lane and stable
-`Part(TextDelta)` / `PartWithReplay(TextDelta)` events. Semantic-first streams may skip the legacy
-shadow delta entirely.
+When mutating streamed text, handle stable `Part(TextDelta)` /
+`PartWithReplay(TextDelta)` events or use `ChatStreamEvent::text_delta()` for read-only text
+access.
 
 For non-streaming gateways, you can also transcode a `ChatResponse` into a provider-native
 JSON response body:

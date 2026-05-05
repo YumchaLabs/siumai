@@ -58,10 +58,7 @@ impl ChatCapability for MockClient {
 
         Ok(Box::pin(stream::iter([
             Ok(ChatStreamEvent::StreamStart { metadata }),
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: response_text,
-                index: Some(0),
-            }),
+            Ok(ChatStreamEvent::text_delta_part("0", response_text)),
             Ok(ChatStreamEvent::StreamEnd { response }),
         ])))
     }
@@ -132,7 +129,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     while let Some(event) = stream.next().await {
         match event? {
-            ChatStreamEvent::ContentDelta { delta, .. } => println!("stream delta: {delta}"),
+            event if event.text_delta().is_some() => {
+                println!("stream delta: {}", event.text_delta().expect("text delta"))
+            }
             ChatStreamEvent::StreamEnd { .. } => println!("stream end"),
             _ => {}
         }

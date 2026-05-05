@@ -82,10 +82,7 @@ fn public_facade_extracts_reserved_json_tool_response_when_text_is_empty() {
 
 #[tokio::test]
 async fn public_facade_rejects_truncated_stream_without_stream_end() {
-    let events = vec![Ok(ChatStreamEvent::ContentDelta {
-        delta: "{\"value\":".to_string(),
-        index: Some(0),
-    })];
+    let events = vec![Ok(ChatStreamEvent::text_delta_part("0", "{\"value\":"))];
     let stream = Box::pin(stream::iter(events));
 
     let err = siumai::structured_output::extract_json_value_from_stream(stream)
@@ -103,10 +100,7 @@ async fn public_facade_rejects_truncated_stream_without_stream_end() {
 #[tokio::test]
 async fn public_facade_accepts_stream_end_response_with_best_effort_repair() {
     let events = vec![
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "{\"value\":".to_string(),
-            index: Some(0),
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "{\"value\":")),
         Ok(ChatStreamEvent::StreamEnd {
             response: ChatResponse::new(MessageContent::Text(
                 "```json\n{\"value\":\"ok\"}\n```".to_string(),
@@ -125,10 +119,7 @@ async fn public_facade_accepts_stream_end_response_with_best_effort_repair() {
 #[tokio::test]
 async fn public_facade_accepts_unknown_stream_end_using_accumulated_deltas() {
     let events = vec![
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "{\"value\":\"ok\"}".to_string(),
-            index: Some(0),
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "{\"value\":\"ok\"}")),
         Ok(ChatStreamEvent::StreamEnd {
             response: ChatResponse::empty_with_finish_reason(FinishReason::Unknown),
         }),
@@ -145,10 +136,7 @@ async fn public_facade_accepts_unknown_stream_end_using_accumulated_deltas() {
 #[tokio::test]
 async fn public_facade_rejects_truncated_unknown_stream_end_using_accumulated_deltas() {
     let events = vec![
-        Ok(ChatStreamEvent::ContentDelta {
-            delta: "{\"value\":".to_string(),
-            index: Some(0),
-        }),
+        Ok(ChatStreamEvent::text_delta_part("0", "{\"value\":")),
         Ok(ChatStreamEvent::StreamEnd {
             response: ChatResponse::empty_with_finish_reason(FinishReason::Unknown),
         }),
@@ -169,12 +157,13 @@ async fn public_facade_rejects_truncated_unknown_stream_end_using_accumulated_de
 
 #[tokio::test]
 async fn public_facade_rejects_truncated_reserved_tool_stream_without_stream_end() {
-    let events = vec![Ok(ChatStreamEvent::ToolCallDelta {
-        id: "call_1".to_string(),
-        function_name: Some("json".to_string()),
-        arguments_delta: Some("{\"value\":".to_string()),
-        index: Some(0),
-    })];
+    let events = vec![
+        Ok(ChatStreamEvent::tool_input_start_part("call_1", "json")),
+        Ok(ChatStreamEvent::tool_input_delta_part(
+            "call_1",
+            "{\"value\":",
+        )),
+    ];
     let stream = Box::pin(stream::iter(events));
 
     let err = siumai::structured_output::extract_json_value_from_stream(stream)

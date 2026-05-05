@@ -37,9 +37,9 @@ impl ChatCapability for CancelTestProvider {
         self.start_count.fetch_add(1, Ordering::SeqCst);
         // Build a slow stream: delta("A"), sleep, delta("B"), sleep, end
         let s = async_stream::stream! {
-            yield Ok(ChatStreamEvent::ContentDelta { delta: "A".to_string(), index: None });
+            yield Ok(ChatStreamEvent::text_delta_part("0", "A"));
             tokio::time::sleep(Duration::from_millis(25)).await;
-            yield Ok(ChatStreamEvent::ContentDelta { delta: "B".to_string(), index: None });
+            yield Ok(ChatStreamEvent::text_delta_part("0", "B"));
             tokio::time::sleep(Duration::from_millis(25)).await;
             let response = ChatResponse::new(MessageContent::Text("done".to_string()));
             yield Ok(ChatStreamEvent::StreamEnd { response });
@@ -89,10 +89,7 @@ async fn chat_stream_with_cancel_stops_further_events() {
 
     // Read first delta
     let first = stream.next().await.expect("first event").expect("ok");
-    match first {
-        ChatStreamEvent::ContentDelta { ref delta, .. } => assert_eq!(delta, "A"),
-        other => panic!("expected first delta, got: {other:?}"),
-    }
+    assert_eq!(first.text_delta(), Some("A"));
 
     // Cancel twice (idempotent)
     cancel.cancel();
@@ -155,7 +152,7 @@ impl ChatCapability for SlowStartProvider {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         let s = async_stream::stream! {
-            yield Ok(ChatStreamEvent::ContentDelta { delta: "late".to_string(), index: None });
+            yield Ok(ChatStreamEvent::text_delta_part("0", "late"));
             let response = ChatResponse::new(MessageContent::Text("done".to_string()));
             yield Ok(ChatStreamEvent::StreamEnd { response });
         };

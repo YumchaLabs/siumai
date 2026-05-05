@@ -125,10 +125,7 @@ async fn openai_chat_azure_model_router_stream_uses_request_model_when_chunk_mod
 
     let text: String = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-            _ => None,
-        })
+        .filter_map(ChatStreamEvent::text_delta)
         .collect();
     assert!(
         text.contains("Capital of Denmark."),

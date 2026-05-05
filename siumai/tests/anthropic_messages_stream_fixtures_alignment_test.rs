@@ -391,7 +391,7 @@ fn anthropic_stream_programmatic_tool_calling_emits_code_execution_events() {
 }
 
 #[test]
-fn anthropic_stream_tool_no_args_emits_stable_tool_call_or_legacy_delta() {
+fn anthropic_stream_tool_no_args_emits_typed_tool_call() {
     let path = fixtures_dir().join("anthropic-tool-no-args.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);
     let lines = read_fixture_lines(&path);
@@ -399,7 +399,7 @@ fn anthropic_stream_tool_no_args_emits_stable_tool_call_or_legacy_delta() {
 
     let events = run_converter(lines);
 
-    let stable_calls: Vec<_> = events
+    let typed_calls: Vec<_> = events
         .iter()
         .filter_map(|e| match e.part_ref() {
             Some(ChatStreamPart::ToolCall(call)) => {
@@ -409,31 +409,16 @@ fn anthropic_stream_tool_no_args_emits_stable_tool_call_or_legacy_delta() {
         })
         .collect();
 
-    let legacy_calls: Vec<_> = events
-        .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name: Some(name),
-                ..
-            } => Some((id.clone(), name.clone())),
-            _ => None,
-        })
-        .collect();
-
     assert!(
-        stable_calls
+        typed_calls
             .iter()
-            .any(|(_, name)| name == "updateIssueList")
-            || legacy_calls
-                .iter()
-                .any(|(_, name)| name == "updateIssueList"),
-        "expected stable tool-call or ToolCallDelta for updateIssueList"
+            .any(|(_, name)| name == "updateIssueList"),
+        "expected typed tool-call for updateIssueList"
     );
 }
 
 #[test]
-fn anthropic_stream_json_tool_emits_tool_call_delta_and_args_delta() {
+fn anthropic_stream_json_tool_emits_json_as_text() {
     let path = fixtures_dir().join("anthropic-json-tool.1.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);
     let lines = read_fixture_lines(&path);
@@ -442,26 +427,22 @@ fn anthropic_stream_json_tool_emits_tool_call_delta_and_args_delta() {
     let events = run_converter(lines);
 
     let has_json_tool_call_delta = events.iter().any(|e| {
-        matches!(
-            e,
-            ChatStreamEvent::ToolCallDelta {
-                function_name: Some(name),
-                ..
-            } if name == "json"
-        )
+        matches!(e.part_ref(), Some(ChatStreamPart::ToolCall(call)) if call.tool_name == "json")
+            || matches!(
+                e.part_ref(),
+                Some(ChatStreamPart::ToolInputStart { tool_name, .. }) if tool_name == "json"
+            )
     });
     assert!(
         !has_json_tool_call_delta,
-        "did not expect ToolCallDelta for reserved json tool"
+        "did not expect typed tool events for reserved json tool"
     );
 
     let has_json_text = events.iter().any(|e| {
-        matches!(
-            e,
-            ChatStreamEvent::ContentDelta { delta, .. } if delta.contains("\"elements\"")
-        )
+        e.text_delta()
+            .is_some_and(|delta| delta.contains("\"elements\""))
     });
-    assert!(has_json_text, "expected ContentDelta containing elements");
+    assert!(has_json_text, "expected text delta containing elements");
 
     let has_stop = events.iter().any(|e| {
         matches!(

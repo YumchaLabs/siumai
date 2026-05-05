@@ -341,23 +341,18 @@ fn anthropic_mcp_transcodes_to_openai_chat_completions_with_lossy_tool_result_fa
     );
     let downstream = decode_openai_chat_completions(&bytes);
 
-    let has_tool_call_delta = downstream.iter().any(|e| {
-        matches!(
-            e,
-            ChatStreamEvent::ToolCallDelta {
-                function_name: Some(name),
-                ..
-            } if name == "echo"
-        )
+    let has_tool_call = downstream.iter().any(|e| {
+        matches!(e.part_ref(), Some(ChatStreamPart::ToolCall(call)) if call.tool_name == "echo")
+            || matches!(
+                e.part_ref(),
+                Some(ChatStreamPart::ToolInputStart { tool_name, .. }) if tool_name == "echo"
+            )
     });
-    assert!(has_tool_call_delta, "expected ToolCallDelta for echo");
+    assert!(has_tool_call, "expected typed tool event for echo");
 
     let content: String = downstream
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-            _ => None,
-        })
+        .filter_map(ChatStreamEvent::text_delta)
         .collect();
     assert!(
         content.contains("[tool-result] echo"),

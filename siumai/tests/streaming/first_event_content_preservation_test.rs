@@ -112,7 +112,7 @@ async fn test_openai_first_event_with_content_preservation() {
     );
     assert!(
         results.len() >= 2,
-        "First event with content should generate StreamStart + ContentDelta"
+        "First event with content should generate StreamStart + typed text delta"
     );
 
     // Verify StreamStart is generated
@@ -130,22 +130,12 @@ async fn test_openai_first_event_with_content_preservation() {
         assert_eq!(metadata.provider, "openai");
     }
 
-    // Verify ContentDelta is generated and content is preserved
-    let content_delta = results
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
     assert!(
-        content_delta.is_some(),
-        "ContentDelta event must be generated to preserve first event content"
+        results
+            .iter()
+            .any(|event| matches!(event, Ok(event) if event.text_delta() == Some("Hello"))),
+        "TextDelta event must be generated to preserve first event content"
     );
-
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, index })) = content_delta {
-        assert_eq!(
-            delta, "Hello",
-            "First event content 'Hello' must be preserved"
-        );
-        assert_eq!(index, &Some(0));
-    }
 
     println!("✅ OpenAI first event content preservation test passed");
     println!("Generated events: {:?}", results);
@@ -185,7 +175,7 @@ async fn test_openai_subsequent_events_single_emission() {
         "First event should generate multiple events"
     );
 
-    // Second event should only generate ContentDelta (no more StreamStart)
+    // Second event should only generate TextDelta (no more StreamStart)
     let second_event_data = r#"{
         "id": "chatcmpl-123",
         "object": "chat.completion.chunk",
@@ -209,17 +199,17 @@ async fn test_openai_subsequent_events_single_emission() {
 
     let second_results = converter.convert_event(second_event).await;
 
-    // Subsequent events should only generate single ContentDelta
+    // Subsequent events should only generate single TextDelta
     assert_eq!(
         second_results.len(),
         1,
         "Subsequent events should generate exactly one event"
     );
 
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = second_results.first() {
-        assert_eq!(delta, " world");
+    if let Some(Ok(event)) = second_results.first() {
+        assert_eq!(event.text_delta(), Some(" world"));
     } else {
-        panic!("Expected ContentDelta for subsequent event");
+        panic!("Expected TextDelta for subsequent event");
     }
 
     // Verify no more StreamStart events
@@ -274,21 +264,12 @@ async fn test_gemini_first_event_with_content_preservation() {
         "Gemini should generate StreamStart for first event"
     );
 
-    // Check for ContentDelta with preserved content
-    let content_event = results
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
     assert!(
-        content_event.is_some(),
+        results.iter().any(
+            |event| matches!(event, Ok(event) if event.text_delta() == Some("Hello from Gemini"))
+        ),
         "Gemini should preserve first event content"
     );
-
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
-        assert_eq!(
-            delta, "Hello from Gemini",
-            "Gemini first event content must be preserved"
-        );
-    }
 
     println!("✅ Gemini first event content preservation test passed");
 }
@@ -325,21 +306,12 @@ async fn test_ollama_first_event_with_content_preservation() {
         "Ollama should generate StreamStart for first event"
     );
 
-    // Check for ContentDelta with preserved content
-    let content_event = results
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
     assert!(
-        content_event.is_some(),
+        results.iter().any(
+            |event| matches!(event, Ok(event) if event.text_delta() == Some("Hello from Ollama"))
+        ),
         "Ollama should preserve first event content"
     );
-
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
-        assert_eq!(
-            delta, "Hello from Ollama",
-            "Ollama first event content must be preserved"
-        );
-    }
 
     println!("✅ Ollama first event content preservation test passed");
 }
@@ -380,10 +352,11 @@ async fn test_complete_streaming_sequence_content_preservation() {
                     stream_start_count += 1;
                     println!("Event {}: StreamStart", i);
                 }
-                ChatStreamEvent::ContentDelta { delta, .. } => {
+                event if event.text_delta().is_some() => {
+                    let delta = event.text_delta().expect("text delta");
                     content_delta_count += 1;
-                    all_content.push_str(&delta);
-                    println!("Event {}: ContentDelta '{}'", i, delta);
+                    all_content.push_str(delta);
+                    println!("Event {}: TextDelta '{}'", i, delta);
                 }
                 _ => {}
             }
@@ -396,10 +369,7 @@ async fn test_complete_streaming_sequence_content_preservation() {
         "Complete content must be preserved including first event"
     );
     assert_eq!(stream_start_count, 1, "Should have exactly one StreamStart");
-    assert_eq!(
-        content_delta_count, 4,
-        "Should have four ContentDelta events"
-    );
+    assert_eq!(content_delta_count, 4, "Should have four TextDelta events");
 
     println!("✅ Complete streaming sequence test passed");
     println!("Final content: '{}'", all_content);

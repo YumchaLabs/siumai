@@ -58,8 +58,9 @@ async fn partial_disconnect_then_immediate_cancel() {
     // Receive first content delta ("A") then cancel immediately
     let mut first_delta: Option<String> = None;
     while let Some(ev) = stream.next().await {
-        if let ChatStreamEvent::ContentDelta { delta, .. } = ev.expect("ok") {
-            first_delta = Some(delta);
+        let event = ev.expect("ok");
+        if let Some(delta) = event.text_delta() {
+            first_delta = Some(delta.to_string());
             break;
         }
     }

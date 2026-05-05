@@ -26,18 +26,14 @@ the compatibility lane or metadata surface is still incomplete.
 
 ## Design
 
-### 1. Make textual shadow replay idempotent
+### 1. Keep textual streams typed-only
 
-The shared stream factory keeps the canonical compatibility rule:
+The shared stream factory keeps the canonical runtime rule:
 
 - stable textual parts remain the primary runtime representation
-- legacy textual delta consumers still receive best-effort `ContentDelta` / `ThinkingDelta`
+- textual consumers read `ChatStreamPart::TextDelta` / `ReasoningDelta` directly
 
-But the replay step now first checks whether the converter batch already contains those legacy
-delta events. If the legacy lane already exists, the factory does not synthesize another copy.
-
-This keeps the compatibility layer safe for mixed converters that emit both lanes during
-transitional refactors.
+The earlier transitional shadow-replay layer has been removed with the typed-stream-only model.
 
 ### 2. Normalize Perplexity hosted-search usage completely
 
@@ -57,18 +53,16 @@ into:
 This keeps response metadata parity consistent between raw compat JSON, typed helpers, and public
 path tests.
 
-### 3. Expose Gemini reasoning on both stable lanes
+### 3. Expose Gemini reasoning on typed parts
 
 Gemini / Vertex reasoning chunks now emit:
 
 - stable runtime `Part(ChatStreamPart::{ReasoningStart,ReasoningDelta,ReasoningEnd})`
-- legacy-compatible `ThinkingDelta`
 - AI SDK-style custom `reasoning-start` / `reasoning-delta` / `reasoning-end`
 
 The public stream surface therefore matches the practical AI SDK expectation:
 
 - part-aware consumers can use the semantic lane
-- legacy reasoning-text consumers can still read `ThinkingDelta`
 - fixture/public-path tests that inspect AI SDK custom event payloads continue to pass
 
 ### 4. Deduplicate mixed `Part + Custom` reasoning during Gemini re-serialization

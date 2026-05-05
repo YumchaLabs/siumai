@@ -74,8 +74,8 @@ async fn http_connect_or_send_timeout_then_retry_success() {
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, Ok(ChatStreamEvent::ContentDelta { .. }))),
-        "expected at least one ContentDelta"
+            .any(|e| matches!(e, Ok(event) if event.text_delta().is_some())),
+        "expected at least one TextDelta"
     );
     assert!(
         events

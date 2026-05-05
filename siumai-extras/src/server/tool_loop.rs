@@ -616,12 +616,20 @@ mod tests {
                 0 => {
                     let events = vec![
                         Ok(ChatStreamEvent::StreamStart { metadata: meta }),
-                        Ok(ChatStreamEvent::ToolCallDelta {
-                            id: "call_1".to_string(),
-                            function_name: Some("get_weather".to_string()),
-                            arguments_delta: Some("{\"city\":\"Guangzhou\"}".to_string()),
-                            index: None,
-                        }),
+                        Ok(ChatStreamEvent::tool_input_start_part(
+                            "call_1",
+                            "get_weather",
+                        )),
+                        Ok(ChatStreamEvent::tool_input_delta_part(
+                            "call_1",
+                            "{\"city\":\"Guangzhou\"}",
+                        )),
+                        Ok(ChatStreamEvent::tool_input_end_part("call_1")),
+                        Ok(ChatStreamEvent::tool_call_part(
+                            "call_1",
+                            "get_weather",
+                            "{\"city\":\"Guangzhou\"}",
+                        )),
                         Ok(ChatStreamEvent::StreamEnd {
                             response: ChatResponse {
                                 id: Some("resp_0".to_string()),
@@ -650,10 +658,7 @@ mod tests {
                 _ => {
                     let events = vec![
                         Ok(ChatStreamEvent::StreamStart { metadata: meta }),
-                        Ok(ChatStreamEvent::ContentDelta {
-                            delta: "It's sunny.".to_string(),
-                            index: None,
-                        }),
+                        Ok(ChatStreamEvent::text_delta_part("0", "It's sunny.")),
                         Ok(ChatStreamEvent::StreamEnd {
                             response: ChatResponse::new(MessageContent::Text(
                                 "It's sunny.".to_string(),
@@ -694,7 +699,7 @@ mod tests {
 
         let mut seen_start = 0;
         let mut seen_end = 0;
-        let mut seen_tool_call_delta = false;
+        let mut seen_tool_call_part = false;
         let mut seen_gateway_tool_result = false;
         let mut seen_tool_result_part = false;
         let mut seen_final_text = false;
@@ -704,8 +709,18 @@ mod tests {
             match ev {
                 ChatStreamEvent::StreamStart { .. } => seen_start += 1,
                 ChatStreamEvent::StreamEnd { .. } => seen_end += 1,
-                ChatStreamEvent::ToolCallDelta { .. } => seen_tool_call_delta = true,
-                ChatStreamEvent::ContentDelta { delta, .. } if delta.contains("sunny") => {
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolCall(_),
+                }
+                | ChatStreamEvent::PartWithReplay {
+                    part: ChatStreamPart::ToolCall(_),
+                    ..
+                } => seen_tool_call_part = true,
+                event
+                    if event
+                        .text_delta()
+                        .is_some_and(|delta| delta.contains("sunny")) =>
+                {
                     seen_final_text = true;
                 }
                 ChatStreamEvent::Part {
@@ -728,7 +743,7 @@ mod tests {
 
         assert_eq!(seen_start, 1, "should emit StreamStart only once");
         assert_eq!(seen_end, 1, "should emit StreamEnd only once");
-        assert!(seen_tool_call_delta, "should forward tool call deltas");
+        assert!(seen_tool_call_part, "should forward typed tool call parts");
         assert!(
             seen_tool_result_part,
             "should insert stable tool-result part between steps"
@@ -1056,10 +1071,10 @@ mod tests {
                                 provider_metadata: None,
                             }),
                         }),
-                        Ok(ChatStreamEvent::ContentDelta {
-                            delta: "Deferred provider result.".to_string(),
-                            index: None,
-                        }),
+                        Ok(ChatStreamEvent::text_delta_part(
+                            "0",
+                            "Deferred provider result.",
+                        )),
                         Ok(ChatStreamEvent::StreamEnd {
                             response: ChatResponse::new(MessageContent::MultiModal(vec![
                                 ContentPart::ToolResult {
@@ -1108,8 +1123,10 @@ mod tests {
         let mut saw_final_text = false;
         while let Some(item) = stream.next().await {
             match item.expect("event") {
-                ChatStreamEvent::ContentDelta { delta, .. }
-                    if delta.contains("Deferred provider result") =>
+                event
+                    if event
+                        .text_delta()
+                        .is_some_and(|delta| delta.contains("Deferred provider result")) =>
                 {
                     saw_final_text = true;
                 }

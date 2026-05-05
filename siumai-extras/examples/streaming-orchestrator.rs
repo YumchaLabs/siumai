@@ -13,17 +13,7 @@ use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 
 fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
-    match event {
-        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-        ChatStreamEvent::Part {
-            part: ChatStreamPart::TextDelta { delta, .. },
-        }
-        | ChatStreamEvent::PartWithReplay {
-            part: ChatStreamPart::TextDelta { delta, .. },
-            ..
-        } => Some(delta.as_str()),
-        _ => None,
-    }
+    event.text_delta()
 }
 
 // Simple tool resolver
@@ -135,12 +125,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 match event {
-                    ChatStreamEvent::ToolCallDelta {
-                        function_name: Some(name),
-                        ..
-                    } => {
-                        println!("\n  [Tool call: {}]", name);
-                    }
                     ChatStreamEvent::Part {
                         part: ChatStreamPart::ToolInputStart { tool_name, .. },
                     } => {

@@ -152,9 +152,6 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                 summary.start_id = metadata.id.clone();
                 summary.start_model = metadata.model.clone();
             }
-            ChatStreamEvent::ContentDelta { delta, .. } => {
-                push_adjacent_unique(&mut text_deltas, delta.clone());
-            }
             ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
                 let value = serde_json::to_value(part).expect("serialize stream part");
                 match part {
@@ -208,13 +205,6 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                     }
                     _ => {}
                 }
-            }
-            ChatStreamEvent::UsageUpdate { usage }
-                if usage.prompt_tokens().unwrap_or(0) > 0
-                    || usage.completion_tokens().unwrap_or(0) > 0 =>
-            {
-                summary.prompt_tokens = usage.prompt_tokens();
-                summary.completion_tokens = usage.completion_tokens();
             }
             ChatStreamEvent::StreamEnd { response } => {
                 if summary.finish_reason.is_none() {

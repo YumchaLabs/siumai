@@ -239,10 +239,7 @@ fn decode_openai_responses(bytes: &[u8]) -> Vec<ChatStreamEvent> {
 }
 
 fn text_delta_compat(event: &ChatStreamEvent) -> Option<&str> {
-    event.text_delta().or_else(|| match event {
-        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
-        _ => None,
-    })
+    event.text_delta()
 }
 
 fn custom_v3_tool_calls(events: &[ChatStreamEvent], tool_name: &str) -> Vec<serde_json::Value> {
@@ -331,16 +328,12 @@ fn gemini_function_call_transcodes_to_openai_chat_completions_and_responses() {
         "expected initial text content delta"
     );
 
-    let has_tool_call = upstream.iter().any(|e| match e {
-        _ if matches!(
+    let has_tool_call = upstream.iter().any(|e| {
+        matches!(
             e.part_ref(),
             Some(ChatStreamPart::ToolCall(call))
                 if call.tool_name == "test-tool" && call.input.contains("example value")
-        ) =>
-        {
-            true
-        }
-        _ => false,
+        )
     });
     assert!(has_tool_call, "expected typed tool-call for test-tool");
 
@@ -348,8 +341,7 @@ fn gemini_function_call_transcodes_to_openai_chat_completions_and_responses() {
     let chat_events = decode_openai_chat_completions(&chat_bytes);
     assert!(
         chat_events.iter().any(|e| {
-            matches!(e, ChatStreamEvent::ToolCallDelta { .. })
-                || matches!(e.part_ref(), Some(ChatStreamPart::ToolCall(_)))
+            matches!(e.part_ref(), Some(ChatStreamPart::ToolCall(_)))
                 || matches!(e.part_ref(), Some(ChatStreamPart::ToolInputStart { .. }))
         }),
         "expected tool-call events in OpenAI chat completions stream"
@@ -358,22 +350,16 @@ fn gemini_function_call_transcodes_to_openai_chat_completions_and_responses() {
     let responses_bytes = encode_openai_responses_with_bridge(upstream);
     let responses_events = decode_openai_responses(&responses_bytes);
 
-    let has_responses_tool_call = responses_events.iter().any(|e| match e {
-        _ if matches!(
+    let has_responses_tool_call = responses_events.iter().any(|e| {
+        matches!(
             e.part_ref(),
             Some(ChatStreamPart::ToolCall(call)) if call.tool_name == "test-tool"
-        ) =>
-        {
-            true
-        }
-        ChatStreamEvent::ToolCallDelta { function_name, .. } => {
-            function_name.as_deref() == Some("test-tool")
-        }
-        ChatStreamEvent::Custom { data, .. } => {
-            data.get("type") == Some(&serde_json::json!("tool-call"))
+        ) || matches!(
+            e,
+            ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::json!("tool-call"))
                 && data.get("toolName").and_then(|v| v.as_str()) == Some("test-tool")
-        }
-        _ => false,
+        )
     });
     assert!(
         has_responses_tool_call,
@@ -391,12 +377,8 @@ fn gemini_multi_function_calls_transcodes_to_openai_chat_completions_and_respons
 
     let tool_names: Vec<_> = upstream
         .iter()
-        .filter_map(|e| match e {
-            _ if matches!(e.part_ref(), Some(ChatStreamPart::ToolCall(_))) => match e.part_ref() {
-                Some(ChatStreamPart::ToolCall(call)) => Some(call.tool_name.clone()),
-                _ => None,
-            },
-            ChatStreamEvent::ToolCallDelta { function_name, .. } => function_name.clone(),
+        .filter_map(|e| match e.part_ref() {
+            Some(ChatStreamPart::ToolCall(call)) => Some(call.tool_name.clone()),
             _ => None,
         })
         .collect();
@@ -410,8 +392,7 @@ fn gemini_multi_function_calls_transcodes_to_openai_chat_completions_and_respons
     let chat_tool_calls = chat_events
         .iter()
         .filter(|e| {
-            matches!(e, ChatStreamEvent::ToolCallDelta { .. })
-                || matches!(e.part_ref(), Some(ChatStreamPart::ToolCall(_)))
+            matches!(e.part_ref(), Some(ChatStreamPart::ToolCall(_)))
                 || matches!(e.part_ref(), Some(ChatStreamPart::ToolInputStart { .. }))
         })
         .count();

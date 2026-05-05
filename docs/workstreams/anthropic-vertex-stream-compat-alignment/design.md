@@ -38,14 +38,13 @@ That means:
 
 - protocol converters can keep emitting stable `TextDelta` / `ReasoningDelta` parts for indexed
   Anthropic blocks
-- public chat streams still replay best-effort legacy `ContentDelta` / `ThinkingDelta` shadows
+- public chat streams expose typed `TextDelta` / `ReasoningDelta` parts without legacy shadows
 - the same rule now applies across:
   - SSE fallback paths
   - direct JSON stream factories
   - transport-backed JSON stream executors
 
-This keeps stable parts canonical while preserving compatibility for existing client-side stream
-consumers.
+This keeps stable parts canonical for client-side stream consumers.
 
 ### 2. Keep the replay scope intentionally narrow
 

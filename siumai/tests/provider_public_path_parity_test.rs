@@ -59,6 +59,48 @@ impl CaptureTransport {
     }
 }
 
+#[allow(dead_code)]
+fn remember_stream_tool_call_id(current: &mut Option<String>, next: &str) {
+    if current.is_none() {
+        *current = Some(next.to_string());
+    } else {
+        assert_eq!(current.as_deref(), Some(next));
+    }
+}
+
+#[allow(dead_code)]
+fn record_streamed_tool_part(
+    event: &siumai::prelude::unified::ChatStreamEvent,
+    tool_call_id: &mut Option<String>,
+    tool_name: &mut Option<String>,
+    arguments: &mut String,
+) {
+    match event.part_ref() {
+        Some(siumai::prelude::unified::ChatStreamPart::ToolInputStart {
+            id,
+            tool_name: name,
+            ..
+        }) => {
+            remember_stream_tool_call_id(tool_call_id, id);
+            if tool_name.is_none() {
+                *tool_name = Some(name.clone());
+            }
+        }
+        Some(siumai::prelude::unified::ChatStreamPart::ToolInputDelta { id, delta, .. }) => {
+            remember_stream_tool_call_id(tool_call_id, id);
+            arguments.push_str(delta);
+        }
+        Some(siumai::prelude::unified::ChatStreamPart::ToolCall(call)) => {
+            remember_stream_tool_call_id(tool_call_id, &call.tool_call_id);
+            if tool_name.is_none() {
+                *tool_name = Some(call.tool_name.clone());
+            }
+            *arguments = call.input.clone();
+        }
+        _ => {}
+    }
+}
+
 #[async_trait]
 impl HttpTransport for CaptureTransport {
     async fn execute_json(
@@ -5190,8 +5232,8 @@ data: [DONE]
 
             while let Some(event) = stream.next().await {
                 match event.expect("stream event ok") {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        reasoning.push_str(&delta);
+                    event if event.reasoning_delta().is_some() => {
+                        reasoning.push_str(event.reasoning_delta().expect("reasoning delta"));
                     }
                     siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
                         end = Some(response);
@@ -8973,12 +9015,7 @@ mod gemini_public_path {
         let collect_reasoning = |events: &[siumai::prelude::unified::ChatStreamEvent]| {
             events
                 .iter()
-                .filter_map(|event| match event {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        Some(delta.as_str())
-                    }
-                    _ => None,
-                })
+                .filter_map(siumai::prelude::unified::ChatStreamEvent::reasoning_delta)
                 .collect::<String>()
         };
 
@@ -12273,37 +12310,23 @@ mod deepseek_public_path {
 
         while let Some(event) = stream.next().await {
             match event {
-                Ok(siumai::prelude::unified::ChatStreamEvent::ToolCallDelta {
-                    id,
-                    function_name,
-                    arguments_delta,
-                    ..
-                }) => {
-                    if tool_call_id.is_none() {
-                        tool_call_id = Some(id.clone());
-                    } else {
-                        assert_eq!(tool_call_id.as_deref(), Some(id.as_str()));
-                    }
-
-                    if let Some(function_name) = function_name
-                        && tool_name.is_none()
-                    {
-                        tool_name = Some(function_name);
-                    }
-
-                    if let Some(arguments_delta) = arguments_delta {
-                        arguments.push_str(&arguments_delta);
-                    }
-                }
-                Ok(siumai::prelude::unified::ChatStreamEvent::StreamEnd { response }) => {
-                    return (
-                        response,
-                        tool_call_id.expect("stream tool call id"),
-                        tool_name.expect("stream tool name"),
-                        serde_json::from_str(&arguments).expect("stream tool arguments json"),
+                Ok(event) => {
+                    record_streamed_tool_part(
+                        &event,
+                        &mut tool_call_id,
+                        &mut tool_name,
+                        &mut arguments,
                     );
+                    if let siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } = event
+                    {
+                        return (
+                            response,
+                            tool_call_id.expect("stream tool call id"),
+                            tool_name.expect("stream tool name"),
+                            serde_json::from_str(&arguments).expect("stream tool arguments json"),
+                        );
+                    }
                 }
-                Ok(_) => {}
                 Err(err) => panic!("stream error: {err}"),
             }
         }
@@ -14282,8 +14305,8 @@ data: [DONE]
             let mut reasoning = String::new();
             while let Some(event) = stream.next().await {
                 match event.expect("stream event ok") {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        reasoning.push_str(&delta);
+                    event if event.reasoning_delta().is_some() => {
+                        reasoning.push_str(event.reasoning_delta().expect("reasoning delta"));
                     }
                     siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
                         end = Some(response);
@@ -23971,8 +23994,8 @@ data: [DONE]
             let mut reasoning = String::new();
             while let Some(event) = stream.next().await {
                 match event.expect("stream event ok") {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        reasoning.push_str(&delta);
+                    event if event.reasoning_delta().is_some() => {
+                        reasoning.push_str(event.reasoning_delta().expect("reasoning delta"));
                     }
                     siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
                         end = Some(response);
@@ -25080,37 +25103,23 @@ mod groq_public_path {
 
         while let Some(event) = stream.next().await {
             match event {
-                Ok(siumai::prelude::unified::ChatStreamEvent::ToolCallDelta {
-                    id,
-                    function_name,
-                    arguments_delta,
-                    ..
-                }) => {
-                    if tool_call_id.is_none() {
-                        tool_call_id = Some(id.clone());
-                    } else {
-                        assert_eq!(tool_call_id.as_deref(), Some(id.as_str()));
-                    }
-
-                    if let Some(function_name) = function_name
-                        && tool_name.is_none()
-                    {
-                        tool_name = Some(function_name);
-                    }
-
-                    if let Some(arguments_delta) = arguments_delta {
-                        arguments.push_str(&arguments_delta);
-                    }
-                }
-                Ok(siumai::prelude::unified::ChatStreamEvent::StreamEnd { response }) => {
-                    return (
-                        response,
-                        tool_call_id.expect("stream tool call id"),
-                        tool_name.expect("stream tool name"),
-                        serde_json::from_str(&arguments).expect("stream tool arguments json"),
+                Ok(event) => {
+                    record_streamed_tool_part(
+                        &event,
+                        &mut tool_call_id,
+                        &mut tool_name,
+                        &mut arguments,
                     );
+                    if let siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } = event
+                    {
+                        return (
+                            response,
+                            tool_call_id.expect("stream tool call id"),
+                            tool_name.expect("stream tool name"),
+                            serde_json::from_str(&arguments).expect("stream tool arguments json"),
+                        );
+                    }
                 }
-                Ok(_) => {}
                 Err(err) => panic!("stream error: {err}"),
             }
         }
@@ -25659,8 +25668,8 @@ data: [DONE]
             let mut reasoning = String::new();
             while let Some(event) = stream.next().await {
                 match event.expect("stream event ok") {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        reasoning.push_str(&delta);
+                    event if event.reasoning_delta().is_some() => {
+                        reasoning.push_str(event.reasoning_delta().expect("reasoning delta"));
                     }
                     siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
                         end = Some(response);
@@ -37764,8 +37773,8 @@ mod anthropic_public_path {
             let mut reasoning = String::new();
             while let Some(event) = stream.next().await {
                 match event.expect("stream event ok") {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        reasoning.push_str(&delta);
+                    event if event.reasoning_delta().is_some() => {
+                        reasoning.push_str(event.reasoning_delta().expect("reasoning delta"));
                     }
                     siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
                         end = Some(response);
@@ -39391,12 +39400,7 @@ mod vertex_public_path {
         let collect_reasoning = |events: &[siumai::prelude::unified::ChatStreamEvent]| {
             events
                 .iter()
-                .filter_map(|event| match event {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        Some(delta.as_str())
-                    }
-                    _ => None,
-                })
+                .filter_map(siumai::prelude::unified::ChatStreamEvent::reasoning_delta)
                 .collect::<String>()
         };
 
@@ -40283,12 +40287,7 @@ mod vertex_public_path {
         let collect_content = |events: &[siumai::prelude::unified::ChatStreamEvent]| {
             events
                 .iter()
-                .filter_map(|event| match event {
-                    siumai::prelude::unified::ChatStreamEvent::ContentDelta { delta, .. } => {
-                        Some(delta.as_str())
-                    }
-                    _ => None,
-                })
+                .filter_map(siumai::prelude::unified::ChatStreamEvent::text_delta)
                 .collect::<String>()
         };
 
@@ -41241,8 +41240,8 @@ mod vertex_public_path {
             let mut reasoning = String::new();
             while let Some(event) = stream.next().await {
                 match event.expect("stream event ok") {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        reasoning.push_str(&delta);
+                    event if event.reasoning_delta().is_some() => {
+                        reasoning.push_str(event.reasoning_delta().expect("reasoning delta"));
                     }
                     siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
                         end = Some(response);
@@ -41570,12 +41569,7 @@ mod vertex_public_path {
         let collect_content = |events: &[siumai::prelude::unified::ChatStreamEvent]| {
             events
                 .iter()
-                .filter_map(|event| match event {
-                    siumai::prelude::unified::ChatStreamEvent::ContentDelta { delta, .. } => {
-                        Some(delta.as_str())
-                    }
-                    _ => None,
-                })
+                .filter_map(siumai::prelude::unified::ChatStreamEvent::text_delta)
                 .collect::<String>()
         };
 
@@ -44023,37 +44017,23 @@ mod xai_public_path {
 
         while let Some(event) = stream.next().await {
             match event {
-                Ok(siumai::prelude::unified::ChatStreamEvent::ToolCallDelta {
-                    id,
-                    function_name,
-                    arguments_delta,
-                    ..
-                }) => {
-                    if tool_call_id.is_none() {
-                        tool_call_id = Some(id.clone());
-                    } else {
-                        assert_eq!(tool_call_id.as_deref(), Some(id.as_str()));
-                    }
-
-                    if let Some(function_name) = function_name
-                        && tool_name.is_none()
-                    {
-                        tool_name = Some(function_name);
-                    }
-
-                    if let Some(arguments_delta) = arguments_delta {
-                        arguments.push_str(&arguments_delta);
-                    }
-                }
-                Ok(siumai::prelude::unified::ChatStreamEvent::StreamEnd { response }) => {
-                    return (
-                        response,
-                        tool_call_id.expect("stream tool call id"),
-                        tool_name.expect("stream tool name"),
-                        serde_json::from_str(&arguments).expect("stream tool arguments json"),
+                Ok(event) => {
+                    record_streamed_tool_part(
+                        &event,
+                        &mut tool_call_id,
+                        &mut tool_name,
+                        &mut arguments,
                     );
+                    if let siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } = event
+                    {
+                        return (
+                            response,
+                            tool_call_id.expect("stream tool call id"),
+                            tool_name.expect("stream tool name"),
+                            serde_json::from_str(&arguments).expect("stream tool arguments json"),
+                        );
+                    }
                 }
-                Ok(_) => {}
                 Err(err) => panic!("stream error: {err}"),
             }
         }
@@ -44821,8 +44801,8 @@ data: [DONE]
             let mut reasoning = String::new();
             while let Some(event) = stream.next().await {
                 match event.expect("stream event ok") {
-                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
-                        reasoning.push_str(&delta);
+                    event if event.reasoning_delta().is_some() => {
+                        reasoning.push_str(event.reasoning_delta().expect("reasoning delta"));
                     }
                     siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
                         end = Some(response);
@@ -46670,7 +46650,7 @@ data: [DONE]
         ] {
             assert!(
                 response.tool_calls().is_empty(),
-                "stream end response should keep finish reason while tool-call equivalence is asserted via ToolCallDelta accumulation"
+                "stream end response should keep finish reason while tool-call equivalence is asserted via typed tool input accumulation"
             );
         }
 

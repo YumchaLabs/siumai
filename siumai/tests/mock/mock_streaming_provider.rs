@@ -6,8 +6,8 @@
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use siumai::prelude::unified::{
-    ChatMessage, ChatResponse, ChatStream, ChatStreamEvent, FinishReason, LlmError, MessageContent,
-    ResponseMetadata, Usage,
+    ChatMessage, ChatResponse, ChatStream, ChatStreamEvent, ChatStreamPart, FinishReason, LlmError,
+    MessageContent, ResponseMetadata, Usage,
 };
 use std::time::Duration;
 
@@ -95,9 +95,10 @@ impl MockStreamingProvider {
 
         // 2. Add thinking content if requested
         if self.include_thinking {
-            events.push(Ok(ChatStreamEvent::ThinkingDelta {
-                delta: "Let me think about this...".to_string(),
-            }));
+            events.push(Ok(ChatStreamEvent::reasoning_delta_part(
+                "reasoning",
+                "Let me think about this...",
+            )));
 
             if let Some(delay) = self.event_delay {
                 tokio::time::sleep(delay).await;
@@ -106,19 +107,20 @@ impl MockStreamingProvider {
 
         // 3. Add tool calls if requested
         if self.include_tool_calls {
-            events.push(Ok(ChatStreamEvent::ToolCallDelta {
-                id: "call_123".to_string(),
-                function_name: Some("get_weather".to_string()),
-                arguments_delta: None,
-                index: Some(0),
-            }));
-
-            events.push(Ok(ChatStreamEvent::ToolCallDelta {
-                id: "call_123".to_string(),
-                function_name: None,
-                arguments_delta: Some("{\"location\":\"New York\"}".to_string()),
-                index: Some(0),
-            }));
+            events.push(Ok(ChatStreamEvent::tool_input_start_part(
+                "call_123",
+                "get_weather",
+            )));
+            events.push(Ok(ChatStreamEvent::tool_input_delta_part(
+                "call_123",
+                "{\"location\":\"New York\"}",
+            )));
+            events.push(Ok(ChatStreamEvent::tool_input_end_part("call_123")));
+            events.push(Ok(ChatStreamEvent::tool_call_part(
+                "call_123",
+                "get_weather",
+                "{\"location\":\"New York\"}",
+            )));
 
             if let Some(delay) = self.event_delay {
                 tokio::time::sleep(delay).await;
@@ -134,10 +136,7 @@ impl MockStreamingProvider {
                 format!(" {}", word)
             };
 
-            events.push(Ok(ChatStreamEvent::ContentDelta {
-                delta,
-                index: Some(0),
-            }));
+            events.push(Ok(ChatStreamEvent::text_delta_part("0", delta)));
 
             if let Some(delay) = self.event_delay {
                 tokio::time::sleep(delay).await;
@@ -146,8 +145,8 @@ impl MockStreamingProvider {
 
         // 5. Add usage information if requested
         if self.include_usage {
-            events.push(Ok(ChatStreamEvent::UsageUpdate {
-                usage: {
+            events.push(Ok(ChatStreamEvent::finish_part(
+                {
                     #[allow(deprecated)]
                     {
                         let mut builder = Usage::builder()
@@ -160,7 +159,8 @@ impl MockStreamingProvider {
                         builder.build()
                     }
                 },
-            }));
+                FinishReason::Stop,
+            )));
         }
 
         // 6. End with StreamEnd
@@ -219,7 +219,7 @@ mod tests {
             events.push(event.unwrap());
         }
 
-        // Should have: StreamStart + 2 ContentDeltas + UsageUpdate + StreamEnd
+        // Should have: StreamStart + 2 TextDelta parts + Finish part + StreamEnd
         assert_eq!(events.len(), 5);
 
         // Verify sequence
@@ -231,10 +231,12 @@ mod tests {
         }
 
         match &events[1] {
-            ChatStreamEvent::ContentDelta { delta, .. } => {
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta { delta, .. },
+            } => {
                 assert_eq!(delta, "Hello");
             }
-            _ => panic!("Expected ContentDelta"),
+            _ => panic!("Expected TextDelta"),
         }
 
         match &events[4] {
@@ -266,25 +268,25 @@ mod tests {
             .any(|e| matches!(e, ChatStreamEvent::StreamStart { .. }));
         let has_thinking = events
             .iter()
-            .any(|e| matches!(e, ChatStreamEvent::ThinkingDelta { .. }));
+            .any(|e| matches!(e.part_ref(), Some(ChatStreamPart::ReasoningDelta { .. })));
         let has_tool_call = events
             .iter()
-            .any(|e| matches!(e, ChatStreamEvent::ToolCallDelta { .. }));
+            .any(|e| matches!(e.part_ref(), Some(ChatStreamPart::ToolCall(_))));
         let has_content = events
             .iter()
-            .any(|e| matches!(e, ChatStreamEvent::ContentDelta { .. }));
+            .any(|e| matches!(e.part_ref(), Some(ChatStreamPart::TextDelta { .. })));
         let has_usage = events
             .iter()
-            .any(|e| matches!(e, ChatStreamEvent::UsageUpdate { .. }));
+            .any(|e| matches!(e.part_ref(), Some(ChatStreamPart::Finish { .. })));
         let has_stream_end = events
             .iter()
             .any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
 
         assert!(has_stream_start, "Should have StreamStart");
-        assert!(has_thinking, "Should have ThinkingDelta");
-        assert!(has_tool_call, "Should have ToolCallDelta");
-        assert!(has_content, "Should have ContentDelta");
-        assert!(has_usage, "Should have UsageUpdate");
+        assert!(has_thinking, "Should have ReasoningDelta");
+        assert!(has_tool_call, "Should have ToolCall");
+        assert!(has_content, "Should have TextDelta");
+        assert!(has_usage, "Should have Finish usage");
         assert!(has_stream_end, "Should have StreamEnd");
     }
 }

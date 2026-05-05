@@ -42,7 +42,7 @@ impl ChatCapability for ConnectRetryProvider {
             ));
         }
         let s = async_stream::stream! {
-            yield Ok(ChatStreamEvent::ContentDelta { delta: "hello".to_string(), index: None });
+            yield Ok(ChatStreamEvent::text_delta_part("0", "hello"));
             let response = ChatResponse::new(MessageContent::Text("done".to_string()));
             yield Ok(ChatStreamEvent::StreamEnd { response });
         };
@@ -91,7 +91,7 @@ async fn chat_stream_retries_connect_then_succeeds() {
     let events: Vec<_> = stream.collect().await;
     assert!(matches!(
         events.first(),
-        Some(Ok(ChatStreamEvent::ContentDelta { .. }))
+        Some(Ok(event)) if event.text_delta().is_some()
     ));
     assert!(matches!(
         events.last(),

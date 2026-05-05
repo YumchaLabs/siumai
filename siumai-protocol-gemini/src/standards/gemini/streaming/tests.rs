@@ -286,14 +286,6 @@ async fn test_gemini_streaming_emits_reasoning_parts_with_signature() {
     assert!(
         !result.iter().any(|event| matches!(
             event.as_ref().ok(),
-            Some(ChatStreamEvent::ThinkingDelta { .. })
-        )),
-        "reasoning stable parts should not emit legacy ThinkingDelta shadows: {result:?}"
-    );
-
-    assert!(
-        !result.iter().any(|event| matches!(
-            event.as_ref().ok(),
             Some(ChatStreamEvent::Custom { event_type, .. }) if event_type == "gemini:reasoning"
         )),
         "reasoning stable parts should no longer emit gemini:reasoning custom shadows: {result:?}"
@@ -1003,11 +995,6 @@ async fn test_thinking_delta_extraction() {
         stream_part(e),
         Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { .. })
     )));
-    assert!(
-        !result
-            .iter()
-            .any(|e| matches!(e, Ok(ChatStreamEvent::ThinkingDelta { .. })))
-    );
 }
 
 fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
@@ -1117,10 +1104,6 @@ async fn gemini_stream_proxy_serializes_typed_reasoning_delta() {
         stream_part(e),
         Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { delta, .. }) if delta == "think"
     )));
-    assert!(
-        !out.iter()
-            .any(|e| matches!(e, Ok(ChatStreamEvent::ThinkingDelta { .. })))
-    );
 }
 
 #[tokio::test]
@@ -1150,11 +1133,6 @@ async fn gemini_stream_proxy_serializes_finish_part_usage() {
         retry: None,
     };
     let out = converter.convert_event(event).await;
-    assert!(
-        !out.iter()
-            .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
-    );
-
     let usage = finish_part_usage(&out).expect("finish usage");
     assert_eq!(usage.prompt_tokens(), Some(3));
     assert_eq!(usage.completion_tokens(), Some(5));
@@ -1214,11 +1192,6 @@ async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals(
         retry: None,
     };
     let out = converter.convert_event(event).await;
-    assert!(
-        !out.iter()
-            .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
-    );
-
     let usage = finish_part_usage(&out).expect("finish usage");
     assert!(usage.prompt_tokens_value().is_none());
     assert!(usage.completion_tokens_value().is_none());
@@ -1276,11 +1249,6 @@ async fn gemini_stream_proxy_preserves_raw_cached_content_counts() {
         retry: None,
     };
     let out = converter.convert_event(event).await;
-    assert!(
-        !out.iter()
-            .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
-    );
-
     let usage = finish_part_usage(&out).expect("finish usage");
     assert_eq!(usage.normalized_input_tokens().cache_read, Some(5));
     assert_eq!(
@@ -1313,12 +1281,7 @@ async fn gemini_stream_proxy_parses_reasoning_usage_into_output_totals() {
         retry: None,
     };
 
-    let out = converter.convert_event(event).await;
-    assert!(
-        !out.iter()
-            .any(|e| matches!(e, Ok(ChatStreamEvent::UsageUpdate { .. })))
-    );
-
+    converter.convert_event(event).await;
     let finish = converter.convert_event(finish_event()).await;
     let usage = finish_part_usage(&finish).expect("finish usage");
     assert_eq!(usage.prompt_tokens(), Some(12));
