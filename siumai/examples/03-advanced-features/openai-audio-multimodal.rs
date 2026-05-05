@@ -19,7 +19,7 @@ use siumai::provider_ext::openai::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
     ChatCompletionModalities, OpenAiChatRequestExt, OpenAiOptions,
 };
-use siumai::text::TextModelV3;
+use siumai::text::TextModel;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn example_audio_input(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
+async fn example_audio_input(model: &impl TextModel) -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 1: Audio Input\n");
 
     let audio_data = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
@@ -52,7 +52,7 @@ async fn example_audio_input(model: &impl TextModelV3) -> Result<(), Box<dyn std
     Ok(())
 }
 
-async fn example_audio_output(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
+async fn example_audio_output(model: &impl TextModel) -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 2: Audio Output\n");
 
     let audio_config = ChatCompletionAudio {
@@ -80,7 +80,7 @@ async fn example_audio_output(model: &impl TextModelV3) -> Result<(), Box<dyn st
 }
 
 async fn example_audio_bidirectional(
-    model: &impl TextModelV3,
+    model: &impl TextModel,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 3: Bidirectional Audio\n");
 

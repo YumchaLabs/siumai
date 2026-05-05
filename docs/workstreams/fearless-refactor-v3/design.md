@@ -105,7 +105,7 @@ Decision:
 
 We will represent model families via stable traits (names TBD; examples below):
 
-- `TextModelV3` (generate + stream)
+- `TextModel` (generate + stream)
 - `EmbeddingModelV3`
 - `ImageModelV3`
 - `RerankModelV3`

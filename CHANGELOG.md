@@ -61,6 +61,8 @@ read the upgrade notes below.
   hosted-tool, and response metadata.
 - Streaming now uses AI SDK-style `ChatStreamPart` as the canonical public stream model for text,
   reasoning, tools, usage, sources, and metadata.
+- The Rust text-family trait is now named `TextModel` instead of `TextModelV3`, removing the stale
+  V3 naming from examples and public extension points.
 - Google Vertex Gemini image generation now uses the Gemini content-generation path for Gemini
   image models, with provider-specific image options scoped to the Vertex provider options lane.
 

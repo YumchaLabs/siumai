@@ -1,9 +1,9 @@
 //! Text model family contracts.
 //!
 //! This module provides a Rust-first, family-oriented abstraction for text generation
-//! and streaming. In V3-M2 it is intentionally implemented as an adapter over the
-//! existing `ChatCapability` so we can ship the new surface quickly, then iterate
-//! towards a fully decoupled “text-first” foundation.
+//! and streaming. It is intentionally implemented as an adapter over the existing
+//! `ChatCapability` while the runtime continues moving toward a fully decoupled
+//! text-first foundation.
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -45,9 +45,9 @@ pub type LanguageModelV4Stream =
 /// Concrete Rust return type for `LanguageModelV4::do_stream`.
 pub type LanguageModelV4DoStreamResult = LanguageModelV4StreamResult<LanguageModelV4Stream>;
 
-/// V3 interface for text generation models.
+/// Stable Rust interface for text generation models.
 #[async_trait]
-pub trait TextModelV3: Send + Sync {
+pub trait TextModel: Send + Sync {
     /// Generate a non-streaming response.
     async fn generate(&self, request: TextRequest) -> Result<TextResponse, LlmError>;
 
@@ -58,13 +58,13 @@ pub trait TextModelV3: Send + Sync {
     async fn stream_with_cancel(&self, request: TextRequest) -> Result<TextStreamHandle, LlmError>;
 }
 
-/// Stable language-model contract for the V4 refactor spike.
+/// Stable language-model contract for text-family models.
 ///
 /// This trait intentionally builds on the existing text-family interface while adding
 /// shared model metadata. It is a minimal bridge toward a family-model-centered design.
-pub trait LanguageModel: TextModelV3 + ModelMetadata + Send + Sync {}
+pub trait LanguageModel: TextModel + ModelMetadata + Send + Sync {}
 
-impl<T> LanguageModel for T where T: TextModelV3 + ModelMetadata + Send + Sync + ?Sized {}
+impl<T> LanguageModel for T where T: TextModel + ModelMetadata + Send + Sync + ?Sized {}
 
 /// AI SDK V4 provider-facing language-model contract.
 ///
@@ -104,9 +104,9 @@ pub trait LanguageModelV4: ModelMetadata + Send + Sync {
     ) -> Result<LanguageModelV4DoStreamResult, LlmError>;
 }
 
-/// Adapter: any `ChatCapability` can be used as a `TextModelV3`.
+/// Adapter: any `ChatCapability` can be used as a `TextModel`.
 #[async_trait]
-impl<T> TextModelV3 for T
+impl<T> TextModel for T
 where
     T: ChatCapability + Send + Sync + ?Sized,
 {
@@ -190,7 +190,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_generate_calls_chat_request() {
         let model = FakeChat;
-        let resp = TextModelV3::generate(
+        let resp = TextModel::generate(
             &model,
             ChatRequest::new(vec![ChatMessage::user("hi").build()]),
         )
@@ -202,7 +202,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_stream_calls_chat_stream_request() {
         let model = FakeChat;
-        let mut stream = TextModelV3::stream(
+        let mut stream = TextModel::stream(
             &model,
             ChatRequest::new(vec![ChatMessage::user("hi").build()]),
         )
@@ -225,7 +225,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_stream_with_cancel_wraps_stream() {
         let model = FakeChat;
-        let handle = TextModelV3::stream_with_cancel(
+        let handle = TextModel::stream_with_cancel(
             &model,
             ChatRequest::new(vec![ChatMessage::user("hi").build()]),
         )

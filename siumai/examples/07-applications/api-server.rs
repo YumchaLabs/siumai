@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 struct AppState {
-    client: Arc<dyn siumai::text::TextModelV3 + Send + Sync>,
+    client: Arc<dyn siumai::text::TextModel + Send + Sync>,
 }
 
 #[derive(Deserialize)]

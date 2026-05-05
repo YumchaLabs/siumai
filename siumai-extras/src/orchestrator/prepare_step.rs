@@ -247,7 +247,7 @@ impl siumai::prelude::unified::ModelMetadata for MockPrepareStepModel {
 
 #[cfg(test)]
 #[async_trait::async_trait]
-impl siumai::text::TextModelV3 for MockPrepareStepModel {
+impl siumai::text::TextModel for MockPrepareStepModel {
     async fn generate(
         &self,
         _request: siumai::text::TextRequest,

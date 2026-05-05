@@ -17,7 +17,7 @@ use std::time::Duration;
 
 pub use siumai_core::text::{
     LanguageModel, LanguageModelV4, LanguageModelV4DoStreamResult, LanguageModelV4Stream,
-    TextModelV3, TextRequest, TextResponse, TextStream, TextStreamHandle,
+    TextModel, TextRequest, TextResponse, TextStream, TextStreamHandle,
 };
 pub use siumai_core::types::StreamRequestOptions;
 use siumai_core::types::{
@@ -187,7 +187,7 @@ pub(crate) fn prepare_generate_request(
     (request, effective)
 }
 
-pub(crate) async fn generate_prepared<M: TextModelV3 + ?Sized>(
+pub(crate) async fn generate_prepared<M: TextModel + ?Sized>(
     model: &M,
     request: TextRequest,
     effective: EffectiveRequestOptions,
@@ -200,7 +200,7 @@ pub(crate) async fn generate_prepared<M: TextModelV3 + ?Sized>(
 }
 
 /// Generate a non-streaming text response.
-pub async fn generate<M: TextModelV3 + ?Sized>(
+pub async fn generate<M: TextModel + ?Sized>(
     model: &M,
     request: TextRequest,
     options: GenerateOptions,
@@ -239,7 +239,7 @@ pub async fn generate_text<M: LanguageModel + ?Sized>(
 }
 
 /// Generate a streaming text response.
-pub async fn stream<M: TextModelV3 + ?Sized>(
+pub async fn stream<M: TextModel + ?Sized>(
     model: &M,
     request: TextRequest,
     options: StreamOptions,
@@ -272,7 +272,7 @@ pub async fn stream<M: TextModelV3 + ?Sized>(
 }
 
 /// Generate a streaming text response with cancellation support.
-pub async fn stream_with_cancel<M: TextModelV3 + ?Sized>(
+pub async fn stream_with_cancel<M: TextModel + ?Sized>(
     model: &M,
     request: TextRequest,
     options: StreamOptions,
@@ -727,7 +727,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl TextModelV3 for FakeLanguageModel {
+    impl TextModel for FakeLanguageModel {
         async fn generate(&self, _request: TextRequest) -> Result<TextResponse, LlmError> {
             let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
                 ContentPart::reasoning("thinking"),

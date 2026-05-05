@@ -16,7 +16,7 @@
 //! implementation with all features.
 
 use siumai::prelude::unified::*;
-use siumai::text::TextModelV3;
+use siumai::text::TextModel;
 use std::fs;
 use std::io::{self, Write};
 
@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn explain_code(
-    client: &impl TextModelV3,
+    client: &impl TextModel,
     file_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let code = fs::read_to_string(file_path)?;
@@ -93,7 +93,7 @@ async fn explain_code(
 }
 
 async fn review_code(
-    client: &impl TextModelV3,
+    client: &impl TextModel,
     file_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let code = fs::read_to_string(file_path)?;

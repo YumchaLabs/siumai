@@ -233,7 +233,7 @@ impl MyCustomProviderClient {
 }
 
 #[async_trait::async_trait]
-impl siumai::text::TextModelV3 for MyCustomProviderClient {
+impl siumai::text::TextModel for MyCustomProviderClient {
     async fn generate(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         self.execute_chat(request).await
     }

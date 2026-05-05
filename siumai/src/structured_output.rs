@@ -691,7 +691,7 @@ fn language_model_response_metadata_from_chat_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::text::TextModelV3;
+    use crate::text::TextModel;
     use async_trait::async_trait;
     use serde::Deserialize;
     use siumai_core::types::{HttpRequestInfo, HttpResponseInfo};
@@ -713,7 +713,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl TextModelV3 for FakeObjectModel {
+    impl TextModel for FakeObjectModel {
         async fn generate(&self, request: TextRequest) -> Result<ChatResponse, LlmError> {
             *self.seen_request.lock().expect("request lock") = Some(request);
             Ok(self.response.clone())

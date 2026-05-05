@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Example 1: Simple request with automatic tracing
 async fn simple_request(
-    model: &impl siumai::text::TextModelV3,
+    model: &impl siumai::text::TextModel,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let request = ChatRequest::new(vec![user!("What is 2+2?")]);
 
@@ -118,7 +118,7 @@ async fn simple_request(
 
 /// Example 2: Request with parent span for distributed tracing
 async fn request_with_parent_span(
-    model: &impl siumai::text::TextModelV3,
+    model: &impl siumai::text::TextModel,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create a parent span for the entire operation
     let tracer = global::tracer("siumai-example");
@@ -151,7 +151,7 @@ async fn request_with_parent_span(
 
 /// Example 3: Multiple requests in a single trace
 async fn multiple_requests_in_trace(
-    model: &impl siumai::text::TextModelV3,
+    model: &impl siumai::text::TextModel,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create a parent span for a sequence of operations
     let tracer = global::tracer("siumai-example");

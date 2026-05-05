@@ -382,7 +382,7 @@ async fn provider_factory_native_text_family_path_works() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::text::TextModelV3 for NativeLanguageModel {
+    impl siumai_core::text::TextModel for NativeLanguageModel {
         async fn generate(&self, _request: ChatRequest) -> Result<ChatResponse, LlmError> {
             Ok(ChatResponse::new(crate::types::MessageContent::Text(
                 "native-ok".to_string(),
@@ -1024,7 +1024,7 @@ async fn language_model_handle_uses_native_family_path_when_available() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::text::TextModelV3 for NativeLanguageModel {
+    impl siumai_core::text::TextModel for NativeLanguageModel {
         async fn generate(&self, _request: ChatRequest) -> Result<ChatResponse, LlmError> {
             Ok(ChatResponse::new(crate::types::MessageContent::Text(
                 "native-handle-ok".to_string(),

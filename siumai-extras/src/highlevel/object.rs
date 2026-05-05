@@ -4,7 +4,7 @@
 //! High-level structured object generation APIs
 //!
 //! Provides a minimal, provider-agnostic wrapper
-//! to generate typed JSON objects using any TextModelV3 model. The function
+//! to generate typed JSON objects using any TextModel model. The function
 //! performs optional JSON Schema validation and optional text repair before
 //! deserializing into `T`.
 
@@ -17,7 +17,7 @@ use siumai::provider_ext::anthropic::AnthropicChatRequestExt;
 use siumai::provider_ext::gemini::GeminiChatRequestExt;
 #[cfg(feature = "openai")]
 use siumai::provider_ext::openai::OpenAiChatRequestExt;
-use siumai::text::TextModelV3;
+use siumai::text::TextModel;
 use std::pin::Pin;
 
 use crate::structured_output::{
@@ -61,12 +61,12 @@ impl Default for GenerateObjectOptions {
 /// Generate a typed object `T` using a text model and optional tools.
 ///
 /// Flow:
-/// - Builds a `ChatRequest` from messages/tools and calls `TextModelV3::generate(...)`.
+/// - Builds a `ChatRequest` from messages/tools and calls `TextModel::generate(...)`.
 /// - Extracts text content and attempts to parse as JSON.
 /// - Optionally validates against a JSON Schema.
 /// - Deserializes JSON into `T` and returns along with the raw ChatResponse.
 pub async fn generate_object<T: DeserializeOwned>(
-    model: &impl TextModelV3,
+    model: &impl TextModel,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     opts: GenerateObjectOptions,
@@ -277,7 +277,7 @@ fn maybe_accumulate_tool_arguments_from_loose_part(
 /// Minimal strategy: accumulate text deltas; on stream end attempt parse + optional
 /// schema validation + optional repair rounds; yield Final event when successful.
 pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
-    model: &impl TextModelV3,
+    model: &impl TextModel,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     opts: StreamObjectOptions,
@@ -518,7 +518,7 @@ fn build_chat_request_with_hints(
 
 /// Generic auto convenience using provider params hints (may be ignored by some providers).
 pub async fn generate_object_auto<T: DeserializeOwned>(
-    model: &impl TextModelV3,
+    model: &impl TextModel,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     opts: GenerateObjectOptions,
@@ -528,7 +528,7 @@ pub async fn generate_object_auto<T: DeserializeOwned>(
 
 /// Generic auto streaming convenience using provider options/content hints.
 pub async fn stream_object_auto<T: DeserializeOwned + Send + 'static>(
-    model: &impl TextModelV3,
+    model: &impl TextModel,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     opts: StreamObjectOptions,

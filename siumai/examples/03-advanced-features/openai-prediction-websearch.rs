@@ -18,7 +18,7 @@ use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{
     OpenAiChatRequestExt, OpenAiOptions, PredictionContent, ResponsesApiConfig,
 };
-use siumai::text::TextModelV3;
+use siumai::text::TextModel;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn predicted_outputs(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
+async fn predicted_outputs(model: &impl TextModel) -> Result<(), Box<dyn std::error::Error>> {
     println!("1) Predicted Outputs\n");
 
     let original_content = r#"
@@ -75,9 +75,7 @@ Here is the original content:\n\n{}",
     Ok(())
 }
 
-async fn web_search_context_size(
-    model: &impl TextModelV3,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn web_search_context_size(model: &impl TextModel) -> Result<(), Box<dyn std::error::Error>> {
     println!("2) Web Search (Responses API): context size\n");
 
     let req = ChatRequest::new(vec![user!(
@@ -95,7 +93,7 @@ async fn web_search_context_size(
     Ok(())
 }
 
-async fn web_search_location(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
+async fn web_search_location(model: &impl TextModel) -> Result<(), Box<dyn std::error::Error>> {
     println!("3) Web Search (Responses API): user location\n");
 
     let req = ChatRequest::new(vec![user!("What's the weather like today?")])
@@ -118,7 +116,7 @@ async fn web_search_location(model: &impl TextModelV3) -> Result<(), Box<dyn std
     Ok(())
 }
 
-async fn two_phase_workflow(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
+async fn two_phase_workflow(model: &impl TextModel) -> Result<(), Box<dyn std::error::Error>> {
     println!("4) Two-phase workflow: prediction (Chat Completions) + web search (Responses)\n");
 
     let template_content = r#"

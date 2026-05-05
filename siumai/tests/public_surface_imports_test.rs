@@ -1305,12 +1305,12 @@ fn registry_handles_compile_as_family_models() {
     use siumai::prelude::unified::{ModelMetadata, registry::*};
     use siumai::rerank::{RerankModelV3, RerankingModel};
     use siumai::speech::{SpeechModel, SpeechModelV3};
-    use siumai::text::{LanguageModel, TextModelV3};
+    use siumai::text::{LanguageModel, TextModel};
     use siumai::transcription::{TranscriptionModel, TranscriptionModelV3};
     use siumai::video::{VideoModel, VideoModelV3, VideoModelV4};
 
     fn _assert_completion_handle<T: CompletionModel + CompletionModelV3 + ModelMetadata>() {}
-    fn _assert_text_handle<T: LanguageModel + TextModelV3 + ModelMetadata>() {}
+    fn _assert_text_handle<T: LanguageModel + TextModel + ModelMetadata>() {}
     fn _assert_embedding_handle<T: EmbeddingModel + EmbeddingModelV3 + ModelMetadata>() {}
     fn _assert_image_handle<T: ImageModel + ImageModelV3 + ImageModelV4 + ModelMetadata>() {}
     fn _assert_rerank_handle<T: RerankingModel + RerankModelV3 + ModelMetadata>() {}

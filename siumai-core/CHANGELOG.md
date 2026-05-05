@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenAI-compatible providers can honestly model AI SDK's optional `apiKey` setting for local or
   private gateways without weakening built-in hosted-provider auth validation.
 
+### Changed
+
+- Rename the stable Rust text-family trait from `TextModelV3` to `TextModel`. The AI SDK-facing
+  `LanguageModelV4` provider contract remains separate.
+
 ### Fixed
 
 - Core OpenAI-compatible image response transformation now accepts provider wire

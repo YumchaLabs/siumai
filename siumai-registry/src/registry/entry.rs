@@ -18,7 +18,7 @@ use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::retry_api::RetryOptions;
 use crate::streaming::{ChatStream, ChatStreamHandle};
-use crate::text::{LanguageModel as FamilyLanguageModel, TextModelV3};
+use crate::text::{LanguageModel as FamilyLanguageModel, TextModel};
 use crate::traits::{
     AudioCapability, ChatCapability, CompletionCapability, EmbeddingCapability,
     EmbeddingExtensions, FileManagementCapability, ImageExtras, ImageGenerationCapability,
@@ -761,7 +761,7 @@ impl crate::traits::ModelMetadata for ClientBackedLanguageModel {
 }
 
 #[async_trait::async_trait]
-impl TextModelV3 for ClientBackedLanguageModel {
+impl TextModel for ClientBackedLanguageModel {
     async fn generate(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         let chat = self.client.as_chat_capability().ok_or_else(|| {
             LlmError::UnsupportedOperation("Provider does not support chat".to_string())
