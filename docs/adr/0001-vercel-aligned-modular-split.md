@@ -142,7 +142,8 @@ Cons:
 
 ## Migration plan (high level)
 
-See `docs/roadmap/roadmap-mvp.md` for the step-by-step milestones and acceptance criteria.
+See `docs/architecture/module-split-design.md` for the current ownership rules and
+`docs/workstreams/fearless-refactor-v4/` for the latest refactor tracking.
 
 ## References
 

@@ -28,19 +28,46 @@ Alternative (PAT):
 Fallback (not recommended):
 - `GITHUB_TOKEN` (may not trigger downstream workflows for PRs/tags depending on repo settings).
 
-## How to publish a release
+## Release policy
+
+Do **not** create or push release tags manually.
+
+In this repository, release tags are an output of `release-plz release`, not the trigger for publishing.
+This keeps crates.io publishing, the `v{{ version }}` git tag, and the GitHub Release synchronized.
+
+The long-term configuration uses `release_always = false`, so releases should go through the release-plz
+PR flow before the manual publish job runs.
+
+## Standard release flow
 
 1. Merge the desired changes into `main`.
-2. Go to **Actions** → **Release-plz** → **Run workflow**.
-3. Set:
+2. Wait for **Release-plz PR** to create or update the release PR.
+3. Review the release PR:
+   - version bumps
+   - root `CHANGELOG.md`
+   - crate changelogs
+   - migration notes, when the public API changed
+   - CI results
+4. Merge the release PR.
+5. Go to **Actions** → **Release-plz** → **Run workflow** on `main`.
+6. Set:
    - `release = true`
    - `dry_run = false`
+7. Verify:
+   - all expected crates are published on crates.io
+   - the `siumai` tag exists in the repository
+   - the GitHub Release exists and uses the expected changelog section
 
 This runs `release-plz release` to publish crates to crates.io and create the `siumai` tag + GitHub Release.
 
-## About `dry_run`
+## Manual dry run
 
-`dry_run = true` maps to `cargo publish --dry-run`. It does **not** upload any crates.
+Use **Actions** → **Release-plz** → **Run workflow** with:
+
+- `release = true`
+- `dry_run = true`
+
+This maps to `cargo publish --dry-run`. It does **not** upload any crates or create a release tag.
 
 If the workspace contains crates that are not yet present on crates.io (e.g. new crates introduced by a workspace split),
 `--dry-run` can fail because Cargo still needs to resolve workspace dependencies from crates.io.
@@ -61,3 +88,5 @@ The release workflow retries automatically on 429 by waiting until the timestamp
 `release-plz release-pr` opens a PR when it needs to bump versions and/or update changelogs.
 
 If versions were already bumped on `main` (e.g. during a migration), `release-pr` can be a no-op and no PR will be created.
+In that case, do not create a tag manually; inspect the Release-plz logs and decide whether the version/changelog
+state should be corrected with a normal PR.

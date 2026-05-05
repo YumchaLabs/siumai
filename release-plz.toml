@@ -15,12 +15,9 @@ git_release_enable = false
 pr_branch_prefix = "release-plz-"
 pr_labels = ["release"]
 
-# During the migration phase, allow releasing packages that are already committed to `main`
-# (e.g. `0.11.0-beta.6` is currently unreleased).
-#
-# After the first release via release-plz, you may want to switch to `false` so releases happen
-# only when the release PR is merged (safer against race conditions on `main`).
-release_always = true
+# Long-term release mode: release only from the release-plz PR flow instead of publishing
+# arbitrary version bumps that land directly on `main`.
+release_always = false
 
 [[package]]
 name = "siumai"

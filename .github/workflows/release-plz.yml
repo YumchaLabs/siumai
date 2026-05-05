@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Run `release-plz release` (publish to crates.io + create tag + GitHub release)"
+        description: "Publish via release-plz (crates.io + tag + GitHub Release; do not pre-create a tag)"
         required: false
         default: "false"
       dry_run:
@@ -23,7 +23,7 @@ jobs:
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner == 'YumchaLabs' }}
+    if: ${{ github.repository_owner == 'YumchaLabs' && (github.event_name != 'workflow_dispatch' || inputs.release != 'true') }}
     env:
       RELEASE_PLZ_APP_ID: ${{ secrets.RELEASE_PLZ_APP_ID }}
       RELEASE_PLZ_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
@@ -35,7 +35,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -47,15 +47,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Generate GitHub token (optional)
-        id: app-token
+        id: app_token
         if: ${{ env.RELEASE_PLZ_APP_ID != '' && env.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ env.RELEASE_PLZ_APP_ID }}
           private-key: ${{ env.RELEASE_PLZ_APP_PRIVATE_KEY }}
 
       - name: Run release-plz (release-pr)
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@v0.5.128
         with:
           command: release-pr
         env:
@@ -63,11 +63,11 @@ jobs:
           # - GitHub App: set `RELEASE_PLZ_APP_ID` + `RELEASE_PLZ_APP_PRIVATE_KEY`
           # - PAT: set `RELEASE_PLZ_TOKEN`
           # Fallback to `GITHUB_TOKEN` (note: PR checks may not run).
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   # Publish unpublished packages + create tag + GitHub release.
-  # Starts as a manual job during the migration phase.
+  # The actual publish step is intentionally manual; release PR creation stays automatic.
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
@@ -78,9 +78,12 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    concurrency:
+      group: release-plz-release
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -92,9 +95,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Generate GitHub token (optional)
-        id: app-token
+        id: app_token
         if: ${{ env.RELEASE_PLZ_APP_ID != '' && env.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ env.RELEASE_PLZ_APP_ID }}
           private-key: ${{ env.RELEASE_PLZ_APP_PRIVATE_KEY }}
@@ -110,7 +113,7 @@ jobs:
         if: ${{ inputs.dry_run != 'true' }}
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           RELEASE_PLZ_MAX_ATTEMPTS: "10"
           RELEASE_PLZ_MIN_SLEEP_SECONDS: "60"
@@ -123,7 +126,7 @@ jobs:
         if: ${{ inputs.dry_run == 'true' }}
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail

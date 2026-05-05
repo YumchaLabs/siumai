@@ -1,6 +1,7 @@
 # Docs Index
 
-This folder is intentionally organized by **concern** to keep the Alpha.5 refactor documentation navigable.
+This folder is intentionally organized by **concern**. Prefer the migration guides, architecture
+documents, release process, and active workstreams for current planning.
 
 ## Alignment (Vercel parity + provider audits)
 
@@ -18,17 +19,17 @@ This folder is intentionally organized by **concern** to keep the Alpha.5 refact
 
 ## Migration
 
+- Beta.7 migration guide: `docs/migration/migration-0.11.0-beta.7.md`
 - Beta.6 migration guide: `docs/migration/migration-0.11.0-beta.6.md`
 - Beta.5 migration guide: `docs/migration/migration-0.11.0-beta.5.md` (historical; split-crate breaking changes)
 
-## Roadmap
+## Operations
 
-- Next steps: `docs/roadmap/next-steps.md`
-- MVP roadmap: `docs/roadmap/roadmap-mvp.md`
+- Release process: `docs/releasing.md`
 
 ## Workstreams
 
-- Fearless refactor (design + TODOs + milestones): `docs/workstreams/fearless-refactor/`
+- Current V4 refactor tracking: `docs/workstreams/fearless-refactor-v4/`
 - AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`
   - covers the next semantic refactor pass against `repo-ref/ai` provider v3/v4 contracts
   - includes the current structural audit for `providerOptions` / `providerMetadata`, stable
@@ -39,3 +40,4 @@ This folder is intentionally organized by **concern** to keep the Alpha.5 refact
   - covers the hybrid bridge strategy: normalized backbone + selected direct bridges + gateway policy
   - migration note: `docs/workstreams/protocol-bridge-gateway/migration.md`
   - route recipes: `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
+- Completed typed stream cleanup: `docs/workstreams/typed-stream-only/todo.md`

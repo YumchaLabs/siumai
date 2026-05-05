@@ -3,7 +3,7 @@
 This guide focuses on **breaking changes** introduced in `0.11.0-beta.5` and how to migrate
 downstream code quickly.
 
-If you are new to the refactor direction, read `docs/roadmap/next-steps.md` and `docs/architecture/module-split-design.md` first.
+If you are new to the refactor direction, read `docs/architecture/module-split-design.md` first.
 
 ## Version scope
 
