@@ -1,4 +1,4 @@
-//! Completion model family (V3).
+//! Completion model family.
 //!
 //! This module provides a Rust-first, family-oriented abstraction for completion endpoints such as
 //! OpenAI/OpenAI-compatible `/completions`. The runtime streaming lane intentionally reuses the
@@ -17,9 +17,9 @@ pub type CompletionStream = ChatStream;
 /// Canonical stream handle type for the completion family.
 pub type CompletionStreamHandle = ChatStreamHandle;
 
-/// V3 interface for completion models.
+/// Stable Rust interface for completion models.
 #[async_trait]
-pub trait CompletionModelV3: Send + Sync {
+pub trait CompletionModel: ModelMetadata + Send + Sync {
     /// Execute a non-streaming completion request.
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError>;
 
@@ -33,16 +33,11 @@ pub trait CompletionModelV3: Send + Sync {
     ) -> Result<CompletionStreamHandle, LlmError>;
 }
 
-/// Stable completion-model contract for the V4 refactor spike.
-pub trait CompletionModel: CompletionModelV3 + ModelMetadata + Send + Sync {}
-
-impl<T> CompletionModel for T where T: CompletionModelV3 + ModelMetadata + Send + Sync + ?Sized {}
-
-/// Adapter: any `CompletionCapability` can be used as a `CompletionModelV3`.
+/// Adapter: any `CompletionCapability` with metadata can be used as a `CompletionModel`.
 #[async_trait]
-impl<T> CompletionModelV3 for T
+impl<T> CompletionModel for T
 where
-    T: CompletionCapability + Send + Sync + ?Sized,
+    T: CompletionCapability + ModelMetadata + Send + Sync + ?Sized,
 {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
         CompletionCapability::complete(self, request).await
@@ -132,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_complete_uses_capability() {
         let model = FakeCompletion;
-        let response = CompletionModelV3::complete(&model, CompletionRequest::new("hello"))
+        let response = CompletionModel::complete(&model, CompletionRequest::new("hello"))
             .await
             .unwrap();
         assert_eq!(response.text(), "hello");
@@ -142,7 +137,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_stream_uses_capability() {
         let model = FakeCompletion;
-        let mut stream = CompletionModelV3::stream(&model, CompletionRequest::new("hello"))
+        let mut stream = CompletionModel::stream(&model, CompletionRequest::new("hello"))
             .await
             .unwrap();
 
@@ -163,7 +158,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_stream_with_cancel_wraps_stream() {
         let model = FakeCompletion;
-        let handle = CompletionModelV3::stream_with_cancel(&model, CompletionRequest::new("hello"))
+        let handle = CompletionModel::stream_with_cancel(&model, CompletionRequest::new("hello"))
             .await
             .unwrap();
 

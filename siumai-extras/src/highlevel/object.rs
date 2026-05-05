@@ -670,7 +670,7 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
     }
 
     // Stream and process events
-    let mut stream = client.stream(request).await?;
+    let mut stream = TextModel::stream(client, request).await?;
     let schema = opts.schema.clone();
     let output = opts.output.clone();
     let repair = opts.repair_text.clone();

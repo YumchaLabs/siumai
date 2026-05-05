@@ -67,7 +67,6 @@ This mirrors the AI SDK completion call-option story closely while still staying
 `siumai-core` now treats completion as a first-class family:
 
 - `traits::CompletionCapability`
-- `completion::CompletionModelV3`
 - `completion::CompletionModel`
 - `LlmClient::as_completion_capability()`
 - `ProviderCapabilities::completion`

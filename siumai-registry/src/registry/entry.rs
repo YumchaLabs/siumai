@@ -811,7 +811,7 @@ impl crate::traits::ModelMetadata for ClientBackedCompletionModel {
 }
 
 #[async_trait::async_trait]
-impl siumai_core::completion::CompletionModelV3 for ClientBackedCompletionModel {
+impl siumai_core::completion::CompletionModel for ClientBackedCompletionModel {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
         let completion = self.client.as_completion_capability().ok_or_else(|| {
             LlmError::UnsupportedOperation("Provider does not support completions".to_string())

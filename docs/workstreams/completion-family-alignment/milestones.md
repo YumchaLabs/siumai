@@ -40,7 +40,7 @@ Acceptance criteria:
 
 Current state:
 
-- `CompletionCapability`, `CompletionModelV3`, and `CompletionModel` now exist.
+- `CompletionCapability` and the stable `CompletionModel` family trait now exist.
 - `LlmClient` and `ClientWrapper` can forward completion capability.
 - Completion streaming reuses `ChatStream` / `ChatStreamEvent`.
 

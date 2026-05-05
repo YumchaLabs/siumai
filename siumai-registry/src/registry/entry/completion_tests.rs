@@ -168,7 +168,7 @@ async fn provider_factory_native_completion_family_path_works() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::completion::CompletionModelV3 for NativeCompletionModel {
+    impl siumai_core::completion::CompletionModel for NativeCompletionModel {
         async fn complete(
             &self,
             request: crate::types::CompletionRequest,
@@ -249,7 +249,7 @@ async fn completion_model_handle_reuses_cached_family_model() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::completion::CompletionModelV3 for CountingCompletionModel {
+    impl siumai_core::completion::CompletionModel for CountingCompletionModel {
         async fn complete(
             &self,
             _request: crate::types::CompletionRequest,
@@ -311,13 +311,13 @@ async fn completion_model_handle_reuses_cached_family_model() {
     let reg = create_provider_registry(providers, None);
     let handle = reg.completion_model("cached-completion:model").unwrap();
 
-    let first = siumai_core::completion::CompletionModelV3::complete(
+    let first = siumai_core::completion::CompletionModel::complete(
         &handle,
         crate::types::CompletionRequest::new("one"),
     )
     .await
     .unwrap();
-    let second = siumai_core::completion::CompletionModelV3::complete(
+    let second = siumai_core::completion::CompletionModel::complete(
         &handle,
         crate::types::CompletionRequest::new("two"),
     )

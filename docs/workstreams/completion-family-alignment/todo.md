@@ -28,7 +28,7 @@ Status legend:
 ## Track B - Core/runtime architecture
 
 - [x] Add `CompletionCapability`.
-- [x] Add `CompletionModelV3` and `CompletionModel`.
+- [x] Add the stable `CompletionModel` family trait.
 - [x] Add `LlmClient::as_completion_capability()`.
 - [x] Add `ProviderCapabilities::completion`.
 - [x] Reuse `ChatStream` / `ChatStreamEvent` for completion streaming.

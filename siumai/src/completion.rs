@@ -15,9 +15,7 @@ use siumai_core::types::{HttpConfig, RequestOptions};
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::completion::{
-    CompletionModel, CompletionModelV3, CompletionStream, CompletionStreamHandle,
-};
+pub use siumai_core::completion::{CompletionModel, CompletionStream, CompletionStreamHandle};
 pub use siumai_core::types::{CompletionRequest, CompletionResponse, StreamRequestOptions};
 
 /// Options for `completion::complete`.

@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add a first-class completion family surface: `traits::CompletionCapability`,
-  `completion::{CompletionModelV3, CompletionModel, CompletionStream, CompletionStreamHandle}`,
+  `completion::{CompletionModel, CompletionStream, CompletionStreamHandle}`,
   and `LlmClient::as_completion_capability()` now let family-first code execute completion models
   without falling back to chat-specific abstractions.
 - Add a shared skill-upload surface aligned with AI SDK `SkillsV4`: canonical

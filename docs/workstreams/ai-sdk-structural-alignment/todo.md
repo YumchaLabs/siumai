@@ -1240,7 +1240,7 @@ Status legend:
     calls without duplicate replays on trailing empty chunks
 - [x] Add a dedicated Rust text-completion family for AI SDK `completionModel()`.
   - `siumai-spec` now exposes stable `CompletionRequest` / `CompletionResponse`
-  - `siumai-core` now exposes `CompletionCapability` plus `CompletionModel{V3}`
+  - `siumai-core` now exposes `CompletionCapability` plus the stable `CompletionModel`
   - `siumai-registry` now exposes `completion_model(...)` and `CompletionModelHandle`
   - `siumai-provider-openai-compatible` now executes real `/completions` generate/stream paths
     with AI SDK-style prompt materialization, warnings, and provider-option normalization
