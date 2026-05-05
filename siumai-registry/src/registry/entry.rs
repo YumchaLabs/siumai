@@ -561,7 +561,7 @@ impl crate::traits::ModelMetadata for ClientBackedSpeechModel {
 }
 
 #[async_trait::async_trait]
-impl siumai_core::speech::SpeechModelV3 for ClientBackedSpeechModel {
+impl siumai_core::speech::SpeechModel for ClientBackedSpeechModel {
     async fn synthesize(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
         let speech = self.client.as_speech_capability().ok_or_else(|| {
             LlmError::UnsupportedOperation("Provider does not support text-to-speech".to_string())
@@ -597,7 +597,7 @@ impl crate::traits::ModelMetadata for ClientBackedTranscriptionModel {
 }
 
 #[async_trait::async_trait]
-impl siumai_core::transcription::TranscriptionModelV3 for ClientBackedTranscriptionModel {
+impl siumai_core::transcription::TranscriptionModel for ClientBackedTranscriptionModel {
     async fn transcribe(&self, request: SttRequest) -> Result<SttResponse, LlmError> {
         let transcription = self.client.as_transcription_capability().ok_or_else(|| {
             LlmError::UnsupportedOperation("Provider does not support speech-to-text".to_string())

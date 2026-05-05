@@ -163,7 +163,7 @@ async fn provider_factory_native_transcription_family_path_works() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::transcription::TranscriptionModelV3 for NativeTranscriptionModel {
+    impl siumai_core::transcription::TranscriptionModel for NativeTranscriptionModel {
         async fn transcribe(
             &self,
             _request: crate::types::SttRequest,
@@ -252,7 +252,7 @@ async fn transcription_model_handle_uses_native_family_path_when_available() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::transcription::TranscriptionModelV3 for NativeHandleTranscriptionModel {
+    impl siumai_core::transcription::TranscriptionModel for NativeHandleTranscriptionModel {
         async fn transcribe(
             &self,
             request: crate::types::SttRequest,
@@ -315,7 +315,7 @@ async fn transcription_model_handle_uses_native_family_path_when_available() {
         .transcription_model("native-transcription-handle:model")
         .unwrap();
 
-    let response = siumai_core::transcription::TranscriptionModelV3::transcribe(
+    let response = siumai_core::transcription::TranscriptionModel::transcribe(
         &handle,
         crate::types::SttRequest::from_audio(Vec::new(), "audio/wav"),
     )
@@ -341,7 +341,7 @@ async fn transcription_model_handle_reuses_cached_family_model() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::transcription::TranscriptionModelV3 for CountingTranscriptionModel {
+    impl siumai_core::transcription::TranscriptionModel for CountingTranscriptionModel {
         async fn transcribe(
             &self,
             _request: crate::types::SttRequest,
@@ -402,13 +402,13 @@ async fn transcription_model_handle_reuses_cached_family_model() {
         .transcription_model("cached-transcription:model")
         .unwrap();
 
-    let first = siumai_core::transcription::TranscriptionModelV3::transcribe(
+    let first = siumai_core::transcription::TranscriptionModel::transcribe(
         &handle,
         crate::types::SttRequest::from_audio(Vec::new(), "audio/wav"),
     )
     .await
     .unwrap();
-    let second = siumai_core::transcription::TranscriptionModelV3::transcribe(
+    let second = siumai_core::transcription::TranscriptionModel::transcribe(
         &handle,
         crate::types::SttRequest::from_audio(Vec::new(), "audio/wav"),
     )

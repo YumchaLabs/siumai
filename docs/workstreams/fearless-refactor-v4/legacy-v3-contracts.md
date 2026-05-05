@@ -16,7 +16,8 @@ Keep `V3` or `V4` names when they mirror upstream contracts in `repo-ref/ai/pack
 - `RerankingModelV3` / `RerankingModelV4`
 
 These names describe upstream provider protocol versions. They should only be used when the Rust
-type is intentionally modeling that upstream provider contract.
+type is intentionally modeling that upstream provider contract, not as a generic adapter or
+family-trait compatibility name.
 
 ## Removed local legacy names
 
@@ -26,6 +27,8 @@ Do not introduce or re-export Siumai-local `V3` names that are not upstream prov
 - `CompletionModelV3`
 - `LanguageModelV3StreamPart`
 - `RerankModelV3`
+- Siumai-local `SpeechModelV3` compatibility trait
+- Siumai-local `TranscriptionModelV3` compatibility trait
 
 Current Rust helpers should use the canonical family traits instead:
 

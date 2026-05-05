@@ -3,9 +3,8 @@
 //! This is the recommended Rust-first surface for STT:
 //! - `transcribe`
 //!
-//! `transcribe` accepts the metadata-bearing `TranscriptionModel` family trait rather
-//! than the legacy `TranscriptionModelV3` compatibility layer, and returns a high-level
-//! helper result closer in role to AI SDK `transcribe()`.
+//! `transcribe` accepts the metadata-bearing `TranscriptionModel` family trait and
+//! returns a high-level helper result closer in role to AI SDK `transcribe()`.
 
 use crate::request_options::{EffectiveRequestOptions, retry_or_call_with_abort};
 use crate::retry_api::RetryOptions;
@@ -17,7 +16,7 @@ use siumai_core::types::{
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::transcription::{TranscriptionModel, TranscriptionModelV3};
+pub use siumai_core::transcription::TranscriptionModel;
 pub use siumai_core::types::{SttRequest, SttResponse};
 
 /// Options for `transcription::transcribe`.
@@ -284,7 +283,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl TranscriptionModelV3 for EmptyTranscriptionModel {
+    impl TranscriptionModel for EmptyTranscriptionModel {
         async fn transcribe(&self, _request: SttRequest) -> Result<SttResponse, LlmError> {
             Ok(SttResponse {
                 text: "   ".to_string(),
@@ -342,7 +341,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl TranscriptionModelV3 for ReadyTranscriptionModel {
+    impl TranscriptionModel for ReadyTranscriptionModel {
         async fn transcribe(&self, _request: SttRequest) -> Result<SttResponse, LlmError> {
             Ok(SttResponse {
                 text: "hello world".to_string(),

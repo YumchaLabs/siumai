@@ -1,7 +1,9 @@
-//! Transcription (speech-to-text) model family (V3).
+//! Transcription (speech-to-text) model family.
 //!
 //! This module provides a Rust-first, family-oriented abstraction for STT.
-//! In V3-M2 it is implemented as an adapter over `TranscriptionCapability`.
+//! It is intentionally implemented as an adapter over the existing
+//! `TranscriptionCapability` while provider construction continues moving toward
+//! model-family traits.
 
 use async_trait::async_trait;
 
@@ -9,24 +11,18 @@ use crate::error::LlmError;
 use crate::traits::{ModelMetadata, TranscriptionCapability};
 use crate::types::{SttRequest, SttResponse};
 
-/// V3 interface for transcription models.
+/// Stable Rust interface for transcription models.
 #[async_trait]
-pub trait TranscriptionModelV3: Send + Sync {
+pub trait TranscriptionModel: ModelMetadata + Send + Sync {
     /// Transcribe audio into text.
     async fn transcribe(&self, request: SttRequest) -> Result<SttResponse, LlmError>;
 }
 
-/// Stable transcription-model contract for the V4 refactor spike.
-pub trait TranscriptionModel: TranscriptionModelV3 + ModelMetadata + Send + Sync {}
-
-impl<T> TranscriptionModel for T where T: TranscriptionModelV3 + ModelMetadata + Send + Sync + ?Sized
-{}
-
-/// Adapter: any `TranscriptionCapability` can be used as a `TranscriptionModelV3`.
+/// Adapter: any `TranscriptionCapability` with metadata can be used as a `TranscriptionModel`.
 #[async_trait]
-impl<T> TranscriptionModelV3 for T
+impl<T> TranscriptionModel for T
 where
-    T: TranscriptionCapability + Send + Sync + ?Sized,
+    T: TranscriptionCapability + ModelMetadata + Send + Sync + ?Sized,
 {
     async fn transcribe(&self, request: SttRequest) -> Result<SttResponse, LlmError> {
         TranscriptionCapability::stt(self, request).await
@@ -72,12 +68,10 @@ mod tests {
     #[tokio::test]
     async fn adapter_transcribe_uses_capability() {
         let model = FakeTranscription;
-        let resp = TranscriptionModelV3::transcribe(
-            &model,
-            SttRequest::from_audio(Vec::new(), "audio/wav"),
-        )
-        .await
-        .unwrap();
+        let resp =
+            TranscriptionModel::transcribe(&model, SttRequest::from_audio(Vec::new(), "audio/wav"))
+                .await
+                .unwrap();
         assert_eq!(resp.text, "ok");
     }
 

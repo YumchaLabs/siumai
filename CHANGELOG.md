@@ -10,6 +10,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `RerankModelV3` name has been removed from the public facade, and `prelude::unified::*` no
   longer imports `RerankCapability`, so method-style `rerank(...)` calls resolve to the canonical
   family trait. Low-level capability access remains available through `siumai::extensions`.
+- Speech and transcription family APIs now use `SpeechModel` and `TranscriptionModel` directly,
+  removing the Siumai-local `SpeechModelV3` and `TranscriptionModelV3` compatibility traits from
+  the public facade.
 
 ## [0.11.0-beta.7] - 2026-05-03
 

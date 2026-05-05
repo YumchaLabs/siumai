@@ -158,7 +158,7 @@ async fn provider_factory_native_speech_family_path_works() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::speech::SpeechModelV3 for NativeSpeechModel {
+    impl siumai_core::speech::SpeechModel for NativeSpeechModel {
         async fn synthesize(
             &self,
             request: crate::types::TtsRequest,
@@ -241,7 +241,7 @@ async fn speech_model_handle_uses_native_family_path_when_available() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::speech::SpeechModelV3 for NativeHandleSpeechModel {
+    impl siumai_core::speech::SpeechModel for NativeHandleSpeechModel {
         async fn synthesize(
             &self,
             request: crate::types::TtsRequest,
@@ -298,7 +298,7 @@ async fn speech_model_handle_uses_native_family_path_when_available() {
     let reg = create_provider_registry(providers, None);
     let handle = reg.speech_model("native-speech-handle:model").unwrap();
 
-    let response = siumai_core::speech::SpeechModelV3::synthesize(
+    let response = siumai_core::speech::SpeechModel::synthesize(
         &handle,
         crate::types::TtsRequest::new("family-path".to_string()),
     )
@@ -324,7 +324,7 @@ async fn speech_model_handle_reuses_cached_family_model() {
     }
 
     #[async_trait::async_trait]
-    impl siumai_core::speech::SpeechModelV3 for CountingSpeechModel {
+    impl siumai_core::speech::SpeechModel for CountingSpeechModel {
         async fn synthesize(
             &self,
             request: crate::types::TtsRequest,
@@ -382,13 +382,13 @@ async fn speech_model_handle_reuses_cached_family_model() {
     let reg = create_provider_registry(providers, None);
     let handle = reg.speech_model("cached-speech:model").unwrap();
 
-    let first = siumai_core::speech::SpeechModelV3::synthesize(
+    let first = siumai_core::speech::SpeechModel::synthesize(
         &handle,
         crate::types::TtsRequest::new("once".to_string()),
     )
     .await
     .unwrap();
-    let second = siumai_core::speech::SpeechModelV3::synthesize(
+    let second = siumai_core::speech::SpeechModel::synthesize(
         &handle,
         crate::types::TtsRequest::new("twice".to_string()),
     )

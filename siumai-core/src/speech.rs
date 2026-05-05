@@ -1,7 +1,9 @@
-//! Speech (text-to-speech) model family (V3).
+//! Speech (text-to-speech) model family.
 //!
 //! This module provides a Rust-first, family-oriented abstraction for TTS.
-//! In V3-M2 it is implemented as an adapter over `SpeechCapability`.
+//! It is intentionally implemented as an adapter over the existing
+//! `SpeechCapability` while provider construction continues moving toward
+//! model-family traits.
 
 use async_trait::async_trait;
 
@@ -9,23 +11,18 @@ use crate::error::LlmError;
 use crate::traits::{ModelMetadata, SpeechCapability};
 use crate::types::{TtsRequest, TtsResponse};
 
-/// V3 interface for speech synthesis models.
+/// Stable Rust interface for speech synthesis models.
 #[async_trait]
-pub trait SpeechModelV3: Send + Sync {
+pub trait SpeechModel: ModelMetadata + Send + Sync {
     /// Synthesize audio from text.
     async fn synthesize(&self, request: TtsRequest) -> Result<TtsResponse, LlmError>;
 }
 
-/// Stable speech-model contract for the V4 refactor spike.
-pub trait SpeechModel: SpeechModelV3 + ModelMetadata + Send + Sync {}
-
-impl<T> SpeechModel for T where T: SpeechModelV3 + ModelMetadata + Send + Sync + ?Sized {}
-
-/// Adapter: any `SpeechCapability` can be used as a `SpeechModelV3`.
+/// Adapter: any `SpeechCapability` with metadata can be used as a `SpeechModel`.
 #[async_trait]
-impl<T> SpeechModelV3 for T
+impl<T> SpeechModel for T
 where
-    T: SpeechCapability + Send + Sync + ?Sized,
+    T: SpeechCapability + ModelMetadata + Send + Sync + ?Sized,
 {
     async fn synthesize(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
         SpeechCapability::tts(self, request).await
@@ -70,7 +67,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_synthesize_uses_capability() {
         let model = FakeSpeech;
-        let resp = SpeechModelV3::synthesize(&model, TtsRequest::new("hello".to_string()))
+        let resp = SpeechModel::synthesize(&model, TtsRequest::new("hello".to_string()))
             .await
             .unwrap();
         assert_eq!(resp.audio_data, b"hello");

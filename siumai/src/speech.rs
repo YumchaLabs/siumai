@@ -3,9 +3,8 @@
 //! This is the recommended Rust-first surface for TTS:
 //! - `synthesize`
 //!
-//! `synthesize` accepts the metadata-bearing `SpeechModel` family trait rather than
-//! the legacy `SpeechModelV3` compatibility layer, and returns a high-level helper
-//! result closer in role to AI SDK `generateSpeech()`.
+//! `synthesize` accepts the metadata-bearing `SpeechModel` family trait and returns
+//! a high-level helper result closer in role to AI SDK `generateSpeech()`.
 
 use crate::request_options::{EffectiveRequestOptions, retry_or_call_with_abort};
 use crate::retry_api::RetryOptions;
@@ -19,7 +18,7 @@ use siumai_core::utils::mime::guess_mime_from_bytes;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::speech::{SpeechModel, SpeechModelV3};
+pub use siumai_core::speech::SpeechModel;
 pub use siumai_core::types::{TtsRequest, TtsResponse};
 
 /// Options for `speech::synthesize`.
@@ -270,7 +269,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl SpeechModelV3 for EmptySpeechModel {
+    impl SpeechModel for EmptySpeechModel {
         async fn synthesize(&self, _request: TtsRequest) -> Result<TtsResponse, LlmError> {
             Ok(TtsResponse {
                 audio_data: Vec::new(),
@@ -324,7 +323,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl SpeechModelV3 for ReadySpeechModel {
+    impl SpeechModel for ReadySpeechModel {
         async fn synthesize(&self, _request: TtsRequest) -> Result<TtsResponse, LlmError> {
             Ok(TtsResponse {
                 audio_data: b"RIFF....WAVE".to_vec(),

@@ -143,12 +143,12 @@ Status legend:
 
 
 - [~] Finalize `SpeechModel` trait.
-  - `SpeechModel` now exists as a metadata-bearing family trait over `SpeechModelV3`, with no-network adapter coverage in `siumai-core`.
+  - `SpeechModel` is now the canonical metadata-bearing family trait, with no-network adapter coverage from legacy speech capability implementations in `siumai-core`.
 
 
 
 - [~] Finalize `TranscriptionModel` trait.
-  - `TranscriptionModel` now exists as a metadata-bearing family trait over `TranscriptionModelV3`, with no-network adapter coverage in `siumai-core`.
+  - `TranscriptionModel` is now the canonical metadata-bearing family trait, with no-network adapter coverage from legacy transcription capability implementations in `siumai-core`.
 
 
 
@@ -162,7 +162,7 @@ Status legend:
 - [~] Add no-network unit tests for all trait adapters.
 
   - `RerankingModel` now exists as the canonical metadata-bearing family trait, with no-network adapter coverage from legacy rerank capability implementations in `siumai-core`.
-  - `SpeechModel` and `TranscriptionModel` now also have metadata-bearing family traits plus no-network adapter coverage in `siumai-core`.
+  - `SpeechModel` and `TranscriptionModel` now also have direct canonical family-trait methods plus no-network adapter coverage in `siumai-core`.
   - `siumai-core` now also covers injected-transport execution for JSON, JSON-bytes, multipart JSON, and multipart-bytes request helpers, including single-401 retry parity for OpenAI-style upload flows.
 
 
@@ -366,14 +366,14 @@ Status legend:
 
 
 - [x] Make `SpeechModel` the explicit TTS contract.
-  - `siumai::speech` and `siumai::prelude::unified` now expose `SpeechModel` alongside `SpeechModelV3` on the public surface.
-  - The public `speech::synthesize(...)` helper now requires the metadata-bearing `SpeechModel` family trait instead of the legacy `SpeechModelV3` compatibility bound.
+  - `siumai::speech` and `siumai::prelude::unified` now expose `SpeechModel` as the public TTS family surface.
+  - The public `speech::synthesize(...)` helper requires the metadata-bearing `SpeechModel` family trait.
 
 
 
 - [x] Make `TranscriptionModel` the explicit STT contract.
-  - `siumai::transcription` and `siumai::prelude::unified` now expose `TranscriptionModel` alongside `TranscriptionModelV3` on the public surface.
-  - The public `transcription::transcribe(...)` helper now requires the metadata-bearing `TranscriptionModel` family trait instead of the legacy `TranscriptionModelV3` compatibility bound.
+  - `siumai::transcription` and `siumai::prelude::unified` now expose `TranscriptionModel` as the public STT family surface.
+  - The public `transcription::transcribe(...)` helper requires the metadata-bearing `TranscriptionModel` family trait.
 
 
 
