@@ -1510,36 +1510,6 @@ required-features = ["openai"]
 
 
 
-# 05-integrations/mcp
-
-[[example]]
-
-name = "stdio-client"
-
-path = "examples/05-integrations/mcp/stdio-client.rs"
-
-
-
-[[example]]
-
-name = "complete-stdio-example"
-
-path = "examples/05-integrations/mcp/complete-stdio-example.rs"
-
-required-features = ["openai"]
-
-
-
-[[example]]
-
-name = "sse-http-examples"
-
-path = "examples/05-integrations/mcp/sse-http-examples.rs"
-
-required-features = ["openai"]
-
-
-
 # 05-integrations/server-adapters (moved to siumai-extras)
 
 # example removed; use siumai-extras::server feature examples instead

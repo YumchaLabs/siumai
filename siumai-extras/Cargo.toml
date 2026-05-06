@@ -144,6 +144,16 @@ path = "examples/tool-loop-gateway.rs"
 required-features = ["server", "google", "openai"]
 
 [[example]]
+name = "mcp-stdio-tools"
+path = "examples/mcp-stdio-tools.rs"
+required-features = ["mcp", "openai"]
+
+[[example]]
+name = "mcp-streamable-http-tools"
+path = "examples/mcp-streamable-http-tools.rs"
+required-features = ["mcp", "openai"]
+
+[[example]]
 name = "anthropic-to-openai-responses-gateway"
 path = "examples/anthropic-to-openai-responses-gateway.rs"
 required-features = ["server", "openai", "anthropic"]

@@ -9,6 +9,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Updated `siumai-extras` MCP integration to `rmcp` 1.6 and the current streamable HTTP client
   transport. The legacy `mcp_tools_from_sse` helper remains as a deprecated compatibility alias;
   new MCP HTTP clients should use `mcp_tools_from_http`.
+- Moved runnable MCP examples out of the core crate and into `siumai-extras`, where they now live
+  beside the actual MCP integration surface.
+- `siumai-extras` tool-loop gateway examples and APIs now use the canonical `LanguageModel`
+  family surface instead of the older `ChatCapability` shape.
 - Refreshed supporting dependencies for schema validation, registry caching, HTTP, WebSocket, and
   random-number utilities (`jsonschema` 0.46, `lru` 0.18, `reqwest` 0.13.3,
   `tokio-tungstenite` 0.29, and `rand` 0.10).
@@ -596,9 +600,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 **Documentation:**
 
-- Integration examples: `siumai/examples/05-integrations/mcp/`
+- Integration examples: `siumai-extras/examples/`
 - API reference: `https://docs.rs/siumai-extras/latest/siumai_extras/mcp/`
-- Examples: `siumai/examples/05-integrations/mcp/`
+- Examples: `siumai-extras/examples/mcp-stdio-tools.rs`
 
 ## [0.10.3] - 2025-10-10
 

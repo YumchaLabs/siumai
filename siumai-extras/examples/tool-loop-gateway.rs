@@ -48,7 +48,7 @@ use siumai_extras::server::tool_loop::{ToolLoopGatewayOptions, tool_loop_chat_st
 
 #[derive(Clone)]
 struct AppState {
-    model: Arc<dyn ChatCapability + Send + Sync>,
+    model: Arc<dyn LanguageModel>,
     tools: Vec<Tool>,
     resolver: Arc<dyn ToolResolver + Send + Sync>,
 }
@@ -105,11 +105,11 @@ fn transcode_opts(q: &GatewayQuery) -> TranscodeSseOptions {
 }
 
 async fn start_tool_loop_stream(state: &AppState, prompt: String) -> Result<ChatStream, LlmError> {
-    let messages = vec![ChatMessage::user(prompt).build()];
+    let request =
+        ChatRequest::new(vec![ChatMessage::user(prompt).build()]).with_tools(state.tools.clone());
     tool_loop_chat_stream(
         state.model.clone(),
-        messages,
-        state.tools.clone(),
+        request,
         state.resolver.clone(),
         ToolLoopGatewayOptions { max_steps: 6 },
     )
@@ -196,7 +196,7 @@ async fn gemini_generate_content(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reg = registry::global();
     let model = reg.language_model("gemini:gemini-2.0-flash-exp")?;
-    let model: Arc<dyn ChatCapability + Send + Sync> = Arc::new(model);
+    let model: Arc<dyn LanguageModel> = Arc::new(model);
 
     let tools = vec![Tool::function(
         "get_weather".to_string(),

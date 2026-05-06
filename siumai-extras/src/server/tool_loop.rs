@@ -15,6 +15,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use serde_json::Value;
 use siumai::prelude::unified::*;
+use siumai::text::TextModel;
 use tokio::sync::mpsc;
 
 use crate::orchestrator::types::ToolResolver;
@@ -263,9 +264,8 @@ fn gateway_tool_result_events(
 /// - emits stable `tool-result` parts plus typed stream `tool-result` custom events between steps so
 ///   downstream protocol serializers can surface results
 pub async fn tool_loop_chat_stream(
-    model: Arc<dyn ChatCapability + Send + Sync>,
-    initial_messages: Vec<ChatMessage>,
-    tools: Vec<Tool>,
+    model: Arc<dyn LanguageModel>,
+    initial_request: ChatRequest,
     resolver: Arc<dyn ToolResolver + Send + Sync>,
     opts: ToolLoopGatewayOptions,
 ) -> Result<ChatStream, LlmError> {
@@ -292,16 +292,17 @@ pub async fn tool_loop_chat_stream(
 
     tokio::spawn(async move {
         let sender = tx;
-        let mut history = initial_messages;
+        let mut history = initial_request.messages.clone();
+        let tools = initial_request.tools.clone().unwrap_or_default();
         let mut emitted_stream_start = false;
         let mut final_stream_end: Option<ChatResponse> = None;
         let mut pending_deferred_tool_calls: HashSet<String> = HashSet::new();
 
         'outer: for _step_idx in 0..max_steps {
-            let handle = match model
-                .chat_stream_with_cancel(history.clone(), Some(tools.clone()))
-                .await
-            {
+            let mut request = initial_request.clone();
+            request.messages = history.clone();
+
+            let handle = match TextModel::stream_with_cancel(model.as_ref(), request).await {
                 Ok(h) => h,
                 Err(e) => {
                     let _ = sender.send(Err(e)).await;
@@ -547,7 +548,8 @@ mod tests {
     use futures::stream;
     use serde_json::json;
     use siumai::prelude::unified::{
-        ChatStreamToolCall, ChatStreamToolResult, ProviderOptionsMap, ResponseMetadata,
+        CancelHandle, ChatStreamHandle, ChatStreamToolCall, ChatStreamToolResult,
+        ProviderOptionsMap, ResponseMetadata,
     };
     use siumai::types::ToolResultOutput;
     use std::sync::Mutex;
@@ -573,22 +575,33 @@ mod tests {
         requests: Mutex<Vec<Vec<ChatMessage>>>,
     }
 
+    impl ModelMetadata for MockModel {
+        fn provider_id(&self) -> &str {
+            "mock"
+        }
+
+        fn model_id(&self) -> &str {
+            "mock-model"
+        }
+    }
+
     #[async_trait]
-    impl ChatCapability for MockModel {
-        async fn chat_with_tools(
-            &self,
-            _messages: Vec<ChatMessage>,
-            _tools: Option<Vec<Tool>>,
-        ) -> Result<ChatResponse, LlmError> {
+    impl TextModel for MockModel {
+        async fn generate(&self, _request: ChatRequest) -> Result<ChatResponse, LlmError> {
             Ok(ChatResponse::new(MessageContent::Text("ok".to_string())))
         }
 
-        async fn chat_stream(
+        async fn stream(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+            self.stream_with_cancel(request)
+                .await
+                .map(|handle| handle.stream)
+        }
+
+        async fn stream_with_cancel(
             &self,
-            messages: Vec<ChatMessage>,
-            _tools: Option<Vec<Tool>>,
-        ) -> Result<ChatStream, LlmError> {
-            self.requests.lock().unwrap().push(messages);
+            request: ChatRequest,
+        ) -> Result<ChatStreamHandle, LlmError> {
+            self.requests.lock().unwrap().push(request.messages.clone());
             let idx = {
                 let mut g = self.calls.lock().unwrap();
                 let idx = *g;
@@ -647,7 +660,11 @@ mod tests {
                             },
                         }),
                     ];
-                    Ok(Box::pin(stream::iter(events)))
+                    let stream = Box::pin(stream::iter(events));
+                    Ok(ChatStreamHandle {
+                        stream,
+                        cancel: CancelHandle::new(),
+                    })
                 }
                 _ => {
                     let events = vec![
@@ -659,7 +676,11 @@ mod tests {
                             )),
                         }),
                     ];
-                    Ok(Box::pin(stream::iter(events)))
+                    let stream = Box::pin(stream::iter(events));
+                    Ok(ChatStreamHandle {
+                        stream,
+                        cancel: CancelHandle::new(),
+                    })
                 }
             }
         }
@@ -668,7 +689,7 @@ mod tests {
     #[tokio::test]
     async fn tool_loop_inserts_tool_result_and_keeps_single_stream_end() {
         let model = Arc::new(MockModel::default());
-        let model_dyn: Arc<dyn ChatCapability + Send + Sync> = model.clone();
+        let model_dyn: Arc<dyn LanguageModel> = model.clone();
         let resolver: Arc<dyn ToolResolver + Send + Sync> = Arc::new(MockResolver);
 
         let tools = vec![Tool::function(
@@ -681,10 +702,11 @@ mod tests {
             }),
         )];
 
+        let request =
+            ChatRequest::new(vec![ChatMessage::user("weather?").build()]).with_tools(tools);
         let mut stream = tool_loop_chat_stream(
             model_dyn,
-            vec![ChatMessage::user("weather?").build()],
-            tools,
+            request,
             resolver,
             ToolLoopGatewayOptions { max_steps: 4 },
         )
@@ -766,22 +788,33 @@ mod tests {
         requests: Mutex<Vec<Vec<ChatMessage>>>,
     }
 
+    impl ModelMetadata for StablePartToolModel {
+        fn provider_id(&self) -> &str {
+            "mock"
+        }
+
+        fn model_id(&self) -> &str {
+            "stable-part"
+        }
+    }
+
     #[async_trait]
-    impl ChatCapability for StablePartToolModel {
-        async fn chat_with_tools(
-            &self,
-            _messages: Vec<ChatMessage>,
-            _tools: Option<Vec<Tool>>,
-        ) -> Result<ChatResponse, LlmError> {
+    impl TextModel for StablePartToolModel {
+        async fn generate(&self, _request: ChatRequest) -> Result<ChatResponse, LlmError> {
             Ok(ChatResponse::new(MessageContent::Text("ok".to_string())))
         }
 
-        async fn chat_stream(
+        async fn stream(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+            self.stream_with_cancel(request)
+                .await
+                .map(|handle| handle.stream)
+        }
+
+        async fn stream_with_cancel(
             &self,
-            messages: Vec<ChatMessage>,
-            _tools: Option<Vec<Tool>>,
-        ) -> Result<ChatStream, LlmError> {
-            self.requests.lock().unwrap().push(messages);
+            request: ChatRequest,
+        ) -> Result<ChatStreamHandle, LlmError> {
+            self.requests.lock().unwrap().push(request.messages.clone());
             let idx = {
                 let mut g = self.calls.lock().unwrap();
                 let idx = *g;
@@ -866,7 +899,11 @@ mod tests {
                             },
                         }),
                     ];
-                    Ok(Box::pin(stream::iter(events)))
+                    let stream = Box::pin(stream::iter(events));
+                    Ok(ChatStreamHandle {
+                        stream,
+                        cancel: CancelHandle::new(),
+                    })
                 }
                 _ => {
                     let events = vec![
@@ -882,7 +919,11 @@ mod tests {
                             response: ChatResponse::new(MessageContent::Text(String::new())),
                         }),
                     ];
-                    Ok(Box::pin(stream::iter(events)))
+                    let stream = Box::pin(stream::iter(events));
+                    Ok(ChatStreamHandle {
+                        stream,
+                        cancel: CancelHandle::new(),
+                    })
                 }
             }
         }
@@ -891,7 +932,7 @@ mod tests {
     #[tokio::test]
     async fn tool_loop_accepts_stable_tool_parts() {
         let model = Arc::new(StablePartToolModel::default());
-        let model_dyn: Arc<dyn ChatCapability + Send + Sync> = model.clone();
+        let model_dyn: Arc<dyn LanguageModel> = model.clone();
         let resolver: Arc<dyn ToolResolver + Send + Sync> = Arc::new(MockResolver);
 
         let tools = vec![Tool::function(
@@ -904,10 +945,11 @@ mod tests {
             }),
         )];
 
+        let request =
+            ChatRequest::new(vec![ChatMessage::user("weather?").build()]).with_tools(tools);
         let mut stream = tool_loop_chat_stream(
             model_dyn,
-            vec![ChatMessage::user("weather?").build()],
-            tools,
+            request,
             resolver,
             ToolLoopGatewayOptions { max_steps: 4 },
         )
@@ -962,22 +1004,33 @@ mod tests {
         requests: Mutex<Vec<Vec<ChatMessage>>>,
     }
 
+    impl ModelMetadata for DeferredProviderToolModel {
+        fn provider_id(&self) -> &str {
+            "mock"
+        }
+
+        fn model_id(&self) -> &str {
+            "deferred-provider"
+        }
+    }
+
     #[async_trait]
-    impl ChatCapability for DeferredProviderToolModel {
-        async fn chat_with_tools(
-            &self,
-            _messages: Vec<ChatMessage>,
-            _tools: Option<Vec<Tool>>,
-        ) -> Result<ChatResponse, LlmError> {
+    impl TextModel for DeferredProviderToolModel {
+        async fn generate(&self, _request: ChatRequest) -> Result<ChatResponse, LlmError> {
             Ok(ChatResponse::new(MessageContent::Text("ok".to_string())))
         }
 
-        async fn chat_stream(
+        async fn stream(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+            self.stream_with_cancel(request)
+                .await
+                .map(|handle| handle.stream)
+        }
+
+        async fn stream_with_cancel(
             &self,
-            messages: Vec<ChatMessage>,
-            _tools: Option<Vec<Tool>>,
-        ) -> Result<ChatStream, LlmError> {
-            self.requests.lock().unwrap().push(messages);
+            request: ChatRequest,
+        ) -> Result<ChatStreamHandle, LlmError> {
+            self.requests.lock().unwrap().push(request.messages.clone());
             let idx = {
                 let mut g = self.calls.lock().unwrap();
                 let idx = *g;
@@ -1049,7 +1102,11 @@ mod tests {
                             },
                         }),
                     ];
-                    Ok(Box::pin(stream::iter(events)))
+                    let stream = Box::pin(stream::iter(events));
+                    Ok(ChatStreamHandle {
+                        stream,
+                        cancel: CancelHandle::new(),
+                    })
                 }
                 _ => {
                     let events = vec![
@@ -1087,7 +1144,11 @@ mod tests {
                             ])),
                         }),
                     ];
-                    Ok(Box::pin(stream::iter(events)))
+                    let stream = Box::pin(stream::iter(events));
+                    Ok(ChatStreamHandle {
+                        stream,
+                        cancel: CancelHandle::new(),
+                    })
                 }
             }
         }
@@ -1096,7 +1157,7 @@ mod tests {
     #[tokio::test]
     async fn tool_loop_continues_for_deferred_provider_results() {
         let model = Arc::new(DeferredProviderToolModel::default());
-        let model_dyn: Arc<dyn ChatCapability + Send + Sync> = model.clone();
+        let model_dyn: Arc<dyn LanguageModel> = model.clone();
         let resolver: Arc<dyn ToolResolver + Send + Sync> = Arc::new(MockResolver);
 
         let tools = vec![
@@ -1104,10 +1165,11 @@ mod tests {
                 .with_supports_deferred_results(true),
         ];
 
+        let request =
+            ChatRequest::new(vec![ChatMessage::user("run code").build()]).with_tools(tools);
         let mut stream = tool_loop_chat_stream(
             model_dyn,
-            vec![ChatMessage::user("run code").build()],
-            tools,
+            request,
             resolver,
             ToolLoopGatewayOptions { max_steps: 4 },
         )

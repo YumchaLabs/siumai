@@ -128,9 +128,9 @@ null` when absent), so the AI-SDK-aligned semantic stream lane is observable out
     - Works with all Siumai-supported LLM providers (OpenAI, Anthropic, Google, etc.)
     - Compatible with `ToolLoopAgent` for reusable agent patterns
   - **Documentation**:
-    - Integration examples: `siumai/examples/05-integrations/mcp/`
+    - Integration examples: `siumai-extras/examples/`
     - API reference: `https://docs.rs/siumai-extras/latest/siumai_extras/mcp/`
-    - Examples: `siumai/examples/05-integrations/mcp/`
+    - Examples: `siumai-extras/examples/mcp-stdio-tools.rs`
   - **Design Philosophy**:
     - External integration (not in core library) following Vercel AI SDK's pattern
     - Keeps core library lightweight and fast to compile
@@ -298,9 +298,9 @@ use siumai_extras::server::axum::to_sse_response;
 ## Documentation
 
 - **MCP Integration**:
-  - Integration examples: `siumai/examples/05-integrations/mcp/`
+  - Integration examples: `siumai-extras/examples/`
   - API reference: `https://docs.rs/siumai-extras/latest/siumai_extras/mcp/`
-  - Examples: `siumai/examples/05-integrations/mcp/`
+  - Examples: `siumai-extras/examples/mcp-stdio-tools.rs`
 - **Telemetry**: `siumai/src/telemetry/README.md`
 - **API Documentation**: https://docs.rs/siumai-extras
 

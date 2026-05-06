@@ -358,7 +358,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Documentation
 
-- [MCP examples](../siumai/examples/05-integrations/mcp/)
+- [MCP stdio example](./examples/mcp-stdio-tools.rs)
+- [MCP HTTP example](./examples/mcp-streamable-http-tools.rs)
 - [MCP API docs](https://docs.rs/siumai-extras/latest/siumai_extras/mcp/)
 
 ## License

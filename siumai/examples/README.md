@@ -97,8 +97,7 @@ cargo run --example provider-switching --features "openai,anthropic,google"
 2. `03-advanced-features/middleware/http-interceptor.rs` - config-first HTTP observability
 3. `05-integrations/telemetry/basic-telemetry.rs` - registry-first telemetry attachment
 4. `04-provider-specific/anthropic/prompt-caching.rs` - provider-owned optimization
-5. `05-integrations/mcp/stdio-client.rs` - MCP integration
-6. `06-extensibility/executor-testing.rs` - low-level executor validation
+5. `06-extensibility/executor-testing.rs` - low-level executor validation
 
 ## Directory Guide
 
@@ -146,7 +145,6 @@ See `04-provider-specific/README.md` for the provider package tier map.
 Use this directory for:
 
 - registry examples
-- MCP integration
 - telemetry
 
 This directory is also the preferred home for application-level middleware
