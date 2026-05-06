@@ -16,6 +16,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Cleaned up example guidance after the beta.7 refactor: `Usage` examples now show the current
   builder/accessor API only, the Moonshot builder-only demo was removed, and `siumai-extras`
   examples are explicitly registered with feature boundaries.
+- Added a `siumai-extras/examples` index and removed the stale core-crate orchestrator example
+  README now that runnable orchestrator examples live in `siumai-extras`.
 - Added `UsageInputTokens` and `UsageOutputTokens` to the unified prelude so callers can use the
   canonical `Usage::builder().with_input_tokens(...)` / `with_output_tokens(...)` path without
   falling back to lower-level type imports.

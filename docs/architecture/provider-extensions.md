@@ -108,7 +108,8 @@ fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<OpenAiMetada
 ```
 
 OpenAI-compatible vendors (SiliconFlow/DeepSeek/OpenRouter/...) are treated as configuration presets.
-For new code, prefer using registry handles with vendor ids, and keep builder-style presets as conveniences.
+For new code, prefer using registry handles with vendor ids or config-first `OpenAiCompatibleClient`
+construction. Builder-style presets are compatibility wrappers, not the default architecture.
 
 ```rust,no_run
 use siumai::prelude::unified::*;
@@ -118,22 +119,6 @@ use siumai::prelude::unified::*;
 let model = registry::global().language_model("siliconflow:deepseek-ai/DeepSeek-V3.1")?;
 # Ok(()) }
 ```
-
-```rust,no_run
-use siumai::prelude::unified::*;
-
-# #[tokio::main]
-# async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let _builder_client = Siumai::builder()
-    .provider_id("siliconflow")
-    .api_key("your-api-key")
-    .model("deepseek-ai/DeepSeek-V3.1")
-    .build()
-    .await?;
-# Ok(()) }
-```
-
-Note: vendor presets like `Siumai::builder().siliconflow()` are OpenAI-compatible configuration presets.
 
 Base URL override semantics:
 

@@ -66,13 +66,13 @@ For new code, prefer construction modes in this order:
 
 1. `registry-first` for application code and cross-provider routing
 2. `config-first` for provider-specific setup and tests
-3. `builder convenience` for quick setup, migration, and side-by-side comparison
+3. migration compatibility snippets when replacing older builder-style code
 
 Rule of thumb:
 
 - reach for `registry::global().language_model("provider:model")?` in app code
 - reach for `*Client::from_config(*Config::new(...))` in provider-specific code
-- treat `Siumai::builder()` and provider builders as convenience wrappers, not the architectural center
+- treat `Siumai::builder()` and provider builders as compatibility wrappers, not the architectural center
 
 ### Public surface map
 
@@ -81,14 +81,14 @@ Use public surfaces by intent, not by habit:
 - **App-level routing and default usage**: `registry::global()` + the six family APIs `text::{generate, stream}`, `embedding::embed`, `image::generate`, `rerank::rerank`, `speech::synthesize`, and `transcription::transcribe`
 - **Provider-specific construction**: `siumai::providers::<provider>::*Config` + `*Client::from_config(...)`
 - **Provider-specific typed escape hatches**: `siumai::provider_ext::<provider>::options::*`, request ext traits, and typed response metadata helpers
-- **Migration and quick demos**: `siumai::compat::Siumai` and `Provider::*()` builders
+- **Migration compatibility**: `siumai::compat::Siumai` and `Provider::*()` builders
 - **Last-resort vendor knobs**: raw `with_provider_option(...)` when a typed provider extension does not exist yet
 
 Policy for new features:
 
 - no new capability should be builder-only
 - typed provider knobs should live under `provider_ext::<provider>` before recommending raw provider-option maps
-- docs and examples should present `registry-first -> config-first -> builder convenience` in that order
+- docs and examples should present `registry-first -> config-first` first; builder snippets belong in migration/compatibility sections
 - docs should treat the six family modules `text`, `embedding`, `image`, `rerank`, `speech`, and `transcription` as the primary public entry points
 
 ### Registry (recommended)
@@ -296,13 +296,13 @@ explicitly on the `ChatRequest`.
 
 Builder-style construction remains available as a **temporary** compatibility surface.
 
-It is useful for quick demos and migration, but it is **not** the recommended default for new code.
+It is useful for migration and side-by-side comparisons, but it is **not** the recommended default for new code.
 
 Recommended order:
 
 - first: registry-first for app-level code
 - second: config-first for provider-specific code
-- third: builder convenience for quick setup and comparison
+- third: builder compatibility only when migrating older code
 
 If you still want the builder style, prefer importing it explicitly from `siumai::compat`:
 
@@ -674,6 +674,8 @@ Examples are split by package:
 - 06-extensibility — custom providers, executors, bridge customization
 - 07-applications — chatbot, code assistant, API server
 - `siumai-extras/examples/` — orchestrator, MCP, OpenTelemetry, and server gateway examples
+
+Extras example index: `siumai-extras/examples/README.md`.
 
 Typical commands:
 
