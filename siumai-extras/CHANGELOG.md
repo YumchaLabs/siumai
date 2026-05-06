@@ -16,8 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- MCP integration now uses `rmcp` 1.6 and the current streamable HTTP client transport. The legacy
+  `mcp_tools_from_sse` helper remains as a deprecated compatibility alias; new code should use
+  `mcp_tools_from_http`.
+- Schema validation now uses `jsonschema` 0.46.
 - Gateway bridge customization now recommends `GatewayBridgePolicy + BridgeOptions + typed bridge
-hooks` as the primary extension path for Axum SSE/JSON transcoders.
+  hooks` as the primary extension path for Axum SSE/JSON transcoders.
 - Axum gateway transcode helpers now support partial bridge overrides and route-level bridge-mode
   override without rebuilding a full `BridgeOptions` value.
 - Axum SSE transcode helpers now support source-aware inspected loss-policy rejection and warning /

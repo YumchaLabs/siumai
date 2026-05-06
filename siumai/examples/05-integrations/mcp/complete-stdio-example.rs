@@ -9,7 +9,7 @@
 //! AI models to external tools and data sources. It allows:
 //! - Dynamic tool discovery
 //! - Standardized tool execution
-//! - Multiple transport options (stdio, SSE, HTTP)
+//! - Multiple transport options (stdio, streamable HTTP)
 //!
 //! ## Setup
 //!

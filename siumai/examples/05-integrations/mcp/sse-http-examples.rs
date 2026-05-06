@@ -1,15 +1,11 @@
-//! MCP SSE and HTTP Transport Examples
+//! MCP Streamable HTTP Transport Example
 //!
 //! This example demonstrates how to connect to MCP servers using
-//! different transport protocols: SSE and HTTP.
+//! the current streamable HTTP transport.
 //!
 //! ## Transports
 //!
-//! ### SSE (Server-Sent Events)
-//! - Best for: Real-time updates, long-lived connections
-//! - Use case: Remote MCP servers with streaming capabilities
-//!
-//! ### HTTP (Streamable HTTP)
+//! ### Streamable HTTP
 //! - Best for: Stateless operations, RESTful APIs
 //! - Use case: Remote MCP servers with HTTP endpoints
 //!
@@ -21,15 +17,10 @@
 //!    siumai-extras = { version = "0.11", features = ["mcp"] }
 //!    ```
 //!
-//! 2. Start an MCP server with SSE or HTTP transport
+//! 2. Start an MCP server with streamable HTTP transport
 //!
 //! 3. Run this example:
 //!    ```bash
-//!    # For SSE
-//!    MCP_TRANSPORT=sse MCP_URL=http://localhost:8080/sse \
-//!      cargo run --example sse-http-examples --features openai
-//!    
-//!    # For HTTP
 //!    MCP_TRANSPORT=http MCP_URL=http://localhost:3000/mcp \
 //!      cargo run --example sse-http-examples --features openai
 //!    ```
@@ -38,16 +29,16 @@
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🌐 MCP SSE/HTTP Transport Examples\n");
+    println!("🌐 MCP Streamable HTTP Transport Example\n");
     println!("❌ This example requires siumai-extras with the 'mcp' feature");
     println!("\nTo use this example:");
     println!("1. Add to your Cargo.toml:");
     println!("   siumai-extras = {{ version = \"0.11\", features = [\"mcp\"] }}");
     println!("\n2. Import and use:");
-    println!("   use siumai_extras::mcp::{{mcp_tools_from_sse, mcp_tools_from_http}};");
+    println!("   use siumai_extras::mcp::mcp_tools_from_http;");
     println!("\n3. Connect to MCP server:");
     println!(
-        "   let (tools, resolver) = mcp_tools_from_sse(\"http://localhost:8080/sse\").await?;"
+        "   let (tools, resolver) = mcp_tools_from_http(\"http://localhost:3000/mcp\").await?;"
     );
     println!(
         "\nSee siumai-extras/README.md and https://docs.rs/siumai-extras/latest/siumai_extras/mcp/ for details."
@@ -58,20 +49,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Uncomment below when siumai-extras mcp feature is available:
     /*
     use siumai_extras::orchestrator::{generate, step_count_is};
-    use siumai_extras::mcp::{mcp_tools_from_sse, mcp_tools_from_http};
+    use siumai_extras::mcp::mcp_tools_from_http;
 
     // Get transport type from environment
     let transport = std::env::var("MCP_TRANSPORT")
-        .unwrap_or_else(|_| "sse".to_string());
+        .unwrap_or_else(|_| "http".to_string());
 
     let url = std::env::var("MCP_URL")
-        .unwrap_or_else(|_| {
-            if transport == "sse" {
-                "http://localhost:8080/sse".to_string()
-            } else {
-                "http://localhost:3000/mcp".to_string()
-            }
-        });
+        .unwrap_or_else(|_| "http://localhost:3000/mcp".to_string());
 
     println!("Transport: {}", transport.to_uppercase());
     println!("URL: {}\n", url);
@@ -79,17 +64,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Step 1: Connecting to MCP server...");
 
     let (tools, resolver) = match transport.as_str() {
-        "sse" => {
-            println!("  Using SSE transport");
-            mcp_tools_from_sse(&url).await?
-        }
         "http" => {
-            println!("  Using HTTP transport");
+            println!("  Using streamable HTTP transport");
             mcp_tools_from_http(&url).await?
         }
         _ => {
             println!("❌ Unknown transport: {}", transport);
-            println!("   Supported: sse, http");
+            println!("   Supported: http");
             return Ok(());
         }
     };

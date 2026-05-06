@@ -65,7 +65,7 @@ pub fn validate_json(schema: &Value, instance: &Value) -> Result<()> {
     if compiled.validate(instance).is_err() {
         let mut msgs = Vec::new();
         for err in compiled.iter_errors(instance) {
-            msgs.push(format!("{} at {}", err, err.instance_path));
+            msgs.push(format!("{} at {}", err, err.instance_path()));
             if msgs.len() >= 3 {
                 break;
             }
@@ -101,7 +101,7 @@ pub fn validate_json_detailed(schema: &Value, instance: &Value) -> Result<()> {
     if compiled.validate(instance).is_err() {
         let msgs: Vec<String> = compiled
             .iter_errors(instance)
-            .map(|err| format!("{} at {}", err, err.instance_path))
+            .map(|err| format!("{} at {}", err, err.instance_path()))
             .collect();
 
         if !msgs.is_empty() {
@@ -166,7 +166,7 @@ impl JsonSchemaValidator {
             let msgs: Vec<String> = self
                 .validator
                 .iter_errors(instance)
-                .map(|err| format!("{} at {}", err, err.instance_path))
+                .map(|err| format!("{} at {}", err, err.instance_path()))
                 .collect();
 
             if !msgs.is_empty() {
@@ -184,7 +184,7 @@ impl SchemaValidatorTrait for JsonSchemaValidator {
         if self.validator.validate(instance).is_err() {
             let mut msgs = Vec::new();
             for err in self.validator.iter_errors(instance) {
-                msgs.push(format!("{} at {}", err, err.instance_path));
+                msgs.push(format!("{} at {}", err, err.instance_path()));
                 if msgs.len() >= 3 {
                     break;
                 }

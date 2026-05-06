@@ -2,8 +2,6 @@
 
 use std::sync::Arc;
 
-use rand::Rng;
-
 use crate::error::LlmError;
 
 /// Default alphabet used by AI SDK `generateId`.
@@ -99,10 +97,9 @@ pub fn create_id_generator(options: IdGeneratorOptions) -> Result<IdGenerator, L
     let size = options.size;
 
     let random_part = move || {
-        let mut rng = rand::thread_rng();
         (0..size)
             .map(|_| {
-                let index = rng.gen_range(0..alphabet.len());
+                let index = rand::random_range(0..alphabet.len());
                 alphabet[index]
             })
             .collect::<String>()

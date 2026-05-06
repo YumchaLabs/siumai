@@ -4,7 +4,14 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Changed
+
+- Updated `siumai-extras` MCP integration to `rmcp` 1.6 and the current streamable HTTP client
+  transport. The legacy `mcp_tools_from_sse` helper remains as a deprecated compatibility alias;
+  new MCP HTTP clients should use `mcp_tools_from_http`.
+- Refreshed supporting dependencies for schema validation, registry caching, HTTP, WebSocket, and
+  random-number utilities (`jsonschema` 0.46, `lru` 0.18, `reqwest` 0.13.3,
+  `tokio-tungstenite` 0.29, and `rand` 0.10).
 
 ## [0.11.0-beta.7] - 2026-05-05
 

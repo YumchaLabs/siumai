@@ -12,7 +12,7 @@
 //!
 //! ## Learn More
 //! See `siumai/examples/05-integrations/mcp/` for complete MCP examples:
-//! - stdio, HTTP, SSE transports
+//! - stdio and streamable HTTP transports
 //! - Client and server implementations
 //! - Tool discovery and execution
 
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  - siumai/examples/05-integrations/mcp/sse-http-examples.rs");
     println!("\nMCP enables:");
     println!("  ✅ Standardized tool protocol");
-    println!("  ✅ Multiple transport options (stdio, HTTP, SSE)");
+    println!("  ✅ Multiple transport options (stdio, streamable HTTP)");
     println!("  ✅ Tool discovery and execution");
     println!("  ✅ Integration with any LLM provider");
 

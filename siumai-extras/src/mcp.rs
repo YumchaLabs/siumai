@@ -3,14 +3,14 @@
 //! This module provides convenient integration between Siumai and MCP servers
 //! using the `rmcp` library. It allows you to:
 //!
-//! - Connect to MCP servers via stdio, SSE, or HTTP transports
+//! - Connect to MCP servers via stdio or streamable HTTP transports
 //! - Automatically discover tools from MCP servers
 //! - Execute MCP tools through Siumai's orchestrator
 //! - Use MCP tools with any Siumai-supported LLM provider
 //!
 //! # Features
 //!
-//! - **Multiple Transports**: stdio, SSE, HTTP
+//! - **Multiple Transports**: stdio and streamable HTTP
 //! - **Automatic Tool Discovery**: Fetch tools from MCP servers
 //! - **Seamless Integration**: Works with Siumai's orchestrator and agents
 //! - **Type-Safe**: Leverages Rust's type system for safety
@@ -56,28 +56,23 @@
 //! let (tools, resolver) = mcp_tools_from_stdio("node server.js").await?;
 //! ```
 //!
-//! ## SSE Transport
+//! ## Streamable HTTP Transport
 //!
-//! Connect to an MCP server via Server-Sent Events:
-//!
-//! ```rust,ignore
-//! let (tools, resolver) = mcp_tools_from_sse("http://localhost:8080/sse").await?;
-//! ```
-//!
-//! ## HTTP Transport
-//!
-//! Connect to an MCP server via HTTP:
+//! Connect to an MCP server via streamable HTTP:
 //!
 //! ```rust,ignore
 //! let (tools, resolver) = mcp_tools_from_http("http://localhost:3000/mcp").await?;
 //! ```
+//!
+//! The older standalone SSE transport helpers remain as deprecated compatibility aliases because
+//! upstream `rmcp` removed that client transport in favor of streamable HTTP.
 
 use crate::orchestrator::ToolResolver;
 use async_trait::async_trait;
 use rmcp::{
-    model::CallToolRequestParam,
+    model::CallToolRequestParams,
     service::{Peer, RoleClient, RunningService, Service, ServiceExt},
-    transport::{SseClientTransport, StreamableHttpClientTransport, TokioChildProcess},
+    transport::{StreamableHttpClientTransport, TokioChildProcess},
 };
 use serde_json::Value;
 use siumai::prelude::unified::{LlmError, Tool};
@@ -176,35 +171,11 @@ impl McpToolResolver {
         Ok(Self::new(service))
     }
 
-    /// Create a new MCP tool resolver from an SSE endpoint.
+    /// Create a new MCP tool resolver from a streamable HTTP endpoint.
     ///
     /// # Arguments
     ///
-    /// * `url` - The SSE endpoint URL (e.g., "http://localhost:8080/sse")
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let resolver = McpToolResolver::from_sse("http://localhost:8080/sse").await?;
-    /// ```
-    pub async fn from_sse(url: &str) -> Result<Self, LlmError> {
-        let transport = SseClientTransport::start(url).await.map_err(|e| {
-            LlmError::InternalError(format!("Failed to create SSE transport: {}", e))
-        })?;
-
-        let service = ()
-            .serve(transport)
-            .await
-            .map_err(|e| LlmError::InternalError(format!("Failed to create MCP service: {}", e)))?;
-
-        Ok(Self::new(service))
-    }
-
-    /// Create a new MCP tool resolver from an HTTP endpoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The HTTP endpoint URL (e.g., "http://localhost:3000/mcp")
+    /// * `url` - The streamable HTTP endpoint URL (e.g., "http://localhost:3000/mcp")
     ///
     /// # Example
     ///
@@ -220,6 +191,18 @@ impl McpToolResolver {
             .map_err(|e| LlmError::InternalError(format!("Failed to create MCP service: {}", e)))?;
 
         Ok(Self::new(service))
+    }
+
+    /// Create a new MCP tool resolver from a legacy SSE endpoint.
+    ///
+    /// The upstream `rmcp` SDK removed the standalone SSE client transport in favor of streamable
+    /// HTTP. Prefer [`Self::from_http`] for new code.
+    #[deprecated(
+        since = "0.11.0",
+        note = "rmcp removed standalone SSE transport; use from_http with a streamable HTTP MCP endpoint"
+    )]
+    pub async fn from_sse(url: &str) -> Result<Self, LlmError> {
+        Self::from_http(url).await
     }
 
     /// Get the list of available tools from the MCP server.
@@ -262,9 +245,11 @@ impl ToolResolver for McpToolResolver {
     async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, LlmError> {
         let result = self
             .service
-            .call_tool(CallToolRequestParam {
-                name: name.to_string().into(),
-                arguments: arguments.as_object().cloned(),
+            .call_tool(match arguments.as_object().cloned() {
+                Some(arguments) => {
+                    CallToolRequestParams::new(name.to_string()).with_arguments(arguments)
+                }
+                None => CallToolRequestParams::new(name.to_string()),
             })
             .await
             .map_err(|e| LlmError::InternalError(format!("MCP tool execution failed: {}", e)))?;
@@ -300,11 +285,14 @@ pub async fn mcp_tools_from_stdio(command: &str) -> Result<(Vec<Tool>, McpToolRe
     Ok((tools, resolver))
 }
 
-/// Convenience function to create tools and resolver from an SSE endpoint.
+/// Convenience function to create tools and resolver from a legacy SSE endpoint.
+///
+/// The upstream `rmcp` SDK removed the standalone SSE client transport in favor of streamable HTTP.
+/// Prefer [`mcp_tools_from_http`] for new code.
 ///
 /// # Arguments
 ///
-/// * `url` - The SSE endpoint URL (e.g., "http://localhost:8080/sse")
+/// * `url` - The streamable HTTP endpoint URL (e.g., "http://localhost:3000/mcp")
 ///
 /// # Returns
 ///
@@ -313,10 +301,14 @@ pub async fn mcp_tools_from_stdio(command: &str) -> Result<(Vec<Tool>, McpToolRe
 /// # Example
 ///
 /// ```rust,ignore
-/// let (tools, resolver) = mcp_tools_from_sse("http://localhost:8080/sse").await?;
+/// let (tools, resolver) = mcp_tools_from_http("http://localhost:3000/mcp").await?;
 /// ```
+#[deprecated(
+    since = "0.11.0",
+    note = "rmcp removed standalone SSE transport; use mcp_tools_from_http with a streamable HTTP MCP endpoint"
+)]
 pub async fn mcp_tools_from_sse(url: &str) -> Result<(Vec<Tool>, McpToolResolver), LlmError> {
-    let resolver = McpToolResolver::from_sse(url).await?;
+    let resolver = McpToolResolver::from_http(url).await?;
     let tools = resolver.list_tools().await?;
     Ok((tools, resolver))
 }

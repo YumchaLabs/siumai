@@ -3,7 +3,6 @@
 //! This module provides comprehensive retry functionality for LLM API calls,
 //! including exponential backoff and jitter.
 
-use rand::Rng;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -115,9 +114,8 @@ impl RetryPolicy {
 
     /// Add jitter to a delay
     fn add_jitter(&self, delay: Duration) -> Duration {
-        let mut rng = rand::thread_rng();
         let jitter_range = delay.as_millis() as f64 * self.jitter_factor;
-        let jitter = rng.gen_range(-jitter_range..=jitter_range);
+        let jitter = rand::random_range(-jitter_range..=jitter_range);
 
         let new_delay = delay.as_millis() as f64 + jitter;
         Duration::from_millis(new_delay.max(0.0) as u64)
