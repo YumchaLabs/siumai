@@ -12,16 +12,19 @@ Description:
 Demonstrates how to add new parameters to providers without waiting for library updates. Use new provider features immediately when they're released.
 
 Use Cases:
+
 - Provider releases a new feature before the library update
 - Testing experimental/beta features
 - Using private/custom provider extensions
 
 Run:
+
 ```bash
 cargo run --example custom_provider_parameters --features xai
 ```
 
 Key Concepts:
+
 1. Implement `CustomProviderOptions` trait
 2. Attach via `ChatRequest::with_provider_option(provider_id, json)`
 3. Provider reads `providerOptions` and maps it into API requests
@@ -37,17 +40,20 @@ Description:
 Demonstrates how to implement a completely custom AI provider. Suitable for private APIs, non-OpenAI-compatible APIs, etc.
 
 Use Cases:
+
 - Private/internal AI services
 - Non-OpenAI-compatible APIs
 - Custom protocol AI services
 - Local model services
 
 Run:
+
 ```bash
 cargo run --example custom_provider_implementation
 ```
 
 Key Concepts:
+
 1. Implement the `CustomProvider` trait
 2. Define supported models and capabilities
 3. Implement `chat()` and `chat_stream()`
@@ -63,16 +69,19 @@ Description:
 Demonstrates how to add support for new provider features using the `CustomProviderOptions` trait.
 
 Use Cases:
+
 - Adding support for new provider features before they're built into the library
 - Experimenting with beta/preview features
 - Supporting custom/proprietary provider extensions
 
 Run:
+
 ```bash
 cargo run --example custom-provider-options --features xai
 ```
 
 Key Concepts:
+
 1. Implement `CustomProviderOptions` for your custom features
 2. Attach options via `ChatRequest::with_provider_option(provider_id, json)`
 3. Provider decides how to interpret `providerOptions`
@@ -99,6 +108,7 @@ Key Concepts:
 When a custom feature becomes officially supported:
 
 Before (Custom):
+
 ```rust
 let custom_feature = CustomXaiFeature {
     search_mode: Some("on".to_string()),
@@ -109,6 +119,7 @@ let req = ChatRequest::new(messages)
 ```
 
 After (Built-in):
+
 ```rust
 	use siumai::provider_ext::xai::{SearchMode, XaiChatRequestExt, XaiOptions, XaiSearchParameters};
 	use siumai::prelude::unified::ChatRequest;
@@ -134,6 +145,7 @@ let req = ChatRequest::new(messages)
 ## Contributing
 
 If you frequently use the same custom features:
+
 1. Open an issue requesting built-in support
 2. Contribute a PR to add the feature
 3. Share your `CustomProviderOptions` implementation with the community
@@ -148,17 +160,20 @@ Description:
 Demonstrates how to implement the `ProviderSpec` trait to create custom provider behavior, such as adding prompt prefixes or custom authentication.
 
 Use Cases:
+
 - Adding prompt prefixes to all requests
 - Custom authentication mechanisms
 - Modifying API responses
 - Wrapping existing providers
 
 Run:
+
 ```bash
 cargo run --example custom_provider_spec --features openai
 ```
 
 Key Concepts:
+
 1. Implement the `ProviderSpec` trait
 2. Create custom request/response transformers
 3. Reuse existing transformers as a base
@@ -174,17 +189,20 @@ Description:
 Demonstrates how to test executors using mock `ProviderSpec` implementations without making real API calls.
 
 Use Cases:
+
 - Unit testing without API calls
 - Testing error handling
 - Simulating different scenarios
 - CI/CD testing
 
 Run:
+
 ```bash
 cargo run --example testing_executors
 ```
 
 Key Concepts:
+
 1. Create mock `ProviderSpec`
 2. Track call counts
 3. Simulate errors
@@ -200,16 +218,19 @@ Description:
 Shows a complete implementation of a custom provider with configuration, transformers, and client wrapper.
 
 Use Cases:
+
 - Adding support for new LLM providers
 - Understanding the full provider pattern
 - Creating provider wrappers
 
 Run:
+
 ```bash
 cargo run --example complete_custom_provider --features openai
 ```
 
 Implementation Steps:
+
 1. Define provider configuration
 2. Implement the `ProviderSpec` trait
 3. Create a request transformer
@@ -225,6 +246,7 @@ File: `bridge-customization.rs`
 Description:
 Shows the recommended reusable bridge extension path for protocol bridging without adding parser
 forks or route-local glue. The example demonstrates both:
+
 - reusable typed bridge policy with `BridgeCustomization`
 - provider-hosted tool rewrite with `ProviderToolRewriteCustomization`
 
@@ -233,6 +255,7 @@ target JSON overlay, JSON validation, tool-name remapping, and hosted-tool trans
 direct pair bridging.
 
 Use Cases:
+
 - Route or tenant specific protocol bridge policy
 - Reusable request customization shared across multiple bridge routes
 - Target JSON overlays that should remain bridge-aware
@@ -240,11 +263,13 @@ Use Cases:
 - Cross-protocol hosted-tool compatibility without writing request JSON patch glue
 
 Run:
+
 ```bash
 cargo run -p siumai --example bridge-customization --features "openai,anthropic"
 ```
 
 Key Concepts:
+
 1. Implement `BridgeCustomization` for reusable multi-phase policies
 2. Branch on `RequestBridgeContext` and `BridgePrimitiveContext`
 3. Use `ProviderToolRewriteCustomization` when the requirement is hosted-tool semantic rewrite
@@ -316,8 +341,7 @@ If the same bridge customization is needed in gateway routes, reuse the same obj
 
 ## Related Documentation
 
-- [Provider Spec Refactor](../../docs/architecture/provider-spec-refactor.md)
-- [Type-Safe Provider Options](../../siumai/src/types/provider_options.rs)
-- [ProviderSpec Trait](../../siumai/src/provider_spec.rs)
-- [Executor Refactoring](../../docs/refactoring/PHASE7_EXECUTOR_REFACTORING_COMPLETE.md)
-- [Architecture Design](../../docs/architecture/capability-standards-design.md)
+- [Provider extensions](../../../docs/architecture/provider-extensions.md)
+- [Public facade surface](../../../docs/architecture/public-surface.md)
+- [Module split design](../../../docs/architecture/module-split-design.md)
+- [Registry without built-ins](../../../docs/architecture/registry-without-builtins.md)

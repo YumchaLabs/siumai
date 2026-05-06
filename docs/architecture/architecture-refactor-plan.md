@@ -1,12 +1,13 @@
 # Architecture Refactor Plan (Fearless Refactor)
 
-This document is a working plan for the ongoing split-crate refactor (currently `0.11.0-beta.6`).
-It is intentionally pragmatic: it focuses on reducing coupling and improving maintainability while
-keeping the *user-facing* surface aligned with the Vercel AI SDK philosophy.
+Historical note: this document records the beta.6 split-crate refactor plan. It is retained because
+older release notes link to it, but it is not the current planning entry point. For current
+architecture guidance, use `docs/architecture/module-split-design.md`,
+`docs/architecture/public-surface.md`, and `docs/workstreams/fearless-refactor-v4/`.
 
 ## Status (2026-02-27)
 
-Recent progress (see `docs/workstreams/fearless-refactor/` for the live tracker):
+Recent progress at that checkpoint:
 
 - `siumai-spec` introduced and now owns provider-agnostic types/tools/errors.
 - Provider id resolution is centralized in `siumai-registry` (alias normalization + conservative inference).
@@ -54,25 +55,29 @@ Provider crates (feature-gated):
 - `siumai-provider-minimaxi`
 
 This split is already a big step forward. The next step is **tightening boundaries** so that the
-split *actually* reduces coupling and compilation cost.
+split _actually_ reduces coupling and compilation cost.
 
 ## Key Coupling Problems (Observed)
 
 1. **Provider-specific typed options/metadata must not live in `siumai-core`**
+
    - Historically, typed provider options/metadata lived in `siumai-core`, which forced core changes
      whenever providers evolved and increased compile cost.
    - In beta.5, typed `providerOptions` and typed `providerMetadata` were moved to provider crates and
      exposed via `siumai::provider_ext::<provider>::*`.
 
    `siumai-core` now only owns provider-agnostic transports:
+
    - `ProviderOptionsMap` (open JSON map keyed by provider id)
    - `CustomProviderOptions` (trait for converting to a `(provider_id, JSON)` entry)
 
 2. **Provider options must be open (no closed enum transport)**
+
    - The legacy closed `ProviderOptions` enum transport has been removed (breaking change).
    - Providers parse options from `request.provider_options_map["<provider_id>"]`.
 
 3. **Crate boundaries are blurred by blanket re-exports**
+
    - Provider crates and `siumai-registry` can accidentally re-export large portions of `siumai-core`.
 
    This makes it easy for internal modules and downstream users to accidentally “reach across layers”
@@ -83,13 +88,16 @@ split *actually* reduces coupling and compilation cost.
 Think in “interfaces + runtime + providers”:
 
 1. **Provider interface layer** (Vercel: `@ai-sdk/provider`)
+
    - Versioned model interfaces and shared types
    - Pass-through `providerOptions` and `providerMetadata` as `Map<provider_id, JSON object>`
 
 2. **Provider runtime utilities** (Vercel: `@ai-sdk/provider-utils`)
+
    - HTTP helpers, retry, SSE parsing, stream framing, tracing hooks
 
 3. **Provider packages**
+
    - Own provider-specific option structs + helpers
    - Own protocol mapping, endpoints, and extension APIs
 

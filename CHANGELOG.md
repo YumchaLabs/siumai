@@ -405,6 +405,7 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 This beta delivers a major refactor of module layout, execution/streaming, and provider integration. Design inspired by Cherry Studio鈥檚 transformer design and the Vercel AI SDK鈥檚 adapter architecture.
 
 ### Added
+
 - Provider Registry and model handles (`siumai/src/registry/*`)
   - Unified string-based `provider:model` resolution with LRU caching and optional TTL
   - Customizable registry options (middlewares, interceptors, retry)
@@ -424,6 +425,7 @@ This beta delivers a major refactor of module layout, execution/streaming, and p
 - Example rework (`siumai/examples/`)
 
 ### Changed
+
 - Workspace split into `siumai` and `siumai-extras`.
 - Unified streaming events (start/delta/usage/end); improved UTF鈥?-safe chunking and tag extraction.
 - Unified retry facade (`retry_api`) with idempotency and 401 token refresh retry.
@@ -431,21 +433,26 @@ This beta delivers a major refactor of module layout, execution/streaming, and p
 - Clippy cleanups; boxed large enum variants internally (minor internal breaking).
 
 ### Removed
+
 - Top-level `examples/` moved to `siumai/examples/`.
 - Removed obsolete `docs/openapi.documented.yml`.
 
 ### Fixed
+
 - Ensure `before_send_hook` is correctly applied across providers.
 - UTF鈥? safety: tag extraction, string slicing, streaming chunk boundaries, and token masking.
 - Reliability fixes in streaming, headers, and parameter mapping; expanded fixture-based tests.
 
 ### Known Issues
+
 - OpenAI Responses API `web_search` is not implemented; calling returns `UnsupportedOperation`.
 
 ### Stability
+
 - This is a beta pre-release; minor API adjustments may follow.
 
 ### Roadmap
+
 - Starting with `0.11.0-beta.5`, the workspace will be split into multiple crates (core / providers / extras) to mirror the architectural separation already present in the code. The `0.11.0-beta.4` release focuses on closing the feature loop and stabilizing the unified crate API before this split.
 
 ### API Keys and Environment Variables
@@ -464,6 +471,7 @@ This beta delivers a major refactor of module layout, execution/streaming, and p
 #### Tracing Subscriber Initialization
 
 **Before (v0.10.3 and earlier):**
+
 ```rust
 use siumai::tracing::{init_default_tracing, init_debug_tracing, TracingConfig, OutputFormat};
 
@@ -481,6 +489,7 @@ init_tracing(config)?;
 **After (v0.11.0):**
 
 Option 1: Use `siumai-extras::telemetry` for advanced configuration:
+
 ```rust
 use siumai_extras::telemetry;
 
@@ -500,6 +509,7 @@ telemetry::init_subscriber(config)?;
 ```
 
 Option 2: Use `tracing-subscriber` directly for simple cases:
+
 ```rust
 // Add to Cargo.toml:
 // tracing-subscriber = "0.3"
@@ -511,11 +521,13 @@ tracing_subscriber::fmt::init();
 #### JSON Schema Validation
 
 **Before:**
+
 ```rust
 // Schema validation was not available in core siumai
 ```
 
 **After:**
+
 ```rust
 use siumai_extras::schema;
 
@@ -542,6 +554,7 @@ siumai-extras = { version = "0.11", features = ["mcp"] }
 ```
 
 **Quick Start:**
+
 ```rust
 use siumai::prelude::unified::*;
 use siumai_extras::mcp::mcp_tools_from_stdio;
@@ -569,34 +582,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 **Supported Transports:**
+
 - **Stdio**: `mcp_tools_from_stdio("node server.js")` - Local development
 - **SSE**: `mcp_tools_from_sse("http://localhost:8080/sse")` - Remote servers
 - **HTTP**: `mcp_tools_from_http("http://localhost:3000/mcp")` - Stateless
 
 **Documentation:**
-- Integration guide: `siumai/docs/guides/MCP_INTEGRATION.md`
-- API reference: `siumai-extras/docs/MCP_FEATURE.md`
+
+- Integration examples: `siumai/examples/05-integrations/mcp/`
+- API reference: `https://docs.rs/siumai-extras/latest/siumai_extras/mcp/`
 - Examples: `siumai/examples/05-integrations/mcp/`
 
 ## [0.10.3] - 2025-10-10
 
 ### Added
+
 - Unified retry API `retry_api` (`retry`, `retry_for_provider`, `retry_with`).
 - Builder-level retry options: `with_retry(...)` for `Siumai` and provider builders (OpenAI, Gemini, Anthropic, Groq, xAI, Ollama, OpenAI-compatible).
 - Convenience methods: `chat_with_retry`, `ask_with_retry` on `ChatExtensions`.
 - Stream processor: overflow handler now accepts closures.
 
 ### Deprecated
+
 - `retry_strategy` (planned removal in 0.11).
 
 ### Changed
+
 - SiliconFlow and OpenRouter now use the OpenAI-compatible adapter path.
 - Simplified tracing guard type and provider identification; removed an unused `Siumai` field.
 
 ### Fixed
+
 - Responses API `web_search` now returns `UnsupportedOperation` when not implemented.
 
 ### Migration
+
 - Replace `retry_strategy` usage with the unified `retry_api` facade:
   - Use `retry`, `retry_for_provider`, or `retry_with(RetryOptions::...)`.
   - Prefer builder-level `with_retry(...)` for chat operations (applies to Siumai and provider builders).
@@ -715,6 +735,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Added
 
 - **Enhanced Tracing and Monitoring System** - Complete HTTP request/response tracing with security features
+
   - **Pretty JSON Formatting** - `.pretty_json(true)` enables human-readable JSON bodies and headers
 
     ```rust
@@ -821,5 +842,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Streaming support and multimodal content
 - Retry mechanisms and parameter validation
 - Macros: `user!()`, `system!()`, `assistant!()`, `tool!()`
-
-

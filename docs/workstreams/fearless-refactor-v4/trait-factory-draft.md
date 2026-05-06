@@ -25,6 +25,7 @@ The following parts of this draft now have working code spikes in the repository
 - native Groq text-family factory path
 - native xAI text-family factory path
 - native DeepSeek text-family factory path
+
 The following parts remain design-only:
 
 - final non-text family traits
@@ -403,6 +404,3 @@ If we want the smallest practical pivot, the baseline should be:
 - converge builders onto config-first construction
 
 That is enough to complete the architectural shift without forcing unnecessary public churn.
-
-
-

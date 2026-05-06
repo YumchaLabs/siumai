@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Gateway bridge customization now recommends `GatewayBridgePolicy + BridgeOptions + typed bridge
-  hooks` as the primary extension path for Axum SSE/JSON transcoders.
+hooks` as the primary extension path for Axum SSE/JSON transcoders.
 - Axum gateway transcode helpers now support partial bridge overrides and route-level bridge-mode
   override without rebuilding a full `BridgeOptions` value.
 - Axum SSE transcode helpers now support source-aware inspected loss-policy rejection and warning /
@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatibility, so downstream protocol serializers can prefer the semantic lane.
 - The Axum SSE helper now forwards stable runtime `Part` / `PartWithReplay` events as explicit
   `event: part` frames, and both now use one stable `{ part, replay }` JSON envelope (`replay:
-  null` when absent), so the AI-SDK-aligned semantic stream lane is observable outside the core
+null` when absent), so the AI-SDK-aligned semantic stream lane is observable outside the core
   crate without event-kind-dependent payload shape drift.
 - The Axum plain-text helper `to_text_stream()` reads stable `Part(TextDelta)` /
   `PartWithReplay(TextDelta)` events.
@@ -124,8 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Works with all Siumai-supported LLM providers (OpenAI, Anthropic, Google, etc.)
     - Compatible with `ToolLoopAgent` for reusable agent patterns
   - **Documentation**:
-    - Complete integration guide: `siumai/docs/guides/MCP_INTEGRATION.md`
-    - API reference: `siumai-extras/docs/MCP_FEATURE.md`
+    - Integration examples: `siumai/examples/05-integrations/mcp/`
+    - API reference: `https://docs.rs/siumai-extras/latest/siumai_extras/mcp/`
     - Examples: `siumai/examples/05-integrations/mcp/`
   - **Design Philosophy**:
     - External integration (not in core library) following Vercel AI SDK's pattern
@@ -198,11 +198,11 @@ use siumai_extras::mcp::mcp_tools_from_stdio;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to MCP server
     let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
-    
+
     // Create model
     let reg = registry::global();
     let model = reg.language_model("openai:gpt-4o-mini")?;
-    
+
     // Use with orchestrator
     let messages = vec![user!("Use the available tools to help me")];
     let (response, _) = siumai_extras::orchestrator::generate(
@@ -213,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         vec![siumai_extras::orchestrator::step_count_is(10)],
         Default::default(),
     ).await?;
-    
+
     println!("Response: {}", response.content_text().unwrap());
     Ok(())
 }
@@ -222,12 +222,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #### Telemetry
 
 **Before (v0.10.3 and earlier):**
+
 ```rust
 use siumai::tracing::{init_default_tracing, TracingConfig};
 init_default_tracing()?;
 ```
 
 **After (v0.11.0):**
+
 ```rust
 use siumai_extras::telemetry;
 telemetry::init_default()?;
@@ -255,11 +257,13 @@ validate_json_schema(&data, &schema)?;
 #### Server Adapters
 
 **Before:**
+
 ```rust
 use siumai::server_adapters::axum::to_sse_response;
 ```
 
 **After:**
+
 ```rust
 use siumai_extras::server::axum::to_sse_response;
 ```
@@ -275,11 +279,13 @@ use siumai_extras::server::axum::to_sse_response;
 ## Dependencies
 
 ### Core Dependencies
+
 - `siumai` (v0.11.0): Core Siumai library
 - `serde`, `serde_json`: JSON serialization
 - `thiserror`: Error handling
 
 ### Optional Dependencies
+
 - `jsonschema` (feature: `schema`): JSON schema validation
 - `tracing`, `tracing-subscriber`, `tracing-appender` (feature: `telemetry`): Tracing and logging
 - `axum`, `futures` (feature: `server`): Server adapters
@@ -288,8 +294,8 @@ use siumai_extras::server::axum::to_sse_response;
 ## Documentation
 
 - **MCP Integration**:
-  - Integration guide: `siumai/docs/guides/MCP_INTEGRATION.md`
-  - API reference: `siumai-extras/docs/MCP_FEATURE.md`
+  - Integration examples: `siumai/examples/05-integrations/mcp/`
+  - API reference: `https://docs.rs/siumai-extras/latest/siumai_extras/mcp/`
   - Examples: `siumai/examples/05-integrations/mcp/`
 - **Telemetry**: `siumai/src/telemetry/README.md`
 - **API Documentation**: https://docs.rs/siumai-extras

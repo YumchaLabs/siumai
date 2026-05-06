@@ -57,12 +57,12 @@ Everything else (tools/embedding/rerank/image/vision/reasoning) is **provider-sp
 
 ### Example presets (non-exhaustive)
 
-| Preset id | Tools | Vision | Embedding | Image | Rerank | Reasoning |
-| --- | --- | --- | --- | --- | --- | --- |
-| `deepseek` | Y | Y | N | N | N | Y |
-| `openrouter` | Y | Y | Y | N | N | Y |
-| `siliconflow` | Y | Y | Y | Y | Y | Y |
-| `together` | Y | Y | Y | Y | N | N |
+| Preset id     | Tools | Vision | Embedding | Image | Rerank | Reasoning |
+| ------------- | ----- | ------ | --------- | ----- | ------ | --------- |
+| `deepseek`    | Y     | Y      | N         | N     | N      | Y         |
+| `openrouter`  | Y     | Y      | Y         | N     | N      | Y         |
+| `siliconflow` | Y     | Y      | Y         | Y     | Y      | Y         |
+| `together`    | Y     | Y      | Y         | Y     | N      | N         |
 
 See: `siumai-provider-openai-compatible/src/providers/openai_compatible/config.rs`.
 
@@ -74,21 +74,21 @@ See: `siumai-provider-openai-compatible/src/providers/openai_compatible/config.r
 
 ## Matrix: Model families + core capabilities
 
-| Provider id | Vercel package | Primary crate(s) | Language | Streaming | Tools | Vision | Embedding | Image | Rerank | Speech (TTS) | Transcription (STT) | Files | Thinking |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `openai` | `@ai-sdk/openai` | `siumai-provider-openai` + `siumai-protocol-openai` | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | P |
-| `azure` | `@ai-sdk/azure` | `siumai-provider-azure` + `siumai-protocol-openai` | Y | Y | Y | N | Y | Y | N | Y | Y | Y | N |
-| `anthropic` | `@ai-sdk/anthropic` | `siumai-provider-anthropic` + `siumai-protocol-anthropic` | Y | Y | Y | Y | N | N | N | N | N | N | Y |
-| `gemini` | `@ai-sdk/google` | `siumai-provider-gemini` + `siumai-protocol-gemini` | Y | Y | Y | Y | Y | Y | N | N | N | Y | Y |
-| `vertex` | `@ai-sdk/google-vertex` | `siumai-provider-google-vertex` + `siumai-protocol-gemini` | Y | Y | Y | Y | Y | Y (Imagen) | N | N | N | N | P |
-| `anthropic-vertex` | `@ai-sdk/google-vertex` (Anthropic via Vertex) | `siumai-provider-google-vertex` + `siumai-protocol-anthropic` | Y | Y | Y | N | N | N | N | N | N | N | N |
-| `groq` | `@ai-sdk/groq` | `siumai-provider-groq` | Y | Y | Y | N | N | N | N | Y | Y | N | N |
-| `xai` | `@ai-sdk/xai` | `siumai-provider-xai` | Y | Y | Y | Y | N | N | N | N | N | N | N |
-| `ollama` | N | `siumai-provider-ollama` | Y | Y | Y | N | Y | N | N | N | N | N | N |
-| `minimaxi` | N | `siumai-provider-minimaxi` | Y | Y | Y | N | N | Y | N | Y | N | Y | N |
-| `cohere` | `@ai-sdk/cohere` | `siumai-provider-cohere` | N | N | N | N | N | N | Y | N | N | N | N |
-| `togetherai` | `@ai-sdk/togetherai` | `siumai-provider-togetherai` | N | N | N | N | N | N | Y | N | N | N | N |
-| `bedrock` | `@ai-sdk/amazon-bedrock` | `siumai-provider-amazon-bedrock` | Y | Y | Y | N | N | N | Y | N | N | N | N |
+| Provider id        | Vercel package                                 | Primary crate(s)                                              | Language | Streaming | Tools | Vision | Embedding | Image      | Rerank | Speech (TTS) | Transcription (STT) | Files | Thinking |
+| ------------------ | ---------------------------------------------- | ------------------------------------------------------------- | -------- | --------- | ----- | ------ | --------- | ---------- | ------ | ------------ | ------------------- | ----- | -------- |
+| `openai`           | `@ai-sdk/openai`                               | `siumai-provider-openai` + `siumai-protocol-openai`           | Y        | Y         | Y     | Y      | Y         | Y          | Y      | Y            | Y                   | Y     | P        |
+| `azure`            | `@ai-sdk/azure`                                | `siumai-provider-azure` + `siumai-protocol-openai`            | Y        | Y         | Y     | N      | Y         | Y          | N      | Y            | Y                   | Y     | N        |
+| `anthropic`        | `@ai-sdk/anthropic`                            | `siumai-provider-anthropic` + `siumai-protocol-anthropic`     | Y        | Y         | Y     | Y      | N         | N          | N      | N            | N                   | N     | Y        |
+| `gemini`           | `@ai-sdk/google`                               | `siumai-provider-gemini` + `siumai-protocol-gemini`           | Y        | Y         | Y     | Y      | Y         | Y          | N      | N            | N                   | Y     | Y        |
+| `vertex`           | `@ai-sdk/google-vertex`                        | `siumai-provider-google-vertex` + `siumai-protocol-gemini`    | Y        | Y         | Y     | Y      | Y         | Y (Imagen) | N      | N            | N                   | N     | P        |
+| `anthropic-vertex` | `@ai-sdk/google-vertex` (Anthropic via Vertex) | `siumai-provider-google-vertex` + `siumai-protocol-anthropic` | Y        | Y         | Y     | N      | N         | N          | N      | N            | N                   | N     | N        |
+| `groq`             | `@ai-sdk/groq`                                 | `siumai-provider-groq`                                        | Y        | Y         | Y     | N      | N         | N          | N      | Y            | Y                   | N     | N        |
+| `xai`              | `@ai-sdk/xai`                                  | `siumai-provider-xai`                                         | Y        | Y         | Y     | Y      | N         | N          | N      | N            | N                   | N     | N        |
+| `ollama`           | N                                              | `siumai-provider-ollama`                                      | Y        | Y         | Y     | N      | Y         | N          | N      | N            | N                   | N     | N        |
+| `minimaxi`         | N                                              | `siumai-provider-minimaxi`                                    | Y        | Y         | Y     | N      | N         | Y          | N      | Y            | N                   | Y     | N        |
+| `cohere`           | `@ai-sdk/cohere`                               | `siumai-provider-cohere`                                      | N        | N         | N     | N      | N         | N          | Y      | N            | N                   | N     | N        |
+| `togetherai`       | `@ai-sdk/togetherai`                           | `siumai-provider-togetherai`                                  | N        | N         | N     | N      | N         | N          | Y      | N            | N                   | N     | N        |
+| `bedrock`          | `@ai-sdk/amazon-bedrock`                       | `siumai-provider-amazon-bedrock`                              | Y        | Y         | Y     | N      | N         | N          | Y      | N            | N                   | N     | N        |
 
 Notes:
 
@@ -98,19 +98,19 @@ Notes:
 ## Matrix: Tooling surfaces (high-level)
 
 | Provider id | Function tools | Provider-defined tools (`Tool::ProviderDefined`) | Tool approval | Streaming tool-result bridging |
-| --- | --- | --- | --- | --- |
-| `openai` | Y | Y | Y | Y |
-| `azure` | Y | Y | P | Y |
-| `anthropic` | Y | Y | Y | Y |
-| `gemini` | Y | Y (`google.*`) | P | P (tool-loop recommended) |
-| `vertex` | Y | Y | P | P (tool-loop recommended) |
+| ----------- | -------------- | ------------------------------------------------ | ------------- | ------------------------------ |
+| `openai`    | Y              | Y                                                | Y             | Y                              |
+| `azure`     | Y              | Y                                                | P             | Y                              |
+| `anthropic` | Y              | Y                                                | Y             | Y                              |
+| `gemini`    | Y              | Y (`google.*`)                                   | P             | P (tool-loop recommended)      |
+| `vertex`    | Y              | Y                                                | P             | P (tool-loop recommended)      |
 
 See also:
 
 - `docs/alignment/provider-defined-tools-alignment.md`
 - `docs/alignment/streaming-bridge-alignment.md`
 - `docs/alignment/provider-implementation-alignment.md`
-- `siumai-extras/src/server/axum.rs` (`to_transcoded_sse_response`)
+- `siumai-extras/src/server/axum/mod.rs` (`to_transcoded_sse_response`)
 - `siumai-extras/src/server/tool_loop.rs` (`tool_loop_chat_stream`)
 
 ## How to use this matrix (workflow)

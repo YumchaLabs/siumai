@@ -172,7 +172,3 @@ Current status:
 
 - Revisit whether deserialization helpers should expose a richer typed error boundary than
   `LlmError::ParseError` when callers need enum-level branching instead of message-level distinction.
-
-
-
-

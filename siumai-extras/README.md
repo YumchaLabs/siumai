@@ -166,6 +166,7 @@ let sse = to_sse_response(stream, options);
 
 If you are building an OpenAI-compatible gateway and need to output **OpenAI Responses SSE**,
 `siumai-extras` also provides a helper that:
+
 - bridges provider-specific `ChatStreamEvent::Custom` parts into `openai:*` stream parts, and
 - serializes the stream into OpenAI Responses SSE frames.
 
@@ -183,9 +184,12 @@ fn handler(stream: ChatStream) -> Response<Body> {
 See the runnable example: `siumai-extras/examples/openai-responses-gateway.rs` (streaming + non-streaming).
 For custom conversion hooks, see: `siumai-extras/examples/gateway-custom-transform.rs`.
 For request-normalization bridge demos, see:
+
 - `siumai-extras/examples/anthropic-to-openai-responses-gateway.rs`
 - `siumai-extras/examples/openai-responses-to-anthropic-gateway.rs`
+
 For custom lossy-policy handling, see:
+
 - `siumai-extras/examples/gateway-loss-policy.rs`
 
 If you need to expose multiple downstream protocol surfaces from the same upstream stream,
@@ -238,6 +242,7 @@ JSON. The Anthropic -> OpenAI gateway example demonstrates that path for
 `anthropic.web_fetch_20250910 -> openai.web_search`.
 
 The two request-normalization bridge demos intentionally show a different path:
+
 - source protocol request JSON -> explicit request normalizer -> `ChatRequest`
 - execute on a fixed upstream model handle
 - transcode the resulting unified response/stream back into the chosen target protocol
@@ -246,12 +251,15 @@ That is useful when you want the bridge surface to stay explicit and testable in
 protocol translation inside route-local JSON glue.
 
 Migration guidance for gateway routes now lives at:
+
 - `docs/workstreams/protocol-bridge-gateway/migration.md`
 
 Recommended route shapes now live at:
+
 - `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
 
 That recipes note covers the currently recommended and test-backed gateway compositions for:
+
 - provider-native ingress -> normalized runtime -> downstream JSON/SSE
 - buffered upstream proxy/runtime routes
 - cross-protocol SSE with inspected strict rejection
@@ -350,8 +358,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Documentation
 
-- [MCP Feature Guide](./docs/MCP_FEATURE.md)
-- [Siumai MCP Integration Guide](../siumai/docs/guides/MCP_INTEGRATION.md)
+- [MCP examples](../siumai/examples/05-integrations/mcp/)
+- [MCP API docs](https://docs.rs/siumai-extras/latest/siumai_extras/mcp/)
 
 ## License
 

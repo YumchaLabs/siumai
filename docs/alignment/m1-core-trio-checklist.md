@@ -93,7 +93,7 @@ small **example**.
   - Drop (strict)
   - Lossy downgrade to text (best-effort)
   - Target-specific replay (e.g. Gemini `functionResponse`)
-  - Implementation: `siumai-core/src/streaming/mod.rs` + `siumai-extras/src/server/axum.rs`
+  - Implementation: `siumai-core/src/streaming/mod.rs` + `siumai-extras/src/server/axum/mod.rs`
 - Some “tool results” are naturally next-request inputs (Gemini); the tool-loop gateway is the recommended way to preserve semantics.
 
 ## Follow-ups (post-M1 candidates)
@@ -103,7 +103,7 @@ small **example**.
     `siumai/tests/transcoding_openai_to_gemini_alignment_test.rs`,
     `siumai/tests/transcoding_openai_to_openai_chat_completions_tool_approval_policy_test.rs`
 - [x] Expand typed stream-part coverage for `raw` / `file` in gateway pipelines (documented behavior + tests)
-  - Test: `siumai-extras/src/server/axum.rs:1`
+  - Test: `siumai-extras/src/server/axum/transcode_sse.rs`
 - [x] Add a small “M1 smoke matrix” command (single script) that runs only the core-trio gateway/transcoding tests
   - Windows: `scripts/test-m1.bat`
   - Unix: `scripts/test-m1.sh`

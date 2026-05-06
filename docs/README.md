@@ -6,16 +6,17 @@ documents, release process, and active workstreams for current planning.
 ## Alignment (Vercel parity + provider audits)
 
 - Main checklist: `docs/alignment/provider-implementation-alignment.md`
-- High-level matrix: `docs/alignment/provider-feature-alignment.md`
+- Current provider capability matrix: `docs/workstreams/fearless-refactor-v4/provider-capability-alignment-matrix.md`
 - Vercel fixture parity: `docs/alignment/vercel-ai-fixtures-alignment.md`
 - Streaming bridge notes: `docs/alignment/streaming-bridge-alignment.md`
 - Official API audits: `docs/alignment/official/*`
 
 ## Architecture (crate split + public surface)
 
-- Refactor plan: `docs/architecture/architecture-refactor-plan.md`
 - Split design (ownership + dependencies): `docs/architecture/module-split-design.md`
+- Public facade surface: `docs/architecture/public-surface.md`
 - Provider extensions: `docs/architecture/provider-extensions.md`
+- Registry without built-ins: `docs/architecture/registry-without-builtins.md`
 
 ## Migration
 

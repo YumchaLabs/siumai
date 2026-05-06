@@ -66,7 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   use siumai_extras::mcp::mcp_tools_from_stdio;");
     println!("\n3. Connect to MCP server:");
     println!("   let (tools, resolver) = mcp_tools_from_stdio(\"node mcp-server.js\").await?;");
-    println!("\nSee siumai/docs/guides/MCP_INTEGRATION.md for complete guide.");
+    println!(
+        "\nSee siumai-extras/README.md and https://docs.rs/siumai-extras/latest/siumai_extras/mcp/ for details."
+    );
 
     Ok(())
 

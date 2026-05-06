@@ -1,6 +1,6 @@
 # Using `siumai-registry` without built-in providers
 
-See also: `docs/architecture/architecture-refactor-plan.md`.
+See also: `docs/architecture/module-split-design.md`.
 
 `siumai-registry` is designed to be an abstraction-first integration point:
 you can use it to resolve `"provider:model"` identifiers and apply caching/middleware,
@@ -46,6 +46,5 @@ cargo run -p siumai-registry --example no_builtins_custom_factory
 - `ProviderFactory::language_model_with_ctx` receives a `BuildContext` that can carry cross-cutting
   settings (HTTP config, retry, interceptors, auth). Your factory may ignore it or use it to
   build consistent clients.
-- If you *do* want built-in providers, enable `siumai-registry` features like `openai` / `ollama`
+- If you _do_ want built-in providers, enable `siumai-registry` features like `openai` / `ollama`
   (these imply `builtins`).
-
