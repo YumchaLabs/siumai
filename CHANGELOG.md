@@ -13,6 +13,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   beside the actual MCP integration surface.
 - `siumai-extras` tool-loop gateway examples and APIs now use the canonical `LanguageModel`
   family surface instead of the older `ChatCapability` shape.
+- Cleaned up example guidance after the beta.7 refactor: `Usage` examples now show the current
+  builder/accessor API only, the Moonshot builder-only demo was removed, and `siumai-extras`
+  examples are explicitly registered with feature boundaries.
+- Added `UsageInputTokens` and `UsageOutputTokens` to the unified prelude so callers can use the
+  canonical `Usage::builder().with_input_tokens(...)` / `with_output_tokens(...)` path without
+  falling back to lower-level type imports.
 - Refreshed supporting dependencies for schema validation, registry caching, HTTP, WebSocket, and
   random-number utilities (`jsonschema` 0.46, `lru` 0.18, `reqwest` 0.13.3,
   `tokio-tungstenite` 0.29, and `rand` 0.10).

@@ -7,7 +7,6 @@
 //! Package tier:
 //! - compat preset example on the shared OpenAI-compatible runtime
 //! - preferred path in this file: config-first built-in compat construction
-//! - use `moonshot-siumai-builder.rs` only when you specifically want a builder convenience comparison
 //!
 //! ## Features
 //! - Process extremely long documents (up to 256K tokens)

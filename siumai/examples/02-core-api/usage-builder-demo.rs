@@ -1,26 +1,36 @@
-/// Demonstration of the new Usage builder API
-///
-/// This example shows how to use the UsageBuilder to create Usage instances
-/// with detailed token information in a clean and readable way.
-use siumai::prelude::unified::{CompletionTokensDetails, PromptTokensDetails, Usage};
+//! Usage builder and accessors.
+//!
+//! `Usage` stores AI SDK-style input/output token summaries as the canonical
+//! shape. The legacy prompt/completion/total values are exposed through
+//! accessors for compatibility, but new code should construct usage through
+//! `Usage::new(...)` or `Usage::builder()`.
+
+use serde_json::json;
+use siumai::prelude::unified::{
+    CompletionTokensDetails, PromptTokensDetails, Usage, UsageInputTokens, UsageOutputTokens,
+};
 
 fn main() {
     println!("=== Usage Builder Demo ===\n");
 
-    // Example 1: Basic usage (old way vs new way)
+    // Example 1: Basic usage
     println!("1. Basic Usage:");
 
-    // Legacy compatibility constructor
-    #[allow(deprecated)]
-    let usage_old = Usage::with_legacy_fields(100, 50, 150, None, None);
-    println!("  Old way: {:?}", usage_old);
-
-    // New way - clean and simple
-    let usage_new = Usage::builder()
+    let usage_basic = Usage::builder()
         .prompt_tokens(100)
         .completion_tokens(50)
         .build();
-    println!("  New way: {:?}\n", usage_new);
+    println!(
+        "  prompt={:?}, completion={:?}, total={:?}",
+        usage_basic.prompt_tokens(),
+        usage_basic.completion_tokens(),
+        usage_basic.total_tokens()
+    );
+    println!("  inputTokens={:?}", usage_basic.normalized_input_tokens());
+    println!(
+        "  outputTokens={:?}\n",
+        usage_basic.normalized_output_tokens()
+    );
 
     // Example 2: Usage with cached tokens
     println!("2. Usage with Cached Tokens:");
@@ -94,8 +104,36 @@ fn main() {
         .build();
     println!("  {:?}\n", usage_with_details);
 
-    // Example 8: Typical provider usage patterns
-    println!("8. Typical Provider Patterns:\n");
+    // Example 8: AI SDK-style input/output token summaries
+    println!("8. AI SDK-style Input/Output Token Summaries:");
+
+    let usage_ai_sdk = Usage::builder()
+        .with_input_tokens(UsageInputTokens {
+            total: Some(120),
+            no_cache: Some(80),
+            cache_read: Some(40),
+            cache_write: None,
+        })
+        .with_output_tokens(UsageOutputTokens {
+            total: Some(45),
+            text: Some(30),
+            reasoning: Some(15),
+        })
+        .with_raw_usage_value(json!({
+            "input_tokens": 120,
+            "output_tokens": 45,
+            "provider_note": "provider-native payloads stay under raw"
+        }))
+        .build();
+    println!("  inputTokens={:?}", usage_ai_sdk.normalized_input_tokens());
+    println!(
+        "  outputTokens={:?}",
+        usage_ai_sdk.normalized_output_tokens()
+    );
+    println!("  raw={:?}\n", usage_ai_sdk.raw_usage_value());
+
+    // Example 9: Typical provider usage patterns
+    println!("9. Typical Provider Patterns:\n");
 
     // Anthropic pattern (with cached tokens)
     println!("  Anthropic (with cache):");

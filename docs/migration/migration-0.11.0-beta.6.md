@@ -290,5 +290,5 @@ miss when moving from `beta.5` to `beta.6`:
   - `registry::global()` handles for quick starts
   - config-first provider clients (`*Client::from_config(...)`) when provider-specific wiring is needed
 - `Siumai::builder()` is intentionally kept as a compatibility convenience, but it is not the
-  recommended default for new code. A single explicit builder-based example is kept as a
-  comparison reference under `examples/04-provider-specific/openai-compatible/moonshot-siumai-builder.rs`.
+  recommended default for new code. Current runnable examples avoid builder-only flows; migration
+  snippets in this guide and the root README show the compatibility shape when needed.

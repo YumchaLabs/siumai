@@ -1420,16 +1420,6 @@ required-features = ["openai"]
 
 [[example]]
 
-name = "moonshot-siumai-builder"
-
-path = "examples/04-provider-specific/openai-compatible/moonshot-siumai-builder.rs"
-
-required-features = ["openai"]
-
-
-
-[[example]]
-
 name = "openrouter-transforms"
 
 path = "examples/04-provider-specific/openai-compatible/openrouter-transforms.rs"

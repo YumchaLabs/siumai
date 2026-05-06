@@ -16,8 +16,8 @@ This crate provides optional functionality that extends `siumai` without adding 
 
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.6"
-siumai-extras = { version = "0.11.0-beta.6", features = ["schema", "telemetry", "mcp"] }
+siumai = "0.11.0-beta.7"
+siumai-extras = { version = "0.11.0-beta.7", features = ["schema", "telemetry", "mcp"] }
 ```
 
 ## Usage
@@ -341,12 +341,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
 
     // Use with Siumai orchestrator (from siumai-extras)
+    let stop_condition = siumai_extras::orchestrator::step_count_is(10);
     let (response, _) = siumai_extras::orchestrator::generate(
         &model,
         messages,
         Some(tools),
         Some(&resolver),
-        vec![siumai_extras::orchestrator::step_count_is(10)],
+        &[&*stop_condition],
         Default::default(),
     )
     .await?;

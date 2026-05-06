@@ -7,7 +7,7 @@ The recommended learning order is:
 
 1. `registry-first`
 2. `config-first`
-3. `builder convenience`
+3. compatibility snippets in migration docs when upgrading older code
 
 ## Directory Structure
 
@@ -28,13 +28,13 @@ When choosing examples for new code, prefer them in this order:
 
 1. `registry-first` examples for application code and dynamic routing
 2. `config-first` examples for provider-specific setup
-3. `builder convenience` examples only for migration, comparison, or quick demos
+3. migration snippets only when replacing older builder-style code
 
 Example map:
 
 - registry-first: `01-quickstart/*`, `05-integrations/registry/*`
 - config-first: most files under `04-provider-specific/*`
-- builder convenience: explicit compatibility demos such as `04-provider-specific/openai-compatible/moonshot-siumai-builder.rs`
+- compatibility: `docs/migration/*` explains older builder-style code paths
 
 Surface policy:
 
@@ -49,7 +49,6 @@ Provider example policy:
 - focused provider directories should stay narrow instead of imitating the largest providers
 - examples under `04-provider-specific/openai-compatible` are vendor-view or preset examples on top of the shared compat runtime, not evidence that every OpenAI-compatible vendor needs a dedicated provider package
 - see `04-provider-specific/README.md` for the package-tier map across provider-specific examples
-- builder-based files in provider directories should be labeled as convenience demos, not the preferred default path
 - when looking for secondary-provider examples, start with config-first provider-owned files such as `04-provider-specific/deepseek/reasoning.rs`, `04-provider-specific/groq/structured-output.rs`, `04-provider-specific/xai/reasoning.rs`, `04-provider-specific/xai/structured-output.rs`, `04-provider-specific/xai/tts.rs`, `04-provider-specific/xai/web-search.rs`, `04-provider-specific/ollama/structured-output.rs`, and `04-provider-specific/ollama/metadata.rs`, then move to compat vendor views such as `04-provider-specific/openai-compatible/openrouter-embedding.rs`, `04-provider-specific/openai-compatible/openrouter-transforms.rs`, and `04-provider-specific/openai-compatible/perplexity-search.rs`, and only then to compat preset stories such as `04-provider-specific/openai-compatible/moonshot-basic.rs`, `04-provider-specific/openai-compatible/siliconflow-rerank.rs`, `04-provider-specific/openai-compatible/jina-rerank.rs`, `04-provider-specific/openai-compatible/voyageai-rerank.rs`, `04-provider-specific/openai-compatible/siliconflow-image.rs`, `04-provider-specific/openai-compatible/siliconflow-speech.rs`, `04-provider-specific/openai-compatible/siliconflow-transcription.rs`, `04-provider-specific/openai-compatible/together-image.rs`, `04-provider-specific/openai-compatible/together-speech.rs`, `04-provider-specific/openai-compatible/together-transcription.rs`, or `04-provider-specific/openai-compatible/fireworks-transcription.rs`
 
 ## Quick Start

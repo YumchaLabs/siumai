@@ -11,6 +11,7 @@ documentation = "https://docs.rs/siumai-extras"
 readme = "README.md"
 keywords = ["llm", "ai", "validation", "telemetry", "server"]
 categories = ["api-bindings", "web-programming"]
+autoexamples = false
 
 # Use workspace-managed dependency versions
 [dependencies]
@@ -111,11 +112,41 @@ eventsource-stream.workspace = true
 [[example]]
 name = "opentelemetry_tracing"
 path = "examples/opentelemetry_tracing.rs"
-required-features = ["opentelemetry"]
+required-features = ["opentelemetry", "openai"]
 
 [[example]]
 name = "workflow_planner_coder"
 path = "examples/workflow_planner_coder.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "basic-orchestrator"
+path = "examples/basic-orchestrator.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "agent-pattern"
+path = "examples/agent-pattern.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "streaming-orchestrator"
+path = "examples/streaming-orchestrator.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "streaming-tool-execution"
+path = "examples/streaming-tool-execution.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "stop-conditions"
+path = "examples/stop-conditions.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "tool-approval"
+path = "examples/tool-approval.rs"
 required-features = ["openai"]
 
 [[example]]
@@ -131,7 +162,7 @@ required-features = ["openai"]
 [[example]]
 name = "openai-responses-gateway"
 path = "examples/openai-responses-gateway.rs"
-required-features = ["server", "google", "openai"]
+required-features = ["server", "google", "openai", "anthropic"]
 
 [[example]]
 name = "gateway-custom-transform"
@@ -141,7 +172,7 @@ required-features = ["server", "google", "openai"]
 [[example]]
 name = "tool-loop-gateway"
 path = "examples/tool-loop-gateway.rs"
-required-features = ["server", "google", "openai"]
+required-features = ["server", "google", "openai", "anthropic"]
 
 [[example]]
 name = "mcp-stdio-tools"

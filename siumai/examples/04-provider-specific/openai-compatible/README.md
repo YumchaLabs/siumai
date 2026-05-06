@@ -6,7 +6,7 @@ This directory contains examples for vendors that currently live on the shared O
 
 - compat vendor view or compat preset
 - preferred construction here is config-first or built-in compat client construction
-- builder examples in this directory are convenience / compatibility demos, not the preferred architectural default
+- builder-style construction is documented as migration compatibility, but this directory keeps runnable examples on config-first or registry-style paths
 
 ## Recommended Reading Order
 
@@ -27,9 +27,7 @@ This directory contains examples for vendors that currently live on the shared O
    - `together-speech.rs`
    - `together-transcription.rs`
    - `fireworks-transcription.rs`
-3. builder convenience examples only when you specifically want a comparison with compatibility-style setup
-
-The file `moonshot-siumai-builder.rs` is intentionally kept as a compatibility demo, not the default path for new code.
+3. builder compatibility notes only when migrating older code
 
 ## Surface Note
 
@@ -69,7 +67,6 @@ Examples:
 - `moonshot-basic.rs` - config-first basic chat
 - `moonshot-tools.rs` - function/tool calling
 - `moonshot-long-context.rs` - long-context usage
-- `moonshot-siumai-builder.rs` - compatibility/builder comparison demo
 
 ### Compat preset image generation
 

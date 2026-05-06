@@ -12,7 +12,7 @@ Read these examples with the following package tiers in mind:
 
 1. prefer registry-first examples elsewhere in `examples/` for application architecture
 2. use this directory when you need provider-specific setup or typed extension APIs
-3. treat builder-based examples here as convenience demos unless the file says otherwise
+3. use migration docs, not provider examples, when replacing older builder-style code
 
 ## Directory map
 
@@ -61,7 +61,6 @@ Current notable examples in that story include:
 - `fireworks-transcription.rs`
 - `moonshot-basic.rs`
 - `moonshot-tools.rs`
-- `moonshot-siumai-builder.rs` (compatibility/convenience demo)
 
 ## Secondary provider example guide
 
@@ -69,7 +68,6 @@ When you want provider-specific examples beyond the major package surfaces, pref
 
 1. provider-owned config-first examples
 2. compat vendor-view examples on `OpenAiCompatibleClient`
-3. builder demos only when comparing migration/convenience flows
 
 Recommended starting points:
 
@@ -96,8 +94,6 @@ Recommended starting points:
   - `openai-compatible/together-speech.rs`
   - `openai-compatible/together-transcription.rs`
   - `openai-compatible/fireworks-transcription.rs`
-- compatibility demo only:
-  - `openai-compatible/moonshot-siumai-builder.rs`
 
 ## Policy
 

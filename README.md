@@ -664,21 +664,23 @@ See the `siumai-extras` crate for details and examples.
 
 ## Examples
 
-Examples are under `siumai/examples/`:
+Examples are split by package:
 
 - 01-quickstart — basic chat, streaming, provider switching
 - 02-core-api — chat, streaming, tools, multimodal
-- 03-advanced-features — middleware, retry, orchestrator, error types
+- 03-advanced-features — middleware, retry, structured output, error types
 - 04-provider-specific — provider‑unique capabilities
-- 05-integrations — registry, MCP, telemetry
-- 06-applications — chatbot, code assistant, API server
+- 05-integrations — registry and basic telemetry
+- 06-extensibility — custom providers, executors, bridge customization
+- 07-applications — chatbot, code assistant, API server
+- `siumai-extras/examples/` — orchestrator, MCP, OpenTelemetry, and server gateway examples
 
 Typical commands:
 
 ```bash
 cargo run --example basic-chat --features openai
 cargo run --example streaming --features openai
-cargo run --example basic-orchestrator --features openai
+cargo run -p siumai-extras --example basic-orchestrator --features openai
 cargo run --example bedrock-chat --features bedrock
 ```
 
