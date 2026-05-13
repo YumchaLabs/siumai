@@ -1,8 +1,4 @@
-//! Parameter constraints (kept for validator/compat checks)
-//!
-//! Historical `ParameterMapper` has been fully removed; parameter mapping/validation
-//! is handled by provider-local Transformers. This module only keeps
-//! provider-agnostic `ParameterConstraints` for generic validator usage.
+//! Provider-agnostic parameter constraints for generic validator usage.
 
 /// Parameter constraints for validation
 #[derive(Debug, Clone)]
@@ -27,8 +23,6 @@ impl Default for ParameterConstraints {
         }
     }
 }
-
-// ParameterMapperFactory and ParameterMappingUtils removed in favor of Transformers.
 
 #[cfg(test)]
 mod tests {

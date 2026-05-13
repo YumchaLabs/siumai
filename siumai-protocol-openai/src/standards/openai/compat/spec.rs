@@ -265,7 +265,7 @@ fn compat_chat_options(
         .flatten()
         .filter_map(|key| map.get_object(key))
         .chain(
-            siumai_core::standards::openai::compat::metadata::provider_options_keys(provider_id)
+            crate::standards::openai::compat::metadata::provider_options_keys(provider_id)
                 .into_iter()
                 .filter_map(|key| map.get_object(&key)),
         )
@@ -336,7 +336,7 @@ fn compat_image_provider_options(
         .flatten()
         .filter_map(|key| map.get_object(key))
         .chain(
-            siumai_core::standards::openai::compat::metadata::provider_options_keys(provider_id)
+            crate::standards::openai::compat::metadata::provider_options_keys(provider_id)
                 .into_iter()
                 .filter_map(|key| map.get_object(&key)),
         )
@@ -476,11 +476,10 @@ fn merged_normalized_provider_options(
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
     let mut merged = serde_json::Map::new();
 
-    for options in
-        siumai_core::standards::openai::compat::metadata::provider_options_keys(provider_id)
-            .into_iter()
-            .filter_map(|key| map.get(&key))
-            .filter_map(|value| normalize_provider_options(provider_id, Some(value)))
+    for options in crate::standards::openai::compat::metadata::provider_options_keys(provider_id)
+        .into_iter()
+        .filter_map(|key| map.get(&key))
+        .filter_map(|value| normalize_provider_options(provider_id, Some(value)))
     {
         for (key, value) in options {
             merged.insert(key, value);

@@ -213,11 +213,6 @@ impl EnhancedParameterValidator {
         report
     }
 
-    // Helper methods for simplified validation
-
-    // Note: Removed suggested value methods as we no longer provide warnings
-    // The library now only validates basic constraints and lets providers handle their own limits
-
     fn is_model_supported(model: &str, provider_type: &ProviderType) -> bool {
         match provider_type {
             ProviderType::OpenAi => model.starts_with("gpt-") || model.starts_with("o1-"),

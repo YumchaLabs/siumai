@@ -24,10 +24,10 @@ mod rerank;
 mod skills;
 mod video;
 
-/// The main siumai LLM provider that can dynamically dispatch to different capabilities
+/// Historical method-style wrapper over a provider `LlmClient`.
 ///
-/// This is inspired by `llm_dart`'s unified interface design, allowing you to
-/// call different provider functionality through a single interface.
+/// This remains available for compatibility and extension-style access. Stable family execution
+/// should prefer registry model handles and family helper modules.
 pub struct Siumai {
     /// The underlying provider client
     client: Arc<dyn LlmClient>,

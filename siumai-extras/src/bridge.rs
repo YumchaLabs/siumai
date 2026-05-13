@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use siumai::experimental::bridge::{
+use siumai::prelude::unified::{ChatRequest, ChatResponse, ChatStreamEvent, LlmError};
+use siumai_bridge::{
     BridgeCustomization, BridgeLossAction, BridgeMode, BridgePrimitiveContext,
     BridgePrimitiveRemapper, BridgeReport, RequestBridgeContext, RequestBridgeHook,
     ResponseBridgeContext, ResponseBridgeHook, StreamBridgeContext, StreamBridgeHook,
 };
-use siumai::prelude::unified::{ChatRequest, ChatResponse, ChatStreamEvent, LlmError};
 
 type RequestBridgeClosure = dyn Fn(&RequestBridgeContext, &mut ChatRequest, &mut BridgeReport) -> Result<(), LlmError>
     + Send
@@ -497,11 +497,11 @@ impl BridgeCustomization for ClosureBridgeCustomization {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use siumai::experimental::bridge::{
+    use siumai::prelude::unified::{ChatMessage, ChatRequest, MessageRole};
+    use siumai_bridge::{
         BridgeCustomization, BridgeMode, BridgeReport, BridgeTarget, RequestBridgeContext,
         RequestBridgeHook, RequestBridgePhase,
     };
-    use siumai::prelude::unified::{ChatMessage, ChatRequest, MessageRole};
 
     use super::{ClosureBridgeCustomization, ClosureRequestBridgeHook, request_bridge_hook};
 

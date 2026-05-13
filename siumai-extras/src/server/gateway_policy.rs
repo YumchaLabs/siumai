@@ -4,9 +4,7 @@ use std::{fmt, time::Duration};
 
 use std::sync::Arc;
 
-use siumai::experimental::bridge::{
-    BridgeCustomization, BridgeMode, BridgeOptions, BridgeOptionsOverride,
-};
+use siumai_bridge::{BridgeCustomization, BridgeMode, BridgeOptions, BridgeOptionsOverride};
 
 /// Stable gateway policy for bridge-backed server adapters.
 #[derive(Clone)]
@@ -223,7 +221,7 @@ impl GatewayBridgePolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use siumai::experimental::bridge::BridgeCustomization;
+    use siumai_bridge::BridgeCustomization;
 
     struct NoopCustomization;
 

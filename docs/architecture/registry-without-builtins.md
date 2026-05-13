@@ -26,7 +26,8 @@ siumai-registry = { version = "0.11.0-beta.6", default-features = false }
 
 At a high level:
 
-1. Implement `ProviderFactory` (create `LlmClient` instances).
+1. Implement `ProviderFactory` with native family-model methods such as
+   `language_model_text_with_ctx`.
 2. Register factories into `HashMap<provider_id, Arc<dyn ProviderFactory>>`.
 3. Build a registry handle via `create_provider_registry`.
 4. Resolve and use models like `"my_provider:my_model"`.
@@ -43,8 +44,12 @@ cargo run -p siumai-registry --example no_builtins_custom_factory
 
 ## Notes
 
-- `ProviderFactory::language_model_with_ctx` receives a `BuildContext` that can carry cross-cutting
-  settings (HTTP config, retry, interceptors, auth). Your factory may ignore it or use it to
-  build consistent clients.
+- `ProviderFactory::*_family_with_ctx` methods receive a `BuildContext` that can carry
+  cross-cutting settings (HTTP config, retry, interceptors, auth). Your factory may ignore it or use
+  it to build consistent clients.
+- Generic-client construction belongs behind explicit `compat_*_client` methods. The old
+  `language_model` trait method remains only as a deprecated source-compatibility wrapper; see
+  `docs/workstreams/fearless-architecture-convergence/compatibility-audit.md` for the current
+  boundary.
 - If you _do_ want built-in providers, enable `siumai-registry` features like `openai` / `ollama`
   (these imply `builtins`).

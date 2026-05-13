@@ -389,18 +389,6 @@ impl dyn LlmClient {
     }
 }
 
-// UnifiedLlmClient has been removed as it was redundant with ClientWrapper.
-//
-// Use these alternatives instead:
-// - registry-first + family APIs (`siumai::text::*`, `embedding::*`, etc.) for normal usage
-// - config-first provider clients for provider-owned setup
-// - `Siumai::builder()` only as a compatibility/convenience surface
-// - ClientWrapper for dynamic dispatch (used internally)
-
-// UnifiedLlmClient implementation removed - use ClientWrapper directly or Siumai::builder()
-
-// UnifiedLlmClient trait implementations removed - functionality available through ClientWrapper
-
 impl LlmClient for ClientWrapper {
     fn provider_id(&self) -> Cow<'static, str> {
         self.client().provider_id()

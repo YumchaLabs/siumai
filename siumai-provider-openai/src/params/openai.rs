@@ -1,5 +1,5 @@
 #![allow(clippy::collapsible_if)]
-//! `OpenAI` Parameter Mapping (legacy)
+//! `OpenAI` provider parameter extensions.
 //!
 //! Contains OpenAI-specific parameter structs that were historically used as client-level
 //! defaults. New code should prefer request-level provider options.
@@ -53,8 +53,6 @@ pub enum SortOrder {
 }
 
 use crate::error::LlmError;
-
-// OpenAI ParameterMapper removed; use Transformers for mapping/validation.
 
 /// OpenAI-specific parameter extensions (legacy).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

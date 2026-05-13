@@ -28,6 +28,226 @@ struct CaptureTransport {
     last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
 }
 
+#[test]
+fn provider_factories_use_explicit_compat_for_generic_self_calls() {
+    let factories_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("registry")
+        .join("factories");
+
+    let banned_self_calls = [
+        "self.language_model_with_ctx(",
+        "self.completion_model_with_ctx(",
+        "self.embedding_model_with_ctx(",
+        "self.image_model_with_ctx(",
+        "self.speech_model_with_ctx(",
+        "self.transcription_model_with_ctx(",
+        "self.video_model_with_ctx(",
+        "self.reranking_model_with_ctx(",
+    ];
+    let banned_overrides = [
+        "async fn language_model(",
+        "async fn language_model_with_ctx(",
+        "async fn completion_model_with_ctx(",
+        "async fn embedding_model_with_ctx(",
+        "async fn image_model_with_ctx(",
+        "async fn speech_model_with_ctx(",
+        "async fn transcription_model_with_ctx(",
+        "async fn video_model_with_ctx(",
+        "async fn reranking_model_with_ctx(",
+    ];
+
+    for entry in std::fs::read_dir(factories_dir).expect("read registry factories directory") {
+        let path = entry.expect("read registry factory entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        if path.file_name().and_then(|name| name.to_str()) == Some("contract_tests.rs") {
+            continue;
+        }
+        if path.file_name().and_then(|name| name.to_str()) == Some("test.rs") {
+            continue;
+        }
+
+        let source = std::fs::read_to_string(&path).expect("read registry factory source");
+        for banned in banned_self_calls.into_iter().chain(banned_overrides) {
+            assert!(
+                !source.contains(banned),
+                "{} should keep generic-client construction behind explicit compat_*_client_with_ctx methods, found {banned}",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn production_factories_with_declared_family_surfaces_use_native_family_overrides() {
+    let factories_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("registry")
+        .join("factories");
+
+    let required: &[(&str, &[&str])] = &[
+        ("anthropic.rs", &["language_model_text_with_ctx"]),
+        ("anthropic_vertex.rs", &["language_model_text_with_ctx"]),
+        (
+            "azure.rs",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "speech_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        ),
+        (
+            "bedrock.rs",
+            &[
+                "language_model_text_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "reranking_model_family_with_ctx",
+            ],
+        ),
+        (
+            "cohere.rs",
+            &[
+                "language_model_text_with_ctx",
+                "embedding_model_family_with_ctx",
+                "reranking_model_family_with_ctx",
+            ],
+        ),
+        ("deepseek.rs", &["language_model_text_with_ctx"]),
+        (
+            "deepinfra.rs",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+            ],
+        ),
+        (
+            "fireworks.rs",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        ),
+        (
+            "gemini.rs",
+            &[
+                "language_model_text_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "video_model_family_with_ctx",
+            ],
+        ),
+        (
+            "google_vertex.rs",
+            &[
+                "language_model_text_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "video_model_family_with_ctx",
+            ],
+        ),
+        (
+            "groq.rs",
+            &[
+                "language_model_text_with_ctx",
+                "speech_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        ),
+        (
+            "minimaxi.rs",
+            &[
+                "language_model_text_with_ctx",
+                "image_model_family_with_ctx",
+                "speech_model_family_with_ctx",
+                "video_model_family_with_ctx",
+            ],
+        ),
+        (
+            "ollama.rs",
+            &[
+                "language_model_text_with_ctx",
+                "embedding_model_family_with_ctx",
+            ],
+        ),
+        (
+            "openai.rs",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "speech_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        ),
+        (
+            "openai_compatible.rs",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "reranking_model_family_with_ctx",
+                "speech_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        ),
+        (
+            "togetherai.rs",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "speech_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+                "reranking_model_family_with_ctx",
+            ],
+        ),
+        (
+            "vertex_maas.rs",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+            ],
+        ),
+        (
+            "xai.rs",
+            &[
+                "language_model_text_with_ctx",
+                "image_model_family_with_ctx",
+                "speech_model_family_with_ctx",
+                "video_model_family_with_ctx",
+            ],
+        ),
+    ];
+
+    for (file, methods) in required {
+        let path = factories_dir.join(file);
+        let source = std::fs::read_to_string(&path).expect("read registry factory source");
+        for method in *methods {
+            let expected = format!("async fn {method}(");
+            assert!(
+                source.contains(&expected),
+                "{} should expose a native `{method}` override for its declared family surface",
+                path.display()
+            );
+        }
+    }
+}
+
 #[cfg(feature = "google-vertex")]
 mod vertex_maas_contract {
     use super::*;
@@ -61,7 +281,7 @@ mod vertex_maas_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
+            .compat_language_client_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
             .await
             .expect("build vertex-maas client");
 
@@ -104,7 +324,7 @@ mod vertex_maas_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
+            .compat_language_client_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
             .await
             .expect("build vertex-maas client");
 
@@ -141,7 +361,7 @@ mod vertex_maas_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
+            .compat_language_client_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
             .await
             .expect("build vertex-maas client");
 
@@ -692,7 +912,7 @@ mod azure_contract {
         };
 
         factory
-            .language_model_with_ctx("test-deployment", &ctx)
+            .compat_language_client_with_ctx("test-deployment", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -714,7 +934,7 @@ mod azure_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("test-deployment", &ctx)
+            .compat_language_client_with_ctx("test-deployment", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -747,7 +967,7 @@ mod azure_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("test-deployment", &ctx)
+            .compat_language_client_with_ctx("test-deployment", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -775,7 +995,7 @@ mod azure_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("test-deployment", &ctx)
+            .compat_language_client_with_ctx("test-deployment", &ctx)
             .await
             .expect("build client via base_url override");
 
@@ -988,10 +1208,11 @@ mod azure_contract {
     }
 
     #[test]
-    fn azure_factory_source_declares_native_audio_family_overrides() {
+    fn azure_factory_source_declares_native_family_overrides() {
         let source = include_str!("azure.rs");
 
-        assert!(source.contains("async fn completion_model_with_ctx("));
+        assert!(source.contains("async fn compat_completion_client_with_ctx("));
+        assert!(source.contains("async fn completion_model_family_with_ctx("));
         assert!(source.contains("async fn speech_model_family_with_ctx("));
         assert!(source.contains("async fn transcription_model_family_with_ctx("));
     }
@@ -1037,7 +1258,7 @@ mod azure_contract {
 
         let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("azure".to_string()),
@@ -1110,7 +1331,7 @@ mod azure_contract {
 
         let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("azure".to_string()),
@@ -1172,7 +1393,7 @@ mod azure_contract {
 
         let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("azure".to_string()),
@@ -1245,7 +1466,7 @@ mod azure_contract {
             siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions,
         );
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("azure".to_string()),
@@ -1466,7 +1687,7 @@ mod cohere_contract {
         };
 
         factory
-            .language_model_with_ctx("command-a-03-2025", &ctx)
+            .compat_language_client_with_ctx("command-a-03-2025", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -1487,7 +1708,7 @@ mod cohere_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("command-a-03-2025", &ctx)
+            .compat_language_client_with_ctx("command-a-03-2025", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -1520,7 +1741,7 @@ mod cohere_contract {
         };
 
         let client = factory
-            .embedding_model_with_ctx("embed-v4.0", &ctx)
+            .compat_embedding_client_with_ctx("embed-v4.0", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -1552,7 +1773,7 @@ mod cohere_contract {
         };
 
         let client = factory
-            .embedding_model_with_ctx("embed-v4.0", &ctx)
+            .compat_embedding_client_with_ctx("embed-v4.0", &ctx)
             .await
             .expect("build client via base_url override");
 
@@ -1580,7 +1801,7 @@ mod cohere_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("command-a-03-2025", &ctx)
+            .compat_language_client_with_ctx("command-a-03-2025", &ctx)
             .await
             .expect("build cohere typed client");
 
@@ -1590,6 +1811,15 @@ mod cohere_contract {
                 .is::<siumai_provider_cohere::providers::cohere::CohereClient>(),
             "expected provider-owned CohereClient"
         );
+    }
+
+    #[test]
+    fn cohere_factory_source_declares_native_family_overrides() {
+        let source = include_str!("cohere.rs");
+
+        assert!(source.contains("async fn language_model_text_with_ctx("));
+        assert!(source.contains("async fn embedding_model_family_with_ctx("));
+        assert!(source.contains("async fn reranking_model_family_with_ctx("));
     }
 
     #[tokio::test]
@@ -1678,7 +1908,7 @@ mod cohere_contract {
 
         let factory = crate::registry::factories::CohereProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "command-a-03-2025",
                 &BuildContext {
                     provider_id: Some("cohere".to_string()),
@@ -1791,7 +2021,7 @@ mod cohere_contract {
 
         let factory = crate::registry::factories::CohereProviderFactory;
         let registry_client = factory
-            .embedding_model_with_ctx(
+            .compat_embedding_client_with_ctx(
                 "embed-v4.0",
                 &BuildContext {
                     provider_id: Some("cohere".to_string()),
@@ -1880,7 +2110,7 @@ mod cohere_contract {
 
         let factory = crate::registry::factories::CohereProviderFactory;
         let registry_client = factory
-            .reranking_model_with_ctx(
+            .compat_reranking_client_with_ctx(
                 "rerank-v3.5",
                 &BuildContext {
                     provider_id: Some("cohere".to_string()),
@@ -2113,7 +2343,7 @@ mod togetherai_contract {
         };
 
         factory
-            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .compat_reranking_client_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -2134,7 +2364,7 @@ mod togetherai_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .compat_reranking_client_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -2167,7 +2397,7 @@ mod togetherai_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .compat_reranking_client_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
             .await
             .expect("build client via deprecated env api key alias");
 
@@ -2203,7 +2433,7 @@ mod togetherai_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .compat_reranking_client_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -2235,7 +2465,7 @@ mod togetherai_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .compat_reranking_client_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
             .await
             .expect("build client via base_url override");
 
@@ -2263,7 +2493,7 @@ mod togetherai_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .compat_reranking_client_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
             .await
             .expect("build togetherai typed client");
 
@@ -2287,7 +2517,7 @@ mod togetherai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", &ctx)
+            .compat_language_client_with_ctx("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", &ctx)
             .await
             .expect("build togetherai unified client");
 
@@ -2408,7 +2638,7 @@ mod togetherai_contract {
 
         let factory = crate::registry::factories::TogetherAiProviderFactory;
         let registry_client = factory
-            .reranking_model_with_ctx(
+            .compat_reranking_client_with_ctx(
                 "Salesforce/Llama-Rank-v1",
                 &BuildContext {
                     provider_id: Some("togetherai".to_string()),
@@ -2575,7 +2805,7 @@ mod deepinfra_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
+            .compat_language_client_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -2610,7 +2840,7 @@ mod deepinfra_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
+            .compat_language_client_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -2636,7 +2866,7 @@ mod deepinfra_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
+            .compat_language_client_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
             .await
             .expect("build deepinfra unified client");
 
@@ -2666,7 +2896,7 @@ mod deepinfra_contract {
         };
 
         let client = factory
-            .image_model_with_ctx("black-forest-labs/FLUX-1-schnell", &ctx)
+            .compat_image_client_with_ctx("black-forest-labs/FLUX-1-schnell", &ctx)
             .await
             .expect("build deepinfra image client");
 
@@ -2728,7 +2958,7 @@ mod deepinfra_contract {
         };
 
         let client = factory
-            .image_model_with_ctx("black-forest-labs/FLUX-1-schnell", &ctx)
+            .compat_image_client_with_ctx("black-forest-labs/FLUX-1-schnell", &ctx)
             .await
             .expect("build deepinfra image client");
 
@@ -2837,7 +3067,7 @@ mod bedrock_contract {
         };
 
         factory
-            .language_model_with_ctx("anthropic.claude-3-haiku-20240307-v1:0", &ctx)
+            .compat_language_client_with_ctx("anthropic.claude-3-haiku-20240307-v1:0", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -2859,7 +3089,7 @@ mod bedrock_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("anthropic.claude-3-haiku-20240307-v1:0", &ctx)
+            .compat_language_client_with_ctx("anthropic.claude-3-haiku-20240307-v1:0", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -2898,7 +3128,7 @@ mod bedrock_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("anthropic.claude-3-haiku-20240307-v1:0", &ctx)
+            .compat_language_client_with_ctx("anthropic.claude-3-haiku-20240307-v1:0", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -2932,7 +3162,7 @@ mod bedrock_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("amazon.rerank-v1:0", &ctx)
+            .compat_reranking_client_with_ctx("amazon.rerank-v1:0", &ctx)
             .await
             .expect("build client via base_url override");
 
@@ -2963,7 +3193,7 @@ mod bedrock_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("anthropic.claude-3-haiku-20240307-v1:0", &ctx)
+            .compat_language_client_with_ctx("anthropic.claude-3-haiku-20240307-v1:0", &ctx)
             .await
             .expect("build bedrock typed client");
 
@@ -2973,6 +3203,16 @@ mod bedrock_contract {
                 .is::<siumai_provider_amazon_bedrock::providers::bedrock::BedrockClient>(),
             "expected provider-owned BedrockClient"
         );
+    }
+
+    #[test]
+    fn bedrock_factory_source_declares_native_family_overrides() {
+        let source = include_str!("bedrock.rs");
+
+        assert!(source.contains("async fn language_model_text_with_ctx("));
+        assert!(source.contains("async fn embedding_model_family_with_ctx("));
+        assert!(source.contains("async fn image_model_family_with_ctx("));
+        assert!(source.contains("async fn reranking_model_family_with_ctx("));
     }
 
     #[tokio::test]
@@ -3009,7 +3249,7 @@ mod bedrock_contract {
 
         let factory = crate::registry::factories::BedrockProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("bedrock".to_string()),
@@ -3095,7 +3335,7 @@ mod bedrock_contract {
 
         let factory = crate::registry::factories::BedrockProviderFactory;
         let registry_client = factory
-            .embedding_model_with_ctx(
+            .compat_embedding_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("bedrock".to_string()),
@@ -3187,7 +3427,7 @@ mod bedrock_contract {
 
         let factory = crate::registry::factories::BedrockProviderFactory;
         let registry_client = factory
-            .image_model_with_ctx(
+            .compat_image_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("bedrock".to_string()),
@@ -3310,7 +3550,7 @@ mod bedrock_contract {
 
         let factory = crate::registry::factories::BedrockProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("bedrock".to_string()),
@@ -3402,7 +3642,7 @@ mod bedrock_contract {
 
         let factory = crate::registry::factories::BedrockProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("bedrock".to_string()),
@@ -3507,7 +3747,7 @@ mod bedrock_contract {
 
         let factory = crate::registry::factories::BedrockProviderFactory;
         let registry_client = factory
-            .reranking_model_with_ctx(
+            .compat_reranking_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("bedrock".to_string()),
@@ -3904,7 +4144,7 @@ mod openai_contract {
         };
 
         factory
-            .language_model_with_ctx("gpt-4o", &ctx)
+            .compat_language_client_with_ctx("gpt-4o", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -3941,7 +4181,7 @@ mod openai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("gpt-4o", &ctx)
+            .compat_language_client_with_ctx("gpt-4o", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -3968,7 +4208,7 @@ mod openai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("gpt-4o", &ctx)
+            .compat_language_client_with_ctx("gpt-4o", &ctx)
             .await
             .expect("build client via env base url");
 
@@ -3995,7 +4235,7 @@ mod openai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("gpt-4o", &ctx)
+            .compat_language_client_with_ctx("gpt-4o", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -4017,7 +4257,7 @@ mod openai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("gpt-4o", &ctx)
+            .compat_language_client_with_ctx("gpt-4o", &ctx)
             .await
             .expect("build client");
 
@@ -4180,10 +4420,11 @@ mod openai_contract {
     }
 
     #[test]
-    fn openai_factory_source_declares_native_audio_family_overrides() {
+    fn openai_factory_source_declares_native_family_overrides() {
         let source = include_str!("openai.rs");
 
-        assert!(source.contains("async fn completion_model_with_ctx("));
+        assert!(source.contains("async fn compat_completion_client_with_ctx("));
+        assert!(source.contains("async fn completion_model_family_with_ctx("));
         assert!(source.contains("async fn speech_model_family_with_ctx("));
         assert!(source.contains("async fn transcription_model_family_with_ctx("));
     }
@@ -4502,7 +4743,7 @@ mod openai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-chat", &ctx)
+            .compat_language_client_with_ctx("deepseek-chat", &ctx)
             .await
             .expect("build openai-compatible client");
 
@@ -4528,7 +4769,7 @@ mod openai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("openai/gpt-4o", &ctx)
+            .compat_language_client_with_ctx("openai/gpt-4o", &ctx)
             .await
             .expect("build openai-compatible client via env api key");
 
@@ -4558,7 +4799,7 @@ mod openai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("openai/gpt-4o", &ctx)
+            .compat_language_client_with_ctx("openai/gpt-4o", &ctx)
             .await
             .expect("build openai-compatible client via ctx api key");
 
@@ -4654,7 +4895,7 @@ mod openai_contract {
 
         assert_unsupported_operation_contains(
             factory
-                .language_model_with_ctx("jina-embeddings-v2-base-en", &ctx)
+                .compat_language_client_with_ctx("jina-embeddings-v2-base-en", &ctx)
                 .await,
             "chat",
         );
@@ -4685,7 +4926,9 @@ mod openai_contract {
         };
 
         assert_unsupported_operation_contains(
-            factory.language_model_with_ctx("voyage-3", &ctx).await,
+            factory
+                .compat_language_client_with_ctx("voyage-3", &ctx)
+                .await,
             "chat",
         );
     }
@@ -4770,7 +5013,7 @@ mod openai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-chat", &ctx)
+            .compat_language_client_with_ctx("deepseek-chat", &ctx)
             .await
             .expect("build infini language-model client");
 
@@ -7041,7 +7284,7 @@ data: [DONE]
 
         let factory = crate::registry::factories::FireworksProviderFactory;
         let client = factory
-            .image_model_with_ctx(
+            .compat_image_client_with_ctx(
                 "accounts/fireworks/models/flux-1-dev-fp8",
                 &BuildContext {
                     provider_id: Some("fireworks".to_string()),
@@ -7114,7 +7357,7 @@ data: [DONE]
 
         let factory = crate::registry::factories::FireworksProviderFactory;
         let client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "accounts/fireworks/models/llama-v3p1-8b-instruct",
                 &BuildContext {
                     provider_id: Some("fireworks".to_string()),
@@ -7165,7 +7408,7 @@ data: [DONE]
 
         let factory = crate::registry::factories::FireworksProviderFactory;
         let client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "accounts/fireworks/models/llama-v3p1-8b-instruct",
                 &BuildContext {
                     provider_id: Some("fireworks".to_string()),
@@ -7399,7 +7642,7 @@ data: [DONE]
     fn openai_compatible_factory_source_declares_native_completion_family_overrides() {
         let source = include_str!("openai_compatible.rs");
 
-        assert!(source.contains("async fn completion_model_with_ctx("));
+        assert!(source.contains("async fn compat_completion_client_with_ctx("));
         assert!(source.contains("async fn completion_model_family_with_ctx("));
     }
 
@@ -7490,7 +7733,7 @@ data: [DONE]
 
         let factory = OpenAICompatibleProviderFactory::new("deepseek".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "deepseek-chat",
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -7584,7 +7827,7 @@ data: [DONE]
 
         let factory = OpenAICompatibleProviderFactory::new("openrouter".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("openrouter".to_string()),
@@ -7680,7 +7923,7 @@ data: [DONE]
 
         let factory = OpenAICompatibleProviderFactory::new("perplexity".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("perplexity".to_string()),
@@ -7769,7 +8012,7 @@ data: [DONE]
 
         let factory = OpenAICompatibleProviderFactory::new("jina".to_string());
         let registry_client = factory
-            .reranking_model_with_ctx(
+            .compat_reranking_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("jina".to_string()),
@@ -7857,7 +8100,7 @@ data: [DONE]
 
         let factory = OpenAICompatibleProviderFactory::new("together".to_string());
         let registry_client = factory
-            .image_model_with_ctx(
+            .compat_image_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("together".to_string()),
@@ -8145,7 +8388,7 @@ data: [DONE]
 
         let factory = OpenAICompatibleProviderFactory::new("deepseek".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "deepseek-chat",
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -8248,7 +8491,7 @@ data: [DONE]
 
         let factory = OpenAICompatibleProviderFactory::new("openrouter".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("openrouter".to_string()),
@@ -8352,7 +8595,7 @@ data: [DONE]
 
         let factory = OpenAICompatibleProviderFactory::new("perplexity".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("perplexity".to_string()),
@@ -8445,7 +8688,7 @@ mod deepseek_contract {
         };
 
         factory
-            .language_model_with_ctx("deepseek-chat", &ctx)
+            .compat_language_client_with_ctx("deepseek-chat", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -8467,7 +8710,7 @@ mod deepseek_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-chat", &ctx)
+            .compat_language_client_with_ctx("deepseek-chat", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -8497,7 +8740,7 @@ mod deepseek_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-chat", &ctx)
+            .compat_language_client_with_ctx("deepseek-chat", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -8524,7 +8767,7 @@ mod deepseek_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-chat", &ctx)
+            .compat_language_client_with_ctx("deepseek-chat", &ctx)
             .await
             .expect("build client");
 
@@ -8548,7 +8791,7 @@ mod deepseek_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("deepseek-chat", &ctx)
+            .compat_language_client_with_ctx("deepseek-chat", &ctx)
             .await
             .expect("build provider-owned DeepSeek client");
 
@@ -8622,27 +8865,31 @@ mod deepseek_contract {
 
         assert_unsupported_operation_contains(
             factory
-                .embedding_model_with_ctx("deepseek-chat", &ctx)
+                .compat_embedding_client_with_ctx("deepseek-chat", &ctx)
                 .await,
             "embedding family path",
         );
         assert_unsupported_operation_contains(
-            factory.image_model_with_ctx("deepseek-chat", &ctx).await,
+            factory
+                .compat_image_client_with_ctx("deepseek-chat", &ctx)
+                .await,
             "image family path",
         );
         assert_unsupported_operation_contains(
-            factory.speech_model_with_ctx("deepseek-chat", &ctx).await,
+            factory
+                .compat_speech_client_with_ctx("deepseek-chat", &ctx)
+                .await,
             "speech family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .transcription_model_with_ctx("deepseek-chat", &ctx)
+                .compat_transcription_client_with_ctx("deepseek-chat", &ctx)
                 .await,
             "transcription family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .reranking_model_with_ctx("deepseek-chat", &ctx)
+                .compat_reranking_client_with_ctx("deepseek-chat", &ctx)
                 .await,
             "reranking family path",
         );
@@ -8679,7 +8926,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "deepseek-chat",
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -8747,7 +8994,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -8814,7 +9061,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "deepseek-chat",
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -8878,7 +9125,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "deepseek-chat",
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -8956,7 +9203,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -9029,7 +9276,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "deepseek-chat",
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -9104,7 +9351,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "deepseek-chat",
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -9189,7 +9436,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "deepseek-chat",
                 &BuildContext {
                     provider_id: Some("deepseek".to_string()),
@@ -9659,7 +9906,7 @@ mod anthropic_contract {
         };
 
         factory
-            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .compat_language_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -9708,7 +9955,7 @@ mod anthropic_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .compat_language_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
             .await
             .expect("build provider-owned Anthropic client");
 
@@ -9744,31 +9991,31 @@ mod anthropic_contract {
 
         assert_unsupported_operation_contains(
             factory
-                .embedding_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_embedding_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "embedding family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .image_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_image_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "image family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .speech_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_speech_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "speech family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .transcription_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_transcription_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "transcription family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .reranking_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_reranking_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "reranking family path",
         );
@@ -9790,7 +10037,7 @@ mod anthropic_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .compat_language_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -9818,7 +10065,7 @@ mod anthropic_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .compat_language_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
             .await
             .expect("build client via env base url");
 
@@ -9847,7 +10094,7 @@ mod anthropic_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .compat_language_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -9875,7 +10122,7 @@ mod anthropic_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .compat_language_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
             .await
             .expect("build client");
 
@@ -10044,7 +10291,7 @@ mod anthropic_contract {
 
         let factory = crate::registry::factories::AnthropicProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "claude-sonnet-4-5",
                 &BuildContext {
                     provider_id: Some("anthropic".to_string()),
@@ -10181,7 +10428,7 @@ mod anthropic_contract {
 
         let factory = crate::registry::factories::AnthropicProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "claude-sonnet-4-5",
                 &BuildContext {
                     provider_id: Some("anthropic".to_string()),
@@ -10296,7 +10543,7 @@ mod groq_contract {
         };
 
         factory
-            .language_model_with_ctx("llama-3.1-70b-versatile", &ctx)
+            .compat_language_client_with_ctx("llama-3.1-70b-versatile", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -10317,7 +10564,7 @@ mod groq_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("llama-3.1-70b-versatile", &ctx)
+            .compat_language_client_with_ctx("llama-3.1-70b-versatile", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -10346,7 +10593,7 @@ mod groq_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("llama-3.1-70b-versatile", &ctx)
+            .compat_language_client_with_ctx("llama-3.1-70b-versatile", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -10374,7 +10621,7 @@ mod groq_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("llama-3.1-70b-versatile", &ctx)
+            .compat_language_client_with_ctx("llama-3.1-70b-versatile", &ctx)
             .await
             .expect("build client");
 
@@ -10402,7 +10649,7 @@ mod groq_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("llama-3.1-70b-versatile", &ctx)
+            .compat_language_client_with_ctx("llama-3.1-70b-versatile", &ctx)
             .await
             .expect("build provider-owned Groq client");
 
@@ -10565,7 +10812,7 @@ mod groq_contract {
         };
 
         match factory
-            .embedding_model_with_ctx("text-embedding-test", &ctx)
+            .compat_embedding_client_with_ctx("text-embedding-test", &ctx)
             .await
         {
             Ok(_) => panic!("expected UnsupportedOperation for groq embedding family path"),
@@ -10630,7 +10877,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama-3.1-70b-versatile",
                 &BuildContext {
                     provider_id: Some("groq".to_string()),
@@ -10691,7 +10938,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("groq".to_string()),
@@ -10751,7 +10998,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama-3.1-70b-versatile",
                 &BuildContext {
                     provider_id: Some("groq".to_string()),
@@ -10822,7 +11069,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("groq".to_string()),
@@ -10889,7 +11136,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama-3.1-70b-versatile",
                 &BuildContext {
                     provider_id: Some("groq".to_string()),
@@ -10966,7 +11213,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama-3.1-70b-versatile",
                 &BuildContext {
                     provider_id: Some("groq".to_string()),
@@ -11054,7 +11301,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama-3.1-70b-versatile",
                 &BuildContext {
                     provider_id: Some("groq".to_string()),
@@ -11139,7 +11386,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama-3.1-70b-versatile",
                 &BuildContext {
                     provider_id: Some("groq".to_string()),
@@ -11530,7 +11777,7 @@ mod xai_contract {
         };
 
         factory
-            .language_model_with_ctx("grok-beta", &ctx)
+            .compat_language_client_with_ctx("grok-beta", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -11551,7 +11798,7 @@ mod xai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("grok-beta", &ctx)
+            .compat_language_client_with_ctx("grok-beta", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -11580,7 +11827,7 @@ mod xai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("grok-beta", &ctx)
+            .compat_language_client_with_ctx("grok-beta", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -11607,7 +11854,7 @@ mod xai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("grok-beta", &ctx)
+            .compat_language_client_with_ctx("grok-beta", &ctx)
             .await
             .expect("build client");
 
@@ -11631,7 +11878,7 @@ mod xai_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("grok-beta", &ctx)
+            .compat_language_client_with_ctx("grok-beta", &ctx)
             .await
             .expect("build provider-owned Xai client");
 
@@ -11709,7 +11956,7 @@ mod xai_contract {
         };
 
         match factory
-            .embedding_model_with_ctx("grok-embedding-test", &ctx)
+            .compat_embedding_client_with_ctx("grok-embedding-test", &ctx)
             .await
         {
             Ok(_) => panic!("expected UnsupportedOperation for xai embedding family path"),
@@ -11744,6 +11991,37 @@ mod xai_contract {
         assert_eq!(
             crate::traits::ModelMetadata::model_id(model.as_ref()),
             "grok-image-test"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
+    async fn xai_factory_supports_native_video_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::XAIProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("xai".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/custom/v1/".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .video_model_family_with_ctx("grok-video-test", &ctx)
+            .await
+            .expect("build native video-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "xai"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "grok-video-test"
         );
         assert_eq!(
             crate::traits::ModelMetadata::specification_version(model.as_ref()),
@@ -11787,6 +12065,13 @@ mod xai_contract {
         let source = include_str!("xai.rs");
 
         assert!(source.contains("async fn image_model_family_with_ctx("));
+    }
+
+    #[test]
+    fn xai_factory_source_declares_native_video_family_override() {
+        let source = include_str!("xai.rs");
+
+        assert!(source.contains("async fn video_model_family_with_ctx("));
     }
 
     #[test]
@@ -11859,7 +12144,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "grok-beta",
                 &BuildContext {
                     provider_id: Some("xai".to_string()),
@@ -11920,7 +12205,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("xai".to_string()),
@@ -11980,7 +12265,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "grok-beta",
                 &BuildContext {
                     provider_id: Some("xai".to_string()),
@@ -12051,7 +12336,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("xai".to_string()),
@@ -12118,7 +12403,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "grok-beta",
                 &BuildContext {
                     provider_id: Some("xai".to_string()),
@@ -12235,7 +12520,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "grok-beta",
                 &BuildContext {
                     provider_id: Some("xai".to_string()),
@@ -12363,7 +12648,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "grok-beta",
                 &BuildContext {
                     provider_id: Some("xai".to_string()),
@@ -12450,7 +12735,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "grok-beta",
                 &BuildContext {
                     provider_id: Some("xai".to_string()),
@@ -12871,7 +13156,7 @@ mod ollama_contract {
         };
 
         factory
-            .language_model_with_ctx("llama3.2", &ctx)
+            .compat_language_client_with_ctx("llama3.2", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -12888,7 +13173,7 @@ mod ollama_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("llama3.2", &ctx)
+            .compat_language_client_with_ctx("llama3.2", &ctx)
             .await
             .expect("build client");
 
@@ -12910,7 +13195,7 @@ mod ollama_contract {
         };
 
         factory
-            .language_model_with_ctx("llama3.2", &ctx)
+            .compat_language_client_with_ctx("llama3.2", &ctx)
             .await
             .expect("ollama should build without api key");
     }
@@ -12927,7 +13212,7 @@ mod ollama_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("llama3.2", &ctx)
+            .compat_language_client_with_ctx("llama3.2", &ctx)
             .await
             .expect("build provider-owned Ollama client");
 
@@ -13035,7 +13320,7 @@ mod ollama_contract {
 
         let factory = crate::registry::factories::OllamaProviderFactory;
         let registry_client = factory
-            .embedding_model_with_ctx(
+            .compat_embedding_client_with_ctx(
                 "nomic-embed-text",
                 &BuildContext {
                     provider_id: Some("ollama".to_string()),
@@ -13105,19 +13390,25 @@ mod ollama_contract {
         };
 
         assert_unsupported_operation_contains(
-            factory.image_model_with_ctx("llama3.2", &ctx).await,
+            factory.compat_image_client_with_ctx("llama3.2", &ctx).await,
             "image family path",
         );
         assert_unsupported_operation_contains(
-            factory.speech_model_with_ctx("llama3.2", &ctx).await,
+            factory
+                .compat_speech_client_with_ctx("llama3.2", &ctx)
+                .await,
             "speech family path",
         );
         assert_unsupported_operation_contains(
-            factory.transcription_model_with_ctx("llama3.2", &ctx).await,
+            factory
+                .compat_transcription_client_with_ctx("llama3.2", &ctx)
+                .await,
             "transcription family path",
         );
         assert_unsupported_operation_contains(
-            factory.reranking_model_with_ctx("llama3.2", &ctx).await,
+            factory
+                .compat_reranking_client_with_ctx("llama3.2", &ctx)
+                .await,
             "reranking family path",
         );
     }
@@ -13152,7 +13443,7 @@ mod ollama_contract {
 
         let factory = crate::registry::factories::OllamaProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama3.2",
                 &BuildContext {
                     provider_id: Some("ollama".to_string()),
@@ -13235,7 +13526,7 @@ mod ollama_contract {
 
         let factory = crate::registry::factories::OllamaProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama3.2",
                 &BuildContext {
                     provider_id: Some("ollama".to_string()),
@@ -13306,7 +13597,7 @@ mod ollama_contract {
 
         let factory = crate::registry::factories::OllamaProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama3.2",
                 &BuildContext {
                     provider_id: Some("ollama".to_string()),
@@ -13396,7 +13687,7 @@ mod ollama_contract {
 
         let factory = crate::registry::factories::OllamaProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "llama3.2",
                 &BuildContext {
                     provider_id: Some("ollama".to_string()),
@@ -13640,7 +13931,7 @@ mod minimaxi_contract {
         };
 
         factory
-            .language_model_with_ctx("MiniMax-M2", &ctx)
+            .compat_language_client_with_ctx("MiniMax-M2", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -13658,7 +13949,7 @@ mod minimaxi_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("MiniMax-M2", &ctx)
+            .compat_language_client_with_ctx("MiniMax-M2", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -13683,7 +13974,7 @@ mod minimaxi_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("MiniMax-M2", &ctx)
+            .compat_language_client_with_ctx("MiniMax-M2", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -13708,7 +13999,7 @@ mod minimaxi_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("MiniMax-M2", &ctx)
+            .compat_language_client_with_ctx("MiniMax-M2", &ctx)
             .await
             .expect("build client");
 
@@ -13815,6 +14106,36 @@ mod minimaxi_contract {
     }
 
     #[tokio::test]
+    async fn minimaxi_factory_supports_native_video_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::MiniMaxiProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("minimaxi".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .video_model_family_with_ctx("hailuo-2.3", &ctx)
+            .await
+            .expect("build native video-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "minimaxi"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "hailuo-2.3"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
     async fn minimaxi_factory_rejects_unsupported_embedding_rerank_transcription_family_paths() {
         let _lock = lock_env();
 
@@ -13826,17 +14147,21 @@ mod minimaxi_contract {
         };
 
         assert_unsupported_operation_contains(
-            factory.embedding_model_with_ctx("MiniMax-M2", &ctx).await,
+            factory
+                .compat_embedding_client_with_ctx("MiniMax-M2", &ctx)
+                .await,
             "embedding family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .transcription_model_with_ctx("speech-2.6-hd", &ctx)
+                .compat_transcription_client_with_ctx("speech-2.6-hd", &ctx)
                 .await,
             "transcription family path",
         );
         assert_unsupported_operation_contains(
-            factory.reranking_model_with_ctx("MiniMax-M2", &ctx).await,
+            factory
+                .compat_reranking_client_with_ctx("MiniMax-M2", &ctx)
+                .await,
             "reranking family path",
         );
     }
@@ -13846,6 +14171,13 @@ mod minimaxi_contract {
         let source = include_str!("minimaxi.rs");
 
         assert!(source.contains("async fn speech_model_family_with_ctx("));
+    }
+
+    #[test]
+    fn minimaxi_factory_source_declares_native_video_family_override() {
+        let source = include_str!("minimaxi.rs");
+
+        assert!(source.contains("async fn video_model_family_with_ctx("));
     }
 
     #[tokio::test]
@@ -13875,7 +14207,7 @@ mod minimaxi_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("MiniMax-M2", &ctx)
+            .compat_language_client_with_ctx("MiniMax-M2", &ctx)
             .await
             .expect("build client");
 
@@ -13930,7 +14262,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -13998,7 +14330,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15002,7 +15334,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15077,7 +15409,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15164,7 +15496,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .speech_model_with_ctx(
+            .compat_speech_client_with_ctx(
                 "speech-2.6-hd",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15271,7 +15603,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .image_model_with_ctx(
+            .compat_image_client_with_ctx(
                 "image-01",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15374,7 +15706,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "hailuo-2.3",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15463,7 +15795,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "music-2.0",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15582,7 +15914,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "hailuo-2.3",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15697,7 +16029,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15832,7 +16164,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -15963,7 +16295,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -16077,7 +16409,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -16191,7 +16523,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "MiniMax-M2",
                 &BuildContext {
                     provider_id: Some("minimaxi".to_string()),
@@ -16306,7 +16638,7 @@ mod anthropic_vertex_contract {
         };
 
         factory
-            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .compat_language_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -16322,7 +16654,7 @@ mod anthropic_vertex_contract {
         };
 
         let result = factory
-            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .compat_language_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
             .await;
         match result {
             Err(LlmError::ConfigurationError(msg)) => {
@@ -16341,7 +16673,7 @@ mod anthropic_vertex_contract {
         let transport = CaptureTransport::default();
 
         let client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "claude-3-5-sonnet-20241022",
                 &BuildContext {
                     provider_id: Some("anthropic-vertex".to_string()),
@@ -16368,6 +16700,39 @@ mod anthropic_vertex_contract {
     }
 
     #[tokio::test]
+    async fn anthropic_vertex_factory_supports_native_text_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::AnthropicVertexProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("anthropic-vertex".to_string()),
+            base_url: Some("https://example.com/custom".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .language_model_text_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .await
+            .expect("build anthropic-vertex text-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "anthropic-vertex"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "claude-3-5-sonnet-20241022"
+        );
+    }
+
+    #[test]
+    fn anthropic_vertex_factory_source_declares_native_text_family_override() {
+        let source = include_str!("anthropic_vertex.rs");
+
+        assert!(source.contains("async fn language_model_text_with_ctx("));
+    }
+
+    #[tokio::test]
     async fn anthropic_vertex_factory_rejects_deferred_non_text_family_paths() {
         let _lock = lock_env();
 
@@ -16380,31 +16745,31 @@ mod anthropic_vertex_contract {
 
         assert_unsupported_operation_contains(
             factory
-                .embedding_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_embedding_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "embedding family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .image_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_image_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "image family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .speech_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_speech_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "speech family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .transcription_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_transcription_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "transcription family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .reranking_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+                .compat_reranking_client_with_ctx("claude-3-5-sonnet-20241022", &ctx)
                 .await,
             "reranking family path",
         );
@@ -16446,7 +16811,7 @@ mod anthropic_vertex_contract {
             .headers
             .insert("Authorization".to_string(), "Bearer ctx-key".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "claude-3-5-sonnet-20241022",
                 &BuildContext {
                     provider_id: Some("anthropic-vertex".to_string()),
@@ -16525,7 +16890,7 @@ mod anthropic_vertex_contract {
             .headers
             .insert("Authorization".to_string(), "Bearer ctx-key".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "claude-3-5-sonnet-20241022",
                 &BuildContext {
                     provider_id: Some("anthropic-vertex".to_string()),
@@ -16612,7 +16977,7 @@ mod anthropic_vertex_contract {
             .headers
             .insert("Authorization".to_string(), "Bearer ctx-key".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("anthropic-vertex".to_string()),
@@ -16685,7 +17050,7 @@ mod anthropic_vertex_contract {
             .headers
             .insert("Authorization".to_string(), "Bearer ctx-key".to_string());
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 default_model,
                 &BuildContext {
                     provider_id: Some("anthropic-vertex".to_string()),
@@ -16862,7 +17227,7 @@ mod gemini_contract {
         };
 
         factory
-            .language_model_with_ctx("gemini-2.5-flash", &ctx)
+            .compat_language_client_with_ctx("gemini-2.5-flash", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -16880,7 +17245,7 @@ mod gemini_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("gemini-2.5-flash", &ctx)
+            .compat_language_client_with_ctx("gemini-2.5-flash", &ctx)
             .await
             .expect("build client via env api key");
 
@@ -16905,7 +17270,7 @@ mod gemini_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("gemini-2.5-flash", &ctx)
+            .compat_language_client_with_ctx("gemini-2.5-flash", &ctx)
             .await
             .expect("build client via ctx api key");
 
@@ -16930,7 +17295,7 @@ mod gemini_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("gemini-2.5-flash", &ctx)
+            .compat_language_client_with_ctx("gemini-2.5-flash", &ctx)
             .await
             .expect("build client");
 
@@ -17021,7 +17386,7 @@ mod gemini_contract {
 
         let factory = GeminiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "gemini-2.5-flash",
                 &BuildContext {
                     provider_id: Some("gemini".to_string()),
@@ -17160,7 +17525,7 @@ mod gemini_contract {
 
         let factory = GeminiProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "gemini-2.5-flash",
                 &BuildContext {
                     provider_id: Some("gemini".to_string()),
@@ -17257,7 +17622,7 @@ mod gemini_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("gemini-2.5-flash", &ctx)
+            .compat_language_client_with_ctx("gemini-2.5-flash", &ctx)
             .await
             .expect("build client without api key when auth header is present");
 
@@ -17354,6 +17719,33 @@ mod gemini_contract {
     }
 
     #[tokio::test]
+    async fn gemini_factory_supports_native_video_family_path() {
+        let _lock = lock_env();
+
+        let factory = GeminiProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("gemini".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://generativelanguage.googleapis.com/v1beta/".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .video_model_family_with_ctx("veo-3.1-generate-preview", &ctx)
+            .await
+            .expect("build native video-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "gemini"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "veo-3.1-generate-preview"
+        );
+    }
+
+    #[tokio::test]
     async fn gemini_factory_rejects_audio_family_paths_without_audio_family_support() {
         let _lock = lock_env();
 
@@ -17367,16 +17759,27 @@ mod gemini_contract {
 
         assert_unsupported_operation_contains(
             factory
-                .speech_model_with_ctx("gemini-2.5-flash-preview-native-audio-dialog", &ctx)
+                .compat_speech_client_with_ctx("gemini-2.5-flash-preview-native-audio-dialog", &ctx)
                 .await,
             "speech family path",
         );
         assert_unsupported_operation_contains(
             factory
-                .transcription_model_with_ctx("gemini-2.5-flash-preview-native-audio-dialog", &ctx)
+                .compat_transcription_client_with_ctx(
+                    "gemini-2.5-flash-preview-native-audio-dialog",
+                    &ctx,
+                )
                 .await,
             "transcription family path",
         );
+    }
+
+    #[test]
+    fn gemini_factory_source_declares_native_video_family_override() {
+        let source = include_str!("gemini.rs");
+
+        assert!(source.contains("async fn compat_video_client_with_ctx("));
+        assert!(source.contains("async fn video_model_family_with_ctx("));
     }
 
     #[tokio::test]
@@ -17408,7 +17811,7 @@ mod gemini_contract {
 
         let factory = GeminiProviderFactory;
         let registry_client = factory
-            .embedding_model_with_ctx(
+            .compat_embedding_client_with_ctx(
                 "gemini-embedding-001",
                 &BuildContext {
                     provider_id: Some("gemini".to_string()),
@@ -17551,7 +17954,7 @@ mod vertex_contract {
         };
 
         factory
-            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .compat_language_client_with_ctx("imagen-4.0-generate-001", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
@@ -17568,7 +17971,7 @@ mod vertex_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .compat_language_client_with_ctx("imagen-4.0-generate-001", &ctx)
             .await
             .expect("build client");
 
@@ -17598,7 +18001,7 @@ mod vertex_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .compat_language_client_with_ctx("imagen-4.0-generate-001", &ctx)
             .await
             .expect("build client via env project/location");
 
@@ -17625,7 +18028,7 @@ mod vertex_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .compat_language_client_with_ctx("imagen-4.0-generate-001", &ctx)
             .await
             .expect("build client");
 
@@ -17652,7 +18055,7 @@ mod vertex_contract {
         };
 
         let client = factory
-            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .compat_language_client_with_ctx("imagen-4.0-generate-001", &ctx)
             .await
             .expect("build client");
 
@@ -17682,7 +18085,7 @@ mod vertex_contract {
         };
 
         let client = factory
-            .embedding_model_with_ctx("text-embedding-004", &ctx)
+            .compat_embedding_client_with_ctx("text-embedding-004", &ctx)
             .await
             .expect("build embedding client");
 
@@ -17780,6 +18183,40 @@ mod vertex_contract {
     }
 
     #[tokio::test]
+    async fn vertex_factory_supports_native_video_family_path() {
+        let _lock = lock_env();
+
+        let factory = GoogleVertexProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("vertex".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .video_model_family_with_ctx("veo-3.1-generate-preview", &ctx)
+            .await
+            .expect("build native video-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "vertex"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "veo-3.1-generate-preview"
+        );
+    }
+
+    #[test]
+    fn vertex_factory_source_declares_native_video_family_override() {
+        let source = include_str!("google_vertex.rs");
+
+        assert!(source.contains("async fn compat_video_client_with_ctx("));
+        assert!(source.contains("async fn video_model_family_with_ctx("));
+    }
+
+    #[tokio::test]
     async fn vertex_builder_config_registry_image_request_are_equivalent() {
         let _lock = lock_env();
 
@@ -17811,7 +18248,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .image_model_with_ctx(
+            .compat_image_client_with_ctx(
                 "imagen-4.0-generate-001",
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -17928,7 +18365,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .image_model_with_ctx(
+            .compat_image_client_with_ctx(
                 "imagen-3.0-generate-001",
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -18041,7 +18478,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .embedding_model_with_ctx(
+            .compat_embedding_client_with_ctx(
                 "text-embedding-004",
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -18148,7 +18585,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "gemini-2.5-flash",
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -18222,7 +18659,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "gemini-2.5-flash",
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -18308,7 +18745,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "gemini-2.5-flash",
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -18406,7 +18843,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "gemini-2.5-flash",
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -18495,7 +18932,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 "gemini-2.5-flash",
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -18744,7 +19181,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),
@@ -18881,7 +19318,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
         let registry_client = factory
-            .language_model_with_ctx(
+            .compat_language_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("vertex".to_string()),

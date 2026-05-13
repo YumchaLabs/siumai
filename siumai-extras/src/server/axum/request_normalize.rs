@@ -5,19 +5,19 @@
 use std::fmt;
 use std::sync::Arc;
 
+use siumai::prelude::unified::{ChatRequest, LlmError};
 #[cfg(feature = "anthropic")]
-use siumai::experimental::bridge::bridge_anthropic_messages_json_to_chat_request_with_options;
+use siumai_bridge::bridge_anthropic_messages_json_to_chat_request_with_options;
 #[cfg(feature = "google")]
-use siumai::experimental::bridge::bridge_gemini_generate_content_json_to_chat_request_with_options;
-use siumai::experimental::bridge::{
+use siumai_bridge::bridge_gemini_generate_content_json_to_chat_request_with_options;
+use siumai_bridge::{
     BridgeCustomization, BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeResult,
 };
 #[cfg(feature = "openai")]
-use siumai::experimental::bridge::{
+use siumai_bridge::{
     bridge_openai_chat_completions_json_to_chat_request_with_options,
     bridge_openai_responses_json_to_chat_request_with_options,
 };
-use siumai::prelude::unified::{ChatRequest, LlmError};
 
 use crate::server::{GatewayBridgePolicy, resolve_gateway_bridge_options};
 
@@ -189,9 +189,9 @@ mod request_normalize_tests {
     use std::sync::Arc;
 
     use serde_json::json;
-    #[cfg(all(feature = "anthropic", feature = "openai"))]
-    use siumai::experimental::bridge::ProviderToolRewriteCustomization;
     use siumai::prelude::unified::MessageRole;
+    #[cfg(all(feature = "anthropic", feature = "openai"))]
+    use siumai_bridge::ProviderToolRewriteCustomization;
 
     use crate::bridge::ClosureBridgeCustomization;
 

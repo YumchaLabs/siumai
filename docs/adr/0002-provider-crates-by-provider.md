@@ -24,11 +24,9 @@ Siumai is in a fearless refactor phase and is already split into:
 - `siumai-extras` (orchestrator/telemetry/server/mcp utilities)
 - `siumai-provider-openai` (OpenAI provider implementation; depends on the OpenAI-like protocol family crate)
 - `siumai-protocol-openai` (OpenAI-like protocol family crate; reused by multiple providers; preferred name)
-- `siumai-provider-openai-compatible` (legacy crate name; kept for compatibility)
 - `siumai-provider-ollama` (Ollama provider + Ollama standard)
 - `siumai-provider-anthropic` (Anthropic provider implementation; depends on the Anthropic Messages protocol family crate)
 - `siumai-protocol-anthropic` (Anthropic Messages protocol family crate; preferred name)
-- `siumai-provider-anthropic-compatible` (legacy crate name; kept for compatibility)
 - `siumai-provider-gemini` (Gemini provider implementation)
 - `siumai-protocol-gemini` (Gemini protocol standard)
 - `siumai-provider-google-vertex` (Vertex provider implementation)
@@ -71,7 +69,6 @@ OpenAI and OpenAI-compatible vendors share substantial protocol behavior.
 To avoid duplicated mapping/stream parsing logic:
 
 - The OpenAI-like protocol adapter layer lives in `siumai-protocol-openai` (family/protocol crate).
-- `siumai-provider-openai-compatible` is the legacy crate name and remains as a compatibility alias.
 - OpenAI-compatible vendors remain “presets” (base URL / headers / quirks) rather than separate crates.
 
 This keeps naming aligned with “provider crates” while still enabling reuse.

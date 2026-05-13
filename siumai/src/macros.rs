@@ -70,7 +70,7 @@ macro_rules! assistant {
             provider_options: $crate::__private::types::ProviderOptionsMap::default(),
             metadata: $crate::__private::types::MessageMetadata::default(),
         }
-    }; // Message with tool calls arm removed; use assistant_with_content instead
+    };
 }
 
 /// Creates a tool result message

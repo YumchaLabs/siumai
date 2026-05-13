@@ -870,8 +870,6 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     );
 }
 
-// Removed legacy merge-provider-params test; behavior now covered by transformers
-
 #[tokio::test]
 async fn test_anthropic_stream_end() {
     let config = create_test_config();

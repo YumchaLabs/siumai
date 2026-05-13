@@ -1,7 +1,6 @@
 //! Ollama streaming implementation using eventsource-stream
 //!
 //! Provides JSON event conversion for Ollama streaming responses.
-//! The legacy OllamaStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use crate::error::LlmError;
 use crate::streaming::JsonEventConverter;
@@ -408,9 +407,6 @@ impl JsonEventConverter for OllamaEventConverter {
         }
     }
 }
-
-// Legacy OllamaStreaming client has been removed in favor of the unified HttpChatExecutor.
-// The OllamaEventConverter is still used for JSON event conversion in tests.
 
 #[cfg(test)]
 mod tests {

@@ -267,7 +267,7 @@ impl ProviderSpec for OpenAiChatSpec {
             provider_adapter: provider_adapter.clone(),
             fallback_model: Some(req.common_params.model.clone()),
             provider_metadata_key: Some(
-                siumai_core::standards::openai::compat::metadata::resolve_provider_metadata_key(
+                crate::standards::openai::compat::metadata::resolve_provider_metadata_key(
                     &ctx.provider_id,
                     Some(&req.provider_options_map),
                 ),
@@ -280,7 +280,7 @@ impl ProviderSpec for OpenAiChatSpec {
             Some(&ctx.base_url),
             req.stream_options.include_raw_chunks,
             Some(
-                siumai_core::standards::openai::compat::metadata::resolve_provider_metadata_key(
+                crate::standards::openai::compat::metadata::resolve_provider_metadata_key(
                     &ctx.provider_id,
                     Some(&req.provider_options_map),
                 ),

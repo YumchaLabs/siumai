@@ -7,21 +7,21 @@ use std::sync::Arc;
 
 use axum::{body::Body, http::header, response::Response};
 
+use siumai::experimental::encoding::JsonEncodeOptions;
+use siumai::prelude::unified::{ChatResponse, LlmError};
 #[cfg(feature = "anthropic")]
-use siumai::experimental::bridge::bridge_chat_response_to_anthropic_messages_json_bytes_with_options;
+use siumai_bridge::bridge_chat_response_to_anthropic_messages_json_bytes_with_options;
 #[cfg(feature = "google")]
-use siumai::experimental::bridge::bridge_chat_response_to_gemini_generate_content_json_bytes_with_options;
-use siumai::experimental::bridge::{
+use siumai_bridge::bridge_chat_response_to_gemini_generate_content_json_bytes_with_options;
+use siumai_bridge::{
     BridgeCustomization, BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeReport,
     BridgeTarget,
 };
 #[cfg(feature = "openai")]
-use siumai::experimental::bridge::{
+use siumai_bridge::{
     bridge_chat_response_to_openai_chat_completions_json_bytes_with_options,
     bridge_chat_response_to_openai_responses_json_bytes_with_options,
 };
-use siumai::experimental::encoding::JsonEncodeOptions;
-use siumai::prelude::unified::{ChatResponse, LlmError};
 
 use crate::server::{GatewayBridgePolicy, gateway_bridge_headers, resolve_gateway_bridge_options};
 
@@ -243,7 +243,7 @@ where
 #[derive(Debug)]
 enum TranscodeJsonError {
     Runtime(LlmError),
-    Rejected(siumai::experimental::bridge::BridgeReport),
+    Rejected(siumai_bridge::BridgeReport),
 }
 
 struct TranscodedJsonPayload {
@@ -475,7 +475,7 @@ mod json_transcode_tests {
             &resp,
             TargetJsonFormat::OpenAiChatCompletions,
             &TranscodeJsonOptions::default().with_bridge_options(
-                BridgeOptions::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+                BridgeOptions::new(siumai_bridge::BridgeMode::BestEffort)
                     .with_route_label("tests.axum.json.remap")
                     .with_primitive_remapper(Arc::new(
                         ClosurePrimitiveRemapper::default()
@@ -501,13 +501,10 @@ mod json_transcode_tests {
             &resp,
             TargetJsonFormat::OpenAiResponses,
             &TranscodeJsonOptions::default().with_bridge_options(
-                BridgeOptions::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+                BridgeOptions::new(siumai_bridge::BridgeMode::BestEffort)
                     .with_route_label("tests.axum.json.response-hook")
                     .with_response_hook(response_bridge_hook(|ctx, response, _report| {
-                        assert_eq!(
-                            ctx.target,
-                            siumai::experimental::bridge::BridgeTarget::OpenAiResponses
-                        );
+                        assert_eq!(ctx.target, siumai_bridge::BridgeTarget::OpenAiResponses);
                         response.content = MessageContent::Text("hooked".to_string());
                         Ok(())
                     })),
@@ -529,10 +526,7 @@ mod json_transcode_tests {
             TargetJsonFormat::OpenAiResponses,
             &TranscodeJsonOptions::default().with_bridge_customization(Arc::new(
                 ClosureBridgeCustomization::default().with_response(|ctx, response, _report| {
-                    assert_eq!(
-                        ctx.target,
-                        siumai::experimental::bridge::BridgeTarget::OpenAiResponses
-                    );
+                    assert_eq!(ctx.target, siumai_bridge::BridgeTarget::OpenAiResponses);
                     response.content = MessageContent::Text("customized".to_string());
                     Ok(())
                 }),
@@ -553,7 +547,7 @@ mod json_transcode_tests {
             resp,
             TargetJsonFormat::OpenAiResponses,
             TranscodeJsonOptions::default().with_policy(
-                GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+                GatewayBridgePolicy::new(siumai_bridge::BridgeMode::BestEffort)
                     .with_bridge_headers(true)
                     .with_bridge_warning_headers(true),
             ),

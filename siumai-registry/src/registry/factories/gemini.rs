@@ -4,6 +4,7 @@ use super::*;
 use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::text::LanguageModel as FamilyLanguageModel;
+use siumai_core::video::VideoModel as FamilyVideoModel;
 
 /// Gemini provider factory
 #[cfg(feature = "google")]
@@ -89,12 +90,12 @@ impl ProviderFactory for GeminiProviderFactory {
             .unwrap_or_else(ProviderCapabilities::new)
     }
 
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let ctx = BuildContext::default();
-        self.language_model_with_ctx(model_id, &ctx).await
+        self.compat_language_client_with_ctx(model_id, &ctx).await
     }
 
-    async fn language_model_with_ctx(
+    async fn compat_language_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -112,7 +113,7 @@ impl ProviderFactory for GeminiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn embedding_model_with_ctx(
+    async fn compat_embedding_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -130,7 +131,7 @@ impl ProviderFactory for GeminiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn image_model_with_ctx(
+    async fn compat_image_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -148,7 +149,25 @@ impl ProviderFactory for GeminiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn speech_model_with_ctx(
+    async fn compat_video_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn video_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyVideoModel>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn compat_speech_client_with_ctx(
         &self,
         _model_id: &str,
         _ctx: &BuildContext,
@@ -158,7 +177,7 @@ impl ProviderFactory for GeminiProviderFactory {
         ))
     }
 
-    async fn transcription_model_with_ctx(
+    async fn compat_transcription_client_with_ctx(
         &self,
         _model_id: &str,
         _ctx: &BuildContext,

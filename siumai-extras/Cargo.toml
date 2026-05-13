@@ -17,6 +17,7 @@ autoexamples = false
 [dependencies]
 # Core siumai dependency (disable default provider set; features forwarded below)
 siumai = { workspace = true, default-features = false }
+siumai-bridge = { workspace = true, default-features = false }
 
 # Common dependencies
 serde.workspace = true
@@ -64,9 +65,9 @@ uuid = { workspace = true }
 default = ["openai"]
 
 # Provider features (pass-through to siumai)
-openai = ["siumai/openai", "dep:reqwest"]
-anthropic = ["siumai/anthropic"]
-google = ["siumai/google"]
+openai = ["siumai/openai", "siumai-bridge/openai", "dep:reqwest"]
+anthropic = ["siumai/anthropic", "siumai-bridge/anthropic"]
+google = ["siumai/google", "siumai-bridge/google"]
 ollama = ["siumai/ollama"]
 xai = ["siumai/xai"]
 groq = ["siumai/groq"]
@@ -75,7 +76,7 @@ all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "mini
 
 # Keep structured message support feature-unified with provider/protocol crates in mixed
 # package builds.
-structured-messages = ["siumai/structured-messages"]
+structured-messages = ["siumai/structured-messages", "siumai-bridge/structured-messages"]
 
 # Schema validation feature
 schema = ["dep:jsonschema"]

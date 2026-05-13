@@ -1,7 +1,6 @@
 //! Gemini streaming implementation using eventsource-stream (protocol layer)
 //!
 //! Provides SSE event conversion for Gemini streaming responses.
-//! The legacy GeminiStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use super::types::GeminiConfig;
 use crate::error::LlmError;
@@ -1272,9 +1271,6 @@ impl SseEventConverter for GeminiEventConverter {
         self.serialize_event_impl(event)
     }
 }
-
-// Legacy GeminiStreaming client has been removed in favor of the unified HttpChatExecutor.
-// The GeminiEventConverter is still used for SSE event conversion in tests.
 
 mod serialize;
 

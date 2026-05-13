@@ -16,12 +16,12 @@ use axum::{
 use futures::{Stream, StreamExt};
 use tokio::time::Sleep;
 
-use siumai::experimental::bridge::{
+use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
+use siumai_bridge::{
     BridgeCustomization, BridgeLossAction, BridgeMode, BridgeOptions, BridgeOptionsOverride,
     BridgeReport, BridgeTarget, StreamBridgeContext, inspect_chat_stream_bridge,
     transform_chat_stream_with_bridge_options,
 };
-use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
 
 use crate::server::{
     GatewayBridgePolicy, gateway_bridge_headers, gateway_sse_runtime_policy,
@@ -833,7 +833,7 @@ fn apply_gateway_policy_headers(
     policy: &GatewayBridgePolicy,
     target: BridgeTarget,
     report: Option<&BridgeReport>,
-    mode: siumai::experimental::bridge::BridgeMode,
+    mode: siumai_bridge::BridgeMode,
 ) {
     for entry in gateway_bridge_headers(policy, target, report, mode) {
         if let Ok(value) = axum::http::HeaderValue::from_str(&entry.value) {
@@ -858,11 +858,11 @@ mod transcode_tests {
     use std::time::Duration;
 
     #[cfg(feature = "anthropic")]
-    use siumai::experimental::bridge::{
+    use siumai_bridge::{
         BridgeLossAction, BridgeLossPolicy, RequestBridgeContext, ResponseBridgeContext,
         StreamBridgeContext,
     };
-    use siumai::experimental::bridge::{BridgeMode, BridgeOptions, BridgeTarget};
+    use siumai_bridge::{BridgeMode, BridgeOptions, BridgeTarget};
 
     use crate::bridge::{ClosureBridgeCustomization, stream_bridge_hook};
 
@@ -1190,7 +1190,7 @@ mod transcode_tests {
                         .with_bridge_warning_headers(true),
                 )
                 .with_bridge_options_override(
-                    siumai::experimental::bridge::BridgeOptionsOverride::new()
+                    siumai_bridge::BridgeOptionsOverride::new()
                         .with_mode(BridgeMode::Strict)
                         .with_loss_policy(Arc::new(ContinueLossyPolicy)),
                 ),

@@ -109,7 +109,7 @@ fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<OpenAiMetada
 
 OpenAI-compatible vendors (SiliconFlow/DeepSeek/OpenRouter/...) are treated as configuration presets.
 For new code, prefer using registry handles with vendor ids or config-first `OpenAiCompatibleClient`
-construction. Builder-style presets are compatibility wrappers, not the default architecture.
+construction.
 
 ```rust,no_run
 use siumai::prelude::unified::*;

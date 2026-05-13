@@ -1483,6 +1483,3 @@ impl StreamChunkTransformer for AnthropicStreamChunkTransformer {
         self.inner.handle_stream_end()
     }
 }
-
-// Tests for structured_output via provider_params have been removed
-// as this functionality is now handled via provider_options in ProviderSpec::chat_before_send()

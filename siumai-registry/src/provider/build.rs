@@ -328,22 +328,28 @@ async fn build_default_client_with_capabilities(
     let caps = factory.capabilities();
 
     if caps.supports("chat") {
-        return factory.language_model_with_ctx(model_id, ctx).await;
+        return factory.compat_language_client_with_ctx(model_id, ctx).await;
     }
     if caps.supports("rerank") {
-        return factory.reranking_model_with_ctx(model_id, ctx).await;
+        return factory
+            .compat_reranking_client_with_ctx(model_id, ctx)
+            .await;
     }
     if caps.supports("embedding") {
-        return factory.embedding_model_with_ctx(model_id, ctx).await;
+        return factory
+            .compat_embedding_client_with_ctx(model_id, ctx)
+            .await;
     }
     if caps.supports("image_generation") {
-        return factory.image_model_with_ctx(model_id, ctx).await;
+        return factory.compat_image_client_with_ctx(model_id, ctx).await;
     }
     if caps.supports("speech") {
-        return factory.speech_model_with_ctx(model_id, ctx).await;
+        return factory.compat_speech_client_with_ctx(model_id, ctx).await;
     }
     if caps.supports("transcription") {
-        return factory.transcription_model_with_ctx(model_id, ctx).await;
+        return factory
+            .compat_transcription_client_with_ctx(model_id, ctx)
+            .await;
     }
 
     Err(LlmError::UnsupportedOperation(format!(
@@ -719,6 +725,38 @@ pub async fn build(_builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmE
 #[cfg(test)]
 mod tests {
     use super::super::resolver::infer_provider_id_from_model;
+
+    #[test]
+    fn default_client_builder_uses_explicit_compat_factory_methods() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("provider")
+                .join("build.rs"),
+        )
+        .unwrap();
+
+        for family in [
+            "language",
+            "reranking",
+            "embedding",
+            "image",
+            "speech",
+            "transcription",
+        ] {
+            let compat_call = format!("compat_{family}_client_with_ctx");
+            assert!(
+                source.contains(&compat_call),
+                "SiumaiBuilder compatibility construction should call {compat_call}"
+            );
+
+            let legacy_call = format!("factory.{family}_model_with_ctx");
+            assert!(
+                !source.contains(&legacy_call),
+                "SiumaiBuilder compatibility construction must not call legacy {legacy_call}"
+            );
+        }
+    }
 
     #[test]
     fn infer_provider_empty_is_none() {

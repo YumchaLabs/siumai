@@ -116,9 +116,6 @@ impl ParameterMapper {
         json
     }
 
-    // merge_provider_params has been removed in v0.12.0
-    // Use provider-specific options instead
-
     /// Converts stop sequences to the appropriate format for a provider
     pub fn map_stop_sequences(
         stop_sequences: &Option<Vec<String>>,
@@ -175,7 +172,4 @@ mod tests {
         assert_eq!(json["max_tokens"], 1000);
         assert_eq!(json["seed"], 42);
     }
-
-    // Test for merge_provider_params has been removed
-    // as this functionality is now handled via provider_options
 }

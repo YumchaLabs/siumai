@@ -217,7 +217,4 @@ mod tests {
                 .is_some()
         );
     }
-
-    // Test for structured_output via provider_params has been removed
-    // as this functionality is now handled via provider_options
 }

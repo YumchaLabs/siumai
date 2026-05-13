@@ -17,6 +17,65 @@ fn load_optional_env_var(name: &str) -> Option<String> {
     std::env::var(name).ok().and_then(normalize_non_empty)
 }
 
+#[cfg(feature = "google-vertex")]
+async fn build_typed_client_with_ctx(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<
+    siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient,
+    LlmError,
+> {
+    let http_config = ctx.http_config.clone().unwrap_or_default();
+    let http_client = if let Some(client) = &ctx.http_client {
+        client.clone()
+    } else {
+        build_http_client_from_config(&http_config)?
+    };
+
+    let common_params =
+        crate::utils::builder_helpers::resolve_common_params(ctx.common_params.clone(), model_id);
+
+    let base_url = if let Some(base_url) = ctx.base_url.clone().and_then(normalize_non_empty) {
+        base_url.trim_end_matches('/').to_string()
+    } else {
+        let project = ctx
+            .project
+            .clone()
+            .and_then(normalize_non_empty)
+            .or_else(|| load_optional_env_var("GOOGLE_VERTEX_PROJECT"));
+        let location = ctx
+            .location
+            .clone()
+            .and_then(normalize_non_empty)
+            .or_else(|| load_optional_env_var("GOOGLE_VERTEX_LOCATION"));
+
+        let (project, location) = match (project, location) {
+            (Some(project), Some(location)) => (project, location),
+            _ => {
+                return Err(LlmError::ConfigurationError(
+                    "Anthropic on Vertex requires `base_url`, explicit project+location, or env vars GOOGLE_VERTEX_PROJECT + GOOGLE_VERTEX_LOCATION".to_string(),
+                ))
+            }
+        };
+
+        crate::utils::vertex::google_vertex_anthropic_base_url(&project, &location)
+    };
+
+    crate::registry::factory::build_anthropic_vertex_typed_client(
+        base_url,
+        http_client,
+        common_params,
+        http_config,
+        ctx.resolved_google_token_provider(),
+        ctx.tracing_config.clone(),
+        ctx.retry_options.clone(),
+        ctx.http_interceptors.clone(),
+        ctx.model_middlewares.clone(),
+        ctx.http_transport.clone(),
+    )
+    .await
+}
+
 /// Anthropic on Vertex AI provider factory
 ///
 /// This factory builds `anthropic-vertex` clients that communicate with
@@ -36,73 +95,29 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
             .unwrap_or_else(ProviderCapabilities::new)
     }
 
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Delegate to the context-aware implementation with default context.
         let ctx = BuildContext::default();
-        self.language_model_with_ctx(model_id, &ctx).await
+        self.compat_language_client_with_ctx(model_id, &ctx).await
     }
 
-    async fn language_model_with_ctx(
+    async fn compat_language_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Resolve HTTP configuration and client.
-        let http_config = ctx.http_config.clone().unwrap_or_default();
-        let http_client = if let Some(client) = &ctx.http_client {
-            client.clone()
-        } else {
-            build_http_client_from_config(&http_config)?
-        };
-
-        // Resolve common parameters (model id, etc.).
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
-            ctx.common_params.clone(),
-            model_id,
-        );
-
-        let base_url = if let Some(base_url) = ctx.base_url.clone().and_then(normalize_non_empty) {
-            base_url.trim_end_matches('/').to_string()
-        } else {
-            let project = ctx
-                .project
-                .clone()
-                .and_then(normalize_non_empty)
-                .or_else(|| load_optional_env_var("GOOGLE_VERTEX_PROJECT"));
-            let location = ctx
-                .location
-                .clone()
-                .and_then(normalize_non_empty)
-                .or_else(|| load_optional_env_var("GOOGLE_VERTEX_LOCATION"));
-
-            let (project, location) = match (project, location) {
-                (Some(project), Some(location)) => (project, location),
-                _ => {
-                    return Err(LlmError::ConfigurationError(
-                        "Anthropic on Vertex requires `base_url`, explicit project+location, or env vars GOOGLE_VERTEX_PROJECT + GOOGLE_VERTEX_LOCATION".to_string(),
-                    ))
-                }
-            };
-
-            crate::utils::vertex::google_vertex_anthropic_base_url(&project, &location)
-        };
-
-        crate::registry::factory::build_anthropic_vertex_client(
-            base_url,
-            http_client,
-            common_params,
-            http_config,
-            ctx.resolved_google_token_provider(),
-            ctx.tracing_config.clone(),
-            ctx.retry_options.clone(),
-            ctx.http_interceptors.clone(),
-            ctx.model_middlewares.clone(),
-            ctx.http_transport.clone(),
-        )
-        .await
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx).await?))
     }
 
-    async fn embedding_model_with_ctx(
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn crate::text::LanguageModel>, LlmError> {
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx).await?))
+    }
+
+    async fn compat_embedding_client_with_ctx(
         &self,
         _model_id: &str,
         _ctx: &BuildContext,
@@ -113,7 +128,7 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         ))
     }
 
-    async fn image_model_with_ctx(
+    async fn compat_image_client_with_ctx(
         &self,
         _model_id: &str,
         _ctx: &BuildContext,
@@ -124,7 +139,7 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         ))
     }
 
-    async fn speech_model_with_ctx(
+    async fn compat_speech_client_with_ctx(
         &self,
         _model_id: &str,
         _ctx: &BuildContext,
@@ -135,7 +150,7 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         ))
     }
 
-    async fn transcription_model_with_ctx(
+    async fn compat_transcription_client_with_ctx(
         &self,
         _model_id: &str,
         _ctx: &BuildContext,
@@ -146,7 +161,7 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         ))
     }
 
-    async fn reranking_model_with_ctx(
+    async fn compat_reranking_client_with_ctx(
         &self,
         _model_id: &str,
         _ctx: &BuildContext,

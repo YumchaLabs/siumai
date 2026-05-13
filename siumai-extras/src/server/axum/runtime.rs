@@ -234,7 +234,7 @@ mod tests {
     use super::*;
 
     use serde::Deserialize;
-    use siumai::experimental::bridge::BridgeMode;
+    use siumai_bridge::BridgeMode;
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
     struct Payload {

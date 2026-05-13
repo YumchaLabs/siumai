@@ -1,13 +1,18 @@
 //! OpenAI-compatible adapter + config + streaming protocol layer.
-//!
-//! Note: The protocol-level building blocks (`adapter`, `openai_config`, `provider_registry`,
-//! `types`) live in `siumai-core` to reduce cross-crate coupling. This module keeps the historical
-//! `siumai_provider_openai::standards::openai::compat::*` path by re-exporting them.
 
-pub use siumai_core::standards::openai::compat::{
-    adapter, openai_config, provider_registry, types,
-};
-
+pub mod adapter;
 pub mod alibaba_cache_control;
+pub mod base_url;
+pub mod metadata;
+pub mod openai_config;
+pub mod provider_registry;
 pub mod spec;
-pub use siumai_core::standards::openai::compat::{streaming, transformers};
+pub mod streaming;
+pub mod transformers;
+pub mod types;
+
+#[cfg(test)]
+mod streaming_tests;
+
+#[cfg(test)]
+mod transformers_tests;

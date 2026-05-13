@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use siumai::experimental::bridge::{
+use siumai_bridge::{
     BridgeDecision, BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeReport, BridgeTarget,
 };
 

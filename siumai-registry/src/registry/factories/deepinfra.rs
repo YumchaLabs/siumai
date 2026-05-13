@@ -62,7 +62,7 @@ fn resolve_api_key(ctx: &BuildContext) -> Result<String, LlmError> {
 }
 
 fn normalize_root_base_url(base_url: &str) -> String {
-    siumai_core::standards::openai::compat::base_url::deepinfra_root_base_url(base_url)
+    siumai_protocol_openai::standards::openai::compat::base_url::deepinfra_root_base_url(base_url)
 }
 
 fn resolve_root_base_url(ctx: &BuildContext) -> String {
@@ -73,7 +73,9 @@ fn resolve_root_base_url(ctx: &BuildContext) -> String {
 }
 
 fn text_base_url(root_base_url: &str) -> String {
-    siumai_core::standards::openai::compat::base_url::deepinfra_text_base_url(root_base_url)
+    siumai_protocol_openai::standards::openai::compat::base_url::deepinfra_text_base_url(
+        root_base_url,
+    )
 }
 
 fn inference_base_url(root_base_url: &str) -> String {
@@ -840,15 +842,15 @@ impl ProviderFactory for DeepInfraProviderFactory {
         deepinfra_capabilities()
     }
 
-    async fn language_model(
+    async fn compat_language_client(
         &self,
         model_id: &str,
     ) -> Result<Arc<dyn crate::client::LlmClient>, LlmError> {
         let ctx = BuildContext::default();
-        self.language_model_with_ctx(model_id, &ctx).await
+        self.compat_language_client_with_ctx(model_id, &ctx).await
     }
 
-    async fn language_model_with_ctx(
+    async fn compat_language_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -870,7 +872,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn completion_model_with_ctx(
+    async fn compat_completion_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -888,7 +890,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn embedding_model_with_ctx(
+    async fn compat_embedding_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -906,7 +908,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn image_model_with_ctx(
+    async fn compat_image_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,

@@ -273,11 +273,10 @@ impl LanguageModelMiddleware for OllamaDefaultOptionsMiddleware {
     }
 }
 
-/// Unified Interface Builder - Provider Abstraction Layer
+/// Compatibility builder for the historical `Siumai` wrapper.
 ///
-/// Provides a unified interface for creating LLM clients across providers
-/// while abstracting provider-specific details. Public API unchanged from
-/// its original location in `provider.rs`.
+/// This preserves source compatibility for method-style construction. New stable code should
+/// prefer registry handles or config-first provider clients.
 ///
 /// # Relationship to LlmBuilder and ProviderFactory
 ///
@@ -286,7 +285,8 @@ impl LanguageModelMiddleware for OllamaDefaultOptionsMiddleware {
 /// - collects unified configuration (HTTP, tracing, retry, model middlewares)
 /// - maps `ProviderType` / `provider_id` and default models
 /// - builds a `BuildContext`
-/// - delegates to the appropriate `ProviderFactory::language_model_with_ctx(...)`
+/// - delegates to explicit `ProviderFactory::compat_*_client_with_ctx(...)` methods
+///   because the historical `Siumai` wrapper still stores an `Arc<dyn LlmClient>`
 ///
 /// This means:
 /// - the unified builder and the registry path share the same construction

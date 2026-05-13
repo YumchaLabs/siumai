@@ -75,12 +75,12 @@ impl ProviderFactory for CohereProviderFactory {
             })
     }
 
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let ctx = BuildContext::default();
-        self.language_model_with_ctx(model_id, &ctx).await
+        self.compat_language_client_with_ctx(model_id, &ctx).await
     }
 
-    async fn language_model_with_ctx(
+    async fn compat_language_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -88,7 +88,7 @@ impl ProviderFactory for CohereProviderFactory {
         Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
     }
 
-    async fn embedding_model_with_ctx(
+    async fn compat_embedding_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -96,11 +96,35 @@ impl ProviderFactory for CohereProviderFactory {
         Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
     }
 
-    async fn reranking_model_with_ctx(
+    async fn compat_reranking_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+    }
+
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn crate::text::LanguageModel>, LlmError> {
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+    }
+
+    async fn embedding_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn crate::embedding::EmbeddingModel>, LlmError> {
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+    }
+
+    async fn reranking_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn siumai_core::rerank::RerankingModel>, LlmError> {
         Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
     }
 

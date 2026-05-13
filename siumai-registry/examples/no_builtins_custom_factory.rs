@@ -6,9 +6,10 @@ use futures::{StreamExt, stream};
 
 use siumai_registry::LlmClient;
 use siumai_registry::error::LlmError;
-use siumai_registry::registry::entry::{ProviderFactory, create_provider_registry};
+use siumai_registry::registry::entry::{BuildContext, ProviderFactory, create_provider_registry};
 use siumai_registry::streaming::ChatStream;
-use siumai_registry::traits::{ChatCapability, ProviderCapabilities};
+use siumai_registry::text::LanguageModel;
+use siumai_registry::traits::{ChatCapability, ModelMetadata, ProviderCapabilities};
 use siumai_registry::types::{
     ChatMessage, ChatResponse, ChatStreamEvent, FinishReason, MessageContent, ResponseMetadata,
     Tool,
@@ -90,11 +91,32 @@ impl LlmClient for MockClient {
     }
 }
 
+impl ModelMetadata for MockClient {
+    fn provider_id(&self) -> &str {
+        self.provider
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+}
+
 struct MockFactory;
 
 #[async_trait::async_trait]
 impl ProviderFactory for MockFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LanguageModel>, LlmError> {
+        Ok(Arc::new(MockClient {
+            provider: "mock",
+            model_id: model_id.to_string(),
+        }))
+    }
+
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         Ok(Arc::new(MockClient {
             provider: "mock",
             model_id: model_id.to_string(),

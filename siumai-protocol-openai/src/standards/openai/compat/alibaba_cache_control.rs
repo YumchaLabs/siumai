@@ -26,9 +26,7 @@ impl CacheControlCollector {
     ) -> Option<serde_json::Value> {
         let mut out = None;
 
-        for key in
-            siumai_core::standards::openai::compat::metadata::provider_options_keys(provider_id)
-        {
+        for key in crate::standards::openai::compat::metadata::provider_options_keys(provider_id) {
             let Some(options) = provider_options.get_object(&key) else {
                 continue;
             };

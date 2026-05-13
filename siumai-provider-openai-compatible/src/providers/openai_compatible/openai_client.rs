@@ -121,7 +121,7 @@ const DEPRECATED_OPENAI_COMPATIBLE_KEY_WARNING: &str =
     "The 'openai-compatible' key in providerOptions is deprecated. Use 'openaiCompatible' instead.";
 
 fn completion_provider_options_key(provider_id: &str) -> String {
-    siumai_core::standards::openai::compat::metadata::provider_options_key(provider_id)
+    siumai_protocol_openai::standards::openai::compat::metadata::provider_options_key(provider_id)
 }
 
 #[allow(unreachable_patterns)]
@@ -914,7 +914,7 @@ impl OpenAiCompatibleClient {
             .flatten()
             .filter_map(|key| request.provider_options_map.get_object(key))
             .chain(
-                siumai_core::standards::openai::compat::metadata::provider_options_keys(
+                siumai_protocol_openai::standards::openai::compat::metadata::provider_options_keys(
                     &self.config.provider_id,
                 )
                 .into_iter()
@@ -1473,8 +1473,6 @@ impl OpenAiCompatibleClient {
         })
     }
 
-    // Removed legacy build_headers; headers are created in executor closures
-
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
@@ -1510,12 +1508,6 @@ impl OpenAiCompatibleClient {
     pub fn model(&self) -> &str {
         &self.config.model
     }
-
-    // Removed legacy build_chat_request; executors use transformers directly
-
-    // Removed legacy parse_chat_response; response transformer handles mapping
-
-    // removed legacy send_request; executors handle requests
 }
 
 impl ModelMetadata for OpenAiCompatibleClient {
@@ -1527,8 +1519,6 @@ impl ModelMetadata for OpenAiCompatibleClient {
         self.config.model.as_str()
     }
 }
-
-// Removed legacy chat_with_tools_inner; ChatCapability now uses HttpChatExecutor
 
 #[async_trait]
 impl ChatCapability for OpenAiCompatibleClient {
@@ -6716,5 +6706,3 @@ data: [DONE]
         assert!(OpenAiCompatibleClient::new(config).await.is_err());
     }
 }
-
-// Removed legacy rerank parsing; rerank now routed through OpenAI Rerank Standard

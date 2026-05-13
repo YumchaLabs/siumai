@@ -4,6 +4,7 @@ use super::*;
 use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::text::LanguageModel as FamilyLanguageModel;
+use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 
@@ -118,12 +119,12 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
             .unwrap_or_else(ProviderCapabilities::new)
     }
 
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let ctx = BuildContext::default();
-        self.language_model_with_ctx(model_id, &ctx).await
+        self.compat_language_client_with_ctx(model_id, &ctx).await
     }
 
-    async fn language_model_with_ctx(
+    async fn compat_language_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -141,7 +142,7 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn completion_model_with_ctx(
+    async fn compat_completion_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -150,7 +151,16 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn embedding_model_with_ctx(
+    async fn completion_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn compat_embedding_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -168,7 +178,7 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn image_model_with_ctx(
+    async fn compat_image_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -186,7 +196,7 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn speech_model_with_ctx(
+    async fn compat_speech_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -204,7 +214,7 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn transcription_model_with_ctx(
+    async fn compat_transcription_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,

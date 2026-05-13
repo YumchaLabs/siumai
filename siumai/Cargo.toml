@@ -74,6 +74,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 siumai-core = { workspace = true, default-features = false }
 
+siumai-bridge = { workspace = true, default-features = false }
+
 siumai-registry = { workspace = true, default-features = false }
 
 
@@ -236,6 +238,8 @@ structured-messages = [
 
     "siumai-core/structured-messages",
 
+    "siumai-bridge/structured-messages",
+
     "siumai-registry/structured-messages",
 
     "siumai-provider-openai/structured-messages",
@@ -279,6 +283,8 @@ structured-messages = [
 openai = [
 
     "siumai-core/openai",
+
+    "siumai-bridge/openai",
 
     "siumai-registry/openai",
 
@@ -326,6 +332,8 @@ anthropic = [
 
     "siumai-core/anthropic",
 
+    "siumai-bridge/anthropic",
+
     "siumai-registry/anthropic",
 
     "dep:siumai-provider-anthropic",
@@ -342,6 +350,8 @@ google = [
 
     "siumai-core/google",
 
+    "siumai-bridge/google",
+
     "siumai-registry/google",
 
     "dep:siumai-provider-gemini",
@@ -357,6 +367,8 @@ google = [
 google-vertex = [
 
     "siumai-core/google",
+
+    "siumai-bridge/google-vertex",
     "siumai-core/openai",
 
     "siumai-registry/google-vertex",

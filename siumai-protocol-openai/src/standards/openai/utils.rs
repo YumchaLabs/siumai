@@ -800,6 +800,13 @@ pub fn convert_messages_mistral_chat(
     siumai_core::standards::openai::utils::convert_messages_mistral_chat(messages)
 }
 
+/// Convert Siumai messages into the Perplexity chat-completions wire format.
+pub fn convert_messages_perplexity_chat(
+    messages: &[ChatMessage],
+) -> Result<Vec<OpenAiMessage>, LlmError> {
+    siumai_core::standards::openai::utils::convert_messages_perplexity_chat(messages)
+}
+
 /// Convert Siumai messages into the xAI chat-completions wire format.
 pub fn convert_messages_xai_chat(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, LlmError> {
     siumai_core::standards::openai::utils::convert_messages_xai_chat(messages)
@@ -1015,6 +1022,14 @@ pub fn parse_provider_openai_usage_value(
     value: &serde_json::Value,
 ) -> Option<Usage> {
     siumai_core::standards::openai::utils::parse_provider_openai_usage_value(provider_id, value)
+}
+
+/// Extract provider-specific OpenAI-compatible usage from a full response or stream payload.
+pub fn extract_provider_openai_usage_value(
+    provider_id: &str,
+    raw: &serde_json::Value,
+) -> Option<Usage> {
+    siumai_core::standards::openai::utils::extract_provider_openai_usage_value(provider_id, raw)
 }
 
 /// Parse xAI Responses usage payloads into unified `Usage`.

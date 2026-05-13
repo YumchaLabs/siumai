@@ -410,8 +410,6 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
     }
 }
 
-// Deprecated ToolCall conversions removed; use ContentPart::ToolCall helpers instead.
-
 /// Parse streaming response line
 pub fn parse_streaming_line(line: &str) -> Result<Option<serde_json::Value>, LlmError> {
     let line = line.trim();

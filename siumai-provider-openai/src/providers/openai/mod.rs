@@ -66,9 +66,6 @@ pub mod ext;
 pub mod responses;
 pub mod structured_output;
 pub mod transformers;
-// pub mod streaming; // removed after test migration to compat converter
-
-// Request building module (removed; Transformers handle mapping/validation)
 
 // Future capability modules (placeholders)
 #[cfg(feature = "openai-websocket")]

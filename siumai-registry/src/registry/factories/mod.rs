@@ -1,6 +1,6 @@
 //! Provider factory implementations
 //!
-//! Each provider implements the ProviderFactory trait to create clients.
+//! Each provider implements the ProviderFactory trait to create family model objects.
 
 #[cfg(any(
     test,

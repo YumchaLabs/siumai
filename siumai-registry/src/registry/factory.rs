@@ -492,10 +492,10 @@ pub async fn build_gemini_client(
     Ok(Arc::new(client))
 }
 
-/// Build Anthropic on Vertex AI client
+/// Build Anthropic on Vertex AI typed client.
 #[cfg(feature = "google-vertex")]
 #[allow(clippy::too_many_arguments)]
-pub async fn build_anthropic_vertex_client(
+pub async fn build_anthropic_vertex_typed_client(
     base_url: String,
     http_client: reqwest::Client,
     common_params: CommonParams,
@@ -508,7 +508,10 @@ pub async fn build_anthropic_vertex_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
-) -> Result<Arc<dyn LlmClient>, LlmError> {
+) -> Result<
+    siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient,
+    LlmError,
+> {
     let token_provider = {
         #[cfg(feature = "gcp")]
         {
@@ -565,6 +568,38 @@ pub async fn build_anthropic_vertex_client(
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
     }
+    Ok(client)
+}
+
+/// Build Anthropic on Vertex AI compatibility client.
+#[cfg(feature = "google-vertex")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_anthropic_vertex_client(
+    base_url: String,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    http_config: HttpConfig,
+    google_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+) -> Result<Arc<dyn LlmClient>, LlmError> {
+    let client = build_anthropic_vertex_typed_client(
+        base_url,
+        http_client,
+        common_params,
+        http_config,
+        google_token_provider,
+        tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+    )
+    .await?;
+
     Ok(Arc::new(client))
 }
 

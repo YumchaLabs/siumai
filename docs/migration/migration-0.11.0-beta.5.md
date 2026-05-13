@@ -133,8 +133,12 @@ The facade now intentionally keeps the stable surface small.
   - `siumai::error::*`
   - `siumai::streaming::*`
 - `LlmBuilder` is no longer re-exported from the unified prelude.
-  - Prefer `Siumai::builder()` for unified construction.
-  - For provider-specific construction, prefer `Provider::<provider>()` / `siumai::provider_ext::<provider>::*`.
+  - In `0.11.0-beta.5`, `Siumai::builder()` remained the migration-compatible unified
+    construction path.
+  - Current guidance, starting in `0.11.0-beta.6`, is to prefer `registry::global()` handles or
+    config-first provider clients for new code.
+  - Provider builders such as `Provider::<provider>()` remain available as compatibility/
+    convenience construction paths.
 
 Note (as of `0.11.0-beta.6`): new code should prefer `registry::global()` or config-first provider clients.
 - Use instead:
@@ -239,6 +243,8 @@ For OpenAI-compatible vendors (e.g. `"deepseek"`, `"openrouter"`), provider opti
 ```rust
 use siumai::prelude::unified::*;
 
+// Compatibility-only beta.5 shape. New code should prefer registry/config-first construction and
+// family helper invocation.
 let client = Siumai::builder()
     .deepseek()
     .api_key("...")
@@ -259,8 +265,9 @@ let _ = client.chat_request(req).await?;
 
 Use provider-defined tools (stable, Vercel-aligned) and enable the Responses API:
 
-Note: when using the unified OpenAI builder (`Siumai::builder().openai()`), the Responses API is enabled
-by default. For other construction paths (or for explicitness), set `OpenAiOptions.responses_api`.
+If your migration still uses the unified OpenAI builder (`Siumai::builder().openai()`), the
+Responses API is enabled by default. For current registry/config-first construction paths, or for
+explicitness, set `OpenAiOptions.responses_api`.
 
 ```rust
 use siumai::prelude::unified::*;
@@ -310,7 +317,8 @@ The closed `ProviderOptions` enum transport is removed.
 Those internal capability structs were removed as part of the OpenAI-like family convergence.
 
 - Prefer the client types: `GroqClient`, `XaiClient`.
-- Prefer the unified traits: `ChatCapability` / `LlmClient`.
+- Prefer stable family helper invocation such as `siumai::text::*`.
+- Keep `ChatCapability` / `LlmClient` imports only while migrating method-style compatibility code.
 
 ### `error[E0432]: unresolved import siumai::types::...Options`
 

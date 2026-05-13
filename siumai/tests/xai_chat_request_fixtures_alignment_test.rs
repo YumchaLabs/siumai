@@ -81,8 +81,7 @@ fn build_spec() -> impl ProviderSpec {
     let providers =
         siumai_provider_openai_compatible::providers::openai_compatible::config::get_builtin_providers();
     let cfg = providers.get("xai").expect("xai provider config").clone();
-    let adapter =
-        siumai_core::standards::openai::compat::provider_registry::ConfigurableAdapter::new(cfg);
+    let adapter = siumai_protocol_openai::standards::openai::compat::provider_registry::ConfigurableAdapter::new(cfg);
     siumai_provider_openai_compatible::standards::openai::compat::spec::OpenAiCompatibleSpecWithAdapter::new(
         Arc::new(adapter),
     )

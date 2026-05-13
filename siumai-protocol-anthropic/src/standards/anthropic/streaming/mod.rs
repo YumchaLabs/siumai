@@ -1,7 +1,6 @@
 //! Anthropic streaming implementation using eventsource-stream
 //!
 //! Provides SSE event conversion for Anthropic streaming responses.
-//! The legacy AnthropicStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use super::params::AnthropicParams;
 use super::params::StructuredOutputMode;
@@ -2337,9 +2336,6 @@ impl SseEventConverter for AnthropicEventConverter {
         self.serialize_event_impl(event)
     }
 }
-
-// Legacy AnthropicStreaming client has been removed in favor of the unified HttpChatExecutor.
-// The AnthropicEventConverter is still used for SSE event conversion in tests.
 
 mod serialize;
 

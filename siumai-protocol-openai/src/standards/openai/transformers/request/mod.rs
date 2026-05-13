@@ -591,9 +591,6 @@ mod tests_openai_rules {
     }
 }
 
-// Tests for structured_output via provider_params have been removed
-// as this functionality is now handled via provider_options in ProviderSpec::chat_before_send()
-
 #[cfg(feature = "openai-responses")]
 mod responses;
 

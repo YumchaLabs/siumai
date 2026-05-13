@@ -2888,6 +2888,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "siumai-bridge",
  "siumai-core",
  "siumai-protocol-anthropic",
  "siumai-protocol-gemini",
@@ -2914,6 +2915,21 @@ dependencies = [
  "urlencoding",
  "uuid",
  "wiremock",
+]
+
+[[package]]
+name = "siumai-bridge"
+version = "0.11.0-beta.7"
+dependencies = [
+ "base64",
+ "futures-util",
+ "serde_json",
+ "siumai-core",
+ "siumai-protocol-anthropic",
+ "siumai-protocol-gemini",
+ "siumai-protocol-openai",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -2979,6 +2995,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai",
+ "siumai-bridge",
  "thiserror 2.0.18",
  "tokio",
  "tokio-test",

@@ -626,6 +626,16 @@ impl ModelListingCapability for VertexAnthropicClient {
     }
 }
 
+impl crate::traits::ModelMetadata for VertexAnthropicClient {
+    fn provider_id(&self) -> &str {
+        "anthropic-vertex"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.config.model
+    }
+}
+
 impl crate::client::LlmClient for VertexAnthropicClient {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("anthropic-vertex")

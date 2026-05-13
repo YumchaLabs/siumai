@@ -30,6 +30,7 @@ documents, release process, and active workstreams for current planning.
 
 ## Workstreams
 
+- Fearless architecture convergence: `docs/workstreams/fearless-architecture-convergence/`
 - Current V4 refactor tracking: `docs/workstreams/fearless-refactor-v4/`
 - AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`
   - covers the next semantic refactor pass against `repo-ref/ai` provider v3/v4 contracts

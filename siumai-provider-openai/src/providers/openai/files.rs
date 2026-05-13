@@ -15,8 +15,6 @@ use crate::types::{
 
 use super::config::OpenAiConfig;
 
-// Legacy typed response structs removed; transformer handles JSON parsing.
-
 /// `OpenAI` file management capability implementation.
 ///
 /// This struct provides the OpenAI-specific implementation of file management
@@ -187,8 +185,6 @@ impl OpenAiFiles {
 
         builder.build()
     }
-
-    // Legacy direct HTTP helpers removed; requests are delegated to HttpFilesExecutor.
 }
 
 impl std::fmt::Debug for OpenAiFiles {

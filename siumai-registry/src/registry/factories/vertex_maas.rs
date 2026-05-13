@@ -167,12 +167,12 @@ impl ProviderFactory for VertexMaasProviderFactory {
         vertex_maas_capabilities()
     }
 
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let ctx = BuildContext::default();
-        self.language_model_with_ctx(model_id, &ctx).await
+        self.compat_language_client_with_ctx(model_id, &ctx).await
     }
 
-    async fn language_model_with_ctx(
+    async fn compat_language_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -190,7 +190,7 @@ impl ProviderFactory for VertexMaasProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn completion_model_with_ctx(
+    async fn compat_completion_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -208,7 +208,7 @@ impl ProviderFactory for VertexMaasProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn embedding_model_with_ctx(
+    async fn compat_embedding_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,

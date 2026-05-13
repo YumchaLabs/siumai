@@ -7,10 +7,10 @@ use crate::text::LanguageModel as FamilyLanguageModel;
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::rerank::RerankingModel as FamilyRerankingModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
-use siumai_core::standards::openai::compat::provider_registry::{
+use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
+use siumai_protocol_openai::standards::openai::compat::provider_registry::{
     provider_config_declares_chat_surface, provider_config_declares_completion_surface,
 };
-use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 
 /// Generic OpenAI-compatible provider factory
 #[cfg(any(feature = "openai", feature = "togetherai", feature = "deepinfra"))]
@@ -214,13 +214,13 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         caps
     }
 
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Delegate to the context-aware implementation with default context.
         let ctx = BuildContext::default();
-        self.language_model_with_ctx(model_id, &ctx).await
+        self.compat_language_client_with_ctx(model_id, &ctx).await
     }
 
-    async fn language_model_with_ctx(
+    async fn compat_language_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -240,7 +240,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn embedding_model_with_ctx(
+    async fn compat_embedding_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -250,7 +250,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn completion_model_with_ctx(
+    async fn compat_completion_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -280,7 +280,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn image_model_with_ctx(
+    async fn compat_image_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -300,7 +300,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn reranking_model_with_ctx(
+    async fn compat_reranking_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -320,7 +320,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn speech_model_with_ctx(
+    async fn compat_speech_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
@@ -340,7 +340,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         Ok(Arc::new(client))
     }
 
-    async fn transcription_model_with_ctx(
+    async fn compat_transcription_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
