@@ -40,6 +40,37 @@ pub enum OpenAIContextManagementType {
     Compaction,
 }
 
+/// AI SDK-style OpenAI Responses allowed-tools mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAIAllowedToolsMode {
+    Auto,
+    Required,
+}
+
+/// Restricts callable tools while preserving the full Responses `tools` list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenAIAllowedToolsConfig {
+    #[serde(rename = "toolNames", alias = "tool_names")]
+    pub tool_names: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<OpenAIAllowedToolsMode>,
+}
+
+impl OpenAIAllowedToolsConfig {
+    pub fn new(tool_names: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            tool_names: tool_names.into_iter().map(Into::into).collect(),
+            mode: None,
+        }
+    }
+
+    pub fn with_mode(mut self, mode: OpenAIAllowedToolsMode) -> Self {
+        self.mode = Some(mode);
+        self
+    }
+}
+
 /// AI SDK-style flat chat options stored under `providerOptions["openai"]`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OpenAILanguageModelChatOptions {
@@ -261,6 +292,12 @@ pub struct OpenAILanguageModelResponsesOptions {
         alias = "context_management"
     )]
     pub context_management: Option<Vec<OpenAIContextManagementConfig>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "allowedTools",
+        alias = "allowed_tools"
+    )]
+    pub allowed_tools: Option<OpenAIAllowedToolsConfig>,
     #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
     pub extra_fields: HashMap<String, serde_json::Value>,
 }
@@ -294,6 +331,7 @@ impl Default for OpenAILanguageModelResponsesOptions {
             system_message_mode: None,
             force_reasoning: None,
             context_management: None,
+            allowed_tools: None,
             extra_fields: HashMap::new(),
         }
     }
@@ -392,6 +430,9 @@ impl Serialize for OpenAILanguageModelResponsesOptions {
         }
         if let Some(value) = &self.context_management {
             map.serialize_entry("contextManagement", value)?;
+        }
+        if let Some(value) = &self.allowed_tools {
+            map.serialize_entry("allowedTools", value)?;
         }
         for (key, value) in &self.extra_fields {
             map.serialize_entry(key, value)?;
@@ -512,6 +553,10 @@ mod tests {
             system_message_mode: Some(SystemMessageMode::Developer),
             force_reasoning: Some(true),
             context_management: Some(vec![OpenAIContextManagementConfig::compaction(512)]),
+            allowed_tools: Some(
+                OpenAIAllowedToolsConfig::new(["weather", "webSearch"])
+                    .with_mode(OpenAIAllowedToolsMode::Required),
+            ),
             ..Default::default()
         })
         .expect("responses options serialize");
@@ -523,6 +568,13 @@ mod tests {
             serde_json::json!({
                 "type": "compaction",
                 "compactThreshold": 512
+            })
+        );
+        assert_eq!(
+            value["allowedTools"],
+            serde_json::json!({
+                "toolNames": ["weather", "webSearch"],
+                "mode": "required"
             })
         );
     }

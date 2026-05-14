@@ -136,6 +136,7 @@ impl OpenAiSpec {
                     | "background"
                     | "include"
                     | "instructions"
+                    | "allowed_tools"
                     | "max_tool_calls"
                     | "reasoning_summary"
                     | "truncation"
@@ -161,6 +162,7 @@ impl OpenAiSpec {
                 "background" => "background",
                 "include" => "include",
                 "instructions" => "instructions",
+                "allowedTools" => "allowed_tools",
                 "maxToolCalls" => "max_tool_calls",
                 "logprobs" => "logprobs",
                 "reasoningSummary" => "reasoning_summary",
@@ -1406,6 +1408,38 @@ mod tests {
 
         let url = spec.chat_url(false, &req, &ctx);
         assert!(url.ends_with("/responses"));
+    }
+
+    #[test]
+    fn openai_spec_uses_allowed_tools_for_responses_api() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        for openai_options in [
+            serde_json::json!({
+                "allowedTools": {
+                    "toolNames": ["weather"]
+                }
+            }),
+            serde_json::json!({
+                "responsesApi": {
+                    "allowedTools": {
+                        "toolNames": ["weather"]
+                    }
+                }
+            }),
+        ] {
+            let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+                .with_provider_option("openai", openai_options);
+
+            let url = spec.chat_url(false, &req, &ctx);
+            assert!(url.ends_with("/responses"));
+        }
     }
 
     #[test]

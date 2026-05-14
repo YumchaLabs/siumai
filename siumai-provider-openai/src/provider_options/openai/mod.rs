@@ -18,13 +18,13 @@ pub mod responses_api;
 pub mod web_search;
 
 // Re-exports
+pub use ai_sdk::{
+    OpenAIAllowedToolsConfig, OpenAIAllowedToolsMode, OpenAIContextManagementConfig,
+    OpenAIContextManagementType, OpenAIFilesOptions, OpenAILanguageModelChatOptions,
+    OpenAILanguageModelCompletionOptions, OpenAILanguageModelResponsesOptions,
+};
 #[allow(deprecated)]
 pub use ai_sdk::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
-pub use ai_sdk::{
-    OpenAIContextManagementConfig, OpenAIContextManagementType, OpenAIFilesOptions,
-    OpenAILanguageModelChatOptions, OpenAILanguageModelCompletionOptions,
-    OpenAILanguageModelResponsesOptions,
-};
 #[cfg(feature = "openai")]
 pub use ai_sdk::{
     OpenAIEmbeddingModelOptions, OpenAISpeechModelOptions, OpenAITranscriptionModelOptions,

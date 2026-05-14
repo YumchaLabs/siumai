@@ -236,6 +236,50 @@ impl OpenAiResponsesRequestTransformer {
         })
     }
 
+    fn allowed_tools_choice(
+        req: &ChatRequest,
+        allowed_tools: Option<&serde_json::Value>,
+    ) -> Option<serde_json::Value> {
+        let allowed_tools = allowed_tools?.as_object()?;
+        let tool_names = allowed_tools
+            .get("toolNames")
+            .or_else(|| allowed_tools.get("tool_names"))
+            .and_then(|value| value.as_array())?
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>();
+
+        if tool_names.is_empty() {
+            return None;
+        }
+
+        let mode = allowed_tools
+            .get("mode")
+            .and_then(|value| value.as_str())
+            .filter(|mode| matches!(*mode, "auto" | "required"))
+            .unwrap_or("auto");
+        let tool_name_mapping = siumai_core::standards::tool_name_mapping::create_tool_name_mapping(
+            req.tools.as_deref().unwrap_or_default(),
+            siumai_core::tools::openai::PROVIDER_TOOL_NAMES,
+        );
+
+        let tools = tool_names
+            .into_iter()
+            .map(|name| {
+                serde_json::json!({
+                    "type": "function",
+                    "name": tool_name_mapping.to_provider_tool_name(name),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Some(serde_json::json!({
+            "type": "allowed_tools",
+            "mode": mode,
+            "tools": tools,
+        }))
+    }
+
     fn tool_search_call_parts(
         arguments: &serde_json::Value,
     ) -> (Option<serde_json::Value>, Option<String>) {
@@ -1818,6 +1862,13 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                         .get(camel_case)
                         .or_else(|| responses_options.get(snake_case))
                 };
+                let get_responses_api_option = |camel_case: &str, snake_case: &str| {
+                    get_option("responsesApi", "responses_api")
+                        .and_then(|value| value.as_object())
+                        .and_then(|options| {
+                            options.get(camel_case).or_else(|| options.get(snake_case))
+                        })
+                };
 
                 if xai_options.is_some() {
                     let reasoning_effort = get_option("reasoningEffort", "reasoning_effort")
@@ -1921,6 +1972,20 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                         "context_management".to_string(),
                         serde_json::Value::Array(context_management),
                     );
+                }
+
+                let has_wire_tools = body_obj
+                    .get("tools")
+                    .and_then(|value| value.as_array())
+                    .is_some_and(|tools| !tools.is_empty());
+                if xai_options.is_none() && has_wire_tools {
+                    let allowed_tools = get_option("allowedTools", "allowed_tools")
+                        .or_else(|| get_responses_api_option("allowedTools", "allowed_tools"));
+                    if let Some(tool_choice) =
+                        OpenAiResponsesRequestTransformer::allowed_tools_choice(req, allowed_tools)
+                    {
+                        body_obj.insert("tool_choice".to_string(), tool_choice);
+                    }
                 }
 
                 Ok(())
@@ -2113,6 +2178,63 @@ mod tests {
             }])
         );
         assert!(body.get("contextManagement").is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_typed_options_map_allowed_tools_to_wire_tool_choice() {
+        use crate::types::{ChatMessage, Tool, ToolChoice};
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let req = ChatRequest::builder()
+            .message(ChatMessage::user("hi").build())
+            .model("gpt-4.1-mini")
+            .tools(vec![
+                Tool::function(
+                    "weather",
+                    "Get weather",
+                    serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "city": { "type": "string" }
+                        },
+                        "required": ["city"]
+                    }),
+                ),
+                siumai_core::tools::openai::web_search(),
+            ])
+            .tool_choice(ToolChoice::Required)
+            .provider_option(
+                "openai",
+                serde_json::json!({
+                    "allowedTools": {
+                        "toolNames": ["weather", "webSearch"],
+                        "mode": "required"
+                    }
+                }),
+            )
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform chat");
+
+        assert_eq!(
+            body["tool_choice"],
+            serde_json::json!({
+                "type": "allowed_tools",
+                "mode": "required",
+                "tools": [
+                    { "type": "function", "name": "weather" },
+                    { "type": "function", "name": "web_search" }
+                ]
+            })
+        );
+        let tools = body["tools"].as_array().expect("tools array");
+        assert!(
+            tools
+                .iter()
+                .any(|tool| tool["type"] == "function" && tool["name"] == "weather")
+        );
+        assert!(tools.iter().any(|tool| tool["type"] == "web_search"));
     }
 
     #[test]
