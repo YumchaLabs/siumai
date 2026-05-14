@@ -30,6 +30,10 @@ Last updated: 2026-05-14
 - [x] Apply the shared built-in registry helper to Groq public-path tests, covering
       `create_provider_registry`, provider-specific override construction, metadata preservation,
       chat, streaming chat, speech, and transcription parity paths.
+- [x] Apply the shared built-in registry helper to Ollama public-path tests, covering
+      `create_provider_registry`, chat, streaming chat, embedding, and provider-specific override
+      construction; preserve native registry embedding extension semantics for Ollama-specific
+      request options.
 
 ## Follow-up Candidates
 

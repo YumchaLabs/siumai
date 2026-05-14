@@ -27647,17 +27647,14 @@ mod ollama_public_path {
     };
     use siumai::registry::ProviderBuildOverrides;
 
+    fn ollama_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        built_in_registry_providers("ollama", "ollama")
+    }
+
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "ollama".to_string(),
-            Arc::new(siumai::registry::factories::OllamaProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "ollama".to_string(),
@@ -27667,7 +27664,7 @@ mod ollama_public_path {
         );
 
         create_provider_registry(
-            providers,
+            ollama_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -27684,6 +27681,40 @@ mod ollama_public_path {
                 max_cache_entries: None,
                 client_ttl: None,
                 auto_middleware: true,
+            }),
+        )
+    }
+
+    fn make_ollama_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        ollama_transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "ollama".to_string(),
+            ProviderBuildOverrides::default()
+                .with_base_url("http://example.com:11434/ollama")
+                .fetch(ollama_transport),
+        );
+
+        create_provider_registry(
+            ollama_registry_providers(),
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(global_transport),
+                http_config: None,
+                api_key: None,
+                base_url: Some("http://example.com:11434/global".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
             }),
         )
     }
@@ -28277,40 +28308,9 @@ mod ollama_public_path {
         let global_transport = CaptureTransport::default();
         let ollama_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "ollama".to_string(),
-            Arc::new(siumai::registry::factories::OllamaProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "ollama".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url("http://example.com:11434/ollama")
-                .fetch(Arc::new(ollama_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: None,
-                base_url: Some("http://example.com:11434/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_ollama_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(ollama_transport.clone()),
         );
 
         let handle = registry
@@ -28332,40 +28332,9 @@ mod ollama_public_path {
         let global_transport = CaptureTransport::default();
         let ollama_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "ollama".to_string(),
-            Arc::new(siumai::registry::factories::OllamaProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "ollama".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url("http://example.com:11434/ollama")
-                .fetch(Arc::new(ollama_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: None,
-                base_url: Some("http://example.com:11434/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_ollama_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(ollama_transport.clone()),
         );
 
         let handle = registry
@@ -28391,40 +28360,9 @@ mod ollama_public_path {
         let global_transport = CaptureTransport::default();
         let ollama_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "ollama".to_string(),
-            Arc::new(siumai::registry::factories::OllamaProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "ollama".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url("http://example.com:11434/ollama")
-                .fetch(Arc::new(ollama_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: None,
-                base_url: Some("http://example.com:11434/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_ollama_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(ollama_transport.clone()),
         );
 
         let handle = registry

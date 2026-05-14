@@ -551,6 +551,10 @@ impl EmbeddingCapability for OllamaClient {
         self.embedding_capability.embed(texts).await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         self.embedding_capability.embedding_dimension()
     }

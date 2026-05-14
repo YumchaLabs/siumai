@@ -6,6 +6,7 @@
 //! Reference: https://github.com/ollama/ollama/blob/main/docs/api.md
 
 use serde_json::json;
+use siumai::Provider;
 use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::*;
 use wiremock::matchers::{header, method, path};
