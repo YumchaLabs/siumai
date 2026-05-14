@@ -137,6 +137,7 @@ impl OpenAiSpec {
                     | "include"
                     | "instructions"
                     | "allowed_tools"
+                    | "context_management"
                     | "max_tool_calls"
                     | "reasoning_summary"
                     | "truncation"
@@ -163,6 +164,7 @@ impl OpenAiSpec {
                 "include" => "include",
                 "instructions" => "instructions",
                 "allowedTools" => "allowed_tools",
+                "contextManagement" => "context_management",
                 "maxToolCalls" => "max_tool_calls",
                 "logprobs" => "logprobs",
                 "reasoningSummary" => "reasoning_summary",
@@ -1451,6 +1453,40 @@ mod tests {
                     "allowedTools": {
                         "toolNames": ["weather"]
                     }
+                }
+            }),
+        ] {
+            let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+                .with_provider_option("openai", openai_options);
+
+            let url = spec.chat_url(false, &req, &ctx);
+            assert!(url.ends_with("/responses"));
+        }
+    }
+
+    #[test]
+    fn openai_spec_uses_context_management_for_responses_api() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        for openai_options in [
+            serde_json::json!({
+                "contextManagement": [{
+                    "type": "compaction",
+                    "compactThreshold": 512
+                }]
+            }),
+            serde_json::json!({
+                "responsesApi": {
+                    "contextManagement": [{
+                        "type": "compaction",
+                        "compactThreshold": 512
+                    }]
                 }
             }),
         ] {

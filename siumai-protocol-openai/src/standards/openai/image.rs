@@ -107,6 +107,23 @@ fn openai_image_model_has_default_response_format(model: &str) -> bool {
         || model.starts_with("gpt-image-2")
 }
 
+fn openai_image_provider_option_wire_key(key: &str) -> &str {
+    match key {
+        "inputFidelity" => "input_fidelity",
+        "outputCompression" => "output_compression",
+        "outputFormat" => "output_format",
+        "responseFormat" => "response_format",
+        _ => key,
+    }
+}
+
+fn openai_image_form_value(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| serde_json::to_string(value).unwrap_or_else(|_| value.to_string()))
+}
+
 /// OpenAI Image API Standard
 ///
 /// Represents the OpenAI Image Generation API format.
@@ -470,7 +487,7 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             && let Some(obj) = body.as_object_mut()
         {
             for (k, v) in opts {
-                obj.insert(k, v);
+                obj.insert(openai_image_provider_option_wire_key(&k).to_string(), v);
             }
         }
 
@@ -561,11 +578,10 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
                 if v.is_null() {
                     continue;
                 }
-                let s = v
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| serde_json::to_string(&v).unwrap_or_else(|_| v.to_string()));
-                form = form.text(k, s);
+                form = form.text(
+                    openai_image_provider_option_wire_key(&k).to_string(),
+                    openai_image_form_value(&v),
+                );
             }
         }
 
@@ -631,11 +647,10 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
                 if v.is_null() {
                     continue;
                 }
-                let s = v
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| serde_json::to_string(&v).unwrap_or_else(|_| v.to_string()));
-                form = form.text(k, s);
+                form = form.text(
+                    openai_image_provider_option_wire_key(&k).to_string(),
+                    openai_image_form_value(&v),
+                );
             }
         }
 
@@ -828,6 +843,24 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body_util::BodyExt as _;
+
+    fn multipart_body_text(form: reqwest::multipart::Form) -> String {
+        let client = reqwest::Client::new();
+        let mut request = client
+            .post("http://example.invalid")
+            .multipart(form)
+            .build()
+            .expect("build multipart request");
+        let body = request.body_mut().take().expect("multipart body");
+        let bytes = futures::executor::block_on(async move {
+            body.collect()
+                .await
+                .expect("collect multipart body")
+                .to_bytes()
+        });
+        String::from_utf8(bytes.to_vec()).expect("multipart body utf8")
+    }
 
     fn test_provider_context() -> ProviderContext {
         ProviderContext::new(
@@ -1011,6 +1044,42 @@ mod tests {
     }
 
     #[test]
+    fn test_image_generation_maps_ai_sdk_provider_options_to_openai_wire_keys() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        let request = ImageGenerationRequest {
+            prompt: "A cat".to_string(),
+            count: 1,
+            model: Some("gpt-image-2".to_string()),
+            ..Default::default()
+        }
+        .with_provider_option(
+            "openai",
+            serde_json::json!({
+                "background": "transparent",
+                "moderation": "low",
+                "outputFormat": "png",
+                "outputCompression": 80,
+                "user": "user-123"
+            }),
+        );
+
+        let body = transformers
+            .request
+            .transform_image(&request)
+            .expect("transform image");
+
+        assert_eq!(body["background"], serde_json::json!("transparent"));
+        assert_eq!(body["moderation"], serde_json::json!("low"));
+        assert_eq!(body["output_format"], serde_json::json!("png"));
+        assert_eq!(body["output_compression"], serde_json::json!(80));
+        assert_eq!(body["user"], serde_json::json!("user-123"));
+        assert!(body.get("outputFormat").is_none());
+        assert!(body.get("outputCompression").is_none());
+    }
+
+    #[test]
     fn test_image_response_transformer() {
         let standard = OpenAiImageStandard::new();
         let transformers = standard.create_transformers("test-provider");
@@ -1187,6 +1256,58 @@ mod tests {
         assert!(result.is_ok());
         match result.unwrap() {
             ImageHttpBody::Multipart(_) => {}
+            _ => panic!("Expected multipart form"),
+        }
+    }
+
+    #[test]
+    fn test_image_edit_maps_ai_sdk_provider_options_to_openai_wire_keys() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        let request = ImageEditRequest {
+            images: vec![ImageEditInput::file(vec![1, 2, 3, 4])],
+            mask: None,
+            prompt: "Edit".to_string(),
+            model: Some("gpt-image-2".to_string()),
+            count: Some(1),
+            size: None,
+            aspect_ratio: None,
+            seed: None,
+            response_format: None,
+            extra_params: std::collections::HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        }
+        .with_provider_option(
+            "openai",
+            serde_json::json!({
+                "outputFormat": "webp",
+                "outputCompression": 80,
+                "inputFidelity": "high",
+                "user": "user-123"
+            }),
+        );
+
+        match transformers
+            .request
+            .transform_image_edit(&request)
+            .expect("transform image edit")
+        {
+            ImageHttpBody::Multipart(form) => {
+                let body_text = multipart_body_text(form);
+                assert!(body_text.contains("name=\"output_format\""));
+                assert!(body_text.contains("webp"));
+                assert!(body_text.contains("name=\"output_compression\""));
+                assert!(body_text.contains("80"));
+                assert!(body_text.contains("name=\"input_fidelity\""));
+                assert!(body_text.contains("high"));
+                assert!(body_text.contains("name=\"user\""));
+                assert!(body_text.contains("user-123"));
+                assert!(!body_text.contains("name=\"outputFormat\""));
+                assert!(!body_text.contains("name=\"outputCompression\""));
+                assert!(!body_text.contains("name=\"inputFidelity\""));
+            }
             _ => panic!("Expected multipart form"),
         }
     }
