@@ -57,6 +57,10 @@ pub mod model_constants {
         pub const GPT_4O: &str = c::gpt_4o::GPT_4O;
         pub const GPT_4O_MINI: &str = c::gpt_4o::GPT_4O_MINI;
         pub const GPT_4O_AUDIO: &str = c::gpt_4o::GPT_4O_AUDIO_PREVIEW;
+        pub const GPT_4O_AUDIO_PREVIEW_2025_06_03: &str =
+            c::gpt_4o::GPT_4O_AUDIO_PREVIEW_2025_06_03;
+        pub const GPT_4O_SEARCH_PREVIEW: &str = c::gpt_4o::GPT_4O_SEARCH_PREVIEW;
+        pub const GPT_4O_MINI_SEARCH_PREVIEW: &str = c::gpt_4o::GPT_4O_MINI_SEARCH_PREVIEW;
 
         // GPT-4.1 family
         pub const GPT_4_1: &str = c::gpt_4_1::GPT_4_1;
@@ -71,6 +75,23 @@ pub mod model_constants {
         pub const GPT_5: &str = c::gpt_5::GPT_5;
         pub const GPT_5_MINI: &str = c::gpt_5::GPT_5_MINI;
         pub const GPT_5_NANO: &str = c::gpt_5::GPT_5_NANO;
+        pub const GPT_5_CHAT_LATEST: &str = c::gpt_5::GPT_5_CHAT_LATEST;
+        pub const GPT_5_CODEX: &str = c::gpt_5::GPT_5_CODEX;
+        pub const GPT_5_PRO: &str = c::gpt_5::GPT_5_PRO;
+        pub const GPT_5_1: &str = c::gpt_5::GPT_5_1;
+        pub const GPT_5_1_CHAT_LATEST: &str = c::gpt_5::GPT_5_1_CHAT_LATEST;
+        pub const GPT_5_1_CODEX: &str = c::gpt_5::GPT_5_1_CODEX;
+        pub const GPT_5_2: &str = c::gpt_5::GPT_5_2;
+        pub const GPT_5_2_CHAT_LATEST: &str = c::gpt_5::GPT_5_2_CHAT_LATEST;
+        pub const GPT_5_2_PRO: &str = c::gpt_5::GPT_5_2_PRO;
+        pub const GPT_5_2_CODEX: &str = c::gpt_5::GPT_5_2_CODEX;
+        pub const GPT_5_3_CHAT_LATEST: &str = c::gpt_5::GPT_5_3_CHAT_LATEST;
+        pub const GPT_5_3_CODEX: &str = c::gpt_5::GPT_5_3_CODEX;
+        pub const GPT_5_4: &str = c::gpt_5::GPT_5_4;
+        pub const GPT_5_4_MINI: &str = c::gpt_5::GPT_5_4_MINI;
+        pub const GPT_5_4_NANO: &str = c::gpt_5::GPT_5_4_NANO;
+        pub const GPT_5_4_PRO: &str = c::gpt_5::GPT_5_4_PRO;
+        pub const GPT_5_5: &str = c::gpt_5::GPT_5_5;
 
         // GPT-4 Turbo
         pub const GPT_4_TURBO: &str = c::gpt_4_turbo::GPT_4_TURBO;
@@ -96,8 +117,14 @@ pub mod model_constants {
 
         // Audio models
         pub const TTS_1: &str = c::audio::TTS_1;
+        pub const TTS_1_1106: &str = c::audio::TTS_1_1106;
         pub const TTS_1_HD: &str = c::audio::TTS_1_HD;
+        pub const TTS_1_HD_1106: &str = c::audio::TTS_1_HD_1106;
+        pub const GPT_4O_MINI_TTS: &str = c::audio::GPT_4O_MINI_TTS;
         pub const WHISPER_1: &str = c::audio::WHISPER_1;
+        pub const GPT_4O_MINI_TRANSCRIBE: &str = c::audio::GPT_4O_MINI_TRANSCRIBE;
+        pub const GPT_4O_TRANSCRIBE: &str = c::audio::GPT_4O_TRANSCRIBE;
+        pub const GPT_4O_TRANSCRIBE_DIARIZE: &str = c::audio::GPT_4O_TRANSCRIBE_DIARIZE;
 
         // Image models
         pub const DALL_E_2: &str = c::images::DALL_E_2;
