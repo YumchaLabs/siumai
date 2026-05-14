@@ -6,6 +6,7 @@ use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
 use siumai::prelude::unified::*;
 use siumai::provider_ext::google_vertex::{

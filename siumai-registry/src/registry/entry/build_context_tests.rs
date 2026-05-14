@@ -37,15 +37,18 @@ struct ContextCapturingFactory {
 
 #[async_trait::async_trait]
 impl ProviderFactory for ContextCapturingFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(TestProvClient))
+    async fn compat_language_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(TestProvClient::new(self.id, _model_id)))
     }
 
-    async fn compat_language_client_with_ctx(
+    async fn language_model_text_with_ctx(
         &self,
         _model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+    ) -> Result<Arc<dyn crate::text::LanguageModel>, LlmError> {
         *self.seen.lock().unwrap() = Some(ObservedBuildContext {
             provider_id: ctx.provider_id.clone(),
             api_key: ctx.api_key.clone(),
@@ -60,7 +63,7 @@ impl ProviderFactory for ContextCapturingFactory {
             reasoning_enabled: ctx.reasoning_enabled,
             reasoning_budget: ctx.reasoning_budget,
         });
-        Ok(Arc::new(TestProvClient))
+        Ok(Arc::new(TestProvClient::new(self.id, _model_id)))
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

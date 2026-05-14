@@ -6,6 +6,7 @@
 //! https://ai.google.dev/api/generate-content
 
 use serde_json::json;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 use wiremock::matchers::{header, method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};

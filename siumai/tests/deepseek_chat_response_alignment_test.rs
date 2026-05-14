@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 use siumai::prelude::unified::*;
-use siumai_protocol_openai::execution::transformers::response::ResponseTransformer;
+use siumai_core::execution::transformers::response::ResponseTransformer;
 use siumai_provider_openai_compatible::providers::openai_compatible::transformers::CompatResponseTransformer;
 use siumai_provider_openai_compatible::providers::openai_compatible::{
     ConfigurableAdapter, OpenAiCompatibleConfig, get_provider_config,

@@ -7,16 +7,18 @@
 //! Vercel AI SDK's `@ai-sdk/azure` granularity.
 #![deny(unsafe_code)]
 
-// Re-export the provider-agnostic core modules required by the provider implementation.
-// This preserves existing internal module paths in migrated code (e.g. `crate::types::*`).
-pub use siumai_core::{
+// Keep provider-agnostic core modules available only to this crate's implementation.
+// Provider crates must not publicly mirror `siumai-core`.
+#[allow(unused_imports)]
+pub(crate) use siumai_core::{
     LlmError, auth, client, core, defaults, error, execution, hosted_tools, observability, retry,
     retry_api, streaming, traits, types, utils,
 };
 
 /// Builder utilities shared across provider crates.
-pub mod builder {
-    pub use siumai_core::builder::*;
+pub(crate) mod builder {
+    #[allow(unused_imports)]
+    pub(crate) use siumai_core::builder::*;
 }
 
 /// Provider-owned typed option structs (Azure-specific).

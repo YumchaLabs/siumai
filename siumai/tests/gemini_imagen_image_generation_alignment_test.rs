@@ -2,6 +2,7 @@
 #![allow(deprecated)]
 
 use serde_json::json;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 use siumai::provider_ext::gemini::{
     GeminiClient, GeminiConfig, GeminiImageOptions, GeminiImageRequestExt,

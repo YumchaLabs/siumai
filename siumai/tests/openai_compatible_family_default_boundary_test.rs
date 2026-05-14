@@ -7,6 +7,7 @@ use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
 };
 use siumai::extensions::AudioCapability;
+use siumai::prelude::compat::{Provider, Siumai};
 use siumai::prelude::unified::*;
 use siumai_core::types::EmbeddingFormat;
 use std::sync::{Arc, Mutex};

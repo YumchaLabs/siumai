@@ -24,7 +24,7 @@ impl GroqProviderFactory {
             model_id,
         );
         let mut builder = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .model(common_params.model.clone())
         .with_http_config(http_config)

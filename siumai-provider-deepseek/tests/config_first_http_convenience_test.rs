@@ -1,7 +1,7 @@
 #![cfg(feature = "deepseek")]
 
-use siumai_provider_deepseek::builder::BuilderBase;
-use siumai_provider_deepseek::execution::http::interceptor::LoggingInterceptor;
+use siumai_core::builder::BuilderBase;
+use siumai_core::execution::http::interceptor::LoggingInterceptor;
 use siumai_provider_deepseek::providers::deepseek::{DeepSeekBuilder, DeepSeekConfig};
 use std::sync::Arc;
 use std::time::Duration;

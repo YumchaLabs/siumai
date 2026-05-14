@@ -3,8 +3,8 @@
 //!
 //! Tests for image generation capabilities across different providers.
 
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::ImageGenerationRequest;
-use siumai::prelude::*;
 
 #[tokio::test]
 async fn test_openai_image_generation_request_conversion() {

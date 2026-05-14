@@ -3,11 +3,44 @@
 //! These types represent the OpenAI(-compatible) wire format and are intended
 //! for reuse across multiple providers that implement OpenAI-style APIs.
 
-use serde::Deserialize;
+use std::collections::HashMap;
 
-// These core wire types are shared across OpenAI-like providers and live in `siumai-core`.
-// Keep re-exports here to preserve the historical module path.
-pub use siumai_core::standards::openai::types::{OpenAiFunction, OpenAiMessage, OpenAiToolCall};
+use serde::{Deserialize, Serialize};
+
+/// OpenAI message format (chat completions).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAiMessage {
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OpenAiToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+
+    /// Provider-specific extra fields (e.g. OpenAI-compatible vendor extensions).
+    #[serde(default, flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// OpenAI tool call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAiToolCall {
+    pub id: String,
+    pub r#type: String,
+    pub function: Option<OpenAiFunction>,
+
+    /// Provider-specific extra fields for tool calls (Vercel-aligned).
+    #[serde(default, flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// OpenAI function call payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAiFunction {
+    pub name: String,
+    pub arguments: String,
+}
 
 /// OpenAI Chat Completions response
 #[derive(Debug, Clone, Deserialize)]

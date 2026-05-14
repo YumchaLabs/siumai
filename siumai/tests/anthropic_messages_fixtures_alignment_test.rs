@@ -145,7 +145,7 @@ fn run_case(root: &Path) {
 
     let expected_warnings_path = root.join("expected_warnings.json");
     if expected_warnings_path.exists() {
-        use siumai_provider_anthropic::execution::LanguageModelMiddleware;
+        use siumai_core::execution::LanguageModelMiddleware;
 
         let expected_warnings: Vec<Warning> = read_json(expected_warnings_path);
         let mw =

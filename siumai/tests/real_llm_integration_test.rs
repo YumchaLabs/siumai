@@ -112,6 +112,7 @@ use futures::StreamExt;
 use siumai::extensions::ModelListingCapability;
 use siumai::models::groq;
 use siumai::models::openai_compatible::deepseek;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 use std::env;
 

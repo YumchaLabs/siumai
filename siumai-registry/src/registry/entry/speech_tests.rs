@@ -56,7 +56,10 @@ struct BridgeSpeechFactory;
 
 #[async_trait::async_trait]
 impl ProviderFactory for BridgeSpeechFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
         Ok(Arc::new(BridgeSpeechClient))
     }
 
@@ -118,28 +121,11 @@ fn speech_model_handle_rejects_provider_without_speech_capability() {
 }
 
 #[tokio::test]
-async fn provider_factory_speech_family_bridge_works() {
+async fn provider_factory_speech_family_default_rejects_compat_fallback() {
     let factory = BridgeSpeechFactory;
-    let model = factory
-        .speech_model_family("bridged-speech-model")
-        .await
-        .unwrap();
+    let result = factory.speech_model_family("bridged-speech-model").await;
 
-    assert_eq!(
-        crate::traits::ModelMetadata::provider_id(model.as_ref()),
-        "testprov_speech"
-    );
-    assert_eq!(
-        crate::traits::ModelMetadata::model_id(model.as_ref()),
-        "bridged-speech-model"
-    );
-
-    let response = model
-        .synthesize(crate::types::TtsRequest::new("hello".to_string()))
-        .await
-        .unwrap();
-    assert_eq!(response.audio_data, b"hello");
-    assert_eq!(response.format, "pcm");
+    assert_native_family_model_unsupported_result(result, "testprov_speech", "speech");
 }
 
 #[tokio::test]
@@ -181,7 +167,10 @@ async fn provider_factory_native_speech_family_path_works() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeOnlySpeechFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by native speech-family test")
         }
 
@@ -265,11 +254,17 @@ async fn speech_model_handle_uses_native_family_path_when_available() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeHandleSpeechFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by speech handle")
         }
 
-        async fn speech_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_speech_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy speech client path should not be used by speech handle")
         }
 
@@ -349,7 +344,10 @@ async fn speech_model_handle_reuses_cached_family_model() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for CountingSpeechFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by speech cache test")
         }
 

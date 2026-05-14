@@ -4,6 +4,7 @@
 #![cfg(feature = "google")]
 
 use serde_json::json;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 use siumai_core::types::Warning;
 use wiremock::matchers::{header, method, path_regex};

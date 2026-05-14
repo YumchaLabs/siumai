@@ -535,29 +535,20 @@ pub mod prelude {
     /// This module centers the six stable model families:
     /// Language/Embedding/Image/Reranking/Speech/Transcription.
     ///
-    /// Compatibility-oriented construction aliases remain source-compatible for now,
-    /// but are hidden from docs and also exposed explicitly under `prelude::compat`.
+    /// Compatibility-oriented construction aliases remain source-compatible under
+    /// `siumai::compat` and `prelude::compat`, not through this stable prelude.
     pub mod unified {
-        #[doc(hidden)]
-        pub use crate::Provider;
-        pub use crate::experimental_generate_video;
         pub use crate::files::{
             FileUploadProvider, UploadFileApi, UploadFileOptions, UploadFileProviderMetadata,
             UploadFileResult,
         };
-        #[allow(deprecated)]
-        pub use crate::image::experimental_generate_image;
         pub use crate::parse_json_event_stream;
-        #[doc(hidden)]
-        pub use crate::provider::Siumai;
         pub use crate::registry::ProviderFactory;
         pub use crate::retry_api::*;
         pub use crate::skills::{
             UploadSkillApi, UploadSkillFile, UploadSkillFileContent, UploadSkillOptions,
             UploadSkillProviderMetadata, UploadSkillResult,
         };
-        #[allow(deprecated)]
-        pub use crate::speech::experimental_generate_speech;
         pub use crate::structured_output::{
             GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema,
             PartialJsonParseResult, PartialJsonParseState, PartialJsonValueStream,
@@ -567,8 +558,6 @@ pub mod prelude {
         };
         pub use crate::tooling;
         pub use crate::tools;
-        #[allow(deprecated)]
-        pub use crate::transcription::experimental_transcribe;
         pub use crate::{
             Arrayable, DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX,
             DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE,

@@ -68,7 +68,10 @@ struct BridgeMusicFactory;
 
 #[async_trait::async_trait]
 impl ProviderFactory for BridgeMusicFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
         Ok(Arc::new(BridgeMusicClient))
     }
 

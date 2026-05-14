@@ -928,28 +928,28 @@ impl SiumaiBuilder {
         self
     }
     pub fn base_url_for_vertex(mut self, project: &str, location: &str, publisher: &str) -> Self {
-        let base = crate::utils::vertex_base_url(project, location, publisher);
+        let base = crate::auth::vertex::vertex_base_url(project, location, publisher);
         self.base_url = Some(base);
         self
     }
 
     /// Build an Anthropic-on-Vertex provider base URL aligned with AI SDK.
     pub fn base_url_for_anthropic_vertex(mut self, project: &str, location: &str) -> Self {
-        let base = crate::utils::vertex::google_vertex_anthropic_base_url(project, location);
+        let base = crate::auth::vertex::google_vertex_anthropic_base_url(project, location);
         self.base_url = Some(base);
         self
     }
 
     /// Build a Google Vertex provider base URL aligned with Vercel AI SDK (`v1beta1`).
     pub fn base_url_for_google_vertex(mut self, project: &str, location: &str) -> Self {
-        let base = crate::utils::vertex::google_vertex_base_url(project, location);
+        let base = crate::auth::vertex::google_vertex_base_url(project, location);
         self.base_url = Some(base);
         self
     }
 
     /// Build a Google Vertex MaaS provider base URL aligned with AI SDK.
     pub fn base_url_for_vertex_maas(mut self, project: &str, location: &str) -> Self {
-        let base = crate::utils::vertex::google_vertex_maas_base_url(project, location);
+        let base = crate::auth::vertex::google_vertex_maas_base_url(project, location);
         self.base_url = Some(base);
         self
     }

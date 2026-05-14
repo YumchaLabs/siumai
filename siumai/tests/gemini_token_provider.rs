@@ -1,9 +1,9 @@
 #![cfg(feature = "google")]
 #![allow(deprecated)]
+use siumai::prelude::compat::Siumai;
 use std::sync::Arc;
 
 use siumai::experimental::auth::StaticTokenProvider;
-use siumai::prelude::unified::*;
 
 #[tokio::test]
 async fn build_gemini_with_token_provider_without_api_key() {

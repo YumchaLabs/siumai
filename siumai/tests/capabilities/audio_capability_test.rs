@@ -17,6 +17,7 @@
 #![allow(deprecated)]
 
 use siumai::experimental::client::LlmClient;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::{SpeechCapability, TranscriptionCapability, TtsRequest};
 use siumai::prelude::*;
 use std::env;

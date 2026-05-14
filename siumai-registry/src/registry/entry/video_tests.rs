@@ -6,6 +6,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[derive(Clone)]
 struct BridgeVideoClient;
 
+impl crate::traits::ModelMetadata for BridgeVideoClient {
+    fn provider_id(&self) -> &str {
+        "testprov_video"
+    }
+
+    fn model_id(&self) -> &str {
+        "video-model"
+    }
+}
+
 #[async_trait::async_trait]
 impl crate::traits::VideoGenerationCapability for BridgeVideoClient {
     async fn create_video_task(
@@ -92,7 +102,18 @@ struct BridgeVideoFactory;
 
 #[async_trait::async_trait]
 impl ProviderFactory for BridgeVideoFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(BridgeVideoClient))
+    }
+
+    async fn video_model_family_with_ctx(
+        &self,
+        _model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn siumai_core::video::VideoModel>, LlmError> {
         Ok(Arc::new(BridgeVideoClient))
     }
 
@@ -204,36 +225,31 @@ fn video_model_handle_exposes_known_max_videos_per_call_defaults() {
 }
 
 #[tokio::test]
-async fn provider_factory_video_family_bridge_works() {
-    let factory = BridgeVideoFactory;
-    let model = factory
-        .video_model_family("bridged-video-model")
-        .await
-        .unwrap();
+async fn provider_factory_video_family_default_rejects_compat_fallback() {
+    struct CompatOnlyVideoFactory;
 
-    assert_eq!(
-        crate::traits::ModelMetadata::provider_id(model.as_ref()),
-        "testprov_video"
-    );
-    assert_eq!(
-        crate::traits::ModelMetadata::model_id(model.as_ref()),
-        "bridged-video-model"
-    );
+    #[async_trait::async_trait]
+    impl ProviderFactory for CompatOnlyVideoFactory {
+        async fn compat_video_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
+            Ok(Arc::new(BridgeVideoClient))
+        }
 
-    let created = model
-        .create_task(crate::types::VideoGenerationRequest::new(
-            "bridged-video-model",
-            "bridge video",
-        ))
-        .await
-        .unwrap();
-    let queried = model.query_task(&created.task_id).await.unwrap();
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("compat-only-video")
+        }
 
-    assert_eq!(created.task_id, "task:bridge video");
-    assert_eq!(
-        queried.video_url.as_deref(),
-        Some("https://example.com/video.mp4")
-    );
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new().with_custom_feature("video", true)
+        }
+    }
+
+    let factory = CompatOnlyVideoFactory;
+    let result = factory.video_model_family("bridged-video-model").await;
+
+    assert_native_family_model_unsupported_result(result, "compat-only-video", "video");
 }
 
 #[tokio::test]
@@ -293,7 +309,10 @@ async fn provider_factory_native_video_family_path_works() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeOnlyVideoFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by native video-family test")
         }
 
@@ -397,11 +416,17 @@ async fn video_model_handle_uses_native_family_path_when_available() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeHandleVideoFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by video handle")
         }
 
-        async fn video_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_video_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy video client path should not be used by video handle")
         }
 
@@ -498,7 +523,10 @@ async fn video_model_handle_reuses_cached_family_model() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for CountingVideoFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by video cache test")
         }
 

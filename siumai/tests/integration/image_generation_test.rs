@@ -4,6 +4,7 @@
 //! These tests perform real image generation calls against providers.
 //! They are ignored by default to avoid unintended costs.
 
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 
 /// OpenAI image generation (url format)

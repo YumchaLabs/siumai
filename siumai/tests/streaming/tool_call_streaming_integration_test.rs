@@ -6,6 +6,7 @@
 
 use futures::StreamExt;
 use serde_json::json;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::{ChatStreamEvent, ChatStreamPart};
 use siumai::prelude::*;
 

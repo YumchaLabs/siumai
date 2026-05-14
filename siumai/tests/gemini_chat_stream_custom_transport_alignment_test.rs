@@ -8,8 +8,9 @@ use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
     HttpTransportStreamResponse,
 };
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::{
-    ChatCapability, ChatMessage, ChatRequest, ChatStreamEvent, LlmError, Siumai,
+    ChatCapability, ChatMessage, ChatRequest, ChatStreamEvent, LlmError,
 };
 use std::sync::{Arc, Mutex};
 

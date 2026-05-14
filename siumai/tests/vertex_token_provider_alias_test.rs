@@ -1,10 +1,10 @@
 #![cfg(feature = "google-vertex")]
 #![allow(deprecated)]
 
+use siumai::prelude::compat::Siumai;
 use std::sync::Arc;
 
 use siumai::experimental::auth::StaticTokenProvider;
-use siumai::prelude::unified::*;
 
 #[tokio::test]
 async fn build_anthropic_vertex_with_google_token_provider_alias() {

@@ -12,17 +12,14 @@
 //! quirks behind provider-owned presets/wrappers.
 #![deny(unsafe_code)]
 
-// Re-export the provider-agnostic core modules required by the standard implementation.
-// This preserves existing internal-style module paths in migrated code (e.g. `crate::types::*`).
-pub use siumai_core::{
+// Keep provider-agnostic core modules available only to this crate's implementation.
+// Protocol crates must not publicly mirror `siumai-core`; downstream code should import
+// shared core types from `siumai-core` or the top-level `siumai` facade.
+#[allow(unused_imports)]
+pub(crate) use siumai_core::{
     LlmError, auth, client, core, defaults, encoding, error, execution, hosted_tools,
     observability, retry, retry_api, streaming, tools, traits, types, utils,
 };
-
-/// Builder utilities shared across provider crates.
-pub mod builder {
-    pub use siumai_core::builder::*;
-}
 
 /// Protocol-owned typed metadata views.
 pub mod provider_metadata;

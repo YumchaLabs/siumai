@@ -13,14 +13,24 @@ impl ProviderFactory for TestProviderFactory {
         ProviderCapabilities::new().with_chat()
     }
 
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
         use crate::registry::entry::TEST_BUILD_COUNT;
         TEST_BUILD_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(Arc::new(crate::registry::entry::TestProvClient))
+        Ok(Arc::new(crate::registry::entry::TestProvClient::new(
+            "test", _model_id,
+        )))
     }
 
-    async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(crate::registry::entry::TestProvEmbedClient))
+    async fn compat_embedding_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(crate::registry::entry::TestProvEmbedClient::new(
+            _model_id,
+        )))
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

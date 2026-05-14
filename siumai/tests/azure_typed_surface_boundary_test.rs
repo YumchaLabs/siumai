@@ -6,6 +6,7 @@ use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::*;
 use siumai::provider_ext::azure::{AzureOpenAiClient, AzureOpenAiConfig, metadata::*, options::*};
 use std::path::Path;

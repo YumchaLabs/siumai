@@ -100,7 +100,7 @@ fn image_model_handle_batching_defaults_follow_audited_provider_mapping() {
 }
 
 #[tokio::test]
-async fn provider_factory_image_family_bridge_works() {
+async fn provider_factory_image_family_path_works() {
     let factory = TestImageProviderFactory;
     let model = factory
         .image_model_family("bridged-image-model")
@@ -168,7 +168,10 @@ async fn provider_factory_native_image_family_path_works() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeOnlyImageFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by native image-family test")
         }
 
@@ -256,11 +259,17 @@ async fn image_model_handle_uses_native_family_path_when_available() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeImageHandleFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by image handle")
         }
 
-        async fn image_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_image_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy image client path should not be used by image handle")
         }
 

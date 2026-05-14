@@ -9,8 +9,9 @@ use siumai::embedding::{self, BatchEmbeddingRequest, EmbedOptions};
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
-use siumai::prelude::unified::{EmbeddingRequest, LlmError, Siumai};
+use siumai::prelude::unified::{EmbeddingRequest, LlmError};
 use siumai::provider_ext::google_vertex::{VertexEmbeddingOptions, VertexEmbeddingRequestExt};
 use siumai::registry::ProviderBuildOverrides;
 use siumai_core::types::EmbeddingTaskType;

@@ -60,69 +60,71 @@ fn no_builtins_custom_factory_example_is_family_first() {
     );
     assert!(
         factory_doc.contains("The primary contract is to create family model objects")
-            && factory_doc.contains("Legacy generic-client entry point")
-            && factory_doc.contains("Prefer `language_model_text_with_ctx(...)`"),
+            && factory_doc.contains("Compatibility alias for creating a generic `LlmClient`")
+            && factory_doc.contains(
+                "New registry execution should prefer `language_model_text_with_ctx(...)`"
+            ),
         "ProviderFactory docs should keep the family-first contract explicit"
     );
     assert!(
-        factory_doc.contains("#[deprecated")
-            && factory_doc.contains("Use compat_language_client(...)")
-            && factory_doc.contains("Use compat_completion_client(...)")
-            && factory_doc.contains("Use compat_embedding_client(...)")
-            && factory_doc.contains("Use compat_image_client(...)")
-            && factory_doc.contains("Use compat_speech_client(...)")
-            && factory_doc.contains("Use compat_transcription_client(...)")
-            && factory_doc.contains("Use compat_video_client(...)")
-            && factory_doc.contains("Use compat_reranking_client(...)"),
-        "ProviderFactory legacy generic-client methods should be explicitly deprecated in favor of compat_* aliases"
+        !factory_doc.contains("#[deprecated")
+            && !factory_doc.contains("async fn language_model(")
+            && !factory_doc.contains("async fn completion_model(")
+            && !factory_doc.contains("async fn embedding_model(")
+            && !factory_doc.contains("async fn image_model(")
+            && !factory_doc.contains("async fn speech_model(")
+            && !factory_doc.contains("async fn transcription_model(")
+            && !factory_doc.contains("async fn video_model(")
+            && !factory_doc.contains("async fn reranking_model("),
+        "ProviderFactory legacy generic-client wrapper methods should be removed, not just deprecated"
     );
     assert_source_order(
         &factory_doc,
         "async fn language_model_text_with_ctx(",
-        "Legacy generic-client entry point",
-        "language family methods should be listed before the generic language client entry point",
+        "async fn compat_language_client(",
+        "language family methods should be listed before the compat language client entry point",
     );
     assert_source_order(
         &factory_doc,
         "async fn completion_model_family_with_ctx(",
-        "async fn completion_model(",
-        "completion family methods should be listed before the generic completion client entry point",
+        "async fn compat_completion_client(",
+        "completion family methods should be listed before the compat completion client entry point",
     );
     assert_source_order(
         &factory_doc,
         "async fn embedding_model_family_with_ctx(",
-        "async fn embedding_model(",
-        "embedding family methods should be listed before the generic embedding client entry point",
+        "async fn compat_embedding_client(",
+        "embedding family methods should be listed before the compat embedding client entry point",
     );
     assert_source_order(
         &factory_doc,
         "async fn image_model_family_with_ctx(",
-        "async fn image_model(",
-        "image family methods should be listed before the generic image client entry point",
+        "async fn compat_image_client(",
+        "image family methods should be listed before the compat image client entry point",
     );
     assert_source_order(
         &factory_doc,
         "async fn speech_model_family_with_ctx(",
-        "async fn speech_model(",
-        "speech family methods should be listed before the generic speech client entry point",
+        "async fn compat_speech_client(",
+        "speech family methods should be listed before the compat speech client entry point",
     );
     assert_source_order(
         &factory_doc,
         "async fn transcription_model_family_with_ctx(",
-        "async fn transcription_model(",
-        "transcription family methods should be listed before the generic transcription client entry point",
+        "async fn compat_transcription_client(",
+        "transcription family methods should be listed before the compat transcription client entry point",
     );
     assert_source_order(
         &factory_doc,
         "async fn video_model_family_with_ctx(",
-        "async fn video_model(",
-        "video family methods should be listed before the generic video client entry point",
+        "async fn compat_video_client(",
+        "video family methods should be listed before the compat video client entry point",
     );
     assert_source_order(
         &factory_doc,
         "async fn reranking_model_family_with_ctx(",
-        "async fn reranking_model(",
-        "reranking family methods should be listed before the generic reranking client entry point",
+        "async fn compat_reranking_client(",
+        "reranking family methods should be listed before the compat reranking client entry point",
     );
 }
 
@@ -149,7 +151,7 @@ fn registry_family_handles_keep_llm_client_downcasts_isolated() {
             .collect::<Vec<_>>();
         assert!(
             downcast_lines.is_empty(),
-            "{file} should use family model factories directly; LlmClient capability downcasts belong in compat_client.rs or extension-only language paths: {downcast_lines:?}"
+            "{file} should use family model factories directly; LlmClient capability downcasts belong only behind explicit compat_* methods for extension-only language paths: {downcast_lines:?}"
         );
     }
 

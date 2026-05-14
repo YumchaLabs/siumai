@@ -1238,7 +1238,7 @@ mod azure_contract {
 
         let builder_client =
             siumai_provider_azure::providers::azure_openai::AzureOpenAiBuilder::new(
-                siumai_provider_azure::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("test-key")
             .base_url(base_url)
@@ -1311,7 +1311,7 @@ mod azure_contract {
 
         let builder_client =
             siumai_provider_azure::providers::azure_openai::AzureOpenAiBuilder::new(
-                siumai_provider_azure::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("test-key")
             .base_url(base_url)
@@ -1373,7 +1373,7 @@ mod azure_contract {
 
         let builder_client =
             siumai_provider_azure::providers::azure_openai::AzureOpenAiBuilder::new(
-                siumai_provider_azure::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("test-key")
             .base_url(base_url)
@@ -1441,7 +1441,7 @@ mod azure_contract {
 
         let builder_client =
             siumai_provider_azure::providers::azure_openai::AzureOpenAiBuilder::new(
-                siumai_provider_azure::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("test-key")
             .base_url(base_url)
@@ -1639,6 +1639,7 @@ mod cohere_contract {
     use super::*;
     use crate::traits::{ChatCapability, EmbeddingExtensions, RerankCapability};
     use reqwest::header::AUTHORIZATION;
+    use siumai_core::types::{EmbeddingRequest, ResponseFormat, Tool, ToolChoice};
     use siumai_provider_cohere::provider_options::{
         CohereChatOptions, CohereEmbeddingInputType, CohereEmbeddingOptions,
         CohereEmbeddingTruncate, CohereRerankOptions, CohereThinkingConfig, CohereThinkingType,
@@ -1648,7 +1649,6 @@ mod cohere_contract {
         CohereChatRequestExt, CohereEmbeddingRequestExt, CohereRerankRequestExt,
     };
     use siumai_provider_cohere::providers::cohere::{CohereClient, CohereConfig};
-    use siumai_provider_cohere::types::{EmbeddingRequest, ResponseFormat, Tool, ToolChoice};
 
     #[tokio::test]
     async fn cohere_factory_exposes_unified_capabilities() {
@@ -1889,14 +1889,13 @@ mod cohere_contract {
             "additionalProperties": false
         });
 
-        let builder_client =
-            CohereBuilder::new(siumai_provider_cohere::builder::BuilderBase::default())
-                .api_key("ctx-key")
-                .base_url("https://example.com/cohere")
-                .language_model("command-a-03-2025")
-                .fetch(Arc::new(builder_transport.clone()))
-                .build()
-                .expect("build builder client");
+        let builder_client = CohereBuilder::new(siumai_core::builder::BuilderBase::default())
+            .api_key("ctx-key")
+            .base_url("https://example.com/cohere")
+            .language_model("command-a-03-2025")
+            .fetch(Arc::new(builder_transport.clone()))
+            .build()
+            .expect("build builder client");
 
         let config_client = CohereClient::from_config(
             CohereConfig::new("ctx-key")
@@ -2002,14 +2001,13 @@ mod cohere_contract {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
 
-        let builder_client =
-            CohereBuilder::new(siumai_provider_cohere::builder::BuilderBase::default())
-                .api_key("ctx-key")
-                .base_url("https://example.com/cohere")
-                .embedding_model("embed-v4.0")
-                .fetch(Arc::new(builder_transport.clone()))
-                .build()
-                .expect("build builder client");
+        let builder_client = CohereBuilder::new(siumai_core::builder::BuilderBase::default())
+            .api_key("ctx-key")
+            .base_url("https://example.com/cohere")
+            .embedding_model("embed-v4.0")
+            .fetch(Arc::new(builder_transport.clone()))
+            .build()
+            .expect("build builder client");
 
         let config_client = CohereClient::from_config(
             CohereConfig::new("ctx-key")
@@ -2091,14 +2089,13 @@ mod cohere_contract {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
 
-        let builder_client =
-            CohereBuilder::new(siumai_provider_cohere::builder::BuilderBase::default())
-                .api_key("ctx-key")
-                .base_url("https://example.com/cohere")
-                .reranking_model("rerank-v3.5")
-                .fetch(Arc::new(builder_transport.clone()))
-                .build()
-                .expect("build builder client");
+        let builder_client = CohereBuilder::new(siumai_core::builder::BuilderBase::default())
+            .api_key("ctx-key")
+            .base_url("https://example.com/cohere")
+            .reranking_model("rerank-v3.5")
+            .fetch(Arc::new(builder_transport.clone()))
+            .build()
+            .expect("build builder client");
 
         let config_client = CohereClient::from_config(
             CohereConfig::new("ctx-key")
@@ -2618,7 +2615,7 @@ mod togetherai_contract {
 
         let builder_client =
             siumai_provider_togetherai::providers::togetherai::TogetherAiBuilder::new(
-                siumai_provider_togetherai::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/together")
@@ -3228,7 +3225,7 @@ mod bedrock_contract {
 
         let builder_client =
             siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
-                siumai_provider_amazon_bedrock::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url(runtime_base_url)
@@ -3314,7 +3311,7 @@ mod bedrock_contract {
 
         let builder_client =
             siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
-                siumai_provider_amazon_bedrock::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url(runtime_base_url)
@@ -3406,7 +3403,7 @@ mod bedrock_contract {
 
         let builder_client =
             siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
-                siumai_provider_amazon_bedrock::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url(runtime_base_url)
@@ -3529,7 +3526,7 @@ mod bedrock_contract {
 
         let builder_client =
             siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
-                siumai_provider_amazon_bedrock::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url(runtime_base_url)
@@ -3621,7 +3618,7 @@ mod bedrock_contract {
 
         let builder_client =
             siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
-                siumai_provider_amazon_bedrock::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url(runtime_base_url)
@@ -3726,7 +3723,7 @@ mod bedrock_contract {
 
         let builder_client =
             siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
-                siumai_provider_amazon_bedrock::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url(runtime_base_url)
@@ -7673,7 +7670,7 @@ data: [DONE]
 
         let builder_client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 "deepseek",
             )
             .api_key("ctx-key")
@@ -7787,7 +7784,7 @@ data: [DONE]
 
         let builder_client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 "openrouter",
             )
             .api_key("ctx-key")
@@ -7887,7 +7884,7 @@ data: [DONE]
 
         let builder_client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 "perplexity",
             )
             .api_key("ctx-key")
@@ -7975,7 +7972,7 @@ data: [DONE]
 
         let builder_client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 "jina",
             )
             .api_key("ctx-key")
@@ -8063,7 +8060,7 @@ data: [DONE]
 
         let builder_client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 "together",
             )
             .api_key("ctx-key")
@@ -8328,7 +8325,7 @@ data: [DONE]
 
         let builder_client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 "deepseek",
             )
             .api_key("ctx-key")
@@ -8451,7 +8448,7 @@ data: [DONE]
 
         let builder_client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 "openrouter",
             )
             .api_key("ctx-key")
@@ -8559,7 +8556,7 @@ data: [DONE]
 
         let builder_client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 "perplexity",
             )
             .api_key("ctx-key")
@@ -8904,7 +8901,7 @@ mod deepseek_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -8972,7 +8969,7 @@ mod deepseek_contract {
         let request_model = "deepseek-reasoner";
 
         let builder_client = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -9039,7 +9036,7 @@ mod deepseek_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -9103,7 +9100,7 @@ mod deepseek_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -9181,7 +9178,7 @@ mod deepseek_contract {
         let request_model = "deepseek-reasoner";
 
         let builder_client = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -9254,7 +9251,7 @@ mod deepseek_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -9329,7 +9326,7 @@ mod deepseek_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -9414,7 +9411,7 @@ mod deepseek_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -10270,7 +10267,7 @@ mod anthropic_contract {
 
         let builder_client =
             siumai_provider_anthropic::providers::anthropic::AnthropicBuilder::new(
-                siumai_provider_anthropic::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -10407,7 +10404,7 @@ mod anthropic_contract {
 
         let builder_client =
             siumai_provider_anthropic::providers::anthropic::AnthropicBuilder::new(
-                siumai_provider_anthropic::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -10782,11 +10779,11 @@ mod groq_contract {
 
         assert!(
             source.contains("async fn speech_model_family_with_ctx("),
-            "GroqProviderFactory should override speech_model_family_with_ctx instead of relying on the default ClientBackedSpeechModel bridge"
+            "GroqProviderFactory should override speech_model_family_with_ctx instead of relying on a missing native speech family path"
         );
         assert!(
             source.contains("async fn transcription_model_family_with_ctx("),
-            "GroqProviderFactory should override transcription_model_family_with_ctx instead of relying on the default ClientBackedTranscriptionModel bridge"
+            "GroqProviderFactory should override transcription_model_family_with_ctx instead of relying on a missing native transcription family path"
         );
     }
 
@@ -10856,7 +10853,7 @@ mod groq_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/")
@@ -10917,7 +10914,7 @@ mod groq_contract {
         let request_model = "llama-3.3-70b-versatile";
 
         let builder_client = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/")
@@ -10977,7 +10974,7 @@ mod groq_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/")
@@ -11048,7 +11045,7 @@ mod groq_contract {
         let request_model = "llama-3.3-70b-versatile";
 
         let builder_client = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/")
@@ -11115,7 +11112,7 @@ mod groq_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/")
@@ -11192,7 +11189,7 @@ mod groq_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/")
@@ -11280,7 +11277,7 @@ mod groq_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/")
@@ -11365,7 +11362,7 @@ mod groq_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_groq::providers::groq::GroqBuilder::new(
-            siumai_provider_groq::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/")
@@ -12123,7 +12120,7 @@ mod xai_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -12184,7 +12181,7 @@ mod xai_contract {
         let request_model = "grok-4";
 
         let builder_client = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -12244,7 +12241,7 @@ mod xai_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -12315,7 +12312,7 @@ mod xai_contract {
         let request_model = "grok-4";
 
         let builder_client = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -12382,7 +12379,7 @@ mod xai_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -12499,7 +12496,7 @@ mod xai_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -12627,7 +12624,7 @@ mod xai_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -12714,7 +12711,7 @@ mod xai_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom/v1/")
@@ -13299,7 +13296,7 @@ mod ollama_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_ollama::providers::ollama::OllamaBuilder::new(
-            siumai_provider_ollama::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .base_url("http://example.com:11434/")
         .model("nomic-embed-text")
@@ -13422,7 +13419,7 @@ mod ollama_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_ollama::providers::ollama::OllamaBuilder::new(
-            siumai_provider_ollama::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .base_url("http://example.com:11434/")
         .model("llama3.2")
@@ -13505,7 +13502,7 @@ mod ollama_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_ollama::providers::ollama::OllamaBuilder::new(
-            siumai_provider_ollama::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .base_url("http://example.com:11434/")
         .model("llama3.2")
@@ -13576,7 +13573,7 @@ mod ollama_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_ollama::providers::ollama::OllamaBuilder::new(
-            siumai_provider_ollama::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .base_url("http://example.com:11434/")
         .model("llama3.2")
@@ -13666,7 +13663,7 @@ mod ollama_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_ollama::providers::ollama::OllamaBuilder::new(
-            siumai_provider_ollama::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .base_url("http://example.com:11434/")
         .model("llama3.2")
@@ -14239,7 +14236,7 @@ mod minimaxi_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom")
@@ -14307,7 +14304,7 @@ mod minimaxi_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom")
@@ -15311,7 +15308,7 @@ mod minimaxi_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom")
@@ -15386,7 +15383,7 @@ mod minimaxi_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom")
@@ -15473,7 +15470,7 @@ mod minimaxi_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom")
@@ -15580,7 +15577,7 @@ mod minimaxi_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/custom")
@@ -15683,7 +15680,7 @@ mod minimaxi_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/anthropic/v1")
@@ -15772,7 +15769,7 @@ mod minimaxi_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/anthropic/v1")
@@ -15893,7 +15890,7 @@ mod minimaxi_contract {
         let registry_server = mount_query_server().await;
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url(format!("{}/anthropic/v1", builder_server.uri()))
@@ -16008,7 +16005,7 @@ mod minimaxi_contract {
         let registry_server = mount_upload_server().await;
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url(format!("{}/anthropic/v1", builder_server.uri()))
@@ -16143,7 +16140,7 @@ mod minimaxi_contract {
         let registry_server = mount_list_server().await;
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url(format!("{}/anthropic/v1", builder_server.uri()))
@@ -16274,7 +16271,7 @@ mod minimaxi_contract {
         let registry_server = mount_retrieve_server().await;
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url(format!("{}/anthropic/v1", builder_server.uri()))
@@ -16388,7 +16385,7 @@ mod minimaxi_contract {
         let registry_server = mount_content_server().await;
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url(format!("{}/anthropic/v1", builder_server.uri()))
@@ -16502,7 +16499,7 @@ mod minimaxi_contract {
         let registry_server = mount_delete_server().await;
 
         let builder_client = siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            siumai_provider_minimaxi::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url(format!("{}/anthropic/v1", builder_server.uri()))
@@ -16785,7 +16782,7 @@ mod anthropic_vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .base_url("https://example.com/custom")
             .language_model("claude-3-5-sonnet-20241022")
@@ -16864,7 +16861,7 @@ mod anthropic_vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .base_url("https://example.com/custom")
             .model("claude-3-5-sonnet-20241022")
@@ -16951,7 +16948,7 @@ mod anthropic_vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .base_url("https://example.com/custom")
             .language_model(default_model)
@@ -17024,7 +17021,7 @@ mod anthropic_vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .base_url("https://example.com/custom")
             .model(default_model)
@@ -17366,7 +17363,7 @@ mod gemini_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_gemini::providers::gemini::GeminiBuilder::new(
-            siumai_provider_gemini::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/v1beta")
@@ -17505,7 +17502,7 @@ mod gemini_contract {
         });
 
         let builder_client = siumai_provider_gemini::providers::gemini::GeminiBuilder::new(
-            siumai_provider_gemini::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/v1beta")
@@ -17791,7 +17788,7 @@ mod gemini_contract {
         let registry_transport = CaptureTransport::default();
 
         let builder_client = siumai_provider_gemini::providers::gemini::GeminiBuilder::new(
-            siumai_provider_gemini::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .api_key("ctx-key")
         .base_url("https://example.com/v1beta")
@@ -17981,7 +17978,7 @@ mod vertex_contract {
             .expect("GoogleVertexClient");
         assert_eq!(
             typed.base_url(),
-            crate::utils::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+            crate::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
         );
     }
 
@@ -18011,7 +18008,7 @@ mod vertex_contract {
             .expect("GoogleVertexClient");
         assert_eq!(
             typed.base_url(),
-            crate::utils::vertex::google_vertex_base_url("test-project", "us-central1")
+            crate::auth::vertex::google_vertex_base_url("test-project", "us-central1")
         );
     }
 
@@ -18226,7 +18223,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -18343,7 +18340,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -18456,7 +18453,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -18563,7 +18560,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -18637,7 +18634,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -18723,7 +18720,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -18821,7 +18818,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -18910,7 +18907,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url("https://example.com/custom")
@@ -19160,7 +19157,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url(base_url)
@@ -19297,7 +19294,7 @@ mod vertex_contract {
 
         let builder_client =
             siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-                siumai_provider_google_vertex::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
             )
             .api_key("ctx-key")
             .base_url(base_url)

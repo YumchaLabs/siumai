@@ -3,6 +3,7 @@
 //!
 //! Ignored by default to avoid unintended costs.
 
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 
 #[tokio::test]

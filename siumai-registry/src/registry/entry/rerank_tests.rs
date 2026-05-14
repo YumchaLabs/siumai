@@ -6,6 +6,16 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct BridgeRerankClient;
 
+impl crate::traits::ModelMetadata for BridgeRerankClient {
+    fn provider_id(&self) -> &str {
+        "testprov_rerank"
+    }
+
+    fn model_id(&self) -> &str {
+        "rerank-model"
+    }
+}
+
 #[async_trait::async_trait]
 impl crate::traits::RerankCapability for BridgeRerankClient {
     async fn rerank(
@@ -61,7 +71,18 @@ struct BridgeRerankFactory;
 
 #[async_trait::async_trait]
 impl ProviderFactory for BridgeRerankFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(BridgeRerankClient))
+    }
+
+    async fn reranking_model_family_with_ctx(
+        &self,
+        _model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn siumai_core::rerank::RerankingModel>, LlmError> {
         Ok(Arc::new(BridgeRerankClient))
     }
 
@@ -155,32 +176,31 @@ async fn reranking_model_handle_builds_and_calls() {
 }
 
 #[tokio::test]
-async fn provider_factory_reranking_family_bridge_works() {
-    let factory = BridgeRerankFactory;
-    let model = factory
-        .reranking_model_family("bridged-rerank-model")
-        .await
-        .unwrap();
+async fn provider_factory_reranking_family_default_rejects_compat_fallback() {
+    struct CompatOnlyRerankFactory;
 
-    assert_eq!(
-        crate::traits::ModelMetadata::provider_id(model.as_ref()),
-        "testprov_rerank"
-    );
-    assert_eq!(
-        crate::traits::ModelMetadata::model_id(model.as_ref()),
-        "bridged-rerank-model"
-    );
+    #[async_trait::async_trait]
+    impl ProviderFactory for CompatOnlyRerankFactory {
+        async fn compat_reranking_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
+            Ok(Arc::new(BridgeRerankClient))
+        }
 
-    let response = model
-        .rerank(crate::types::RerankRequest::new(
-            "bridged-rerank-model".to_string(),
-            "query".to_string(),
-            vec!["a".to_string(), "b".to_string()],
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.id, "bridge-rerank");
-    assert_eq!(response.results.len(), 2);
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("compat-only-rerank")
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new().with_rerank()
+        }
+    }
+
+    let factory = CompatOnlyRerankFactory;
+    let result = factory.reranking_model_family("bridged-rerank-model").await;
+
+    assert_native_family_model_unsupported_result(result, "compat-only-rerank", "reranking");
 }
 
 #[tokio::test]
@@ -227,7 +247,10 @@ async fn provider_factory_native_reranking_family_path_works() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeOnlyRerankFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by native rerank-family test")
         }
 
@@ -319,11 +342,17 @@ async fn reranking_model_handle_uses_native_family_path_when_available() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeHandleRerankFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by rerank handle")
         }
 
-        async fn reranking_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_reranking_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy reranking client path should not be used by rerank handle")
         }
 

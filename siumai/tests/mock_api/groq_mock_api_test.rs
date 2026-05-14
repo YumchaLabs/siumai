@@ -6,6 +6,7 @@
 //! https://console.groq.com/docs/api-reference
 
 use serde_json::json;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::*;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,

@@ -3,6 +3,7 @@
 //!
 //! These tests verify the rerank functionality with SiliconFlow provider.
 
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 use siumai::models::openai_compatible::siliconflow;
 

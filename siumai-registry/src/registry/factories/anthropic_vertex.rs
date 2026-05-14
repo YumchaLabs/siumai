@@ -58,7 +58,7 @@ async fn build_typed_client_with_ctx(
             }
         };
 
-        crate::utils::vertex::google_vertex_anthropic_base_url(&project, &location)
+        crate::auth::vertex::google_vertex_anthropic_base_url(&project, &location)
     };
 
     crate::registry::factory::build_anthropic_vertex_typed_client(

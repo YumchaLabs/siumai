@@ -1,8 +1,8 @@
 #![cfg(all(feature = "openai-standard", feature = "openai-responses"))]
 
 use eventsource_stream::Event;
+use siumai_core::streaming::{ChatStreamEvent, SseEventConverter};
 use siumai_protocol_openai::standards::openai::responses_sse::OpenAiResponsesEventConverter;
-use siumai_protocol_openai::streaming::{ChatStreamEvent, SseEventConverter};
 
 fn parse_sse_frames(bytes: &[u8]) -> Vec<(String, serde_json::Value)> {
     let text = String::from_utf8_lossy(bytes);
@@ -100,7 +100,7 @@ fn openai_responses_public_feature_surface_roundtrips_mcp_tool_stream_parts() {
     let provider_tool_calls = events
         .iter()
         .filter_map(|event| match event.part_ref() {
-            Some(siumai_protocol_openai::types::ChatStreamPart::ToolCall(call))
+            Some(siumai_core::types::ChatStreamPart::ToolCall(call))
                 if call.tool_name == "mcp.web_search_exa"
                     && call.provider_executed == Some(true) =>
             {
@@ -112,7 +112,7 @@ fn openai_responses_public_feature_surface_roundtrips_mcp_tool_stream_parts() {
     let provider_tool_results = events
         .iter()
         .filter_map(|event| match event.part_ref() {
-            Some(siumai_protocol_openai::types::ChatStreamPart::ToolResult(result))
+            Some(siumai_core::types::ChatStreamPart::ToolResult(result))
                 if result.tool_name == "mcp.web_search_exa" =>
             {
                 Some(result)
@@ -202,7 +202,7 @@ fn openai_responses_public_feature_surface_roundtrips_tool_search_without_raw_it
     let tool_search_calls = events
         .iter()
         .filter_map(|event| match event.part_ref() {
-            Some(siumai_protocol_openai::types::ChatStreamPart::ToolCall(call))
+            Some(siumai_core::types::ChatStreamPart::ToolCall(call))
                 if call.tool_name == "toolSearch" && call.tool_call_id == "call_final" =>
             {
                 Some(call)
@@ -213,7 +213,7 @@ fn openai_responses_public_feature_surface_roundtrips_tool_search_without_raw_it
     let tool_search_results = events
         .iter()
         .filter_map(|event| match event.part_ref() {
-            Some(siumai_protocol_openai::types::ChatStreamPart::ToolResult(result))
+            Some(siumai_core::types::ChatStreamPart::ToolResult(result))
                 if result.tool_name == "toolSearch"
                     && result.result["tools"][0]["name"] == serde_json::json!("get_weather") =>
             {

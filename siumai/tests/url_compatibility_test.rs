@@ -10,6 +10,7 @@
 //! Tests to ensure all providers handle base URLs with and without trailing slashes correctly.
 
 use siumai::experimental::utils::url::{join_url, normalize_url};
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 
 #[test]

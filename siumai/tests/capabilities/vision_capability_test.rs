@@ -18,6 +18,7 @@
 //! cargo test test_all_provider_vision -- --ignored
 //! ```
 
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 use std::env;
 

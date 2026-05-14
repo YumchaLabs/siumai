@@ -8,6 +8,7 @@ use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
     HttpTransportStreamResponse,
 };
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};

@@ -3,7 +3,7 @@
 //! Validation: When using Authorization (Bearer) for Vertex AI auth,
 //! Gemini should not be blocked by API key validation.
 
-use siumai::prelude::unified::*;
+use siumai::prelude::compat::Siumai;
 
 #[tokio::test]
 async fn build_gemini_with_bearer_does_not_require_api_key() {

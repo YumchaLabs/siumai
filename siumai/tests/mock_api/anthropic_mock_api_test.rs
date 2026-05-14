@@ -6,6 +6,7 @@
 //! https://docs.anthropic.com/en/api/messages
 
 use serde_json::json;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

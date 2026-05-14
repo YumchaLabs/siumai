@@ -1,7 +1,7 @@
 #![cfg(feature = "xai")]
 
-use siumai_provider_xai::builder::BuilderBase;
-use siumai_provider_xai::execution::http::interceptor::LoggingInterceptor;
+use siumai_core::builder::BuilderBase;
+use siumai_core::execution::http::interceptor::LoggingInterceptor;
 use siumai_provider_xai::providers::xai::{XaiBuilder, XaiConfig};
 use std::sync::Arc;
 use std::time::Duration;

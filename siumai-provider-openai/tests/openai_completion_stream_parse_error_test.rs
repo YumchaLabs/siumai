@@ -1,9 +1,9 @@
 #![cfg(feature = "openai")]
 
 use futures_util::StreamExt;
+use siumai_core::traits::CompletionCapability;
+use siumai_core::types::{ChatStreamEvent, ChatStreamPart, CompletionRequest};
 use siumai_provider_openai::providers::openai::{OpenAiClient, OpenAiConfig};
-use siumai_provider_openai::traits::CompletionCapability;
-use siumai_provider_openai::types::{ChatStreamEvent, ChatStreamPart, CompletionRequest};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -56,7 +56,7 @@ async fn openai_completion_parse_error_emits_stream_start_before_error_without_r
     ));
     assert!(matches!(
         events.get(2),
-        Some(Err(siumai_provider_openai::LlmError::ParseError(message)))
+        Some(Err(siumai_core::LlmError::ParseError(message)))
             if message.contains("Failed to parse completion stream event")
     ));
 }

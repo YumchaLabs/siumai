@@ -103,15 +103,6 @@ impl EmbeddingExtensions for EmbeddingModelHandle {
             None,
             None,
         );
-        if let Ok(client) = self
-            .factory
-            .compat_embedding_client_with_ctx(&self.model_id, &ctx)
-            .await
-            && let Some(extensions) = client.as_embedding_extensions()
-        {
-            return extensions.embed_with_config(request).await;
-        }
-
         let model = self
             .factory
             .embedding_model_family_with_ctx(&self.model_id, &ctx)

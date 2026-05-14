@@ -40,13 +40,14 @@ use tokio::sync::Mutex as TokioMutex;
 
 #[cfg(test)]
 mod alias_tests;
+#[cfg(test)]
+mod boundary_tests;
 mod build_context;
 #[cfg(test)]
 mod build_context_tests;
 mod cache;
 #[cfg(test)]
 mod cache_tests;
-mod compat_client;
 mod factory;
 mod handles;
 #[cfg(test)]

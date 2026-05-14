@@ -3,7 +3,7 @@
 
 use serde::de::DeserializeOwned;
 use siumai::extensions::ModelListingCapability;
-use siumai::prelude::unified::Siumai;
+use siumai::prelude::compat::Siumai;
 use std::path::{Path, PathBuf};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

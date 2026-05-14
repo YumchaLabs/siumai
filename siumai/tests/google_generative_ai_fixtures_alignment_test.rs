@@ -109,7 +109,7 @@ fn run_case(root: &Path) {
     // Optional warning parity: compare provider middleware warnings when the fixture provides them.
     let expected_warnings_path = root.join("expected_warnings.json");
     if expected_warnings_path.exists() {
-        use siumai_provider_gemini::execution::LanguageModelMiddleware;
+        use siumai_core::execution::LanguageModelMiddleware;
 
         let expected_warnings: Vec<Warning> = read_json(expected_warnings_path);
         let mw = siumai_provider_gemini::providers::gemini::GeminiToolWarningsMiddleware::new();

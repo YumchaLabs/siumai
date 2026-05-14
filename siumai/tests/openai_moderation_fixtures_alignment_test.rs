@@ -3,7 +3,7 @@
 
 use siumai::extensions::ModerationCapability;
 use siumai::extensions::types::ModerationRequest;
-use siumai::prelude::unified::Siumai;
+use siumai::prelude::compat::Siumai;
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

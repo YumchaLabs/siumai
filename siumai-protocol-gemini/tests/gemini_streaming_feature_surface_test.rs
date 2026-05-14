@@ -1,24 +1,23 @@
 #![cfg(feature = "google")]
 
 use eventsource_stream::Event;
+use siumai_core::streaming::{ChatStreamEvent, SseEventConverter, TypedStreamPart};
+use siumai_core::types::{
+    ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult, StreamProviderMetadata,
+};
 use siumai_protocol_gemini::standards::gemini::streaming::GeminiEventConverter;
 use siumai_protocol_gemini::standards::gemini::types::GeminiConfig;
-use siumai_protocol_gemini::streaming::{ChatStreamEvent, SseEventConverter};
 
 fn create_test_config() -> GeminiConfig {
     GeminiConfig::new("test-key")
 }
 
-fn stream_part(
-    event: &ChatStreamEvent,
-) -> Option<siumai_protocol_gemini::streaming::TypedStreamPart> {
-    siumai_protocol_gemini::streaming::TypedStreamPart::try_from_chat_event(event)
+fn stream_part(event: &ChatStreamEvent) -> Option<TypedStreamPart> {
+    TypedStreamPart::try_from_chat_event(event)
 }
 
-fn google_provider_metadata(
-    value: serde_json::Value,
-) -> siumai_protocol_gemini::types::StreamProviderMetadata {
-    let mut provider_metadata = siumai_protocol_gemini::types::StreamProviderMetadata::new();
+fn google_provider_metadata(value: serde_json::Value) -> StreamProviderMetadata {
+    let mut provider_metadata = StreamProviderMetadata::new();
     provider_metadata.insert("google".to_string(), value);
     provider_metadata
 }
@@ -69,34 +68,30 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
 
     let tool_call_bytes = encoder
         .serialize_event(&ChatStreamEvent::Part {
-            part: siumai_protocol_gemini::types::ChatStreamPart::ToolCall(
-                siumai_protocol_gemini::types::ChatStreamToolCall {
-                    tool_call_id: "call_1".to_string(),
-                    tool_name: "code_execution".to_string(),
-                    input: r#"{"language":"PYTHON","code":"print(1)"}"#.to_string(),
-                    provider_executed: Some(true),
-                    dynamic: None,
-                    provider_metadata: None,
-                },
-            ),
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                input: r#"{"language":"PYTHON","code":"print(1)"}"#.to_string(),
+                provider_executed: Some(true),
+                dynamic: None,
+                provider_metadata: None,
+            }),
         })
         .expect("serialize tool-call");
     let tool_result_bytes = encoder
         .serialize_event(&ChatStreamEvent::Part {
-            part: siumai_protocol_gemini::types::ChatStreamPart::ToolResult(
-                siumai_protocol_gemini::types::ChatStreamToolResult {
-                    tool_call_id: "call_1".to_string(),
-                    tool_name: "code_execution".to_string(),
-                    result: serde_json::json!({
-                        "outcome": "OUTCOME_OK",
-                        "output": "1"
-                    }),
-                    is_error: None,
-                    preliminary: None,
-                    dynamic: None,
-                    provider_metadata: None,
-                },
-            ),
+            part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                result: serde_json::json!({
+                    "outcome": "OUTCOME_OK",
+                    "output": "1"
+                }),
+                is_error: None,
+                preliminary: None,
+                dynamic: None,
+                provider_metadata: None,
+            }),
         })
         .expect("serialize tool-result");
 
@@ -137,7 +132,7 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(siumai_protocol_gemini::streaming::TypedStreamPart::ToolCall(call))
+                Some(TypedStreamPart::ToolCall(call))
                     if call.tool_name == "code_execution"
                         && call.provider_executed == Some(true)
             )
@@ -148,7 +143,7 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(siumai_protocol_gemini::streaming::TypedStreamPart::ToolResult(result))
+                Some(TypedStreamPart::ToolResult(result))
                     if result.tool_name == "code_execution"
             )
         })
@@ -164,7 +159,7 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_from_typed_d
 
     let start_bytes = encoder
         .serialize_event(&ChatStreamEvent::Part {
-            part: siumai_protocol_gemini::types::ChatStreamPart::ReasoningStart {
+            part: ChatStreamPart::ReasoningStart {
                 id: "rs_1".to_string(),
                 provider_metadata: Some(google_provider_metadata(serde_json::json!({
                     "thoughtSignature": "stream_sig"
@@ -174,7 +169,7 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_from_typed_d
         .expect("serialize reasoning-start");
     let delta_bytes = encoder
         .serialize_event(&ChatStreamEvent::Part {
-            part: siumai_protocol_gemini::types::ChatStreamPart::ReasoningDelta {
+            part: ChatStreamPart::ReasoningDelta {
                 id: "rs_1".to_string(),
                 delta: "thinking...".to_string(),
                 provider_metadata: Some(google_provider_metadata(serde_json::json!({
@@ -211,7 +206,7 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_from_typed_d
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(siumai_protocol_gemini::streaming::TypedStreamPart::ReasoningDelta {
+                Some(TypedStreamPart::ReasoningDelta {
                     delta,
                     provider_metadata,
                     ..

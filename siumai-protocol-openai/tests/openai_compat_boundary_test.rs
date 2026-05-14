@@ -2,11 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[test]
-fn openai_compatible_protocol_is_not_imported_from_core() {
+fn openai_protocol_is_not_imported_from_core() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root");
-    let forbidden = ["siumai_core::standards::openai", "::compat"].concat();
+    let forbidden = "siumai_core::standards::openai";
 
     let mut offenders = Vec::new();
     for root in [
@@ -26,28 +26,65 @@ fn openai_compatible_protocol_is_not_imported_from_core() {
 
     assert!(
         offenders.is_empty(),
-        "OpenAI-compatible protocol imports must go through siumai-protocol-openai:\n{}",
+        "OpenAI protocol imports must go through siumai-protocol-openai:\n{}",
         offenders.join("\n")
     );
 }
 
 #[test]
-fn core_no_longer_owns_openai_compatible_protocol_files() {
+fn core_no_longer_owns_openai_protocol_files() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root");
-    let core_compat_dir = workspace.join("siumai-core/src/standards/openai/compat");
+    let core_openai_dir = workspace.join("siumai-core/src/standards/openai");
     let mut remaining_files = Vec::new();
-    collect_rs_files(&core_compat_dir, &mut remaining_files);
+    collect_rs_files(&core_openai_dir, &mut remaining_files);
 
     assert!(
         remaining_files.is_empty(),
-        "siumai-core must not own OpenAI-compatible protocol files:\n{}",
+        "siumai-core must not own OpenAI protocol files:\n{}",
         remaining_files
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>()
             .join("\n")
+    );
+}
+
+#[test]
+fn provider_and_protocol_crates_do_not_publicly_mirror_core() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let mut offenders = Vec::new();
+
+    for crate_name in [
+        "siumai-protocol-openai",
+        "siumai-protocol-anthropic",
+        "siumai-protocol-gemini",
+        "siumai-provider-openai",
+        "siumai-provider-anthropic",
+        "siumai-provider-gemini",
+        "siumai-provider-azure",
+        "siumai-provider-google-vertex",
+        "siumai-provider-groq",
+        "siumai-provider-xai",
+        "siumai-provider-deepseek",
+        "siumai-provider-minimaxi",
+        "siumai-provider-ollama",
+        "siumai-provider-cohere",
+        "siumai-provider-togetherai",
+        "siumai-provider-amazon-bedrock",
+    ] {
+        let lib_rs = workspace.join(crate_name).join("src/lib.rs");
+        collect_forbidden_imports(&lib_rs, "pub use siumai_core::{", &mut offenders);
+        collect_forbidden_imports(&lib_rs, "pub use siumai_core::builder::*;", &mut offenders);
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "provider/protocol crates must not publicly mirror siumai-core modules:\n{}",
+        offenders.join("\n")
     );
 }
 
@@ -68,6 +105,13 @@ fn collect_forbidden_imports(root: &Path, forbidden: &str, offenders: &mut Vec<S
 }
 
 fn collect_rs_files(root: &Path, files: &mut Vec<PathBuf>) {
+    if root.is_file() {
+        if root.extension().is_some_and(|ext| ext == "rs") {
+            files.push(root.to_path_buf());
+        }
+        return;
+    }
+
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };

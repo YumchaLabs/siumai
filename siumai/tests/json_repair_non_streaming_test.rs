@@ -6,6 +6,7 @@
 
 #![cfg(feature = "openai")]
 
+use siumai::prelude::compat::Siumai;
 #[cfg(feature = "json-repair")]
 #[tokio::test]
 async fn test_json_repair_in_non_streaming_response() {

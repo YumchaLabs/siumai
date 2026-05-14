@@ -1,7 +1,7 @@
 #![cfg(feature = "google-vertex")]
 #![allow(deprecated)]
 
-use siumai::prelude::unified::*;
+use siumai::prelude::compat::Siumai;
 
 struct EnvGuard {
     key: &'static str,
@@ -59,7 +59,7 @@ async fn vertex_builder_uses_express_base_url_when_api_key_is_set() {
 
     assert_eq!(
         inner.base_url(),
-        siumai::experimental::utils::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+        siumai::experimental::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
     );
 }
 

@@ -1,5 +1,6 @@
 #![allow(deprecated)]
 use futures_util::StreamExt;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::*;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

@@ -55,7 +55,7 @@ impl OpenAICompatibleProviderFactory {
 
         if provider_config.is_some() {
             let mut builder = siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                siumai_provider_openai_compatible::builder::BuilderBase::default(),
+                siumai_core::builder::BuilderBase::default(),
                 &self.provider_id,
             )
             .model(common_params.model.clone())

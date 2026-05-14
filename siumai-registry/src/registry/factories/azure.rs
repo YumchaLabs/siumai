@@ -76,7 +76,7 @@ impl AzureOpenAiProviderFactory {
         }
 
         let mut builder = siumai_provider_azure::providers::azure_openai::AzureOpenAiBuilder::new(
-            siumai_provider_azure::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .chat_mode(self.chat_mode)
         .url_config(self.url_config.clone())

@@ -6,7 +6,8 @@ use reqwest::header::HeaderMap;
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamResponse,
 };
-use siumai::prelude::unified::{ChatCapability, ChatMessage, ChatRequest, LlmError, Siumai};
+use siumai::prelude::compat::Siumai;
+use siumai::prelude::unified::{ChatCapability, ChatMessage, ChatRequest, LlmError};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Default)]

@@ -73,30 +73,31 @@ fn embedding_model_handle_implements_model_metadata() {
 }
 
 #[tokio::test]
-async fn provider_factory_embedding_family_bridge_works() {
-    let factory = TestProviderFactory::new("testprov_embed");
-    let model = factory
-        .embedding_model_family("bridged-embed-model")
-        .await
-        .unwrap();
+async fn provider_factory_embedding_family_default_rejects_compat_fallback() {
+    struct CompatOnlyEmbeddingFactory;
 
-    assert_eq!(
-        crate::traits::ModelMetadata::provider_id(model.as_ref()),
-        "testprov_embed"
-    );
-    assert_eq!(
-        crate::traits::ModelMetadata::model_id(model.as_ref()),
-        "bridged-embed-model"
-    );
+    #[async_trait::async_trait]
+    impl ProviderFactory for CompatOnlyEmbeddingFactory {
+        async fn compat_embedding_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
+            Ok(Arc::new(TestProvEmbedClient::new(_model_id)))
+        }
 
-    let response = model
-        .embed(EmbeddingRequest {
-            input: vec!["hello".to_string(), "world".to_string()],
-            ..Default::default()
-        })
-        .await
-        .unwrap();
-    assert_eq!(response.embeddings[0][0], 2.0);
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("compat-only-embed")
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new().with_embedding()
+        }
+    }
+
+    let factory = CompatOnlyEmbeddingFactory;
+    let result = factory.embedding_model_family("bridged-embed-model").await;
+
+    assert_native_family_model_unsupported_result(result, "compat-only-embed", "embedding");
 }
 
 #[tokio::test]
@@ -147,7 +148,10 @@ async fn provider_factory_native_embedding_family_path_works() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeOnlyEmbeddingFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by native embedding-family test")
         }
 
@@ -241,11 +245,17 @@ async fn embedding_model_handle_uses_native_family_path_when_available() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeEmbeddingHandleFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by embedding handle")
         }
 
-        async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_embedding_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             Err(LlmError::UnsupportedOperation(
                 "legacy embedding client path is not available".to_string(),
             ))
@@ -289,7 +299,7 @@ async fn embedding_model_handle_uses_native_family_path_when_available() {
 }
 
 #[tokio::test]
-async fn embedding_model_handle_family_trait_preserves_request_config_on_bridge_path() {
+async fn embedding_model_handle_family_trait_preserves_request_config_on_native_path() {
     #[derive(Clone)]
     struct RequestAwareEmbeddingClient {
         seen: Arc<Mutex<Option<EmbeddingRequest>>>,
@@ -331,6 +341,16 @@ async fn embedding_model_handle_family_trait_preserves_request_config_on_bridge_
         }
     }
 
+    impl crate::traits::ModelMetadata for RequestAwareEmbeddingClient {
+        fn provider_id(&self) -> &str {
+            "request-aware-embed"
+        }
+
+        fn model_id(&self) -> &str {
+            "request-aware-model"
+        }
+    }
+
     impl LlmClient for RequestAwareEmbeddingClient {
         fn provider_id(&self) -> std::borrow::Cow<'static, str> {
             std::borrow::Cow::Borrowed("request-aware-embed")
@@ -367,7 +387,27 @@ async fn embedding_model_handle_family_trait_preserves_request_config_on_bridge_
 
     #[async_trait::async_trait]
     impl ProviderFactory for RequestAwareEmbeddingFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
+            Err(LlmError::UnsupportedOperation(
+                "language model not used in embedding request-config test".to_string(),
+            ))
+        }
+
+        async fn compat_embedding_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
+            panic!("legacy embedding client path should not be used by request-config test")
+        }
+
+        async fn embedding_model_family_with_ctx(
+            &self,
+            _model_id: &str,
+            _ctx: &BuildContext,
+        ) -> Result<Arc<dyn siumai_core::embedding::EmbeddingModel>, LlmError> {
             Ok(Arc::new(RequestAwareEmbeddingClient {
                 seen: Arc::clone(&self.seen),
             }))
@@ -426,7 +466,7 @@ async fn embedding_model_handle_family_trait_preserves_request_config_on_bridge_
 }
 
 #[tokio::test]
-async fn embedding_model_handle_prefers_request_aware_client_extensions_over_lossy_native_family() {
+async fn embedding_model_handle_embed_with_config_uses_native_family_path_when_available() {
     #[derive(Clone)]
     struct LossyNativeFamilyEmbeddingModel;
 
@@ -470,12 +510,12 @@ async fn embedding_model_handle_prefers_request_aware_client_extensions_over_los
     }
 
     #[derive(Clone)]
-    struct RequestAwareNativeClient {
+    struct UnusedCompatEmbeddingClient {
         seen: Arc<Mutex<Option<EmbeddingRequest>>>,
     }
 
     #[async_trait::async_trait]
-    impl EmbeddingCapability for RequestAwareNativeClient {
+    impl EmbeddingCapability for UnusedCompatEmbeddingClient {
         async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
             Ok(EmbeddingResponse::new(
                 vec![vec![input.len() as f32]],
@@ -493,7 +533,7 @@ async fn embedding_model_handle_prefers_request_aware_client_extensions_over_los
     }
 
     #[async_trait::async_trait]
-    impl EmbeddingExtensions for RequestAwareNativeClient {
+    impl EmbeddingExtensions for UnusedCompatEmbeddingClient {
         async fn embed_with_config(
             &self,
             request: EmbeddingRequest,
@@ -510,7 +550,7 @@ async fn embedding_model_handle_prefers_request_aware_client_extensions_over_los
         }
     }
 
-    impl LlmClient for RequestAwareNativeClient {
+    impl LlmClient for UnusedCompatEmbeddingClient {
         fn provider_id(&self) -> std::borrow::Cow<'static, str> {
             std::borrow::Cow::Borrowed("request-aware-native")
         }
@@ -547,14 +587,20 @@ async fn embedding_model_handle_prefers_request_aware_client_extensions_over_los
 
     #[async_trait::async_trait]
     impl ProviderFactory for RequestAwareNativeFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             Err(LlmError::UnsupportedOperation(
                 "language model not used in embedding test".to_string(),
             ))
         }
 
-        async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-            Ok(Arc::new(RequestAwareNativeClient {
+        async fn compat_embedding_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
+            Ok(Arc::new(UnusedCompatEmbeddingClient {
                 seen: Arc::clone(&self.seen),
             }))
         }
@@ -590,24 +636,24 @@ async fn embedding_model_handle_prefers_request_aware_client_extensions_over_los
         .embedding_model("request-aware-native:model")
         .expect("embedding handle");
 
-    let response = handle
-        .embed_with_config(
-            EmbeddingRequest::single("hello")
-                .with_model("request-model")
-                .with_dimensions(256)
-                .with_user("user-42"),
-        )
-        .await
-        .expect("embedding response");
+    let response = siumai_core::embedding::EmbeddingModel::embed(
+        &handle,
+        EmbeddingRequest::single("hello")
+            .with_model("request-model")
+            .with_dimensions(256)
+            .with_user("user-42"),
+    )
+    .await
+    .expect("embedding response");
 
     assert_eq!(response.model, "request-model");
-    assert_eq!(response.embeddings[0][0], 256.0);
+    assert_eq!(response.embeddings[0][0], 1.0);
 
     let seen = seen.lock().expect("request lock");
-    let request = seen.as_ref().expect("captured request");
-    assert_eq!(request.model.as_deref(), Some("request-model"));
-    assert_eq!(request.dimensions, Some(256));
-    assert_eq!(request.user.as_deref(), Some("user-42"));
+    assert!(
+        seen.is_none(),
+        "stable embedding handle must not use compat_embedding_client_with_ctx before the native family path"
+    );
 }
 
 #[tokio::test]
@@ -657,11 +703,17 @@ async fn embedding_model_handle_embed_many_uses_native_family_batch_path_when_av
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeBatchEmbeddingFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by native batch embedding test")
         }
 
-        async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_embedding_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy embedding client path should not be used by native batch embedding test")
         }
 

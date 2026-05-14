@@ -65,7 +65,10 @@ struct BridgeCompletionFactory;
 
 #[async_trait::async_trait]
 impl ProviderFactory for BridgeCompletionFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
         Ok(Arc::new(BridgeCompletionClient))
     }
 
@@ -129,27 +132,13 @@ fn completion_model_handle_rejects_provider_without_completion_capability() {
 }
 
 #[tokio::test]
-async fn provider_factory_completion_family_bridge_works() {
+async fn provider_factory_completion_family_default_rejects_compat_fallback() {
     let factory = BridgeCompletionFactory;
-    let model = factory
+    let result = factory
         .completion_model_family("bridged-completion-model")
-        .await
-        .unwrap();
+        .await;
 
-    assert_eq!(
-        crate::traits::ModelMetadata::provider_id(model.as_ref()),
-        "testprov_completion"
-    );
-    assert_eq!(
-        crate::traits::ModelMetadata::model_id(model.as_ref()),
-        "bridged-completion-model"
-    );
-
-    let response = model
-        .complete(crate::types::CompletionRequest::new("bridge completion"))
-        .await
-        .unwrap();
-    assert_eq!(response.text(), "bridge completion");
+    assert_native_family_model_unsupported_result(result, "testprov_completion", "completion");
 }
 
 #[tokio::test]
@@ -197,7 +186,10 @@ async fn provider_factory_native_completion_family_path_works() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeOnlyCompletionFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by native completion-family test")
         }
 
@@ -278,7 +270,10 @@ async fn completion_model_handle_reuses_cached_family_model() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for CountingCompletionFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by completion cache test")
         }
 

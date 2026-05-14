@@ -4,6 +4,7 @@
 
 use axum::{Router, routing::post};
 use futures::StreamExt;
+use siumai::prelude::compat::Provider;
 use siumai::prelude::*;
 use std::net::SocketAddr;
 use tokio::task::JoinHandle;

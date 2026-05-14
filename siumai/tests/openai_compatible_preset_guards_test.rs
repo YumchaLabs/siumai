@@ -1,7 +1,7 @@
 #![cfg(feature = "openai")]
 
 use siumai::experimental::client::LlmClient;
-use siumai::prelude::unified::Provider;
+use siumai::prelude::compat::Provider;
 use siumai::provider_ext::openai_compatible::{
     get_provider_config, list_provider_ids, provider_supports_capability,
 };

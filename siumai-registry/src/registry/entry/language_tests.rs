@@ -79,31 +79,38 @@ fn language_model_handle_implements_model_metadata() {
 }
 
 #[tokio::test]
-async fn provider_factory_text_family_bridge_works() {
+async fn provider_factory_text_family_default_rejects_compat_fallback() {
     let _g = reg_test_guard();
     TEST_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
 
-    let factory = TestProviderFactory::new("testprov");
-    let model = factory.language_model_text("bridged-model").await.unwrap();
+    struct CompatOnlyTextFactory;
 
-    assert_eq!(
-        crate::traits::ModelMetadata::provider_id(model.as_ref()),
-        "testprov"
-    );
-    assert_eq!(
-        crate::traits::ModelMetadata::model_id(model.as_ref()),
-        "bridged-model"
-    );
+    #[async_trait::async_trait]
+    impl ProviderFactory for CompatOnlyTextFactory {
+        async fn compat_language_client(
+            &self,
+            model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
+            Ok(Arc::new(TestProvClient::new("compat-only-text", model_id)))
+        }
 
-    let response = model
-        .generate(ChatRequest::new(vec![ChatMessage::user("hi").build()]))
-        .await
-        .unwrap();
-    assert_eq!(response.content_text(), Some("ok"));
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("compat-only-text")
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new().with_chat()
+        }
+    }
+
+    let factory = CompatOnlyTextFactory;
+    let result = factory.language_model_text("bridged-model").await;
+
+    assert_native_family_model_unsupported_result(result, "compat-only-text", "language");
     assert_eq!(
         TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
-        1,
-        "Bridge should reuse the existing language_model construction path"
+        0,
+        "default rejection must not build a compat language client"
     );
 }
 
@@ -152,7 +159,10 @@ async fn provider_factory_native_text_family_path_works() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeOnlyFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by native text-family test")
         }
 
@@ -194,7 +204,20 @@ async fn language_model_handle_preserves_chat_request_fields() {
     let _g = reg_test_guard();
 
     #[derive(Clone)]
-    struct CapturingClient(std::sync::Arc<std::sync::Mutex<Option<ChatRequest>>>);
+    struct CapturingClient(
+        std::sync::Arc<std::sync::Mutex<Option<ChatRequest>>>,
+        String,
+    );
+
+    impl crate::traits::ModelMetadata for CapturingClient {
+        fn provider_id(&self) -> &str {
+            "cap"
+        }
+
+        fn model_id(&self) -> &str {
+            &self.1
+        }
+    }
 
     #[async_trait::async_trait]
     impl ChatCapability for CapturingClient {
@@ -265,8 +288,24 @@ async fn language_model_handle_preserves_chat_request_fields() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for CaptureFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-            Ok(Arc::new(CapturingClient(self.seen.clone())))
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
+            panic!(
+                "legacy generic-client path should not be used by chat request preservation test"
+            )
+        }
+
+        async fn language_model_text_with_ctx(
+            &self,
+            model_id: &str,
+            _ctx: &BuildContext,
+        ) -> Result<Arc<dyn siumai_core::text::LanguageModel>, LlmError> {
+            Ok(Arc::new(CapturingClient(
+                self.seen.clone(),
+                model_id.to_string(),
+            )))
         }
 
         fn provider_id(&self) -> std::borrow::Cow<'static, str> {
@@ -369,7 +408,10 @@ async fn language_model_handle_uses_native_family_path_when_available() {
 
     #[async_trait::async_trait]
     impl ProviderFactory for NativeHandleFactory {
-        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        async fn compat_language_client(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LlmClient>, LlmError> {
             panic!("legacy generic-client path should not be used by language handle")
         }
 

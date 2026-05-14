@@ -11,6 +11,8 @@ cross-layer coupling).
 - **Tier A (stable):** `siumai::prelude::unified::*`
 - **Tier B (stable roots, scoped):** `siumai::provider_ext::<provider>::{options,metadata,resources,ext}`
 - **Tier C (unstable):** `siumai::experimental::*` (advanced building blocks; may change without notice)
+- **Compat (time-bounded):** `siumai::compat::*` / `siumai::prelude::compat::*`
+  for migration-only builder-style construction.
 
 ## Recommended imports
 
@@ -24,6 +26,10 @@ use siumai::prelude::unified::*;
 
 This is the most stable entrypoint and is designed to cover the 6 stable model families:
 Language / Embedding / Image / Rerank / Speech (TTS) / Transcription (STT).
+
+`prelude::unified` intentionally does **not** export compatibility construction aliases such as
+`Siumai`, root `Provider`, or deprecated experimental helper aliases. New examples should resolve
+models through registry handles or provider config/client APIs, then call family helpers.
 
 ### 2) Provider-specific APIs (typed options, metadata, resources)
 
@@ -107,6 +113,25 @@ For internals (executors, middleware, auth, protocol helpers), use:
 use siumai::experimental::*;
 ```
 
+### 7) Compatibility construction (migration only)
+
+Builder-style construction remains available for migration windows, but it is not part of the
+stable unified prelude:
+
+```rust,ignore
+use siumai::compat::Siumai;
+
+let client = Siumai::builder()
+    .openai()
+    .api_key("test-key")
+    .model("gpt-4o-mini")
+    .build()
+    .await?;
+```
+
+Use `siumai::prelude::compat::*` only in migration-oriented code that intentionally needs builder
+aliases alongside stable family types.
+
 ## Explicitly *not* stable
 
 These top-level module paths are intentionally not part of the stable facade surface:
@@ -115,12 +140,14 @@ These top-level module paths are intentionally not part of the stable facade sur
 - `siumai::traits::*`
 - `siumai::error::*`
 - `siumai::streaming::*`
+- `siumai::experimental::utils::vertex::*`
 
 They may exist in lower-level crates (e.g. `siumai-core`) but should not be used through the facade.
+Vertex URL helpers are available through `siumai::experimental::auth::vertex::*`.
 
 ## Related docs
 
-- `docs/workstreams/fearless-refactor-v4/` (current refactor checkpoints and guardrails)
+- `docs/workstreams/fearless-boundary-hardening/` (current boundary-hardening checkpoints)
 - `docs/architecture/provider-extensions.md` (how provider-specific features work)
 - `docs/migration/migration-0.11.0-beta.6.md` (family APIs + compat surface)
 - `docs/migration/migration-0.11.0-beta.5.md` (split-crate breaking changes and migration cookbook)

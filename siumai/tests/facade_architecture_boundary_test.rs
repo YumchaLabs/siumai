@@ -98,3 +98,37 @@ fn experimental_bridge_is_owned_by_bridge_crate_and_reexported_by_facade() {
         "siumai-bridge should document why the bridge lives outside the facade and core crates"
     );
 }
+
+#[test]
+fn stable_unified_prelude_excludes_compatibility_construction_aliases() {
+    let lib_rs = read_source("src/lib.rs");
+    let unified_start = lib_rs
+        .find("pub mod unified {")
+        .expect("unified prelude module");
+    let compat_start = lib_rs[unified_start..]
+        .find("pub mod compat {")
+        .expect("compat prelude module");
+    let unified_source = &lib_rs[unified_start..unified_start + compat_start];
+
+    for forbidden in [
+        "pub use crate::Provider;",
+        "pub use crate::provider::Siumai;",
+        "pub use crate::compat::{Siumai, SiumaiBuilder};",
+        "experimental_generate_image",
+        "experimental_generate_speech",
+        "experimental_transcribe",
+        "experimental_generate_video",
+    ] {
+        assert!(
+            !unified_source.contains(forbidden),
+            "prelude::unified should not export compatibility-only surface `{forbidden}`"
+        );
+    }
+
+    assert!(
+        lib_rs.contains("pub mod compat {")
+            && lib_rs.contains("pub use crate::Provider;")
+            && lib_rs.contains("pub use crate::compat::{Siumai, SiumaiBuilder};"),
+        "compatibility construction aliases should remain explicit under prelude::compat"
+    );
+}

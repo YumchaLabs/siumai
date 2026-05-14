@@ -22,7 +22,7 @@ impl DeepSeekProviderFactory {
             model_id,
         );
         let mut builder = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            siumai_provider_deepseek::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .model(common_params.model.clone())
         .with_http_config(http_config)

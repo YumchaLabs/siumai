@@ -1,15 +1,17 @@
 #![cfg(feature = "anthropic-standard")]
 
 use eventsource_stream::Event;
+use siumai_core::streaming::{
+    ChatStreamEvent, SseEventConverter, TypedStreamPart, TypedStreamSource,
+};
+use siumai_core::types::{
+    ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult, FinishReason, MessageContent,
+    ResponseMetadata,
+};
 use siumai_protocol_anthropic::ChatResponse;
 use siumai_protocol_anthropic::provider_metadata::anthropic::AnthropicChatResponseExt;
 use siumai_protocol_anthropic::standards::anthropic::params::AnthropicParams;
 use siumai_protocol_anthropic::standards::anthropic::streaming::AnthropicEventConverter;
-use siumai_protocol_anthropic::streaming::{ChatStreamEvent, SseEventConverter, TypedStreamPart};
-use siumai_protocol_anthropic::types::{
-    ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult, FinishReason, MessageContent,
-    ResponseMetadata,
-};
 
 fn create_test_config() -> AnthropicParams {
     AnthropicParams::default()
@@ -162,9 +164,8 @@ async fn anthropic_public_feature_surface_roundtrips_provider_tool_stream_parts(
         .filter(|event| {
             matches!(
                 stream_part(event),
-                Some(TypedStreamPart::Source(
-                    siumai_protocol_anthropic::streaming::TypedStreamSource::Url { url, .. }
-                )) if url == "https://www.rust-lang.org"
+                Some(TypedStreamPart::Source(TypedStreamSource::Url { url, .. }))
+                    if url == "https://www.rust-lang.org"
             )
         })
         .count();

@@ -5,7 +5,7 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::traits::{ChatCapability, ProviderCapabilities};
 
-use super::ProviderFactory;
+use super::{BuildContext, ProviderFactory};
 
 pub static TEST_BUILD_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -15,7 +15,50 @@ pub fn reg_test_guard() -> std::sync::MutexGuard<'static, ()> {
     REG_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
 }
 
-pub struct TestProvClient;
+pub fn assert_native_family_model_unsupported(err: LlmError, provider_id: &str, family: &str) {
+    let expected =
+        format!("Provider '{provider_id}' does not expose a native {family} family model path");
+
+    match err {
+        LlmError::UnsupportedOperation(message) => assert_eq!(message, expected),
+        other => panic!("expected native family UnsupportedOperation, got {other:?}"),
+    }
+}
+
+pub fn assert_native_family_model_unsupported_result<T>(
+    result: Result<T, LlmError>,
+    provider_id: &str,
+    family: &str,
+) {
+    match result {
+        Ok(_) => panic!("expected default native family path to reject compat fallback"),
+        Err(err) => assert_native_family_model_unsupported(err, provider_id, family),
+    }
+}
+
+pub struct TestProvClient {
+    provider_id: &'static str,
+    model_id: String,
+}
+
+impl TestProvClient {
+    pub fn new(provider_id: &'static str, model_id: &str) -> Self {
+        Self {
+            provider_id,
+            model_id: model_id.to_string(),
+        }
+    }
+}
+
+impl crate::traits::ModelMetadata for TestProvClient {
+    fn provider_id(&self) -> &str {
+        self.provider_id
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+}
 
 #[async_trait::async_trait]
 impl ChatCapability for TestProvClient {
@@ -56,7 +99,7 @@ impl LlmClient for TestProvClient {
     }
 
     fn clone_box(&self) -> Box<dyn LlmClient> {
-        Box::new(TestProvClient)
+        Box::new(TestProvClient::new(self.provider_id, &self.model_id))
     }
 
     fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
@@ -64,7 +107,27 @@ impl LlmClient for TestProvClient {
     }
 }
 
-pub struct TestProvEmbedClient;
+pub struct TestProvEmbedClient {
+    model_id: String,
+}
+
+impl TestProvEmbedClient {
+    pub fn new(model_id: &str) -> Self {
+        Self {
+            model_id: model_id.to_string(),
+        }
+    }
+}
+
+impl crate::traits::ModelMetadata for TestProvEmbedClient {
+    fn provider_id(&self) -> &str {
+        "testprov_embed"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+}
 
 #[async_trait::async_trait]
 impl crate::traits::EmbeddingCapability for TestProvEmbedClient {
@@ -98,7 +161,7 @@ impl LlmClient for TestProvEmbedClient {
     }
 
     fn clone_box(&self) -> Box<dyn LlmClient> {
-        Box::new(TestProvEmbedClient)
+        Box::new(TestProvEmbedClient::new(&self.model_id))
     }
 
     fn as_embedding_capability(&self) -> Option<&dyn crate::traits::EmbeddingCapability> {
@@ -129,7 +192,27 @@ impl ChatCapability for TestProvEmbedClient {
     }
 }
 
-pub struct TestProvImageClient;
+pub struct TestProvImageClient {
+    model_id: String,
+}
+
+impl TestProvImageClient {
+    pub fn new(model_id: &str) -> Self {
+        Self {
+            model_id: model_id.to_string(),
+        }
+    }
+}
+
+impl crate::traits::ModelMetadata for TestProvImageClient {
+    fn provider_id(&self) -> &str {
+        "testprov_image"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+}
 
 #[async_trait::async_trait]
 impl crate::traits::ImageGenerationCapability for TestProvImageClient {
@@ -172,7 +255,7 @@ impl LlmClient for TestProvImageClient {
     }
 
     fn clone_box(&self) -> Box<dyn LlmClient> {
-        Box::new(TestProvImageClient)
+        Box::new(TestProvImageClient::new(&self.model_id))
     }
 
     fn as_image_generation_capability(
@@ -186,12 +269,23 @@ pub struct TestImageProviderFactory;
 
 #[async_trait::async_trait]
 impl ProviderFactory for TestImageProviderFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(TestProvImageClient))
+    async fn compat_language_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(TestProvImageClient::new(_model_id)))
     }
 
-    async fn image_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(TestProvImageClient))
+    async fn compat_image_client(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(TestProvImageClient::new(_model_id)))
+    }
+
+    async fn image_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn crate::image::ImageModel>, LlmError> {
+        Ok(Arc::new(TestProvImageClient::new(model_id)))
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
@@ -215,13 +309,32 @@ impl TestProviderFactory {
 
 #[async_trait::async_trait]
 impl ProviderFactory for TestProviderFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        TEST_BUILD_COUNT.fetch_add(1, Ordering::SeqCst);
-        Ok(Arc::new(TestProvClient))
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(TestProvClient::new(self.id, model_id)))
     }
 
-    async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(TestProvEmbedClient))
+    async fn compat_embedding_client(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(TestProvEmbedClient::new(model_id)))
+    }
+
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn crate::text::LanguageModel>, LlmError> {
+        TEST_BUILD_COUNT.fetch_add(1, Ordering::SeqCst);
+        Ok(Arc::new(TestProvClient::new(self.id, model_id)))
+    }
+
+    async fn embedding_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn crate::embedding::EmbeddingModel>, LlmError> {
+        Ok(Arc::new(TestProvEmbedClient::new(model_id)))
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

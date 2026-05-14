@@ -72,7 +72,7 @@ fn resolve_base_url(ctx: &BuildContext) -> Result<String, LlmError> {
         .or_else(|| env_non_empty("GOOGLE_VERTEX_LOCATION"))
         .unwrap_or_else(|| DEFAULT_LOCATION.to_string());
 
-    Ok(crate::utils::vertex::google_vertex_maas_base_url(
+    Ok(crate::auth::vertex::google_vertex_maas_base_url(
         &project, &location,
     ))
 }

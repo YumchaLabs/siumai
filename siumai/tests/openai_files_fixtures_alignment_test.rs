@@ -4,7 +4,7 @@
 use serde::de::DeserializeOwned;
 use siumai::extensions::FileManagementCapability;
 use siumai::extensions::types::{FileListQuery, FileUploadRequest};
-use siumai::prelude::unified::Siumai;
+use siumai::prelude::compat::Siumai;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use wiremock::matchers::{

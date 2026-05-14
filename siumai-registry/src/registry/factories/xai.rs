@@ -25,7 +25,7 @@ impl XAIProviderFactory {
             model_id,
         );
         let mut builder = siumai_provider_xai::providers::xai::XaiBuilder::new(
-            siumai_provider_xai::builder::BuilderBase::default(),
+            siumai_core::builder::BuilderBase::default(),
         )
         .model(common_params.model.clone())
         .with_http_config(http_config)

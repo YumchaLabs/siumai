@@ -8,7 +8,8 @@ use siumai::Provider;
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };
-use siumai::prelude::unified::{EmbeddingExtensions, EmbeddingRequest, LlmError, Siumai};
+use siumai::prelude::compat::Siumai;
+use siumai::prelude::unified::{EmbeddingExtensions, EmbeddingRequest, LlmError};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]

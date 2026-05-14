@@ -18,7 +18,7 @@ struct MockProviderFactory {
 
 #[async_trait::async_trait]
 impl ProviderFactory for MockProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Return a mock client that echoes the provider and model in the response
         Ok(Arc::new(MockClient {
             provider: self.provider_id.to_string(),
@@ -26,25 +26,31 @@ impl ProviderFactory for MockProviderFactory {
         }))
     }
 
-    async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_embedding_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "embedding not supported in mock".to_string(),
         ))
     }
 
-    async fn image_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_image_client(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "image not supported in mock".to_string(),
         ))
     }
 
-    async fn speech_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_speech_client(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "speech not supported in mock".to_string(),
         ))
     }
 
-    async fn transcription_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_transcription_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "transcription not supported in mock".to_string(),
         ))
@@ -67,7 +73,7 @@ struct CountingProviderFactory {
 
 #[async_trait::async_trait]
 impl ProviderFactory for CountingProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.build_count.fetch_add(1, Ordering::SeqCst);
         Ok(Arc::new(MockClient {
             provider: self.provider_id.to_string(),
@@ -75,25 +81,31 @@ impl ProviderFactory for CountingProviderFactory {
         }))
     }
 
-    async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_embedding_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "embedding not supported in mock".to_string(),
         ))
     }
 
-    async fn image_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_image_client(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "image not supported in mock".to_string(),
         ))
     }
 
-    async fn speech_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_speech_client(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "speech not supported in mock".to_string(),
         ))
     }
 
-    async fn transcription_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn compat_transcription_client(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "transcription not supported in mock".to_string(),
         ))

@@ -26,11 +26,12 @@ use siumai::experimental::execution::http::transport::{
 };
 #[allow(unused_imports)]
 use siumai::extensions::{AudioCapability, ImageExtras};
+use siumai::prelude::compat::Siumai;
 #[allow(unused_imports)]
 use siumai::prelude::unified::{
     ChatCapability, ChatMessage, ChatRequest, CompletionCapability, CompletionRequest,
     EmbeddingModel, EmbeddingRequest, ImageGenerationCapability, ImageGenerationRequest, LlmError,
-    RerankRequest, RerankingModel, Siumai, SttRequest, TtsRequest,
+    RerankRequest, RerankingModel, SttRequest, TtsRequest,
 };
 #[cfg(feature = "google-vertex")]
 use siumai::provider_ext::anthropic_vertex::{
@@ -1856,7 +1857,7 @@ mod openai_public_path {
 
         let registry_factory = siumai::registry::factories::OpenAIProviderFactory;
         let registry_client = registry_factory
-            .speech_model_with_ctx(
+            .compat_speech_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("openai".to_string()),
@@ -2005,7 +2006,7 @@ mod openai_public_path {
 
         let registry_factory = siumai::registry::factories::OpenAIProviderFactory;
         let registry_client = registry_factory
-            .transcription_model_with_ctx(
+            .compat_transcription_client_with_ctx(
                 model,
                 &BuildContext {
                     provider_id: Some("openai".to_string()),

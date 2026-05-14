@@ -1,7 +1,7 @@
 #![cfg(feature = "groq")]
 
-use siumai_provider_groq::builder::BuilderBase;
-use siumai_provider_groq::execution::http::interceptor::LoggingInterceptor;
+use siumai_core::builder::BuilderBase;
+use siumai_core::execution::http::interceptor::LoggingInterceptor;
 use siumai_provider_groq::providers::groq::{GroqBuilder, GroqConfig};
 use std::sync::Arc;
 use std::time::Duration;

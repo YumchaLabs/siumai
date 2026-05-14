@@ -5,6 +5,7 @@
 //! These tests verify that grounding tools can be properly configured and sent to the API.
 
 use serde_json::json;
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::*;
 use siumai_provider_gemini::providers::gemini::types::{
     DynamicRetrievalConfig, DynamicRetrievalMode, GeminiTool, GoogleSearch, GoogleSearchRetrieval,

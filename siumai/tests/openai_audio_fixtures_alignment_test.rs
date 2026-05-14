@@ -3,9 +3,8 @@
 
 use serde::de::DeserializeOwned;
 use siumai::extensions::TranscriptionExtras;
-use siumai::prelude::unified::{
-    Siumai, SpeechCapability, SttRequest, TranscriptionCapability, TtsRequest,
-};
+use siumai::prelude::compat::Siumai;
+use siumai::prelude::unified::{SpeechCapability, SttRequest, TranscriptionCapability, TtsRequest};
 use siumai::provider_ext::openai::{OpenAiSttOptions, OpenAiSttRequestExt};
 use std::path::{Path, PathBuf};
 use wiremock::matchers::{

@@ -3,6 +3,7 @@
 //!
 //! Tests the MiniMaxi provider against a mock HTTP server.
 
+use siumai::prelude::compat::Siumai;
 mod minimaxi_tests {
     use futures::StreamExt;
     use serde_json::json;

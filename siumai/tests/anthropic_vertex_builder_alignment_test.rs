@@ -2,7 +2,7 @@
 #![allow(deprecated)]
 
 use siumai::Provider;
-use siumai::prelude::unified::*;
+use siumai::prelude::compat::Siumai;
 use std::sync::Arc;
 
 #[test]

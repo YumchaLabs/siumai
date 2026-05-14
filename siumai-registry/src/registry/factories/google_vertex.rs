@@ -40,7 +40,7 @@ impl GoogleVertexProviderFactory {
         let base_url = if let Some(b) = ctx.base_url.clone() {
             b
         } else if api_key.is_some() {
-            crate::utils::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL.to_string()
+            crate::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL.to_string()
         } else {
             let project = ctx.project.clone().or_else(|| {
                 std::env::var("GOOGLE_VERTEX_PROJECT").ok().and_then(|v| {
@@ -72,7 +72,7 @@ impl GoogleVertexProviderFactory {
                 }
             };
 
-            crate::utils::vertex::google_vertex_base_url(&project, &location)
+            crate::auth::vertex::google_vertex_base_url(&project, &location)
         };
 
         let common_params = crate::utils::builder_helpers::resolve_common_params(

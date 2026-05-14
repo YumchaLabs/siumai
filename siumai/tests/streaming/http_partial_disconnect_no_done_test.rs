@@ -4,6 +4,7 @@ use axum::http::HeaderValue;
 use axum::response::Response;
 use axum::{Router, routing::post};
 use futures::StreamExt;
+use siumai::prelude::compat::Siumai;
 use std::time::Duration;
 
 #[tokio::test]
