@@ -9,12 +9,13 @@ use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
     HttpTransportStreamBody, HttpTransportStreamResponse,
 };
+use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::{
-    ChatCapability, ChatMessage, ChatRequest, ChatStreamEvent, ChatStreamPart, LlmError, Siumai,
+    ChatCapability, ChatMessage, ChatRequest, ChatStreamEvent, ChatStreamPart, LlmError,
 };
 use siumai::provider_ext::deepinfra::{DeepInfraClient, DeepInfraConfig};
 use siumai::registry::ProviderBuildOverrides;
-use siumai_provider_openai_compatible::builder::BuilderBase;
+use siumai_core::builder::BuilderBase;
 use siumai_provider_openai_compatible::providers::openai_compatible::{
     ConfigurableAdapter, OpenAiCompatibleBuilder, ResponseMetadataExtractor, get_provider_config,
 };

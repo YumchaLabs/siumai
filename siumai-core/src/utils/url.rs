@@ -143,12 +143,12 @@ fn media_type_prefix(media_type: &str) -> String {
 /// use siumai::experimental::utils::url::join_url_segments;
 ///
 /// assert_eq!(
-///     join_url_segments(&["https://api.example.com", "v1", "models", "gpt-4"]),
-///     "https://api.example.com/v1/models/gpt-4"
+///     join_url_segments(&["https://api.example.com", "v1", "models", "model-id"]),
+///     "https://api.example.com/v1/models/model-id"
 /// );
 /// assert_eq!(
-///     join_url_segments(&["https://api.example.com/", "/v1/", "/models/", "/gpt-4"]),
-///     "https://api.example.com/v1/models/gpt-4"
+///     join_url_segments(&["https://api.example.com/", "/v1/", "/models/", "/model-id"]),
+///     "https://api.example.com/v1/models/model-id"
 /// );
 /// ```
 pub fn join_url_segments(segments: &[&str]) -> String {
@@ -266,12 +266,12 @@ mod tests {
     #[test]
     fn test_join_url_segments() {
         assert_eq!(
-            join_url_segments(&["https://api.example.com", "v1", "models", "gpt-4"]),
-            "https://api.example.com/v1/models/gpt-4"
+            join_url_segments(&["https://api.example.com", "v1", "models", "model-id"]),
+            "https://api.example.com/v1/models/model-id"
         );
         assert_eq!(
-            join_url_segments(&["https://api.example.com/", "/v1/", "/models/", "/gpt-4"]),
-            "https://api.example.com/v1/models/gpt-4"
+            join_url_segments(&["https://api.example.com/", "/v1/", "/models/", "/model-id"]),
+            "https://api.example.com/v1/models/model-id"
         );
         assert_eq!(
             join_url_segments(&["https://api.example.com"]),

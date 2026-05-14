@@ -7,7 +7,7 @@
 //! # Usage
 //! ```rust,no_run
 //! use siumai_provider_openai_compatible::providers::openai_compatible::{deepseek, OpenAiCompatibleClient};
-//! use siumai_provider_openai_compatible::types::ChatRequest;
+//! use siumai_core::types::ChatRequest;
 //! use siumai_provider_openai_compatible::{text, user};
 //!
 //! #[tokio::main]
@@ -33,6 +33,7 @@ pub mod config;
 pub mod default_models;
 pub mod ext;
 pub mod middleware;
+pub mod model_alias;
 pub mod openai_client;
 pub mod settings;
 pub mod spec;
@@ -129,6 +130,7 @@ pub use ext::{
     XaiChatRequestExt, XaiImageRequestExt,
 };
 pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
+pub use model_alias::normalize_model_id;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use settings::{

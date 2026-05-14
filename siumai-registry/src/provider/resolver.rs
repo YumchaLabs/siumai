@@ -13,6 +13,42 @@ pub fn normalize_provider_id(raw: &str) -> String {
     }
 }
 
+/// Normalize a model id for provider-owned compatibility aliases.
+///
+/// This intentionally lives in the registry layer because it depends on concrete provider ids and
+/// vendor model namespaces. `siumai-core` must treat model ids as opaque strings.
+pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
+    #[cfg(any(
+        feature = "openai",
+        feature = "google-vertex",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "deepseek",
+        feature = "xai",
+        feature = "groq",
+    ))]
+    {
+        siumai_provider_openai_compatible::providers::openai_compatible::normalize_model_id(
+            provider_id,
+            model,
+        )
+    }
+
+    #[cfg(not(any(
+        feature = "openai",
+        feature = "google-vertex",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "deepseek",
+        feature = "xai",
+        feature = "groq",
+    )))]
+    {
+        let _ = provider_id;
+        model.trim().to_string()
+    }
+}
+
 /// Whether a canonical provider id should be treated as an OpenAI-compatible provider.
 ///
 /// This is used for behaviors like model alias normalization that are specific to OpenAI-compatible
@@ -116,6 +152,83 @@ mod tests {
 
         assert!(is_openai_compatible_provider_id("deepseek"));
         assert!(is_openai_compatible_provider_id("openrouter"));
+    }
+
+    #[test]
+    fn normalize_model_id_applies_deepseek_aliases() {
+        assert_eq!(
+            normalize_model_id("deepseek", "deepseek-v3"),
+            "deepseek-chat"
+        );
+        assert_eq!(
+            normalize_model_id("deepseek", "deepseek-r1"),
+            "deepseek-reasoner"
+        );
+        assert_eq!(normalize_model_id("deepseek", "chat"), "deepseek-chat");
+        assert_eq!(
+            normalize_model_id("deepseek", "reasoner"),
+            "deepseek-reasoner"
+        );
+        assert_eq!(
+            normalize_model_id("deepseek", "deepseek-chat"),
+            "deepseek-chat"
+        );
+    }
+
+    #[test]
+    fn normalize_model_id_applies_openrouter_vendor_prefixes() {
+        assert_eq!(
+            normalize_model_id("openrouter", "gpt-4o-mini"),
+            "openai/gpt-4o-mini"
+        );
+        assert_eq!(
+            normalize_model_id("openrouter", "claude-3-5-sonnet"),
+            "anthropic/claude-3.5-sonnet"
+        );
+        assert_eq!(
+            normalize_model_id("openrouter", "gemini-2.5-pro"),
+            "google/gemini-2.5-pro"
+        );
+        assert_eq!(
+            normalize_model_id("openrouter", "llama-3.1-70b-instruct"),
+            "meta-llama/llama-3.1-70b-instruct"
+        );
+        assert_eq!(
+            normalize_model_id("openrouter", "llama-3.1-sonar-small-128k-online"),
+            "perplexity/llama-3.1-sonar-small-128k-online"
+        );
+        assert_eq!(
+            normalize_model_id("openrouter", "command-r-plus"),
+            "cohere/command-r-plus"
+        );
+        assert_eq!(
+            normalize_model_id("openrouter", "openai/gpt-4o-mini"),
+            "openai/gpt-4o-mini"
+        );
+    }
+
+    #[test]
+    fn normalize_model_id_applies_openai_compatible_vendor_aliases() {
+        assert_eq!(
+            normalize_model_id("siliconflow", "deepseek-v3.1"),
+            "deepseek-ai/DeepSeek-V3.1"
+        );
+        assert_eq!(
+            normalize_model_id("siliconflow", "qwen-2.5-72b-instruct"),
+            "Qwen/Qwen2.5-72B-Instruct"
+        );
+        assert_eq!(
+            normalize_model_id("siliconflow", "kimi-k2-instruct"),
+            "moonshotai/Kimi-K2-Instruct"
+        );
+        assert_eq!(
+            normalize_model_id("together", "llama-3.1-8b-instruct"),
+            "meta-llama/llama-3.1-8b-instruct"
+        );
+        assert_eq!(
+            normalize_model_id("fireworks", "llama-v3p1-8b-instruct"),
+            "accounts/fireworks/models/llama-v3p1-8b-instruct"
+        );
     }
 
     #[test]

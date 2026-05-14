@@ -30,6 +30,12 @@ documents, release process, and active workstreams for current planning.
 
 ## Workstreams
 
+- Fearless core provider alias extraction: `docs/workstreams/fearless-core-provider-alias-extraction/`
+  - extracts provider-specific model alias and recommendation logic out of `siumai-core` and into
+    registry/provider-owned boundaries
+- Fearless boundary hardening: `docs/workstreams/fearless-boundary-hardening/`
+  - next fearless-refactor execution track for boundary hardening and removal of unnecessary
+    compatibility or redundant code once canonical paths are tested and documented
 - Fearless architecture convergence: `docs/workstreams/fearless-architecture-convergence/`
 - Current V4 refactor tracking: `docs/workstreams/fearless-refactor-v4/`
 - AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`

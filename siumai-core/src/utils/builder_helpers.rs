@@ -11,7 +11,7 @@ use crate::error::LlmError;
 ///
 /// # Arguments
 /// * `api_key` - Explicitly provided API key (if any)
-/// * `provider_id` - Provider identifier (e.g., "moonshotai", "deepseek")
+/// * `provider_id` - Provider identifier used to derive the default env var name
 ///
 /// # Returns
 /// * `Ok(String)` - The API key
@@ -19,8 +19,8 @@ use crate::error::LlmError;
 ///
 /// # Example
 /// ```rust,ignore
-/// let api_key = get_api_key_with_env(None, "moonshotai")?;
-/// // Reads from MOONSHOTAI_API_KEY environment variable unless the provider supplies a primary env
+/// let api_key = get_api_key_with_env(None, "custom_provider")?;
+/// // Reads from CUSTOM_PROVIDER_API_KEY unless the provider supplies a primary env
 /// ```
 pub fn get_api_key_with_env(
     api_key: Option<String>,
@@ -97,7 +97,7 @@ pub fn get_api_key_with_envs(
 ///
 /// # Example
 /// ```rust,ignore
-/// let model = get_effective_model("", "moonshotai");
+/// let model = get_effective_model("", "custom_provider");
 /// // Core crate itself does not inject provider-specific defaults.
 /// ```
 pub fn get_effective_model(model: &str, _provider_id: &str) -> String {
@@ -106,28 +106,6 @@ pub fn get_effective_model(model: &str, _provider_id: &str) -> String {
     } else {
         String::new()
     }
-}
-
-/// Normalize model ID (handle provider-specific aliases)
-///
-/// Some providers use special model ID formats:
-/// - OpenRouter: `openai/gpt-4o` → `openai/gpt-4o`
-/// - DeepSeek: `chat` → `deepseek-chat`
-///
-/// # Arguments
-/// * `provider_id` - Provider identifier
-/// * `model` - Model ID to normalize
-///
-/// # Returns
-/// Normalized model ID
-///
-/// # Example
-/// ```rust,ignore
-/// let normalized = normalize_model_id("deepseek", "chat");
-/// // Returns "deepseek-chat"
-/// ```
-pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
-    crate::utils::model_alias::normalize_model_id(provider_id, model)
 }
 
 /// Resolve CommonParams for a given model id using optional context overrides.
@@ -170,14 +148,14 @@ pub fn resolve_common_params(
 /// // Custom URL without path
 /// let url = resolve_base_url(
 ///     Some("https://my-server.com".to_string()),
-///     "https://api.moonshot.ai/v1"
+///     "https://api.example.com/v1"
 /// );
 /// // Returns "https://my-server.com"
 ///
 /// // Custom URL with path
 /// let url = resolve_base_url(
 ///     Some("https://my-server.com/api/v2".to_string()),
-///     "https://api.moonshot.ai/v1"
+///     "https://api.example.com/v1"
 /// );
 /// // Returns "https://my-server.com/api/v2"
 /// ```
@@ -263,7 +241,7 @@ mod tests {
     #[test]
     fn test_get_api_key_with_env() {
         // Test with explicit API key
-        let result = get_api_key_with_env(Some("test-key".to_string()), "moonshotai");
+        let result = get_api_key_with_env(Some("test-key".to_string()), "custom_provider");
         assert_eq!(result.unwrap(), "test-key");
 
         // Test with missing API key (should fail)
@@ -300,23 +278,12 @@ mod tests {
     #[test]
     fn test_get_effective_model() {
         // Test with explicit model
-        let model = get_effective_model("custom-model", "moonshotai");
+        let model = get_effective_model("custom-model", "custom_provider");
         assert_eq!(model, "custom-model");
 
         // Core crate does not provide provider-specific defaults.
-        let model = get_effective_model("", "moonshotai");
+        let model = get_effective_model("", "custom_provider");
         assert!(model.is_empty());
-    }
-
-    #[test]
-    fn test_normalize_model_id() {
-        // Test DeepSeek alias
-        let normalized = normalize_model_id("deepseek", "chat");
-        assert_eq!(normalized, "deepseek-chat");
-
-        // Test non-aliased model
-        let normalized = normalize_model_id("moonshotai", "kimi-k2-0905");
-        assert_eq!(normalized, "kimi-k2-0905");
     }
 
     #[test]
@@ -324,25 +291,25 @@ mod tests {
         // Test custom URL without path
         let url = resolve_base_url(
             Some("https://my-server.com".to_string()),
-            "https://api.moonshot.ai/v1",
+            "https://api.example.com/v1",
         );
         assert_eq!(url, "https://my-server.com");
 
         // Test custom URL with path
         let url = resolve_base_url(
             Some("https://my-server.com/api/v2".to_string()),
-            "https://api.moonshot.ai/v1",
+            "https://api.example.com/v1",
         );
         assert_eq!(url, "https://my-server.com/api/v2");
 
         // Test no custom URL
-        let url = resolve_base_url(None, "https://api.moonshot.ai/v1");
-        assert_eq!(url, "https://api.moonshot.ai/v1");
+        let url = resolve_base_url(None, "https://api.example.com/v1");
+        assert_eq!(url, "https://api.example.com/v1");
 
         // Test custom URL with trailing slash
         let url = resolve_base_url(
             Some("https://my-server.com/".to_string()),
-            "https://api.moonshot.ai/v1",
+            "https://api.example.com/v1",
         );
         assert_eq!(url, "https://my-server.com");
     }

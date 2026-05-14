@@ -225,8 +225,7 @@ pub async fn build_openai_compatible_typed_client(
             adapter,
         )
         .with_model(&{
-            // Normalize model id for provider-specific aliasing (e.g., OpenRouter, DeepSeek)
-            crate::utils::model_alias::normalize_model_id(&resolved_id, &common_params.model)
+            crate::provider::resolver::normalize_model_id(&resolved_id, &common_params.model)
         })
         .with_http_config(http_config.clone());
     if let Some(token_provider) = token_provider {

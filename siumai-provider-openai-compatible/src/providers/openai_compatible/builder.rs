@@ -808,7 +808,7 @@ impl OpenAiCompatibleBuilder {
             &self.common_params.model,
             &canonical_provider_id,
         );
-        let effective_model = crate::utils::builder_helpers::normalize_model_id(
+        let effective_model = crate::providers::openai_compatible::normalize_model_id(
             &canonical_provider_id,
             &effective_model_raw,
         );

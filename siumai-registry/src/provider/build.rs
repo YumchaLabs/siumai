@@ -615,10 +615,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     #[cfg(any(feature = "openai", feature = "deepseek", feature = "deepinfra"))]
     {
         if super::resolver::is_openai_compatible_provider_id(&effective_provider_id) {
-            let normalized_model = crate::utils::builder_helpers::normalize_model_id(
-                &effective_provider_id,
-                &common_params.model,
-            );
+            let normalized_model =
+                super::resolver::normalize_model_id(&effective_provider_id, &common_params.model);
             if !normalized_model.is_empty() {
                 common_params.model = normalized_model;
             }

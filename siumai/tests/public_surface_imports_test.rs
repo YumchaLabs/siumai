@@ -554,9 +554,9 @@ fn public_surface_unified_imports_compile() {
     let _ = generate_text::<dyn LanguageModel>;
     let _ = rerank::<dyn RerankingModel>;
     let _ = transcribe::<dyn TranscriptionModel>;
-    let _ = experimental_generate_speech::<dyn SpeechModel>;
-    let _ = experimental_generate_video::<dyn VideoModelV4>;
-    let _ = experimental_transcribe::<dyn TranscriptionModel>;
+    let _ = siumai::speech::experimental_generate_speech::<dyn SpeechModel>;
+    let _ = siumai::experimental_generate_video::<dyn VideoModelV4>;
+    let _ = siumai::transcription::experimental_transcribe::<dyn TranscriptionModel>;
     assert!(
         UI_MESSAGE_STREAM_HEADERS
             .iter()
@@ -1347,8 +1347,8 @@ fn public_family_helpers_compile_against_stable_family_models() {
             ImageGenerationRequest, ImageModel, ImageVariationRequest,
         },
         prelude::unified::{
-            ChatMessage, JSONValue, experimental_generate_video, generate_array, generate_choice,
-            generate_enum, generate_image, generate_json, generate_object, registry::*,
+            ChatMessage, JSONValue, generate_array, generate_choice, generate_enum, generate_image,
+            generate_json, generate_object, registry::*,
         },
         rerank::{self, RerankRequest, RerankingModel},
         speech::{self, SpeechModel, TtsRequest},
@@ -1510,7 +1510,7 @@ fn public_family_helpers_compile_against_stable_family_models() {
             VideoGenerationRequest::new("video-model", "animate a robot"),
             Default::default(),
         ));
-        std::mem::drop(experimental_generate_video(
+        std::mem::drop(siumai::experimental_generate_video(
             model,
             VideoGenerationRequest::new("video-model", "animate a robot"),
             Default::default(),
@@ -2081,6 +2081,7 @@ fn public_surface_fireworks_provider_ext_compiles() {
 #[test]
 #[allow(deprecated)]
 fn public_surface_anthropic_provider_ext_compiles() {
+    use siumai::prelude::compat::Siumai;
     use siumai::prelude::unified::*;
     use siumai::provider_ext::anthropic::{
         AnthropicBuilder, AnthropicClient, AnthropicConfig, AnthropicProviderSettings, VERSION,
@@ -2744,7 +2745,7 @@ fn public_surface_togetherai_provider_ext_compiles() {
             .with_negative_prompt("blurry"),
     );
 
-    let _ = Provider::togetherai().model(chat::META_LLAMA_3_1_8B_INSTRUCT_TURBO);
+    let _ = siumai::Provider::togetherai().model(chat::META_LLAMA_3_1_8B_INSTRUCT_TURBO);
     let _ = TogetherAiConfig::new("test-key").with_model(rerank::LLAMA_RANK_V1);
 }
 
@@ -3317,7 +3318,8 @@ fn public_surface_vertex_maas_provider_ext_compiles() {
 #[test]
 #[allow(deprecated)]
 fn public_surface_anthropic_vertex_provider_ext_compiles() {
-    use siumai::prelude::unified::{ChatRequest, ChatResponse, MessageContent, Siumai};
+    use siumai::prelude::compat::Siumai;
+    use siumai::prelude::unified::{ChatRequest, ChatResponse, MessageContent};
     use siumai::provider_ext::anthropic_vertex::{
         AnthropicChatResponseExt, AnthropicMessageContainerMetadata,
         AnthropicMessageContainerSkill, AnthropicMessageMetadata, AnthropicMetadata,
