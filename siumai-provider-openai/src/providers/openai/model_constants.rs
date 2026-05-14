@@ -200,9 +200,27 @@ pub mod images {
     pub const DALL_E_2: &str = "dall-e-2";
     /// DALL-E 3 - Advanced image generation model
     pub const DALL_E_3: &str = "dall-e-3";
+    /// GPT Image 1 - Multimodal image generation and editing model
+    pub const GPT_IMAGE_1: &str = "gpt-image-1";
+    /// GPT Image 1 Mini - Lower-cost GPT image model
+    pub const GPT_IMAGE_1_MINI: &str = "gpt-image-1-mini";
+    /// GPT Image 1.5 - GPT image model
+    pub const GPT_IMAGE_1_5: &str = "gpt-image-1.5";
+    /// GPT Image 2 - Latest GPT image generation and editing model
+    pub const GPT_IMAGE_2: &str = "gpt-image-2";
+    /// ChatGPT Image Latest - ChatGPT image model alias
+    pub const CHATGPT_IMAGE_LATEST: &str = "chatgpt-image-latest";
 
     /// All image models
-    pub const ALL: &[&str] = &[DALL_E_2, DALL_E_3];
+    pub const ALL: &[&str] = &[
+        DALL_E_2,
+        DALL_E_3,
+        GPT_IMAGE_1,
+        GPT_IMAGE_1_MINI,
+        GPT_IMAGE_1_5,
+        GPT_IMAGE_2,
+        CHATGPT_IMAGE_LATEST,
+    ];
 }
 
 /// Embedding model constants

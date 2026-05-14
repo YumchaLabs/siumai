@@ -102,6 +102,11 @@ pub mod model_constants {
         // Image models
         pub const DALL_E_2: &str = c::images::DALL_E_2;
         pub const DALL_E_3: &str = c::images::DALL_E_3;
+        pub const GPT_IMAGE_1: &str = c::images::GPT_IMAGE_1;
+        pub const GPT_IMAGE_1_MINI: &str = c::images::GPT_IMAGE_1_MINI;
+        pub const GPT_IMAGE_1_5: &str = c::images::GPT_IMAGE_1_5;
+        pub const GPT_IMAGE_2: &str = c::images::GPT_IMAGE_2;
+        pub const CHATGPT_IMAGE_LATEST: &str = c::images::CHATGPT_IMAGE_LATEST;
 
         // Embedding models
         pub const TEXT_EMBEDDING_3_SMALL: &str = c::embeddings::TEXT_EMBEDDING_3_SMALL;

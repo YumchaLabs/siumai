@@ -211,6 +211,14 @@ pub(crate) fn convert_openai_model_to_model_info(openai_model: OpenAiModel) -> M
     }
 }
 
+fn is_openai_gpt_image_model(model_id: &str) -> bool {
+    model_id.starts_with("chatgpt-image-")
+        || model_id.starts_with("gpt-image-1-mini")
+        || model_id.starts_with("gpt-image-1.5")
+        || model_id.starts_with("gpt-image-1")
+        || model_id.starts_with("gpt-image-2")
+}
+
 /// Determine model capabilities based on model ID
 fn determine_model_capabilities(model_id: &str) -> Vec<String> {
     let mut capabilities = vec!["chat".to_string(), "text".to_string()];
@@ -272,7 +280,7 @@ fn determine_model_capabilities(model_id: &str) -> Vec<String> {
     }
 
     // DALL-E models
-    if model_id.contains("dall-e") || model_id == "gpt-image-1" {
+    if model_id.contains("dall-e") || is_openai_gpt_image_model(model_id) {
         capabilities.clear(); // Image models don't have chat/text capabilities
         capabilities.push("image_generation".to_string());
     }
@@ -446,6 +454,7 @@ fn estimate_model_specs(model_id: &str) -> (Option<u32>, Option<u32>, Option<f64
         "dall-e-2" => (None, None, Some(0.02), None), // Per image (1024x1024)
         "dall-e-3" => (None, None, Some(0.04), None), // Per image (1024x1024)
         "gpt-image-1" => (None, None, Some(0.03), None), // Per image (estimated)
+        id if is_openai_gpt_image_model(id) => (None, None, None, None),
 
         // Embedding models
         "text-embedding-3-small" => (Some(8191), None, Some(0.000_000_02), None),
@@ -499,6 +508,22 @@ mod tests {
 
         let gpt35_caps = determine_model_capabilities("gpt-3.5-turbo");
         assert!(gpt35_caps.contains(&"tools".to_string()));
+    }
+
+    #[test]
+    fn test_determine_image_model_capabilities() {
+        for model_id in [
+            "dall-e-3",
+            "gpt-image-1",
+            "gpt-image-1-mini",
+            "gpt-image-1.5",
+            "gpt-image-2",
+            "chatgpt-image-latest",
+            "gpt-image-1.5-2025-12-16",
+        ] {
+            let caps = determine_model_capabilities(model_id);
+            assert_eq!(caps, vec!["image_generation".to_string()]);
+        }
     }
 
     #[test]

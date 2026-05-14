@@ -38,6 +38,31 @@ fn openai_image_generation_body_merges_provider_options_and_defaults_response_fo
 }
 
 #[test]
+fn openai_image_generation_body_preserves_gpt_image_2_default_response_format() {
+    let spec = siumai_provider_openai::providers::openai::spec::OpenAiSpec::new();
+    let ctx = ProviderContext::new(
+        "openai",
+        "https://api.openai.com/v1",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+
+    let req = siumai::prelude::unified::ImageGenerationRequest {
+        prompt: "A cat".to_string(),
+        count: 1,
+        model: Some(siumai::models::openai::GPT_IMAGE_2.to_string()),
+        ..Default::default()
+    };
+
+    let tx = spec.choose_image_transformers(&req, &ctx);
+    let body = tx.request.transform_image(&req).expect("transform");
+
+    assert_eq!(body["model"], "gpt-image-2");
+    assert_eq!(body["prompt"], "A cat");
+    assert!(body.get("response_format").is_none());
+}
+
+#[test]
 fn openai_image_response_metadata_contains_openai_images() {
     let spec = siumai_provider_openai::providers::openai::spec::OpenAiSpec::new();
     let ctx = ProviderContext::new(

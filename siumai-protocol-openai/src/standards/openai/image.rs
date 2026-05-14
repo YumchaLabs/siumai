@@ -99,6 +99,14 @@ fn openai_image_variation_part(
     }
 }
 
+fn openai_image_model_has_default_response_format(model: &str) -> bool {
+    model.starts_with("chatgpt-image-")
+        || model.starts_with("gpt-image-1-mini")
+        || model.starts_with("gpt-image-1.5")
+        || model.starts_with("gpt-image-1")
+        || model.starts_with("gpt-image-2")
+}
+
 /// OpenAI Image API Standard
 ///
 /// Represents the OpenAI Image Generation API format.
@@ -467,10 +475,10 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
         }
 
         // Vercel alignment: models without a default response format should request base64.
-        // (gpt-image-1* always returns base64, others default to URLs unless specified)
+        // GPT image family models already default to base64, others default to URLs unless specified.
         if request.response_format.is_none()
             && let Some(model) = request.model.as_deref()
-            && !model.starts_with("gpt-image-1")
+            && !openai_image_model_has_default_response_format(model)
             && body.get("response_format").is_none()
         {
             body["response_format"] = serde_json::Value::String("b64_json".to_string());
@@ -950,6 +958,56 @@ mod tests {
         assert_eq!(body["size"], "1024x1024");
         assert_eq!(body["model"], "dall-e-3");
         assert_eq!(body["quality"], "hd");
+    }
+
+    #[test]
+    fn test_image_generation_defaults_response_format_for_dall_e_models() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        let request = ImageGenerationRequest {
+            prompt: "A cat".to_string(),
+            count: 1,
+            model: Some("dall-e-3".to_string()),
+            ..Default::default()
+        };
+
+        let body = transformers
+            .request
+            .transform_image(&request)
+            .expect("transform");
+
+        assert_eq!(body["response_format"], "b64_json");
+    }
+
+    #[test]
+    fn test_image_generation_preserves_gpt_image_default_response_format() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        for model in [
+            "gpt-image-1",
+            "gpt-image-1-mini",
+            "gpt-image-1.5",
+            "gpt-image-2",
+            "chatgpt-image-latest",
+            "gpt-image-1.5-2025-12-16",
+        ] {
+            let request = ImageGenerationRequest {
+                prompt: "A cat".to_string(),
+                count: 1,
+                model: Some(model.to_string()),
+                ..Default::default()
+            };
+
+            let body = transformers
+                .request
+                .transform_image(&request)
+                .expect("transform");
+
+            assert_eq!(body["model"], model);
+            assert!(body.get("response_format").is_none());
+        }
     }
 
     #[test]
