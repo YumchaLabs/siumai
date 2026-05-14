@@ -696,4 +696,4 @@ pub use entry::{
 pub use helpers::{create_bare_registry, create_empty_registry};
 
 #[cfg(feature = "builtins")]
-pub use helpers::create_registry_with_defaults;
+pub use helpers::{builtin_provider_factory, create_registry_with_defaults};

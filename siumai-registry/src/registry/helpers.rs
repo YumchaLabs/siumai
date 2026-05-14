@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(feature = "builtins")]
+use crate::error::LlmError;
+#[cfg(feature = "builtins")]
 use crate::execution::http::interceptor::LoggingInterceptor;
 #[cfg(feature = "builtins")]
 use crate::execution::middleware::samples::chain_default_and_clamp;
@@ -16,6 +18,334 @@ use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_pro
 
 #[cfg(feature = "builtins")]
 use crate::registry::entry::ProviderFactory;
+
+#[cfg(feature = "builtins")]
+fn unsupported_provider_feature(provider_name: &str, feature: &str) -> LlmError {
+    LlmError::UnsupportedOperation(format!(
+        "{provider_name} provider requires the '{feature}' feature to be enabled"
+    ))
+}
+
+#[cfg(all(feature = "builtins", not(feature = "openai")))]
+fn unsupported_openai_compatible_provider(provider_id: &str) -> LlmError {
+    LlmError::UnsupportedOperation(format!(
+        "OpenAI-compatible provider '{provider_id}' requires the 'openai' feature to be enabled"
+    ))
+}
+
+#[cfg(feature = "builtins")]
+fn openai_compatible_provider_factory(
+    provider_id: &str,
+) -> Result<Arc<dyn ProviderFactory>, LlmError> {
+    #[cfg(feature = "openai")]
+    {
+        Ok(Arc::new(
+            crate::registry::factories::OpenAICompatibleProviderFactory::new(
+                provider_id.to_string(),
+            ),
+        ) as Arc<dyn ProviderFactory>)
+    }
+
+    #[cfg(not(feature = "openai"))]
+    {
+        Err(unsupported_openai_compatible_provider(provider_id))
+    }
+}
+
+#[cfg(feature = "builtins")]
+fn insert_builtin_provider_factory(
+    providers: &mut HashMap<String, Arc<dyn ProviderFactory>>,
+    provider_id: &str,
+) -> Result<(), LlmError> {
+    providers.insert(
+        provider_id.to_string(),
+        builtin_provider_factory(provider_id)?,
+    );
+    Ok(())
+}
+
+/// Resolve a built-in provider id into its registry factory.
+///
+/// Custom provider registries should still implement and register `ProviderFactory` directly.
+/// This helper exists so normal built-in provider construction does not require callers to depend
+/// on concrete factory structs under `registry::factories`.
+#[cfg(feature = "builtins")]
+pub fn builtin_provider_factory(provider_id: &str) -> Result<Arc<dyn ProviderFactory>, LlmError> {
+    let normalized = crate::provider::resolver::normalize_provider_id(provider_id);
+
+    match ids::BuiltinProviderId::parse(&normalized) {
+        Some(
+            ids::BuiltinProviderId::OpenAi
+            | ids::BuiltinProviderId::OpenAiChat
+            | ids::BuiltinProviderId::OpenAiResponses,
+        ) => {
+            #[cfg(feature = "openai")]
+            {
+                Ok(Arc::new(crate::registry::factories::OpenAIProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                Err(unsupported_provider_feature("OpenAI", "openai"))
+            }
+        }
+        Some(ids::BuiltinProviderId::Anthropic) => {
+            #[cfg(feature = "anthropic")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::AnthropicProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "anthropic"))]
+            {
+                Err(unsupported_provider_feature("Anthropic", "anthropic"))
+            }
+        }
+        Some(ids::BuiltinProviderId::AnthropicVertex) => {
+            #[cfg(feature = "google-vertex")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::AnthropicVertexProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "google-vertex"))]
+            {
+                Err(unsupported_provider_feature(
+                    "Anthropic on Vertex",
+                    "google-vertex",
+                ))
+            }
+        }
+        Some(ids::BuiltinProviderId::Gemini) => {
+            #[cfg(feature = "google")]
+            {
+                Ok(Arc::new(crate::registry::factories::GeminiProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "google"))]
+            {
+                Err(unsupported_provider_feature("Gemini", "google"))
+            }
+        }
+        Some(ids::BuiltinProviderId::Vertex) => {
+            #[cfg(feature = "google-vertex")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::GoogleVertexProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "google-vertex"))]
+            {
+                Err(unsupported_provider_feature(
+                    "Google Vertex",
+                    "google-vertex",
+                ))
+            }
+        }
+        Some(ids::BuiltinProviderId::VertexMaas) => {
+            #[cfg(feature = "google-vertex")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::VertexMaasProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "google-vertex"))]
+            {
+                Err(unsupported_provider_feature(
+                    "Google Vertex MaaS",
+                    "google-vertex",
+                ))
+            }
+        }
+        Some(ids::BuiltinProviderId::Ollama) => {
+            #[cfg(feature = "ollama")]
+            {
+                Ok(Arc::new(crate::registry::factories::OllamaProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "ollama"))]
+            {
+                Err(unsupported_provider_feature("Ollama", "ollama"))
+            }
+        }
+        Some(ids::BuiltinProviderId::DeepSeek) => {
+            #[cfg(feature = "deepseek")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::DeepSeekProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(all(not(feature = "deepseek"), feature = "openai"))]
+            {
+                openai_compatible_provider_factory(ids::DEEPSEEK)
+            }
+            #[cfg(all(not(feature = "deepseek"), not(feature = "openai")))]
+            {
+                Err(unsupported_provider_feature("DeepSeek", "deepseek"))
+            }
+        }
+        Some(ids::BuiltinProviderId::DeepInfra) => {
+            #[cfg(feature = "deepinfra")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::DeepInfraProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(all(not(feature = "deepinfra"), feature = "openai"))]
+            {
+                openai_compatible_provider_factory(ids::DEEPINFRA)
+            }
+            #[cfg(all(not(feature = "deepinfra"), not(feature = "openai")))]
+            {
+                Err(unsupported_provider_feature("DeepInfra", "deepinfra"))
+            }
+        }
+        Some(ids::BuiltinProviderId::Fireworks) => {
+            #[cfg(feature = "openai")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::FireworksProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                Err(unsupported_openai_compatible_provider(ids::FIREWORKS))
+            }
+        }
+        Some(ids::BuiltinProviderId::Xai) => {
+            #[cfg(feature = "xai")]
+            {
+                Ok(Arc::new(crate::registry::factories::XAIProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(all(not(feature = "xai"), feature = "openai"))]
+            {
+                openai_compatible_provider_factory(ids::XAI)
+            }
+            #[cfg(all(not(feature = "xai"), not(feature = "openai")))]
+            {
+                Err(unsupported_provider_feature("xAI", "xai"))
+            }
+        }
+        Some(ids::BuiltinProviderId::Groq) => {
+            #[cfg(feature = "groq")]
+            {
+                Ok(Arc::new(crate::registry::factories::GroqProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(all(not(feature = "groq"), feature = "openai"))]
+            {
+                openai_compatible_provider_factory(ids::GROQ)
+            }
+            #[cfg(all(not(feature = "groq"), not(feature = "openai")))]
+            {
+                Err(unsupported_provider_feature("Groq", "groq"))
+            }
+        }
+        Some(ids::BuiltinProviderId::MiniMaxi) => {
+            #[cfg(feature = "minimaxi")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::MiniMaxiProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(all(not(feature = "minimaxi"), feature = "openai"))]
+            {
+                openai_compatible_provider_factory(ids::MINIMAXI)
+            }
+            #[cfg(all(not(feature = "minimaxi"), not(feature = "openai")))]
+            {
+                Err(unsupported_provider_feature("MiniMaxi", "minimaxi"))
+            }
+        }
+        Some(ids::BuiltinProviderId::Cohere) => {
+            #[cfg(feature = "cohere")]
+            {
+                Ok(Arc::new(crate::registry::factories::CohereProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(all(not(feature = "cohere"), feature = "openai"))]
+            {
+                openai_compatible_provider_factory(ids::COHERE)
+            }
+            #[cfg(all(not(feature = "cohere"), not(feature = "openai")))]
+            {
+                Err(unsupported_provider_feature("Cohere", "cohere"))
+            }
+        }
+        Some(ids::BuiltinProviderId::TogetherAi) => {
+            #[cfg(feature = "togetherai")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::TogetherAiProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(all(not(feature = "togetherai"), feature = "openai"))]
+            {
+                openai_compatible_provider_factory(ids::TOGETHERAI)
+            }
+            #[cfg(all(not(feature = "togetherai"), not(feature = "openai")))]
+            {
+                Err(unsupported_provider_feature("TogetherAI", "togetherai"))
+            }
+        }
+        Some(ids::BuiltinProviderId::Bedrock) => {
+            #[cfg(feature = "bedrock")]
+            {
+                Ok(Arc::new(crate::registry::factories::BedrockProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "bedrock"))]
+            {
+                Err(unsupported_provider_feature("Amazon Bedrock", "bedrock"))
+            }
+        }
+        Some(ids::BuiltinProviderId::Azure | ids::BuiltinProviderId::AzureChat) => {
+            #[cfg(feature = "azure")]
+            {
+                Ok(azure_provider_factory_with_options(
+                    &normalized,
+                    siumai_provider_azure::providers::azure_openai::AzureUrlConfig::default(),
+                    "azure",
+                ))
+            }
+            #[cfg(not(feature = "azure"))]
+            {
+                Err(unsupported_provider_feature("Azure OpenAI", "azure"))
+            }
+        }
+        None => openai_compatible_provider_factory(&normalized),
+    }
+}
+
+#[cfg(feature = "azure")]
+pub(crate) fn azure_provider_factory_with_options(
+    provider_id: &str,
+    url_config: siumai_provider_azure::providers::azure_openai::AzureUrlConfig,
+    provider_metadata_key: &'static str,
+) -> Arc<dyn ProviderFactory> {
+    let chat_mode = match provider_id {
+        ids::AZURE_CHAT => {
+            siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions
+        }
+        _ => siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses,
+    };
+
+    Arc::new(
+        crate::registry::factories::AzureOpenAiProviderFactory::new(chat_mode)
+            .with_url_config(url_config)
+            .with_provider_metadata_key(provider_metadata_key),
+    ) as Arc<dyn ProviderFactory>
+}
 
 /// Create a registry with common defaults:
 /// - separator ':'
@@ -37,141 +367,98 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     // Native provider factories
     #[cfg(feature = "openai")]
     {
-        providers.insert(
-            ids::OPENAI.to_string(),
-            Arc::new(crate::registry::factories::OpenAIProviderFactory) as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::OPENAI)
+            .expect("OpenAI factory should be available when the openai feature is enabled");
     }
 
     #[cfg(feature = "azure")]
     {
-        providers.insert(
-            ids::AZURE.to_string(),
-            Arc::new(crate::registry::factories::AzureOpenAiProviderFactory::default())
-                as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::AZURE)
+            .expect("Azure factory should be available when the azure feature is enabled");
         // Variant: Azure Chat Completions (Vercel-aligned `azure.chat(...)`).
-        providers.insert(
-            ids::AZURE_CHAT.to_string(),
-            Arc::new(crate::registry::factories::AzureOpenAiProviderFactory::new(
-                siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions,
-            )) as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::AZURE_CHAT)
+            .expect("Azure Chat factory should be available when the azure feature is enabled");
     }
 
     #[cfg(feature = "anthropic")]
     {
-        providers.insert(
-            ids::ANTHROPIC.to_string(),
-            Arc::new(crate::registry::factories::AnthropicProviderFactory)
-                as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::ANTHROPIC)
+            .expect("Anthropic factory should be available when the anthropic feature is enabled");
     }
 
     #[cfg(feature = "google")]
     {
-        providers.insert(
-            ids::GEMINI.to_string(),
-            Arc::new(crate::registry::factories::GeminiProviderFactory) as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::GEMINI)
+            .expect("Gemini factory should be available when the google feature is enabled");
     }
 
     #[cfg(feature = "google-vertex")]
     {
-        providers.insert(
-            ids::ANTHROPIC_VERTEX.to_string(),
-            Arc::new(crate::registry::factories::AnthropicVertexProviderFactory)
-                as Arc<dyn ProviderFactory>,
+        insert_builtin_provider_factory(&mut providers, ids::ANTHROPIC_VERTEX).expect(
+            "Anthropic Vertex factory should be available when the google-vertex feature is enabled",
         );
-        providers.insert(
-            ids::VERTEX.to_string(),
-            Arc::new(crate::registry::factories::GoogleVertexProviderFactory)
-                as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::VERTEX)
+            .expect("Vertex factory should be available when the google-vertex feature is enabled");
         // Alias for package naming consistency (Vercel-style `@ai-sdk/google-vertex`).
-        providers.insert(
-            ids::GOOGLE_VERTEX_ALIAS.to_string(),
-            Arc::new(crate::registry::factories::GoogleVertexProviderFactory)
-                as Arc<dyn ProviderFactory>,
+        insert_builtin_provider_factory(&mut providers, ids::GOOGLE_VERTEX_ALIAS).expect(
+            "Vertex alias factory should be available when the google-vertex feature is enabled",
         );
     }
 
     #[cfg(feature = "groq")]
     {
-        providers.insert(
-            ids::GROQ.to_string(),
-            Arc::new(crate::registry::factories::GroqProviderFactory) as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::GROQ)
+            .expect("Groq factory should be available when the groq feature is enabled");
     }
 
     #[cfg(feature = "xai")]
     {
-        providers.insert(
-            ids::XAI.to_string(),
-            Arc::new(crate::registry::factories::XAIProviderFactory) as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::XAI)
+            .expect("xAI factory should be available when the xai feature is enabled");
     }
 
     #[cfg(feature = "ollama")]
     {
-        providers.insert(
-            ids::OLLAMA.to_string(),
-            Arc::new(crate::registry::factories::OllamaProviderFactory) as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::OLLAMA)
+            .expect("Ollama factory should be available when the ollama feature is enabled");
     }
 
     #[cfg(feature = "minimaxi")]
     {
-        providers.insert(
-            ids::MINIMAXI.to_string(),
-            Arc::new(crate::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::MINIMAXI)
+            .expect("MiniMaxi factory should be available when the minimaxi feature is enabled");
     }
 
     #[cfg(feature = "cohere")]
     {
-        providers.insert(
-            ids::COHERE.to_string(),
-            Arc::new(crate::registry::factories::CohereProviderFactory) as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::COHERE)
+            .expect("Cohere factory should be available when the cohere feature is enabled");
     }
 
     #[cfg(feature = "togetherai")]
     {
-        providers.insert(
-            ids::TOGETHERAI.to_string(),
-            Arc::new(crate::registry::factories::TogetherAiProviderFactory)
-                as Arc<dyn ProviderFactory>,
+        insert_builtin_provider_factory(&mut providers, ids::TOGETHERAI).expect(
+            "TogetherAI factory should be available when the togetherai feature is enabled",
         );
     }
 
     #[cfg(feature = "bedrock")]
     {
-        providers.insert(
-            ids::BEDROCK.to_string(),
-            Arc::new(crate::registry::factories::BedrockProviderFactory)
-                as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::BEDROCK)
+            .expect("Bedrock factory should be available when the bedrock feature is enabled");
     }
 
     // Provider-specific factories built on top of the OpenAI-compatible runtime.
     #[cfg(feature = "deepseek")]
     {
-        providers.insert(
-            ids::DEEPSEEK.to_string(),
-            Arc::new(crate::registry::factories::DeepSeekProviderFactory)
-                as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::DEEPSEEK)
+            .expect("DeepSeek factory should be available when the deepseek feature is enabled");
     }
 
     #[cfg(feature = "deepinfra")]
     {
-        providers.insert(
-            ids::DEEPINFRA.to_string(),
-            Arc::new(crate::registry::factories::DeepInfraProviderFactory)
-                as Arc<dyn ProviderFactory>,
-        );
+        insert_builtin_provider_factory(&mut providers, ids::DEEPINFRA)
+            .expect("DeepInfra factory should be available when the deepinfra feature is enabled");
     }
 
     // OpenAI-compatible provider factories (SiliconFlow, OpenRouter, etc.)
@@ -186,11 +473,9 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
             if providers.contains_key(&id_str) {
                 continue;
             }
-            providers.insert(
-                id_str.clone(),
-                Arc::new(crate::registry::factories::OpenAICompatibleProviderFactory::new(id_str))
-                    as Arc<dyn ProviderFactory>,
-            );
+            insert_builtin_provider_factory(&mut providers, &id_str).unwrap_or_else(|err| {
+                panic!("OpenAI-compatible factory should be available for provider {id_str}: {err}")
+            });
         }
     }
 

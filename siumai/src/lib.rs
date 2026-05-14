@@ -504,14 +504,19 @@ pub mod extensions {
 /// Only available when at least one provider feature is enabled.
 #[cfg(any(
     feature = "openai",
+    feature = "azure",
     feature = "anthropic",
     feature = "google",
+    feature = "google-vertex",
     feature = "cohere",
     feature = "togetherai",
+    feature = "bedrock",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "deepseek",
+    feature = "deepinfra"
 ))]
 pub use registry::global as registry_global;
 
@@ -780,18 +785,23 @@ pub mod prelude {
 
             #[cfg(any(
                 feature = "openai",
+                feature = "azure",
                 feature = "anthropic",
                 feature = "google",
+                feature = "google-vertex",
                 feature = "ollama",
                 feature = "xai",
                 feature = "groq",
                 feature = "minimaxi",
                 feature = "deepseek",
+                feature = "deepinfra",
                 feature = "cohere",
                 feature = "togetherai",
                 feature = "bedrock"
             ))]
-            pub use crate::registry::{create_registry_with_defaults, global};
+            pub use crate::registry::{
+                builtin_provider_factory, create_registry_with_defaults, global,
+            };
         }
     }
 

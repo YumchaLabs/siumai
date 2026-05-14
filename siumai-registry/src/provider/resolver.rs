@@ -17,35 +17,21 @@ pub fn normalize_provider_id(raw: &str) -> String {
 ///
 /// This intentionally lives in the registry layer because it depends on concrete provider ids and
 /// vendor model namespaces. `siumai-core` must treat model ids as opaque strings.
+#[cfg(any(
+    feature = "openai",
+    feature = "google-vertex",
+    feature = "togetherai",
+    feature = "deepinfra",
+    feature = "deepseek",
+    feature = "xai",
+    feature = "groq",
+))]
 pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
-    #[cfg(any(
-        feature = "openai",
-        feature = "google-vertex",
-        feature = "togetherai",
-        feature = "deepinfra",
-        feature = "deepseek",
-        feature = "xai",
-        feature = "groq",
-    ))]
     {
         siumai_provider_openai_compatible::providers::openai_compatible::normalize_model_id(
             provider_id,
             model,
         )
-    }
-
-    #[cfg(not(any(
-        feature = "openai",
-        feature = "google-vertex",
-        feature = "togetherai",
-        feature = "deepinfra",
-        feature = "deepseek",
-        feature = "xai",
-        feature = "groq",
-    )))]
-    {
-        let _ = provider_id;
-        model.trim().to_string()
     }
 }
 
@@ -155,6 +141,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(
+        feature = "openai",
+        feature = "google-vertex",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "deepseek",
+        feature = "xai",
+        feature = "groq",
+    ))]
     fn normalize_model_id_applies_deepseek_aliases() {
         assert_eq!(
             normalize_model_id("deepseek", "deepseek-v3"),
@@ -176,6 +171,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(
+        feature = "openai",
+        feature = "google-vertex",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "deepseek",
+        feature = "xai",
+        feature = "groq",
+    ))]
     fn normalize_model_id_applies_openrouter_vendor_prefixes() {
         assert_eq!(
             normalize_model_id("openrouter", "gpt-4o-mini"),
@@ -208,6 +212,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(
+        feature = "openai",
+        feature = "google-vertex",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "deepseek",
+        feature = "xai",
+        feature = "groq",
+    ))]
     fn normalize_model_id_applies_openai_compatible_vendor_aliases() {
         assert_eq!(
             normalize_model_id("siliconflow", "deepseek-v3.1"),

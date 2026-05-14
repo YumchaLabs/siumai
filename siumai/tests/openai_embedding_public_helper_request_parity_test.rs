@@ -55,8 +55,8 @@ fn make_registry(transport: Arc<dyn HttpTransport>) -> siumai::registry::Provide
     let mut providers = HashMap::new();
     providers.insert(
         "openai".to_string(),
-        Arc::new(siumai::registry::factories::OpenAIProviderFactory)
-            as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        siumai::registry::builtin_provider_factory("openai")
+            .expect("openai builtin provider factory"),
     );
 
     let mut provider_build_overrides = HashMap::new();

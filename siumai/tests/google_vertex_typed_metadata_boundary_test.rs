@@ -66,8 +66,8 @@ fn make_registry(transport: Arc<dyn HttpTransport>) -> siumai::registry::Provide
     let mut providers = std::collections::HashMap::new();
     providers.insert(
         "vertex".to_string(),
-        Arc::new(siumai::registry::factories::GoogleVertexProviderFactory)
-            as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        siumai::registry::builtin_provider_factory("vertex")
+            .expect("vertex builtin provider factory"),
     );
 
     let mut provider_build_overrides = std::collections::HashMap::new();

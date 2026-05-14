@@ -30,6 +30,9 @@ documents, release process, and active workstreams for current planning.
 
 ## Workstreams
 
+- Fearless registry facade construction boundary: `docs/workstreams/fearless-registry-facade-construction-boundary/`
+  - centralizes built-in provider factory selection inside `siumai-registry` and keeps facade tests
+    from depending on concrete built-in factory structs for normal provider construction
 - Fearless core provider alias extraction: `docs/workstreams/fearless-core-provider-alias-extraction/`
   - extracts provider-specific model alias and recommendation logic out of `siumai-core` and into
     registry/provider-owned boundaries

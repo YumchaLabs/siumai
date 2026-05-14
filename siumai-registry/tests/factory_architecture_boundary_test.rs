@@ -273,3 +273,23 @@ fn public_docs_do_not_recommend_compatibility_surfaces_as_default() {
         }
     }
 }
+
+#[test]
+fn focused_public_facade_tests_use_registry_owned_builtin_factory_resolution() {
+    let root = crate_root();
+
+    for relative in [
+        "../siumai/tests/openai_embedding_public_helper_request_parity_test.rs",
+        "../siumai/tests/google_vertex_typed_metadata_boundary_test.rs",
+    ] {
+        let source = fs::read_to_string(root.join(relative)).expect("read public facade test");
+        assert!(
+            source.contains("registry::builtin_provider_factory("),
+            "{relative} should use registry-owned built-in factory resolution"
+        );
+        assert!(
+            !source.contains("registry::factories::"),
+            "{relative} should not instantiate concrete built-in factory structs through the facade"
+        );
+    }
+}
