@@ -313,13 +313,38 @@ impl OpenAiSpec {
             return false;
         }
 
-        // Vercel-aligned heuristics for reasoning models / previews.
+        // Vercel-aligned OpenAI model capability allowlist.
         m.starts_with("o1")
             || m.starts_with("o3")
-            || m.starts_with("o4")
-            || m.starts_with("gpt-5")
-            || m.contains("codex")
-            || m.contains("computer-use-preview")
+            || m.starts_with("o4-mini")
+            || (m.starts_with("gpt-5") && !m.starts_with("gpt-5-chat"))
+    }
+
+    fn supports_non_reasoning_parameters(model: &str) -> bool {
+        let m = model.trim().to_ascii_lowercase();
+        m.starts_with("gpt-5.1")
+            || m.starts_with("gpt-5.2")
+            || m.starts_with("gpt-5.3")
+            || m.starts_with("gpt-5.4")
+            || m.starts_with("gpt-5.5")
+    }
+
+    fn supports_flex_processing(model: &str) -> bool {
+        let m = model.trim().to_ascii_lowercase();
+        m.starts_with("o3")
+            || m.starts_with("o4-mini")
+            || (m.starts_with("gpt-5") && !m.starts_with("gpt-5-chat"))
+    }
+
+    fn supports_priority_processing(model: &str) -> bool {
+        let m = model.trim().to_ascii_lowercase();
+        m.starts_with("gpt-4")
+            || ((m.starts_with("gpt-5")
+                && !m.starts_with("gpt-5-nano")
+                && !m.starts_with("gpt-5-chat")
+                && !m.starts_with("gpt-5.4-nano"))
+                || m.starts_with("o3")
+                || m.starts_with("o4-mini"))
     }
 }
 
@@ -1018,7 +1043,7 @@ impl ProviderSpec for OpenAiSpec {
                 // unless explicitly allowed via reasoning_effort=none on supported models.
                 let allow_non_reasoning_params = reasoning_effort
                     == Some(crate::provider_options::openai::ReasoningEffort::None)
-                    && model_id.to_ascii_lowercase().starts_with("gpt-5.1");
+                    && Self::supports_non_reasoning_parameters(&model_id);
                 if !allow_non_reasoning_params && let Some(obj) = out.as_object_mut() {
                     obj.remove("temperature");
                     obj.remove("top_p");
@@ -1056,17 +1081,12 @@ impl ProviderSpec for OpenAiSpec {
                 && let Ok(val) = serde_json::to_value(tier)
             {
                 // Vercel alignment: best-effort model gating for flex/priority tiers.
-                let m = model_id.to_ascii_lowercase();
                 let supported = match tier {
                     crate::provider_options::openai::ServiceTier::Flex => {
-                        m.contains("o3") || m.contains("o4-mini") || m.contains("gpt-5")
+                        Self::supports_flex_processing(&model_id)
                     }
                     crate::provider_options::openai::ServiceTier::Priority => {
-                        (m.contains("gpt-4")
-                            || m.contains("gpt-5")
-                            || m.contains("o3")
-                            || m.contains("o4-mini"))
-                            && !m.contains("gpt-5-nano")
+                        Self::supports_priority_processing(&model_id)
                     }
                     _ => true,
                 };
@@ -1496,6 +1516,83 @@ mod tests {
         assert_eq!(out["previous_response_id"], "resp_default");
         assert_eq!(out["reasoning"]["summary"], "detailed");
         assert_eq!(out["reasoning"]["effort"], "low");
+    }
+
+    #[test]
+    fn openai_spec_allows_non_reasoning_params_for_gpt51_plus_reasoning_none() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+        let req = ChatRequest::builder()
+            .model("gpt-5.2")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .temperature(0.4)
+            .top_p(0.8)
+            .provider_option(
+                "openai",
+                serde_json::json!({
+                    "responsesApi": { "enabled": true },
+                    "reasoningEffort": "none",
+                    "logprobs": 3
+                }),
+            )
+            .build();
+
+        let hook = spec.chat_before_send(&req, &ctx).expect("hook");
+        let out = hook(&serde_json::json!({
+            "temperature": 0.4,
+            "top_p": 0.8
+        }))
+        .expect("hook ok");
+
+        assert_eq!(out["temperature"], serde_json::json!(0.4));
+        assert_eq!(out["top_p"], serde_json::json!(0.8));
+        assert_eq!(out["top_logprobs"], serde_json::json!(3));
+        assert_eq!(out["reasoning"]["effort"], serde_json::json!("none"));
+    }
+
+    #[test]
+    fn openai_spec_filters_service_tier_like_vercel_capabilities() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        let gpt5_chat_flex = ChatRequest::builder()
+            .model("gpt-5-chat-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .provider_option("openai", serde_json::json!({ "serviceTier": "flex" }))
+            .build();
+        let hook = spec.chat_before_send(&gpt5_chat_flex, &ctx).expect("hook");
+        let out = hook(&serde_json::json!({})).expect("hook ok");
+        assert!(out.get("service_tier").is_none());
+
+        let gpt54_nano_priority = ChatRequest::builder()
+            .model("gpt-5.4-nano")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .provider_option("openai", serde_json::json!({ "serviceTier": "priority" }))
+            .build();
+        let hook = spec
+            .chat_before_send(&gpt54_nano_priority, &ctx)
+            .expect("hook");
+        let out = hook(&serde_json::json!({})).expect("hook ok");
+        assert!(out.get("service_tier").is_none());
+
+        let gpt52_priority = ChatRequest::builder()
+            .model("gpt-5.2")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .provider_option("openai", serde_json::json!({ "serviceTier": "priority" }))
+            .build();
+        let hook = spec.chat_before_send(&gpt52_priority, &ctx).expect("hook");
+        let out = hook(&serde_json::json!({})).expect("hook ok");
+        assert_eq!(out["service_tier"], serde_json::json!("priority"));
     }
 
     #[test]

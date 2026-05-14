@@ -351,10 +351,8 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
 
                 m.starts_with("o1")
                     || m.starts_with("o3")
-                    || m.starts_with("o4")
-                    || m.starts_with("gpt-5")
-                    || m.contains("codex")
-                    || m.contains("computer-use-preview")
+                    || m.starts_with("o4-mini")
+                    || (m.starts_with("gpt-5") && !m.starts_with("gpt-5-chat"))
             }
 
             let provider_opts = req
@@ -530,6 +528,23 @@ mod tests {
                 }
             }))
         );
+    }
+
+    #[test]
+    fn openai_chat_request_keeps_system_role_for_gpt5_chat_models() {
+        let req = ChatRequest::builder()
+            .model("gpt-5-chat-latest")
+            .messages(vec![
+                ChatMessage::system("system prompt").build(),
+                ChatMessage::user("hi").build(),
+            ])
+            .build();
+
+        let standard = OpenAiChatStandard::new();
+        let tx = standard.create_transformers("openai");
+        let body = tx.request.transform_chat(&req).expect("transform");
+
+        assert_eq!(body["messages"][0]["role"], serde_json::json!("system"));
     }
 }
 

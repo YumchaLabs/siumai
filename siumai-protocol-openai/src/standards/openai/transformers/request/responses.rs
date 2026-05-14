@@ -152,10 +152,8 @@ impl OpenAiResponsesRequestTransformer {
 
         m.starts_with("o1")
             || m.starts_with("o3")
-            || m.starts_with("o4")
-            || m.starts_with("gpt-5")
-            || m.contains("codex")
-            || m.contains("computer-use-preview")
+            || m.starts_with("o4-mini")
+            || (m.starts_with("gpt-5") && !m.starts_with("gpt-5-chat"))
     }
 
     fn system_message_mode(req: &ChatRequest) -> Option<&str> {
@@ -2116,6 +2114,27 @@ mod tests {
         assert_eq!(
             input[0].get("content").and_then(|v| v.as_str()),
             Some("sys")
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_system_message_keeps_system_role_for_gpt5_chat_models() {
+        use crate::types::ChatMessage;
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let req = ChatRequest::builder()
+            .message(ChatMessage::system("sys").build())
+            .message(ChatMessage::user("hi").build())
+            .model("gpt-5-chat-latest")
+            .stream(false)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform chat");
+        let input = body.get("input").and_then(|v| v.as_array()).expect("input");
+        assert_eq!(
+            input[0].get("role").and_then(|v| v.as_str()),
+            Some("system")
         );
     }
 
