@@ -22,6 +22,14 @@ Last updated: 2026-05-14
       embedding, rerank, and provider-specific override registry construction.
 - [x] Apply the shared built-in registry helper to TogetherAI public-path tests, covering rerank,
       image, chat, completion, stream, and provider-specific override registry construction.
+- [x] Apply the shared built-in registry helper to DeepInfra public-path tests, covering chat,
+      image generation, image edit, completion, and streaming completion parity construction.
+- [x] Apply the shared built-in registry helper to DeepSeek public-path tests, covering
+      `create_provider_registry` and `RegistryBuilder` construction while preserving reasoning
+      default and provider-specific override coverage.
+- [x] Apply the shared built-in registry helper to Groq public-path tests, covering
+      `create_provider_registry`, provider-specific override construction, metadata preservation,
+      chat, streaming chat, speech, and transcription parity paths.
 
 ## Follow-up Candidates
 

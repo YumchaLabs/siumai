@@ -10441,6 +10441,24 @@ mod deepinfra_public_path {
         String::from_utf8_lossy(&req.body).replace(boundary, "<boundary>")
     }
 
+    fn deepinfra_registry_builder() -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder("deepinfra", "deepinfra")
+    }
+
+    fn make_deepinfra_registry(
+        api_key: &str,
+        base_url: &str,
+        transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        deepinfra_registry_builder()
+            .with_api_key(api_key)
+            .with_base_url(base_url)
+            .fetch(transport)
+            .auto_middleware(false)
+            .build()
+            .expect("build deepinfra registry")
+    }
+
     #[test]
     fn deepinfra_package_settings_preserve_supported_provider_inputs() {
         let config = siumai::provider_ext::deepinfra::DeepInfraProviderSettings::new()
@@ -10509,19 +10527,11 @@ mod deepinfra_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepinfra".to_string(),
-            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_deepinfra_registry(
+            "test-key",
+            "https://example.com/deepinfra/v1",
+            Arc::new(registry_transport.clone()),
         );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/deepinfra/v1")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let registry_model = registry
             .language_model("deepinfra:meta-llama/Llama-3.3-70B-Instruct")
@@ -10578,19 +10588,11 @@ mod deepinfra_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepinfra".to_string(),
-            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_deepinfra_registry(
+            "test-key",
+            "https://example.com/deepinfra/v1",
+            Arc::new(registry_transport.clone()),
         );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/deepinfra/v1")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
         let registry_model = registry
             .image_model("deepinfra:black-forest-labs/FLUX-1-schnell")
             .expect("build registry deepinfra image model");
@@ -10651,19 +10653,11 @@ mod deepinfra_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepinfra".to_string(),
-            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_deepinfra_registry(
+            "test-key",
+            "https://example.com/deepinfra/v1",
+            Arc::new(registry_transport.clone()),
         );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/deepinfra/v1")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
         let registry_model = registry
             .image_model("deepinfra:black-forest-labs/FLUX-1-schnell")
             .expect("build registry deepinfra image model");
@@ -10764,19 +10758,8 @@ mod deepinfra_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepinfra".to_string(),
-            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url(base_url)
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry =
+            make_deepinfra_registry("test-key", base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .completion_model(&format!("deepinfra:{model}"))
@@ -10877,19 +10860,8 @@ mod deepinfra_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepinfra".to_string(),
-            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url(base_url)
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry =
+            make_deepinfra_registry("test-key", base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .completion_model(&format!("deepinfra:{model}"))
@@ -11824,6 +11796,15 @@ mod deepseek_public_path {
     use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::builder::RegistryBuilder;
 
+    fn deepseek_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>>
+    {
+        built_in_registry_providers("deepseek", "deepseek")
+    }
+
+    fn deepseek_registry_builder() -> RegistryBuilder {
+        RegistryBuilder::new(deepseek_registry_providers())
+    }
+
     #[test]
     fn deepseek_package_settings_preserve_supported_provider_inputs() {
         let config = DeepSeekProviderSettings::new()
@@ -11847,12 +11828,7 @@ mod deepseek_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepseek".to_string(),
-            Arc::new(siumai::registry::factories::DeepSeekProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
+        let providers = deepseek_registry_providers();
 
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
@@ -11889,12 +11865,7 @@ mod deepseek_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepseek".to_string(),
-            Arc::new(siumai::registry::factories::DeepSeekProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
+        let providers = deepseek_registry_providers();
 
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
@@ -11933,14 +11904,7 @@ mod deepseek_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepseek".to_string(),
-            Arc::new(siumai::registry::factories::DeepSeekProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        RegistryBuilder::new(providers)
+        deepseek_registry_builder()
             .with_api_key("test-key")
             .with_base_url(base_url)
             .with_reasoning(reasoning_enabled)
@@ -13474,14 +13438,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let deepseek_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepseek".to_string(),
-            Arc::new(siumai::registry::factories::DeepSeekProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = deepseek_registry_builder()
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -13532,14 +13489,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let deepseek_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepseek".to_string(),
-            Arc::new(siumai::registry::factories::DeepSeekProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = deepseek_registry_builder()
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -14767,14 +14717,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let deepseek_transport = JsonSuccessTransport::new(response_json);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepseek".to_string(),
-            Arc::new(siumai::registry::factories::DeepSeekProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = deepseek_registry_builder()
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1/")
             .fetch(Arc::new(global_transport.clone()))
@@ -14853,14 +14796,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let deepseek_transport = SseSuccessTransport::new(stream_body);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "deepseek".to_string(),
-            Arc::new(siumai::registry::factories::DeepSeekProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = deepseek_registry_builder()
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1/")
             .fetch(Arc::new(global_transport.clone()))
@@ -24732,16 +24668,19 @@ mod groq_public_path {
     use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::builder::RegistryBuilder;
 
+    fn groq_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        built_in_registry_providers("groq", "groq")
+    }
+
+    fn groq_registry_builder() -> RegistryBuilder {
+        RegistryBuilder::new(groq_registry_providers())
+    }
+
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "groq".to_string(),
-            Arc::new(siumai::registry::factories::GroqProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
+        let providers = groq_registry_providers();
 
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
@@ -26528,14 +26467,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let groq_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "groq".to_string(),
-            Arc::new(siumai::registry::factories::GroqProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = groq_registry_builder()
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
@@ -26590,14 +26522,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let groq_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "groq".to_string(),
-            Arc::new(siumai::registry::factories::GroqProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = groq_registry_builder()
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
@@ -27220,14 +27145,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let groq_transport = JsonSuccessTransport::new(response_json);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "groq".to_string(),
-            Arc::new(siumai::registry::factories::GroqProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = groq_registry_builder()
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -27295,14 +27213,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let groq_transport = SseSuccessTransport::new(stream_body);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "groq".to_string(),
-            Arc::new(siumai::registry::factories::GroqProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = groq_registry_builder()
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
