@@ -39,7 +39,52 @@ use siumai::provider_ext::anthropic_vertex::{
 };
 #[allow(unused_imports)]
 use siumai_registry::LlmClient;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+fn built_in_registry_factory(provider_id: &str) -> Arc<dyn siumai::registry::ProviderFactory> {
+    siumai::registry::builtin_provider_factory(provider_id)
+        .unwrap_or_else(|err| panic!("{provider_id} built-in provider factory: {err:?}"))
+}
+
+fn built_in_registry_providers(
+    registry_provider_id: &str,
+    built_in_provider_id: &str,
+) -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+    let mut providers = HashMap::new();
+    providers.insert(
+        registry_provider_id.to_string(),
+        built_in_registry_factory(built_in_provider_id),
+    );
+    providers
+}
+
+fn built_in_registry_builder(
+    registry_provider_id: &str,
+    built_in_provider_id: &str,
+) -> siumai::registry::builder::RegistryBuilder {
+    siumai::registry::builder::RegistryBuilder::new(built_in_registry_providers(
+        registry_provider_id,
+        built_in_provider_id,
+    ))
+}
+
+fn provider_build_overrides(
+    api_key: &str,
+    base_url: impl Into<String>,
+) -> siumai::registry::ProviderBuildOverrides {
+    siumai::registry::ProviderBuildOverrides::default()
+        .with_api_key(api_key)
+        .with_base_url(base_url)
+}
+
+fn provider_transport_build_overrides(
+    api_key: &str,
+    base_url: impl Into<String>,
+    transport: Arc<dyn HttpTransport>,
+) -> siumai::registry::ProviderBuildOverrides {
+    provider_build_overrides(api_key, base_url).fetch(transport)
+}
 
 #[allow(dead_code)]
 #[derive(Clone, Default)]
@@ -726,7 +771,6 @@ mod openai_public_path {
     use super::*;
     use siumai::experimental::client::LlmClient;
     use siumai::extensions::{SpeechExtras, TranscriptionExtras};
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         AudioStreamEvent, EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
@@ -734,91 +778,63 @@ mod openai_public_path {
         OpenAIProviderSettings, OpenAiChatRequestExt, OpenAiChatResponseExt, OpenAiContentPartExt,
         OpenAiOptions, OpenAiSourceExt, ReasoningEffort, ResponsesApiConfig,
     };
-    use siumai::registry::ProviderBuildOverrides;
-    use siumai_registry::registry::entry::{BuildContext, ProviderFactory};
+    use siumai_registry::registry::entry::BuildContext;
+
+    fn openai_builtin_factory() -> Arc<dyn siumai::registry::ProviderFactory> {
+        built_in_registry_factory("openai")
+    }
+
+    fn openai_registry_builder(
+        registry_provider_id: &str,
+    ) -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder(registry_provider_id, "openai")
+    }
+
+    fn make_openai_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        provider_transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        openai_registry_builder("openai")
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global/v1")
+            .fetch(global_transport)
+            .with_provider_build_overrides(
+                "openai",
+                provider_transport_build_overrides(
+                    "ctx-key",
+                    "https://example.com/openai/v1",
+                    provider_transport,
+                ),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build openai override registry")
+    }
 
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openai".to_string(),
-            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "openai".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
-        );
-
-        create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        openai_registry_builder("openai")
+            .with_provider_build_overrides(
+                "openai",
+                provider_transport_build_overrides("test-key", base_url, transport),
+            )
+            .build()
+            .expect("build openai registry")
     }
 
     fn make_chat_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openai-chat".to_string(),
-            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "openai-chat".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
-        );
-
-        create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        openai_registry_builder("openai-chat")
+            .with_provider_build_overrides(
+                "openai-chat",
+                provider_transport_build_overrides("test-key", base_url, transport),
+            )
+            .build()
+            .expect("build openai chat registry")
     }
 
     #[test]
@@ -1855,7 +1871,7 @@ mod openai_public_path {
         )
         .expect("build config client");
 
-        let registry_factory = siumai::registry::factories::OpenAIProviderFactory;
+        let registry_factory = openai_builtin_factory();
         let registry_client = registry_factory
             .compat_speech_client_with_ctx(
                 model,
@@ -2004,7 +2020,7 @@ mod openai_public_path {
         )
         .expect("build config client");
 
-        let registry_factory = siumai::registry::factories::OpenAIProviderFactory;
+        let registry_factory = openai_builtin_factory();
         let registry_client = registry_factory
             .compat_transcription_client_with_ctx(
                 model,
@@ -2920,41 +2936,9 @@ mod openai_public_path {
         let global_transport = CaptureTransport::default();
         let openai_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openai".to_string(),
-            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "openai".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/openai/v1")
-                .fetch(Arc::new(openai_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global/v1".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_openai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(openai_transport.clone()),
         );
 
         let handle = registry
@@ -2980,41 +2964,9 @@ mod openai_public_path {
         let global_transport = CaptureTransport::default();
         let openai_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openai".to_string(),
-            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "openai".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/openai/v1")
-                .fetch(Arc::new(openai_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global/v1".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_openai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(openai_transport.clone()),
         );
 
         let handle = registry
@@ -3048,41 +3000,9 @@ mod openai_public_path {
         let openai_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
         let model = "gpt-4o-mini-tts";
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openai".to_string(),
-            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "openai".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/openai/v1")
-                .fetch(Arc::new(openai_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global/v1".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_openai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(openai_transport.clone()),
         );
 
         let registry_model = registry
@@ -3126,41 +3046,9 @@ mod openai_public_path {
             "language": "en"
         }));
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openai".to_string(),
-            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "openai".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/openai/v1")
-                .fetch(Arc::new(openai_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global/v1".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_openai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(openai_transport.clone()),
         );
 
         let registry_model = registry
@@ -3224,27 +3112,10 @@ mod openai_public_path {
         let global_transport = JsonSuccessTransport::new(image_response.clone());
         let openai_transport = JsonSuccessTransport::new(image_response);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openai".to_string(),
-            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_openai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(openai_transport.clone()),
         );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global/v1")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "openai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/openai/v1")
-                    .fetch(Arc::new(openai_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .image_model("openai:dall-e-3")
@@ -7714,7 +7585,6 @@ mod gemini_public_path {
     use siumai::experimental::client::LlmClient;
     use siumai::extensions::types::FileListQuery;
     use siumai::extensions::{FileManagementCapability, VideoGenerationCapability};
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
@@ -7724,51 +7594,46 @@ mod gemini_public_path {
         GoogleEmbeddingInlineData, GoogleEmbeddingModelOptions, GoogleEmbeddingRequestExt,
         GoogleLanguageModelOptions,
     };
-    use siumai::registry::ProviderBuildOverrides;
     use siumai_core::types::EmbeddingTaskType;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, Request as WiremockRequest, ResponseTemplate};
+
+    fn gemini_registry_builder() -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder("gemini", "gemini")
+    }
+
+    fn make_gemini_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        provider_transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        gemini_registry_builder()
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(global_transport)
+            .with_provider_build_overrides(
+                "gemini",
+                provider_transport_build_overrides(
+                    "ctx-key",
+                    "https://example.com/v1beta",
+                    provider_transport,
+                ),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build gemini override registry")
+    }
 
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "gemini".to_string(),
-            Arc::new(siumai::registry::factories::GeminiProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "gemini".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
-        );
-
-        create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        gemini_registry_builder()
+            .with_provider_build_overrides(
+                "gemini",
+                provider_transport_build_overrides("test-key", base_url, transport),
+            )
+            .build()
+            .expect("build gemini registry")
     }
 
     fn gemini_response_fixture(name: &str) -> serde_json::Value {
@@ -8475,41 +8340,9 @@ mod gemini_public_path {
         let global_transport = CaptureTransport::default();
         let gemini_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "gemini".to_string(),
-            Arc::new(siumai::registry::factories::GeminiProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "gemini".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/v1beta")
-                .fetch(Arc::new(gemini_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_gemini_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(gemini_transport.clone()),
         );
 
         let handle = registry
@@ -8541,41 +8374,9 @@ mod gemini_public_path {
         let global_transport = CaptureTransport::default();
         let gemini_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "gemini".to_string(),
-            Arc::new(siumai::registry::factories::GeminiProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "gemini".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/v1beta")
-                .fetch(Arc::new(gemini_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_gemini_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(gemini_transport.clone()),
         );
 
         let handle = registry
@@ -9373,41 +9174,13 @@ mod gemini_public_path {
         )
         .expect("build config client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "gemini".to_string(),
-            Arc::new(siumai::registry::factories::GeminiProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "gemini".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(format!("{}/v1beta", registry_server.uri())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        );
+        let registry = gemini_registry_builder()
+            .with_provider_build_overrides(
+                "gemini",
+                provider_build_overrides("test-key", format!("{}/v1beta", registry_server.uri())),
+            )
+            .build()
+            .expect("build gemini registry");
         let registry_client = registry
             .video_model("gemini:veo-3.1-generate-preview")
             .expect("build registry video model");
@@ -9526,7 +9299,45 @@ mod cohere_public_path {
         CohereEmbeddingTruncate, CohereProviderSettings, CohereRerankOptions,
         CohereRerankRequestExt, CohereThinkingConfig, CohereThinkingType,
     };
-    use siumai::registry::ProviderBuildOverrides;
+
+    fn cohere_registry_builder() -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder("cohere", "cohere")
+    }
+
+    fn make_cohere_registry(
+        api_key: &str,
+        base_url: &str,
+        transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        cohere_registry_builder()
+            .with_api_key(api_key)
+            .with_base_url(base_url)
+            .fetch(transport)
+            .auto_middleware(false)
+            .build()
+            .expect("build cohere registry")
+    }
+
+    fn make_cohere_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        provider_transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        cohere_registry_builder()
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(global_transport)
+            .with_provider_build_overrides(
+                "cohere",
+                provider_transport_build_overrides(
+                    "ctx-key",
+                    "https://example.com/cohere",
+                    provider_transport,
+                ),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build cohere override registry")
+    }
 
     #[test]
     fn cohere_package_settings_preserve_supported_provider_inputs() {
@@ -9678,19 +9489,11 @@ mod cohere_public_path {
         )
         .expect("build config client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "cohere".to_string(),
-            Arc::new(siumai::registry::factories::CohereProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_cohere_registry(
+            "test-key",
+            "https://example.com/cohere",
+            Arc::new(registry_transport.clone()),
         );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/cohere")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
         let registry_model = registry
             .language_model("cohere:command-a-03-2025")
             .expect("build registry language model");
@@ -9829,19 +9632,11 @@ mod cohere_public_path {
         )
         .expect("build config client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "cohere".to_string(),
-            Arc::new(siumai::registry::factories::CohereProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_cohere_registry(
+            "test-key",
+            "https://example.com/cohere",
+            Arc::new(registry_transport.clone()),
         );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/cohere")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
         let registry_model = registry
             .embedding_model("cohere:embed-v4.0")
             .expect("build registry embedding model");
@@ -9946,19 +9741,11 @@ mod cohere_public_path {
         )
         .expect("build config client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "cohere".to_string(),
-            Arc::new(siumai::registry::factories::CohereProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_cohere_registry(
+            "test-key",
+            "https://example.com/cohere",
+            Arc::new(registry_transport.clone()),
         );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/cohere")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
         let registry_model = registry
             .reranking_model("cohere:rerank-v3.5")
             .expect("build registry rerank model");
@@ -9997,27 +9784,10 @@ mod cohere_public_path {
         let global_transport = CaptureTransport::default();
         let cohere_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "cohere".to_string(),
-            Arc::new(siumai::registry::factories::CohereProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_cohere_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(cohere_transport.clone()),
         );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "cohere",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/cohere")
-                    .fetch(Arc::new(cohere_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .reranking_model("cohere:rerank-v3.5")
@@ -10055,7 +9825,45 @@ mod togetherai_public_path {
         TogetherAIImageModelOptions, TogetherAIProviderSettings, TogetherAIRerankingModelOptions,
         TogetherAiImageRequestExt, TogetherAiRerankRequestExt,
     };
-    use siumai::registry::ProviderBuildOverrides;
+
+    fn togetherai_registry_builder() -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder("togetherai", "togetherai")
+    }
+
+    fn make_togetherai_registry(
+        api_key: &str,
+        base_url: &str,
+        transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        togetherai_registry_builder()
+            .with_api_key(api_key)
+            .with_base_url(base_url)
+            .fetch(transport)
+            .auto_middleware(false)
+            .build()
+            .expect("build togetherai registry")
+    }
+
+    fn make_togetherai_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        provider_transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        togetherai_registry_builder()
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(global_transport)
+            .with_provider_build_overrides(
+                "togetherai",
+                provider_transport_build_overrides(
+                    "ctx-key",
+                    "https://example.com/together",
+                    provider_transport,
+                ),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build togetherai override registry")
+    }
 
     #[test]
     fn togetherai_package_settings_preserve_supported_provider_inputs() {
@@ -10167,19 +9975,11 @@ mod togetherai_public_path {
         )
         .expect("build config client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_togetherai_registry(
+            "test-key",
+            "https://example.com/together",
+            Arc::new(registry_transport.clone()),
         );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/together")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
         let registry_model = registry
             .reranking_model("togetherai:Salesforce/Llama-Rank-v1")
             .expect("build registry rerank model");
@@ -10219,27 +10019,10 @@ mod togetherai_public_path {
         let global_transport = CaptureTransport::default();
         let together_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_togetherai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(together_transport.clone()),
         );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "togetherai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/together")
-                    .fetch(Arc::new(together_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .reranking_model("togetherai:Salesforce/Llama-Rank-v1")
@@ -10300,19 +10083,8 @@ mod togetherai_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url(base_url)
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry =
+            make_togetherai_registry("test-key", base_url, Arc::new(registry_transport.clone()));
         let registry_model = registry
             .image_model(&format!("togetherai:{model}"))
             .expect("build registry togetherai image model");
@@ -10387,19 +10159,11 @@ mod togetherai_public_path {
             .build()
             .await
             .expect("build provider client");
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_togetherai_registry(
+            "test-key",
+            "https://example.com/together",
+            Arc::new(registry_transport.clone()),
         );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/together")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let registry_model = registry
             .language_model("togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
@@ -10473,19 +10237,8 @@ mod togetherai_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url(base_url)
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry =
+            make_togetherai_registry("test-key", base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .completion_model(&format!("togetherai:{model}"))
@@ -10583,19 +10336,8 @@ mod togetherai_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url(base_url)
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry =
+            make_togetherai_registry("test-key", base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .completion_model(&format!("togetherai:{model}"))
