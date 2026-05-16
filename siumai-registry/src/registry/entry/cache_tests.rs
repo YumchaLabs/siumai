@@ -14,21 +14,9 @@ async fn lru_cache_eviction() {
     let reg = create_provider_registry(
         providers,
         Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: Vec::new(),
-            http_interceptors: Vec::new(),
-            http_client: None,
-            http_transport: None,
-            http_config: None,
-            api_key: None,
-            base_url: None,
-            reasoning_enabled: None,
-            reasoning_budget: None,
-            provider_build_overrides: HashMap::new(),
-            retry_options: None,
             max_cache_entries: Some(2),
-            client_ttl: None,
             auto_middleware: false,
+            ..Default::default()
         }),
     );
 
@@ -63,21 +51,9 @@ async fn ttl_expiration() {
     let reg = create_provider_registry(
         providers,
         Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: Vec::new(),
-            http_interceptors: Vec::new(),
-            http_client: None,
-            http_transport: None,
-            http_config: None,
-            api_key: None,
-            base_url: None,
-            reasoning_enabled: None,
-            reasoning_budget: None,
-            provider_build_overrides: HashMap::new(),
-            retry_options: None,
-            max_cache_entries: None,
             client_ttl: Some(std::time::Duration::from_millis(100)),
             auto_middleware: false,
+            ..Default::default()
         }),
     );
 

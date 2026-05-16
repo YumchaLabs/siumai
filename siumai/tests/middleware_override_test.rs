@@ -235,21 +235,10 @@ fn registry_options(
     client_ttl: Option<std::time::Duration>,
 ) -> RegistryOptions {
     RegistryOptions {
-        separator: ':',
         language_model_middleware: middlewares,
-        http_interceptors: Vec::new(),
-        http_client: None,
-        http_transport: None,
-        http_config: None,
-        api_key: None,
-        base_url: None,
-        reasoning_enabled: None,
-        reasoning_budget: None,
-        provider_build_overrides: HashMap::new(),
-        retry_options: None,
-        max_cache_entries: None,
         client_ttl,
         auto_middleware,
+        ..Default::default()
     }
 }
 

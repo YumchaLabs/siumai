@@ -18,21 +18,8 @@ async fn registry_openrouter_smoke() -> Result<(), Box<dyn std::error::Error>> {
     let reg = create_provider_registry(
         HashMap::new(),
         Some(RegistryOptions {
-            separator: ':',
             language_model_middleware: chain_default_and_clamp(),
-            http_interceptors: Vec::new(),
-            http_client: None,
-            http_transport: None,
-            http_config: None,
-            api_key: None,
-            base_url: None,
-            reasoning_enabled: None,
-            reasoning_budget: None,
-            provider_build_overrides: HashMap::new(),
-            retry_options: None,
-            max_cache_entries: None,
-            client_ttl: None,
-            auto_middleware: true,
+            ..Default::default()
         }),
     );
     // Example model id for OpenRouter

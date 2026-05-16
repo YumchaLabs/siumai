@@ -101,21 +101,9 @@ fn registry_with_logging_interceptor(
     create_provider_registry(
         providers,
         Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: Vec::new(),
             http_interceptors: vec![Arc::new(LoggingInterceptor)],
-            http_client: None,
-            http_transport: None,
-            http_config: None,
-            api_key: None,
-            base_url: None,
-            reasoning_enabled: None,
-            reasoning_budget: None,
-            provider_build_overrides: HashMap::new(),
-            retry_options: None,
-            max_cache_entries: None,
-            client_ttl: None,
             auto_middleware: false,
+            ..Default::default()
         }),
     )
 }

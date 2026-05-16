@@ -107,6 +107,28 @@ pub struct RegistryOptions {
     pub auto_middleware: bool,
 }
 
+impl Default for RegistryOptions {
+    fn default() -> Self {
+        Self {
+            separator: ':',
+            language_model_middleware: Vec::new(),
+            http_interceptors: Vec::new(),
+            http_client: None,
+            http_transport: None,
+            http_config: None,
+            api_key: None,
+            base_url: None,
+            reasoning_enabled: None,
+            reasoning_budget: None,
+            provider_build_overrides: HashMap::new(),
+            retry_options: None,
+            max_cache_entries: None,
+            client_ttl: None,
+            auto_middleware: true,
+        }
+    }
+}
+
 /// Provider registry handle - aligned with Vercel AI SDK design
 ///
 /// Stores provider factories and delegates client creation to them.
@@ -521,6 +543,7 @@ pub fn create_provider_registry(
     providers: HashMap<String, Arc<dyn ProviderFactory>>,
     opts: Option<RegistryOptions>,
 ) -> ProviderRegistryHandle {
+    let o = opts.unwrap_or_default();
     let (
         separator,
         middlewares,
@@ -537,44 +560,23 @@ pub fn create_provider_registry(
         max_cache_entries,
         client_ttl,
         auto_middleware,
-    ) = if let Some(o) = opts {
-        (
-            o.separator,
-            o.language_model_middleware,
-            o.http_interceptors,
-            o.http_client,
-            o.http_transport,
-            o.http_config,
-            o.api_key,
-            o.base_url,
-            o.reasoning_enabled,
-            o.reasoning_budget,
-            o.provider_build_overrides,
-            o.retry_options,
-            o.max_cache_entries,
-            o.client_ttl,
-            o.auto_middleware,
-        )
-    } else {
-        // Defaults: no middlewares, no interceptors, auto middleware enabled
-        (
-            ':',
-            Vec::new(),
-            Vec::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            HashMap::new(),
-            None,
-            None,
-            None,
-            true,
-        )
-    };
+    ) = (
+        o.separator,
+        o.language_model_middleware,
+        o.http_interceptors,
+        o.http_client,
+        o.http_transport,
+        o.http_config,
+        o.api_key,
+        o.base_url,
+        o.reasoning_enabled,
+        o.reasoning_budget,
+        o.provider_build_overrides,
+        o.retry_options,
+        o.max_cache_entries,
+        o.client_ttl,
+        o.auto_middleware,
+    );
 
     // Create LRU cache with specified capacity (default: 100 entries)
     let cache_capacity = max_cache_entries.unwrap_or(100);

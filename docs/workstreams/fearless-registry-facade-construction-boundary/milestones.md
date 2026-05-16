@@ -102,3 +102,19 @@ Exit criteria:
   setup.
 - A source guard prevents the focused facade tests from regressing to manual
   `provider_build_overrides` maps.
+
+## M8 - Registry Options Default Source
+
+Status: Complete
+
+Make `RegistryOptions::default()` the single source of default registry construction behavior.
+
+Exit criteria:
+
+- `RegistryOptions` has a manual `Default` implementation that preserves `':'` separator and
+  enabled automatic middleware semantics.
+- `create_provider_registry(..., None)` reuses `RegistryOptions::default()` instead of maintaining
+  a second default tuple.
+- Internal helpers and small tests use `None` or `..Default::default()` instead of spelling every
+  default field.
+- Source guard coverage prevents the raw default tuple from returning to `create_provider_registry`.

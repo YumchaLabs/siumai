@@ -471,3 +471,27 @@ fn focused_public_facade_tests_use_provider_build_override_shortcuts() {
         );
     }
 }
+
+#[test]
+fn registry_options_default_is_create_provider_registry_default_source() {
+    let root = crate_root();
+    let entry_source =
+        fs::read_to_string(root.join("src/registry/entry.rs")).expect("read registry entry source");
+    let helpers_source = fs::read_to_string(root.join("src/registry/helpers.rs"))
+        .expect("read registry helpers source");
+
+    assert!(
+        entry_source.contains("impl Default for RegistryOptions")
+            && entry_source.contains("opts.unwrap_or_default()"),
+        "RegistryOptions::default should be the single default source for create_provider_registry"
+    );
+    assert!(
+        !entry_source.contains("Defaults: no middlewares, no interceptors"),
+        "create_provider_registry should not keep a second hand-written default tuple"
+    );
+    assert!(
+        helpers_source.contains("create_provider_registry(HashMap::new(), None)")
+            && helpers_source.contains("..Default::default()"),
+        "registry helpers should reuse RegistryOptions::default instead of spelling every default field"
+    );
+}

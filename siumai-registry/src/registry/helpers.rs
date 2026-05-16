@@ -556,21 +556,9 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     create_provider_registry(
         providers,
         Some(RegistryOptions {
-            separator: ':',
             language_model_middleware: chain_default_and_clamp(),
             http_interceptors: vec![std::sync::Arc::new(LoggingInterceptor)],
-            http_client: None,
-            http_transport: None,
-            http_config: None,
-            api_key: None,
-            base_url: None,
-            reasoning_enabled: None,
-            reasoning_budget: None,
-            provider_build_overrides: HashMap::new(),
-            retry_options: None,
-            max_cache_entries: None, // Use default (100)
-            client_ttl: None,        // No expiration
-            auto_middleware: true,   // Enable automatic middleware
+            ..Default::default()
         }),
     )
 }
@@ -579,26 +567,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
 /// Note: auto_middleware is still enabled by default, so model-specific middlewares
 /// (like ExtractReasoningMiddleware) will still be added automatically.
 pub fn create_empty_registry() -> ProviderRegistryHandle {
-    create_provider_registry(
-        HashMap::new(),
-        Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: Vec::new(),
-            http_interceptors: Vec::new(),
-            http_client: None,
-            http_transport: None,
-            http_config: None,
-            api_key: None,
-            base_url: None,
-            reasoning_enabled: None,
-            reasoning_budget: None,
-            provider_build_overrides: HashMap::new(),
-            retry_options: None,
-            max_cache_entries: None, // Use default (100)
-            client_ttl: None,        // No expiration
-            auto_middleware: true,   // Enable automatic middleware
-        }),
-    )
+    create_provider_registry(HashMap::new(), None)
 }
 
 /// Create a bare registry with NO middlewares at all (including no auto middlewares).
@@ -607,21 +576,8 @@ pub fn create_bare_registry() -> ProviderRegistryHandle {
     create_provider_registry(
         HashMap::new(),
         Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: Vec::new(),
-            http_interceptors: Vec::new(),
-            http_client: None,
-            http_transport: None,
-            http_config: None,
-            api_key: None,
-            base_url: None,
-            reasoning_enabled: None,
-            reasoning_budget: None,
-            provider_build_overrides: HashMap::new(),
-            retry_options: None,
-            max_cache_entries: None, // Use default (100)
-            client_ttl: None,        // No expiration
-            auto_middleware: false,  // Disable automatic middleware
+            auto_middleware: false,
+            ..Default::default()
         }),
     )
 }

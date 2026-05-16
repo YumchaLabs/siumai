@@ -1,5 +1,25 @@
-#[cfg(feature = "builtins")]
 use super::*;
+
+#[test]
+fn registry_options_default_keeps_registry_creation_defaults() {
+    let opts = RegistryOptions::default();
+
+    assert_eq!(opts.separator, ':');
+    assert!(opts.language_model_middleware.is_empty());
+    assert!(opts.http_interceptors.is_empty());
+    assert!(opts.http_client.is_none());
+    assert!(opts.http_transport.is_none());
+    assert!(opts.http_config.is_none());
+    assert!(opts.api_key.is_none());
+    assert!(opts.base_url.is_none());
+    assert!(opts.reasoning_enabled.is_none());
+    assert!(opts.reasoning_budget.is_none());
+    assert!(opts.provider_build_overrides.is_empty());
+    assert!(opts.retry_options.is_none());
+    assert!(opts.max_cache_entries.is_none());
+    assert!(opts.client_ttl.is_none());
+    assert!(opts.auto_middleware);
+}
 
 #[cfg(feature = "builtins")]
 #[test]
