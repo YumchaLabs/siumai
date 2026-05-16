@@ -360,3 +360,29 @@ Final verification commands:
 - `cargo nextest run -p siumai-registry provider_factories_use_explicit_compat_for_generic_self_calls production_factories_with_declared_family_surfaces_use_native_family_overrides --all-features --no-fail-fast`
 - `cargo nextest run -p siumai --test facade_architecture_boundary_test --no-default-features --features google --no-fail-fast`
 - `cargo nextest run -p siumai-extras --test bridge_architecture_boundary_test --no-default-features --features openai --no-fail-fast`
+
+## Completion Audit Hardening - 2026-05-17
+
+Follow-up completion audit against the broader fearless-refactor objective found that the
+`fearless-spec-core-boundary-convergence` workstream already closed the spec/core boundary split,
+but its top-level source guards could be clearer about reverse dependency regression.
+
+Additional evidence added:
+
+- `siumai-spec::spec_purity_boundary_test` now rejects:
+  - runtime dependencies such as Tokio/Futures/Reqwest/Hyper/Axum/Tower
+  - upper-layer crate dependencies such as registry, bridge, extras, provider, and protocol crates
+  - source-level reverse imports and construction seams such as `siumai_registry::`,
+    `siumai_provider_*`, `siumai_protocol_*`, `ProviderFactory`, `RegistryOptions`,
+    `BuildContext`, and `registry::global`
+- `siumai-core::core_provider_boundary_test` now rejects:
+  - manifest dependencies on registry, facade, bridge, extras, provider, or protocol crates
+  - production-source imports or construction seams from those upper layers
+  - provider-specific facade builder entry points such as `Provider::openai` and
+    `Siumai::builder`
+
+Focused validation:
+
+- `cargo nextest run -p siumai-spec --test spec_purity_boundary_test --no-default-features --no-fail-fast`
+- `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-default-features --no-fail-fast`
+- `cargo fmt --package siumai-spec --package siumai-core --check`

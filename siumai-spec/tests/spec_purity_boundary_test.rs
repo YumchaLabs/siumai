@@ -23,7 +23,21 @@ fn collect_rust_files(path: &Path, files: &mut Vec<PathBuf>) {
 fn spec_crate_does_not_depend_on_runtime_execution_crates() {
     let manifest = fs::read_to_string(crate_root().join("Cargo.toml")).expect("read Cargo.toml");
 
-    for forbidden_dependency in ["tokio", "tokio-util", "futures", "reqwest", "siumai-core"] {
+    for forbidden_dependency in [
+        "tokio",
+        "tokio-util",
+        "futures",
+        "reqwest",
+        "hyper",
+        "axum",
+        "tower",
+        "siumai-core",
+        "siumai-registry",
+        "siumai-bridge",
+        "siumai-extras",
+        "siumai-provider-",
+        "siumai-protocol-",
+    ] {
         assert!(
             !manifest.contains(forbidden_dependency),
             "siumai-spec must stay data-only and must not depend on `{forbidden_dependency}`"
@@ -43,12 +57,31 @@ fn spec_source_does_not_define_runtime_handles_or_streams() {
 
         for forbidden in [
             "tokio_util",
+            "tokio::",
             "CancellationToken",
             "WaitForCancellationFuture",
             "CancelHandle",
             "futures::",
+            "reqwest::",
+            "hyper::",
+            "axum::",
+            "tower::",
+            "std::thread",
+            "std::process",
+            "Command::new",
             "Pin<Box<dyn Stream",
-            "siumai_core",
+            "siumai_core::",
+            "siumai_registry::",
+            "siumai_bridge::",
+            "siumai_extras::",
+            "siumai_provider_",
+            "siumai_protocol_",
+            "ProviderFactory",
+            "RegistryOptions",
+            "ProviderBuildOverrides",
+            "BuildContext",
+            "create_provider_registry",
+            "registry::global",
             "std::env",
             "CARGO_PKG_VERSION",
             "runtime_default",

@@ -54,6 +54,110 @@ fn normalized_relative_path(root: &Path, path: &Path) -> String {
         .join("/")
 }
 
+fn production_non_comment_source(source: &str) -> String {
+    source
+        .split("\n#[cfg(test)]")
+        .next()
+        .unwrap_or(source)
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.starts_with("//") && !trimmed.starts_with('*')
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn core_manifest_does_not_depend_on_registry_facade_provider_or_protocol_crates() {
+    let manifest = fs::read_to_string(crate_root().join("Cargo.toml")).expect("read Cargo.toml");
+
+    for forbidden_dependency in [
+        "siumai-registry",
+        "siumai-bridge",
+        "siumai-extras",
+        "siumai-provider-",
+        "siumai-protocol-",
+        "siumai =",
+    ] {
+        assert!(
+            !manifest.contains(forbidden_dependency),
+            "siumai-core must stay provider-agnostic and must not depend on `{forbidden_dependency}`"
+        );
+    }
+
+    assert!(
+        manifest.contains("siumai-spec = { workspace = true, default-features = false }"),
+        "siumai-core should depend downward on siumai-spec as its data-contract crate"
+    );
+}
+
+#[test]
+fn core_production_source_does_not_import_registry_facade_provider_or_protocol_crates() {
+    let manifest_dir = crate_root();
+    let src_dir = manifest_dir.join("src");
+    let mut rust_sources = Vec::new();
+    collect_rust_sources(&src_dir, &mut rust_sources);
+
+    let mut violations = Vec::new();
+    for source_path in rust_sources {
+        let relative_path = normalized_relative_path(&manifest_dir, &source_path);
+        if relative_path.ends_with("/tests.rs") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
+        let production_source = production_non_comment_source(&source);
+
+        for forbidden in [
+            "siumai_registry::",
+            "siumai_provider_",
+            "siumai_protocol_",
+            "siumai_bridge::",
+            "siumai_extras::",
+            "use siumai::",
+            "siumai::prelude",
+            "siumai::registry",
+            "siumai::compat",
+            "siumai::provider_ext",
+            "siumai::providers",
+            "siumai::experimental",
+            "siumai::Provider",
+            "siumai::Siumai",
+            "ProviderFactory",
+            "RegistryOptions",
+            "ProviderBuildOverrides",
+            "create_provider_registry",
+            "registry::global",
+            "Siumai::builder",
+            "Provider::openai",
+            "Provider::anthropic",
+            "Provider::gemini",
+            "Provider::google",
+            "Provider::azure",
+            "Provider::bedrock",
+            "Provider::cohere",
+            "Provider::deepseek",
+            "Provider::groq",
+            "Provider::ollama",
+            "Provider::xai",
+            "Provider::minimaxi",
+            "Provider::togetherai",
+        ] {
+            if production_source.contains(forbidden) {
+                violations.push(format!("{relative_path}: `{forbidden}`"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "siumai-core production code must not import registry, facade, provider, protocol, bridge, or extras crate surfaces:\n{}",
+        violations.join("\n")
+    );
+}
+
 #[test]
 fn core_utils_do_not_own_provider_model_aliases() {
     let manifest_dir = crate_root();

@@ -1166,3 +1166,17 @@ Notes:
   - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-default-features --no-fail-fast`
   - `cargo nextest run -p siumai --test facade_architecture_boundary_test --features openai,anthropic,google --no-default-features --no-fail-fast`
   - `git diff --check`
+- Completion audit hardening on 2026-05-17 added broader anti-regression guards for the two
+  lowest-level crates:
+  - `siumai-spec::spec_purity_boundary_test` now rejects manifest dependencies on runtime,
+    registry, bridge, extras, provider, and protocol crates, and rejects source imports or
+    construction seams such as `siumai_registry::`, `siumai_provider_*`,
+    `siumai_protocol_*`, `ProviderFactory`, `RegistryOptions`, `BuildContext`, and
+    `registry::global`.
+  - `siumai-core::core_provider_boundary_test` now rejects manifest dependencies on registry,
+    facade, bridge, extras, provider, and protocol crates, and rejects production-source imports or
+    builder/factory seams from those upper layers.
+  - Verified commands:
+    - `cargo nextest run -p siumai-spec --test spec_purity_boundary_test --no-default-features --no-fail-fast`
+    - `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-default-features --no-fail-fast`
+    - `cargo fmt --package siumai-spec --package siumai-core --check`
