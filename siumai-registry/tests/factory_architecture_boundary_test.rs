@@ -656,11 +656,9 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
                 && !module_source.contains("create_provider_registry("),
             "{module_name} should not hand-roll raw RegistryOptions provider override plumbing"
         );
-        if module_name != "openai_compatible_audio_public_path" {
-            assert!(
-                !module_source.contains(".with_provider_build_overrides("),
-                "{module_name} should use provider-level RegistryBuilder shortcuts instead of generic provider build overrides"
-            );
-        }
+        assert!(
+            !module_source.contains(".with_provider_build_overrides("),
+            "{module_name} should use provider-level RegistryBuilder shortcuts instead of generic provider build overrides"
+        );
     }
 }

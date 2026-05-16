@@ -14776,7 +14776,6 @@ mod openai_compatible_audio_public_path {
         PerplexitySearchContextSize, PerplexitySearchMode, PerplexitySearchRecencyFilter,
         PerplexityUserLocation,
     };
-    use siumai::registry::ProviderBuildOverrides;
     use siumai_core::types::EmbeddingFormat;
     use siumai_registry::registry::builder::RegistryBuilder;
 
@@ -14860,16 +14859,6 @@ mod openai_compatible_audio_public_path {
             .with_reasoning(reasoning_enabled)
             .with_reasoning_budget(reasoning_budget)
             .fetch(transport)
-            .build()
-            .expect("build registry")
-    }
-
-    fn make_registry_with_overrides(
-        provider_id: &str,
-        overrides: ProviderBuildOverrides,
-    ) -> siumai::registry::ProviderRegistryHandle {
-        RegistryBuilder::new(openai_compatible_registry_providers(provider_id))
-            .with_provider_build_overrides(provider_id, overrides)
             .build()
             .expect("build registry")
     }
@@ -15076,12 +15065,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "togetherai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/together/v1")
-                    .fetch(Arc::new(together_transport.clone())),
+                "ctx-key",
+                "https://example.com/together/v1",
+                Arc::new(together_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -15133,12 +15121,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "togetherai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/together/v1")
-                    .fetch(Arc::new(together_transport.clone())),
+                "ctx-key",
+                "https://example.com/together/v1",
+                Arc::new(together_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -15495,12 +15482,11 @@ mod openai_compatible_audio_public_path {
         .with_api_key("global-key")
         .with_base_url("https://example.com/global/v1")
         .fetch(Arc::new(global_transport.clone()))
-        .with_provider_build_overrides(
+        .with_provider_api_key_base_url_fetch(
             "siliconflow",
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/siliconflow/v1")
-                .fetch(Arc::new(siliconflow_transport.clone())),
+            "ctx-key",
+            "https://example.com/siliconflow/v1",
+            Arc::new(siliconflow_transport.clone()),
         )
         .auto_middleware(false)
         .build()
@@ -15543,12 +15529,11 @@ mod openai_compatible_audio_public_path {
         .with_api_key("global-key")
         .with_base_url("https://example.com/global/v1")
         .fetch(Arc::new(global_transport.clone()))
-        .with_provider_build_overrides(
+        .with_provider_api_key_base_url_fetch(
             "jina",
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/jina/v1")
-                .fetch(Arc::new(jina_transport.clone())),
+            "ctx-key",
+            "https://example.com/jina/v1",
+            Arc::new(jina_transport.clone()),
         )
         .auto_middleware(false)
         .build()
@@ -15586,12 +15571,11 @@ mod openai_compatible_audio_public_path {
         .with_api_key("global-key")
         .with_base_url("https://example.com/global/v1")
         .fetch(Arc::new(global_transport.clone()))
-        .with_provider_build_overrides(
+        .with_provider_api_key_base_url_fetch(
             "voyageai",
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/voyageai/v1")
-                .fetch(Arc::new(voyageai_transport.clone())),
+            "ctx-key",
+            "https://example.com/voyageai/v1",
+            Arc::new(voyageai_transport.clone()),
         )
         .auto_middleware(false)
         .build()
@@ -15864,12 +15848,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "siliconflow",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/siliconflow/v1")
-                    .fetch(Arc::new(siliconflow_transport.clone())),
+                "ctx-key",
+                "https://example.com/siliconflow/v1",
+                Arc::new(siliconflow_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -16029,12 +16012,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "siliconflow",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/siliconflow/v1")
-                    .fetch(Arc::new(siliconflow_transport.clone())),
+                "ctx-key",
+                "https://example.com/siliconflow/v1",
+                Arc::new(siliconflow_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -16275,12 +16257,11 @@ mod openai_compatible_audio_public_path {
         let registry = RegistryBuilder::new(openai_compatible_registry_providers("fireworks"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "fireworks",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/fireworks-audio/v1")
-                    .fetch(Arc::new(fireworks_transport.clone())),
+                "ctx-key",
+                "https://example.com/fireworks-audio/v1",
+                Arc::new(fireworks_transport.clone()),
             )
             .fetch(Arc::new(global_transport.clone()))
             .auto_middleware(false)
@@ -16761,12 +16742,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "siliconflow",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/siliconflow/v1")
-                    .fetch(Arc::new(siliconflow_transport.clone())),
+                "ctx-key",
+                "https://example.com/siliconflow/v1",
+                Arc::new(siliconflow_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -16826,12 +16806,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "togetherai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/together/v1")
-                    .fetch(Arc::new(together_transport.clone())),
+                "ctx-key",
+                "https://example.com/together/v1",
+                Arc::new(together_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -17003,12 +16982,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "mistral",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/mistral/v1")
-                    .fetch(Arc::new(mistral_transport.clone())),
+                "ctx-key",
+                "https://example.com/mistral/v1",
+                Arc::new(mistral_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -17801,12 +17779,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "fireworks",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/fireworks/inference/v1")
-                    .fetch(Arc::new(fireworks_transport.clone())),
+                "ctx-key",
+                "https://example.com/fireworks/inference/v1",
+                Arc::new(fireworks_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -17974,12 +17951,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "siliconflow",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/siliconflow/v1")
-                    .fetch(Arc::new(siliconflow_transport.clone())),
+                "ctx-key",
+                "https://example.com/siliconflow/v1",
+                Arc::new(siliconflow_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -18144,12 +18120,11 @@ mod openai_compatible_audio_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "openrouter",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/openrouter/v1")
-                    .fetch(Arc::new(openrouter_transport.clone())),
+                "ctx-key",
+                "https://example.com/openrouter/v1",
+                Arc::new(openrouter_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -19623,12 +19598,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "perplexity",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/perplexity")
-                    .fetch(Arc::new(perplexity_transport.clone())),
+                "ctx-key",
+                "https://example.com/perplexity",
+                Arc::new(perplexity_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -19671,12 +19645,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "perplexity",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/perplexity")
-                    .fetch(Arc::new(perplexity_transport.clone())),
+                "ctx-key",
+                "https://example.com/perplexity",
+                Arc::new(perplexity_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -19734,12 +19707,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "perplexity",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/perplexity")
-                    .fetch(Arc::new(perplexity_transport.clone())),
+                "ctx-key",
+                "https://example.com/perplexity",
+                Arc::new(perplexity_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -19849,12 +19821,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "perplexity",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/perplexity")
-                    .fetch(Arc::new(perplexity_transport.clone())),
+                "ctx-key",
+                "https://example.com/perplexity",
+                Arc::new(perplexity_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -20651,13 +20622,11 @@ data: [DONE]
             siumai::provider_ext::openai_compatible::OpenAiCompatibleClient::from_config(config)
                 .await
                 .expect("build config client");
-        let registry = make_registry_with_overrides(
+        let registry = make_registry_with_global_reasoning_defaults(
             "openrouter",
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_reasoning(true)
-                .with_reasoning_budget(2048)
-                .fetch(Arc::new(registry_transport.clone())),
+            Arc::new(registry_transport.clone()),
+            true,
+            2048,
         );
         let registry_model = registry
             .language_model("openrouter:openai/gpt-4o")
@@ -21103,13 +21072,11 @@ data: [DONE]
             siumai::provider_ext::openai_compatible::OpenAiCompatibleClient::from_config(config)
                 .await
                 .expect("build config client");
-        let registry = make_registry_with_overrides(
+        let registry = make_registry_with_global_reasoning_defaults(
             "openrouter",
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_reasoning(true)
-                .with_reasoning_budget(2048)
-                .fetch(Arc::new(registry_transport.clone())),
+            Arc::new(registry_transport.clone()),
+            true,
+            2048,
         );
         let registry_model = registry
             .language_model("openrouter:openai/gpt-4o")
@@ -21932,12 +21899,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "openrouter",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/openrouter/v1")
-                    .fetch(Arc::new(openrouter_transport.clone())),
+                "ctx-key",
+                "https://example.com/openrouter/v1",
+                Arc::new(openrouter_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -21980,12 +21946,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "openrouter",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/openrouter/v1")
-                    .fetch(Arc::new(openrouter_transport.clone())),
+                "ctx-key",
+                "https://example.com/openrouter/v1",
+                Arc::new(openrouter_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -22081,12 +22046,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "openrouter",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/openrouter/v1")
-                    .fetch(Arc::new(openrouter_transport.clone())),
+                "ctx-key",
+                "https://example.com/openrouter/v1",
+                Arc::new(openrouter_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -22167,13 +22131,11 @@ data: [DONE]
                 .await
                 .expect("build config client");
 
-        let registry = make_registry_with_overrides(
+        let registry = make_registry_with_global_reasoning_defaults(
             "openrouter",
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_reasoning(true)
-                .with_reasoning_budget(2048)
-                .fetch(Arc::new(registry_transport.clone())),
+            Arc::new(registry_transport.clone()),
+            true,
+            2048,
         );
         let registry_model = registry
             .language_model("openrouter:openai/gpt-4o")
@@ -22243,13 +22205,11 @@ data: [DONE]
                 .await
                 .expect("build config client");
 
-        let registry = make_registry_with_overrides(
+        let registry = make_registry_with_global_reasoning_defaults(
             "openrouter",
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_reasoning(true)
-                .with_reasoning_budget(2048)
-                .fetch(Arc::new(registry_transport.clone())),
+            Arc::new(registry_transport.clone()),
+            true,
+            2048,
         );
         let registry_model = registry
             .language_model("openrouter:openai/gpt-4o")
@@ -22324,12 +22284,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "openrouter",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/openrouter/v1")
-                    .fetch(Arc::new(openrouter_transport.clone())),
+                "ctx-key",
+                "https://example.com/openrouter/v1",
+                Arc::new(openrouter_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -23280,12 +23239,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "togetherai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/together/v1")
-                    .fetch(Arc::new(together_transport.clone())),
+                "ctx-key",
+                "https://example.com/together/v1",
+                Arc::new(together_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -23670,12 +23628,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "jina",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/jina/v1")
-                    .fetch(Arc::new(jina_transport.clone())),
+                "ctx-key",
+                "https://example.com/jina/v1",
+                Arc::new(jina_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -23726,12 +23683,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "voyageai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/voyageai/v1")
-                    .fetch(Arc::new(voyageai_transport.clone())),
+                "ctx-key",
+                "https://example.com/voyageai/v1",
+                Arc::new(voyageai_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -23779,12 +23735,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "infini",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/infini/maas/v1")
-                    .fetch(Arc::new(infini_transport.clone())),
+                "ctx-key",
+                "https://example.com/infini/maas/v1",
+                Arc::new(infini_transport.clone()),
             )
             .auto_middleware(false)
             .build()

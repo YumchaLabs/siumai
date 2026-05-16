@@ -69,7 +69,8 @@ Exit criteria:
 - OpenAI, Gemini, Cohere, TogetherAI, Azure, DeepSeek, Vertex MaaS, Ollama, XAI, Bedrock,
   Anthropic, Groq, MiniMaxi, Google Vertex, and dynamic OpenAI-compatible public-path registry
   setup use `RegistryBuilder` provider-level shortcuts rather than hand-written `RegistryOptions {
-  provider_build_overrides: ... }` maps.
+  provider_build_overrides: ... }` maps or generic `.with_provider_build_overrides(...)`
+  wrappers in migrated modules.
 - Remaining direct concrete factory call sites are either provider contract tests, advanced
   low-level integrations, or explicitly tracked follow-up providers.
 
