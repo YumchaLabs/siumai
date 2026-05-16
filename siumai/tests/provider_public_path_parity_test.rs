@@ -29910,7 +29910,6 @@ mod minimaxi_public_path {
         MinimaxiChatRequestExt, MinimaxiChatResponseExt, MinimaxiOptions, MinimaxiTtsOptions,
         MinimaxiTtsRequestExt, MinimaxiVideoOptions, MinimaxiVideoRequestExt,
     };
-    use siumai::registry::ProviderBuildOverrides;
     use std::collections::HashMap;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, Request as WiremockRequest, ResponseTemplate};
@@ -30048,28 +30047,68 @@ mod minimaxi_public_path {
         }
     }
 
+    fn minimaxi_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>>
+    {
+        built_in_registry_providers("minimaxi", "minimaxi")
+    }
+
+    fn minimaxi_registry_builder() -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder("minimaxi", "minimaxi")
+    }
+
+    fn minimaxi_wiremock_base_url(server: &MockServer) -> String {
+        format!("{}/anthropic/v1", server.uri())
+    }
+
+    fn make_minimaxi_server_override_registry(
+        global_server: &MockServer,
+        minimaxi_server: &MockServer,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        minimaxi_registry_builder()
+            .with_api_key("global-key")
+            .with_base_url(minimaxi_wiremock_base_url(global_server))
+            .with_provider_build_overrides(
+                "minimaxi",
+                provider_build_overrides("ctx-key", minimaxi_wiremock_base_url(minimaxi_server)),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry")
+    }
+
+    fn make_minimaxi_transport_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        minimaxi_transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        minimaxi_registry_builder()
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(global_transport)
+            .with_provider_build_overrides(
+                "minimaxi",
+                provider_transport_build_overrides(
+                    "ctx-key",
+                    "https://example.com/custom",
+                    minimaxi_transport,
+                ),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry")
+    }
+
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
+        let mut build_overrides = std::collections::HashMap::new();
+        build_overrides.insert(
             "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "minimaxi".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
+            provider_transport_build_overrides("test-key", base_url, transport),
         );
 
         create_provider_registry(
-            providers,
+            minimaxi_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -30081,7 +30120,7 @@ mod minimaxi_public_path {
                 base_url: None,
                 reasoning_enabled: None,
                 reasoning_budget: None,
-                provider_build_overrides,
+                provider_build_overrides: build_overrides,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
@@ -30091,23 +30130,14 @@ mod minimaxi_public_path {
     }
 
     fn make_registry_without_transport(base_url: &str) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
+        let mut build_overrides = std::collections::HashMap::new();
+        build_overrides.insert(
             "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "minimaxi".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url),
+            provider_build_overrides("test-key", base_url),
         );
 
         create_provider_registry(
-            providers,
+            minimaxi_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -30119,7 +30149,7 @@ mod minimaxi_public_path {
                 base_url: None,
                 reasoning_enabled: None,
                 reasoning_budget: None,
-                provider_build_overrides,
+                provider_build_overrides: build_overrides,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
@@ -32017,23 +32047,14 @@ mod minimaxi_public_path {
         )
         .expect("build config client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
+        let mut build_overrides = std::collections::HashMap::new();
+        build_overrides.insert(
             "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "minimaxi".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(format!("{}/anthropic/v1", registry_server.uri())),
+            provider_build_overrides("test-key", minimaxi_wiremock_base_url(&registry_server)),
         );
 
         let registry = create_provider_registry(
-            providers,
+            minimaxi_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -32045,7 +32066,7 @@ mod minimaxi_public_path {
                 base_url: None,
                 reasoning_enabled: None,
                 reasoning_budget: None,
-                provider_build_overrides,
+                provider_build_overrides: build_overrides,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
@@ -32928,25 +32949,7 @@ mod minimaxi_public_path {
         let global_server = mount_upload_server().await;
         let minimaxi_server = mount_upload_server().await;
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url(format!("{}/anthropic/v1", global_server.uri()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(format!("{}/anthropic/v1", minimaxi_server.uri())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = make_minimaxi_server_override_registry(&global_server, &minimaxi_server);
 
         let handle = registry
             .language_model("minimaxi:MiniMax-M2")
@@ -33020,25 +33023,7 @@ mod minimaxi_public_path {
         let global_server = mount_list_server().await;
         let minimaxi_server = mount_list_server().await;
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url(format!("{}/anthropic/v1", global_server.uri()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(format!("{}/anthropic/v1", minimaxi_server.uri())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = make_minimaxi_server_override_registry(&global_server, &minimaxi_server);
 
         let handle = registry
             .language_model("minimaxi:MiniMax-M2")
@@ -33111,25 +33096,7 @@ mod minimaxi_public_path {
         let global_server = mount_retrieve_server().await;
         let minimaxi_server = mount_retrieve_server().await;
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url(format!("{}/anthropic/v1", global_server.uri()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(format!("{}/anthropic/v1", minimaxi_server.uri())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = make_minimaxi_server_override_registry(&global_server, &minimaxi_server);
 
         let handle = registry
             .language_model("minimaxi:MiniMax-M2")
@@ -33187,25 +33154,7 @@ mod minimaxi_public_path {
         let global_server = mount_content_server().await;
         let minimaxi_server = mount_content_server().await;
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url(format!("{}/anthropic/v1", global_server.uri()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(format!("{}/anthropic/v1", minimaxi_server.uri())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = make_minimaxi_server_override_registry(&global_server, &minimaxi_server);
 
         let handle = registry
             .language_model("minimaxi:MiniMax-M2")
@@ -33263,25 +33212,7 @@ mod minimaxi_public_path {
         let global_server = mount_delete_server().await;
         let minimaxi_server = mount_delete_server().await;
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url(format!("{}/anthropic/v1", global_server.uri()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(format!("{}/anthropic/v1", minimaxi_server.uri())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = make_minimaxi_server_override_registry(&global_server, &minimaxi_server);
 
         let handle = registry
             .language_model("minimaxi:MiniMax-M2")
@@ -33348,25 +33279,7 @@ mod minimaxi_public_path {
         let global_server = mount_video_server().await;
         let minimaxi_server = mount_video_server().await;
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url(format!("{}/anthropic/v1", global_server.uri()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(format!("{}/anthropic/v1", minimaxi_server.uri())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = make_minimaxi_server_override_registry(&global_server, &minimaxi_server);
 
         let handle = registry
             .video_model("minimaxi:hailuo-2.3")
@@ -33446,25 +33359,7 @@ mod minimaxi_public_path {
         let global_server = mount_music_server().await;
         let minimaxi_server = mount_music_server().await;
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url(format!("{}/anthropic/v1", global_server.uri()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(format!("{}/anthropic/v1", minimaxi_server.uri())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = make_minimaxi_server_override_registry(&global_server, &minimaxi_server);
 
         let handle = registry
             .language_model("minimaxi:music-2.0")
@@ -33542,27 +33437,10 @@ mod minimaxi_public_path {
         let global_transport = MinimaxiJsonSuccessTransport::new(image_response.clone());
         let minimaxi_transport = MinimaxiJsonSuccessTransport::new(image_response);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_minimaxi_transport_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(minimaxi_transport.clone()),
         );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/custom")
-                    .fetch(Arc::new(minimaxi_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .image_model("minimaxi:image-01")
@@ -33635,27 +33513,10 @@ mod minimaxi_public_path {
         let global_transport = MinimaxiJsonSuccessTransport::new(tts_response.clone());
         let minimaxi_transport = MinimaxiJsonSuccessTransport::new(tts_response);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_minimaxi_transport_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(minimaxi_transport.clone()),
         );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/custom")
-                    .fetch(Arc::new(minimaxi_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .speech_model("minimaxi:speech-2.6-hd")
@@ -33736,25 +33597,7 @@ mod minimaxi_public_path {
         let global_server = mount_video_query_server().await;
         let minimaxi_server = mount_video_query_server().await;
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "minimaxi".to_string(),
-            Arc::new(siumai::registry::factories::MiniMaxiProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url(format!("{}/anthropic/v1", global_server.uri()))
-            .with_provider_build_overrides(
-                "minimaxi",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(format!("{}/anthropic/v1", minimaxi_server.uri())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = make_minimaxi_server_override_registry(&global_server, &minimaxi_server);
 
         let handle = registry
             .video_model("minimaxi:hailuo-2.3")
