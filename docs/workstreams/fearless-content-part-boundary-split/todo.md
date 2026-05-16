@@ -59,16 +59,25 @@ Notes:
 
 ## CPB-040 - Response Adapter Migration Slice
 
-- [ ] Pick one low-risk response parser/projection path that still emits legacy `ContentPart`
+- [x] Pick one low-risk response parser/projection path that still emits legacy `ContentPart`
       directly.
-- [ ] Route it through a named response-side adapter that guarantees request provider options are
+- [x] Route it through a named response-side adapter that guarantees request provider options are
       not emitted except for empty legacy defaults.
-- [ ] Add behavior or source coverage for that adapter.
+- [x] Add behavior or source coverage for that adapter.
 
 Validation:
 
 - Focused crate tests for the touched response path.
 - Relevant provider/protocol fixture parity test.
+
+Notes:
+
+- `siumai-core/src/streaming/processor.rs` now routes terminal text fallback projection through
+  `response_text_part(...)` instead of direct `ContentPart::text(...)`.
+- Source coverage prevents `StreamProcessor` response consolidation from reintroducing
+  `ContentPart::text(...)` direct calls.
+- Behavior coverage verifies the adapter emits empty request provider options and no response
+  provider metadata for plain terminal text.
 
 ## CPB-050 - Compatibility Surface Decision
 

@@ -3,8 +3,8 @@
   "status": "active",
   "opened": "2026-05-16",
   "objective": "Move legacy ContentPart toward an explicit compatibility carrier by routing request and response production through directional content adapters.",
-  "current_task": "CPB-040",
-  "next_task": "Pick one low-risk response projection path and route it through a named response-side adapter.",
+  "current_task": "CPB-050",
+  "next_task": "Decide whether legacy ContentPart can move under an explicit compatibility namespace in a later breaking slice.",
   "blocked": false,
   "deferred_from": "fearless-spec-core-boundary-convergence",
   "validation_focus": [

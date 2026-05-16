@@ -34,7 +34,7 @@ Exit criteria:
 
 ## CPB-M4 - Response Adapter Slice Shipped
 
-Status: pending
+Status: complete
 
 Exit criteria:
 

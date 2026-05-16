@@ -724,15 +724,22 @@ fn stream_file_part_to_content_part(
     }
 }
 
+fn response_text_part(
+    text: impl Into<String>,
+    provider_metadata: Option<ProviderMetadataMap>,
+) -> ContentPart {
+    ContentPart::Text {
+        text: text.into(),
+        provider_options: crate::types::ProviderOptionsMap::default(),
+        provider_metadata,
+    }
+}
+
 fn build_text_part(text: &str, terminal_response: Option<&ChatResponse>) -> ContentPart {
     let provider_metadata =
         terminal_response.and_then(|response| first_terminal_text_metadata(&response.content));
 
-    ContentPart::Text {
-        text: text.to_string(),
-        provider_options: crate::types::ProviderOptionsMap::default(),
-        provider_metadata,
-    }
+    response_text_part(text, provider_metadata)
 }
 
 fn build_reasoning_part(text: &str, terminal_response: Option<&ChatResponse>) -> ContentPart {
@@ -833,7 +840,9 @@ fn first_terminal_reasoning_metadata(content: &MessageContent) -> Option<Provide
 
 fn extract_terminal_text_parts(content: &MessageContent) -> Vec<ContentPart> {
     match content {
-        MessageContent::Text(text) if !text.is_empty() => vec![ContentPart::text(text.clone())],
+        MessageContent::Text(text) if !text.is_empty() => {
+            vec![response_text_part(text.as_str(), None)]
+        }
         MessageContent::MultiModal(parts) => parts
             .iter()
             .filter(|part| part.is_text())
@@ -1062,6 +1071,39 @@ mod tests {
             !source.contains(".provider_options_map"),
             "StreamProcessor must not read request provider options maps"
         );
+    }
+
+    #[test]
+    fn stream_processor_routes_text_response_parts_through_response_adapter() {
+        let source = production_source();
+
+        assert!(
+            source.contains("fn response_text_part"),
+            "StreamProcessor should have an explicit response text adapter"
+        );
+        assert!(
+            !source.contains("ContentPart::text("),
+            "StreamProcessor response consolidation should not call legacy ContentPart::text directly"
+        );
+    }
+
+    #[test]
+    fn terminal_text_extraction_uses_response_text_adapter_defaults() {
+        let parts = extract_terminal_text_parts(&MessageContent::Text("terminal".to_string()));
+        assert_eq!(parts.len(), 1);
+
+        let ContentPart::Text {
+            text,
+            provider_options,
+            provider_metadata,
+        } = &parts[0]
+        else {
+            panic!("expected text part");
+        };
+
+        assert_eq!(text, "terminal");
+        assert!(provider_options.is_empty());
+        assert!(provider_metadata.is_none());
     }
 
     #[test]
