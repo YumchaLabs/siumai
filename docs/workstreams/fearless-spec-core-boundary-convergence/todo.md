@@ -2,6 +2,9 @@
 
 Last updated: 2026-05-16
 
+Status: Closed. Remaining broader `ContentPart` replacement work is deferred to a future
+compatibility-breaking design, not part of this spec/core boundary workstream.
+
 Status legend:
 
 - `[ ]` not started
@@ -36,7 +39,7 @@ Status legend:
     deprecated experimental helpers from `prelude::unified`.
   - `stable_unified_prelude_keeps_only_audited_compatibility_and_runtime_aliases` also keeps the
     remaining runtime bridge aliases tied to explicit compatibility-audit entries.
-- [~] Add a short audit note for every kept compatibility surface that explains why it still exists.
+- [x] Add a short audit note for every kept compatibility surface that explains why it still exists.
   - The broad facade type path `siumai::types::*` has been removed from the facade root; the
     migration-only catch-all namespace now lives under `siumai::compat::types::*` and
     `siumai::prelude::compat::types::*`.
@@ -53,7 +56,7 @@ Status legend:
 - [x] Remove async runtime dependencies from `siumai-spec` when they are no longer needed.
   - `tokio-util` was removed with `CancelHandle`.
   - `futures` was removed by moving the runtime `AudioStream` alias to `siumai-core`.
-- [~] Split `siumai-spec/src/types/ai_sdk.rs` into responsibility-focused modules.
+- [x] Split `siumai-spec/src/types/ai_sdk.rs` into responsibility-focused modules.
   - The surface now lives as the `siumai-spec/src/types/ai_sdk/` directory module.
   - Shared primitives (`JSONValue`, `CallWarning`, provider option/metadata aliases,
     `TelemetryOptions`) live in `ai_sdk/shared.rs`.
@@ -134,7 +137,7 @@ Status legend:
     guards the nested V4 shared/prompt/content split, including prompt-side request metadata and
     content-side response metadata direction. The shell module is also kept to pure `mod`/`pub use`
     re-exports so new concrete types do not creep back into `mod.rs` or the V4 shell.
-- [~] Keep prompt/input data, response/result data, UI message data, and runtime helper concepts in
+- [x] Keep prompt/input data, response/result data, UI message data, and runtime helper concepts in
   separate modules or crates.
   - AI SDK V4 prompt and generated content projections are now physically separate.
   - Non-V4 stable prompt projection now has named helpers in `siumai-spec::types::prompt`:
@@ -152,10 +155,11 @@ Status legend:
     still handled locally.
   - UI message data and UI message stream chunks are already separate modules.
   - Runtime cancellation/stream aliases have been moved out of `siumai-spec`.
-  - Remaining work: refresh the direct-construction scan against the new projection helpers, then
-    audit the rest of the non-`ai_sdk` spec surfaces for hidden execution/transport/provider
-    construction semantics.
-- [~] Review all spec types for hidden execution policy, transport policy, or provider construction
+  - Closeout: the direct-construction scan is guarded by
+    `content_part_provider_map_audit_covers_high_value_production_hits`; remaining broader
+    non-V4 `ContentPart` replacement work is an explicit deferred follow-up, not an open
+    spec/core boundary task.
+- [x] Review all spec types for hidden execution policy, transport policy, or provider construction
   semantics.
   - `siumai-spec::LlmError` no longer owns retry, status-code, category, user-message, recovery
     suggestion, or retry-delay policy helpers. Those runtime/presentation decisions now live in
@@ -356,7 +360,7 @@ Status legend:
     request-side provider options, speech/transcription/structured-output helpers can only project
     response metadata into high-level results, and video keeps high-level polling options separate
     from legacy provider option maps.
-- [~] Introduce explicit prompt-side and response-side projections where the same type encourages
+- [x] Introduce explicit prompt-side and response-side projections where the same type encourages
   request/response concern mixing.
   - AI SDK V4 prompt projections under `types/ai_sdk/language_model_v4/prompt.rs` carry
     request-side `providerOptions` and are source-guarded against response-side
@@ -367,7 +371,7 @@ Status legend:
   - Current decision: use an adapter-first migration and defer any broader non-V4 stable
     prompt/content projection until remaining direct `ContentPart` construction paths have a clear
     migration target.
-- [~] Add adapters for shared content data instead of reusing response-only metadata in request
+- [x] Add adapters for shared content data instead of reusing response-only metadata in request
   construction.
   - Existing `ChatMessage`/`Prompt` narrowing adapters already reject response-side
     `providerMetadata` when converting legacy `ContentPart` values into prompt/model-message
@@ -589,10 +593,10 @@ Status legend:
     keep those response-side encoders from reading request-side `providerOptions` /
     `provider_options` while still allowing response metadata serialization.
   - Main protocol and bridge request serialization paths now have behavior coverage plus source
-    guards against direct legacy `providerMetadata` replay reads. Remaining work for this track is
-    extending the adapter-first migration to remaining non-bridge direct `ContentPart` construction
-    paths before removing dual fields from the stable `ContentPart` surface.
-- [~] Update docs and examples to use the canonical prompt and response content shapes.
+    guards against direct legacy `providerMetadata` replay reads. Removing dual fields from the
+    stable `ContentPart` surface remains a future compatibility-breaking follow-up after the
+    adapter-first migration has wider replacement coverage.
+- [x] Update docs and examples to use the canonical prompt and response content shapes.
   - `ContentPart` docs now explicitly call out the legacy dual-use compatibility status and point
     new provider-facing projections to AI SDK V4 prompt/content modules.
   - `facade_architecture_boundary_test::content_part_provider_map_audit_covers_high_value_production_hits`
@@ -811,7 +815,7 @@ Status legend:
     family/helper modules such as `embedding`, `image`, `video`, `retry_api`, `hosted_tools`, or
     `custom_provider`.
   - `factory_architecture_boundary_test` guards this root surface.
-- [~] Narrow facade re-exports so broad type compatibility paths and stable preludes expose intentional stable
+- [x] Narrow facade re-exports so broad type compatibility paths and stable preludes expose intentional stable
   data only.
   - The historical root `siumai::types::*` path was removed. Migration code that intentionally
     needs a broad type namespace now imports `siumai::compat::types::*` or
@@ -886,7 +890,7 @@ Status legend:
   - `prelude::unified` no longer exports deprecated AI SDK parity names such as `CallSettings`,
     `Experimental_*` result aliases, `experimental_filter_active_tools`, or `step_count_is`.
     Those migration spellings now live in `siumai::compat` / `prelude::compat`.
-- [~] Move compatibility-only names under `siumai::compat`, `prelude::compat`, or documented
+- [x] Move compatibility-only names under `siumai::compat`, `prelude::compat`, or documented
   `experimental` paths.
   - Current high-risk unified-prelude aliases are guarded by an allowlist and compatibility audit
     entry before any breaking split.
@@ -964,8 +968,8 @@ Status legend:
 
 ## Track G - Documentation And Final Validation
 
-- [~] Keep `design.md`, `milestones.md`, and this TODO updated after each completed slice.
-- [~] Update architecture docs when crate ownership changes.
+- [x] Keep `design.md`, `milestones.md`, and this TODO updated after each completed slice.
+- [x] Update architecture docs when crate ownership changes.
 - [x] Run `cargo fmt` for touched Rust crates.
   - Latest error-policy slice formatted `siumai-spec`, `siumai-core`,
     `siumai-protocol-anthropic`, `siumai-extras`, and `siumai`.
@@ -1004,6 +1008,8 @@ Status legend:
     `cargo fmt --package siumai --check`.
   - Latest Track F broad facade type glob guard slice verified
     `cargo fmt --package siumai --check`.
+  - Closeout verified:
+    - `cargo fmt --package siumai-spec --package siumai-core --package siumai-registry --package siumai --check`
 - [x] Run focused `cargo nextest` validation for affected crates.
   - Latest error-policy slice verified `siumai-spec`, `siumai-core`, and
     `siumai-protocol-anthropic` focused tests.
@@ -1082,6 +1088,12 @@ Status legend:
     - `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_unified_prelude_keeps_non_family_extension_types_scoped --no-default-features --features openai,anthropic,google --no-fail-fast`
   - Latest Track F broad facade type glob guard slice verified:
     - `cargo nextest run -p siumai --test facade_architecture_boundary_test broad_facade_types_path_is_explicit_compat_only --no-default-features --features openai,anthropic,google --no-fail-fast`
-- [ ] Run `git diff --check` before closing the workstream.
+  - Closeout verified:
+    - `cargo nextest run -p siumai-spec --test ai_sdk_module_boundary_test --test content_projection_boundary_test --test spec_purity_boundary_test --no-default-features --no-fail-fast`
+    - `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-default-features --no-fail-fast`
+    - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-default-features --no-fail-fast`
+    - `cargo nextest run -p siumai --test facade_architecture_boundary_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+- [x] Run `git diff --check` before closing the workstream.
   - Latest provider-neutral core fixture slice verified `git diff --check -- <touched siumai-core files>`;
     only existing LF/CRLF warnings were reported.
+  - Closeout verified `git diff --check` with no whitespace errors.

@@ -118,7 +118,7 @@ Acceptance criteria:
 - Public imports have migration notes where paths changed.
 - Focused spec and facade checks pass.
 
-Status: in progress
+Status: complete
 
 Notes:
 
@@ -272,7 +272,7 @@ Acceptance criteria:
   response semantics into one public shape.
 - Tests cover representative request construction and response parsing paths.
 
-Status: in progress
+Status: complete
 
 Notes:
 
@@ -657,7 +657,7 @@ Acceptance criteria:
   proven provider-agnostic.
 - Boundary tests prevent provider-specific code from returning to `siumai-core`.
 
-Status: in progress
+Status: complete
 
 Notes:
 
@@ -971,7 +971,7 @@ Acceptance criteria:
 - Compatibility-only names live under `compat` or documented `experimental` paths.
 - Architecture and migration docs are updated for public surface changes.
 
-Status: in progress
+Status: complete
 
 Notes:
 
@@ -1155,4 +1155,14 @@ Acceptance criteria:
 - Formatting and whitespace checks pass.
 - Workstream notes record all intentional breaking removals or public migration paths.
 
-Status: pending
+Status: complete
+
+Notes:
+
+- Closeout validation completed on 2026-05-16:
+  - `cargo fmt --package siumai-spec --package siumai-core --package siumai-registry --package siumai --check`
+  - `cargo nextest run -p siumai-spec --test ai_sdk_module_boundary_test --test content_projection_boundary_test --test spec_purity_boundary_test --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai --test facade_architecture_boundary_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+  - `git diff --check`

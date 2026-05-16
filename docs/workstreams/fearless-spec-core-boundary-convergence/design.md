@@ -247,3 +247,16 @@ cargo check -p siumai-provider-openai --features openai --no-default-features
 cargo check -p siumai-provider-anthropic --features anthropic --no-default-features
 cargo check -p siumai-provider-gemini --features google --no-default-features
 ```
+
+## Closeout State
+
+Closed on 2026-05-16. `siumai-spec` is now treated as passive data contracts and directional
+projection helpers; runtime cancellation, HTTP default policy, provider construction, bridge
+customization, and provider-owned protocol behavior live outside the spec crate. `siumai-core`
+keeps provider-agnostic runtime contracts and guard coverage rejects provider defaults, model
+fixtures, provider-specific stream bridge logic, hosted tool factories, and provider map handling
+from returning. The facade and registry surfaces are narrowed to stable family-first imports, with
+builder-era and broad catch-all surfaces explicitly classified under `compat` or `experimental`.
+
+The remaining broad removal of dual request/response fields from legacy `ContentPart` is deferred
+as a separate compatibility-breaking design after adapter-first migration coverage is wider.
