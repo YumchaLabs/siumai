@@ -362,7 +362,7 @@ impl OpenAiCompatibleEventConverter {
         // carry plain text as data, e.g., Responses "output_text.delta" proxied),
         // treat it directly as a content delta.
         if let Some(s) = json.as_str()
-            && !s.trim().is_empty()
+            && !s.is_empty()
         {
             for part in self.open_text_lane() {
                 builder = builder.add_part(part);
@@ -1000,7 +1000,7 @@ impl OpenAiCompatibleEventConverter {
 
         // First try standard mappings (e.g., choices.0.delta.content)
         if let Some(text) = field_accessor.extract_content(json, &field_mappings)
-            && !text.trim().is_empty()
+            && !text.is_empty()
         {
             return Some(text);
         }
@@ -1015,7 +1015,7 @@ impl OpenAiCompatibleEventConverter {
         for p in compat_paths {
             if let Some(val) = json.pointer(&to_pointer(p))
                 && let Some(s) = val.as_str()
-                && !s.trim().is_empty()
+                && !s.is_empty()
             {
                 return Some(s.to_string());
             }
@@ -1027,7 +1027,7 @@ impl OpenAiCompatibleEventConverter {
         // string under `delta` with an accompanying type like
         // `response.output_text.delta`.
         if let Some(s) = json.get("delta").and_then(|d| d.as_str())
-            && !s.trim().is_empty()
+            && !s.is_empty()
         {
             return Some(s.to_string());
         }
@@ -1038,7 +1038,7 @@ impl OpenAiCompatibleEventConverter {
             .get("delta")
             .and_then(|d| d.get("text"))
             .and_then(|v| v.as_str())
-            && !s.trim().is_empty()
+            && !s.is_empty()
         {
             return Some(s.to_string());
         }
@@ -1053,7 +1053,7 @@ impl OpenAiCompatibleEventConverter {
                 serde_json::Value::Object(map) => {
                     for k in KEYS {
                         if let Some(serde_json::Value::String(s)) = map.get(k)
-                            && !s.trim().is_empty()
+                            && !s.is_empty()
                         {
                             return Some(s);
                         }
@@ -1106,7 +1106,7 @@ impl OpenAiCompatibleEventConverter {
         let field_mappings = self.adapter.get_field_mappings(model);
         let field_accessor = self.adapter.get_field_accessor();
         if let Some(t) = field_accessor.extract_thinking_content(json, &field_mappings)
-            && !t.trim().is_empty()
+            && !t.is_empty()
         {
             return Some(t);
         }
@@ -1114,7 +1114,7 @@ impl OpenAiCompatibleEventConverter {
         for p in compat_paths {
             if let Some(val) = json.pointer(&to_pointer(p))
                 && let Some(s) = val.as_str()
-                && !s.trim().is_empty()
+                && !s.is_empty()
             {
                 return Some(s.to_string());
             }
@@ -1443,6 +1443,10 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
+            if event.data.trim().is_empty() {
+                return Vec::new();
+            }
+
             match serde_json::from_str::<serde_json::Value>(&event.data) {
                 Ok(value) => self
                     .convert_event_json_async(&value)

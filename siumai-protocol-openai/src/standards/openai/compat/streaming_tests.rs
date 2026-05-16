@@ -440,6 +440,90 @@ async fn responses_shape_json_string_event_yields_content() {
 }
 
 #[tokio::test]
+async fn chat_completions_stream_preserves_whitespace_only_content_deltas() {
+    let conv = make_converter();
+    let chunks = [
+        r#"{"choices":[{"index":0,"delta":{"content":"段落一"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"content":"\n"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"content":"段落二"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"content":"\n\n"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"content":"段落三"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#,
+    ];
+
+    let mut text_deltas = Vec::new();
+    let mut terminal_text = None;
+
+    for (index, data) in chunks.into_iter().enumerate() {
+        let events = convert_ok(
+            &conv,
+            Event {
+                event: "message".to_string(),
+                data: data.to_string(),
+                id: index.to_string(),
+                retry: None,
+            },
+        )
+        .await;
+
+        for event in events {
+            if let Some(delta) = event.text_delta() {
+                text_deltas.push(delta.to_string());
+            }
+            if let ChatStreamEvent::StreamEnd { response } = event {
+                terminal_text = response.content_text().map(ToString::to_string);
+            }
+        }
+    }
+
+    assert_eq!(
+        text_deltas,
+        vec!["段落一", "\n", "段落二", "\n\n", "段落三"],
+        "OpenAI-compatible streaming text deltas must preserve provider whitespace"
+    );
+    assert_eq!(terminal_text.as_deref(), Some("段落一\n段落二\n\n段落三"));
+}
+
+#[tokio::test]
+async fn chat_completions_stream_preserves_whitespace_only_reasoning_deltas() {
+    let conv = make_converter();
+    let chunks = [
+        r#"{"choices":[{"index":0,"delta":{"reasoning_content":"思考一"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"reasoning_content":"\n"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"thinking":"思考二"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"thinking":"\n\n"}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"reasoning":{"text":"思考三"}}}]}"#,
+    ];
+
+    let mut reasoning_deltas = Vec::new();
+
+    for (index, data) in chunks.into_iter().enumerate() {
+        let events = convert_ok(
+            &conv,
+            Event {
+                event: "message".to_string(),
+                data: data.to_string(),
+                id: index.to_string(),
+                retry: None,
+            },
+        )
+        .await;
+
+        for event in events {
+            if let Some(delta) = event.reasoning_delta() {
+                reasoning_deltas.push(delta.to_string());
+            }
+        }
+    }
+
+    assert_eq!(
+        reasoning_deltas,
+        vec!["思考一", "\n", "思考二", "\n\n", "思考三"],
+        "OpenAI-compatible streaming reasoning deltas must preserve provider whitespace"
+    );
+}
+
+#[tokio::test]
 async fn responses_shape_finish_reason_emits_stream_end() {
     let conv = make_converter();
 

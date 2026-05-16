@@ -233,7 +233,7 @@ impl StreamFactory {
                                     saw_content.load(std::sync::atomic::Ordering::Relaxed),
                                 );
                             }
-                            if event.data.trim().is_empty() {
+                            if event.data.is_empty() {
                                 return vec![];
                             }
                             let events = converter.convert_event(event).await;
@@ -365,7 +365,7 @@ impl StreamFactory {
                                     saw_content.load(std::sync::atomic::Ordering::Relaxed),
                                 );
                             }
-                            if event.data.trim().is_empty() {
+                            if event.data.is_empty() {
                                 return vec![];
                             }
                             let events = converter.convert_event(event).await;
@@ -674,7 +674,9 @@ impl StreamFactory {
 mod tests {
     use super::StreamFactory;
     use crate::error::LlmError;
-    use crate::streaming::{ChatStreamEvent, ChatStreamPart, JsonEventConverter};
+    use crate::streaming::{
+        ChatStreamEvent, ChatStreamPart, JsonEventConverter, SseEventConverter,
+    };
     use crate::types::{ChatResponse, FinishReason};
     use futures_util::StreamExt;
     use serde_json::json;
@@ -686,6 +688,9 @@ mod tests {
 
     #[derive(Clone)]
     struct PartJsonConverter;
+
+    #[derive(Clone)]
+    struct EchoSseConverter;
 
     impl JsonEventConverter for MultiEndJsonConverter {
         fn convert_json<'a>(
@@ -749,6 +754,16 @@ mod tests {
             vec![Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::empty_with_finish_reason(FinishReason::Stop),
             })]
+        }
+    }
+
+    impl SseEventConverter for EchoSseConverter {
+        fn convert_event(
+            &self,
+            event: eventsource_stream::Event,
+        ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
+        {
+            Box::pin(async move { vec![Ok(ChatStreamEvent::text_delta_part("0", event.data))] })
         }
     }
 
@@ -847,6 +862,37 @@ mod tests {
         }));
 
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn byte_sse_stream_preserves_whitespace_only_event_data_for_converter() {
+        let headers = reqwest::header::HeaderMap::from_iter([(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("text/event-stream"),
+        )]);
+        let chunks = vec![
+            Ok(b"data: hello\n\n".to_vec()),
+            Ok(b"data:  \n\n".to_vec()),
+            Ok(b"data: world\n\n".to_vec()),
+        ];
+
+        let stream = StreamFactory::stream_from_byte_stream_with_sse_fallback(
+            headers,
+            futures_util::stream::iter(chunks),
+            EchoSseConverter,
+        )
+        .await
+        .expect("stream");
+
+        let deltas = stream
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .map(|event| event.expect("event"))
+            .filter_map(|event| event.text_delta().map(ToString::to_string))
+            .collect::<Vec<_>>();
+
+        assert_eq!(deltas, vec!["hello", " ", "world"]);
     }
 
     #[test]

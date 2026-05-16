@@ -132,7 +132,7 @@ impl FieldAccessor for JsonFieldAccessor {
 
             for path in paths {
                 if let Some(value) = self.get_field_value(json, &path)
-                    && !value.trim().is_empty()
+                    && !value.is_empty()
                 {
                     return Some(value);
                 }
@@ -160,7 +160,7 @@ impl FieldAccessor for JsonFieldAccessor {
 
         for path in paths {
             if let Some(value) = self.get_field_value(json, &path)
-                && !value.trim().is_empty()
+                && !value.is_empty()
             {
                 return Some(value);
             }
@@ -287,5 +287,47 @@ mod tests {
         assert!(config.supports_thinking);
         assert_eq!(config.max_tokens, Some(8192));
         assert!(config.parameter_mappings.contains_key("thinking_budget"));
+    }
+
+    #[test]
+    fn json_field_accessor_preserves_whitespace_only_content() {
+        let accessor = JsonFieldAccessor;
+        let mappings = FieldMappings::default();
+        let json = serde_json::json!({
+            "choices": [
+                {
+                    "delta": {
+                        "content": "\n\n"
+                    }
+                }
+            ]
+        });
+
+        assert_eq!(
+            accessor.extract_content(&json, &mappings).as_deref(),
+            Some("\n\n")
+        );
+    }
+
+    #[test]
+    fn json_field_accessor_preserves_whitespace_only_thinking_content() {
+        let accessor = JsonFieldAccessor;
+        let mappings = FieldMappings::default();
+        let json = serde_json::json!({
+            "choices": [
+                {
+                    "delta": {
+                        "reasoning_content": "\n\n"
+                    }
+                }
+            ]
+        });
+
+        assert_eq!(
+            accessor
+                .extract_thinking_content(&json, &mappings)
+                .as_deref(),
+            Some("\n\n")
+        );
     }
 }
