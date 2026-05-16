@@ -489,8 +489,6 @@ pub mod experimental {
     pub use siumai_core::{client, defaults, execution, observability, params, retry, utils};
 }
 
-#[cfg(feature = "openai")]
-pub use siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider;
 pub use siumai_registry::registry;
 
 /// Stable alias for provider-specific extension surface.

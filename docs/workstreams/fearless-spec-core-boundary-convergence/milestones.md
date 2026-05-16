@@ -1008,6 +1008,8 @@ Notes:
 - The unused facade root `siumai::provider_catalog::*` mirror has been removed; advanced catalog
   code imports `siumai_registry::provider_catalog::*` explicitly while normal application code uses
   registry family handles.
+- The OpenAI-compatible provider-list macro is no longer re-exported from the facade root; registry
+  or provider glue imports it directly from `siumai_provider_openai_compatible`.
 - File and skill upload helper types/functions are no longer exported as direct
   `prelude::unified::*` names. Stable imports use `siumai::files::*`, `siumai::skills::*`, or the
   root helper functions instead.

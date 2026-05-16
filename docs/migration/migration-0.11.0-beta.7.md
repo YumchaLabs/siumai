@@ -18,6 +18,9 @@ construct shared structs directly, or compare serialized snapshots.
 - Provider catalog: import advanced provider catalog lookups from
   `siumai_registry::provider_catalog::*`; the root `siumai::provider_catalog::*` mirror was
   removed.
+- OpenAI-compatible provider-list macro: import
+  `siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider` directly; the
+  facade root re-export was removed.
 - `ClientWrapper`: use `ClientWrapper::new(...)`; provider-named wrapper constructors were removed
   from `siumai-core`.
 - Streaming consumers: prefer semantic accessors such as `event.text_delta()` and
@@ -174,6 +177,21 @@ module explicitly:
 
 ```rust,ignore
 use siumai_registry::provider_catalog::{get_provider_info, get_supported_providers};
+```
+
+The facade no longer re-exports the OpenAI-compatible provider-list macro. This macro is generation
+infrastructure for registry/provider glue, not an application facade API.
+
+Before:
+
+```rust,ignore
+use siumai::siumai_for_each_openai_compatible_provider;
+```
+
+After:
+
+```rust,ignore
+use siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider;
 ```
 
 ## 2.1) Anthropic Message Helpers

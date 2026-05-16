@@ -112,6 +112,12 @@ fn facade_keeps_provider_extension_bodies_out_of_lib_rs() {
         !lib_rs.contains("pub mod provider_ext {"),
         "provider extension bodies must stay out of siumai/src/lib.rs"
     );
+    assert!(
+        !lib_rs.contains(
+            "pub use siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider;"
+        ),
+        "the OpenAI-compatible provider-list macro is provider-owned and should not be re-exported from the facade root"
+    );
 
     for provider in ["openai", "anthropic", "gemini", "google_vertex", "xai"] {
         let declaration = format!("pub mod {provider};");

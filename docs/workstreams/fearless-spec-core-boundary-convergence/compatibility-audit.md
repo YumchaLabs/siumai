@@ -893,6 +893,36 @@ Validation:
 - `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_registry_prelude_exports_factory_signature_types --features openai,anthropic,google --no-default-features --no-fail-fast`
 - `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
 
+### Facade OpenAI-compatible provider-list macro re-export
+
+Surface: removed root `siumai::siumai_for_each_openai_compatible_provider` macro re-export.
+
+Owner: `siumai-provider-openai-compatible` owns the built-in OpenAI-compatible provider list and
+the macro used by registry/provider glue generators. The facade root should not mirror this
+provider-internal generation helper.
+
+Current users: no real facade users were found. `siumai-registry` imports the macro directly from
+`siumai_provider_openai_compatible`, and provider crate docs demonstrate the provider-owned path.
+
+Canonical replacement: import
+`siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider` directly when
+generating OpenAI-compatible provider glue. Application code should use registry family handles or
+`siumai::providers::openai_compatible::*` instead of invoking provider-list generation macros.
+
+Keep, move, or remove: remove. This was an implementation macro re-export, not a Vercel-aligned
+facade API.
+
+Migration note needed: completed in `docs/migration/migration-0.11.0-beta.7.md`.
+
+Removal window: completed in Track F.
+
+Validation:
+
+- `cargo fmt --package siumai --check`
+- `cargo nextest run -p siumai --test facade_architecture_boundary_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+- `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+- `cargo check -p siumai --tests --features openai,anthropic,google --no-default-features`
+
 ### `ClientWrapper` provider-named constructor aliases
 
 Surface: `ClientWrapper::openai(...)`, `ClientWrapper::anthropic(...)`,

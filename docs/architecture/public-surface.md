@@ -71,6 +71,10 @@ Provider package helper constructors that return `SiumaiBuilder` bind to the reg
 type directly; provider extension helpers should not route through the historical
 `siumai::provider::*` shim or the removed root `siumai::Provider` alias.
 
+OpenAI-compatible provider-list generation is provider-owned infrastructure. Import
+`siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider` directly when
+generating registry/provider glue; the facade root does not re-export this macro.
+
 ### 2.1) Protocol mapping (stable facade)
 
 If you need access to protocol-level mapping modules (e.g. for building adapters, fixtures, or

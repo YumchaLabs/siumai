@@ -847,6 +847,8 @@ Status legend:
     `registry::global()` or `siumai::prelude::unified::registry::global()` explicitly.
   - The unused facade root `siumai::provider_catalog::*` mirror has been removed; advanced catalog
     code imports `siumai_registry::provider_catalog::*` explicitly.
+  - The OpenAI-compatible provider-list macro is no longer re-exported from the facade root; registry
+    or provider glue imports it directly from `siumai_provider_openai_compatible`.
   - File/skill upload helper types and functions are no longer direct `prelude::unified::*` names;
     they remain available through explicit `siumai::files::*`, `siumai::skills::*`, and root helper
     function paths.
@@ -930,6 +932,8 @@ Status legend:
     the scoped `registry::global()` replacement.
   - Latest Track F provider-catalog cleanup documents removal of root
     `siumai::provider_catalog::*` and the registry-owned replacement path.
+  - Latest Track F OpenAI-compatible provider-list macro cleanup documents removal of the facade
+    root macro re-export and the provider-owned replacement path.
 - [x] Update migration docs for any public breaking removals.
   - `migration-0.11.0-beta.7.md` now includes the root `StreamingToolCall*` alias removal and
     replacement imports.
@@ -941,6 +945,9 @@ Status legend:
     replacement import/call paths.
   - `migration-0.11.0-beta.7.md` now includes the root `siumai::provider_catalog::*` mirror removal
     and replacement import path.
+  - `migration-0.11.0-beta.7.md` now includes the root
+    `siumai::siumai_for_each_openai_compatible_provider` re-export removal and direct provider-crate
+    import path.
 
 ## Track G - Documentation And Final Validation
 
