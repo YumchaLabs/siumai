@@ -600,6 +600,15 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
             ),
             ".with_provider_base_url_http_config_fetch(",
         ),
+        (
+            "openai_compatible_audio_public_path",
+            module_source(
+                &source,
+                "mod openai_compatible_audio_public_path",
+                "#[cfg(feature = \"groq\")]",
+            ),
+            ".with_provider_api_key_fetch(",
+        ),
     ] {
         assert!(
             module_source.contains("RegistryBuilder") && module_source.contains(shortcut_marker),

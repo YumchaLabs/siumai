@@ -14785,7 +14785,6 @@ mod openai_compatible_audio_public_path {
     use futures_util::StreamExt;
     use siumai::experimental::client::LlmClient;
     use siumai::extensions::TranscriptionExtras;
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
@@ -14861,12 +14860,10 @@ mod openai_compatible_audio_public_path {
         provider_id: &str,
         transport: Arc<dyn HttpTransport>,
     ) -> siumai::registry::ProviderRegistryHandle {
-        make_registry_with_overrides(
-            provider_id,
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .fetch(transport),
-        )
+        RegistryBuilder::new(openai_compatible_registry_providers(provider_id))
+            .with_provider_api_key_fetch(provider_id, "test-key", transport)
+            .build()
+            .expect("build registry")
     }
 
     fn make_registry_with_global_reasoning_defaults(
@@ -14875,34 +14872,12 @@ mod openai_compatible_audio_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            provider_id.to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .fetch(transport),
-        );
-
-        create_provider_registry(
-            openai_compatible_registry_providers(provider_id),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: Some(reasoning_enabled),
-                reasoning_budget: Some(reasoning_budget),
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        RegistryBuilder::new(openai_compatible_registry_providers(provider_id))
+            .with_reasoning(reasoning_enabled)
+            .with_reasoning_budget(reasoning_budget)
+            .with_provider_api_key_fetch(provider_id, "test-key", transport)
+            .build()
+            .expect("build registry")
     }
 
     fn make_registry_builder_with_global_reasoning_defaults(
@@ -14924,29 +14899,10 @@ mod openai_compatible_audio_public_path {
         provider_id: &str,
         overrides: ProviderBuildOverrides,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(provider_id.to_string(), overrides);
-
-        create_provider_registry(
-            openai_compatible_registry_providers(provider_id),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        RegistryBuilder::new(openai_compatible_registry_providers(provider_id))
+            .with_provider_build_overrides(provider_id, overrides)
+            .build()
+            .expect("build registry")
     }
 
     #[tokio::test]
