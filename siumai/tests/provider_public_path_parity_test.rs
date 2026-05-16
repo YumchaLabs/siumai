@@ -10930,6 +10930,11 @@ mod vertex_maas_public_path {
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::registry::ProviderBuildOverrides;
 
+    fn vertex_maas_registry_providers()
+    -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        built_in_registry_providers("vertex-maas", "vertex-maas")
+    }
+
     fn vertex_maas_base_url(project: &str, location: &str) -> String {
         format!(
             "https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/endpoints/openapi"
@@ -11031,13 +11036,6 @@ mod vertex_maas_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex-maas".to_string(),
-            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "vertex-maas".to_string(),
@@ -11048,7 +11046,7 @@ mod vertex_maas_public_path {
         );
 
         let registry = create_provider_registry(
-            providers,
+            vertex_maas_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -11136,13 +11134,6 @@ mod vertex_maas_public_path {
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex-maas".to_string(),
-            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "vertex-maas".to_string(),
@@ -11153,7 +11144,7 @@ mod vertex_maas_public_path {
         );
 
         let registry = create_provider_registry(
-            providers,
+            vertex_maas_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -11273,13 +11264,6 @@ data: [DONE]
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex-maas".to_string(),
-            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "vertex-maas".to_string(),
@@ -11290,7 +11274,7 @@ data: [DONE]
         );
 
         let registry = create_provider_registry(
-            providers,
+            vertex_maas_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -11445,13 +11429,6 @@ data: [DONE]
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex-maas".to_string(),
-            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "vertex-maas".to_string(),
@@ -11462,7 +11439,7 @@ data: [DONE]
         );
 
         let registry = create_provider_registry(
-            providers,
+            vertex_maas_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -11579,13 +11556,6 @@ data: [DONE]
             .await
             .expect("build provider client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex-maas".to_string(),
-            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "vertex-maas".to_string(),
@@ -11596,7 +11566,7 @@ data: [DONE]
         );
 
         let registry = create_provider_registry(
-            providers,
+            vertex_maas_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -11716,13 +11686,6 @@ data: [DONE]
         let base_url = vertex_maas_base_url("test-project", "us-central1");
         let registry_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex-maas".to_string(),
-            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "vertex-maas".to_string(),
@@ -11733,7 +11696,7 @@ data: [DONE]
         );
 
         let registry = create_provider_registry(
-            providers,
+            vertex_maas_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -37732,6 +37695,55 @@ mod vertex_public_path {
     use siumai::registry::ProviderBuildOverrides;
     use siumai_core::types::EmbeddingTaskType;
 
+    fn vertex_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        built_in_registry_providers("vertex", "vertex")
+    }
+
+    fn anthropic_vertex_registry_providers()
+    -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        built_in_registry_providers("anthropic-vertex", "anthropic-vertex")
+    }
+
+    fn anthropic_vertex_registry_builder() -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder("anthropic-vertex", "anthropic-vertex")
+    }
+
+    fn make_vertex_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        vertex_transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        let mut build_overrides = std::collections::HashMap::new();
+        build_overrides.insert(
+            "vertex".to_string(),
+            provider_transport_build_overrides(
+                "ctx-key",
+                "https://example.com/custom",
+                vertex_transport,
+            ),
+        );
+
+        create_provider_registry(
+            vertex_registry_providers(),
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(global_transport),
+                http_config: None,
+                api_key: Some("global-key".to_string()),
+                base_url: Some("https://example.com/global".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides: build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        )
+    }
+
     fn vertex_reasoning_stream_body() -> Vec<u8> {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests")
@@ -37819,24 +37831,14 @@ mod vertex_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
+        let mut build_overrides = std::collections::HashMap::new();
+        build_overrides.insert(
             "vertex".to_string(),
-            Arc::new(siumai::registry::factories::GoogleVertexProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
+            provider_transport_build_overrides("test-key", base_url, transport),
         );
 
         create_provider_registry(
-            providers,
+            vertex_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -37848,7 +37850,7 @@ mod vertex_public_path {
                 base_url: None,
                 reasoning_enabled: None,
                 reasoning_budget: None,
-                provider_build_overrides,
+                provider_build_overrides: build_overrides,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
@@ -37861,19 +37863,12 @@ mod vertex_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "anthropic-vertex".to_string(),
-            Arc::new(siumai::registry::factories::AnthropicVertexProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
+        let mut build_overrides = std::collections::HashMap::new();
         let mut http_config = siumai::prelude::unified::HttpConfig::empty();
         http_config
             .headers
             .insert("authorization".to_string(), "Bearer test-token".to_string());
-        provider_build_overrides.insert(
+        build_overrides.insert(
             "anthropic-vertex".to_string(),
             ProviderBuildOverrides::default()
                 .with_base_url(base_url)
@@ -37882,7 +37877,7 @@ mod vertex_public_path {
         );
 
         create_provider_registry(
-            providers,
+            anthropic_vertex_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -37894,7 +37889,7 @@ mod vertex_public_path {
                 base_url: None,
                 reasoning_enabled: None,
                 reasoning_budget: None,
-                provider_build_overrides,
+                provider_build_overrides: build_overrides,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
@@ -38510,41 +38505,9 @@ mod vertex_public_path {
         let global_transport = CaptureTransport::default();
         let vertex_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex".to_string(),
-            Arc::new(siumai::registry::factories::GoogleVertexProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/custom")
-                .fetch(Arc::new(vertex_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_vertex_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(vertex_transport.clone()),
         );
 
         let handle = registry
@@ -38579,41 +38542,9 @@ mod vertex_public_path {
         let global_transport = CaptureTransport::default();
         let vertex_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex".to_string(),
-            Arc::new(siumai::registry::factories::GoogleVertexProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/custom")
-                .fetch(Arc::new(vertex_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_vertex_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(vertex_transport.clone()),
         );
 
         let handle = registry
@@ -41425,14 +41356,7 @@ mod vertex_public_path {
             .headers
             .insert("authorization".to_string(), "Bearer ctx-token".to_string());
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "anthropic-vertex".to_string(),
-            Arc::new(siumai::registry::factories::AnthropicVertexProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+        let registry = anthropic_vertex_registry_builder()
             .with_base_url("https://example.com/global")
             .with_http_config(global_http_config)
             .fetch(Arc::new(global_transport.clone()))
@@ -41929,41 +41853,9 @@ mod vertex_public_path {
         let global_transport = JsonSuccessTransport::new(image_response.clone());
         let vertex_transport = JsonSuccessTransport::new(image_response);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex".to_string(),
-            Arc::new(siumai::registry::factories::GoogleVertexProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/custom")
-                .fetch(Arc::new(vertex_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_vertex_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(vertex_transport.clone()),
         );
 
         let handle = registry
@@ -42449,41 +42341,9 @@ mod vertex_public_path {
         let global_transport = JsonSuccessTransport::new(image_response.clone());
         let vertex_transport = JsonSuccessTransport::new(image_response);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "vertex".to_string(),
-            Arc::new(siumai::registry::factories::GoogleVertexProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/custom")
-                .fetch(Arc::new(vertex_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
+        let registry = make_vertex_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(vertex_transport.clone()),
         );
 
         let handle = registry

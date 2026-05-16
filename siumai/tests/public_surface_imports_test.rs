@@ -3222,7 +3222,7 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
 #[allow(deprecated)]
 fn public_surface_google_vertex_provider_ext_compiles() {
     use siumai::compat::Siumai;
-    use siumai::prelude::unified::{ChatResponse, ContentPart, MessageContent};
+    use siumai::prelude::unified::{ChatResponse, ContentPart, EmbeddingTaskType, MessageContent};
     use siumai::provider_ext::google_vertex::{
         GoogleVertexBuilder, GoogleVertexClient, GoogleVertexConfig, GoogleVertexProviderSettings,
         SharedIdGenerator, VERSION, chat, create_vertex, embedding, image, metadata::*, model_sets,

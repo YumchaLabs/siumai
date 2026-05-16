@@ -63,6 +63,7 @@ factory names.
 Exit criteria:
 
 - OpenAI, Gemini, Cohere, TogetherAI, DeepInfra, DeepSeek, Groq, Ollama, XAI, MiniMaxi, Bedrock,
-  and Anthropic public-path registry setup use registry-owned built-in helper routing.
+  Anthropic, and Google Vertex public-path registry setup use registry-owned built-in helper
+  routing.
 - Remaining direct concrete factory call sites are either provider contract tests, advanced
   low-level integrations, or explicitly tracked follow-up providers.

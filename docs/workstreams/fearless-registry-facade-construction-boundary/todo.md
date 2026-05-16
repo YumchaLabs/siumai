@@ -49,14 +49,19 @@ Last updated: 2026-05-14
       `create_provider_registry`, `RegistryBuilder`, provider-specific build overrides, chat,
       streaming chat, typed options, metadata, reasoning, and unsupported audio/non-text parity
       paths.
+- [x] Apply the shared built-in registry helper to Google Vertex public-path tests, covering
+      `create_provider_registry`, `RegistryBuilder`, Vertex, Anthropic Vertex, Vertex MaaS,
+      provider-specific build overrides, chat, streaming chat, image, image edit, video, embedding,
+      typed metadata, structured output, and unsupported non-text parity paths.
 
 ## Follow-up Candidates
 
 - [ ] Decide whether `siumai::registry::factories` should become experimental-only in a future
       breaking cleanup.
 - [ ] Continue auditing `provider_public_path_parity_test.rs` provider-by-provider for repeated
-      local registry builder snippets; next candidate is Google Vertex. Keep Azure custom
-      URL-config paths separate from generic built-in helper migration.
+      local registry builder snippets; remaining direct factory call sites are Azure custom
+      URL-config and OpenAI-compatible dynamic provider-id cases, which should stay separate from
+      generic built-in helper migration until explicitly classified.
 - [ ] Move provider-specific default model selection out of compatibility `SiumaiBuilder` and into
       registry/provider metadata once the construction helper is stable.
 - [ ] Revisit `ProviderBuildOverrides` ergonomics for common test/custom-transport setup.
