@@ -32,6 +32,7 @@ Validation:
 
 - [x] Remove `VisionCapability` from core traits and `LlmClient` downcast methods.
 - [x] Remove `VisionCapabilityProxy` and `Siumai::vision_capability()`.
+- [x] Remove the deprecated `SiumaiBuilder::with_vision()` capability-tag hint.
 - [x] Remove provider/factory forwarding impls that only delegate the deprecated vision downcast.
 - [x] Remove deprecated request/response type aliases that only existed for the vision trait.
 

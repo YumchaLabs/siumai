@@ -294,6 +294,7 @@ fn dedicated_vision_compatibility_surface_is_removed() {
         "../siumai-registry/src/provider/mod.rs",
         "../siumai-registry/src/provider/proxies.rs",
         "../siumai-registry/src/provider/siumai.rs",
+        "../siumai-registry/src/provider/siumai_builder.rs",
         "../siumai-registry/src/provider/siumai/llm_client.rs",
     ] {
         let path = root.join(relative);
@@ -306,6 +307,7 @@ fn dedicated_vision_compatibility_surface_is_removed() {
             "VisionCapabilityProxy",
             "as_vision_capability",
             "vision_capability",
+            "with_vision",
         ] {
             assert!(
                 !source.contains(forbidden),

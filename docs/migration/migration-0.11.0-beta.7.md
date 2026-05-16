@@ -71,7 +71,8 @@ construct shared structs directly, or compare serialized snapshots.
 - Content parts: use prompt/request content types for inputs and generated-output content types for
   responses; treat `ContentPart` as a compatibility carrier.
 - Dedicated vision compatibility: use multimodal chat for image understanding and image-family APIs
-  for image creation; `VisionCapability` and its proxy/request aliases were removed.
+  for image creation; `VisionCapability`, `SiumaiBuilder::with_vision()`, and related
+  proxy/request aliases were removed.
 - Low-level HTTP executor code: replace `execute_json_request_with_headers(...)` with
   `execute_json_request(...)` and an `HttpExecutionConfig`; static headers now belong in a
   `ProviderSpec::build_headers(...)` implementation.

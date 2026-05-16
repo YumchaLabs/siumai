@@ -7,8 +7,9 @@ Last updated: 2026-05-16
 The workstream is closed. `VCR-010` through `VCR-050` are complete.
 
 The dedicated vision compatibility surface has been removed from production core, registry, and spec
-sources. The beta.7 migration guide now points users to multimodal chat for image understanding and
-image-family APIs for image creation.
+sources, including the deprecated `SiumaiBuilder::with_vision()` capability-tag hint. The beta.7
+migration guide now points users to multimodal chat for image understanding and image-family APIs
+for image creation.
 
 ## Continuation Notes
 

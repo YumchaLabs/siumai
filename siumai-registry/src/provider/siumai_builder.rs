@@ -832,15 +832,6 @@ impl SiumaiBuilder {
         self.with_capability("audio")
     }
 
-    /// Enable vision capability
-    #[deprecated(
-        since = "0.11.0-beta.5",
-        note = "Vision is not a unified model family (Vercel-aligned). Use multimodal Chat messages for image understanding; keep this only as a capability tag hint."
-    )]
-    pub fn with_vision(self) -> Self {
-        self.with_capability("vision")
-    }
-
     /// Enable embedding capability
     pub fn with_embedding(self) -> Self {
         self.with_capability("embedding")

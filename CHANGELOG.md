@@ -291,7 +291,8 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
   - Use `siumai::provider_ext::<provider>`, provider-hosted tools (`siumai::hosted_tools::<provider>`), and `providerOptions` instead.
 - Dedicated vision compatibility:
   - `VisionCapability`, `VisionCapabilityProxy`, `Siumai::vision_capability()`,
-    `ImageGenRequest`, `ImageResponse`, `VisionRequest`, and `VisionResponse`
+    `SiumaiBuilder::with_vision()`, `ImageGenRequest`, `ImageResponse`, `VisionRequest`, and
+    `VisionResponse`
   - Use multimodal chat messages for image understanding and image-family APIs for image creation.
 - Low-level HTTP helper `execute_json_request_with_headers`:
   - Use `HttpExecutionConfig` + `execute_json_request` and a `ProviderSpec` with a stable
