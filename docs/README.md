@@ -48,6 +48,9 @@ documents, release process, and active workstreams for current planning.
 - Fearless vision compatibility removal: `docs/workstreams/fearless-vision-compat-removal/`
   - removes the deprecated dedicated vision compatibility surface in favor of multimodal chat and
     image-family APIs
+- Fearless language extension handle isolation: `docs/workstreams/fearless-language-extension-handle-isolation/`
+  - isolates registry language-handle file, skill, and music extension downcasts behind
+    provider-factory adapters
 - Fearless architecture convergence: `docs/workstreams/fearless-architecture-convergence/`
 - Current V4 refactor tracking: `docs/workstreams/fearless-refactor-v4/`
 - AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`
