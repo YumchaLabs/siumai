@@ -44,10 +44,17 @@ Exit criteria:
 
 ## CPB-M5 - Compatibility Decision Recorded
 
-Status: pending
+Status: complete
 
 Exit criteria:
 
 - The refreshed scan is classified.
 - The next breaking decision for legacy `ContentPart` is recorded in docs or an ADR.
 - Migration docs point users at canonical request and response content shapes.
+
+Notes:
+
+- ADR-0008 records legacy `ContentPart` as a compatibility carrier that should stay in place for
+  the current beta line and move only in a later breaking slice once directional adapters and docs
+  cover the main request/response paths.
+- The beta.7 migration guide now lists canonical request and response content imports.

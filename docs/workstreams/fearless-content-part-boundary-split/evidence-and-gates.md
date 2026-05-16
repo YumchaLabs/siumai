@@ -36,3 +36,10 @@ Last updated: 2026-05-16
   - `cargo nextest run -p siumai-core --lib stream_processor_routes_text_response_parts_through_response_adapter terminal_text_extraction_uses_response_text_adapter_defaults --no-default-features --no-fail-fast`
   - `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-default-features --no-fail-fast`
   - `cargo nextest run -p siumai-spec --test content_projection_boundary_test --no-default-features --no-fail-fast`
+- CPB-050:
+  - `cargo fmt --package siumai-spec --package siumai-core --package siumai-provider-google-vertex --package siumai --check`
+  - `cargo fmt --package siumai-spec --package siumai-core --package siumai-bridge --package siumai --check`
+  - `cargo nextest run -p siumai-spec --test content_projection_boundary_test --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai --test facade_architecture_boundary_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+  - `git diff --check`

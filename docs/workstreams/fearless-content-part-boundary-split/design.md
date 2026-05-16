@@ -34,6 +34,13 @@ projection should flow through generated output/content parts. Protocol, bridge,
 facade code should use explicit adapter functions when they must cross into legacy `ContentPart`
 for compatibility.
 
+## Closure
+
+Closed on 2026-05-16 after ADR-0008 recorded the compatibility decision. Legacy `ContentPart`
+remains in its current public paths for now, but it is classified as compatibility-only. A later
+breaking-slice workstream can move it under an explicit compatibility namespace after more
+directional request and response adapters cover the main paths.
+
 ## Goals
 
 - Make the request/response provider-map direction visible in public type names and adapter names.

@@ -1,10 +1,10 @@
 {
   "slug": "fearless-content-part-boundary-split",
-  "status": "active",
+  "status": "closed",
   "opened": "2026-05-16",
   "objective": "Move legacy ContentPart toward an explicit compatibility carrier by routing request and response production through directional content adapters.",
-  "current_task": "CPB-050",
-  "next_task": "Decide whether legacy ContentPart can move under an explicit compatibility namespace in a later breaking slice.",
+  "current_task": null,
+  "next_task": "Open a new breaking-slice workstream when enough request and response adapters are ready to move legacy ContentPart under an explicit compatibility namespace.",
   "blocked": false,
   "deferred_from": "fearless-spec-core-boundary-convergence",
   "validation_focus": [

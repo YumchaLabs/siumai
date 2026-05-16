@@ -63,6 +63,8 @@ construct shared structs directly, or compare serialized snapshots.
   builder/config-first paths still resolve the `SIUMAI_STREAM_DISABLE_COMPRESSION` default in
   `siumai-core`; direct `HttpConfig::default()` construction is now a deterministic data default.
 - Usage and metadata snapshots: expect AI SDK-aligned field names and provider-rooted metadata.
+- Content parts: use prompt/request content types for inputs and generated-output content types for
+  responses; treat `ContentPart` as a compatibility carrier.
 - Raw provider envelopes: opt in through request/response retention controls instead of parsing
   debug output.
 - Custom `ProviderSpec` implementations: replace string-returning `*_url(...)` hooks with
@@ -331,6 +333,49 @@ Common differences are:
   metadata.
 - Stream parts may appear as stable `ChatStreamPart` values rather than provider-specific custom
   payloads.
+
+## 5.1) Content part boundary
+
+`ContentPart` is still available for legacy `ChatMessage`, `ChatResponse`, serde snapshots, and
+compatibility adapters, but it is no longer the recommended content model for new request or
+response code. It mixes request-side `providerOptions` and response-side `providerMetadata`, so new
+code should choose a directional content surface instead.
+
+For request input, prefer prompt/model-message content types:
+
+```rust,ignore
+use siumai::prelude::unified::{
+    AssistantContent, AssistantContentPart, ModelMessage, ToolContent, ToolContentPart, UserContent,
+    UserContentPart,
+};
+```
+
+For low-level AI SDK V4 request integrations, prefer V4 prompt parts:
+
+```rust,ignore
+use siumai::prelude::unified::{
+    LanguageModelV4AssistantContentPart, LanguageModelV4Prompt, LanguageModelV4ToolContentPart,
+    LanguageModelV4UserContentPart,
+};
+```
+
+For generated text response output, prefer generated-output content types:
+
+```rust,ignore
+use siumai::prelude::unified::{
+    CustomOutput, FileOutput, GenerateTextContentPart, ReasoningOutput, Source, TextOutput,
+};
+```
+
+For low-level AI SDK V4 response integrations, prefer V4 generated content parts:
+
+```rust,ignore
+use siumai::prelude::unified::LanguageModelV4Content;
+```
+
+Migration-only code can continue to import `ContentPart`, but new provider/protocol code should
+cross into it through named request or response adapters so provider options and provider metadata
+stay directional.
 
 ## 6) Raw provider request/response envelopes
 

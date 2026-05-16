@@ -81,13 +81,25 @@ Notes:
 
 ## CPB-050 - Compatibility Surface Decision
 
-- [ ] Decide whether legacy `ContentPart` can move under an explicit compatibility namespace in the
+- [x] Decide whether legacy `ContentPart` can move under an explicit compatibility namespace in the
       next breaking slice.
-- [ ] Update migration docs with canonical request/response content imports.
-- [ ] Close or split follow-up tasks based on the refreshed scan.
+- [x] Update migration docs with canonical request/response content imports.
+- [x] Close or split follow-up tasks based on the refreshed scan.
 
 Validation:
 
 - `cargo fmt` for touched crates.
 - Focused `cargo nextest` runs for affected crates.
 - `git diff --check`.
+
+Notes:
+
+- ADR-0008 records the decision: do not move legacy `ContentPart` immediately because it is still a
+  stable serde and `ChatMessage` / `ChatResponse` compatibility carrier. Classify it as
+  compatibility-only now, then revisit a breaking namespace move after more request and response
+  adapters cover the main paths.
+- `migration-0.11.0-beta.7.md` now points users at canonical request prompt parts, AI SDK V4 prompt
+  parts, generated text output parts, and AI SDK V4 generated content parts.
+- The refreshed scan has no unclassified high-value production paths, so there is no follow-up
+  split inside this workstream. The remaining work is the future breaking namespace slice described
+  by ADR-0008.
