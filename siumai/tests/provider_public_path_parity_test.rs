@@ -33005,7 +33005,6 @@ mod bedrock_public_path {
     use futures_util::StreamExt;
     use reqwest::header::AUTHORIZATION;
     use siumai::experimental::client::LlmClient;
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         ChatStreamEvent, EmbeddingExtensions, EmbeddingRequest, FinishReason, ResponseFormat, Tool,
         ToolChoice,
@@ -33033,9 +33032,11 @@ mod bedrock_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/not-bedrock")
             .fetch(global_transport)
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "bedrock",
-                provider_transport_build_overrides("ctx-key", runtime_base_url, bedrock_transport),
+                "ctx-key",
+                runtime_base_url,
+                bedrock_transport,
             )
             .auto_middleware(false)
             .build()
@@ -33046,32 +33047,10 @@ mod bedrock_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut build_overrides = std::collections::HashMap::new();
-        build_overrides.insert(
-            "bedrock".to_string(),
-            provider_transport_build_overrides("test-key", base_url, transport),
-        );
-
-        create_provider_registry(
-            bedrock_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        bedrock_registry_builder()
+            .with_provider_api_key_base_url_fetch("bedrock", "test-key", base_url, transport)
+            .build()
+            .expect("build registry")
     }
 
     #[test]
