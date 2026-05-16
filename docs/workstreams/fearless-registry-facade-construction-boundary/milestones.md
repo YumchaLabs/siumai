@@ -66,7 +66,7 @@ Exit criteria:
   Bedrock, Anthropic, and Google Vertex public-path registry setup use registry-owned built-in
   helper routing; Azure URL-mode variants use the registry-owned Azure option helper; dynamic
   OpenAI-compatible provider-id variants use the registry-owned OpenAI-compatible helper.
-- Azure, DeepSeek, Vertex MaaS, and Ollama public-path registry setup use `RegistryBuilder`
+- Azure, DeepSeek, Vertex MaaS, Ollama, and XAI public-path registry setup use `RegistryBuilder`
   provider-level shortcuts rather than hand-written `RegistryOptions { provider_build_overrides:
   ... }` maps.
 - Remaining direct concrete factory call sites are either provider contract tests, advanced

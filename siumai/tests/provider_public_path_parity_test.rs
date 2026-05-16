@@ -42091,7 +42091,6 @@ mod xai_public_path {
         ImageEditInput, ImageEditRequest, VideoGenerationInput, VideoGenerationRequest,
     };
     use siumai::extensions::{SpeechExtras, VideoGenerationCapability};
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice, Warning,
     };
@@ -42120,13 +42119,11 @@ mod xai_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1/")
             .fetch(global_transport)
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "xai",
-                provider_transport_build_overrides(
-                    "ctx-key",
-                    "https://example.com/xai/v1/",
-                    xai_transport,
-                ),
+                "ctx-key",
+                "https://example.com/xai/v1/",
+                xai_transport,
             )
             .auto_middleware(false)
             .build()
@@ -42136,36 +42133,15 @@ mod xai_public_path {
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "xai".to_string(),
-            provider_transport_build_overrides(
+        xai_registry_builder()
+            .with_provider_api_key_base_url_fetch(
+                "xai",
                 "test-key",
                 "https://example.com/custom/v1",
                 transport,
-            ),
-        );
-
-        create_provider_registry(
-            xai_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+            )
+            .build()
+            .expect("build registry")
     }
 
     fn make_registry_with_global_reasoning_defaults(
@@ -42173,36 +42149,17 @@ mod xai_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "xai".to_string(),
-            provider_transport_build_overrides(
+        xai_registry_builder()
+            .with_reasoning(reasoning_enabled)
+            .with_reasoning_budget(reasoning_budget)
+            .with_provider_api_key_base_url_fetch(
+                "xai",
                 "test-key",
                 "https://example.com/custom/v1",
                 transport,
-            ),
-        );
-
-        create_provider_registry(
-            xai_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: Some(reasoning_enabled),
-                reasoning_budget: Some(reasoning_budget),
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+            )
+            .build()
+            .expect("build registry")
     }
 
     fn make_registry_builder_with_global_reasoning_defaults(
@@ -46489,32 +46446,14 @@ data: [DONE]
         .await
         .expect("build config client");
 
-        let mut build_overrides = std::collections::HashMap::new();
-        build_overrides.insert(
-            "xai".to_string(),
-            provider_build_overrides("test-key", format!("{}/v1", registry_server.uri())),
-        );
-
-        let registry = create_provider_registry(
-            xai_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        );
+        let registry = xai_registry_builder()
+            .with_provider_api_key_base_url(
+                "xai",
+                "test-key",
+                format!("{}/v1", registry_server.uri()),
+            )
+            .build()
+            .expect("build registry");
         let registry_client = registry
             .video_model("xai:grok-imagine-video")
             .expect("build registry video model");
