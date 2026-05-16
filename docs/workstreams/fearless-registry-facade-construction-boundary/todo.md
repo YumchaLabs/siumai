@@ -99,6 +99,9 @@ Last updated: 2026-05-16
 - [x] Continue the public-path raw options cleanup by migrating MiniMaxi registry setup through
       `RegistryBuilder` provider-level shortcuts, covering custom transport overrides,
       wiremock-backed base URL overrides, and video query registry construction.
+- [x] Continue the public-path raw options cleanup by migrating Google Vertex and Anthropic Vertex
+      registry setup through `RegistryBuilder` provider-level shortcuts, including provider HTTP
+      config merge coverage.
 
 ## Follow-up Candidates
 
@@ -165,3 +168,7 @@ Last updated: 2026-05-16
 - `cargo nextest run -p siumai-registry --features openai --no-default-features --no-fail-fast migrated_public_path_modules_use_registry_builder_shortcuts`
 - `cargo check -p siumai --tests --features minimaxi --no-default-features`
 - `cargo nextest run -p siumai --test provider_public_path_parity_test --features minimaxi --no-default-features --no-fail-fast minimaxi_public_path`
+- `cargo fmt --package siumai-registry --package siumai --check`
+- `cargo nextest run -p siumai-registry --features openai --no-default-features --no-fail-fast migrated_public_path_modules_use_registry_builder_shortcuts`
+- `cargo check -p siumai --tests --features google-vertex --no-default-features`
+- `cargo nextest run -p siumai --test provider_public_path_parity_test --features google-vertex --no-default-features --no-fail-fast vertex_public_path`

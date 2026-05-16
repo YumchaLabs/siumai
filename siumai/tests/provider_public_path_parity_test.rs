@@ -36934,7 +36934,6 @@ mod vertex_public_path {
     use siumai::experimental::client::LlmClient;
     use siumai::extensions::VideoGenerationCapability;
     use siumai::extensions::types::{VideoGenerationInput, VideoGenerationRequest};
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         ContentPart, EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
@@ -36948,7 +36947,6 @@ mod vertex_public_path {
         VertexEmbeddingRequestExt, VertexImagenEditOptions, VertexImagenOptions,
         VertexImagenRequestExt, VertexVideoRequestExt,
     };
-    use siumai::registry::ProviderBuildOverrides;
     use siumai_core::types::EmbeddingTaskType;
 
     fn vertex_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
@@ -36964,40 +36962,27 @@ mod vertex_public_path {
         built_in_registry_builder("anthropic-vertex", "anthropic-vertex")
     }
 
+    fn vertex_registry_builder() -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder("vertex", "vertex")
+    }
+
     fn make_vertex_override_registry(
         global_transport: Arc<dyn HttpTransport>,
         vertex_transport: Arc<dyn HttpTransport>,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut build_overrides = std::collections::HashMap::new();
-        build_overrides.insert(
-            "vertex".to_string(),
-            provider_transport_build_overrides(
+        vertex_registry_builder()
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(global_transport)
+            .with_provider_api_key_base_url_fetch(
+                "vertex",
                 "ctx-key",
                 "https://example.com/custom",
                 vertex_transport,
-            ),
-        );
-
-        create_provider_registry(
-            vertex_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(global_transport),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.com/global".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        )
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry")
     }
 
     fn vertex_reasoning_stream_body() -> Vec<u8> {
@@ -37087,71 +37072,30 @@ mod vertex_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut build_overrides = std::collections::HashMap::new();
-        build_overrides.insert(
-            "vertex".to_string(),
-            provider_transport_build_overrides("test-key", base_url, transport),
-        );
-
-        create_provider_registry(
-            vertex_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        vertex_registry_builder()
+            .with_provider_api_key_base_url_fetch("vertex", "test-key", base_url, transport)
+            .build()
+            .expect("build registry")
     }
 
     fn make_anthropic_vertex_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut build_overrides = std::collections::HashMap::new();
         let mut http_config = siumai::prelude::unified::HttpConfig::empty();
         http_config
             .headers
             .insert("authorization".to_string(), "Bearer test-token".to_string());
-        build_overrides.insert(
-            "anthropic-vertex".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url(base_url)
-                .with_http_config(http_config)
-                .fetch(transport),
-        );
 
-        create_provider_registry(
-            anthropic_vertex_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        anthropic_vertex_registry_builder()
+            .with_provider_base_url_http_config_fetch(
+                "anthropic-vertex",
+                base_url,
+                http_config,
+                transport,
+            )
+            .build()
+            .expect("build registry")
     }
 
     fn anthropic_vertex_structured_output_success_stream_body(model: &str) -> Vec<u8> {
@@ -40616,12 +40560,11 @@ mod vertex_public_path {
             .with_base_url("https://example.com/global")
             .with_http_config(global_http_config)
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_base_url_http_config_fetch(
                 "anthropic-vertex",
-                ProviderBuildOverrides::default()
-                    .with_base_url("https://example.com/custom")
-                    .with_http_config(provider_http_config)
-                    .fetch(Arc::new(vertex_transport.clone())),
+                "https://example.com/custom",
+                provider_http_config,
+                Arc::new(vertex_transport.clone()),
             )
             .auto_middleware(false)
             .build()
