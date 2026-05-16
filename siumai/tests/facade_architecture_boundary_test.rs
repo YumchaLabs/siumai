@@ -394,6 +394,11 @@ fn content_part_provider_map_audit_covers_high_value_production_hits() {
 fn stable_unified_prelude_excludes_compatibility_construction_aliases() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
+    let architecture_audit = fs::read_to_string(
+        workspace_root()
+            .join("docs/workstreams/fearless-architecture-convergence/compatibility-audit.md"),
+    )
+    .expect("read architecture compatibility audit");
 
     for forbidden in [
         "pub use crate::Provider;",
@@ -431,6 +436,14 @@ fn stable_unified_prelude_excludes_compatibility_construction_aliases() {
             && lib_rs.contains("Experimental_GenerateImageResult")
             && lib_rs.contains("step_count_is"),
         "compatibility construction and legacy helper aliases should remain explicit under prelude::compat"
+    );
+    assert!(
+        architecture_audit.contains("`siumai::compat` and `prelude::compat` re-export deprecated")
+            && architecture_audit.contains(
+                "`prelude::unified` must not re-export deprecated experimental helper spellings"
+            )
+            && architecture_audit.contains("keep, explicit compat only"),
+        "architecture compatibility audit should classify deprecated helper aliases as explicit compat-only, not stable unified prelude exports"
     );
 }
 

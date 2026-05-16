@@ -199,16 +199,17 @@ Status: audited.
 
 Current kept uses:
 
-- `prelude::unified` re-exports deprecated experimental helper spellings for AI SDK parity:
-  `experimental_generate_image`, `experimental_generate_speech`, and `experimental_transcribe`.
-- `prelude::unified` re-exports deprecated experimental result/type aliases for compatibility.
+- `siumai::compat` and `prelude::compat` re-export deprecated experimental helper spellings and
+  result/type aliases for migration/import parity.
+- `prelude::unified` must not re-export deprecated experimental helper spellings or result/type
+  aliases.
 - The provider-builder smoke test uses `#[allow(deprecated)]` while `Siumai::builder()` remains a
   time-bounded compatibility convenience.
 
 Rule:
 
-- Do not add new deprecated names to `prelude::unified` unless a migration note explains why the
-  alias must remain visible there.
+- Do not add deprecated names to `prelude::unified`. Keep migration-only aliases under
+  `siumai::compat` or `prelude::compat`.
 
 ## Deprecated Public Alias Categorization
 
@@ -224,7 +225,7 @@ release.
 | `siumai::compat::{Siumai, SiumaiBuilder, builder::*}` | keep, time-bounded | Explicit migration import surface for method-style code. Do not re-export these names as the default stable prelude path. |
 | `SiumaiBuilder::provider(...)` | removed | Use `.provider_id(...)` or provider-specific helper methods while migrating existing builder code. |
 | `SiumaiBuilder::vision(...)`, `Siumai::vision_capability()`, `VisionCapability`, `VisionCapabilityProxy` | removed | Dedicated vision is not a stable family. Use multimodal chat messages for image understanding and image-generation family APIs for image creation. Removed by `docs/workstreams/fearless-vision-compat-removal/`. |
-| `experimental_generate_image`, `experimental_generate_speech`, `experimental_transcribe`, `experimental_generate_video` | keep, move out of recommendations | Deprecated AI SDK import-spelling aliases. Prefer `generate_image`, `synthesize`, `transcribe`, and `generate`. Keep aliases only for migration/import parity. |
+| `experimental_generate_image`, `experimental_generate_speech`, `experimental_transcribe`, `experimental_generate_video` | keep, explicit compat only | Deprecated AI SDK import-spelling aliases. Prefer `generate_image`, `synthesize`, `transcribe`, and `generate`. Keep aliases only under explicit compatibility paths such as `siumai::compat` or `prelude::compat`, not `prelude::unified`. |
 | `create_google_generative_ai()` | keep, move out of recommendations | Deprecated analogue of AI SDK `createGoogleGenerativeAI()`. Prefer `create_google()`. |
 | `SpeechModelHandle::text_to_speech(...)` | removed | Use `SpeechModel::synthesize(...)` or the `siumai::speech::synthesize(...)` helper. Keep `AudioCapability::text_to_speech(...)` only for explicit legacy audio compatibility. |
 | `execute_json_request_with_headers(...)` and HTTP JSON static-header helpers | removed | Use `execute_json_request` with `HttpExecutionConfig`; static headers should be provided by a `ProviderSpec`. |
