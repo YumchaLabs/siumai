@@ -371,4 +371,19 @@ fn focused_public_facade_tests_use_registry_owned_builtin_factory_resolution() {
             "{relative} should not instantiate concrete built-in factory structs through the facade"
         );
     }
+
+    let public_path_source =
+        fs::read_to_string(root.join("../siumai/tests/provider_public_path_parity_test.rs"))
+            .expect("read provider public-path parity test");
+    assert!(
+        public_path_source.contains("registry::builtin_provider_factory(")
+            && public_path_source.contains("registry::azure_provider_factory_with_options(")
+            && public_path_source.contains("registry::openai_compatible_provider_factory("),
+        "provider_public_path_parity_test.rs should route built-in, Azure option, and OpenAI-compatible registry setup through registry-owned helpers"
+    );
+    assert!(
+        !public_path_source.contains("siumai::registry::factories::")
+            && !public_path_source.contains("registry::factories::"),
+        "provider_public_path_parity_test.rs should not instantiate concrete built-in factory structs through the facade"
+    );
 }
