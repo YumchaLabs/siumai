@@ -337,17 +337,18 @@ impl ProviderSpec for OpenAiImageSpec {
         Ok(headers)
     }
 
-    fn image_url(
+    fn try_image_url(
         &self,
-        _req: &crate::types::ImageGenerationRequest,
+        req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
-    ) -> String {
+    ) -> Result<String, LlmError> {
+        let _ = req;
         let endpoint = self
             .adapter
             .as_ref()
             .map(|a| a.generation_endpoint())
             .unwrap_or("/images/generations");
-        crate::utils::url::join_url(&ctx.base_url, endpoint)
+        Ok(crate::utils::url::join_url(&ctx.base_url, endpoint))
     }
 
     fn image_warnings(
@@ -358,13 +359,18 @@ impl ProviderSpec for OpenAiImageSpec {
         openai_image_warnings(req.aspect_ratio.is_some(), req.seed.is_some())
     }
 
-    fn image_edit_url(&self, _req: &ImageEditRequest, ctx: &ProviderContext) -> String {
+    fn try_image_edit_url(
+        &self,
+        req: &ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = req;
         let endpoint = self
             .adapter
             .as_ref()
             .map(|a| a.edit_endpoint())
             .unwrap_or("/images/edits");
-        crate::utils::url::join_url(&ctx.base_url, endpoint)
+        Ok(crate::utils::url::join_url(&ctx.base_url, endpoint))
     }
 
     fn image_edit_warnings(
@@ -375,13 +381,18 @@ impl ProviderSpec for OpenAiImageSpec {
         openai_image_warnings(req.aspect_ratio.is_some(), req.seed.is_some())
     }
 
-    fn image_variation_url(&self, _req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
+    fn try_image_variation_url(
+        &self,
+        req: &ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = req;
         let endpoint = self
             .adapter
             .as_ref()
             .map(|a| a.variation_endpoint())
             .unwrap_or("/images/variations");
-        crate::utils::url::join_url(&ctx.base_url, endpoint)
+        Ok(crate::utils::url::join_url(&ctx.base_url, endpoint))
     }
 
     fn image_variation_warnings(

@@ -10,12 +10,11 @@ use async_trait::async_trait;
 /// Providers may support different features (lyrics, style transfer, continuation, etc.),
 /// so optional methods have default implementations that return `UnsupportedOperation` errors.
 ///
-/// # Supported Providers
+/// # Provider Support
 ///
-/// - **MiniMaxi**: Music 2.0 model with lyrics support
-/// - **Suno** (future): Full song generation with vocals
-/// - **Udio** (future): Music generation with style control
-/// - **Stable Audio** (future): Audio and music generation
+/// Provider crates should expose their supported models, lyrics support, vocals, continuation,
+/// style control, and audio-generation capabilities through provider-owned config and capability
+/// metadata.
 ///
 /// # Example
 ///

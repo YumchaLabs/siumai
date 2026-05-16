@@ -78,7 +78,7 @@ impl LlmClient for CancelTestProvider {
 #[tokio::test]
 async fn chat_stream_with_cancel_stops_further_events() {
     let provider = CancelTestProvider::new();
-    let client = siumai::provider::Siumai::new(std::sync::Arc::new(provider));
+    let client = siumai::compat::Siumai::new(std::sync::Arc::new(provider));
 
     let handle = client
         .chat_stream_with_cancel(vec![ChatMessage::user("hi").build()], None)
@@ -192,7 +192,7 @@ async fn chat_stream_with_cancel_can_abort_handshake() {
     let started = Arc::clone(&provider.started);
     let dropped = Arc::clone(&provider.dropped);
 
-    let client = siumai::provider::Siumai::new(Arc::new(provider));
+    let client = siumai::compat::Siumai::new(Arc::new(provider));
 
     let handle = client
         .chat_stream_with_cancel(vec![ChatMessage::user("hi").build()], None)

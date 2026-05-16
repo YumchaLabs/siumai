@@ -1097,11 +1097,16 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         )
     }
 
-    fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-        apply_url_settings(
-            self.chat_spec().chat_url(stream, req, ctx),
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(apply_url_settings(
+            self.chat_spec().try_chat_url(stream, req, ctx)?,
             &self.request_settings,
-        )
+        ))
     }
 
     fn choose_chat_transformers(
@@ -1143,11 +1148,15 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         provider_options_map_merge_hook(&ctx.provider_id, &req.provider_options_map)
     }
 
-    fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
-        apply_url_settings(
-            self.embedding_spec().embedding_url(req, ctx),
+    fn try_embedding_url(
+        &self,
+        req: &crate::types::EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(apply_url_settings(
+            self.embedding_spec().try_embedding_url(req, ctx)?,
             &self.request_settings,
-        )
+        ))
     }
 
     fn choose_image_transformers(
@@ -1164,15 +1173,15 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         }
     }
 
-    fn image_url(
+    fn try_image_url(
         &self,
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        apply_url_settings(
-            self.image_spec().image_url(req, ctx),
+    ) -> Result<String, LlmError> {
+        Ok(apply_url_settings(
+            self.image_spec().try_image_url(req, ctx)?,
             &self.request_settings,
-        )
+        ))
     }
 
     fn image_warnings(
@@ -1197,11 +1206,15 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         (!warnings.is_empty()).then_some(warnings)
     }
 
-    fn image_edit_url(&self, req: &ImageEditRequest, ctx: &ProviderContext) -> String {
-        apply_url_settings(
-            self.image_spec().image_edit_url(req, ctx),
+    fn try_image_edit_url(
+        &self,
+        req: &ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(apply_url_settings(
+            self.image_spec().try_image_edit_url(req, ctx)?,
             &self.request_settings,
-        )
+        ))
     }
 
     fn image_edit_warnings(
@@ -1226,11 +1239,15 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         (!warnings.is_empty()).then_some(warnings)
     }
 
-    fn image_variation_url(&self, req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
-        apply_url_settings(
-            self.image_spec().image_variation_url(req, ctx),
+    fn try_image_variation_url(
+        &self,
+        req: &ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(apply_url_settings(
+            self.image_spec().try_image_variation_url(req, ctx)?,
             &self.request_settings,
-        )
+        ))
     }
 
     fn image_variation_warnings(
@@ -1283,25 +1300,29 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         )
     }
 
-    fn rerank_url(&self, req: &RerankRequest, ctx: &ProviderContext) -> String {
-        apply_url_settings(
-            self.rerank_spec().rerank_url(req, ctx),
+    fn try_rerank_url(
+        &self,
+        req: &RerankRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(apply_url_settings(
+            self.rerank_spec().try_rerank_url(req, ctx)?,
             &self.request_settings,
-        )
+        ))
     }
 
-    fn models_url(&self, ctx: &ProviderContext) -> String {
-        apply_url_settings(
+    fn try_models_url(&self, ctx: &ProviderContext) -> Result<String, LlmError> {
+        Ok(apply_url_settings(
             format!("{}/models", ctx.base_url.trim_end_matches('/')),
             &self.request_settings,
-        )
+        ))
     }
 
-    fn model_url(&self, model_id: &str, ctx: &ProviderContext) -> String {
-        apply_url_settings(
+    fn try_model_url(&self, model_id: &str, ctx: &ProviderContext) -> Result<String, LlmError> {
+        Ok(apply_url_settings(
             format!("{}/models/{}", ctx.base_url.trim_end_matches('/'), model_id),
             &self.request_settings,
-        )
+        ))
     }
 
     fn choose_rerank_transformers(
@@ -1768,6 +1789,22 @@ mod tests {
     }
 
     #[test]
+    fn openai_compatible_spec_request_option_source_does_not_read_response_metadata() {
+        let source = include_str!("spec.rs");
+        let request_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source before tests");
+
+        for disallowed in ["provider_metadata", "providerMetadata", "ProviderMetadata"] {
+            assert!(
+                !request_source.contains(disallowed),
+                "OpenAI-compatible request routing and provider option normalization must not read response metadata"
+            );
+        }
+    }
+
+    #[test]
     fn openai_compatible_image_provider_options_merge_canonical_and_provider_owned_keys() {
         use crate::core::ProviderSpec;
 
@@ -2143,35 +2180,36 @@ mod tests {
         );
 
         assert_eq!(
-            spec.chat_url(false, &chat_req, &ctx),
+            spec.try_chat_url(false, &chat_req, &ctx).unwrap(),
             "https://api.deepseek.com/v1/chat/completions?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(
-            spec.embedding_url(&embedding_req, &ctx),
+            spec.try_embedding_url(&embedding_req, &ctx).unwrap(),
             "https://api.deepseek.com/v1/embeddings?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(
-            spec.image_url(&image_req, &ctx),
+            spec.try_image_url(&image_req, &ctx).unwrap(),
             "https://api.deepseek.com/v1/images/generations?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(
-            spec.image_edit_url(&image_edit_req, &ctx),
+            spec.try_image_edit_url(&image_edit_req, &ctx).unwrap(),
             "https://api.deepseek.com/v1/images/edits?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(
-            spec.image_variation_url(&image_variation_req, &ctx),
+            spec.try_image_variation_url(&image_variation_req, &ctx)
+                .unwrap(),
             "https://api.deepseek.com/v1/images/variations?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(
-            spec.rerank_url(&rerank_req, &ctx),
+            spec.try_rerank_url(&rerank_req, &ctx).unwrap(),
             "https://api.deepseek.com/v1/rerank?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(
-            spec.models_url(&ctx),
+            spec.try_models_url(&ctx).unwrap(),
             "https://api.deepseek.com/v1/models?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(
-            spec.model_url("deepseek-chat", &ctx),
+            spec.try_model_url("deepseek-chat", &ctx).unwrap(),
             "https://api.deepseek.com/v1/models/deepseek-chat?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(

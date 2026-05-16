@@ -5,7 +5,7 @@ pub use siumai_provider_google_vertex::providers::anthropic_vertex::{
 
 /// Create the Anthropic-on-Vertex provider builder.
 pub fn vertex_anthropic() -> VertexAnthropicBuilder {
-    crate::Provider::vertex_anthropic()
+    crate::compat::Provider::vertex_anthropic()
 }
 
 /// Create the Anthropic-on-Vertex provider builder.

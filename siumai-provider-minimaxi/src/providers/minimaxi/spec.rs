@@ -234,6 +234,10 @@ impl StreamChunkTransformer for MinimaxiStreamTransformer {
         })
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        self.inner.is_stream_end_event(event)
+    }
+
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         self.inner
             .handle_stream_end()
@@ -334,13 +338,13 @@ impl ProviderSpec for MinimaxiChatSpec {
         })
     }
 
-    fn chat_url(
+    fn try_chat_url(
         &self,
         stream: bool,
         req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        self.chat_spec().chat_url(stream, req, ctx)
+    ) -> Result<String, LlmError> {
+        self.chat_spec().try_chat_url(stream, req, ctx)
     }
 
     fn choose_chat_transformers(
@@ -609,15 +613,15 @@ impl ProviderSpec for MinimaxiImageSpec {
         }
     }
 
-    fn image_url(
+    fn try_image_url(
         &self,
         _req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        format!(
+    ) -> Result<String, LlmError> {
+        Ok(format!(
             "{}/image_generation",
             resolve_openai_base_url(&ctx.base_url).trim_end_matches('/')
-        )
+        ))
     }
 }
 
@@ -705,6 +709,52 @@ mod tests {
     use crate::streaming::ChatStreamEvent;
     use crate::types::{ChatMessage, ChatRequest};
     use std::collections::HashMap;
+
+    fn production_source() -> &'static str {
+        include_str!("spec.rs")
+    }
+
+    fn source_between(start_marker: &str, end_marker: &str) -> &'static str {
+        let source = production_source();
+        let (_, after_start) = source
+            .split_once(start_marker)
+            .expect("source start marker should exist");
+        let (section, _) = after_start
+            .split_once(end_marker)
+            .expect("source end marker should exist");
+        section
+    }
+
+    #[test]
+    fn response_metadata_normalization_source_does_not_read_request_provider_options() {
+        let response_source = source_between(
+            "fn normalize_provider_metadata_map",
+            "impl MinimaxiChatSpec",
+        );
+
+        assert!(
+            !response_source.contains("providerOptions"),
+            "MiniMaxi response metadata normalization must not read camelCase request provider options"
+        );
+        assert!(
+            !response_source.contains("provider_options_map"),
+            "MiniMaxi response metadata normalization must not read request provider options maps"
+        );
+    }
+
+    #[test]
+    fn request_option_resolution_source_does_not_read_response_provider_metadata() {
+        let request_source = source_between("impl MinimaxiChatSpec", "#[cfg(test)]");
+
+        assert!(
+            !request_source.contains("providerMetadata"),
+            "MiniMaxi request option resolution must not read camelCase response provider metadata"
+        );
+        assert!(
+            !request_source.contains("provider_metadata"),
+            "MiniMaxi request option resolution must not read legacy response provider metadata"
+        );
+    }
 
     #[test]
     fn minimaxi_chat_spec_build_headers_use_bearer_auth() {

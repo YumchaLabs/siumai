@@ -26,10 +26,8 @@ pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError
 /// allowing the stream to be cancelled at any time.
 ///
 /// # Example
-/// ```rust,no_run
-/// # use siumai::prelude::*;
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// # let client = Siumai::builder().openai().api_key("key").model("gpt-4").build().await?;
+/// ```rust,ignore
+/// # async fn example(client: impl ChatStreamingClient) -> Result<(), Box<dyn std::error::Error>> {
 /// let handle = client.chat_stream_with_cancel(vec![user!("Hello")], None).await?;
 ///
 /// // Use the stream

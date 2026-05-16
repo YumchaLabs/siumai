@@ -627,9 +627,18 @@ fn parse_anthropic_timestamp(value: &str) -> Option<u64> {
 mod tests {
     use super::*;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
     #[test]
     fn build_context_merges_beta_features_into_anthropic_beta_header() {
-        let mut cfg = crate::types::HttpConfig::default();
+        let mut cfg = crate::types::HttpConfig::empty();
         cfg.headers
             .insert("Anthropic-Beta".to_string(), "a,b".to_string());
 
@@ -659,7 +668,7 @@ mod tests {
             SecretString::from("k".to_string()),
             "https://api.anthropic.com/v1".to_string(),
             reqwest::Client::new(),
-            crate::types::HttpConfig::default(),
+            crate::types::HttpConfig::empty(),
             vec![],
             None,
             vec![],
@@ -668,5 +677,36 @@ mod tests {
 
         let url = join_url(&files.base_url, "files/file_123/content");
         assert!(url.ends_with("/v1/files/file_123/content"));
+    }
+
+    #[test]
+    fn anthropic_files_request_and_response_paths_keep_maps_directional() {
+        let source = include_str!("files.rs");
+        let request_unpack = source_section(
+            source,
+            "        let FileUploadRequest {",
+            "        let response = self",
+        );
+        let response_projection = source_section(
+            source,
+            "fn anthropic_file_to_file_object",
+            "fn anthropic_list_files_response",
+        );
+
+        assert!(
+            request_unpack.contains("provider_options: _provider_options"),
+            "Anthropic file upload must keep unsupported request provider options explicit"
+        );
+        assert!(
+            !request_unpack.contains("provider_metadata"),
+            "Anthropic file upload request path must not read response metadata"
+        );
+
+        for disallowed in ["provider_options", "FileUploadRequest", "http_config"] {
+            assert!(
+                !response_projection.contains(disallowed),
+                "Anthropic file response projection must stay response-only"
+            );
+        }
     }
 }

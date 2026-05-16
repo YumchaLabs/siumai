@@ -692,6 +692,45 @@ mod tests {
     use reqwest::header::{CONTENT_TYPE, HeaderValue};
     use std::sync::{Arc, Mutex};
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn video_request_and_response_paths_keep_provider_maps_directional() {
+        let source = include_str!("video.rs");
+
+        let request_section = source_section(
+            source,
+            "fn parse_vertex_video_options(",
+            "fn build_status_metadata(",
+        );
+        assert!(request_section.contains("provider_options_map"));
+        assert!(
+            !request_section.contains("provider_metadata"),
+            "Google Vertex video request helpers must not read legacy provider_metadata"
+        );
+        assert!(
+            !request_section.contains("providerMetadata"),
+            "Google Vertex video request helpers must not read legacy providerMetadata"
+        );
+
+        let response_section = source_section(source, "fn build_status_metadata(", "#[cfg(test)]");
+        assert!(
+            !response_section.contains("provider_options"),
+            "Google Vertex video response helpers must not read request provider_options"
+        );
+        assert!(
+            !response_section.contains("providerOptions"),
+            "Google Vertex video response helpers must not read request providerOptions"
+        );
+    }
+
     #[derive(Clone)]
     struct JsonCaptureTransport {
         response_body: Arc<Vec<u8>>,

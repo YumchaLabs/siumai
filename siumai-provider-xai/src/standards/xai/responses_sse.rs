@@ -60,6 +60,10 @@ impl SseEventConverter for XaiResponsesEventConverter {
         self.inner.convert_event(event)
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        self.inner.is_stream_end_event(event)
+    }
+
     fn handle_stream_end(
         &self,
     ) -> Option<Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>> {

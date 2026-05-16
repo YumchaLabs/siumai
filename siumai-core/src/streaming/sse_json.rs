@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct SseJsonStreamConfig {
-    /// Label used in error messages (e.g. "openai speech" / "gemini").
+    /// Label used in error messages.
     pub label: String,
     /// SSE `data` payloads that indicate end-of-stream and should be ignored.
     pub done_markers: Vec<String>,
@@ -26,8 +26,17 @@ impl SseJsonStreamConfig {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
-            done_markers: vec!["[DONE]".to_string()],
+            done_markers: Vec::new(),
         }
+    }
+
+    /// Configure protocol-owned terminal payloads that should be ignored.
+    pub fn with_done_markers(
+        mut self,
+        markers: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.done_markers = markers.into_iter().map(Into::into).collect();
+        self
     }
 }
 
@@ -147,6 +156,7 @@ mod tests {
 
     #[tokio::test]
     async fn parses_json_events_and_calls_interceptors() {
+        let cfg = SseJsonStreamConfig::new("test").with_done_markers(["[DONE]"]);
         let data: Vec<Result<&[u8], LlmError>> = vec![
             Ok(b": keep-alive\n\n".as_slice()),
             Ok(b"data: {\"a\":1}\n\n".as_slice()),
@@ -157,12 +167,8 @@ mod tests {
         let seen = Arc::new(Mutex::new(0usize));
         let it: Arc<dyn HttpInterceptor> = Arc::new(CountInterceptor(seen.clone()));
 
-        let mut stream = stream_sse_json_values(
-            futures_util::stream::iter(data),
-            vec![it],
-            ctx(),
-            SseJsonStreamConfig::new("test"),
-        );
+        let mut stream =
+            stream_sse_json_values(futures_util::stream::iter(data), vec![it], ctx(), cfg);
 
         let mut out = Vec::new();
         while let Some(item) = stream.next().await {
@@ -195,10 +201,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn parse_json_event_stream_uses_public_defaults() {
+    async fn parse_json_event_stream_uses_protocol_agnostic_public_defaults() {
         let data: Vec<Result<&[u8], LlmError>> = vec![
             Ok(b"data: {\"a\":1}\n\n".as_slice()),
-            Ok(b"data: [DONE]\n\n".as_slice()),
             Ok(b"data: {\"b\":2}\n\n".as_slice()),
         ];
 

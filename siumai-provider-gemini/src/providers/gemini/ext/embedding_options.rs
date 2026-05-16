@@ -23,6 +23,32 @@ mod tests {
     use super::*;
     use crate::provider_options::gemini::{GoogleEmbeddingContentPart, GoogleEmbeddingInlineData};
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn google_embedding_request_extension_source_does_not_read_response_metadata() {
+        let source = include_str!("embedding_options.rs");
+        let request_source = source_section(
+            source,
+            "pub trait GoogleEmbeddingRequestExt",
+            "#[cfg(test)]",
+        );
+
+        for disallowed in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
+            assert!(
+                !request_source.contains(disallowed),
+                "Google embedding request extension helpers must stay request-only"
+            );
+        }
+    }
+
     #[test]
     fn embedding_request_ext_attaches_google_embedding_options() {
         let request = EmbeddingRequest::single("hello").with_google_embedding_options(

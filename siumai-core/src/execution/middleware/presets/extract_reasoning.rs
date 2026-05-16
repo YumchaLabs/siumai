@@ -1,7 +1,6 @@
 //! Extract reasoning/thinking content from LLM responses.
 //!
-//! This middleware extracts reasoning content from various tag formats used by
-//! different LLM providers (e.g., `<think>`, `<thought>`, `<reasoning>`).
+//! This middleware extracts reasoning content from provider-agnostic tag and metadata shapes.
 
 use crate::LlmError;
 use crate::execution::middleware::{LanguageModelMiddleware, TagConfig, TagExtractor};
@@ -11,22 +10,22 @@ use crate::types::{ChatRequest, ChatResponse, MessageContent};
 pub struct ReasoningTagPresets;
 
 impl ReasoningTagPresets {
-    /// `<think>...</think>` tag (default, used by DeepSeek, Qwen, etc.)
+    /// `<think>...</think>` tag.
     pub fn think() -> TagConfig {
         TagConfig::new("<think>", "</think>").with_separator("\n")
     }
 
-    /// `<thought>...</thought>` tag (used by Gemini)
+    /// `<thought>...</thought>` tag.
     pub fn thought() -> TagConfig {
         TagConfig::new("<thought>", "</thought>").with_separator("\n")
     }
 
-    /// `<reasoning>...</reasoning>` tag (used by some OpenAI models)
+    /// `<reasoning>...</reasoning>` tag.
     pub fn reasoning() -> TagConfig {
         TagConfig::new("<reasoning>", "</reasoning>").with_separator("\n")
     }
 
-    /// `<seed:think>...</seed:think>` tag (used by Seed models)
+    /// `<seed:think>...</seed:think>` tag.
     pub fn seed_think() -> TagConfig {
         TagConfig::new("<seed:think>", "</seed:think>").with_separator("\n")
     }
@@ -36,13 +35,14 @@ impl ReasoningTagPresets {
         TagConfig::new("<thinking>", "</thinking>").with_separator("\n")
     }
 
-    /// Get appropriate tag configuration based on model ID.
+    /// Return the provider-agnostic default tag configuration for a model ID.
     ///
-    /// This automatically selects the best tag format based on the model name.
+    /// Provider-specific tag routing belongs in provider/facade extension code. Core keeps this
+    /// helper as a stable fallback and intentionally does not inspect concrete provider names.
     ///
     /// # Arguments
     ///
-    /// * `model_id` - The model identifier (e.g., "gemini-2.5-pro", "qwen-3")
+    /// * `model_id` - The model identifier.
     ///
     /// # Returns
     ///
@@ -51,24 +51,11 @@ impl ReasoningTagPresets {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let config = ReasoningTagPresets::for_model("gemini-2.5-pro");
-    /// // Returns TagConfig for <thought>...</thought>
+    /// let config = ReasoningTagPresets::for_model("model-id");
+    /// // Returns the provider-agnostic default <think> tag config.
     /// ```
-    pub fn for_model(model_id: &str) -> TagConfig {
-        let model_lower = model_id.to_lowercase();
-
-        if model_lower.contains("gemini") {
-            Self::thought()
-        } else if model_lower.contains("qwen") {
-            Self::think()
-        } else if model_lower.contains("seed-oss") || model_lower.contains("seed_oss") {
-            Self::seed_think()
-        } else if model_lower.contains("gpt-oss") || model_lower.contains("gpt_oss") {
-            Self::reasoning()
-        } else {
-            // Default to <think> for most models
-            Self::think()
-        }
+    pub fn for_model(_model_id: &str) -> TagConfig {
+        Self::think()
     }
 }
 
@@ -110,10 +97,10 @@ impl ExtractReasoningConfig {
 ///
 /// This middleware extracts reasoning content using a three-layer fallback strategy:
 ///
-/// 1. **Provider-extracted**: Check if the provider already extracted thinking content
+/// 1. **Provider-extracted**: Check if the provider already extracted reasoning content
 ///    into the `response.thinking` field
-/// 2. **Metadata**: Check if thinking content is in `response.metadata["thinking"]`
-///    (used by some providers like Anthropic)
+/// 2. **Metadata**: Check if reasoning content is in provider metadata under generic
+///    `thinking` or `reasoning` keys
 /// 3. **Tag extraction**: Extract from response content using XML-style tags
 ///    (e.g., `<think>...</think>`)
 ///
@@ -131,8 +118,8 @@ impl ExtractReasoningConfig {
 ///     TagConfig::new("<thought>", "</thought>")
 /// ));
 ///
-/// // Auto-select based on model
-/// let middleware = Arc::new(ExtractReasoningMiddleware::for_model("gemini-2.5-pro"));
+/// // Use the provider-agnostic default for a model ID
+/// let middleware = Arc::new(ExtractReasoningMiddleware::for_model("model-id"));
 /// ```
 #[derive(Default)]
 pub struct ExtractReasoningMiddleware {
@@ -156,7 +143,7 @@ impl ExtractReasoningMiddleware {
         }
     }
 
-    /// Create a middleware that auto-selects tags based on model ID.
+    /// Create a middleware that uses the provider-agnostic default for a model ID.
     ///
     /// # Arguments
     ///
@@ -165,7 +152,7 @@ impl ExtractReasoningMiddleware {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let middleware = ExtractReasoningMiddleware::for_model("gemini-2.5-pro");
+    /// let middleware = ExtractReasoningMiddleware::for_model("model-id");
     /// ```
     pub fn for_model(model_id: &str) -> Self {
         Self {
@@ -175,6 +162,19 @@ impl ExtractReasoningMiddleware {
 }
 
 // Default is derived
+
+fn reasoning_metadata_text(resp: &ChatResponse) -> Option<&str> {
+    resp.provider_metadata
+        .as_ref()?
+        .values()
+        .find_map(|metadata| {
+            metadata
+                .get("thinking")
+                .or_else(|| metadata.get("reasoning"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })
+}
 
 impl LanguageModelMiddleware for ExtractReasoningMiddleware {
     #[allow(clippy::collapsible_if)]
@@ -190,10 +190,9 @@ impl LanguageModelMiddleware for ExtractReasoningMiddleware {
             return Ok(resp);
         }
 
-        // 2. Extract from metadata (Anthropic etc.)
-        if let Some(thinking_value) = resp.get_metadata("anthropic", "thinking")
-            && let Some(thinking_str) = thinking_value.as_str()
-        {
+        // 2. Extract from generic provider metadata keys.
+        if let Some(thinking_str) = reasoning_metadata_text(&resp) {
+            let thinking = thinking_str.to_string();
             // Add reasoning to content
             let mut parts = match &resp.content {
                 MessageContent::Text(text) if !text.is_empty() => {
@@ -208,7 +207,7 @@ impl LanguageModelMiddleware for ExtractReasoningMiddleware {
                 }
                 _ => vec![],
             };
-            parts.push(ContentPart::reasoning(thinking_str));
+            parts.push(ContentPart::reasoning(thinking));
             resp.content = MessageContent::MultiModal(parts);
             return Ok(resp);
         }
@@ -284,6 +283,15 @@ mod tests {
     use super::*;
     use crate::types::{FinishReason, Usage};
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
     fn create_test_response(content: &str) -> ChatResponse {
         ChatResponse {
             id: Some("test".to_string()),
@@ -299,6 +307,34 @@ mod tests {
             request: None,
             response: None,
             provider_metadata: None,
+        }
+    }
+
+    #[test]
+    fn extract_reasoning_middleware_source_stays_provider_agnostic() {
+        let source = include_str!("extract_reasoning.rs");
+        let production_source =
+            source_section(source, "pub struct ReasoningTagPresets", "#[cfg(test)]");
+
+        let disallowed = [
+            format!("\"{}\"", ["an", "thropic"].concat()),
+            format!("\"{}\"", ["ge", "mini"].concat()),
+            format!("\"{}\"", ["qw", "en"].concat()),
+            format!("\"{}-oss\"", ["gp", "t"].concat()),
+            format!("\"{}_oss\"", ["gp", "t"].concat()),
+            format!("\"{}-oss\"", ["se", "ed"].concat()),
+            format!("\"{}_oss\"", ["se", "ed"].concat()),
+            ["Deep", "Seek"].concat(),
+            ["An", "thropic"].concat(),
+            ["Ge", "mini"].concat(),
+            ["Open", "AI"].concat(),
+        ];
+
+        for disallowed in disallowed {
+            assert!(
+                !production_source.contains(&disallowed),
+                "core reasoning extraction middleware must stay provider-agnostic"
+            );
         }
     }
 
@@ -370,15 +406,27 @@ mod tests {
     }
 
     #[test]
-    fn test_for_model_gemini() {
-        let config = ReasoningTagPresets::for_model("gemini-2.5-pro");
-        assert_eq!(config.opening_tag, "<thought>");
-        assert_eq!(config.closing_tag, "</thought>");
+    fn test_extract_thinking_from_generic_provider_metadata() {
+        let middleware = ExtractReasoningMiddleware::default();
+        let req = ChatRequest::default();
+        let mut resp = create_test_response("Hello World");
+        resp.provider_metadata = Some(std::collections::HashMap::from([(
+            "provider".to_string(),
+            serde_json::json!({
+                "thinking": "metadata thinking"
+            }),
+        )]));
+
+        let result = middleware.post_generate(&req, resp).unwrap();
+
+        let reasoning = result.reasoning();
+        assert_eq!(reasoning.len(), 1);
+        assert_eq!(reasoning[0], "metadata thinking");
     }
 
     #[test]
-    fn test_for_model_qwen() {
-        let config = ReasoningTagPresets::for_model("qwen-3-turbo");
+    fn test_for_model_uses_provider_agnostic_default() {
+        let config = ReasoningTagPresets::for_model("provider-model-id");
         assert_eq!(config.opening_tag, "<think>");
         assert_eq!(config.closing_tag, "</think>");
     }

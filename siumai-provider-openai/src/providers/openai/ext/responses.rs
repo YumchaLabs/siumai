@@ -420,6 +420,31 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
+    fn responses_stream_event_projection_source_does_not_read_request_provider_options() {
+        let source = include_str!("responses.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+        let projection_source = production_source
+            .split("/// OpenAI Responses streaming extension events normalized by Siumai.")
+            .nth(1)
+            .expect("OpenAI Responses stream projection source");
+
+        for forbidden in [
+            "provider_options",
+            ".provider_options",
+            "providerOptions",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !projection_source.contains(forbidden),
+                "OpenAI Responses stream/custom-event projection must not read request-side provider options fragment `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
     fn parses_openai_runtime_part_provider_tool_events() {
         let tool_call = ChatStreamEvent::PartWithReplay {
             part: crate::types::ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {

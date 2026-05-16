@@ -180,7 +180,9 @@ Notes:
   compatibility construction aliases and that builder aliases live under `siumai::compat` /
   `prelude::compat` for migration-only use.
 - `docs/architecture/public-surface.md` now points Vertex helpers to
-  `siumai::experimental::auth::vertex`, not the removed `experimental::utils::vertex` path.
+  `siumai::experimental::auth::vertex`, not the removed `experimental::utils::vertex` path. The
+  later spec/core convergence workstream moved the implementation from `siumai_core::auth::vertex`
+  to provider-owned `siumai-provider-google-vertex::auth::vertex`.
 - The deprecated `siumai_core::utils::vertex` forwarding module was removed after its migration
   target had already been documented.
 - Verified commands for this slice:

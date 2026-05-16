@@ -5,7 +5,7 @@ pub use siumai_provider_google_vertex::providers::vertex::{
 
 /// Create the Google Vertex provider builder.
 pub fn vertex() -> GoogleVertexBuilder {
-    crate::Provider::vertex()
+    crate::compat::Provider::vertex()
 }
 
 /// Create the Google Vertex provider builder.

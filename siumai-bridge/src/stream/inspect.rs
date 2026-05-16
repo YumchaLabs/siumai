@@ -1,6 +1,6 @@
 //! Stream bridge inspection.
 
-use siumai_core::bridge::{BridgeReport, BridgeTarget};
+use crate::{BridgeReport, BridgeTarget};
 
 use super::profile::stream_bridge_profile;
 

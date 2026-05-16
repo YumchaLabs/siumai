@@ -266,6 +266,45 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn skill_upload_request_and_response_paths_keep_provider_maps_directional() {
+        let source = include_str!("skills.rs");
+
+        let request_section =
+            source_section(source, "pub async fn upload_skill(", "fn build_context(");
+        assert!(
+            !request_section.contains("provider_metadata"),
+            "OpenAI skill upload request path must not read legacy provider_metadata"
+        );
+        assert!(
+            !request_section.contains("providerMetadata"),
+            "OpenAI skill upload request path must not read legacy providerMetadata"
+        );
+
+        let response_section = source_section(
+            source,
+            "fn build_upload_result(",
+            "#[async_trait]\nimpl SkillsCapability for OpenAiSkills",
+        );
+        assert!(
+            !response_section.contains("provider_options"),
+            "OpenAI skill upload response projection must not read request provider_options"
+        );
+        assert!(
+            !response_section.contains("providerOptions"),
+            "OpenAI skill upload response projection must not read request providerOptions"
+        );
+    }
+
     #[derive(Clone)]
     struct CaptureTransport {
         multipart_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,

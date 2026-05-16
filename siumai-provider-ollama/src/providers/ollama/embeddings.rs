@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn test_embedding_dimensions() {
         let config = OllamaParams::default();
-        let http_config = HttpConfig::default();
+        let http_config = HttpConfig::empty();
         let client = reqwest::Client::new();
         let embeddings = OllamaEmbeddings::new(
             "http://localhost:11434".to_string(),
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_supported_models() {
         let config = OllamaParams::default();
-        let http_config = HttpConfig::default();
+        let http_config = HttpConfig::empty();
         let client = reqwest::Client::new();
         let embeddings = OllamaEmbeddings::new(
             "http://localhost:11434".to_string(),
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn test_model_info() {
         let config = OllamaParams::default();
-        let http_config = HttpConfig::default();
+        let http_config = HttpConfig::empty();
         let client = reqwest::Client::new();
         let embeddings = OllamaEmbeddings::new(
             "http://localhost:11434".to_string(),

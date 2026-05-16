@@ -8,6 +8,7 @@
 //! `functionResponse` frames.
 
 use eventsource_stream::Event;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use siumai_core::types::ChatStreamPart;
 use std::path::Path;
@@ -105,8 +106,6 @@ fn gemini_function_response_frames_are_parsed_as_stable_tool_result_events() {
 
 #[test]
 fn gemini_can_serialize_v3_tool_result_as_function_response_frame() {
-    use siumai::prelude::unified::SseEventConverter;
-
     let conv = siumai::protocol::gemini::streaming::GeminiEventConverter::new(
         siumai::protocol::gemini::types::GeminiConfig::default(),
     )

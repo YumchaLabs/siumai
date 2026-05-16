@@ -194,7 +194,7 @@ Acceptance criteria:
 Current state:
 
 - `BridgeOptions`, typed contexts, object-safe hooks, primitive remapper, and loss-policy traits
-  now exist in `siumai-core::bridge`
+  now exist in `siumai-bridge`
 - experimental request / response / stream bridge entry points now consume bridge customization
   options
 - protocol-source request normalization now also exposes `with_options` entry points so inbound

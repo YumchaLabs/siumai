@@ -3,6 +3,7 @@
 //!
 //! These tests verify the core functionality of the unified LLM interface
 
+use siumai::experimental::streaming::{ProcessedEvent, StreamProcessor};
 use siumai::prelude::unified::*;
 use siumai::user_builder;
 use std::time::Duration;
@@ -139,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_http_config() {
-        // Test HTTP configuration
+        // Direct HttpConfig construction is a passive data default.
         let mut http_config = HttpConfig {
             timeout: Some(Duration::from_secs(60)),
             ..Default::default()
@@ -153,7 +154,12 @@ mod tests {
             http_config.headers.get("Custom-Header"),
             Some(&"value".to_string())
         );
-        assert!(http_config.user_agent.is_some());
+        assert!(http_config.user_agent.is_none());
+
+        // Runtime builder/config-first defaults are owned by core.
+        let runtime_config = siumai::experimental::defaults::http::config_default();
+        assert_eq!(runtime_config.timeout, Some(Duration::from_secs(60)));
+        assert!(runtime_config.user_agent.is_some());
     }
 
     #[test]
@@ -299,7 +305,7 @@ mod tests {
 #[cfg(all(test, feature = "openai"))]
 mod builder_tests {
     use super::*;
-    use siumai::provider::Siumai;
+    use siumai::compat::Siumai;
 
     #[test]
     fn test_llm_builder_creation() {

@@ -12,7 +12,10 @@ fn make_ctx() -> (ProviderContext, Arc<ConfigurableAdapter>) {
     let adapter = Arc::new(ConfigurableAdapter::new(provider_config));
     let ctx = ProviderContext::new(
         "vertex-maas".to_string(),
-        siumai_core::auth::vertex::google_vertex_maas_base_url("test-project", "us-central1"),
+        siumai::experimental::auth::vertex::google_vertex_maas_base_url(
+            "test-project",
+            "us-central1",
+        ),
         Some("vertex-maas-test-token".to_string()),
         Default::default(),
     );
@@ -28,7 +31,7 @@ fn vertex_maas_chat_url_matches_real_openapi_endpoint() {
     req.common_params.model = "deepseek-ai/deepseek-v3.2-maas".to_string();
 
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://aiplatform.googleapis.com/v1/projects/test-project/locations/us-central1/endpoints/openapi/chat/completions"
     );
 }
@@ -40,7 +43,7 @@ fn vertex_maas_embedding_url_matches_real_openapi_endpoint() {
 
     let req = EmbeddingRequest::new(vec!["hi".into()]).with_model("text-embedding-005");
     assert_eq!(
-        spec.embedding_url(&req, &ctx),
+        spec.try_embedding_url(&req, &ctx).unwrap(),
         "https://aiplatform.googleapis.com/v1/projects/test-project/locations/us-central1/endpoints/openapi/embeddings"
     );
 }

@@ -22,7 +22,7 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
 }
 
 fn run_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
-    use siumai::prelude::unified::SseEventConverter;
+    use siumai::experimental::streaming::SseEventConverter;
     use siumai_provider_gemini::providers::gemini::streaming::GeminiEventConverter;
     use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
 

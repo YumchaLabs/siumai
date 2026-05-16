@@ -585,28 +585,130 @@ where
     Ok(())
 }
 
-fn convert_text_part(part: &crate::types::UiTextPart) -> ContentPart {
-    let mut text_part = ContentPart::text(part.text.clone());
-    if let Some(provider_options) = text_part.provider_options_mut() {
-        provider_options.merge_overrides(part.provider_metadata.clone());
+fn ui_request_options_from_metadata(provider_metadata: &ProviderOptionsMap) -> ProviderOptionsMap {
+    let mut provider_options = ProviderOptionsMap::default();
+    provider_options.merge_overrides(provider_metadata.clone());
+    provider_options
+}
+
+// UI message providerMetadata names are request metadata at this adapter boundary. These helpers
+// are the only place UI conversion should manufacture legacy `ContentPart` request carriers, and
+// they deliberately leave response-side provider metadata empty.
+fn ui_request_text_part(
+    text: impl Into<String>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::Text {
+        text: text.into(),
+        provider_options,
+        provider_metadata: None,
     }
-    text_part
+}
+
+fn ui_request_custom_part(
+    kind: impl Into<String>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::Custom {
+        kind: kind.into(),
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn ui_request_reasoning_part(
+    text: impl Into<String>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::Reasoning {
+        text: text.into(),
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn ui_request_file_part(
+    source: FilePartSource,
+    media_type: impl Into<String>,
+    filename: Option<String>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::File {
+        source,
+        media_type: media_type.into(),
+        filename,
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn ui_request_reasoning_file_part(
+    source: MediaSource,
+    media_type: impl Into<String>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::ReasoningFile {
+        source,
+        media_type: media_type.into(),
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn ui_request_tool_call_part(part: &UiToolPart, input: Value) -> ContentPart {
+    ContentPart::ToolCall {
+        tool_call_id: part.tool_call_id.clone(),
+        tool_name: part.tool_name().to_string(),
+        arguments: input,
+        provider_executed: part.provider_executed,
+        dynamic: matches!(&part.kind, UiToolKind::Dynamic { .. }).then_some(true),
+        invalid: None,
+        error: None,
+        title: part.title.clone(),
+        provider_options: part.call_provider_metadata.clone(),
+        provider_metadata: None,
+    }
+}
+
+fn ui_request_tool_result_part(
+    part: &UiToolPart,
+    output: ToolResultOutput,
+    provider_executed: Option<bool>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::ToolResult {
+        tool_call_id: part.tool_call_id.clone(),
+        tool_name: part.tool_name().to_string(),
+        output,
+        input: part.input.clone(),
+        provider_executed,
+        dynamic: matches!(&part.kind, UiToolKind::Dynamic { .. }).then_some(true),
+        preliminary: part.preliminary,
+        title: part.title.clone(),
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn convert_text_part(part: &crate::types::UiTextPart) -> ContentPart {
+    ui_request_text_part(
+        part.text.clone(),
+        ui_request_options_from_metadata(&part.provider_metadata),
+    )
 }
 
 fn convert_custom_part(part: &crate::types::UiCustomPart) -> ContentPart {
-    let mut custom_part = ContentPart::custom(part.kind.clone());
-    if let Some(provider_options) = custom_part.provider_options_mut() {
-        provider_options.merge_overrides(part.provider_metadata.clone());
-    }
-    custom_part
+    ui_request_custom_part(
+        part.kind.clone(),
+        ui_request_options_from_metadata(&part.provider_metadata),
+    )
 }
 
 fn convert_reasoning_part(part: &crate::types::UiReasoningPart) -> ContentPart {
-    let mut reasoning_part = ContentPart::reasoning(part.text.clone());
-    if let Some(provider_options) = reasoning_part.provider_options_mut() {
-        provider_options.merge_overrides(part.provider_metadata.clone());
-    }
-    reasoning_part
+    ui_request_reasoning_part(
+        part.text.clone(),
+        ui_request_options_from_metadata(&part.provider_metadata),
+    )
 }
 
 fn convert_user_file_part(part: &UiFilePart) -> ContentPart {
@@ -620,30 +722,20 @@ fn convert_assistant_file_part(part: &UiFilePart) -> ContentPart {
         FilePartSource::url(part.url.clone())
     };
 
-    let mut file_part = ContentPart::File {
+    ui_request_file_part(
         source,
-        media_type: part.media_type.clone(),
-        filename: part.filename.clone(),
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: None,
-    };
-    if let Some(provider_options) = file_part.provider_options_mut() {
-        provider_options.merge_overrides(part.provider_metadata.clone());
-    }
-    file_part
+        part.media_type.clone(),
+        part.filename.clone(),
+        ui_request_options_from_metadata(&part.provider_metadata),
+    )
 }
 
 fn convert_reasoning_file_part(part: &UiReasoningFilePart) -> ContentPart {
-    let mut reasoning_file_part = ContentPart::ReasoningFile {
-        source: MediaSource::url(part.url.clone()),
-        media_type: part.media_type.clone(),
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: None,
-    };
-    if let Some(provider_options) = reasoning_file_part.provider_options_mut() {
-        provider_options.merge_overrides(part.provider_metadata.clone());
-    }
-    reasoning_file_part
+    ui_request_reasoning_file_part(
+        MediaSource::url(part.url.clone()),
+        part.media_type.clone(),
+        ui_request_options_from_metadata(&part.provider_metadata),
+    )
 }
 
 fn convert_tool_call_part(part: &UiToolPart) -> ContentPart {
@@ -656,18 +748,7 @@ fn convert_tool_call_part(part: &UiToolPart) -> ContentPart {
         _ => part.input.clone().unwrap_or(Value::Null),
     };
 
-    ContentPart::ToolCall {
-        tool_call_id: part.tool_call_id.clone(),
-        tool_name: part.tool_name().to_string(),
-        arguments: input,
-        provider_executed: part.provider_executed,
-        dynamic: matches!(&part.kind, UiToolKind::Dynamic { .. }).then_some(true),
-        invalid: None,
-        error: None,
-        title: part.title.clone(),
-        provider_options: part.call_provider_metadata.clone(),
-        provider_metadata: None,
-    }
+    ui_request_tool_call_part(part, input)
 }
 
 fn convert_tool_result_part(
@@ -703,18 +784,12 @@ fn convert_tool_result_part(
         _ => ToolResultOutput::json(Value::Null),
     };
 
-    Ok(ContentPart::ToolResult {
-        tool_call_id: part.tool_call_id.clone(),
-        tool_name: part.tool_name().to_string(),
+    Ok(ui_request_tool_result_part(
+        part,
         output,
-        input: part.input.clone(),
-        provider_executed: provider_executed.then_some(true),
-        dynamic: matches!(&part.kind, UiToolKind::Dynamic { .. }).then_some(true),
-        preliminary: part.preliminary,
-        title: part.title.clone(),
+        provider_executed.then_some(true),
         provider_options,
-        provider_metadata: None,
-    })
+    ))
 }
 
 fn convert_tool_denied_result_part(part: &UiToolPart) -> ContentPart {
@@ -724,18 +799,12 @@ fn convert_tool_denied_result_part(part: &UiToolPart) -> ContentPart {
         .and_then(|approval| approval.reason.clone())
         .unwrap_or_else(|| "Tool call execution denied.".to_string());
 
-    ContentPart::ToolResult {
-        tool_call_id: part.tool_call_id.clone(),
-        tool_name: part.tool_name().to_string(),
-        output: ToolResultOutput::error_text(denied_reason),
-        input: part.input.clone(),
-        provider_executed: part.provider_executed,
-        dynamic: matches!(&part.kind, UiToolKind::Dynamic { .. }).then_some(true),
-        preliminary: part.preliminary,
-        title: part.title.clone(),
-        provider_options: part.call_provider_metadata.clone(),
-        provider_metadata: None,
-    }
+    ui_request_tool_result_part(
+        part,
+        ToolResultOutput::error_text(denied_reason),
+        part.provider_executed,
+        part.call_provider_metadata.clone(),
+    )
 }
 
 fn ui_tool_output_to_tool_result(output: &Value) -> ToolResultOutput {
@@ -809,9 +878,96 @@ mod tests {
     };
     use crate::tooling::{ExecutableTool, ExecutableTools};
     use crate::types::{
-        ChatMessage, ContentPart, ProviderOptionsMap, ProviderReference, Tool, ToolResultOutput,
-        UiFilePart, UiMessage, UiMessagePart, UiToolApproval, UiToolPart, UiToolPartState,
+        ChatMessage, ContentPart, MessageContent, ProviderOptionsMap, ProviderReference, Tool,
+        ToolResultOutput, UiFilePart, UiMessage, UiMessagePart, UiToolApproval, UiToolPart,
+        UiToolPartState,
     };
+
+    fn provider_map(provider_id: &str, value: serde_json::Value) -> ProviderOptionsMap {
+        let mut map = ProviderOptionsMap::default();
+        map.insert(provider_id, value);
+        map
+    }
+
+    fn multimodal_parts(message: &ChatMessage) -> &[ContentPart] {
+        let MessageContent::MultiModal(parts) = &message.content else {
+            panic!("expected multimodal content");
+        };
+        parts
+    }
+
+    fn assert_request_provider_options_only(part: &ContentPart, expected: &ProviderOptionsMap) {
+        assert_eq!(part.provider_options(), Some(expected));
+
+        match part {
+            ContentPart::Text {
+                provider_metadata, ..
+            }
+            | ContentPart::Image {
+                provider_metadata, ..
+            }
+            | ContentPart::Audio {
+                provider_metadata, ..
+            }
+            | ContentPart::File {
+                provider_metadata, ..
+            }
+            | ContentPart::ReasoningFile {
+                provider_metadata, ..
+            }
+            | ContentPart::Custom {
+                provider_metadata, ..
+            }
+            | ContentPart::ToolCall {
+                provider_metadata, ..
+            }
+            | ContentPart::ToolApprovalRequest {
+                provider_metadata, ..
+            }
+            | ContentPart::ToolResult {
+                provider_metadata, ..
+            }
+            | ContentPart::Reasoning {
+                provider_metadata, ..
+            } => assert!(provider_metadata.is_none()),
+            ContentPart::ToolApprovalResponse { .. } => {}
+            ContentPart::Source { .. } => panic!("source parts are response-side only"),
+        }
+    }
+
+    #[test]
+    fn ui_conversion_centralizes_legacy_request_content_constructors() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ui.rs"));
+        let helper_start = source
+            .find("fn ui_request_text_part")
+            .expect("UI request content adapter helpers should exist");
+        let helper_end = source
+            .find("fn convert_text_part")
+            .expect("UI request content adapter helpers should precede UI part conversion");
+        assert!(helper_start < helper_end);
+
+        let mut outside_helper_provider_metadata_lines = Vec::new();
+        let mut offset = 0usize;
+        for (index, line) in source.lines().enumerate() {
+            let line_start = offset;
+            offset += line.len() + 1;
+            if line.trim() == "provider_metadata: None,"
+                && !(helper_start..helper_end).contains(&line_start)
+            {
+                outside_helper_provider_metadata_lines.push((index + 1, line.trim().to_string()));
+            }
+        }
+
+        assert_eq!(
+            outside_helper_provider_metadata_lines.len(),
+            1,
+            "UI request ContentPart provider_metadata construction should stay centralized; the only outside-helper occurrence is the plain-text collapse match: {outside_helper_provider_metadata_lines:?}"
+        );
+        assert_eq!(
+            outside_helper_provider_metadata_lines[0].1,
+            "provider_metadata: None,"
+        );
+    }
 
     #[test]
     fn validate_rejects_missing_output_error_text() {
@@ -883,7 +1039,7 @@ mod tests {
     fn convert_merges_system_text_parts_and_provider_metadata() {
         let mut provider_metadata = ProviderOptionsMap::default();
         provider_metadata.insert(
-            "openai",
+            "provider-a",
             serde_json::json!({ "cacheControl": { "type": "ephemeral" } }),
         );
 
@@ -905,9 +1061,95 @@ mod tests {
     }
 
     #[test]
+    fn convert_normalizes_ui_part_provider_metadata_to_request_provider_options() {
+        let text_provider_metadata = provider_map(
+            "provider-a",
+            serde_json::json!({ "cacheControl": { "type": "ephemeral" } }),
+        );
+        let reasoning_provider_metadata = provider_map(
+            "provider-b",
+            serde_json::json!({ "thoughtSignature": "thought_sig_1" }),
+        );
+        let custom_provider_metadata =
+            provider_map("provider-a", serde_json::json!({ "itemId": "custom_1" }));
+        let file_provider_metadata = provider_map(
+            "provider-c",
+            serde_json::json!({ "cacheControl": "ephemeral" }),
+        );
+        let reasoning_file_provider_metadata = provider_map(
+            "provider-b",
+            serde_json::json!({ "fileId": "reasoning_file_1" }),
+        );
+
+        let mut text = crate::types::UiTextPart::new("draft");
+        text.provider_metadata = text_provider_metadata.clone();
+
+        let mut reasoning = crate::types::UiReasoningPart::new("thinking");
+        reasoning.provider_metadata = reasoning_provider_metadata.clone();
+
+        let mut custom = crate::types::UiCustomPart::new("provider-a.compaction");
+        custom.provider_metadata = custom_provider_metadata.clone();
+
+        let mut file = UiFilePart::new("https://example.com/file.pdf", "application/pdf");
+        file.provider_metadata = file_provider_metadata.clone();
+
+        let mut reasoning_file = crate::types::UiReasoningFilePart::new(
+            "https://example.com/reasoning.txt",
+            "text/plain",
+        );
+        reasoning_file.provider_metadata = reasoning_file_provider_metadata.clone();
+
+        let converted = convert_to_model_messages(&[UiMessage::assistant(
+            "assistant",
+            vec![
+                UiMessagePart::Text(text),
+                UiMessagePart::Reasoning(reasoning),
+                UiMessagePart::Custom(custom),
+                UiMessagePart::File(file),
+                UiMessagePart::ReasoningFile(reasoning_file),
+            ],
+        )])
+        .expect("convert ok");
+
+        let parts = multimodal_parts(&converted[0]);
+        assert_eq!(parts.len(), 5);
+        assert_request_provider_options_only(&parts[0], &text_provider_metadata);
+        assert_request_provider_options_only(&parts[1], &reasoning_provider_metadata);
+        assert_request_provider_options_only(&parts[2], &custom_provider_metadata);
+        assert_request_provider_options_only(&parts[3], &file_provider_metadata);
+        assert_request_provider_options_only(&parts[4], &reasoning_file_provider_metadata);
+    }
+
+    #[test]
+    fn convert_normalizes_ui_tool_provider_metadata_to_request_provider_options() {
+        let call_provider_metadata =
+            provider_map("provider-a", serde_json::json!({ "itemId": "call_1" }));
+        let result_provider_metadata =
+            provider_map("provider-a", serde_json::json!({ "itemId": "result_1" }));
+
+        let mut tool = UiToolPart::named("weather", "call_1", UiToolPartState::OutputAvailable);
+        tool.input = Some(serde_json::json!({ "city": "Tokyo" }));
+        tool.output = Some(serde_json::json!({ "forecast": "sunny" }));
+        tool.call_provider_metadata = call_provider_metadata.clone();
+        tool.result_provider_metadata = result_provider_metadata.clone();
+
+        let converted = convert_to_model_messages(&[UiMessage::assistant(
+            "assistant",
+            vec![UiMessagePart::Tool(tool)],
+        )])
+        .expect("convert ok");
+
+        let assistant_parts = multimodal_parts(&converted[0]);
+        assert_request_provider_options_only(&assistant_parts[0], &call_provider_metadata);
+
+        let tool_parts = multimodal_parts(&converted[1]);
+        assert_request_provider_options_only(&tool_parts[0], &result_provider_metadata);
+    }
+
+    #[test]
     fn convert_maps_user_provider_reference_file() {
         let mut file_part = UiFilePart::new("https://example.com/ignored.pdf", "application/pdf");
-        file_part.provider_reference = Some(ProviderReference::single("openai", "file_123"));
+        file_part.provider_reference = Some(ProviderReference::single("provider-a", "file_123"));
 
         let messages = vec![UiMessage::user(
             "user",
@@ -926,7 +1168,7 @@ mod tests {
         assert_eq!(
             source
                 .as_provider_reference()
-                .and_then(|reference| reference.get("openai")),
+                .and_then(|reference| reference.get("provider-a")),
             Some("file_123")
         );
     }

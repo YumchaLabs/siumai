@@ -6,6 +6,7 @@
 //! - Parse OpenAI Responses SSE chunks into unified stream events, then
 //! - Re-serialize into Gemini GenerateContent SSE.
 
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use std::path::Path;
 
@@ -78,7 +79,6 @@ fn encode_gemini_generate_content_sse(
     behavior: siumai::experimental::streaming::UnsupportedStreamPartBehavior,
     emit_function_response_tool_results: bool,
 ) -> Vec<u8> {
-    use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::gemini::streaming::GeminiEventConverter;
     use siumai::protocol::gemini::types::GeminiConfig;
 

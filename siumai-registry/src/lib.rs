@@ -5,15 +5,13 @@
 
 // Keep a small stable surface; avoid leaking provider-agnostic internals by default.
 pub use siumai_core::client::LlmClient;
-pub use siumai_core::{
-    LlmError, custom_provider, embedding, error, hosted_tools, image, retry_api, streaming, text,
-    traits, types, video,
-};
+pub use siumai_core::{LlmError, error, streaming, text, traits, types};
 
 // Internal aliases for registry implementation (not part of the public API).
 #[allow(unused_imports)]
 pub(crate) use siumai_core::{
-    auth, client, core, defaults, execution, observability, params, retry, utils,
+    auth, client, core, defaults, embedding, execution, image, observability, params, retry,
+    retry_api, utils, video,
 };
 
 /// Experimental low-level APIs (advanced use only).

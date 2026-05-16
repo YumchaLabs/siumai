@@ -268,6 +268,55 @@ fn anthropic_source_metadata_str(
 mod tests {
     use super::*;
 
+    fn source_between(start_marker: &str, end_marker: &str) -> &'static str {
+        let source = include_str!("tools.rs");
+        let (_, after_start) = source
+            .split_once(start_marker)
+            .expect("source start marker should exist");
+        let (section, _) = after_start
+            .split_once(end_marker)
+            .expect("source end marker should exist");
+        section
+    }
+
+    #[test]
+    fn tool_options_extension_source_does_not_read_response_provider_metadata() {
+        let request_source = source_between(
+            "pub trait AnthropicToolExt",
+            "/// Anthropic streaming extension events emitted by Siumai.",
+        );
+
+        assert!(
+            !request_source.contains("providerMetadata"),
+            "Anthropic tool option extension must not read camelCase response provider metadata"
+        );
+        assert!(
+            !request_source.contains("provider_metadata"),
+            "Anthropic tool option extension must not read response provider metadata"
+        );
+    }
+
+    #[test]
+    fn stream_event_projection_source_does_not_read_request_provider_options() {
+        let stream_source = source_between(
+            "/// Anthropic streaming extension events emitted by Siumai.",
+            "#[cfg(test)]",
+        );
+
+        assert!(
+            !stream_source.contains("providerOptions"),
+            "Anthropic stream event projection must not read request-side providerOptions"
+        );
+        assert!(
+            !stream_source.contains("provider_options"),
+            "Anthropic stream event projection must not read request-side provider_options"
+        );
+        assert!(
+            !stream_source.contains("provider_options_map"),
+            "Anthropic stream event projection must not read request provider options maps"
+        );
+    }
+
     #[test]
     fn parses_anthropic_runtime_part_provider_tool_events() {
         let tool_call = ChatStreamEvent::Part {

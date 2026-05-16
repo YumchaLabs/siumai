@@ -7,7 +7,7 @@
 //! - Re-serialize into OpenAI Chat Completions SSE and OpenAI Responses SSE.
 
 use eventsource_stream::Event;
-use siumai::experimental::streaming::OpenAiResponsesStreamPartsBridge;
+use siumai::experimental::streaming::{OpenAiResponsesStreamPartsBridge, SseEventConverter};
 use siumai::prelude::unified::*;
 use siumai_core::types::ChatStreamPart;
 use std::path::Path;
@@ -187,7 +187,6 @@ fn decode_openai_chat_completions(bytes: &[u8]) -> Vec<ChatStreamEvent> {
 }
 
 fn encode_openai_responses_with_bridge(events: Vec<ChatStreamEvent>) -> Vec<u8> {
-    use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter;
 
     let mut bridge = OpenAiResponsesStreamPartsBridge::new();

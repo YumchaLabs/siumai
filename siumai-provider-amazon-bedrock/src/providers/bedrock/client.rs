@@ -817,7 +817,7 @@ mod tests {
     fn prepare_chat_request_for_stream_sets_stream_and_fills_default_model() {
         let config = BedrockConfig::new()
             .with_model("anthropic.claude-3-5-sonnet")
-            .with_http_config(crate::types::HttpConfig::default());
+            .with_http_config(crate::defaults::http::config_default());
         let client = BedrockClient::from_config(config).expect("client");
 
         let request = ChatRequest::builder()
@@ -836,7 +836,7 @@ mod tests {
     fn prepare_chat_request_for_non_stream_clears_stream_and_preserves_explicit_model() {
         let config = BedrockConfig::new()
             .with_model("anthropic.claude-3-5-sonnet")
-            .with_http_config(crate::types::HttpConfig::default());
+            .with_http_config(crate::defaults::http::config_default());
         let client = BedrockClient::from_config(config).expect("client");
 
         let request = ChatRequest::builder()
@@ -857,7 +857,7 @@ mod tests {
     fn prepare_chat_request_merges_missing_common_params_from_config() {
         let mut config = BedrockConfig::new()
             .with_model("anthropic.claude-3-5-sonnet")
-            .with_http_config(crate::types::HttpConfig::default());
+            .with_http_config(crate::defaults::http::config_default());
         config.common_params.temperature = Some(0.2);
         config.common_params.max_tokens = Some(256);
         config.common_params.top_p = Some(0.9);

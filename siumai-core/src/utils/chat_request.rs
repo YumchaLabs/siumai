@@ -95,6 +95,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn chat_request_tests_use_provider_neutral_option_namespaces() {
+        let source = include_str!("chat_request.rs");
+        let forbidden = [
+            ["op", "enai"].concat(),
+            ["az", "ure"].concat(),
+            ["an", "thropic"].concat(),
+            ["ge", "mini"].concat(),
+        ];
+
+        for fragment in forbidden {
+            assert!(
+                !source.contains(&fragment),
+                "core chat request normalization tests must use provider-neutral option namespaces"
+            );
+        }
+    }
+
+    #[test]
     fn merge_common_params_fills_missing_fields_from_defaults() {
         let defaults = CommonParams {
             model: "default-model".to_string(),
@@ -148,13 +166,13 @@ mod tests {
         };
         let mut default_provider_options_map = ProviderOptionsMap::new();
         default_provider_options_map.insert(
-            "anthropic",
+            "provider-a",
             serde_json::json!({
                 "thinking_mode": { "enabled": true },
                 "structured_output_mode": "jsonTool"
             }),
         );
-        let default_http_config = HttpConfig::default();
+        let default_http_config = HttpConfig::empty();
 
         let request = ChatRequest::builder()
             .messages(vec![])
@@ -166,7 +184,7 @@ mod tests {
                 ..Default::default()
             })
             .provider_option(
-                "anthropic",
+                "provider-a",
                 serde_json::json!({
                     "structured_output_mode": "outputFormat",
                     "disable_parallel_tool_use": true
@@ -188,20 +206,20 @@ mod tests {
         assert_eq!(normalized.common_params.max_tokens, Some(256));
         assert_eq!(normalized.common_params.top_p, Some(0.9));
         assert!(normalized.http_config.is_some());
-        let anthropic = normalized
+        let provider_options = normalized
             .provider_options_map
-            .get("anthropic")
-            .expect("anthropic options");
+            .get("provider-a")
+            .expect("provider options");
         assert_eq!(
-            anthropic.get("thinking_mode"),
+            provider_options.get("thinking_mode"),
             Some(&serde_json::json!({ "enabled": true }))
         );
         assert_eq!(
-            anthropic.get("structured_output_mode"),
+            provider_options.get("structured_output_mode"),
             Some(&serde_json::json!("outputFormat"))
         );
         assert_eq!(
-            anthropic.get("disable_parallel_tool_use"),
+            provider_options.get("disable_parallel_tool_use"),
             Some(&serde_json::json!(true))
         );
     }

@@ -129,6 +129,43 @@ fn no_builtins_custom_factory_example_is_family_first() {
 }
 
 #[test]
+fn registry_root_does_not_mirror_broad_core_modules() {
+    let root = crate_root();
+    let lib_rs = fs::read_to_string(root.join("src/lib.rs")).expect("read siumai-registry lib.rs");
+    let public_root_exports = lib_rs
+        .split("// Internal aliases for registry implementation")
+        .next()
+        .expect("public root export section");
+
+    for forbidden in [
+        "custom_provider",
+        "embedding",
+        "hosted_tools",
+        "image",
+        "retry_api",
+        "video",
+    ] {
+        assert!(
+            !public_root_exports.contains(&format!("pub use siumai_core::{forbidden}"))
+                && !public_root_exports.contains(&format!(" {forbidden},"))
+                && !public_root_exports.contains(&format!("    {forbidden},"))
+                && !public_root_exports.contains(&format!("{forbidden}, "))
+                && !public_root_exports.contains(&format!("{forbidden}\n")),
+            "siumai-registry root should not mirror broad siumai-core module `{forbidden}`; keep it internal or expose it through a documented experimental path"
+        );
+    }
+
+    assert!(
+        lib_rs.contains("pub use siumai_core::{LlmError, error, streaming, text, traits, types};"),
+        "registry root should keep only the small custom-factory contract surface"
+    );
+    assert!(
+        lib_rs.contains("pub mod experimental {"),
+        "low-level core implementation modules should stay behind siumai_registry::experimental"
+    );
+}
+
+#[test]
 fn registry_family_handles_keep_llm_client_downcasts_isolated() {
     let handles_dir = crate_root()
         .join("src")
@@ -272,6 +309,48 @@ fn public_docs_do_not_recommend_compatibility_surfaces_as_default() {
             );
         }
     }
+}
+
+#[test]
+fn public_docs_classify_generic_llm_client_factory_paths_as_migration_only() {
+    let root = crate_root();
+    let migration_doc =
+        fs::read_to_string(root.join("../docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read beta.7 migration guide");
+    let public_surface_doc =
+        fs::read_to_string(root.join("../docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+    let registry_doc =
+        fs::read_to_string(root.join("../docs/architecture/registry-without-builtins.md"))
+            .expect("read registry without builtins doc");
+
+    for (name, source) in [
+        ("migration-0.11.0-beta.7.md", migration_doc.as_str()),
+        ("public-surface.md", public_surface_doc.as_str()),
+        ("registry-without-builtins.md", registry_doc.as_str()),
+    ] {
+        assert!(
+            source.contains("family-first")
+                || source.contains("family methods")
+                || source.contains("family model"),
+            "{name} should describe registry construction as family-first"
+        );
+        assert!(
+            source.contains("compat_*_client"),
+            "{name} should mention explicit compat_*_client paths when discussing generic clients"
+        );
+        assert!(
+            source.contains("LlmClient"),
+            "{name} should name generic LlmClient when classifying legacy generic-client paths"
+        );
+    }
+
+    assert!(
+        migration_doc.contains("Generic `LlmClient` compatibility paths")
+            && migration_doc.contains("extension-only surfaces")
+            && migration_doc.contains("language_model_text_with_ctx"),
+        "the beta.7 migration guide should give downstream users a concrete replacement for generic LlmClient factory paths"
+    );
 }
 
 #[test]

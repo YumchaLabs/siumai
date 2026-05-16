@@ -838,6 +838,7 @@ impl ToolApprovalResponse {
     }
 }
 
+/// Request-side prompt content part union for user messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum UserContentPart {
@@ -846,6 +847,7 @@ pub enum UserContentPart {
     File(FilePart),
 }
 
+/// Request-side prompt content part union for assistant messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum AssistantContentPart {
@@ -859,6 +861,7 @@ pub enum AssistantContentPart {
     ToolApprovalRequest(ToolApprovalRequest),
 }
 
+/// Request-side prompt content part union for tool messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum ToolContentPart {
@@ -1229,6 +1232,46 @@ impl StandardizedPrompt {
         messages.extend(self.messages.iter().map(ChatMessage::from));
         messages
     }
+}
+
+/// Project a stable chat message into the canonical non-V4 prompt-side model message.
+///
+/// This is a request-side narrowing step. It preserves `providerOptions` and rejects legacy
+/// response-side `providerMetadata` carried by `ContentPart`.
+pub fn project_chat_message_to_prompt_message(
+    message: &ChatMessage,
+) -> Result<ModelMessage, ModelMessageConversionError> {
+    ModelMessage::try_from(message)
+}
+
+/// Project stable chat messages into canonical non-V4 prompt-side model messages.
+///
+/// This is the named batch helper for `project_chat_message_to_prompt_message`.
+pub fn project_chat_messages_to_prompt_messages(
+    messages: &[ChatMessage],
+) -> Result<Vec<ModelMessage>, ModelMessageConversionError> {
+    messages
+        .iter()
+        .map(project_chat_message_to_prompt_message)
+        .collect()
+}
+
+/// Project a canonical non-V4 prompt-side model message back to the stable chat carrier.
+///
+/// The legacy `ContentPart` values produced by this helper intentionally emit no response-side
+/// `providerMetadata`.
+pub fn project_prompt_message_to_chat_message(message: &ModelMessage) -> ChatMessage {
+    ChatMessage::from(message)
+}
+
+/// Project canonical non-V4 prompt-side model messages back to stable chat carriers.
+///
+/// This is the named batch helper for `project_prompt_message_to_chat_message`.
+pub fn project_prompt_messages_to_chat_messages(messages: &[ModelMessage]) -> Vec<ChatMessage> {
+    messages
+        .iter()
+        .map(project_prompt_message_to_chat_message)
+        .collect()
 }
 
 impl TryFrom<&ChatRequest> for Prompt {

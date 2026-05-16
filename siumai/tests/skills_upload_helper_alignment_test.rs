@@ -1,8 +1,8 @@
-use siumai::prelude::unified::*;
 use siumai::skills::{
     self, SkillUploadProvider, UploadSkillFile, UploadSkillOptions, UploadSkillPayload,
     UploadSkillResult,
 };
+use siumai::types::{ProviderReference, Warning};
 use siumai_core::error::LlmError;
 use siumai_core::traits::SkillsCapability;
 use std::borrow::Cow;

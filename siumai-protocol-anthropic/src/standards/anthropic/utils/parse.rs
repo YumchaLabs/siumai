@@ -663,6 +663,45 @@ mod tests {
     use super::*;
     use crate::types::MessageContent;
 
+    fn parse_response_content_source() -> &'static str {
+        let source = include_str!("parse.rs");
+        let (_, after_start) = source
+            .split_once("pub(crate) fn parse_response_content_and_tools_with_context_and_params(")
+            .expect("parse response content start marker should exist");
+        let (section, _) = after_start
+            .split_once("pub fn extract_thinking_content(")
+            .expect("parse response content end marker should exist");
+        section
+    }
+
+    #[test]
+    fn anthropic_parse_response_content_source_does_not_emit_request_provider_options() {
+        let source = parse_response_content_source();
+
+        assert!(
+            !source.contains("providerOptions"),
+            "Anthropic response parsing must not emit request-side providerOptions"
+        );
+        assert!(
+            !source.contains(".provider_options"),
+            "Anthropic response parsing must not read request provider_options fields"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "Anthropic response parsing must not read request provider option maps"
+        );
+
+        for line in source
+            .lines()
+            .filter(|line| line.contains("provider_options"))
+        {
+            assert!(
+                line.contains("ProviderOptionsMap::default()"),
+                "Anthropic response ContentPart provider_options must stay empty defaults: {line}"
+            );
+        }
+    }
+
     #[test]
     fn test_parse_response_content_and_tools() {
         let content_blocks = vec![

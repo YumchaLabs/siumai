@@ -120,6 +120,29 @@ impl StreamFactory {
         converter.handle_stream_end_events()
     }
 
+    fn drain_stream_end_events_with_fallback<C: SseEventConverter>(
+        converter: &C,
+        saw_content: bool,
+    ) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        let mut out = Vec::new();
+        let mut injected = false;
+
+        for end in Self::drain_stream_end_events(converter) {
+            if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
+                && !saw_content
+                && !injected
+                && let Some(text) = response.content_text()
+                && !text.is_empty()
+            {
+                injected = true;
+                out.push(Ok(Self::fallback_text_delta_event(text.to_string())));
+            }
+            out.push(end);
+        }
+
+        out
+    }
+
     /// Convert an HTTP response into a ChatStream, using SSE when available,
     /// and falling back to a single JSON body conversion when not SSE.
     async fn stream_from_response_with_sse_fallback<C>(
@@ -203,31 +226,12 @@ impl StreamFactory {
                 async move {
                     match event_result {
                         Ok(event) => {
-                            if event.data.trim() == "[DONE]" {
+                            if converter.is_stream_end_event(&event) {
                                 saw_done.store(true, std::sync::atomic::Ordering::Relaxed);
-
-                                let saw = saw_content.load(std::sync::atomic::Ordering::Relaxed);
-                                let mut out: Vec<Result<ChatStreamEvent, LlmError>> = Vec::new();
-
-                                let end_events = StreamFactory::drain_stream_end_events(&converter);
-                                if !end_events.is_empty() {
-                                    let mut injected = false;
-                                    for end in end_events {
-                                        if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
-                                            && !saw
-                                            && !injected
-                                            && let Some(text) = response.content_text()
-                                            && !text.is_empty()
-                                        {
-                                            injected = true;
-                                            out.push(Ok(StreamFactory::fallback_text_delta_event(
-                                                text.to_string(),
-                                            )));
-                                        }
-                                        out.push(end);
-                                    }
-                                }
-                                return out;
+                                return StreamFactory::drain_stream_end_events_with_fallback(
+                                    &converter,
+                                    saw_content.load(std::sync::atomic::Ordering::Relaxed),
+                                );
                             }
                             if event.data.trim().is_empty() {
                                 return vec![];
@@ -261,29 +265,10 @@ impl StreamFactory {
                         return vec![];
                     }
 
-                    let saw = saw_content.load(std::sync::atomic::Ordering::Relaxed);
-                    let mut out: Vec<Result<ChatStreamEvent, LlmError>> = Vec::new();
-
-                    let end_events = StreamFactory::drain_stream_end_events(&end_converter);
-                    if !end_events.is_empty() {
-                        let mut injected = false;
-                        for end in end_events {
-                            if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
-                                && !saw
-                                && !injected
-                                && let Some(text) = response.content_text()
-                                && !text.is_empty()
-                            {
-                                injected = true;
-                                out.push(Ok(StreamFactory::fallback_text_delta_event(
-                                    text.to_string(),
-                                )));
-                            }
-                            out.push(end);
-                        }
-                    }
-
-                    out
+                    StreamFactory::drain_stream_end_events_with_fallback(
+                        &end_converter,
+                        saw_content.load(std::sync::atomic::Ordering::Relaxed),
+                    )
                 })
                 .flat_map(futures::stream::iter)
             });
@@ -373,32 +358,12 @@ impl StreamFactory {
                 async move {
                     match event_result {
                         Ok(event) => {
-                            if event.data.trim() == "[DONE]" {
+                            if converter.is_stream_end_event(&event) {
                                 saw_done.store(true, std::sync::atomic::Ordering::Relaxed);
-
-                                let saw = saw_content.load(std::sync::atomic::Ordering::Relaxed);
-                                let mut out: Vec<Result<ChatStreamEvent, LlmError>> = Vec::new();
-
-                                let end_events = StreamFactory::drain_stream_end_events(&converter);
-                                if !end_events.is_empty() {
-                                    let mut injected = false;
-                                    for end in end_events {
-                                        if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
-                                            && !saw
-                                            && !injected
-                                            && let Some(text) = response.content_text()
-                                            && !text.is_empty()
-                                        {
-                                            injected = true;
-                                            out.push(Ok(StreamFactory::fallback_text_delta_event(
-                                                text.to_string(),
-                                            )));
-                                        }
-                                        out.push(end);
-                                    }
-                                }
-
-                                return out;
+                                return StreamFactory::drain_stream_end_events_with_fallback(
+                                    &converter,
+                                    saw_content.load(std::sync::atomic::Ordering::Relaxed),
+                                );
                             }
                             if event.data.trim().is_empty() {
                                 return vec![];
@@ -429,29 +394,10 @@ impl StreamFactory {
                         return vec![];
                     }
 
-                    let saw = saw_content.load(std::sync::atomic::Ordering::Relaxed);
-                    let mut out: Vec<Result<ChatStreamEvent, LlmError>> = Vec::new();
-
-                    let end_events = StreamFactory::drain_stream_end_events(&end_converter);
-                    if !end_events.is_empty() {
-                        let mut injected = false;
-                        for end in end_events {
-                            if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
-                                && !saw
-                                && !injected
-                                && let Some(text) = response.content_text()
-                                && !text.is_empty()
-                            {
-                                injected = true;
-                                out.push(Ok(StreamFactory::fallback_text_delta_event(
-                                    text.to_string(),
-                                )));
-                            }
-                            out.push(end);
-                        }
-                    }
-
-                    out
+                    StreamFactory::drain_stream_end_events_with_fallback(
+                        &end_converter,
+                        saw_content.load(std::sync::atomic::Ordering::Relaxed),
+                    )
                 })
                 .flat_map(futures::stream::iter)
             });

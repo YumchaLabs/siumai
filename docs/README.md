@@ -39,6 +39,9 @@ documents, release process, and active workstreams for current planning.
 - Fearless boundary hardening: `docs/workstreams/fearless-boundary-hardening/`
   - next fearless-refactor execution track for boundary hardening and removal of unnecessary
     compatibility or redundant code once canonical paths are tested and documented
+- Fearless spec/core boundary convergence: `docs/workstreams/fearless-spec-core-boundary-convergence/`
+  - tracks the next boundary pass for keeping `siumai-spec` data-only, keeping `siumai-core`
+    provider-agnostic, and moving bridge/protocol/provider residue to owning crates
 - Fearless architecture convergence: `docs/workstreams/fearless-architecture-convergence/`
 - Current V4 refactor tracking: `docs/workstreams/fearless-refactor-v4/`
 - AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`

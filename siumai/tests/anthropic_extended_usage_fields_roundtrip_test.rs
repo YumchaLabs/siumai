@@ -1,8 +1,9 @@
 #![cfg(feature = "anthropic")]
 
 use eventsource_stream::Event;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::{
-    ChatResponse, ChatStreamEvent, FinishReason, MessageContent, SseEventConverter, Usage,
+    ChatResponse, ChatStreamEvent, FinishReason, MessageContent, Usage,
 };
 use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
 use std::collections::HashMap;

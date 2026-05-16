@@ -51,12 +51,12 @@ pub async fn execute_json_request_with_headers(
             Ok(self.headers.clone())
         }
 
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _stream: bool,
             _req: &crate::types::ChatRequest,
             _ctx: &ProviderContext,
-        ) -> String {
+        ) -> Result<String, LlmError> {
             unreachable!()
         }
 

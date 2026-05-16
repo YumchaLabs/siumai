@@ -1,8 +1,8 @@
 //! Shared target-specific dispatch helpers for experimental bridges.
 
+use crate::BridgeTarget;
 use futures_util::Stream;
 use siumai_core::LlmError;
-use siumai_core::bridge::BridgeTarget;
 use siumai_core::encoding::JsonEncodeOptions;
 #[cfg(any(
     feature = "openai",

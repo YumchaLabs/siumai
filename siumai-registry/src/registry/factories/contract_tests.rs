@@ -255,7 +255,7 @@ mod vertex_maas_contract {
     use crate::registry::factories::VertexMaasProviderFactory;
 
     fn auth_http_config(token: &str) -> HttpConfig {
-        let mut http_config = HttpConfig::default();
+        let mut http_config = HttpConfig::empty();
         http_config
             .headers
             .insert("Authorization".to_string(), format!("Bearer {token}"));
@@ -899,7 +899,7 @@ mod azure_contract {
 
         let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -1675,7 +1675,7 @@ mod cohere_contract {
 
         let factory = crate::registry::factories::CohereProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -2328,7 +2328,7 @@ mod togetherai_contract {
 
         let factory = crate::registry::factories::TogetherAiProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -3052,7 +3052,7 @@ mod bedrock_contract {
 
         let factory = crate::registry::factories::BedrockProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -4128,7 +4128,7 @@ mod openai_contract {
         let factory = OpenAIProviderFactory;
         let transport = CaptureTransport::default();
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -8673,7 +8673,7 @@ mod deepseek_contract {
 
         let factory = crate::registry::factories::DeepSeekProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -9891,7 +9891,7 @@ mod anthropic_contract {
 
         let factory = crate::registry::factories::AnthropicProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -10528,7 +10528,7 @@ mod groq_contract {
 
         let factory = crate::registry::factories::GroqProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -11762,7 +11762,7 @@ mod xai_contract {
 
         let factory = crate::registry::factories::XAIProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -13142,7 +13142,7 @@ mod ollama_contract {
 
         let factory = crate::registry::factories::OllamaProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -13916,7 +13916,7 @@ mod minimaxi_contract {
 
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -14184,7 +14184,7 @@ mod minimaxi_contract {
         let factory = crate::registry::factories::MiniMaxiProviderFactory;
         let transport = Arc::new(CaptureTransport::default());
 
-        let mut http_config = HttpConfig::default();
+        let mut http_config = HttpConfig::empty();
         http_config.timeout = Some(std::time::Duration::from_secs(9));
         http_config.user_agent = Some("mini-test-agent".to_string());
 
@@ -16623,7 +16623,7 @@ mod anthropic_vertex_contract {
 
         let factory = crate::registry::factories::AnthropicVertexProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -16803,7 +16803,7 @@ mod anthropic_vertex_contract {
             .expect("build config client");
 
         let factory = crate::registry::factories::AnthropicVertexProviderFactory;
-        let mut http_config = HttpConfig::default();
+        let mut http_config = HttpConfig::empty();
         http_config
             .headers
             .insert("Authorization".to_string(), "Bearer ctx-key".to_string());
@@ -16882,7 +16882,7 @@ mod anthropic_vertex_contract {
             .expect("build config client");
 
         let factory = crate::registry::factories::AnthropicVertexProviderFactory;
-        let mut http_config = HttpConfig::default();
+        let mut http_config = HttpConfig::empty();
         http_config
             .headers
             .insert("Authorization".to_string(), "Bearer ctx-key".to_string());
@@ -16969,7 +16969,7 @@ mod anthropic_vertex_contract {
             .expect("build config client");
 
         let factory = crate::registry::factories::AnthropicVertexProviderFactory;
-        let mut http_config = HttpConfig::default();
+        let mut http_config = HttpConfig::empty();
         http_config
             .headers
             .insert("Authorization".to_string(), "Bearer ctx-key".to_string());
@@ -17042,7 +17042,7 @@ mod anthropic_vertex_contract {
             .expect("build config client");
 
         let factory = crate::registry::factories::AnthropicVertexProviderFactory;
-        let mut http_config = HttpConfig::default();
+        let mut http_config = HttpConfig::empty();
         http_config
             .headers
             .insert("Authorization".to_string(), "Bearer ctx-key".to_string());
@@ -17094,7 +17094,7 @@ mod anthropic_vertex_contract {
         let global_transport = CaptureTransport::default();
         let vertex_transport = CaptureTransport::default();
 
-        let mut global_http_config = HttpConfig::default();
+        let mut global_http_config = HttpConfig::empty();
         global_http_config.headers.insert(
             "Authorization".to_string(),
             "Bearer global-token".to_string(),
@@ -17212,7 +17212,7 @@ mod gemini_contract {
 
         let factory = GeminiProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -17607,7 +17607,7 @@ mod gemini_contract {
         let _g = EnvGuard::remove("GEMINI_API_KEY");
         let factory = GeminiProviderFactory;
 
-        let mut http_config = HttpConfig::default();
+        let mut http_config = HttpConfig::empty();
         http_config
             .headers
             .insert("Authorization".to_string(), "Bearer token".to_string());
@@ -17939,7 +17939,7 @@ mod vertex_contract {
 
         let factory = GoogleVertexProviderFactory;
 
-        let mut bad = HttpConfig::default();
+        let mut bad = HttpConfig::empty();
         bad.proxy = Some("not-a-url".to_string());
 
         let ctx = BuildContext {
@@ -17978,7 +17978,7 @@ mod vertex_contract {
             .expect("GoogleVertexClient");
         assert_eq!(
             typed.base_url(),
-            crate::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+            siumai_provider_google_vertex::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
         );
     }
 
@@ -18008,7 +18008,10 @@ mod vertex_contract {
             .expect("GoogleVertexClient");
         assert_eq!(
             typed.base_url(),
-            crate::auth::vertex::google_vertex_base_url("test-project", "us-central1")
+            siumai_provider_google_vertex::auth::vertex::google_vertex_base_url(
+                "test-project",
+                "us-central1"
+            )
         );
     }
 

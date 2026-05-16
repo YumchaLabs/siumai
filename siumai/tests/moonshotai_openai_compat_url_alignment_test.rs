@@ -28,7 +28,7 @@ fn moonshotai_chat_url_matches_official_openai_compatible_endpoint() {
     req.common_params.model = "kimi-k2.5".to_string();
 
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://api.moonshot.ai/v1/chat/completions"
     );
 }

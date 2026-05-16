@@ -155,14 +155,18 @@ impl ProviderSpec for OpenAiRerankSpec {
         Ok(headers)
     }
 
-    fn rerank_url(&self, req: &RerankRequest, ctx: &ProviderContext) -> String {
+    fn try_rerank_url(
+        &self,
+        req: &RerankRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let _ = req;
         let endpoint = self
             .adapter
             .as_ref()
             .map(|a| a.rerank_endpoint())
             .unwrap_or("/rerank");
-        crate::utils::url::join_url(&ctx.base_url, endpoint)
+        Ok(crate::utils::url::join_url(&ctx.base_url, endpoint))
     }
 
     fn choose_rerank_transformers(

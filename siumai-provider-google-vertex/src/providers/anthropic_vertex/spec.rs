@@ -317,8 +317,16 @@ impl ProviderSpec for VertexAnthropicSpec {
         anthropic::errors::classify_anthropic_http_error(self.id(), status, body_text)
     }
 
-    fn chat_url(&self, stream: bool, _req: &ChatRequest, _ctx: &ProviderContext) -> String {
-        crate::utils::url::join_url(&self.base_url, &self.chat_path(stream))
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        _req: &ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(crate::utils::url::join_url(
+            &self.base_url,
+            &self.chat_path(stream),
+        ))
     }
 
     fn choose_chat_transformers(
@@ -380,19 +388,27 @@ impl ProviderSpec for VertexAnthropicSpec {
         Some(Arc::new(hook))
     }
 
-    fn models_url(&self, ctx: &ProviderContext) -> String {
+    fn try_models_url(&self, ctx: &ProviderContext) -> Result<String, LlmError> {
         if self.base_url_ends_with_models() {
-            ctx.base_url.trim_end_matches('/').to_string()
+            Ok(ctx.base_url.trim_end_matches('/').to_string())
         } else {
-            format!("{}/models", ctx.base_url.trim_end_matches('/'))
+            Ok(format!("{}/models", ctx.base_url.trim_end_matches('/')))
         }
     }
 
-    fn model_url(&self, model_id: &str, ctx: &ProviderContext) -> String {
+    fn try_model_url(&self, model_id: &str, ctx: &ProviderContext) -> Result<String, LlmError> {
         if self.base_url_ends_with_models() {
-            format!("{}/{}", ctx.base_url.trim_end_matches('/'), model_id)
+            Ok(format!(
+                "{}/{}",
+                ctx.base_url.trim_end_matches('/'),
+                model_id
+            ))
         } else {
-            format!("{}/models/{}", ctx.base_url.trim_end_matches('/'), model_id)
+            Ok(format!(
+                "{}/models/{}",
+                ctx.base_url.trim_end_matches('/'),
+                model_id
+            ))
         }
     }
 }

@@ -395,3 +395,106 @@ impl ThinkingAwareMessageBuilder {
         message
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn thinking_request_config_source_does_not_read_response_metadata() {
+        let source = include_str!("thinking.rs");
+        let request_source = source_section(
+            source,
+            "impl ThinkingConfig",
+            "/// Thinking response parser",
+        );
+
+        for forbidden in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
+            assert!(
+                !request_source.contains(forbidden),
+                "Anthropic thinking request config must stay request-only"
+            );
+        }
+    }
+
+    #[test]
+    fn thinking_response_projection_source_does_not_read_request_provider_options() {
+        let source = include_str!("thinking.rs");
+        let response_source = source_section(
+            source,
+            "impl ThinkingResponseParser",
+            "/// Reasoning analysis utilities",
+        );
+
+        for forbidden in ["providerOptions", "provider_options", "ProviderOptionsMap"] {
+            assert!(
+                !response_source.contains(forbidden),
+                "Anthropic thinking response projection must not read request provider options"
+            );
+        }
+    }
+
+    #[test]
+    fn enhance_response_with_thinking_merges_existing_anthropic_metadata() {
+        let mut response = ChatResponse::new(MessageContent::Text("visible answer".to_string()));
+        response.provider_metadata = Some(HashMap::from([
+            (
+                "anthropic".to_string(),
+                serde_json::json!({
+                    "stopSequence": "END"
+                }),
+            ),
+            (
+                "custom".to_string(),
+                serde_json::json!({
+                    "trace": "kept"
+                }),
+            ),
+        ]));
+
+        let response = ThinkingResponseParser::enhance_response_with_thinking(
+            response,
+            Some("reasoned privately".to_string()),
+        );
+
+        let metadata = response.provider_metadata.expect("provider metadata");
+        assert_eq!(
+            metadata.get("custom"),
+            Some(&serde_json::json!({ "trace": "kept" }))
+        );
+        assert_eq!(
+            metadata
+                .get("anthropic")
+                .and_then(|value| value.get("stopSequence")),
+            Some(&serde_json::json!("END"))
+        );
+        assert_eq!(
+            metadata
+                .get("anthropic")
+                .and_then(|value| value.get("thinking")),
+            Some(&serde_json::json!("reasoned privately"))
+        );
+    }
+
+    #[test]
+    fn thinking_config_request_params_are_request_only_shape() {
+        let params = ThinkingConfig::enabled(2048).to_request_params();
+
+        assert_eq!(
+            params,
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 2048
+            })
+        );
+    }
+}

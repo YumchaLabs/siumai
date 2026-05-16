@@ -1,6 +1,6 @@
 //! Shared bridge lifecycle helpers.
 
-use siumai_core::bridge::{
+use crate::{
     BridgeLossAction, BridgeMode, BridgeOptions, BridgeReport, BridgeTarget, RequestBridgeContext,
     RequestBridgePhase, ResponseBridgeContext, StreamBridgeContext,
 };

@@ -1454,7 +1454,7 @@ impl OpenAiResponsesRequestTransformer {
                                             "image_url": url,
                                         });
 
-                                        // Vercel parity: image detail can be specified via provider metadata.
+                                        // Vercel parity: image detail can be specified via providerOptions.
                                         let provider_detail =
                                             openai_image_detail(Some(provider_options));
                                         if let Some(provider_detail) = provider_detail {
@@ -3152,5 +3152,43 @@ mod tests {
             input[0]["arguments"],
             serde_json::json!("{\"city\":\"Tokyo\"}")
         );
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn request_transformer_source_does_not_read_legacy_provider_metadata_fields() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/openai/transformers/request/responses.rs"
+        ));
+        let implementation = source
+            .lines()
+            .take_while(|line| !line.contains("mod tests {"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for (index, line) in implementation.lines().enumerate() {
+            if line.contains("provider_metadata") {
+                assert!(
+                    line.contains("provider_metadata: _"),
+                    "OpenAI Responses request transformer should ignore legacy provider_metadata at implementation line {}: {line}",
+                    index + 1
+                );
+            }
+        }
+
+        for forbidden in [
+            ".provider_metadata",
+            ".get(\"providerMetadata\")",
+            ".get(\"provider_metadata\")",
+            "[\"providerMetadata\"]",
+            "[\"provider_metadata\"]",
+            "providerMetadata",
+        ] {
+            assert!(
+                !implementation.contains(forbidden),
+                "OpenAI Responses request transformer should not read legacy provider metadata via {forbidden}"
+            );
+        }
     }
 }

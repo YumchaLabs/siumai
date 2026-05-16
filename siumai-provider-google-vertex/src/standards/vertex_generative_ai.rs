@@ -102,18 +102,23 @@ impl ProviderSpec for VertexGenerativeAiSpec {
         )
     }
 
-    fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let base = siumai_protocol_gemini::standards::gemini::GeminiChatStandard::new()
             .create_spec(self.provider_id)
-            .chat_url(stream, req, ctx);
+            .try_chat_url(stream, req, ctx)?;
 
         if let Some(key) = ctx.api_key.as_deref()
             && !key.is_empty()
             && !has_auth_header(&ctx.http_extra_headers)
         {
-            append_api_key_query(base, key)
+            Ok(append_api_key_query(base, key))
         } else {
-            base
+            Ok(base)
         }
     }
 }

@@ -1,6 +1,11 @@
 # Shared Type Surface Alignment - Audit
 
-Last updated: 2026-04-24
+Last updated: 2026-05-15
+
+Note: this audit records the original shared-surface alignment. The later
+`docs/workstreams/fearless-spec-core-boundary-convergence/` workstream narrows several facade
+paths. Where the two differ, the fearless boundary-convergence docs are the current source of
+truth.
 
 This audit compares `repo-ref/ai/packages/ai/src/types/*` with the stable Rust facade. The goal is
 to keep public type-surface checks mechanical and avoid false parity.
@@ -18,7 +23,7 @@ to keep public type-surface checks mechanical and avoid false parity.
 | `RerankingModel` | `prelude::unified::RerankingModel`, `siumai::rerank::RerankingModel` | done | Real Rust model trait. |
 | `SpeechModel` | `prelude::unified::SpeechModel`, `siumai::speech::SpeechModel` | done | Real Rust model trait. |
 | `TranscriptionModel` | `prelude::unified::TranscriptionModel`, `siumai::transcription::TranscriptionModel` | done | Real Rust model trait. |
-| `Provider` | `prelude::unified::ProviderFactory` | done | `ProviderFactory` is the honest Rust provider-interface equivalent. Historical `siumai::Provider` remains a compat/top-level builder helper and is intentionally not treated as the AI SDK provider interface. |
+| `Provider` | `prelude::unified::registry::ProviderFactory` | done, narrowed | `ProviderFactory` is the honest Rust provider-interface equivalent, but the current stable facade scopes it under `prelude::unified::registry::*` instead of exporting it from top-level `prelude::unified::*`. Historical `siumai::Provider` remains a compat/top-level builder helper and is intentionally not treated as the AI SDK provider interface. |
 | `ProviderMetadata` | `siumai::types::ProviderMetadata`, `prelude::unified::ProviderMetadata` | done | Alias to provider-id keyed metadata map. |
 | `ProviderReference` | `siumai::types::ProviderReference`, `prelude::unified::ProviderReference` | done | Stable provider-reference map. |
 | `CallWarning` / `Warning` | `siumai::types::{CallWarning, Warning}`, `prelude::unified::*` | done | `CallWarning` is the strict AI SDK shared V4 warning union; wider stable `Warning` compatibility variants are normalized when projected into AI SDK result payloads. |
@@ -32,7 +37,7 @@ to keep public type-surface checks mechanical and avoid false parity.
 | `EmbeddingModelUsage` | `siumai::types::EmbeddingModelUsage`, `prelude::unified::*` | done | AI SDK one-field usage shape. |
 | `ImageModelUsage` | `siumai::types::ImageModelUsage`, `prelude::unified::*` | done | AI SDK image usage token totals. |
 | `LanguageModelUsage` | `siumai::types::LanguageModelUsage`, `prelude::unified::*` | done | Projection from stable `Usage`. |
-| `LanguageModelMiddleware` | `prelude::unified::LanguageModelMiddleware` | done | Real runtime middleware trait. |
+| `LanguageModelMiddleware` | `siumai::experimental::execution::middleware::LanguageModelMiddleware` | done, narrowed | Real runtime middleware trait. It is now classified as advanced execution infrastructure, not a stable model-family prelude name. |
 | `EmbeddingModelMiddleware` | none | deferred | Needs real embedding middleware execution hooks first. |
 | `ImageModelMiddleware` | none | deferred | Needs real image middleware execution hooks first. |
 
@@ -85,7 +90,7 @@ to keep public type-surface checks mechanical and avoid false parity.
 
 | AI SDK export | Rust surface | Status | Notes |
 | --- | --- | --- | --- |
-| `parseJsonEventStream` | `siumai::parse_json_event_stream`, `prelude::unified::parse_json_event_stream` | done | Parses SSE `data:` payloads into `serde_json::Value` items with Rust `Result` stream errors. |
+| `parseJsonEventStream` | `siumai::parse_json_event_stream` | done, narrowed | Parses SSE `data:` payloads into `serde_json::Value` items with Rust `Result` stream errors. The root helper remains, but the direct `prelude::unified::*` export was removed by the fearless boundary-convergence workstream. |
 
 ## `packages/ai/src/index.ts` non-provider-utils root exports
 

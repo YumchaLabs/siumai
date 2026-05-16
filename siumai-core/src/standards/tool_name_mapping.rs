@@ -1,7 +1,7 @@
 //! Tool name mapping utilities (Vercel AI SDK aligned).
 //!
 //! Vercel concept:
-//! - Provider-defined tools have a stable provider `id` (e.g. `openai.web_search`)
+//! - Provider-defined tools have a stable provider `id` (e.g. `provider-a.web_search`)
 //! - A call-scoped custom `name` can be used by the client (e.g. `mySearch`)
 //! - Providers may operate on provider-native names (e.g. `web_search`)
 //!
@@ -42,7 +42,7 @@ impl ToolNameMapping {
 
 /// Create mappings for provider-defined tools.
 ///
-/// `provider_tool_names` maps provider tool ids (e.g. `openai.web_search`) to provider-native
+/// `provider_tool_names` maps provider tool ids (e.g. `provider-a.web_search`) to provider-native
 /// tool names (e.g. `web_search`).
 pub fn create_tool_name_mapping(
     tools: &[Tool],
@@ -83,23 +83,26 @@ mod tests {
     use super::*;
     use crate::types::ProviderDefinedTool;
 
-    const OPENAI_PROVIDER_TOOL_NAMES: &[(&str, &str)] = &[
-        ("openai.web_search", "web_search"),
-        ("openai.web_search_preview", "web_search_preview"),
-        ("openai.file_search", "file_search"),
+    const PROVIDER_A_TOOL_NAMES: &[(&str, &str)] = &[
+        ("provider-a.web_search", "web_search"),
+        ("provider-a.web_search_preview", "web_search_preview"),
+        ("provider-a.file_search", "file_search"),
     ];
 
     #[test]
     fn creates_mapping_for_provider_defined_tools() {
         let tools = vec![
-            Tool::ProviderDefined(ProviderDefinedTool::new("openai.web_search", "mySearch")),
             Tool::ProviderDefined(ProviderDefinedTool::new(
-                "openai.web_search_preview",
+                "provider-a.web_search",
+                "mySearch",
+            )),
+            Tool::ProviderDefined(ProviderDefinedTool::new(
+                "provider-a.web_search_preview",
                 "myPreviewSearch",
             )),
         ];
 
-        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        let mapping = create_tool_name_mapping(&tools, PROVIDER_A_TOOL_NAMES);
         assert_eq!(mapping.to_provider_tool_name("mySearch"), "web_search");
         assert_eq!(mapping.to_custom_tool_name("web_search"), "mySearch");
         assert_eq!(
@@ -120,7 +123,7 @@ mod tests {
             serde_json::json!({ "type": "object" }),
         )];
 
-        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        let mapping = create_tool_name_mapping(&tools, PROVIDER_A_TOOL_NAMES);
         assert_eq!(
             mapping.to_provider_tool_name("my-function-tool"),
             "my-function-tool"
@@ -134,11 +137,11 @@ mod tests {
     #[test]
     fn returns_input_when_no_mapping_exists() {
         let tools = vec![Tool::ProviderDefined(ProviderDefinedTool::new(
-            "openai.web_search",
+            "provider-a.web_search",
             "mySearch",
         ))];
 
-        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        let mapping = create_tool_name_mapping(&tools, PROVIDER_A_TOOL_NAMES);
         assert_eq!(mapping.to_provider_tool_name("unknown"), "unknown");
         assert_eq!(mapping.to_custom_tool_name("unknown"), "unknown");
     }
@@ -147,16 +150,16 @@ mod tests {
     fn ignores_unrecognized_provider_tool_ids() {
         let tools = vec![
             Tool::ProviderDefined(ProviderDefinedTool::new(
-                "openai.unknown_tool",
+                "provider-a.unknown_tool",
                 "unknownTool",
             )),
             Tool::ProviderDefined(ProviderDefinedTool::new(
-                "openai.file_search",
+                "provider-a.file_search",
                 "myFileSearch",
             )),
         ];
 
-        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        let mapping = create_tool_name_mapping(&tools, PROVIDER_A_TOOL_NAMES);
         assert_eq!(mapping.to_provider_tool_name("unknownTool"), "unknownTool");
         assert_eq!(mapping.to_provider_tool_name("myFileSearch"), "file_search");
         assert_eq!(mapping.to_custom_tool_name("file_search"), "myFileSearch");
@@ -165,7 +168,7 @@ mod tests {
     #[test]
     fn handles_empty_tools_array() {
         let tools: Vec<Tool> = Vec::new();
-        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        let mapping = create_tool_name_mapping(&tools, PROVIDER_A_TOOL_NAMES);
         assert_eq!(mapping.to_provider_tool_name("any-tool"), "any-tool");
         assert_eq!(mapping.to_custom_tool_name("any-tool"), "any-tool");
     }
@@ -179,12 +182,12 @@ mod tests {
                 serde_json::json!({ "type": "object" }),
             ),
             Tool::ProviderDefined(ProviderDefinedTool::new(
-                "openai.web_search",
+                "provider-a.web_search",
                 "provider-tool",
             )),
         ];
 
-        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        let mapping = create_tool_name_mapping(&tools, PROVIDER_A_TOOL_NAMES);
         assert_eq!(
             mapping.to_provider_tool_name("function-tool"),
             "function-tool"

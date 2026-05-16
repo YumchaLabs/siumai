@@ -167,6 +167,29 @@ mod tests {
 
     use crate::types::{MessageContent, Usage};
 
+    #[test]
+    fn stream_encoder_source_does_not_read_provider_option_or_metadata_maps() {
+        let source = include_str!("encoder.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+
+        for forbidden in [
+            "provider_options",
+            "providerOptions",
+            "ProviderOptionsMap",
+            "provider_metadata",
+            "providerMetadata",
+            "ProviderMetadataMap",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "core stream encoder must remain provider-agnostic and not read `{forbidden}`"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn ensure_stream_end_appends_unknown_finish_reason_on_clean_eof() {
         let stream = stream::iter(vec![

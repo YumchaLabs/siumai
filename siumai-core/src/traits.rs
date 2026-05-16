@@ -139,7 +139,7 @@ pub use music::MusicGenerationCapability;
 
 /// Core provider trait for capability discovery and metadata
 pub trait LlmProvider: Send + Sync {
-    /// Canonical provider id (e.g., "openai")
+    /// Canonical provider id (e.g., "provider-a")
     fn provider_id(&self) -> std::borrow::Cow<'static, str>;
     fn supported_models(&self) -> Vec<String>;
     fn capabilities(&self) -> ProviderCapabilities;

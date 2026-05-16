@@ -24,7 +24,7 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
 fn run_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
     use siumai::experimental::standards::anthropic::params::AnthropicParams;
     use siumai::experimental::standards::anthropic::streaming::AnthropicEventConverter;
-    use siumai::prelude::unified::SseEventConverter;
+    use siumai::experimental::streaming::SseEventConverter;
 
     let conv = AnthropicEventConverter::new(AnthropicParams::default());
 
@@ -457,7 +457,7 @@ fn anthropic_stream_json_tool_emits_json_as_text() {
 fn anthropic_stream_json_tool_text_prefix_is_ignored_in_vercel_stream_parts() {
     use siumai::experimental::standards::anthropic::params::StructuredOutputMode;
     use siumai::experimental::standards::anthropic::streaming::AnthropicEventConverter;
-    use siumai::prelude::unified::SseEventConverter;
+    use siumai::experimental::streaming::SseEventConverter;
 
     let path = fixtures_dir().join("anthropic-json-tool.2.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);

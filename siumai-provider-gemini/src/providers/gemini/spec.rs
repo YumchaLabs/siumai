@@ -33,10 +33,14 @@ impl ProviderSpec for GeminiSpec {
         spec.build_headers(ctx)
     }
 
-    fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-        // Delegate to standard spec for URL decision
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let spec = crate::standards::gemini::GeminiChatStandard::new().create_spec("gemini");
-        spec.chat_url(stream, req, ctx)
+        spec.try_chat_url(stream, req, ctx)
     }
 
     fn choose_chat_transformers(
@@ -57,9 +61,13 @@ impl ProviderSpec for GeminiSpec {
         None
     }
 
-    fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
+    fn try_embedding_url(
+        &self,
+        req: &crate::types::EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let spec = crate::standards::gemini::GeminiEmbeddingStandard::new().create_spec("gemini");
-        spec.embedding_url(req, ctx)
+        spec.try_embedding_url(req, ctx)
     }
 
     fn choose_embedding_transformers(
@@ -72,13 +80,13 @@ impl ProviderSpec for GeminiSpec {
             .choose_embedding_transformers(req, ctx)
     }
 
-    fn image_url(
+    fn try_image_url(
         &self,
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
-    ) -> String {
+    ) -> Result<String, LlmError> {
         let spec = crate::standards::gemini::GeminiImageStandard::new().create_spec("gemini");
-        spec.image_url(req, ctx)
+        spec.try_image_url(req, ctx)
     }
 
     fn choose_image_transformers(
@@ -91,29 +99,35 @@ impl ProviderSpec for GeminiSpec {
             .choose_image_transformers(req, ctx)
     }
 
-    fn image_edit_url(
+    fn try_image_edit_url(
         &self,
         req: &crate::types::ImageEditRequest,
         ctx: &ProviderContext,
-    ) -> String {
+    ) -> Result<String, LlmError> {
         let _ = req;
-        format!("{}/images/edits", ctx.base_url.trim_end_matches('/'))
+        Ok(format!(
+            "{}/images/edits",
+            ctx.base_url.trim_end_matches('/')
+        ))
     }
 
-    fn image_variation_url(
+    fn try_image_variation_url(
         &self,
         req: &crate::types::ImageVariationRequest,
         ctx: &ProviderContext,
-    ) -> String {
+    ) -> Result<String, LlmError> {
         let _ = req;
-        format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
+        Ok(format!(
+            "{}/images/variations",
+            ctx.base_url.trim_end_matches('/')
+        ))
     }
 
     fn files_base_url(&self, ctx: &ProviderContext) -> String {
         ctx.base_url.trim_end_matches('/').to_string()
     }
 
-    fn model_url(&self, model_id: &str, ctx: &ProviderContext) -> String {
+    fn try_model_url(&self, model_id: &str, ctx: &ProviderContext) -> Result<String, LlmError> {
         // Gemini's model APIs accept resource-style names (e.g. "models/gemini-1.5-pro").
         // Keep behavior compatible with `GeminiModels::get_model`.
         let trimmed = model_id.trim();
@@ -124,7 +138,10 @@ impl ProviderSpec for GeminiSpec {
         } else {
             format!("models/{trimmed}")
         };
-        crate::utils::url::join_url(ctx.base_url.trim_end_matches('/'), &resource)
+        Ok(crate::utils::url::join_url(
+            ctx.base_url.trim_end_matches('/'),
+            &resource,
+        ))
     }
 
     fn choose_files_transformer(&self, _ctx: &ProviderContext) -> crate::core::FilesTransformer {
@@ -180,8 +197,13 @@ impl ProviderSpec for GeminiSpecWithConfig {
         GeminiSpec.build_headers(ctx)
     }
 
-    fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-        GeminiSpec.chat_url(stream, req, ctx)
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        GeminiSpec.try_chat_url(stream, req, ctx)
     }
 
     fn choose_chat_transformers(
@@ -232,8 +254,12 @@ impl ProviderSpec for GeminiSpecWithConfig {
         GeminiSpec.chat_before_send(req, ctx)
     }
 
-    fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
-        GeminiSpec.embedding_url(req, ctx)
+    fn try_embedding_url(
+        &self,
+        req: &crate::types::EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        GeminiSpec.try_embedding_url(req, ctx)
     }
 
     fn choose_embedding_transformers(
@@ -254,12 +280,12 @@ impl ProviderSpec for GeminiSpecWithConfig {
         }
     }
 
-    fn image_url(
+    fn try_image_url(
         &self,
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        GeminiSpec.image_url(req, ctx)
+    ) -> Result<String, LlmError> {
+        GeminiSpec.try_image_url(req, ctx)
     }
 
     fn choose_image_transformers(
@@ -280,28 +306,28 @@ impl ProviderSpec for GeminiSpecWithConfig {
         }
     }
 
-    fn image_edit_url(
+    fn try_image_edit_url(
         &self,
         req: &crate::types::ImageEditRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        GeminiSpec.image_edit_url(req, ctx)
+    ) -> Result<String, LlmError> {
+        GeminiSpec.try_image_edit_url(req, ctx)
     }
 
-    fn image_variation_url(
+    fn try_image_variation_url(
         &self,
         req: &crate::types::ImageVariationRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        GeminiSpec.image_variation_url(req, ctx)
+    ) -> Result<String, LlmError> {
+        GeminiSpec.try_image_variation_url(req, ctx)
     }
 
     fn files_base_url(&self, ctx: &ProviderContext) -> String {
         GeminiSpec.files_base_url(ctx)
     }
 
-    fn model_url(&self, model_id: &str, ctx: &ProviderContext) -> String {
-        GeminiSpec.model_url(model_id, ctx)
+    fn try_model_url(&self, model_id: &str, ctx: &ProviderContext) -> Result<String, LlmError> {
+        GeminiSpec.try_model_url(model_id, ctx)
     }
 
     fn choose_files_transformer(&self, _ctx: &ProviderContext) -> crate::core::FilesTransformer {
@@ -343,12 +369,12 @@ mod tests {
 
         let single = crate::types::EmbeddingRequest::new(vec!["hello".to_string()])
             .with_model(model.clone());
-        let url_single = spec.embedding_url(&single, &ctx);
+        let url_single = spec.try_embedding_url(&single, &ctx).unwrap();
         assert!(url_single.ends_with(&format!("models/{}:embedContent", model)));
 
         let batch = crate::types::EmbeddingRequest::new(vec!["a".into(), "b".into()])
             .with_model(model.clone());
-        let url_batch = spec.embedding_url(&batch, &ctx);
+        let url_batch = spec.try_embedding_url(&batch, &ctx).unwrap();
         assert!(url_batch.ends_with(&format!("models/{}:batchEmbedContents", model)));
     }
 
@@ -368,7 +394,7 @@ mod tests {
             model: Some(model.clone()),
             ..Default::default()
         };
-        let url = spec.image_url(&req, &ctx);
+        let url = spec.try_image_url(&req, &ctx).unwrap();
         assert!(url.ends_with(&format!("models/{}:generateContent", model)));
     }
 

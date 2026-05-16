@@ -12,7 +12,9 @@ impl ModelListingCapability for OpenAiClient {
         let spec: Arc<dyn crate::core::ProviderSpec> =
             Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
         let config = self.http_wiring().config(spec);
-        let url = config.provider_spec.models_url(&config.provider_context);
+        let url = config
+            .provider_spec
+            .try_models_url(&config.provider_context)?;
 
         let res = execute_get_request(&config, &url, None).await?;
         let models_response: crate::providers::openai::types::OpenAiModelsResponse =
@@ -33,7 +35,7 @@ impl ModelListingCapability for OpenAiClient {
         let config = self.http_wiring().config(spec);
         let url = config
             .provider_spec
-            .model_url(&model_id, &config.provider_context);
+            .try_model_url(&model_id, &config.provider_context)?;
 
         let res = execute_get_request(&config, &url, None).await?;
         let model: crate::providers::openai::types::OpenAiModel = serde_json::from_value(res.json)

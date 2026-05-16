@@ -117,6 +117,32 @@ impl MinimaxiTtsRequestBuilder {
 mod tests {
     use super::*;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn minimaxi_tts_builder_source_does_not_read_response_metadata() {
+        let source = include_str!("tts.rs");
+        let request_source = source_section(
+            source,
+            "pub struct MinimaxiTtsRequestBuilder",
+            "#[cfg(test)]",
+        );
+
+        for disallowed in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
+            assert!(
+                !request_source.contains(disallowed),
+                "MiniMaxi TTS request builder must stay request-only"
+            );
+        }
+    }
+
     #[test]
     fn builder_stores_vendor_knobs_in_provider_options_bucket() {
         let req = MinimaxiTtsRequestBuilder::new("hi")

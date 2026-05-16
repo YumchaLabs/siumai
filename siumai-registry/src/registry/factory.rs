@@ -523,7 +523,7 @@ pub async fn build_anthropic_vertex_typed_client(
             let mut token_provider = google_token_provider;
             if token_provider.is_none() && !has_auth_header(&http_config.headers) {
                 token_provider = Some(Arc::new(
-                    crate::auth::adc::AdcTokenProvider::default_client(),
+                    siumai_provider_google_vertex::auth::adc::AdcTokenProvider::default_client(),
                 ));
             }
             token_provider

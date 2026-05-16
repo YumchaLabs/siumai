@@ -395,30 +395,35 @@ impl ProviderSpec for AnthropicSpec {
         )
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         if base.ends_with("/v1") {
-            format!("{base}/messages")
+            Ok(format!("{base}/messages"))
         } else {
-            format!("{base}/v1/messages")
+            Ok(format!("{base}/v1/messages"))
         }
     }
 
-    fn models_url(&self, ctx: &ProviderContext) -> String {
+    fn try_models_url(&self, ctx: &ProviderContext) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         if base.ends_with("/v1") {
-            format!("{base}/models")
+            Ok(format!("{base}/models"))
         } else {
-            format!("{base}/v1/models")
+            Ok(format!("{base}/v1/models"))
         }
     }
 
-    fn model_url(&self, model_id: &str, ctx: &ProviderContext) -> String {
+    fn try_model_url(&self, model_id: &str, ctx: &ProviderContext) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         if base.ends_with("/v1") {
-            format!("{base}/models/{model_id}")
+            Ok(format!("{base}/models/{model_id}"))
         } else {
-            format!("{base}/v1/models/{model_id}")
+            Ok(format!("{base}/v1/models/{model_id}"))
         }
     }
 
@@ -461,6 +466,34 @@ mod tests {
         AnthropicContainerConfig, AnthropicContainerSkill, AnthropicOptions,
     };
     use crate::providers::anthropic::ext::request_options::AnthropicChatRequestExt;
+
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn anthropic_spec_request_option_routing_does_not_read_response_metadata() {
+        let source = include_str!("spec.rs");
+        let request_routing =
+            source_section(source, "fn anthropic_provider_options", "impl ProviderSpec");
+
+        assert!(
+            request_routing.contains("provider_options_map"),
+            "Anthropic spec should keep request beta/feature routing on request provider options"
+        );
+
+        for forbidden in ["provider_metadata", "ProviderMetadata", "providerMetadata"] {
+            assert!(
+                !request_routing.contains(forbidden),
+                "Anthropic spec request routing must not read response metadata"
+            );
+        }
+    }
 
     #[test]
     fn merge_request_headers_unions_anthropic_beta_features() {

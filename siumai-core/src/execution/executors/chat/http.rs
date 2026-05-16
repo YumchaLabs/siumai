@@ -134,7 +134,7 @@ impl ChatExecutor for HttpChatExecutor {
         // Pre-compute URL (provider/base-level). Request-level headers are merged later per-request.
         let url = self
             .provider_spec
-            .chat_url(false, &req, &self.provider_context);
+            .try_chat_url(false, &req, &self.provider_context)?;
         let provider_spec = self.provider_spec.clone();
         let provider_context = self.provider_context.clone();
         let retry_options = self.policy.retry_options.clone();
@@ -332,7 +332,7 @@ impl ChatExecutor for HttpChatExecutor {
         let before_send = self.policy.before_send.clone();
         let url = self
             .provider_spec
-            .chat_url(true, &req, &self.provider_context);
+            .try_chat_url(true, &req, &self.provider_context)?;
         let headers_base = self.provider_spec.build_headers(&self.provider_context)?;
         let disable_compression = self.policy.stream_disable_compression;
         let middlewares = self.middlewares.clone();

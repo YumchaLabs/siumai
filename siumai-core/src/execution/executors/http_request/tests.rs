@@ -158,12 +158,12 @@ impl crate::core::ProviderSpec for StaticHeadersSpec {
     ) -> Result<reqwest::header::HeaderMap, LlmError> {
         Ok(self.headers.clone())
     }
-    fn chat_url(
+    fn try_chat_url(
         &self,
         _stream: bool,
         _req: &crate::types::ChatRequest,
         _ctx: &crate::core::ProviderContext,
-    ) -> String {
+    ) -> Result<String, LlmError> {
         unreachable!()
     }
     fn choose_chat_transformers(

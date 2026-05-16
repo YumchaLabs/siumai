@@ -995,6 +995,22 @@ mod tests {
         assert_eq!(session.base_url(), "http://localhost:1234/v1");
     }
 
+    #[test]
+    fn websocket_session_request_mutation_does_not_read_legacy_metadata_maps() {
+        let source = include_str!("websocket_session.rs");
+        let snake = concat!("provider", "_metadata");
+        let camel = concat!("provider", "Metadata");
+
+        assert!(
+            !source.contains(snake),
+            "OpenAI WebSocket session request mutation must not read legacy `{snake}`"
+        );
+        assert!(
+            !source.contains(camel),
+            "OpenAI WebSocket session request mutation must not read legacy `{camel}` JSON fields"
+        );
+    }
+
     #[tokio::test]
     async fn session_gate_prevents_concurrent_second_connection() {
         let accept_count = Arc::new(AtomicU32::new(0));

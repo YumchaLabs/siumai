@@ -1,10 +1,10 @@
 use siumai::experimental::client::LlmClient;
 use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
 use siumai::prelude::unified::registry::{
-    ProviderFactory, RegistryOptions, create_provider_registry,
+    BuildContext, ProviderFactory, RegistryOptions, create_provider_registry,
 };
 use siumai::prelude::unified::{
-    ChatCapability, ChatMessage, ChatResponse, ChatStream, LlmError, MessageContent,
+    ChatCapability, ChatMessage, ChatResponse, ChatStream, LlmError, MessageContent, ModelMetadata,
     ProviderCapabilities, Tool,
 };
 use std::collections::HashMap;
@@ -18,6 +18,17 @@ struct MockProviderFactory {
 
 #[async_trait::async_trait]
 impl ProviderFactory for MockProviderFactory {
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn siumai::text::LanguageModel>, LlmError> {
+        Ok(Arc::new(MockClient {
+            provider: self.provider_id.to_string(),
+            model: model_id.to_string(),
+        }))
+    }
+
     async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Return a mock client that echoes the provider and model in the response
         Ok(Arc::new(MockClient {
@@ -73,6 +84,18 @@ struct CountingProviderFactory {
 
 #[async_trait::async_trait]
 impl ProviderFactory for CountingProviderFactory {
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn siumai::text::LanguageModel>, LlmError> {
+        self.build_count.fetch_add(1, Ordering::SeqCst);
+        Ok(Arc::new(MockClient {
+            provider: self.provider_id.to_string(),
+            model: model_id.to_string(),
+        }))
+    }
+
     async fn compat_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.build_count.fetch_add(1, Ordering::SeqCst);
         Ok(Arc::new(MockClient {
@@ -148,6 +171,16 @@ impl ChatCapability for MockClient {
         Err(LlmError::UnsupportedOperation(
             "stream not supported in mock".to_string(),
         ))
+    }
+}
+
+impl ModelMetadata for MockClient {
+    fn provider_id(&self) -> &str {
+        &self.provider
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model
     }
 }
 

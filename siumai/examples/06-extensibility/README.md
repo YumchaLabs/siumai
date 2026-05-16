@@ -299,7 +299,7 @@ If the same bridge customization is needed in gateway routes, reuse the same obj
 │                      ProviderSpec Trait                      │
 │  - id() → provider identifier                               │
 │  - build_headers() → HTTP headers                            │
-│  - chat_url() → API endpoint                                 │
+│  - try_chat_url() → fallible API endpoint                    │
 │  - choose_chat_transformers() → transformers                 │
 └─────────────────────────────────────────────────────────────┘
                             │

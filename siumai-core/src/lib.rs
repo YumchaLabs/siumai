@@ -4,7 +4,6 @@
 #![deny(unsafe_code)]
 
 pub mod auth;
-pub mod bridge;
 pub mod builder;
 pub mod client;
 pub mod completion;
@@ -15,7 +14,6 @@ pub mod embedding;
 pub mod encoding;
 pub mod error;
 pub mod execution;
-pub mod hosted_tools;
 pub mod image;
 pub mod observability;
 pub mod params;
@@ -36,4 +34,4 @@ pub mod ui;
 pub mod utils;
 pub mod video;
 
-pub use error::LlmError;
+pub use error::{LlmError, LlmErrorExt};

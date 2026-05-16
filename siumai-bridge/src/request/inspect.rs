@@ -1,6 +1,6 @@
 //! Request bridge inspection.
 
-use siumai_core::bridge::{BridgeReport, BridgeTarget};
+use crate::{BridgeReport, BridgeTarget};
 use siumai_core::types::ChatRequest;
 
 use super::primitives::{

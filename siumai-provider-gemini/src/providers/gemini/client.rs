@@ -1057,7 +1057,7 @@ mod tests {
     fn prepare_chat_request_for_stream_sets_stream_and_fills_defaults() {
         let cfg = GeminiConfig::new("test-key")
             .with_model("gemini-2.0-flash-exp".to_string())
-            .with_http_config(crate::types::HttpConfig::default());
+            .with_http_config(crate::defaults::http::config_default());
         let client = GeminiClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()
@@ -1077,7 +1077,7 @@ mod tests {
     fn prepare_chat_request_for_non_stream_clears_stream_and_preserves_explicit_model() {
         let cfg = GeminiConfig::new("test-key")
             .with_model("gemini-2.0-flash-exp".to_string())
-            .with_http_config(crate::types::HttpConfig::default());
+            .with_http_config(crate::defaults::http::config_default());
         let client = GeminiClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()

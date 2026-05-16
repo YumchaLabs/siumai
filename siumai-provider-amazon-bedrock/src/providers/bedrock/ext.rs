@@ -178,6 +178,66 @@ mod tests {
         BedrockCacheTtl, BedrockEmbeddingInputType, BedrockFilePartCitations,
     };
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn bedrock_request_extension_source_does_not_read_response_metadata() {
+        let source = include_str!("ext.rs");
+        let request_source = source_section(
+            source,
+            "/// Typed chat request helpers for Amazon Bedrock.",
+            "/// Convert a Bedrock response into a replayable assistant message with reasoning metadata.",
+        );
+
+        for disallowed in [
+            "provider_metadata",
+            "ProviderMetadata",
+            "bedrock_reasoning_metadata",
+        ] {
+            assert!(
+                !request_source.contains(disallowed),
+                "Bedrock request extension helpers must stay request-only"
+            );
+        }
+    }
+
+    #[test]
+    fn bedrock_reasoning_replay_bridge_stays_explicit_cross_step_exception() {
+        let source = include_str!("ext.rs");
+        let bridge_source = source_section(
+            source,
+            "/// Convert a Bedrock response into a replayable assistant message with reasoning metadata.",
+            "#[cfg(test)]",
+        );
+
+        assert!(
+            bridge_source.contains("bedrock_reasoning_metadata"),
+            "Bedrock reasoning replay bridge must be the only scoped metadata reader"
+        );
+        assert!(
+            bridge_source.contains("\"signature\"") && bridge_source.contains("\"redactedData\""),
+            "Bedrock reasoning replay bridge must only project the documented replay fields"
+        );
+
+        for disallowed in [
+            "provider_metadata_mut",
+            "provider_metadata:",
+            "ProviderMetadataMap",
+        ] {
+            assert!(
+                !bridge_source.contains(disallowed),
+                "Bedrock reasoning replay bridge must project response metadata into request options without mutating metadata"
+            );
+        }
+    }
+
     #[test]
     fn assistant_message_with_reasoning_metadata_carries_part_fields_to_provider_options() {
         let response = ChatResponse::new(MessageContent::MultiModal(vec![

@@ -3,10 +3,10 @@
 //!
 //! Tests the MiniMaxi provider against a mock HTTP server.
 
-use siumai::prelude::compat::Siumai;
 mod minimaxi_tests {
     use futures::StreamExt;
     use serde_json::json;
+    use siumai::prelude::compat::Siumai;
     use siumai::prelude::*;
     use wiremock::matchers::{
         body_json, body_string_contains, header, header_exists, header_regex, method, path,

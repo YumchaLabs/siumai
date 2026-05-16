@@ -129,7 +129,7 @@ fn run_case(root: &Path) {
         Some("xai-test".to_string()),
         HashMap::new(),
     );
-    let url = spec.chat_url(req.stream, &req, &ctx);
+    let url = spec.try_chat_url(req.stream, &req, &ctx).unwrap();
     assert_eq!(url, expected_url, "fixture case: {}", root.display());
 }
 

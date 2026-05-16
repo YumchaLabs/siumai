@@ -19,7 +19,7 @@
 
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
     HttpTransportStreamBody, HttpTransportStreamResponse,
@@ -10937,7 +10937,7 @@ mod vertex_maas_public_path {
     }
 
     fn auth_http_config(token: &str) -> siumai::prelude::unified::HttpConfig {
-        let mut http_config = siumai::prelude::unified::HttpConfig::default();
+        let mut http_config = siumai::prelude::unified::HttpConfig::empty();
         http_config
             .headers
             .insert("Authorization".to_string(), format!("Bearer {token}"));
@@ -41616,7 +41616,7 @@ mod vertex_public_path {
         let global_transport = CaptureTransport::default();
         let vertex_transport = CaptureTransport::default();
 
-        let mut global_http_config = siumai::prelude::unified::HttpConfig::default();
+        let mut global_http_config = siumai::prelude::unified::HttpConfig::empty();
         global_http_config.headers.insert(
             "authorization".to_string(),
             "Bearer global-token".to_string(),

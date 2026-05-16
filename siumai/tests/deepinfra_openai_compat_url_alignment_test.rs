@@ -28,7 +28,7 @@ fn deepinfra_chat_url_matches_official_openai_compatible_endpoint() {
     req.common_params.model = "meta-llama/Llama-3.3-70B-Instruct".to_string();
 
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://api.deepinfra.com/v1/openai/chat/completions"
     );
 }
@@ -40,7 +40,7 @@ fn deepinfra_embedding_url_matches_official_openai_compatible_endpoint() {
 
     let req = EmbeddingRequest::new(vec!["hi".into()]).with_model("BAAI/bge-base-en-v1.5");
     assert_eq!(
-        spec.embedding_url(&req, &ctx),
+        spec.try_embedding_url(&req, &ctx).unwrap(),
         "https://api.deepinfra.com/v1/openai/embeddings"
     );
 }

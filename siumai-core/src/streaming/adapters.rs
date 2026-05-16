@@ -35,6 +35,10 @@ impl SseEventConverter for TransformerConverter {
         self.0.convert_event(event)
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        self.0.is_stream_end_event(event)
+    }
+
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         self.0.handle_stream_end()
     }
@@ -94,6 +98,10 @@ where
             }
             out
         })
+    }
+
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        self.convert.is_stream_end_event(event)
     }
 
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
@@ -185,10 +193,14 @@ where
         })
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        self.convert.is_stream_end_event(event)
+    }
+
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         let end_evt = eventsource_stream::Event {
             event: "siumai_stream_end".to_string(),
-            data: "[DONE]".to_string(),
+            data: String::new(),
             id: "0".to_string(),
             retry: None,
         };
@@ -203,7 +215,7 @@ where
     fn handle_stream_end_events(&self) -> Vec<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         let end_evt = eventsource_stream::Event {
             event: "siumai_stream_end".to_string(),
-            data: "[DONE]".to_string(),
+            data: String::new(),
             id: "0".to_string(),
             retry: None,
         };

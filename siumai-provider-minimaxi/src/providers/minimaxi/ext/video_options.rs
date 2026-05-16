@@ -37,6 +37,29 @@ impl MinimaxiVideoRequestExt for VideoGenerationRequest {
 mod tests {
     use super::*;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn minimaxi_video_request_extension_source_does_not_read_response_metadata() {
+        let source = include_str!("video_options.rs");
+        let request_source =
+            source_section(source, "pub trait MinimaxiVideoRequestExt", "#[cfg(test)]");
+
+        for disallowed in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
+            assert!(
+                !request_source.contains(disallowed),
+                "MiniMaxi video request extension helpers must stay request-only"
+            );
+        }
+    }
+
     #[test]
     fn video_request_ext_attaches_minimaxi_video_options() {
         let request = VideoGenerationRequest::new("hailuo-2.3", "hi").with_minimaxi_video_options(

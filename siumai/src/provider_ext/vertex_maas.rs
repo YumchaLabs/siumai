@@ -2,12 +2,13 @@
 ///
 /// These map to the shared OpenAI-compatible runtime used by the audited Vertex MaaS
 /// chat, completion, and embedding lanes. For the unified AI SDK-style provider surface,
-/// use [`vertex_maas()`], [`create_vertex_maas()`], [`crate::Provider::vertex_maas()`], or
-/// [`crate::provider::SiumaiBuilder::vertex_maas()`].
+/// use [`vertex_maas()`], [`create_vertex_maas()`], [`crate::compat::Provider::vertex_maas()`],
+/// or [`SiumaiBuilder::vertex_maas()`].
 pub use siumai_provider_openai_compatible::providers::openai_compatible::{
     GOOGLE_VERTEX_MAAS_VERSION as VERSION, GoogleVertexMaasClient, GoogleVertexMaasConfig,
     GoogleVertexMaasModelId, GoogleVertexMaasProviderSettings,
 };
+use siumai_registry::provider::SiumaiBuilder;
 
 /// Curated Vertex MaaS model constants aligned with the audited AI SDK package subset.
 pub mod models {
@@ -17,14 +18,14 @@ pub mod models {
 }
 
 /// Create the unified Google Vertex MaaS provider builder.
-pub fn vertex_maas() -> crate::provider::SiumaiBuilder {
-    crate::Provider::vertex_maas()
+pub fn vertex_maas() -> SiumaiBuilder {
+    SiumaiBuilder::new().vertex_maas()
 }
 
 /// Create the unified Google Vertex MaaS provider builder.
 ///
 /// This is the Rust package-surface analogue of AI SDK `createVertexMaas()`.
-pub fn create_vertex_maas() -> crate::provider::SiumaiBuilder {
+pub fn create_vertex_maas() -> SiumaiBuilder {
     vertex_maas()
 }
 

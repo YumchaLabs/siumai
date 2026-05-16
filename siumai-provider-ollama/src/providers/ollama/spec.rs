@@ -45,25 +45,25 @@ impl ProviderSpec for OllamaSpec {
         Some(classify_ollama_http_error(status, body_text))
     }
 
-    fn chat_url(
+    fn try_chat_url(
         &self,
         _stream: bool,
         _req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        format!("{}/api/chat", ctx.base_url.trim_end_matches('/'))
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/api/chat", ctx.base_url.trim_end_matches('/')))
     }
 
-    fn models_url(&self, ctx: &ProviderContext) -> String {
-        format!("{}/api/tags", ctx.base_url.trim_end_matches('/'))
+    fn try_models_url(&self, ctx: &ProviderContext) -> Result<String, LlmError> {
+        Ok(format!("{}/api/tags", ctx.base_url.trim_end_matches('/')))
     }
 
-    fn embedding_url(
+    fn try_embedding_url(
         &self,
         _req: &crate::types::EmbeddingRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        format!("{}/api/embed", ctx.base_url.trim_end_matches('/'))
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/api/embed", ctx.base_url.trim_end_matches('/')))
     }
 
     fn choose_chat_transformers(
@@ -130,28 +130,25 @@ impl ProviderSpec for OllamaSpecWithConfig {
         Some(classify_ollama_http_error(status, body_text))
     }
 
-    fn chat_url(
+    fn try_chat_url(
         &self,
         _stream: bool,
         _req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        format!("{}/api/chat", ctx.base_url.trim_end_matches('/'))
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/api/chat", ctx.base_url.trim_end_matches('/')))
     }
 
-    fn models_url(&self, ctx: &ProviderContext) -> String {
-        OllamaSpec {
-            params: self.params.clone(),
-        }
-        .models_url(ctx)
+    fn try_models_url(&self, ctx: &ProviderContext) -> Result<String, LlmError> {
+        Ok(format!("{}/api/tags", ctx.base_url.trim_end_matches('/')))
     }
 
-    fn embedding_url(
+    fn try_embedding_url(
         &self,
         _req: &crate::types::EmbeddingRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        format!("{}/api/embed", ctx.base_url.trim_end_matches('/'))
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/api/embed", ctx.base_url.trim_end_matches('/')))
     }
 
     fn choose_chat_transformers(

@@ -156,10 +156,10 @@ let _ = client
 ```rust
 use siumai::experimental::observability::tracing::ProviderTracer;
 
-let tracer = ProviderTracer::new("openai")
-    .with_model("gpt-4");
+let tracer = ProviderTracer::new("custom")
+    .with_model("custom-chat-model");
 
-tracer.trace_request_start("POST", "https://api.openai.com/v1/chat/completions");
+tracer.trace_request_start("POST", "https://api.example.com/v1/chat");
 // ... make request ...
 tracer.trace_request_complete(start_time, response_length);
 ```

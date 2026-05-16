@@ -162,60 +162,6 @@ pub fn convert_messages(
         }
     }
 
-    fn anthropic_part_metadata(
-        message: &ChatMessage,
-        index: usize,
-    ) -> Option<&serde_json::Map<String, serde_json::Value>> {
-        let MessageContent::MultiModal(parts) = &message.content else {
-            return None;
-        };
-
-        match parts.get(index)? {
-            ContentPart::Text {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::Image {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::Audio {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::File {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::ReasoningFile {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::Custom {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::ToolCall {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::ToolApprovalRequest {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::ToolResult {
-                provider_metadata: Some(provider_metadata),
-                ..
-            }
-            | ContentPart::Reasoning {
-                provider_metadata: Some(provider_metadata),
-                ..
-            } => provider_metadata.get("anthropic")?.as_object(),
-            ContentPart::ToolApprovalResponse { .. } | ContentPart::Source { .. } => None,
-            _ => None,
-        }
-    }
-
     fn anthropic_part_options(
         message: &ChatMessage,
         index: usize,
@@ -234,17 +180,9 @@ pub fn convert_messages(
         message: &ChatMessage,
         index: usize,
     ) -> AnthropicReasoningReplayMetadata {
-        let options = anthropic_part_options(message, index)
+        anthropic_part_options(message, index)
             .map(anthropic_reasoning_replay_metadata_from_map)
-            .unwrap_or_default();
-        let metadata = anthropic_part_metadata(message, index)
-            .map(anthropic_reasoning_replay_metadata_from_map)
-            .unwrap_or_default();
-
-        AnthropicReasoningReplayMetadata {
-            signature: options.signature.or(metadata.signature),
-            redacted_data: options.redacted_data.or(metadata.redacted_data),
-        }
+            .unwrap_or_default()
     }
 
     fn normalize_reasoning_blocks(message: &ChatMessage, content_json: &mut serde_json::Value) {
@@ -451,6 +389,35 @@ pub fn convert_messages(
 mod system_message_tests {
     use super::*;
 
+    fn message_with_legacy_cache_control(
+        mut message: ChatMessage,
+        cache_control: crate::types::CacheControl,
+    ) -> ChatMessage {
+        message.metadata.cache_control = Some(cache_control);
+        message
+    }
+
+    fn part_with_anthropic_cache_control(
+        part: ContentPart,
+        cache_control: crate::types::CacheControl,
+    ) -> ContentPart {
+        part.with_provider_option(
+            "anthropic",
+            match cache_control {
+                crate::types::CacheControl::Ephemeral => serde_json::json!({
+                    "cacheControl": { "type": "ephemeral" }
+                }),
+                crate::types::CacheControl::Persistent { ttl } => {
+                    let mut cache_control = serde_json::json!({ "type": "ephemeral" });
+                    if let Some(ttl) = ttl {
+                        cache_control["ttl"] = serde_json::json!(ttl.as_secs());
+                    }
+                    serde_json::json!({ "cacheControl": cache_control })
+                }
+            },
+        )
+    }
+
     #[test]
     fn allows_multiple_system_messages_at_start_as_system_blocks() {
         let messages = vec![
@@ -496,10 +463,12 @@ mod system_message_tests {
 
     #[test]
     fn message_cache_control_applies_to_last_user_content_part() {
-        let msg = ChatMessage::user("part1")
-            .with_content_parts(vec![crate::types::ContentPart::text("part2")])
-            .cache_control(crate::types::CacheControl::Ephemeral)
-            .build();
+        let msg = message_with_legacy_cache_control(
+            ChatMessage::user("part1")
+                .with_content_parts(vec![crate::types::ContentPart::text("part2")])
+                .build(),
+            crate::types::CacheControl::Ephemeral,
+        );
 
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
         let content = msgs[0].content.as_array().expect("content array");
@@ -532,9 +501,14 @@ mod system_message_tests {
 
     #[test]
     fn part_cache_control_map_applies_to_selected_part() {
-        let msg = ChatMessage::user("part1")
-            .with_content_parts(vec![crate::types::ContentPart::text("part2")])
-            .cache_control_for_part(0, crate::types::CacheControl::Ephemeral)
+        let msg = ChatMessage::user("")
+            .with_content_parts(vec![
+                part_with_anthropic_cache_control(
+                    crate::types::ContentPart::text("part1"),
+                    crate::types::CacheControl::Ephemeral,
+                ),
+                crate::types::ContentPart::text("part2"),
+            ])
             .build();
 
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
@@ -571,15 +545,18 @@ mod system_message_tests {
         sys1.metadata.cache_control = Some(crate::types::CacheControl::Ephemeral);
         let mut sys2 = ChatMessage::system("sys2").build();
         sys2.metadata.cache_control = Some(crate::types::CacheControl::Ephemeral);
-        let user1 = ChatMessage::user("u1")
-            .cache_control(crate::types::CacheControl::Ephemeral)
-            .build();
-        let user2 = ChatMessage::user("u2")
-            .cache_control(crate::types::CacheControl::Ephemeral)
-            .build();
-        let user3 = ChatMessage::user("u3")
-            .cache_control(crate::types::CacheControl::Ephemeral)
-            .build();
+        let user1 = message_with_legacy_cache_control(
+            ChatMessage::user("u1").build(),
+            crate::types::CacheControl::Ephemeral,
+        );
+        let user2 = message_with_legacy_cache_control(
+            ChatMessage::user("u2").build(),
+            crate::types::CacheControl::Ephemeral,
+        );
+        let user3 = message_with_legacy_cache_control(
+            ChatMessage::user("u3").build(),
+            crate::types::CacheControl::Ephemeral,
+        );
 
         let (msgs, system) = convert_messages(&[sys1, sys2, user1, user2, user3]).unwrap();
         let system = system.expect("system");
@@ -624,6 +601,44 @@ mod system_message_tests {
     }
 
     #[test]
+    fn assistant_reasoning_ignores_legacy_provider_metadata_signature_for_request_replay() {
+        let msg = ChatMessage::assistant_with_content(vec![ContentPart::Reasoning {
+            text: "hi".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({ "signature": "legacy_sig" }),
+            )])),
+        }])
+        .build();
+
+        let (msgs, _system) = convert_messages(&[msg]).unwrap();
+        let parts = msgs[0].content.as_array().expect("content array");
+
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/anthropic/utils/messages.rs"
+        ));
+        let implementation = source
+            .lines()
+            .take_while(|line| !line.contains("mod system_message_tests {"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for forbidden in ["provider_metadata", "providerMetadata"] {
+            assert!(
+                !implementation.contains(forbidden),
+                "Anthropic request conversion should not read legacy provider metadata via {forbidden}"
+            );
+        }
+    }
+
+    #[test]
     fn assistant_reasoning_with_redacted_data_emits_redacted_thinking_block() {
         let msg = ChatMessage::assistant_with_content(vec![
             ContentPart::reasoning("")
@@ -644,10 +659,11 @@ mod system_message_tests {
         let msg = ChatMessage::assistant_with_content(vec![
             ContentPart::reasoning("hi")
                 .with_provider_option("anthropic", serde_json::json!({ "signature": "sig" })),
-            ContentPart::text("ok"),
+            part_with_anthropic_cache_control(
+                ContentPart::text("ok"),
+                crate::types::CacheControl::Ephemeral,
+            ),
         ])
-        .cache_control(crate::types::CacheControl::Ephemeral)
-        .cache_control_for_part(0, crate::types::CacheControl::Ephemeral)
         .build();
 
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
@@ -666,19 +682,31 @@ mod document_citations_tests {
     use super::*;
     use crate::types::{ChatMessage, ContentPart};
 
+    fn anthropic_citation_document_part(
+        url: impl Into<String>,
+        media_type: impl Into<String>,
+        title: impl Into<String>,
+        context: impl Into<String>,
+    ) -> ContentPart {
+        ContentPart::file_url(url, media_type).with_provider_option(
+            "anthropic",
+            serde_json::json!({
+                "citations": { "enabled": true },
+                "title": title.into(),
+                "context": context.into()
+            }),
+        )
+    }
+
     #[test]
     fn attaches_citations_to_document_parts_when_enabled() {
         let msg = ChatMessage::user("hi")
-            .with_content_parts(vec![ContentPart::file_url(
+            .with_content_parts(vec![anthropic_citation_document_part(
                 "https://example.com/a.txt",
                 "text/plain",
+                "My Document",
+                "This is background context.",
             )])
-            .anthropic_document_citations_for_part(1, true)
-            .anthropic_document_metadata_for_part(
-                1,
-                Some("My Document".to_string()),
-                Some("This is background context.".to_string()),
-            )
             .build();
 
         let (msgs, sys) = convert_messages(&[msg]).expect("convert messages");

@@ -9,7 +9,7 @@
 //! ```
 
 use siumai::prelude::unified::*;
-use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
+use siumai::provider_ext::anthropic::{AnthropicChatMessageExt, AnthropicChatResponseExt};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,8 +24,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Mark system message for caching
     let system_msg = ChatMessage::system(&large_context)
-        .cache_control(CacheControl::Ephemeral)
-        .build();
+        .build()
+        .with_anthropic_cache_control(CacheControl::Ephemeral);
 
     // First request - will create cache
     println!("First request (creating cache)...");

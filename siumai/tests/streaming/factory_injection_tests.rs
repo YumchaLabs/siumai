@@ -6,9 +6,9 @@
 
 use futures_util::StreamExt;
 use siumai::experimental::execution::http::{HttpRequestContext, generate_request_id};
+use siumai::experimental::streaming::{SseEventConverter, StreamFactory};
 use siumai::prelude::unified::{
-    ChatResponse, ChatStreamEvent, FinishReason, LlmError, MessageContent, SseEventConverter,
-    StreamFactory,
+    ChatResponse, ChatStreamEvent, FinishReason, LlmError, MessageContent,
 };
 
 fn make_ctx(provider_id: &str, url: &str) -> HttpRequestContext {
@@ -38,6 +38,10 @@ impl SseEventConverter for EndOnlyConverter {
         Box::pin(async move { vec![] })
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        event.data.trim() == "[DONE]"
+    }
+
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         let mut response = ChatResponse::new(MessageContent::Text("INJECT".to_string()));
         response.finish_reason = Some(FinishReason::Stop);
@@ -61,6 +65,10 @@ impl SseEventConverter for DeltaThenEndConverter {
         >,
     > {
         Box::pin(async move { vec![Ok(ChatStreamEvent::text_delta_part("0", "DELTA"))] })
+    }
+
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        event.data.trim() == "[DONE]"
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {

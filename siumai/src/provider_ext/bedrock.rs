@@ -4,7 +4,7 @@ pub use siumai_provider_amazon_bedrock::providers::bedrock::{
 
 /// Create the Bedrock provider builder.
 pub fn bedrock() -> BedrockBuilder {
-    crate::Provider::bedrock()
+    crate::compat::Provider::bedrock()
 }
 
 /// Create the Bedrock provider builder.

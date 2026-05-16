@@ -72,9 +72,11 @@ fn resolve_base_url(ctx: &BuildContext) -> Result<String, LlmError> {
         .or_else(|| env_non_empty("GOOGLE_VERTEX_LOCATION"))
         .unwrap_or_else(|| DEFAULT_LOCATION.to_string());
 
-    Ok(crate::auth::vertex::google_vertex_maas_base_url(
-        &project, &location,
-    ))
+    Ok(
+        siumai_provider_google_vertex::auth::vertex::google_vertex_maas_base_url(
+            &project, &location,
+        ),
+    )
 }
 
 #[cfg(feature = "google-vertex")]
@@ -105,7 +107,7 @@ fn resolve_auth(
         Ok((
             String::new(),
             Some(std::sync::Arc::new(
-                crate::auth::adc::AdcTokenProvider::default_client(),
+                siumai_provider_google_vertex::auth::adc::AdcTokenProvider::default_client(),
             )),
         ))
     }

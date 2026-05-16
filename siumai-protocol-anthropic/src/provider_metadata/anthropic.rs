@@ -657,6 +657,30 @@ impl AnthropicContentPartExt for crate::types::ContentPart {
 mod tests {
     use super::*;
 
+    fn production_source() -> &'static str {
+        include_str!("anthropic.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn anthropic_provider_metadata_source_does_not_read_request_provider_options() {
+        let source = production_source();
+
+        for forbidden in [
+            "providerOptions",
+            "provider_options",
+            "provider_options_map",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "Anthropic typed provider metadata views must not read request-side {forbidden}"
+            );
+        }
+    }
+
     #[test]
     fn anthropic_metadata_parses_thinking_replay_fields() {
         let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(

@@ -136,6 +136,31 @@ impl VertexContentPartExt for crate::types::ContentPart {
 mod tests {
     use super::*;
 
+    fn production_source() -> &'static str {
+        include_str!("vertex.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn vertex_provider_metadata_source_does_not_read_request_provider_options() {
+        let source = production_source();
+
+        assert!(
+            !source.contains("providerOptions"),
+            "Vertex provider_metadata typed views must not read request-side providerOptions"
+        );
+        assert!(
+            !source.contains("provider_options"),
+            "Vertex provider_metadata typed views must not read request-side provider_options"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "Vertex provider_metadata typed views must not read request provider options maps"
+        );
+    }
+
     #[test]
     fn vertex_metadata_prefers_vertex_namespace_over_google_vertex_alias() {
         let mut response =

@@ -103,20 +103,21 @@ impl ProviderSpec for GeminiImageSpec {
         }
         Ok(headers)
     }
-    fn image_url(
+    fn try_image_url(
         &self,
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
-    ) -> String {
+    ) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         let model = super::normalize_gemini_model_id(req.model.as_deref().unwrap_or(""));
-        if let Some(adapter) = &self.adapter {
+        let url = if let Some(adapter) = &self.adapter {
             format!("{}{}", base, adapter.image_endpoint(&model))
         } else if model.trim().starts_with("imagen-") {
             format!("{}/models/{}:predict", base, model)
         } else {
             format!("{}/models/{}:generateContent", base, model)
-        }
+        };
+        Ok(url)
     }
     fn choose_image_transformers(
         &self,
@@ -153,7 +154,7 @@ mod tests {
         };
 
         assert_eq!(
-            spec.image_url(&req, &ctx),
+            spec.try_image_url(&req, &ctx).unwrap(),
             "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent"
         );
     }
@@ -176,7 +177,7 @@ mod tests {
         };
 
         assert_eq!(
-            spec.image_url(&req, &ctx),
+            spec.try_image_url(&req, &ctx).unwrap(),
             "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict"
         );
     }

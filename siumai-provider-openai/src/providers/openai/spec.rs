@@ -389,14 +389,20 @@ impl ProviderSpec for OpenAiSpec {
         )
     }
 
-    fn chat_url(&self, _stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = stream;
         let use_responses = self.use_responses_api(req, ctx);
         let suffix = if use_responses {
             "/responses"
         } else {
             "/chat/completions"
         };
-        format!("{}{}", ctx.base_url.trim_end_matches('/'), suffix)
+        Ok(format!("{}{}", ctx.base_url.trim_end_matches('/'), suffix))
     }
 
     fn choose_chat_transformers(
@@ -1197,6 +1203,46 @@ impl ProviderSpec for OpenAiSpec {
         }
     }
 
+    fn try_embedding_url(
+        &self,
+        req: &EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        self.embedding_standard
+            .create_spec("openai")
+            .try_embedding_url(req, ctx)
+    }
+
+    fn try_image_url(
+        &self,
+        req: &crate::types::ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        self.image_standard
+            .create_spec("openai")
+            .try_image_url(req, ctx)
+    }
+
+    fn try_image_edit_url(
+        &self,
+        req: &crate::types::ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        self.image_standard
+            .create_spec("openai")
+            .try_image_edit_url(req, ctx)
+    }
+
+    fn try_image_variation_url(
+        &self,
+        req: &crate::types::ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        self.image_standard
+            .create_spec("openai")
+            .try_image_variation_url(req, ctx)
+    }
+
     fn choose_image_transformers(
         &self,
         _req: &crate::types::ImageGenerationRequest,
@@ -1208,6 +1254,27 @@ impl ProviderSpec for OpenAiSpec {
             request: transformers.request,
             response: transformers.response,
         }
+    }
+
+    fn try_rerank_url(
+        &self,
+        req: &RerankRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        OpenAiRerankStandard::new()
+            .create_spec("openai")
+            .try_rerank_url(req, ctx)
+    }
+
+    fn try_models_url(&self, ctx: &ProviderContext) -> Result<String, LlmError> {
+        Ok(format!("{}/models", ctx.base_url.trim_end_matches('/')))
+    }
+
+    fn try_model_url(&self, model_id: &str, ctx: &ProviderContext) -> Result<String, LlmError> {
+        Ok(format!(
+            "{}/models/{model_id}",
+            ctx.base_url.trim_end_matches('/')
+        ))
     }
 
     fn choose_rerank_transformers(
@@ -1276,8 +1343,13 @@ impl ProviderSpec for OpenAiSpecWithRerank {
         self.inner.build_headers(ctx)
     }
 
-    fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-        self.inner.chat_url(stream, req, ctx)
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        self.inner.try_chat_url(stream, req, ctx)
     }
 
     fn choose_chat_transformers(
@@ -1296,8 +1368,12 @@ impl ProviderSpec for OpenAiSpecWithRerank {
         self.inner.chat_before_send(req, ctx)
     }
 
-    fn embedding_url(&self, req: &EmbeddingRequest, ctx: &ProviderContext) -> String {
-        self.inner.embedding_url(req, ctx)
+    fn try_embedding_url(
+        &self,
+        req: &EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        self.inner.try_embedding_url(req, ctx)
     }
 
     fn choose_embedding_transformers(
@@ -1316,28 +1392,28 @@ impl ProviderSpec for OpenAiSpecWithRerank {
         self.inner.embedding_before_send(req, ctx)
     }
 
-    fn image_url(
+    fn try_image_url(
         &self,
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        self.inner.image_url(req, ctx)
+    ) -> Result<String, LlmError> {
+        self.inner.try_image_url(req, ctx)
     }
 
-    fn image_edit_url(
+    fn try_image_edit_url(
         &self,
         req: &crate::types::ImageEditRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        self.inner.image_edit_url(req, ctx)
+    ) -> Result<String, LlmError> {
+        self.inner.try_image_edit_url(req, ctx)
     }
 
-    fn image_variation_url(
+    fn try_image_variation_url(
         &self,
         req: &crate::types::ImageVariationRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        self.inner.image_variation_url(req, ctx)
+    ) -> Result<String, LlmError> {
+        self.inner.try_image_variation_url(req, ctx)
     }
 
     fn choose_image_transformers(
@@ -1364,8 +1440,20 @@ impl ProviderSpec for OpenAiSpecWithRerank {
         self.inner.choose_files_transformer(ctx)
     }
 
-    fn rerank_url(&self, req: &RerankRequest, ctx: &ProviderContext) -> String {
-        self.inner.rerank_url(req, ctx)
+    fn try_rerank_url(
+        &self,
+        req: &RerankRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        self.inner.try_rerank_url(req, ctx)
+    }
+
+    fn try_models_url(&self, ctx: &ProviderContext) -> Result<String, LlmError> {
+        self.inner.try_models_url(ctx)
+    }
+
+    fn try_model_url(&self, model_id: &str, ctx: &ProviderContext) -> Result<String, LlmError> {
+        self.inner.try_model_url(model_id, ctx)
     }
 
     fn choose_rerank_transformers(
@@ -1388,6 +1476,64 @@ impl ProviderSpec for OpenAiSpecWithRerank {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn openai_spec_request_option_routing_does_not_read_response_metadata() {
+        let source = include_str!("spec.rs");
+        let request_option_source = source_section(
+            source,
+            "fn normalize_openai_provider_options_json",
+            "fn auto_responses_api_include_from_tools",
+        );
+
+        assert!(
+            request_option_source.contains("provider_options_map"),
+            "OpenAI spec should keep request routing on request provider options"
+        );
+
+        for forbidden in ["provider_metadata", "ProviderMetadata", "providerMetadata"] {
+            assert!(
+                !request_option_source.contains(forbidden),
+                "OpenAI spec request option routing must not read response metadata"
+            );
+        }
+    }
+
+    #[test]
+    fn openai_spec_provider_metadata_key_selection_does_not_read_request_options() {
+        let source = include_str!("spec.rs");
+        let metadata_key_source = source_section(
+            source,
+            "let provider_metadata_key = {",
+            "// Responses API transformers",
+        );
+
+        assert!(
+            metadata_key_source.contains("ctx.provider_id")
+                && metadata_key_source.contains("ctx.base_url"),
+            "OpenAI response metadata key selection should depend on provider context"
+        );
+
+        for forbidden in [
+            "provider_options_map",
+            "providerOptions",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !metadata_key_source.contains(forbidden),
+                "OpenAI response metadata key selection must not inspect request provider options"
+            );
+        }
+    }
 
     #[test]
     fn openai_spec_declares_image_audio_files_capabilities() {
@@ -1428,7 +1574,7 @@ mod tests {
                 serde_json::json!({ "responsesApi": { "enabled": true } }),
             );
 
-        let url = spec.chat_url(false, &req, &ctx);
+        let url = spec.try_chat_url(false, &req, &ctx).unwrap();
         assert!(url.ends_with("/responses"));
     }
 
@@ -1459,7 +1605,7 @@ mod tests {
             let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_provider_option("openai", openai_options);
 
-            let url = spec.chat_url(false, &req, &ctx);
+            let url = spec.try_chat_url(false, &req, &ctx).unwrap();
             assert!(url.ends_with("/responses"));
         }
     }
@@ -1493,7 +1639,7 @@ mod tests {
             let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_provider_option("openai", openai_options);
 
-            let url = spec.chat_url(false, &req, &ctx);
+            let url = spec.try_chat_url(false, &req, &ctx).unwrap();
             assert!(url.ends_with("/responses"));
         }
     }

@@ -1,7 +1,7 @@
-//! Automatic middleware configuration based on provider and model.
+//! Automatic middleware configuration based on provider namespace and model.
 //!
-//! This module provides automatic middleware addition based on the provider
-//! and model being used, similar to Cherry Studio's approach.
+//! This module provides automatic middleware addition based on runtime
+//! configuration, similar to Cherry Studio's approach.
 
 use super::{
     builder::MiddlewareBuilder,
@@ -13,9 +13,9 @@ use std::sync::Arc;
 /// Configuration for automatic middleware selection.
 #[derive(Debug, Clone)]
 pub struct MiddlewareConfig {
-    /// Provider ID (e.g., "openai", "anthropic", "gemini")
+    /// Provider option namespace used by request-level `provider_options`.
     pub provider_id: String,
-    /// Model ID (e.g., "gpt-4", "claude-3", "gemini-2.5-pro")
+    /// Model ID.
     pub model_id: String,
     /// Whether to enable reasoning/thinking extraction
     pub enable_reasoning: bool,
@@ -50,7 +50,7 @@ impl MiddlewareConfig {
 /// Build automatic middlewares based on configuration.
 ///
 /// This function automatically adds appropriate middlewares based on the
-/// provider and model being used.
+/// provider namespace and model being used.
 ///
 /// # Arguments
 ///
@@ -65,7 +65,7 @@ impl MiddlewareConfig {
 /// ```rust,ignore
 /// use siumai::experimental::execution::middleware::auto::{MiddlewareConfig, build_auto_middlewares};
 ///
-/// let config = MiddlewareConfig::new("openai", "o1-preview");
+/// let config = MiddlewareConfig::new("provider-id", "model-id");
 /// let builder = build_auto_middlewares(&config);
 /// let middlewares = builder.build();
 /// ```
@@ -92,8 +92,8 @@ pub fn build_auto_middlewares(config: &MiddlewareConfig) -> MiddlewareBuilder {
 ///
 /// # Arguments
 ///
-/// * `provider_id` - The provider identifier (e.g., "openai", "anthropic")
-/// * `model_id` - The model identifier (e.g., "gpt-4", "o1-preview")
+/// * `provider_id` - The provider option namespace.
+/// * `model_id` - The model identifier.
 ///
 /// # Returns
 ///
@@ -104,7 +104,7 @@ pub fn build_auto_middlewares(config: &MiddlewareConfig) -> MiddlewareBuilder {
 /// ```rust,ignore
 /// use siumai::experimental::execution::middleware::auto::build_auto_middlewares_vec;
 ///
-/// let middlewares = build_auto_middlewares_vec("openai", "o1-preview");
+/// let middlewares = build_auto_middlewares_vec("provider-id", "model-id");
 /// let client = client.with_model_middlewares(middlewares);
 /// ```
 pub fn build_auto_middlewares_vec(
@@ -132,7 +132,9 @@ fn add_default_middlewares(builder: &mut MiddlewareBuilder, config: &MiddlewareC
 
     builder.add(
         "system-message-mode-warning",
-        Arc::new(SystemMessageModeWarningMiddleware::new()),
+        Arc::new(SystemMessageModeWarningMiddleware::new(
+            config.provider_id.clone(),
+        )),
     );
 }
 
@@ -152,9 +154,45 @@ fn add_model_specific_middlewares(_builder: &mut MiddlewareBuilder, _config: &Mi
 mod tests {
     use super::*;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
     #[test]
-    fn test_build_auto_middlewares_openai() {
-        let config = MiddlewareConfig::new("openai", "o1-preview");
+    fn automatic_middleware_source_stays_provider_agnostic() {
+        let source = include_str!("auto.rs");
+        let production_source =
+            source_section(source, "pub struct MiddlewareConfig", "#[cfg(test)]");
+
+        let disallowed = [
+            format!("\"{}\"", ["op", "enai"].concat()),
+            format!("\"{}\"", ["az", "ure"].concat()),
+            format!("\"{}\"", ["an", "thropic"].concat()),
+            format!("\"{}\"", ["ge", "mini"].concat()),
+            format!("\"{}-", ["gp", "t"].concat()),
+            format!("\"{}-", ["cla", "ude"].concat()),
+            ["Open", "AI"].concat(),
+            ["Az", "ure"].concat(),
+            ["An", "thropic"].concat(),
+            ["Ge", "mini"].concat(),
+        ];
+
+        for disallowed in disallowed {
+            assert!(
+                !production_source.contains(&disallowed),
+                "core automatic middleware wiring must not hard-code concrete providers or models"
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_auto_middlewares_default_chain() {
+        let config = MiddlewareConfig::new("provider-a", "reasoning-model");
         let builder = build_auto_middlewares(&config);
 
         assert!(builder.has("extract-reasoning"));
@@ -163,8 +201,8 @@ mod tests {
     }
 
     #[test]
-    fn test_build_auto_middlewares_gemini() {
-        let config = MiddlewareConfig::new("gemini", "gemini-2.5-pro");
+    fn test_build_auto_middlewares_other_provider_namespace() {
+        let config = MiddlewareConfig::new("provider-b", "multi-modal-model");
         let builder = build_auto_middlewares(&config);
 
         assert!(builder.has("extract-reasoning"));
@@ -174,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_build_auto_middlewares_disabled_reasoning() {
-        let config = MiddlewareConfig::new("openai", "gpt-4").with_enable_reasoning(false);
+        let config = MiddlewareConfig::new("provider-a", "chat-model").with_enable_reasoning(false);
         let builder = build_auto_middlewares(&config);
 
         assert!(!builder.has("extract-reasoning"));
@@ -183,13 +221,48 @@ mod tests {
     }
 
     #[test]
+    fn auto_system_message_warning_uses_configured_provider_namespace() {
+        use crate::types::{ChatMessage, ChatRequest, ChatResponse, MessageContent, Warning};
+
+        let config = MiddlewareConfig::new("provider-a", "chat-model");
+        let builder = build_auto_middlewares(&config);
+        let named = builder.build_named();
+        let middleware = named
+            .iter()
+            .find(|middleware| middleware.name == "system-message-mode-warning")
+            .expect("system warning middleware");
+
+        let req = ChatRequest::new(vec![
+            ChatMessage::system("sys").build(),
+            ChatMessage::user("hi").build(),
+        ])
+        .with_provider_option(
+            "provider-a",
+            serde_json::json!({ "systemMessageMode": "remove" }),
+        );
+        let resp = ChatResponse::new(MessageContent::Text("ok".to_string()));
+        let resp = middleware
+            .middleware
+            .post_generate(&req, resp)
+            .expect("post-generate");
+
+        assert_eq!(
+            resp.warnings,
+            Some(vec![Warning::Compatibility {
+                feature: "systemMessageMode=remove".to_string(),
+                details: Some("system messages are removed for this model".to_string()),
+            }])
+        );
+    }
+
+    #[test]
     fn test_middleware_config_builder() {
-        let config = MiddlewareConfig::new("openai", "gpt-4")
+        let config = MiddlewareConfig::new("provider-a", "chat-model")
             .with_enable_reasoning(false)
             .with_stream_output(false);
 
-        assert_eq!(config.provider_id, "openai");
-        assert_eq!(config.model_id, "gpt-4");
+        assert_eq!(config.provider_id, "provider-a");
+        assert_eq!(config.model_id, "chat-model");
         assert!(!config.enable_reasoning);
         assert!(!config.stream_output);
     }

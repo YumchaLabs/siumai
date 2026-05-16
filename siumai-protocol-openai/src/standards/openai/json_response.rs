@@ -1666,6 +1666,22 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn openai_json_response_encoder_source_does_not_read_request_provider_options() {
+        let source = include_str!("json_response.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+
+        for forbidden in ["provider_options", ".provider_options", "providerOptions"] {
+            assert!(
+                !production_source.contains(forbidden),
+                "OpenAI JSON response encoders must not read request-side provider options fragment `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
     fn responses_encoder_serializes_reasoning_ids_annotations_and_native_fields() {
         let reasoning = ContentPart::Reasoning {
             text: "Need to compare both options.".to_string(),

@@ -1,8 +1,8 @@
 //! Provider-agnostic structured output helpers.
 //!
 //! This module focuses on best-effort JSON extraction from model output. Provider-specific
-//! schema enforcement lives at the protocol/provider layers (e.g. OpenAI `response_format`,
-//! Anthropic `output_format`, Gemini `responseSchema`, or reserved tool strategies).
+//! schema enforcement lives at the protocol/provider layers through provider-owned response-format
+//! options, JSON-mode settings, or reserved tool strategies.
 
 use crate::error::LlmError;
 use crate::streaming::{ChatStream, StreamProcessor};
@@ -1067,7 +1067,7 @@ mod tests {
         let response = ChatResponse {
             id: None,
             content: MessageContent::MultiModal(vec![ContentPart::text("{\"value\":\"ok\"}")]),
-            model: Some("anthropic.claude-3-haiku-20240307-v1:0".to_string()),
+            model: Some("provider-a.model-a".to_string()),
             usage: Some(Usage::new(15, 42)),
             finish_reason: Some(FinishReason::Unknown),
             raw_finish_reason: None,
@@ -1078,7 +1078,7 @@ mod tests {
             request: None,
             response: None,
             provider_metadata: Some(std::collections::HashMap::from([(
-                "bedrock".to_string(),
+                "provider-a".to_string(),
                 serde_json::json!({ "isJsonResponseFromTool": true }),
             )])),
         };
@@ -1099,7 +1099,7 @@ mod tests {
                         raw: None,
                     },
                     provider_metadata: Some(std::collections::HashMap::from([(
-                        "bedrock".to_string(),
+                        "provider-a".to_string(),
                         serde_json::json!({ "isJsonResponseFromTool": true }),
                     )])),
                 },

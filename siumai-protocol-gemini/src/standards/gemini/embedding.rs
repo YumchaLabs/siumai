@@ -102,10 +102,14 @@ impl ProviderSpec for GeminiEmbeddingSpec {
         }
         Ok(headers)
     }
-    fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
+    fn try_embedding_url(
+        &self,
+        req: &crate::types::EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         let model = super::normalize_gemini_model_id(req.model.as_deref().unwrap_or(""));
-        if let Some(adapter) = &self.adapter {
+        let url = if let Some(adapter) = &self.adapter {
             if req.input.len() == 1 {
                 format!("{}{}", base, adapter.embed_endpoint(&model))
             } else {
@@ -115,7 +119,8 @@ impl ProviderSpec for GeminiEmbeddingSpec {
             format!("{}/models/{}:embedContent", base, model)
         } else {
             format!("{}/models/{}:batchEmbedContents", base, model)
-        }
+        };
+        Ok(url)
     }
     fn choose_embedding_transformers(
         &self,
@@ -147,7 +152,7 @@ mod tests {
         let req = crate::types::EmbeddingRequest::single("hi")
             .with_model("publishers/google/models/text-embedding-004");
         assert_eq!(
-            spec.embedding_url(&req, &ctx),
+            spec.try_embedding_url(&req, &ctx).unwrap(),
             "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/text-embedding-004:embedContent"
         );
     }

@@ -626,6 +626,54 @@ mod tests {
     use crate::types::MessageContent;
 
     #[test]
+    fn anthropic_request_transformer_source_does_not_read_response_provider_metadata() {
+        let source = include_str!("transformers.rs");
+        let request_section = source
+            .split("/// Request transformer for Anthropic")
+            .nth(1)
+            .expect("Anthropic request transformer source")
+            .split("/// Response transformer for Anthropic")
+            .next()
+            .expect("Anthropic request transformer production section");
+
+        for forbidden in [
+            "provider_metadata",
+            ".provider_metadata",
+            "providerMetadata",
+            "ProviderMetadataMap",
+        ] {
+            assert!(
+                !request_section.contains(forbidden),
+                "Anthropic request transformer must not read response-side provider metadata fragment `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
+    fn anthropic_response_transformer_source_does_not_read_request_provider_options() {
+        let source = include_str!("transformers.rs");
+        let response_section = source
+            .split("/// Response transformer for Anthropic")
+            .nth(1)
+            .expect("Anthropic response transformer source")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("Anthropic response transformer production section");
+
+        for forbidden in [
+            "provider_options",
+            ".provider_options",
+            "providerOptions",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !response_section.contains(forbidden),
+                "Anthropic response transformer must not read request-side provider options fragment `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
     fn captures_thinking_signature_in_provider_metadata() {
         let tx = AnthropicResponseTransformer::default();
         let raw = serde_json::json!({
@@ -1477,6 +1525,10 @@ impl StreamChunkTransformer for AnthropicStreamChunkTransformer {
         >,
     > {
         self.inner.convert_event(event)
+    }
+
+    fn is_stream_end_event(&self, event: &Event) -> bool {
+        self.inner.is_stream_end_event(event)
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {

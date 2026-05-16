@@ -41,8 +41,13 @@ impl ProviderSpec for FlippingAuthSpec {
         Ok(headers)
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
-        format!("{}/json", ctx.base_url.trim_end_matches('/'))
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/json", ctx.base_url.trim_end_matches('/')))
     }
 
     fn choose_chat_transformers(

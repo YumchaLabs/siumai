@@ -18,9 +18,8 @@ pub(crate) fn openai_sse_json_config_with_done_markers(
     label: &str,
     done_markers: &[&str],
 ) -> crate::streaming::SseJsonStreamConfig {
-    let mut cfg = crate::streaming::SseJsonStreamConfig::new(format!("openai {label}"));
-    cfg.done_markers = done_markers.iter().map(|s| (*s).to_string()).collect();
-    cfg
+    crate::streaming::SseJsonStreamConfig::new(format!("openai {label}"))
+        .with_done_markers(done_markers.iter().copied())
 }
 
 pub(crate) fn openai_sse_event_type(payload: &serde_json::Value) -> Option<&str> {

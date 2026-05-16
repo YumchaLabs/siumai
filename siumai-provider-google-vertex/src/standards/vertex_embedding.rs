@@ -142,7 +142,11 @@ impl ProviderSpec for VertexEmbeddingSpec {
         build_vertex_headers(&ctx.http_extra_headers)
     }
 
-    fn embedding_url(&self, req: &EmbeddingRequest, ctx: &ProviderContext) -> String {
+    fn try_embedding_url(
+        &self,
+        req: &EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
         let url = format!("{}/models/{}:predict", base, model);
@@ -151,9 +155,9 @@ impl ProviderSpec for VertexEmbeddingSpec {
             && !key.is_empty()
             && !has_auth_header(&ctx.http_extra_headers)
         {
-            append_api_key_query(url, key)
+            Ok(append_api_key_query(url, key))
         } else {
-            url
+            Ok(url)
         }
     }
 

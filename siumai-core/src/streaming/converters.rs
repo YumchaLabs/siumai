@@ -38,11 +38,18 @@ pub trait SseEventConverter: Send + Sync {
     /// Convert an SSE event to zero or more ChatStreamEvents
     fn convert_event(&self, event: Event) -> SseEventFuture<'_>;
 
+    /// Return whether this SSE event is the protocol's stream-end sentinel.
+    ///
+    /// The core stream factory only owns SSE transport orchestration. Concrete
+    /// marker values belong to protocol/provider converters.
+    fn is_stream_end_event(&self, _event: &Event) -> bool {
+        false
+    }
+
     /// Serialize a unified `ChatStreamEvent` into provider-native SSE bytes.
     ///
     /// This is the reverse operation of `convert_event(...)` and enables
-    /// cross-provider stream proxying (e.g., exposing an Ollama backend as an
-    /// Anthropic-compatible SSE endpoint).
+    /// bridge/gateway stream proxying through a converter-owned wire format.
     ///
     /// Converters may return an empty byte vector to indicate "no output" for
     /// the given event (for example, when the provider protocol has no explicit
@@ -57,7 +64,7 @@ pub trait SseEventConverter: Send + Sync {
     }
 
     /// Whether the StreamFactory should call `handle_stream_end` when the SSE
-    /// connection closes without an explicit `[DONE]` marker.
+    /// connection closes without an explicit protocol end marker.
     ///
     /// Default is `false` to preserve the existing semantics: an unexpected
     /// disconnect should not synthesize a StreamEnd.
@@ -76,14 +83,14 @@ pub trait SseEventConverter: Send + Sync {
 
     /// Handle the end of stream
     ///
-    /// Called when the stream ends (e.g., `[DONE]` event).
+    /// Called when the stream ends.
     /// Return Some(event) to emit a final event, or None to end silently.
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         None
     }
 }
 
-/// Trait for converting JSON data to ChatStreamEvent (for providers like Gemini, Ollama)
+/// Trait for converting JSON data to ChatStreamEvent
 ///
 /// This trait supports multi-event emission for JSON-based streaming.
 /// Used for providers that emit line-delimited JSON instead of SSE.
@@ -108,7 +115,7 @@ pub trait JsonEventConverter: Send + Sync {
     /// Serialize a unified `ChatStreamEvent` into provider-native JSON line bytes.
     ///
     /// This is the reverse operation of `convert_json(...)` and enables
-    /// cross-provider stream proxying for JSONL-based providers (e.g. Ollama).
+    /// bridge/gateway stream proxying for JSONL-based providers.
     ///
     /// Converters may return an empty byte vector to indicate "no output" for
     /// the given event.

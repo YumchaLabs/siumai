@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use futures_util::{StreamExt, stream};
 #[cfg(feature = "anthropic")]
-use siumai_core::bridge::StreamBridgeHook;
-use siumai_core::bridge::{
+use crate::StreamBridgeHook;
+use crate::{
     BridgeCustomization, BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions,
     BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext,
     ResponseBridgeContext, StreamBridgeContext,
 };
+use futures_util::{StreamExt, stream};
 use siumai_core::streaming::ChatByteStream;
 use siumai_core::types::{
     ChatResponse, ChatStreamEvent, ChatStreamFinishInfo, ChatStreamPart, ChatStreamReplay,
@@ -86,7 +86,7 @@ impl BridgeLossPolicy for ContinueLossyPolicy {
     fn request_action(
         &self,
         _ctx: &RequestBridgeContext,
-        _report: &siumai_core::bridge::BridgeReport,
+        _report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         BridgeLossAction::Continue
     }
@@ -94,7 +94,7 @@ impl BridgeLossPolicy for ContinueLossyPolicy {
     fn response_action(
         &self,
         _ctx: &ResponseBridgeContext,
-        _report: &siumai_core::bridge::BridgeReport,
+        _report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         BridgeLossAction::Continue
     }
@@ -102,7 +102,7 @@ impl BridgeLossPolicy for ContinueLossyPolicy {
     fn stream_action(
         &self,
         _ctx: &StreamBridgeContext,
-        _report: &siumai_core::bridge::BridgeReport,
+        _report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         BridgeLossAction::Continue
     }
@@ -200,6 +200,32 @@ async fn collect_bytes(mut stream: ChatByteStream) -> String {
         out.extend_from_slice(&chunk);
     }
     String::from_utf8(out).expect("utf8")
+}
+
+#[cfg(feature = "openai")]
+fn parse_sse_frames(body: &str) -> Vec<(String, serde_json::Value)> {
+    body.split("\n\n")
+        .filter_map(|frame| {
+            let mut event = None;
+            let mut data_lines = Vec::new();
+
+            for line in frame.lines() {
+                if let Some(value) = line.strip_prefix("event: ") {
+                    event = Some(value.to_string());
+                } else if let Some(value) = line.strip_prefix("data: ") {
+                    data_lines.push(value);
+                }
+            }
+
+            let event = event?;
+            let data = data_lines.join("\n");
+            if data == "[DONE]" || data.is_empty() {
+                return None;
+            }
+
+            Some((event, serde_json::from_str(&data).expect("json sse data")))
+        })
+        .collect()
 }
 
 #[cfg(all(feature = "anthropic", feature = "openai"))]
@@ -638,6 +664,119 @@ async fn custom_stream_loss_policy_can_allow_cross_protocol_strict_mode() {
 
     let body = collect_bytes(bridged.value.expect("byte stream")).await;
     assert!(body.contains("event: response.completed"));
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn openai_responses_stream_bridge_maps_gemini_tool_events_to_output_items() {
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::Custom {
+            event_type: "gemini:tool".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "call_1",
+                "toolName": "code_execution",
+                "providerExecuted": true,
+                "input": { "language": "PYTHON", "code": "print(1)" }
+            }),
+        }),
+        Ok(ChatStreamEvent::Custom {
+            event_type: "gemini:tool".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "call_1",
+                "toolName": "code_execution",
+                "providerExecuted": true,
+                "result": { "outcome": "OUTCOME_OK", "output": "1" }
+            }),
+        }),
+    ]);
+
+    let bridged = bridge_chat_stream_to_openai_responses_sse(
+        stream,
+        Some(BridgeTarget::GeminiGenerateContent),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+    let frames = parse_sse_frames(&body);
+
+    let added = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.output_item.added");
+    let done = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.output_item.done");
+    assert!(
+        added.is_some(),
+        "tool-call should produce output_item.added"
+    );
+    assert!(
+        done.is_some(),
+        "tool-result should produce output_item.done"
+    );
+
+    let added_output_index = added
+        .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+        .unwrap_or_default();
+    let done_output_index = done
+        .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+        .unwrap_or_default();
+
+    assert_eq!(added_output_index, done_output_index);
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn openai_responses_stream_bridge_synthesizes_tool_call_when_only_result_is_available() {
+    let stream = stream::iter(vec![Ok(ChatStreamEvent::Custom {
+        event_type: "anthropic:tool-result".to_string(),
+        data: serde_json::json!({
+            "type": "tool-result",
+            "toolCallId": "call_2",
+            "toolName": "web_search",
+            "providerExecuted": true,
+            "isError": false,
+            "result": [{ "type": "web_search_result", "url": "https://example.com", "title": "Example" }]
+        }),
+    })]);
+
+    let bridged = bridge_chat_stream_to_openai_responses_sse(
+        stream,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+    let frames = parse_sse_frames(&body);
+
+    let added = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.output_item.added");
+    let done = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.output_item.done");
+    assert!(
+        added.is_some(),
+        "bridged tool-result should synthesize output_item.added"
+    );
+    assert!(
+        done.is_some(),
+        "bridged tool-result should produce output_item.done"
+    );
+
+    let added_output_index = added
+        .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+        .unwrap_or_default();
+    let done_output_index = done
+        .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+        .unwrap_or_default();
+
+    assert_eq!(added_output_index, done_output_index);
 }
 
 #[cfg(feature = "openai")]

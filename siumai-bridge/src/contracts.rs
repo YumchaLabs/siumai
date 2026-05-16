@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::{
+use siumai_core::{
     error::LlmError,
     streaming::ChatStreamEvent,
     types::{ChatRequest, ChatResponse},
@@ -939,8 +939,8 @@ impl From<BridgeOptions> for BridgeOptionsOverride {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ChatRequest, ChatStreamPart, MessageContent};
     use serde_json::json;
+    use siumai_core::types::{ChatRequest, ChatStreamPart, MessageContent};
 
     struct CompositeCustomization;
 

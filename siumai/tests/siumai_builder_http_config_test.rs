@@ -3,7 +3,7 @@
 
 #![cfg(feature = "openai")]
 
-use siumai::provider::Siumai;
+use siumai::compat::Siumai;
 use std::time::Duration;
 
 #[tokio::test]

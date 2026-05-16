@@ -33,7 +33,7 @@ impl HttpHeaderBuilder {
         Ok(self)
     }
 
-    /// Add custom authorization header (e.g., x-api-key for Anthropic)
+    /// Add custom authorization header (for example, `x-api-key`).
     pub fn with_custom_auth(mut self, header_name: &str, value: &str) -> Result<Self, LlmError> {
         let header_name = HeaderName::from_bytes(header_name.as_bytes()).map_err(|e| {
             LlmError::ConfigurationError(format!("Invalid header name '{header_name}': {e}"))
@@ -201,6 +201,24 @@ mod tests {
     static _TRACING_TOGGLE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
+    fn header_tests_use_provider_neutral_names() {
+        let source = include_str!("headers.rs");
+        let forbidden = [
+            ["op", "enai"].concat(),
+            ["az", "ure"].concat(),
+            ["an", "thropic"].concat(),
+            ["ge", "mini"].concat(),
+        ];
+
+        for fragment in forbidden {
+            assert!(
+                !source.contains(&fragment),
+                "core HTTP header tests must use provider-neutral header names"
+            );
+        }
+    }
+
+    #[test]
     fn test_header_builder() {
         let headers = HttpHeaderBuilder::new()
             .with_bearer_auth("test-token")
@@ -219,16 +237,16 @@ mod tests {
     fn merge_headers_overrides_existing_values() {
         let mut base = HeaderMap::new();
         base.insert(
-            HeaderName::from_bytes(b"anthropic-beta").unwrap(),
+            HeaderName::from_bytes(b"x-provider-beta").unwrap(),
             HeaderValue::from_str("a,b").unwrap(),
         );
 
         let mut extra = HashMap::new();
-        extra.insert("Anthropic-Beta".to_string(), "c".to_string());
+        extra.insert("X-Provider-Beta".to_string(), "c".to_string());
 
         let merged = merge_headers(base, &extra);
         let value = merged
-            .get("anthropic-beta")
+            .get("x-provider-beta")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
         assert_eq!(value, "c");

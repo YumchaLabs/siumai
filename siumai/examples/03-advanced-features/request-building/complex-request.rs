@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // Build complex request with all features
-    let mut http_config = HttpConfig::default();
+    let mut http_config = HttpConfig::empty();
     http_config
         .headers
         .insert("X-Custom-Header".to_string(), "custom-value".to_string());

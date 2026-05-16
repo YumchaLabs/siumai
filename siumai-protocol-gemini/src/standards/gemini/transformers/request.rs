@@ -998,6 +998,27 @@ mod tests_gemini_rules {
     use crate::types::{ChatMessage, Tool};
 
     #[test]
+    fn gemini_request_transformer_source_does_not_read_response_provider_metadata() {
+        let source = include_str!("request.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+
+        for forbidden in [
+            "provider_metadata",
+            ".provider_metadata",
+            "providerMetadata",
+            "ProviderMetadataMap",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "Gemini request transformer must not read response-side provider metadata fragment `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
     fn move_common_params_into_generation_config() {
         let cfg = GeminiConfig::default()
             .with_model("gemini-1.5-flash".into())

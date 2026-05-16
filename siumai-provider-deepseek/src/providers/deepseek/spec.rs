@@ -163,8 +163,13 @@ impl ProviderSpec for DeepSeekSpec {
         self.inner.classify_http_error(status, body_text, headers)
     }
 
-    fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-        self.inner.chat_url(stream, req, ctx)
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        self.inner.try_chat_url(stream, req, ctx)
     }
 
     fn choose_chat_transformers(

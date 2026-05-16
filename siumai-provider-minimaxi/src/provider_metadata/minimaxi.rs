@@ -70,6 +70,31 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    fn production_source() -> &'static str {
+        include_str!("minimaxi.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn minimaxi_provider_metadata_source_does_not_read_request_provider_options() {
+        let source = production_source();
+
+        assert!(
+            !source.contains("providerOptions"),
+            "MiniMaxi provider_metadata typed views must not read request-side providerOptions"
+        );
+        assert!(
+            !source.contains("provider_options"),
+            "MiniMaxi provider_metadata typed views must not read request-side provider_options"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "MiniMaxi provider_metadata typed views must not read request provider options maps"
+        );
+    }
+
     #[test]
     fn minimaxi_metadata_parses_normalized_provider_key() {
         let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(

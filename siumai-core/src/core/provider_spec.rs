@@ -30,8 +30,13 @@
 //!         // Build authentication headers
 //!     }
 //!
-//!     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-//!         // Return chat endpoint URL
+//!     fn try_chat_url(
+//!         &self,
+//!         stream: bool,
+//!         req: &ChatRequest,
+//!         ctx: &ProviderContext,
+//!     ) -> Result<String, LlmError> {
+//!         // Return provider-owned chat endpoint URL
 //!     }
 //!
 //!     fn choose_chat_transformers(&self, req: &ChatRequest, ctx: &ProviderContext) -> ChatTransformers {
@@ -237,7 +242,7 @@ pub struct ProviderContext {
     pub organization: Option<String>,
     pub project: Option<String>,
     /// Extra hints for provider-specific toggles
-    /// (e.g., openai.responses_api / previous_response_id / response_format)
+    /// (e.g., provider-a.responses_api / previous_response_id / response_format)
     pub extras: HashMap<String, serde_json::Value>,
 }
 
@@ -314,9 +319,15 @@ pub struct RerankTransformers {
         Arc<dyn crate::execution::transformers::rerank_response::RerankResponseTransformer>,
 }
 
+fn unsupported_route_error(provider: &str, capability: &str) -> LlmError {
+    LlmError::UnsupportedOperation(format!(
+        "{provider} does not provide provider-owned route resolution for {capability}"
+    ))
+}
+
 /// Provider Specification: unified header building, routing, and transformer selection
 pub trait ProviderSpec: Send + Sync {
-    /// Provider identifier (e.g., "openai", "anthropic")
+    /// Provider identifier (e.g., "provider-a", "provider-b")
     fn id(&self) -> &'static str;
     /// Capability declaration (metadata/debugging)
     fn capabilities(&self) -> ProviderCapabilities;
@@ -327,7 +338,7 @@ pub trait ProviderSpec: Send + Sync {
     /// Optional: provider-derived per-request header overrides for chat.
     ///
     /// This hook is evaluated per request, before the HTTP layer merges headers.
-    /// It enables providers to conditionally enable beta flags (e.g. `anthropic-beta`)
+    /// It enables providers to conditionally enable beta flags (e.g. `provider-beta`)
     /// based on request features such as MCP servers, without requiring global client config.
     ///
     /// Returned headers are merged *before* user-provided `ChatRequest.http_config.headers`.
@@ -361,11 +372,15 @@ pub trait ProviderSpec: Send + Sync {
         None
     }
 
-    /// Compute chat route URL (may depend on request/provider params/extras)
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
-        // OpenAI-compatible default route; providers that don't implement chat should be guarded
-        // by capability checks, and the default transformers will return UnsupportedOperation.
-        format!("{}/chat/completions", ctx.base_url.trim_end_matches('/'))
+    /// Fallible chat route resolution used by core executors.
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = (stream, req);
+        Err(unsupported_route_error(&ctx.provider_id, "chat"))
     }
 
     /// Choose chat transformers (non-stream/stream)
@@ -396,9 +411,14 @@ pub trait ProviderSpec: Send + Sync {
         None
     }
 
-    /// Compute embedding route URL (default OpenAI-style)
-    fn embedding_url(&self, _req: &EmbeddingRequest, ctx: &ProviderContext) -> String {
-        format!("{}/embeddings", ctx.base_url.trim_end_matches('/'))
+    /// Fallible embedding route resolution used by core executors.
+    fn try_embedding_url(
+        &self,
+        req: &EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = req;
+        Err(unsupported_route_error(&ctx.provider_id, "embedding"))
     }
 
     /// Choose embedding transformers (default: unimplemented; implement per provider)
@@ -426,9 +446,17 @@ pub trait ProviderSpec: Send + Sync {
         None
     }
 
-    /// Compute image generation route URL (default OpenAI-compatible)
-    fn image_url(&self, _req: &ImageGenerationRequest, ctx: &ProviderContext) -> String {
-        format!("{}/images/generations", ctx.base_url.trim_end_matches('/'))
+    /// Fallible image generation route resolution used by core executors.
+    fn try_image_url(
+        &self,
+        req: &ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = req;
+        Err(unsupported_route_error(
+            &ctx.provider_id,
+            "image generation",
+        ))
     }
 
     /// Optional: warnings for image generation requests.
@@ -440,9 +468,14 @@ pub trait ProviderSpec: Send + Sync {
         None
     }
 
-    /// Compute image edit route URL (default OpenAI-compatible)
-    fn image_edit_url(&self, _req: &ImageEditRequest, ctx: &ProviderContext) -> String {
-        format!("{}/images/edits", ctx.base_url.trim_end_matches('/'))
+    /// Fallible image edit route resolution used by core executors.
+    fn try_image_edit_url(
+        &self,
+        req: &ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = req;
+        Err(unsupported_route_error(&ctx.provider_id, "image edit"))
     }
 
     /// Optional: warnings for image edit requests.
@@ -463,9 +496,14 @@ pub trait ProviderSpec: Send + Sync {
         true
     }
 
-    /// Compute image variation route URL (default OpenAI-compatible)
-    fn image_variation_url(&self, _req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
-        format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
+    /// Fallible image variation route resolution used by core executors.
+    fn try_image_variation_url(
+        &self,
+        req: &ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = req;
+        Err(unsupported_route_error(&ctx.provider_id, "image variation"))
     }
 
     /// Optional: warnings for image variation requests.
@@ -506,7 +544,7 @@ pub trait ProviderSpec: Send + Sync {
         }
     }
 
-    /// Compute base URL for audio operations (default OpenAI-compatible)
+    /// Compute base URL for audio operations.
     fn audio_base_url(&self, ctx: &ProviderContext) -> String {
         ctx.base_url.trim_end_matches('/').to_string()
     }
@@ -519,7 +557,7 @@ pub trait ProviderSpec: Send + Sync {
         }
     }
 
-    /// Compute base URL for files operations (default OpenAI-compatible)
+    /// Compute base URL for files operations.
     fn files_base_url(&self, ctx: &ProviderContext) -> String {
         ctx.base_url.trim_end_matches('/').to_string()
     }
@@ -532,9 +570,14 @@ pub trait ProviderSpec: Send + Sync {
         }
     }
 
-    /// Compute rerank route URL (default OpenAI-compatible)
-    fn rerank_url(&self, _req: &RerankRequest, ctx: &ProviderContext) -> String {
-        format!("{}/rerank", ctx.base_url.trim_end_matches('/'))
+    /// Fallible rerank route resolution used by core executors.
+    fn try_rerank_url(
+        &self,
+        req: &RerankRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = req;
+        Err(unsupported_route_error(&ctx.provider_id, "rerank"))
     }
 
     /// Choose rerank transformers (default: unimplemented; implement per provider)
@@ -559,13 +602,14 @@ pub trait ProviderSpec: Send + Sync {
         None
     }
 
-    /// Compute models listing URL (default OpenAI-compatible)
-    fn models_url(&self, ctx: &ProviderContext) -> String {
-        format!("{}/models", ctx.base_url.trim_end_matches('/'))
+    /// Fallible models listing route resolution.
+    fn try_models_url(&self, ctx: &ProviderContext) -> Result<String, LlmError> {
+        Err(unsupported_route_error(&ctx.provider_id, "models list"))
     }
 
-    /// Compute model retrieve URL (default OpenAI-compatible)
-    fn model_url(&self, model_id: &str, ctx: &ProviderContext) -> String {
-        format!("{}/models/{}", ctx.base_url.trim_end_matches('/'), model_id)
+    /// Fallible model retrieve route resolution.
+    fn try_model_url(&self, model_id: &str, ctx: &ProviderContext) -> Result<String, LlmError> {
+        let _ = model_id;
+        Err(unsupported_route_error(&ctx.provider_id, "model retrieve"))
     }
 }

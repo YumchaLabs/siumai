@@ -2,6 +2,7 @@
 
 //! Alignment tests for Vercel `@ai-sdk/amazon-bedrock` Converse streaming fixtures.
 
+use siumai::experimental::streaming::JsonEventConverter;
 use siumai::prelude::unified::*;
 use siumai::provider_ext::bedrock::BedrockChatResponseExt;
 use std::path::Path;
@@ -30,12 +31,8 @@ fn run_converter(lines: Vec<String>, uses_json_tool: bool) -> Vec<ChatStreamEven
 
     let mut out: Vec<ChatStreamEvent> = Vec::new();
     for line in lines {
-        let events = futures::executor::block_on(
-            siumai::experimental::providers::amazon_bedrock::streaming::JsonEventConverter::convert_json(
-                conv.as_ref(),
-                &line,
-            ),
-        );
+        let events =
+            futures::executor::block_on(JsonEventConverter::convert_json(conv.as_ref(), &line));
         for item in events {
             match item {
                 Ok(e) => out.push(e),
@@ -44,11 +41,7 @@ fn run_converter(lines: Vec<String>, uses_json_tool: bool) -> Vec<ChatStreamEven
         }
     }
 
-    if let Some(item) =
-        siumai::experimental::providers::amazon_bedrock::streaming::JsonEventConverter::handle_stream_end(
-            conv.as_ref(),
-        )
-    {
+    if let Some(item) = JsonEventConverter::handle_stream_end(conv.as_ref()) {
         match item {
             Ok(e) => out.push(e),
             Err(err) => panic!("failed to finalize stream: {err:?}"),

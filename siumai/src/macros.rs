@@ -19,9 +19,10 @@ macro_rules! user {
     };
     // Message with cache control - returns ChatMessage via builder
     ($content:expr, cache: $cache:expr) => {
-        $crate::__private::types::ChatMessage::user($content)
-            .cache_control($cache)
-            .build()
+        $crate::__private::with_anthropic_cache_control(
+            $crate::__private::types::ChatMessage::user($content).build(),
+            $cache,
+        )
     };
 }
 
@@ -51,9 +52,10 @@ macro_rules! system {
     };
     // Message with cache control - returns ChatMessage via builder
     ($content:expr, cache: $cache:expr) => {
-        $crate::__private::types::ChatMessage::system($content)
-            .cache_control($cache)
-            .build()
+        $crate::__private::with_anthropic_cache_control(
+            $crate::__private::types::ChatMessage::system($content).build(),
+            $cache,
+        )
     };
 }
 

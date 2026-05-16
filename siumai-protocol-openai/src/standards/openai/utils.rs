@@ -3461,6 +3461,31 @@ mod message_usage_tests {
     };
     use std::collections::HashMap;
 
+    fn request_conversion_source() -> &'static str {
+        let source = include_str!("utils.rs");
+        let (_, after_start) = source
+            .split_once("fn openai_compatible_options_object(")
+            .expect("request conversion start marker should exist");
+        let (section, _) = after_start
+            .split_once("pub fn parse_finish_reason(")
+            .expect("request conversion end marker should exist");
+        section
+    }
+
+    #[test]
+    fn openai_chat_request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
+        let source = request_conversion_source();
+
+        assert!(
+            !source.contains("providerMetadata"),
+            "OpenAI chat request conversion must not read legacy response-side providerMetadata"
+        );
+        assert!(
+            !source.contains("provider_metadata"),
+            "OpenAI chat request conversion must not read legacy response-side provider_metadata"
+        );
+    }
+
     #[test]
     fn openai_chat_pdf_file_part_maps_to_file_content_part() {
         let msg = ChatMessage {

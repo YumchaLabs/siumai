@@ -68,7 +68,7 @@ impl AzureOpenAiConfig {
             base_url: String::new(),
             common_params: CommonParams::default(),
             provider_options_map: ProviderOptionsMap::default(),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             url_config: AzureUrlConfig::default(),
             chat_mode: AzureChatMode::default(),
             provider_metadata_key: "azure",

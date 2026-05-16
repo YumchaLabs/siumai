@@ -21,14 +21,14 @@ pub use siumai_core::text::{
 };
 pub use siumai_core::types::StreamRequestOptions;
 use siumai_core::types::{
-    AssistantContent, AssistantModelMessage, CallWarning, ChatMessage, ContentPart, CustomOutput,
-    FileOutput, FinishReason, GenerateTextContentPart, GenerateTextModelInfo,
-    GenerateTextReasoningPart, GenerateTextResponseMetadata, GenerateTextResult,
-    GenerateTextStepReasoningPart, GenerateTextStepResult, GeneratedFile, HttpConfig, JSONValue,
-    LanguageModelRequestMetadata, LanguageModelResponseMetadata, MessageContent, MessageMetadata,
-    MessageRole, ModelMessage, ProviderOptionsMap, ReasoningFileOutput, ReasoningOutput,
-    RequestOptions, ResponseMessage, Source, TextOutput, Tool, ToolCall as GenerateTextToolCall,
-    ToolChoice, ToolResult as GenerateTextToolResult, ToolResultOutput,
+    AssistantContent, AssistantModelMessage, CallWarning, ChatMessage, ContentPart, FinishReason,
+    GenerateTextContentPart, GenerateTextModelInfo, GenerateTextReasoningPart,
+    GenerateTextResponseMetadata, GenerateTextResult, GenerateTextStepReasoningPart,
+    GenerateTextStepResult, GeneratedFile, HttpConfig, JSONValue, LanguageModelRequestMetadata,
+    LanguageModelResponseMetadata, MessageContent, MessageMetadata, MessageRole, ModelMessage,
+    ProviderOptionsMap, RequestOptions, ResponseMessage, Source, TextOutput, Tool,
+    ToolCall as GenerateTextToolCall, ToolChoice, ToolResult as GenerateTextToolResult,
+    ToolResultOutput, project_response_content_part_to_generate_text_content_part,
 };
 
 /// AI SDK-style non-streaming `generateText` result returned by `text::generate_text`.
@@ -471,123 +471,19 @@ fn project_generate_text_content_part(
     part: &ContentPart,
     projection: &mut GenerateTextContentProjection,
 ) {
-    match part {
-        ContentPart::Text {
-            text,
-            provider_metadata,
-            ..
-        } => {
-            let mut output = TextOutput::new(text.clone());
-            if let Some(metadata) = provider_metadata.clone() {
-                output = output.with_provider_metadata(metadata);
-            }
-            push_text_output(projection, output);
-        }
-        ContentPart::Custom {
-            kind,
-            provider_metadata,
-            ..
-        } => {
-            let mut output = CustomOutput::new(kind.clone());
-            if let Some(metadata) = provider_metadata.clone() {
-                output = output.with_provider_metadata(metadata);
-            }
-            projection.content.push(output.into());
-        }
-        ContentPart::File {
-            source,
-            media_type,
-            provider_metadata,
-            ..
-        } => {
-            if let Some(base64) = source.as_base64() {
-                let file = GeneratedFile::from_base64(base64, media_type.clone());
-                let mut output = FileOutput::new(file.clone());
-                if let Some(metadata) = provider_metadata.clone() {
-                    output = output.with_provider_metadata(metadata);
-                }
-                projection.files.push(file);
-                projection.content.push(output.into());
-            }
-        }
-        ContentPart::Reasoning {
-            text,
-            provider_metadata,
-            ..
-        } => {
-            let mut output = ReasoningOutput::new(text.clone());
-            if let Some(metadata) = provider_metadata.clone() {
-                output = output.with_provider_metadata(metadata);
-            }
-            push_reasoning_output(projection, output);
-        }
-        ContentPart::ReasoningFile {
-            source,
-            media_type,
-            provider_metadata,
-            ..
-        } => {
-            if let Some(base64) = source.as_base64() {
-                let mut output = ReasoningFileOutput::new(GeneratedFile::from_base64(
-                    base64,
-                    media_type.clone(),
-                ));
-                if let Some(metadata) = provider_metadata.clone() {
-                    output = output.with_provider_metadata(metadata);
-                }
-                push_reasoning_file_output(projection, output);
-            }
-        }
-        ContentPart::Source { .. } => {
-            if let Ok(source) = Source::try_from(part) {
-                projection.sources.push(source.clone());
-                projection.content.push(source.into());
-            }
-        }
-        ContentPart::ToolCall {
-            tool_call_id,
-            tool_name,
-            arguments,
-            provider_executed,
-            dynamic,
-            invalid,
-            error,
-            title,
-            provider_metadata,
-            ..
-        } => {
-            let mut tool_call = GenerateTextToolCall::new(
-                tool_call_id.clone(),
-                tool_name.clone(),
-                arguments.clone(),
-            );
-            if let Some(provider_executed) = provider_executed {
-                tool_call = tool_call.with_provider_executed(*provider_executed);
-            }
-            if let Some(dynamic) = dynamic {
-                tool_call = tool_call.with_dynamic(*dynamic);
-            }
-            if let Some(invalid) = invalid {
-                tool_call = tool_call.with_invalid(*invalid);
-            }
-            if let Some(error) = error.clone() {
-                tool_call = tool_call.with_error(error);
-            }
-            if let Some(title) = title.clone() {
-                tool_call = tool_call.with_title(title);
-            }
-            if let Some(metadata) = provider_metadata.clone() {
-                tool_call = tool_call.with_provider_metadata(metadata);
-            }
+    if let Ok(output) = project_response_content_part_to_generate_text_content_part(part) {
+        push_generate_text_output_part(projection, output);
+        return;
+    }
 
-            if tool_call.dynamic == Some(true) {
-                projection.dynamic_tool_calls.push(tool_call.clone());
-            } else {
-                projection.static_tool_calls.push(tool_call.clone());
-            }
-            projection.tool_calls.push(tool_call.clone());
-            projection.content.push(tool_call.into());
-        }
+    project_generate_text_legacy_compat_content_part(part, projection);
+}
+
+fn project_generate_text_legacy_compat_content_part(
+    part: &ContentPart,
+    projection: &mut GenerateTextContentProjection,
+) {
+    match part {
         ContentPart::ToolResult {
             tool_call_id,
             tool_name,
@@ -599,11 +495,14 @@ fn project_generate_text_content_part(
             title,
             provider_metadata,
             ..
-        } => {
+        } if input.is_none() => {
+            // Legacy `ContentPart::tool_result_*` constructors did not carry the original input.
+            // Keep the historical facade projection shape while canonical spec projection stays
+            // lossless and fallible.
             let mut tool_result = GenerateTextToolResult::new(
                 tool_call_id.clone(),
                 tool_name.clone(),
-                input.clone().unwrap_or(JSONValue::Null),
+                JSONValue::Null,
                 output.clone(),
             );
             if let Some(provider_executed) = provider_executed {
@@ -622,18 +521,9 @@ fn project_generate_text_content_part(
                 tool_result = tool_result.with_provider_metadata(metadata);
             }
 
-            if tool_result.dynamic == Some(true) {
-                projection.dynamic_tool_results.push(tool_result.clone());
-            } else {
-                projection.static_tool_results.push(tool_result.clone());
-            }
-            projection.tool_results.push(tool_result.clone());
-            projection.content.push(tool_result.into());
+            push_generate_text_output_part(projection, tool_result.into());
         }
-        ContentPart::Audio { .. }
-        | ContentPart::Image { .. }
-        | ContentPart::ToolApprovalRequest { .. }
-        | ContentPart::ToolApprovalResponse { .. } => {}
+        _ => {}
     }
 }
 
@@ -641,19 +531,57 @@ fn push_text_output(projection: &mut GenerateTextContentProjection, output: Text
     projection.content.push(output.into());
 }
 
-fn push_reasoning_output(projection: &mut GenerateTextContentProjection, output: ReasoningOutput) {
-    projection.reasoning.push(output.clone().into());
-    projection.step_reasoning.push(output.clone().into());
-    projection.content.push(output.into());
-}
-
-fn push_reasoning_file_output(
+fn push_generate_text_output_part(
     projection: &mut GenerateTextContentProjection,
-    output: ReasoningFileOutput,
+    output: GenerateTextOutputPart,
 ) {
-    projection.reasoning.push(output.clone().into());
-    projection.step_reasoning.push(output.clone().into());
-    projection.content.push(output.into());
+    match output {
+        GenerateTextContentPart::Text(output) => push_text_output(projection, output),
+        GenerateTextContentPart::Custom(output) => projection.content.push(output.into()),
+        GenerateTextContentPart::Reasoning(output) => {
+            projection.reasoning.push(output.clone().into());
+            projection.step_reasoning.push(output.clone().into());
+            projection.content.push(output.into());
+        }
+        GenerateTextContentPart::ReasoningFile(output) => {
+            projection.reasoning.push(output.clone().into());
+            projection.step_reasoning.push(output.clone().into());
+            projection.content.push(output.into());
+        }
+        GenerateTextContentPart::Source(output) => {
+            projection.sources.push(output.clone());
+            projection.content.push(output.into());
+        }
+        GenerateTextContentPart::File(output) => {
+            projection.files.push(output.file.clone());
+            projection.content.push(output.into());
+        }
+        GenerateTextContentPart::ToolCall(output) => {
+            if output.dynamic == Some(true) {
+                projection.dynamic_tool_calls.push(output.clone());
+            } else {
+                projection.static_tool_calls.push(output.clone());
+            }
+            projection.tool_calls.push(output.clone());
+            projection.content.push(output.into());
+        }
+        GenerateTextContentPart::ToolResult(output) => {
+            if output.dynamic == Some(true) {
+                projection.dynamic_tool_results.push(output.clone());
+            } else {
+                projection.static_tool_results.push(output.clone());
+            }
+            projection.tool_results.push(output.clone());
+            projection.content.push(output.into());
+        }
+        GenerateTextContentPart::ToolError(output) => projection.content.push(output.into()),
+        GenerateTextContentPart::ToolApprovalRequest(output) => {
+            projection.content.push(output.into());
+        }
+        GenerateTextContentPart::ToolApprovalResponse(output) => {
+            projection.content.push(output.into());
+        }
+    }
 }
 
 fn response_messages_from_content(content: &MessageContent) -> Vec<ResponseMessage> {

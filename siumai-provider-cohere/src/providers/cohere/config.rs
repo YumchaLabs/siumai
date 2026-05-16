@@ -59,7 +59,7 @@ impl CohereConfig {
                 model: String::new(),
                 ..Default::default()
             },
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             http_interceptors: Vec::new(),
         }

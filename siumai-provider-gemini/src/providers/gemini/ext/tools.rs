@@ -100,6 +100,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gemini_tools_extension_source_does_not_read_request_provider_options() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/providers/gemini/ext/tools.rs"
+        ));
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source section");
+
+        for forbidden in ["provider_options", "providerOptions"] {
+            assert!(
+                !production_source.contains(forbidden),
+                "Gemini tools response/stream extension must not read request-side `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
     fn parses_gemini_source_runtime_part() {
         let source = ChatStreamEvent::Part {
             part: crate::types::ChatStreamPart::Source {

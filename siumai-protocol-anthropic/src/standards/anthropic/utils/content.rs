@@ -145,6 +145,28 @@ mod document_provider_options_tests {
     }
 
     #[test]
+    fn request_content_conversion_source_does_not_read_legacy_provider_metadata_fields() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/anthropic/utils/content.rs"
+        ));
+        let implementation_start = source
+            .find(concat!(
+                "pub fn ",
+                "convert_message_content(content: &MessageContent)"
+            ))
+            .expect("convert_message_content implementation source");
+        let implementation = &source[implementation_start..];
+
+        for forbidden in ["provider_metadata", "providerMetadata"] {
+            assert!(
+                !implementation.contains(forbidden),
+                "Anthropic request content conversion should not read legacy provider metadata via {forbidden}"
+            );
+        }
+    }
+
+    #[test]
     fn tool_result_custom_content_maps_to_tool_reference() {
         let tool_result = ContentPart::ToolResult {
             tool_call_id: "search-1".to_string(),

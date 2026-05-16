@@ -7,6 +7,7 @@
 //! - Re-serialize into Anthropic Messages SSE.
 
 use eventsource_stream::Event;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use std::path::Path;
 
@@ -88,7 +89,6 @@ fn run_gemini_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
 }
 
 fn encode_anthropic_messages_sse(events: Vec<ChatStreamEvent>) -> Vec<u8> {
-    use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::anthropic::params::AnthropicParams;
     use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
 

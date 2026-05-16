@@ -109,7 +109,7 @@ fn run_case(root: &Path) {
     let spec = siumai::experimental::providers::google_vertex::standards::vertex_generative_ai::VertexGenerativeAiStandard::new()
         .create_spec("vertex");
 
-    let url = spec.chat_url(req.stream, &req, &ctx);
+    let url = spec.try_chat_url(req.stream, &req, &ctx).unwrap();
     assert_eq!(url, expected_url, "fixture case: {}", root.display());
 
     let transformers = spec.choose_chat_transformers(&req, &ctx);

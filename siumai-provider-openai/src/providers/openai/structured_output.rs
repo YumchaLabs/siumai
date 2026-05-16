@@ -387,6 +387,32 @@ pub mod patterns {
 mod tests {
     use super::*;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn openai_structured_output_request_config_source_does_not_read_response_metadata() {
+        let source = include_str!("structured_output.rs");
+        let request_source = source_section(
+            source,
+            "pub struct StructuredOutputConfig",
+            "/// Structured output validator",
+        );
+
+        for disallowed in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
+            assert!(
+                !request_source.contains(disallowed),
+                "OpenAI structured output request config must stay request-only"
+            );
+        }
+    }
+
     #[test]
     fn test_structured_output_config() {
         let schema = serde_json::json!({
@@ -460,5 +486,24 @@ mod tests {
                 .unwrap()
                 .contains(&serde_json::Value::String("category".to_string()))
         );
+    }
+
+    #[test]
+    fn response_validator_still_parses_text_from_chat_response() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "ok": { "type": "boolean" }
+            },
+            "required": ["ok"]
+        });
+        let response = ChatResponse::new(crate::types::MessageContent::Text(
+            r#"{"ok":true}"#.to_string(),
+        ));
+
+        let value = StructuredOutputValidator::validate_response(&response, &schema)
+            .expect("structured output value");
+
+        assert_eq!(value["ok"], serde_json::json!(true));
     }
 }

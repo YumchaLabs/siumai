@@ -176,7 +176,7 @@ async fn azure_request_ext_shapes_final_responses_body_across_public_paths() {
         .await
         .expect("build siumai client");
 
-    let provider_client = siumai::Provider::azure()
+    let provider_client = siumai::compat::Provider::azure()
         .api_key("test-key")
         .base_url("https://example.invalid/openai")
         .model("deployment-id")
@@ -234,7 +234,7 @@ async fn azure_openai_alias_options_shape_final_responses_body_across_public_pat
         .await
         .expect("build siumai client");
 
-    let provider_client = siumai::Provider::azure()
+    let provider_client = siumai::compat::Provider::azure()
         .api_key("test-key")
         .base_url("https://example.invalid/openai")
         .model("deployment-id")
@@ -300,7 +300,7 @@ async fn azure_metadata_ext_reads_default_key_across_public_paths() {
         .await
         .expect("build siumai client");
 
-    let provider_client = siumai::Provider::azure()
+    let provider_client = siumai::compat::Provider::azure()
         .api_key("test-key")
         .base_url("https://example.invalid/openai")
         .model("deployment-id")

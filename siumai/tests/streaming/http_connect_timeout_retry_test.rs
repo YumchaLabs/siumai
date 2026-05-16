@@ -4,6 +4,7 @@ use axum::response::Response;
 use axum::{Router, routing::post};
 use futures::StreamExt;
 use siumai::prelude::compat::Siumai;
+use siumai::retry_api::RetryOptions;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;

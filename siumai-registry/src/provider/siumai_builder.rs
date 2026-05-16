@@ -339,7 +339,7 @@ impl SiumaiBuilder {
             base_url: None,
             capabilities: Vec::new(),
             common_params: CommonParams::default(),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             organization: None,
             project: None,
             location: None,
@@ -927,29 +927,42 @@ impl SiumaiBuilder {
             .insert("x-goog-user-project".to_string(), project_id.into());
         self
     }
+
+    #[cfg(feature = "google-vertex")]
+    /// Build a generic Vertex publisher base URL.
     pub fn base_url_for_vertex(mut self, project: &str, location: &str, publisher: &str) -> Self {
-        let base = crate::auth::vertex::vertex_base_url(project, location, publisher);
+        let base = siumai_provider_google_vertex::auth::vertex::vertex_base_url(
+            project, location, publisher,
+        );
         self.base_url = Some(base);
         self
     }
 
+    #[cfg(feature = "google-vertex")]
     /// Build an Anthropic-on-Vertex provider base URL aligned with AI SDK.
     pub fn base_url_for_anthropic_vertex(mut self, project: &str, location: &str) -> Self {
-        let base = crate::auth::vertex::google_vertex_anthropic_base_url(project, location);
+        let base = siumai_provider_google_vertex::auth::vertex::google_vertex_anthropic_base_url(
+            project, location,
+        );
         self.base_url = Some(base);
         self
     }
 
+    #[cfg(feature = "google-vertex")]
     /// Build a Google Vertex provider base URL aligned with Vercel AI SDK (`v1beta1`).
     pub fn base_url_for_google_vertex(mut self, project: &str, location: &str) -> Self {
-        let base = crate::auth::vertex::google_vertex_base_url(project, location);
+        let base =
+            siumai_provider_google_vertex::auth::vertex::google_vertex_base_url(project, location);
         self.base_url = Some(base);
         self
     }
 
+    #[cfg(feature = "google-vertex")]
     /// Build a Google Vertex MaaS provider base URL aligned with AI SDK.
     pub fn base_url_for_vertex_maas(mut self, project: &str, location: &str) -> Self {
-        let base = crate::auth::vertex::google_vertex_maas_base_url(project, location);
+        let base = siumai_provider_google_vertex::auth::vertex::google_vertex_maas_base_url(
+            project, location,
+        );
         self.base_url = Some(base);
         self
     }
@@ -1008,7 +1021,7 @@ impl SiumaiBuilder {
     #[cfg(all(any(feature = "google", feature = "google-vertex"), feature = "gcp"))]
     /// Preferred neutral alias for ADC-backed Google auth.
     pub fn with_google_adc(mut self) -> Self {
-        let adc = crate::auth::adc::AdcTokenProvider::default_client();
+        let adc = siumai_provider_google_vertex::auth::adc::AdcTokenProvider::default_client();
         self.google_token_provider = Some(std::sync::Arc::new(adc));
         self
     }

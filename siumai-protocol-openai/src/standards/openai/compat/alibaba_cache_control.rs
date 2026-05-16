@@ -351,3 +351,29 @@ fn text_from_content_value(value: &serde_json::Value) -> String {
         other => other.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn alibaba_cache_control_source_does_not_read_legacy_provider_metadata() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/openai/compat/alibaba_cache_control.rs"
+        ));
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source section");
+
+        for forbidden in [
+            ".provider_metadata",
+            "provider_metadata",
+            "providerMetadata",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "Alibaba cache-control request shaping must not read legacy response-side `{forbidden}`"
+            );
+        }
+    }
+}

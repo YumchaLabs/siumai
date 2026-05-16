@@ -11,9 +11,8 @@ use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatible
 use siumai::experimental::standards::openai::compat::types::{
     FieldMappings, ModelConfig, RequestType,
 };
-use siumai::prelude::unified::{
-    ChatStreamEvent, LlmError, ProviderCapabilities, SseEventConverter,
-};
+use siumai::experimental::streaming::SseEventConverter;
+use siumai::prelude::unified::{ChatStreamEvent, LlmError, ProviderCapabilities};
 use std::path::Path;
 use std::sync::Arc;
 

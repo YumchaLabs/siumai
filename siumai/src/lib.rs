@@ -83,19 +83,68 @@ pub const PROVIDER_COUNT: &str = env!("SIUMAI_PROVIDER_COUNT");
 /// These are intentionally not part of the stable public API surface.
 #[doc(hidden)]
 pub mod __private {
+    /// Attach Anthropic prompt-cache request options for legacy cache-control macros.
+    ///
+    /// This keeps macro expansion on the facade-private path now that the former
+    /// `ChatMessageBuilder::cache_control(...)` helper has been removed from `siumai-spec`,
+    /// while preserving the macro's historical output shape.
+    pub fn with_anthropic_cache_control(
+        mut message: types::ChatMessage,
+        cache: types::CacheControl,
+    ) -> types::ChatMessage {
+        let cache_json = match &cache {
+            types::CacheControl::Ephemeral => serde_json::json!({ "type": "ephemeral" }),
+            types::CacheControl::Persistent { ttl } => {
+                let mut value = serde_json::json!({ "type": "ephemeral" });
+                if let Some(duration) = ttl {
+                    value["ttl"] = serde_json::json!(duration.as_secs());
+                }
+                value
+            }
+        };
+
+        message.metadata.cache_control = Some(cache);
+        message.provider_options.insert(
+            "anthropic",
+            serde_json::json!({ "cacheControl": cache_json }),
+        );
+        message
+    }
+
     pub use siumai_core::types;
 }
 
-/// Shared stable data structures.
+/// Historical broad type namespace.
 ///
 /// This keeps the historical `siumai::types::*` import path available while the
-/// workspace remains split across `siumai-spec` and `siumai-core`.
+/// workspace remains split across `siumai-spec` and `siumai-core`. Prefer
+/// `siumai::prelude::unified::*`, `siumai::prelude::extensions::*`, or the owning crate/module for
+/// new code.
 pub mod types {
     pub use siumai_core::types::*;
 }
 
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).
-pub use siumai_core::hosted_tools;
+pub mod hosted_tools {
+    #[cfg(any(feature = "openai", feature = "protocol-openai"))]
+    pub mod openai {
+        pub use siumai_protocol_openai::hosted_tools::openai::*;
+    }
+
+    #[cfg(any(feature = "anthropic", feature = "protocol-anthropic"))]
+    pub mod anthropic {
+        pub use siumai_protocol_anthropic::hosted_tools::anthropic::*;
+    }
+
+    #[cfg(any(
+        feature = "google",
+        feature = "google-vertex",
+        feature = "protocol-gemini"
+    ))]
+    pub mod google {
+        pub use siumai_protocol_gemini::hosted_tools::google::*;
+    }
+}
 
 pub use siumai_core::standards::{ToolNameMapping, create_tool_name_mapping};
 /// AI SDK-style utility helpers.
@@ -106,9 +155,7 @@ pub use siumai_core::utils::{
     IdGenerator, IdGeneratorOptions, JsonInstructionMessageOptions, JsonInstructionOptions,
     JsonParseResult, LoadApiKeyOptions, LoadOptionalSettingOptions, LoadSettingOptions,
     ReasoningBudgetOptions, ReasoningLevel, ReasoningLevelConversionError, SerialJobExecutor,
-    StreamingToolCallDelta, StreamingToolCallFunctionDelta, StreamingToolCallTracker,
-    StreamingToolCallTrackerOptions, StreamingToolCallTypeValidation, SupportedUrlMap,
-    TypeValidationResult, UrlSupportRegex, VERSION, as_array, combine_headers,
+    SupportedUrlMap, TypeValidationResult, UrlSupportRegex, VERSION, as_array, combine_headers,
     convert_base64_to_uint8_array, convert_image_model_file_to_data_uri, convert_to_base64,
     convert_uint8_array_to_base64, cosine_similarity, create_download, create_id_generator, delay,
     download_url, extract_response_headers, filter_nullable, generate_id, get_error_message,
@@ -378,24 +425,28 @@ pub mod experimental {
     /// This exposes low-level building blocks from `siumai-core` that are useful when building
     /// gateways/proxies that need to re-serialize streams into provider-native wire formats.
     pub mod streaming {
-        pub use siumai_core::streaming::{
-            ChatByteStream, LanguageModelV4StreamCustomContent, LanguageModelV4StreamFile,
-            LanguageModelV4StreamFileData, LanguageModelV4StreamFinishReason,
-            LanguageModelV4StreamInputTokens, LanguageModelV4StreamOutputTokens,
-            LanguageModelV4StreamPart, LanguageModelV4StreamReasoningFile,
-            LanguageModelV4StreamResponseMetadata, LanguageModelV4StreamSource,
-            LanguageModelV4StreamToolApprovalRequest, LanguageModelV4StreamToolCall,
-            LanguageModelV4StreamToolResult, LanguageModelV4StreamUsage,
-            OpenAiResponsesStreamPartsBridge, SharedV4ProviderMetadata, SharedV4Warning,
-            StreamPartNamespace, TypedStreamPart, UnsupportedStreamPartBehavior,
-            encode_chat_stream_as_jsonl, encode_chat_stream_as_sse, ensure_stream_end,
-            transform_chat_event_stream,
-        };
+        #[cfg(feature = "openai")]
+        pub use siumai_bridge::stream::OpenAiResponsesStreamPartsBridge;
+        pub use siumai_core::streaming::*;
     }
 
     /// Custom provider API (advanced).
     pub mod custom_provider {
         pub use siumai_core::custom_provider::*;
+    }
+
+    /// Authentication helpers (advanced API).
+    ///
+    /// Generic token provider contracts remain core-owned. Provider-specific auth helpers are
+    /// re-exported from the provider crate that owns them.
+    pub mod auth {
+        pub use siumai_core::auth::{StaticTokenProvider, TokenProvider};
+
+        #[cfg(feature = "gcp")]
+        pub use siumai_provider_google_vertex::auth::{adc, service_account};
+
+        #[cfg(feature = "google-vertex")]
+        pub use siumai_provider_google_vertex::auth::vertex;
     }
 
     /// Provider implementation internals (advanced API).
@@ -453,7 +504,7 @@ pub mod experimental {
         pub use siumai_provider_togetherai::standards::togetherai;
     }
 
-    pub use siumai_core::{auth, client, defaults, execution, observability, params, retry, utils};
+    pub use siumai_core::{client, defaults, execution, observability, params, retry, utils};
 }
 
 #[cfg(feature = "openai")]
@@ -471,7 +522,11 @@ pub use crate::provider_ext as providers;
 /// These are stable module paths for provider-specific endpoints/resources.
 pub mod provider_ext;
 
-// Unified interface (`Siumai`) and builder
+/// Historical unified builder module shim.
+///
+/// Prefer `siumai::compat::{Siumai, SiumaiBuilder}` when intentionally using the compatibility
+/// builder path, or `siumai::prelude::unified::registry::*` for new family-first construction.
+#[doc(hidden)]
 pub mod provider;
 pub mod provider_catalog;
 
@@ -543,17 +598,6 @@ pub mod prelude {
     /// Compatibility-oriented construction aliases remain source-compatible under
     /// `siumai::compat` and `prelude::compat`, not through this stable prelude.
     pub mod unified {
-        pub use crate::files::{
-            FileUploadProvider, UploadFileApi, UploadFileOptions, UploadFileProviderMetadata,
-            UploadFileResult,
-        };
-        pub use crate::parse_json_event_stream;
-        pub use crate::registry::ProviderFactory;
-        pub use crate::retry_api::*;
-        pub use crate::skills::{
-            UploadSkillApi, UploadSkillFile, UploadSkillFileContent, UploadSkillOptions,
-            UploadSkillProviderMetadata, UploadSkillResult,
-        };
         pub use crate::structured_output::{
             GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema,
             PartialJsonParseResult, PartialJsonParseState, PartialJsonValueStream,
@@ -561,7 +605,6 @@ pub mod prelude {
             fix_partial_json, generate_array, generate_choice, generate_enum, generate_json,
             generate_object, parse_partial_json, partial_json_value_stream,
         };
-        pub use crate::tooling;
         pub use crate::tools;
         pub use crate::{
             Arrayable, DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX,
@@ -570,25 +613,22 @@ pub mod prelude {
             HeaderRecord, IdGenerator, IdGeneratorOptions, JsonInstructionMessageOptions,
             JsonInstructionOptions, JsonParseResult, LoadApiKeyOptions, LoadOptionalSettingOptions,
             LoadSettingOptions, ReasoningBudgetOptions, ReasoningLevel,
-            ReasoningLevelConversionError, SerialJobExecutor, StreamingToolCallDelta,
-            StreamingToolCallFunctionDelta, StreamingToolCallTracker,
-            StreamingToolCallTrackerOptions, StreamingToolCallTypeValidation, SupportedUrlMap,
-            ToolNameMapping, TypeValidationResult, UrlSupportRegex, VERSION, as_array,
-            combine_headers, convert_base64_to_uint8_array, convert_image_model_file_to_data_uri,
-            convert_to_base64, convert_uint8_array_to_base64, cosine_similarity, create_download,
-            create_id_generator, create_tool_name_mapping, delay, download_url,
-            extract_response_headers, filter_nullable, generate_id, get_error_message,
-            get_runtime_environment_user_agent, get_text_from_data_url, inject_json_instruction,
-            inject_json_instruction_into_messages, is_abort_error, is_custom_reasoning,
-            is_deep_equal_data, is_non_nullable, is_parsable_json, is_provider_reference,
-            is_url_supported, load_api_key, load_optional_setting, load_setting,
-            map_reasoning_to_provider_budget, map_reasoning_to_provider_effort,
-            media_type_to_extension, normalize_header_map, normalize_headers,
-            normalize_optional_headers, parse_json, parse_json_with_schema, parse_provider_options,
-            read_response_with_size_limit, remove_undefined_entries, resolve_provider_reference,
-            safe_parse_json, safe_parse_json_with_schema, safe_validate_types,
-            strip_file_extension, validate_download_url, validate_types, with_user_agent_suffix,
-            without_trailing_slash,
+            ReasoningLevelConversionError, SerialJobExecutor, SupportedUrlMap, ToolNameMapping,
+            TypeValidationResult, UrlSupportRegex, VERSION, as_array, combine_headers,
+            convert_base64_to_uint8_array, convert_image_model_file_to_data_uri, convert_to_base64,
+            convert_uint8_array_to_base64, cosine_similarity, create_download, create_id_generator,
+            create_tool_name_mapping, delay, download_url, extract_response_headers,
+            filter_nullable, generate_id, get_error_message, get_runtime_environment_user_agent,
+            get_text_from_data_url, inject_json_instruction, inject_json_instruction_into_messages,
+            is_abort_error, is_custom_reasoning, is_deep_equal_data, is_non_nullable,
+            is_parsable_json, is_provider_reference, is_url_supported, load_api_key,
+            load_optional_setting, load_setting, map_reasoning_to_provider_budget,
+            map_reasoning_to_provider_effort, media_type_to_extension, normalize_header_map,
+            normalize_headers, normalize_optional_headers, parse_json, parse_json_with_schema,
+            parse_provider_options, read_response_with_size_limit, remove_undefined_entries,
+            resolve_provider_reference, safe_parse_json, safe_parse_json_with_schema,
+            safe_validate_types, strip_file_extension, validate_download_url, validate_types,
+            with_user_agent_suffix, without_trailing_slash,
         };
         pub use crate::{
             ExecutableTool, ExecutableTools, ProviderDefinedToolFactory,
@@ -606,16 +646,19 @@ pub mod prelude {
         };
         pub use crate::{
             embed, embed_many, generate_image, generate_speech, generate_text, transcribe,
-            upload_file, upload_skill,
         };
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::completion::CompletionModel;
-        pub use siumai_core::error::{ErrorCategory, LlmError};
-        pub use siumai_core::execution::middleware::LanguageModelMiddleware;
+        pub use siumai_core::error::{ErrorCategory, LlmError, LlmErrorExt};
         pub use siumai_core::image::{ImageModel, ImageModelV4};
         pub use siumai_core::rerank::RerankingModel;
         pub use siumai_core::speech::SpeechModel;
-        pub use siumai_core::streaming::*;
+        pub use siumai_core::streaming::{
+            ChatStream, ChatStreamCustomContent, ChatStreamEvent, ChatStreamFileData,
+            ChatStreamFilePart, ChatStreamFinishInfo, ChatStreamHandle, ChatStreamPart,
+            ChatStreamReplay, ChatStreamToolApprovalRequest, ChatStreamToolCall,
+            ChatStreamToolResult, StreamProviderMetadata,
+        };
         pub use siumai_core::text::{
             LanguageModel, LanguageModelV4, LanguageModelV4DoStreamResult, LanguageModelV4Stream,
         };
@@ -631,9 +674,9 @@ pub mod prelude {
         #[allow(deprecated)]
         pub use siumai_core::types::{
             AISDKError, APICallError, AssistantContent, AssistantContentPart,
-            AssistantModelMessage, AudioStreamEvent, CacheControl, CallSettings, CallWarning,
-            CallbackModelInfo, CancelHandle, ChatInit, ChatMessage, ChatRequest,
-            ChatRequestBuilder, ChatRequestOptions, ChatResponse, ChatState, ChatStatus,
+            AssistantModelMessage, AudioStreamEvent, CacheControl, CallWarning, CallbackModelInfo,
+            CancelHandle, ChatInit, ChatMessage, ChatRequest, ChatRequestBuilder,
+            ChatRequestOptions, ChatResponse, ChatState, ChatStatus,
             ChatTransportReconnectToStreamOptions, ChatTransportSendMessagesOptions,
             ChatTransportTrigger, CommonParams, CompletionRequest, CompletionRequestOptions,
             CompletionResponse, CompletionStreamProtocol, CompletionTokensDetails, ContentPart,
@@ -644,12 +687,9 @@ pub mod prelude {
             DynamicToolError, DynamicToolResult, DynamicToolUIPart, EmbedEndEvent, EmbedManyResult,
             EmbedOutput, EmbedResponseData, EmbedResult, EmbedStartEvent, EmbedValue, Embedding,
             EmbeddingModelCallEndEvent, EmbeddingModelCallStartEvent, EmbeddingModelUsage,
-            EmbeddingRequest, EmbeddingResponse, EmptyResponseBodyError,
-            Experimental_GenerateImageResult, Experimental_GeneratedImage,
-            Experimental_LanguageModelStreamPart, Experimental_SpeechResult,
-            Experimental_TranscriptionResult, ExperimentalLanguageModelStreamPart, FileOutput,
-            FilePart, FilePartSource, FileUIPart, FinishReason, FlexibleSchema,
-            GenerateImagePrompt, GenerateImageRequest, GenerateImageResult, GenerateObjectEndEvent,
+            EmbeddingRequest, EmbeddingResponse, EmptyResponseBodyError, FileOutput, FilePart,
+            FilePartSource, FileUIPart, FinishReason, FlexibleSchema, GenerateImagePrompt,
+            GenerateImageRequest, GenerateImageResult, GenerateObjectEndEvent,
             GenerateObjectOutputStrategy, GenerateObjectResponseMetadata, GenerateObjectStartEvent,
             GenerateObjectStepEndEvent, GenerateObjectStepStartEvent, GenerateTextContentPart,
             GenerateTextEndEvent, GenerateTextModelInfo, GenerateTextReasoningPart,
@@ -763,24 +803,25 @@ pub mod prelude {
             as_language_model_usage, as_schema, as_schema_or_empty,
             convert_data_content_to_base64_string, convert_data_content_to_uint8_array,
             convert_uint8_array_to_text, create_null_language_model_usage, empty_json_schema,
-            experimental_filter_active_tools, filter_active_tools, get_chunk_timeout_ms,
-            get_static_tool_name, get_step_timeout_ms, get_tool_name,
-            get_tool_or_dynamic_tool_name, get_tool_timeout_ms, get_total_timeout_ms,
-            has_tool_call, is_custom_content_ui_part, is_data_ui_message_chunk, is_data_ui_part,
-            is_dynamic_tool_ui_part, is_file_ui_part, is_loop_finished, is_reasoning_file_ui_part,
-            is_reasoning_ui_part, is_static_tool_ui_part, is_step_count, is_stop_condition_met,
-            is_text_ui_part, is_tool_ui_part, json_schema, json_schema_with_validator,
+            filter_active_tools, get_chunk_timeout_ms, get_static_tool_name, get_step_timeout_ms,
+            get_tool_name, get_tool_or_dynamic_tool_name, get_tool_timeout_ms,
+            get_total_timeout_ms, has_tool_call, is_custom_content_ui_part,
+            is_data_ui_message_chunk, is_data_ui_part, is_dynamic_tool_ui_part, is_file_ui_part,
+            is_loop_finished, is_reasoning_file_ui_part, is_reasoning_ui_part,
+            is_static_tool_ui_part, is_step_count, is_stop_condition_met, is_text_ui_part,
+            is_tool_ui_part, json_schema, json_schema_with_validator,
             last_assistant_message_is_complete_with_approval_responses,
             last_assistant_message_is_complete_with_tool_calls, lazy_schema,
-            prepare_language_model_v4_prompt, prepare_tool_choice, prune_messages, step_count_is,
+            prepare_language_model_v4_prompt, prepare_tool_choice, prune_messages,
         };
 
         pub mod registry {
             pub use crate::registry::{
-                CompletionModelHandle, EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle,
-                ProviderFactory, ProviderRegistryHandle, RegistryOptions, RerankingModelHandle,
-                SpeechModelHandle, TranscriptionModelHandle, VideoModelHandle,
-                create_bare_registry, create_empty_registry, create_provider_registry,
+                BuildContext, CompletionModelHandle, EmbeddingModelHandle, ImageModelHandle,
+                LanguageModelHandle, ProviderBuildOverrides, ProviderFactory,
+                ProviderRegistryHandle, RegistryOptions, RerankingModelHandle, SpeechModelHandle,
+                TranscriptionModelHandle, VideoModelHandle, create_bare_registry,
+                create_empty_registry, create_provider_registry,
             };
 
             #[cfg(any(
@@ -809,8 +850,15 @@ pub mod prelude {
     ///
     /// Prefer `prelude::unified::*` for new code.
     pub mod compat {
-        pub use crate::Provider;
-        pub use crate::compat::{Siumai, SiumaiBuilder};
+        #[allow(deprecated)]
+        pub use crate::compat::{
+            CallSettings, Experimental_GenerateImageResult, Experimental_GeneratedImage,
+            Experimental_LanguageModelStreamPart, Experimental_SpeechResult,
+            Experimental_TranscriptionResult, ExperimentalLanguageModelStreamPart, Provider,
+            Siumai, SiumaiBuilder, StreamingToolCallDelta, StreamingToolCallFunctionDelta,
+            StreamingToolCallTracker, StreamingToolCallTrackerOptions,
+            StreamingToolCallTypeValidation, experimental_filter_active_tools, step_count_is,
+        };
     }
 
     /// Non-unified extension capabilities (provider-specific or non-family features).
@@ -829,237 +877,33 @@ pub mod prelude {
 /// Provider-specific builder convenience entry point.
 ///
 /// Prefer `siumai::prelude::unified::registry::*` or config-first provider clients for stable
-/// construction. Use `Provider::*` when you need a provider-owned builder or compatibility
-/// construction path.
+/// construction. `siumai::Provider` remains as a temporary root-level compatibility alias; prefer
+/// `siumai::compat::Provider` or `siumai::prelude::compat::Provider` when you intentionally need
+/// this builder-style construction path.
+///
+/// The implementation is owned by `siumai::compat`; this root path exists only for source
+/// compatibility.
 ///
 /// # Example
 /// ```rust,no_run
-/// use siumai::prelude::*;
+/// use siumai::prelude::{compat::Provider, unified::*};
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // Get a client specifically for OpenAI
 ///     let openai_client = Provider::openai()
 ///         .api_key("your-openai-key")
 ///         .model("gpt-4")
 ///         .build()
 ///         .await?;
 ///
-///     // You can now call both standard and OpenAI-specific methods
 ///     let messages = vec![user!("Hello!")];
 ///     let response = openai_client.chat(messages).await?;
 ///     println!("OpenAI says: {}", response.text().unwrap_or_default());
-///     // let assistant = openai_client.create_assistant(...).await?; // Example of specific feature
 ///
 ///     Ok(())
 /// }
 /// ```
-pub struct Provider;
-
-impl Provider {
-    /// Create an `OpenAI` client builder
-    #[cfg(feature = "openai")]
-    pub fn openai() -> siumai_provider_openai::providers::openai::OpenAiBuilder {
-        siumai_provider_openai::providers::openai::OpenAiBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create an explicit `OpenAI Responses` client builder.
-    #[cfg(feature = "openai")]
-    pub fn openai_responses() -> siumai_provider_openai::providers::openai::OpenAiBuilder {
-        Self::openai().use_responses_api(true)
-    }
-
-    /// Create an explicit `OpenAI Chat Completions` client builder.
-    #[cfg(feature = "openai")]
-    pub fn openai_chat() -> siumai_provider_openai::providers::openai::OpenAiBuilder {
-        Self::openai().use_responses_api(false)
-    }
-
-    /// Create an `Azure OpenAI` unified builder (Responses API by default).
-    #[cfg(feature = "azure")]
-    pub fn azure() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().azure()
-    }
-
-    /// Create an `Azure OpenAI Chat Completions` unified builder.
-    #[cfg(feature = "azure")]
-    pub fn azure_chat() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().azure_chat()
-    }
-
-    /// Create an Anthropic client builder
-    #[cfg(feature = "anthropic")]
-    pub fn anthropic() -> siumai_provider_anthropic::providers::anthropic::AnthropicBuilder {
-        siumai_provider_anthropic::providers::anthropic::AnthropicBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create an Amazon Bedrock client builder
-    #[cfg(feature = "bedrock")]
-    pub fn bedrock() -> siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder {
-        siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create a Cohere client builder
-    #[cfg(feature = "cohere")]
-    pub fn cohere() -> siumai_provider_cohere::providers::cohere::CohereBuilder {
-        siumai_provider_cohere::providers::cohere::CohereBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create a Gemini client builder
-    #[cfg(feature = "google")]
-    pub fn gemini() -> siumai_provider_gemini::providers::gemini::GeminiBuilder {
-        siumai_provider_gemini::providers::gemini::GeminiBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create a Google client builder alias (AI SDK package-aligned).
-    #[cfg(feature = "google")]
-    pub fn google() -> siumai_provider_gemini::providers::gemini::GeminiBuilder {
-        Self::gemini().name("google.generative-ai")
-    }
-
-    /// Create a TogetherAI unified builder.
-    ///
-    /// This aligns with the AI SDK-style provider surface:
-    /// chat/completion/embedding/speech/transcription route through the shared
-    /// OpenAI-compatible TogetherAI path, while image and rerank use provider-owned TogetherAI
-    /// implementations.
-    #[cfg(feature = "togetherai")]
-    pub fn togetherai() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().togetherai()
-    }
-
-    /// Create a DeepInfra unified builder.
-    ///
-    /// This aligns with the AI SDK-style provider surface:
-    /// text/completion/embedding reuse the shared OpenAI-compatible runtime, while image
-    /// generation and editing use the provider-owned DeepInfra `/inference` and
-    /// `/openai/images/edits` routes.
-    #[cfg(feature = "deepinfra")]
-    pub fn deepinfra() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().deepinfra()
-    }
-
-    /// Create a Mistral unified builder.
-    ///
-    /// This mirrors the AI SDK `mistral` provider package surface while continuing to reuse the
-    /// shared OpenAI-compatible runtime internally.
-    #[cfg(feature = "openai")]
-    pub fn mistral() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().mistral()
-    }
-
-    /// Create a Fireworks unified builder.
-    ///
-    /// This mirrors the AI SDK `fireworks` provider package surface: chat/completion/embedding/
-    /// transcription use the shared OpenAI-compatible runtime, while image generation/edit use the
-    /// provider-owned Fireworks workflow routes.
-    #[cfg(feature = "openai")]
-    pub fn fireworks() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().fireworks()
-    }
-
-    /// Create a Perplexity unified builder.
-    ///
-    /// This mirrors the AI SDK `perplexity` provider package surface while continuing to reuse the
-    /// shared OpenAI-compatible runtime internally.
-    #[cfg(feature = "openai")]
-    pub fn perplexity() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().perplexity()
-    }
-
-    /// Create a MoonshotAI unified builder.
-    ///
-    /// This mirrors the AI SDK `moonshotai` provider package surface while continuing to reuse the
-    /// shared OpenAI-compatible runtime internally.
-    #[cfg(feature = "openai")]
-    pub fn moonshotai() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().moonshotai()
-    }
-
-    /// Create an Ollama client builder
-    #[cfg(feature = "ollama")]
-    pub fn ollama() -> siumai_provider_ollama::providers::ollama::OllamaBuilder {
-        siumai_provider_ollama::providers::ollama::OllamaBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create an xAI client builder
-    #[cfg(feature = "xai")]
-    pub fn xai() -> siumai_provider_xai::providers::xai::XaiBuilder {
-        siumai_provider_xai::providers::xai::XaiBuilder::new(crate::builder::BuilderBase::default())
-    }
-
-    /// Create a Groq client builder
-    #[cfg(feature = "groq")]
-    pub fn groq() -> siumai_provider_groq::providers::groq::GroqBuilder {
-        siumai_provider_groq::providers::groq::GroqBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create a MiniMaxi client builder
-    #[cfg(feature = "minimaxi")]
-    pub fn minimaxi() -> siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder {
-        siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create a Google Vertex client builder
-    #[cfg(feature = "google-vertex")]
-    pub fn vertex() -> siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder {
-        siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// Create a Google Vertex MaaS unified builder.
-    ///
-    /// This aligns with the AI SDK `vertexMaas` surface:
-    /// chat/completion/embedding route through the shared OpenAI-compatible runtime on
-    /// Vertex's `/endpoints/openapi` base URL, authenticated with Google-style Bearer tokens.
-    #[cfg(feature = "google-vertex")]
-    pub fn vertex_maas() -> crate::provider::SiumaiBuilder {
-        crate::provider::SiumaiBuilder::new().vertex_maas()
-    }
-
-    /// Create an Anthropic on Vertex client builder
-    #[cfg(feature = "google-vertex")]
-    pub fn anthropic_vertex()
-    -> siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder {
-        siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    /// AI SDK package-aligned alias for `anthropic_vertex()`.
-    #[cfg(feature = "google-vertex")]
-    pub fn vertex_anthropic()
-    -> siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder {
-        Self::anthropic_vertex()
-    }
-
-    /// Create a DeepSeek client builder
-    #[cfg(feature = "deepseek")]
-    pub fn deepseek() -> siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder {
-        siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
-    }
-
-    // Provider convenience functions live on `LlmBuilder` / `Siumai::builder()` / `Provider::*`.
-}
+pub use compat::Provider;
 
 // Macros moved to a dedicated module for cleanliness
 mod macros;
@@ -1069,8 +913,8 @@ mod model_catalog;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compat::Siumai;
     use crate::prelude::unified::*;
-    use crate::provider::Siumai;
 
     #[test]
     fn test_macros() {

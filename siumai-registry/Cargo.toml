@@ -181,7 +181,7 @@ bedrock = [
     "siumai-provider-amazon-bedrock/bedrock",
 ]
 
-gcp = ["builtins", "siumai-core/gcp", "google", "google-vertex"]
+gcp = ["builtins", "siumai-core/gcp", "google", "google-vertex", "siumai-provider-google-vertex/gcp"]
 json-repair = ["builtins", "siumai-core/json-repair", "google", "siumai-provider-gemini/json-repair"]
 
 gzip = ["builtins", "siumai-core/gzip"]

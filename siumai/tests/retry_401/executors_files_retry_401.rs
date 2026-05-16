@@ -106,7 +106,12 @@ impl ProviderSpec for TestFilesSpec {
         Ok(h)
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, _ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         unreachable!("chat not used in this test")
     }
 

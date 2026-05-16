@@ -119,7 +119,7 @@ pub trait LanguageModelMiddleware: Send + Sync {
     /// # Example
     /// ```rust,ignore
     /// fn override_model_id(&self, _current: &str) -> Option<String> {
-    ///     Some("gpt-4".to_string())
+    ///     Some("model-a".to_string())
     /// }
     /// ```
     fn override_model_id(&self, _current: &str) -> Option<String> {
@@ -322,7 +322,7 @@ pub fn apply_stream_event_chain(
 ///
 /// # Arguments
 /// * `middlewares` - The middleware chain
-/// * `current_provider_id` - The current provider ID (e.g., "openai")
+/// * `current_provider_id` - The current provider ID (for example, "provider-id")
 ///
 /// # Returns
 /// The overridden provider ID, or the original if no middleware overrides it.
@@ -345,7 +345,7 @@ pub fn apply_provider_id_override(
 ///
 /// # Arguments
 /// * `middlewares` - The middleware chain
-/// * `current_model_id` - The current model ID (e.g., "gpt-4")
+/// * `current_model_id` - The current model ID (for example, "model-id")
 ///
 /// # Returns
 /// The overridden model ID, or the original if no middleware overrides it.
@@ -364,6 +364,26 @@ pub fn apply_model_id_override(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn language_model_middleware_tests_use_provider_neutral_fixtures() {
+        let source = include_str!("language_model.rs");
+        let forbidden = [
+            ["op", "enai"].concat(),
+            ["az", "ure"].concat(),
+            ["an", "thropic"].concat(),
+            ["ge", "mini"].concat(),
+            ["gp", "t-"].concat(),
+            ["cla", "ude-"].concat(),
+        ];
+
+        for fragment in forbidden {
+            assert!(
+                !source.contains(&fragment),
+                "core language-model middleware tests and docs must use provider-neutral fixtures"
+            );
+        }
+    }
 
     struct AppendModelSuffix(&'static str);
     impl LanguageModelMiddleware for AppendModelSuffix {
@@ -469,11 +489,11 @@ mod tests {
     #[test]
     fn model_id_override_applies_first_match() {
         let mws: Vec<Arc<dyn LanguageModelMiddleware>> = vec![
-            Arc::new(OverrideModel("gpt-4")),
-            Arc::new(OverrideModel("gpt-3.5")), // This should be ignored
+            Arc::new(OverrideModel("model-a")),
+            Arc::new(OverrideModel("model-b")), // This should be ignored
         ];
         let result = apply_model_id_override(&mws, "original-model");
-        assert_eq!(result, "gpt-4");
+        assert_eq!(result, "model-a");
     }
 
     #[test]

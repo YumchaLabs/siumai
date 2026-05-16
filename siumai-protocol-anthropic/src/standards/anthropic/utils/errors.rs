@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::error::LlmErrorExt;
 
 pub fn map_anthropic_error(
     status_code: u16,

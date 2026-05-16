@@ -12,7 +12,7 @@ pub use siumai_provider_openai::providers::openai::{
 
 /// Create the OpenAI provider builder.
 pub fn openai() -> OpenAiBuilder {
-    crate::Provider::openai()
+    crate::compat::Provider::openai()
 }
 
 /// Create the OpenAI provider builder.

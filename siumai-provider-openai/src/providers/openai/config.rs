@@ -133,7 +133,7 @@ impl OpenAiConfig {
             // Align config-first construction with the builder and Vercel AI SDK:
             // chat text generation defaults to the Responses API unless explicitly disabled.
             provider_options_map: Self::default_provider_options_map(),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
@@ -475,7 +475,7 @@ impl Default for OpenAiConfig {
             common_params: CommonParams::default(),
             openai_params: OpenAiParams::default(),
             provider_options_map: Self::default_provider_options_map(),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),

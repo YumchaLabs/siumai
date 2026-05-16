@@ -167,7 +167,9 @@ impl RerankExecutor for HttpRerankExecutor {
                 }
 
                 // 3. Resolve URL via ProviderSpec
-                let url = self.provider_spec.rerank_url(&req, &self.provider_context);
+                let url = self
+                    .provider_spec
+                    .try_rerank_url(&req, &self.provider_context)?;
 
                 // 4. Execute request via the common HTTP layer
                 let config = crate::execution::executors::common::HttpExecutionConfig {
@@ -237,13 +239,20 @@ mod tests {
         ) -> Result<HeaderMap, LlmError> {
             Ok(HeaderMap::new())
         }
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _stream: bool,
             _req: &crate::types::ChatRequest,
             _ctx: &crate::core::ProviderContext,
-        ) -> String {
+        ) -> Result<String, LlmError> {
             unreachable!()
+        }
+        fn try_rerank_url(
+            &self,
+            _req: &RerankRequest,
+            ctx: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!("{}/rerank", ctx.base_url.trim_end_matches('/')))
         }
         fn choose_chat_transformers(
             &self,
@@ -269,13 +278,20 @@ mod tests {
         ) -> Result<HeaderMap, LlmError> {
             Ok(HeaderMap::new())
         }
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _stream: bool,
             _req: &crate::types::ChatRequest,
             _ctx: &crate::core::ProviderContext,
-        ) -> String {
+        ) -> Result<String, LlmError> {
             unreachable!()
+        }
+        fn try_rerank_url(
+            &self,
+            _req: &RerankRequest,
+            ctx: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!("{}/rerank", ctx.base_url.trim_end_matches('/')))
         }
         fn choose_chat_transformers(
             &self,

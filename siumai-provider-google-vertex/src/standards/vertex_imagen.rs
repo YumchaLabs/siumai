@@ -714,7 +714,11 @@ impl ProviderSpec for VertexImagenSpec {
         build_vertex_headers(&ctx.http_extra_headers)
     }
 
-    fn image_url(&self, req: &ImageGenerationRequest, ctx: &ProviderContext) -> String {
+    fn try_image_url(
+        &self,
+        req: &ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
         let url = format!("{}/models/{}:predict", base, model);
@@ -724,9 +728,9 @@ impl ProviderSpec for VertexImagenSpec {
             && !key.is_empty()
             && !has_auth_header(&ctx.http_extra_headers)
         {
-            append_api_key_query(url, key)
+            Ok(append_api_key_query(url, key))
         } else {
-            url
+            Ok(url)
         }
     }
 
@@ -744,7 +748,11 @@ impl ProviderSpec for VertexImagenSpec {
         None
     }
 
-    fn image_edit_url(&self, req: &ImageEditRequest, ctx: &ProviderContext) -> String {
+    fn try_image_edit_url(
+        &self,
+        req: &ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
         let url = format!("{}/models/{}:predict", base, model);
@@ -753,9 +761,9 @@ impl ProviderSpec for VertexImagenSpec {
             && !key.is_empty()
             && !has_auth_header(&ctx.http_extra_headers)
         {
-            append_api_key_query(url, key)
+            Ok(append_api_key_query(url, key))
         } else {
-            url
+            Ok(url)
         }
     }
 
@@ -773,7 +781,11 @@ impl ProviderSpec for VertexImagenSpec {
         None
     }
 
-    fn image_variation_url(&self, req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
+    fn try_image_variation_url(
+        &self,
+        req: &ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
         let url = format!("{}/models/{}:predict", base, model);
@@ -782,9 +794,9 @@ impl ProviderSpec for VertexImagenSpec {
             && !key.is_empty()
             && !has_auth_header(&ctx.http_extra_headers)
         {
-            append_api_key_query(url, key)
+            Ok(append_api_key_query(url, key))
         } else {
-            url
+            Ok(url)
         }
     }
 
@@ -845,7 +857,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            spec.image_url(&img_req, &ctx),
+            spec.try_image_url(&img_req, &ctx).unwrap(),
             "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict?key=k"
         );
 
@@ -864,7 +876,7 @@ mod tests {
             http_config: None,
         };
         assert_eq!(
-            spec.image_edit_url(&edit, &ctx),
+            spec.try_image_edit_url(&edit, &ctx).unwrap(),
             "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict?key=k"
         );
 
@@ -881,7 +893,7 @@ mod tests {
             http_config: None,
         };
         assert_eq!(
-            spec.image_variation_url(&variation, &ctx),
+            spec.try_image_variation_url(&variation, &ctx).unwrap(),
             "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict?key=k"
         );
     }
@@ -900,7 +912,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            spec.image_url(&img_req, &ctx),
+            spec.try_image_url(&img_req, &ctx).unwrap(),
             "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict"
         );
     }

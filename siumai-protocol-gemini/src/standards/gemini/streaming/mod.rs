@@ -1190,6 +1190,10 @@ impl SseEventConverter for GeminiEventConverter {
         })
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        event.data.trim() == "[DONE]"
+    }
+
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         // Gemini normally emits finish_reason in the stream (handled in extract_completion).
         // If we reach here without seeing finish_reason, the model has not transmitted

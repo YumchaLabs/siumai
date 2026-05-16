@@ -1,6 +1,6 @@
 /// Create the Google provider builder.
 pub fn google() -> super::gemini::GeminiBuilder {
-    crate::Provider::google()
+    crate::compat::Provider::google()
 }
 
 /// Create the Google provider builder.

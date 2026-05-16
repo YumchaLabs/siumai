@@ -114,8 +114,16 @@ impl ProviderSpec for MyCustomProviderSpec {
         Ok(headers)
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
-        format!("{}/chat/completions", ctx.base_url.trim_end_matches('/'))
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(format!(
+            "{}/chat/completions",
+            ctx.base_url.trim_end_matches('/')
+        ))
     }
 
     fn choose_chat_transformers(

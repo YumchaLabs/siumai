@@ -410,7 +410,7 @@ mod tests {
 
     #[test]
     fn build_context_merges_beta_features_into_anthropic_beta_header() {
-        let mut cfg = crate::types::HttpConfig::default();
+        let mut cfg = crate::types::HttpConfig::empty();
         cfg.headers
             .insert("anthropic-beta".to_string(), "x".to_string());
 

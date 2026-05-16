@@ -7,8 +7,7 @@
 //! Note: Uses async reqwest client internally but provides a sync interface via
 //! tokio::task::block_in_place to avoid requiring blocking feature.
 
-use crate::error::LlmError;
-#[cfg(feature = "gcp")]
+use crate::LlmError;
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Condvar, Mutex};

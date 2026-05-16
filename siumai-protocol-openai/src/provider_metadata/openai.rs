@@ -282,6 +282,30 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    fn production_source() -> &'static str {
+        include_str!("openai.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn openai_provider_metadata_source_does_not_read_request_provider_options() {
+        let source = production_source();
+
+        for forbidden in [
+            "providerOptions",
+            "provider_options",
+            "provider_options_map",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "OpenAI typed provider metadata views must not read request-side {forbidden}"
+            );
+        }
+    }
+
     #[test]
     fn openai_metadata_parses_logprobs_and_prediction_tokens() {
         let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(

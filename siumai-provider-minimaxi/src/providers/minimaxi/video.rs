@@ -211,6 +211,59 @@ pub(super) fn get_supported_durations(model: &str) -> Vec<u32> {
 mod tests {
     use super::*;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn video_request_and_response_paths_keep_provider_maps_directional() {
+        let source = include_str!("video.rs");
+
+        let request_body = source_section(source, "fn build_request_body(", "fn build_wiring(");
+        assert!(request_body.contains("provider_options_map"));
+        assert!(
+            !request_body.contains("provider_metadata"),
+            "MiniMaxi video request body construction must not read legacy provider_metadata"
+        );
+        assert!(
+            !request_body.contains("providerMetadata"),
+            "MiniMaxi video request body construction must not read legacy providerMetadata"
+        );
+
+        let task_response_parse = source_section(
+            source,
+            "let res = execute_json_request",
+            "/// Query video task status",
+        );
+        assert!(
+            !task_response_parse.contains("provider_options"),
+            "MiniMaxi video task response parsing must not read request provider_options"
+        );
+        assert!(
+            !task_response_parse.contains("providerOptions"),
+            "MiniMaxi video task response parsing must not read request providerOptions"
+        );
+
+        let query_response_parse = source_section(
+            source,
+            "pub(super) async fn query_video_task(",
+            "/// Get supported video models",
+        );
+        assert!(
+            !query_response_parse.contains("provider_options"),
+            "MiniMaxi video query response parsing must not read request provider_options"
+        );
+        assert!(
+            !query_response_parse.contains("providerOptions"),
+            "MiniMaxi video query response parsing must not read request providerOptions"
+        );
+    }
+
     #[test]
     fn build_request_body_rejects_promptless_requests() {
         let err = build_request_body(VideoGenerationRequest::new_without_prompt("hailuo-2.3"))

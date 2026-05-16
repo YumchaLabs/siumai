@@ -12,9 +12,9 @@ mod openai_responses_to_anthropic_messages;
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 mod tool_rules;
 
+use crate::BridgeReport;
+use crate::BridgeTarget;
 use siumai_core::LlmError;
-use siumai_core::bridge::BridgeReport;
-use siumai_core::bridge::BridgeTarget;
 use siumai_core::types::ChatRequest;
 
 /// Explicit direct request bridge pairs worth implementing.

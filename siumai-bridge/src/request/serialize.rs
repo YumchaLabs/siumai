@@ -7,8 +7,8 @@ use crate::lifecycle::{
 use crate::planner::{RequestBridgePath, plan_chat_request_bridge};
 use crate::target_dispatch::transform_chat_request_to_json;
 use crate::wrapper_macros::define_request_bridge_wrappers;
+use crate::{BridgeMode, BridgeOptions, BridgeResult, BridgeTarget};
 use siumai_core::LlmError;
-use siumai_core::bridge::{BridgeMode, BridgeOptions, BridgeResult, BridgeTarget};
 use siumai_core::types::ChatRequest;
 
 use super::inspect::inspect_chat_request_bridge;
@@ -105,8 +105,8 @@ define_request_bridge_wrappers!(
 
 fn should_reject_request(
     options: &BridgeOptions,
-    ctx: &siumai_core::bridge::RequestBridgeContext,
-    report: &mut siumai_core::bridge::BridgeReport,
+    ctx: &crate::RequestBridgeContext,
+    report: &mut crate::BridgeReport,
 ) -> bool {
     let action = options.loss_policy.request_action(ctx, report);
     reject_if_needed(report, action, "request", ctx.target)

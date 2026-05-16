@@ -206,7 +206,7 @@ release.
 | `create_google_generative_ai()` | keep, move out of recommendations | Deprecated analogue of AI SDK `createGoogleGenerativeAI()`. Prefer `create_google()`. |
 | `AudioModelHandle::text_to_speech(...)` | remove | Use the `AudioCapability` trait method directly while the audio handle converges on family-style naming. |
 | `execute_json_request_with_headers(...)` and HTTP JSON static-header helpers | remove | Use `execute_json_request` with `HttpExecutionConfig`; static headers should be provided by a `ProviderSpec`. |
-| `siumai_core::utils::vertex` | move | Use `siumai_core::auth::vertex` instead. |
+| `siumai_core::utils::vertex` | move | Use facade `siumai::experimental::auth::vertex` or provider-owned `siumai-provider-google-vertex::auth::vertex`; the intermediate `siumai_core::auth::vertex` target was later removed. |
 | Provider extension deprecated option/metadata aliases | keep, time-bounded | Keep upstream/Rust spelling migration aliases inside provider-owned extension modules only. Do not add them to the stable prelude. |
 
 Guardrails:

@@ -48,7 +48,7 @@ impl Default for OllamaConfig {
             base_url: "http://localhost:11434".to_string(),
             model: None,
             common_params: CommonParams::default(),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             ollama_params: OllamaParams::default(),
             http_transport: None,
             http_interceptors: Vec::new(),

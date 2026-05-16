@@ -12,7 +12,7 @@ use crate::types::JSONValue;
 
 use super::is_parsable_json;
 
-/// Function payload inside an OpenAI-compatible streaming tool-call delta.
+/// Function payload inside a provider streaming tool-call delta.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StreamingToolCallFunctionDelta {
     /// Function/tool name when present.
@@ -21,7 +21,7 @@ pub struct StreamingToolCallFunctionDelta {
     pub arguments: Option<String>,
 }
 
-/// Minimal OpenAI-compatible streaming tool-call delta.
+/// Minimal indexed function-call delta used by compatibility helpers.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StreamingToolCallDelta {
     /// Tool-call index in the provider stream.
@@ -125,8 +125,8 @@ impl StreamingToolCallTrackerOptions {
 
     /// Set the upstream-compatible generated-id function option.
     ///
-    /// The current OpenAI-compatible delta contract still requires the first
-    /// chunk to provide `id`, so this option is retained for shape parity.
+    /// The current indexed delta contract still requires the first chunk to provide `id`,
+    /// so this option is retained for shape parity.
     pub fn with_generate_id_fn<F>(mut self, generate_id: F) -> Self
     where
         F: Fn() -> String + Send + Sync + 'static,
@@ -178,7 +178,7 @@ struct TrackedToolCall {
     metadata: Option<SharedV4ProviderMetadata>,
 }
 
-/// Tracks streaming tool-call state across OpenAI-compatible deltas.
+/// Tracks streaming tool-call state across provider function-call deltas.
 #[derive(Debug, Clone, Default)]
 pub struct StreamingToolCallTracker {
     tool_calls: Vec<Option<TrackedToolCall>>,
@@ -552,7 +552,7 @@ mod tests {
             StreamingToolCallTrackerOptions::new()
                 .with_extract_metadata_fn(|_| {
                     Some(SharedV4ProviderMetadata::from([(
-                        "openai".to_string(),
+                        "provider-a".to_string(),
                         serde_json::json!({ "trace": "1" }),
                     )]))
                 })
@@ -575,7 +575,7 @@ mod tests {
             Some(LanguageModelV4StreamPart::ToolCall(call))
                 if call.provider_metadata
                     .as_ref()
-                    .and_then(|metadata| metadata.get("openai"))
+                    .and_then(|metadata| metadata.get("provider-a"))
                     .and_then(|metadata| metadata.get("trace"))
                     == Some(&serde_json::json!("1"))
         ));

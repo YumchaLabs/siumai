@@ -22,7 +22,7 @@ fn vertex_express_chat_url_appends_key_query_param() {
         .model("gemini-2.5-pro")
         .build();
 
-    let url = spec.chat_url(false, &req, &ctx);
+    let url = spec.try_chat_url(false, &req, &ctx).unwrap();
     assert_eq!(
         url,
         "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-pro:generateContent?key=test-api-key"
@@ -34,7 +34,7 @@ fn vertex_express_chat_url_appends_key_query_param() {
         .stream(true)
         .build();
 
-    let url_stream = spec.chat_url(true, &stream_req, &ctx);
+    let url_stream = spec.try_chat_url(true, &stream_req, &ctx).unwrap();
     assert_eq!(
         url_stream,
         "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse&key=test-api-key"
@@ -62,7 +62,7 @@ fn vertex_express_embedding_url_appends_key_query_param() {
 
     let req = siumai::prelude::unified::EmbeddingRequest::single("hello")
         .with_model("textembedding-gecko@001");
-    let url = spec.embedding_url(&req, &ctx);
+    let url = spec.try_embedding_url(&req, &ctx).unwrap();
     assert_eq!(
         url,
         "https://aiplatform.googleapis.com/v1/publishers/google/models/textembedding-gecko@001:predict?key=test-api-key"
@@ -85,7 +85,7 @@ fn vertex_enterprise_does_not_append_key_when_authorization_present() {
         .message(siumai::prelude::unified::ChatMessage::user("hi").build())
         .model("gemini-2.5-pro")
         .build();
-    let url = spec.chat_url(false, &req, &ctx);
+    let url = spec.try_chat_url(false, &req, &ctx).unwrap();
     assert_eq!(
         url,
         "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-pro:generateContent"

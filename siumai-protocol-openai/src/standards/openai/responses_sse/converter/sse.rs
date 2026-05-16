@@ -375,6 +375,10 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
         })
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        event.data.trim() == "[DONE]"
+    }
+
     fn handle_stream_end(
         &self,
     ) -> Option<Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>> {

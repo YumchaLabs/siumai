@@ -161,7 +161,7 @@ mod tests {
             Client::new(),
             None,
             None,
-            crate::types::HttpConfig::default(),
+            crate::types::HttpConfig::empty(),
             None,
         );
         let req = RerankRequest::new(
@@ -179,7 +179,7 @@ mod tests {
         let spec = crate::providers::openai::spec::OpenAiSpec::new();
 
         assert_eq!(
-            spec.rerank_url(&req, &ctx),
+            spec.try_rerank_url(&req, &ctx).unwrap(),
             "https://api.siliconflow.cn/v1/rerank"
         );
     }
@@ -194,7 +194,7 @@ mod tests {
             Client::new(),
             None,
             None,
-            crate::types::HttpConfig::default(),
+            crate::types::HttpConfig::empty(),
             None,
         );
         let req = RerankRequest::new(
@@ -212,7 +212,7 @@ mod tests {
         let spec = crate::providers::openai::spec::OpenAiSpec::new();
 
         assert_eq!(
-            spec.rerank_url(&req, &ctx),
+            spec.try_rerank_url(&req, &ctx).unwrap(),
             "https://api.siliconflow.cn/v1/rerank"
         );
     }
@@ -225,7 +225,7 @@ mod tests {
             Client::new(),
             None,
             None,
-            crate::types::HttpConfig::default(),
+            crate::types::HttpConfig::empty(),
             None,
         );
 
@@ -242,7 +242,7 @@ mod tests {
             Client::new(),
             None,
             None,
-            crate::types::HttpConfig::default(),
+            crate::types::HttpConfig::empty(),
             None,
         );
 

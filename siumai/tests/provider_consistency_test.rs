@@ -18,7 +18,7 @@
 //!
 //! This prevents regressions when adding new providers.
 
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::prelude::unified::{ChatMessage, ChatRequest, CommonParams};
 
 /// List of all providers to test

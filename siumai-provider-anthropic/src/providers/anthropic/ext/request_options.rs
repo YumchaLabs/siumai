@@ -93,6 +93,29 @@ mod tests {
     };
     use crate::types::ChatMessage;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn anthropic_request_option_extension_source_does_not_read_response_metadata() {
+        let source = include_str!("request_options.rs");
+        let request_source =
+            source_section(source, "pub trait AnthropicChatRequestExt", "#[cfg(test)]");
+
+        for disallowed in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
+            assert!(
+                !request_source.contains(disallowed),
+                "Anthropic request option extension helpers must stay request-only"
+            );
+        }
+    }
+
     #[test]
     fn with_anthropic_options_merges_existing_provider_options() {
         let request = ChatRequest::new(vec![ChatMessage::user("hi").build()])

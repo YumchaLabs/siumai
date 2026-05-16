@@ -158,7 +158,9 @@ impl ModelListingCapability for OpenAiModels {
     /// List all available models
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let config = self.build_http_config();
-        let url = config.provider_spec.models_url(&config.provider_context);
+        let url = config
+            .provider_spec
+            .try_models_url(&config.provider_context)?;
         let result =
             crate::execution::executors::common::execute_get_request(&config, &url, None).await?;
 
@@ -181,7 +183,7 @@ impl ModelListingCapability for OpenAiModels {
         let config = self.build_http_config();
         let url = config
             .provider_spec
-            .model_url(&model_id, &config.provider_context);
+            .try_model_url(&model_id, &config.provider_context)?;
         let result =
             crate::execution::executors::common::execute_get_request(&config, &url, None).await?;
 
@@ -488,11 +490,15 @@ mod tests {
         );
         let cfg = models.build_http_config();
         assert_eq!(
-            cfg.provider_spec.models_url(&cfg.provider_context),
+            cfg.provider_spec
+                .try_models_url(&cfg.provider_context)
+                .unwrap(),
             "https://api.openai.com/v1/models"
         );
         assert_eq!(
-            cfg.provider_spec.model_url("gpt-4", &cfg.provider_context),
+            cfg.provider_spec
+                .try_model_url("gpt-4", &cfg.provider_context)
+                .unwrap(),
             "https://api.openai.com/v1/models/gpt-4"
         );
     }

@@ -59,6 +59,27 @@ fn tool_input_delta_event(id: &str, delta: &str) -> ChatStreamEvent {
     }
 }
 
+#[test]
+fn anthropic_streaming_parser_source_does_not_read_request_provider_options() {
+    let source = include_str!("mod.rs");
+    let production_source = source
+        .split("#[cfg(test)]")
+        .next()
+        .expect("production source");
+
+    for forbidden in [
+        "provider_options",
+        ".provider_options",
+        "providerOptions",
+        "ProviderOptionsMap",
+    ] {
+        assert!(
+            !production_source.contains(forbidden),
+            "Anthropic streaming parser source must not read request-side provider options fragment `{forbidden}`"
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_anthropic_streaming_conversion() {
     let config = create_test_config();

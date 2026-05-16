@@ -7,7 +7,7 @@
 //! ```text
 //! User Code
 //!     ↓
-//! Provider Client (OpenAiClient, AnthropicClient, etc.)
+//! Provider Client (provider-owned client implementation)
 //!     ↓
 //! ProviderSpec (defines HTTP routing, headers, transformers)
 //!     ↓
@@ -57,7 +57,7 @@
 //! use siumai::prelude::*;
 //!
 //! // High-level API (recommended)
-//! let client = LlmBuilder::new().openai().build().await?;
+//! let client = build_provider_client().await?;
 //! let response = client.chat(vec![user!("Hello!")]).await?;
 //! ```
 //!

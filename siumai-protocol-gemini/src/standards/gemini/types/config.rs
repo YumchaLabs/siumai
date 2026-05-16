@@ -92,7 +92,7 @@ impl Default for GeminiConfig {
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             token_provider: None,
             http_transport: None,
             generate_id: None,

@@ -138,6 +138,29 @@ mod tests {
     };
     use crate::types::{ChatMessage, ChatRequest};
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn gemini_request_option_extension_source_does_not_read_response_metadata() {
+        let source = include_str!("request_options.rs");
+        let request_source =
+            source_section(source, "pub trait GeminiChatRequestExt", "#[cfg(test)]");
+
+        for disallowed in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
+            assert!(
+                !request_source.contains(disallowed),
+                "Gemini request option extension helpers must stay request-only"
+            );
+        }
+    }
+
     #[test]
     fn with_gemini_options_serializes_logprobs_fields_in_google_shape() {
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_gemini_options(

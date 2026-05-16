@@ -21,7 +21,15 @@ pub trait StreamChunkTransformer: Send + Sync {
     /// Convert a single SSE event into zero or more ChatStreamEvents
     fn convert_event(&self, _event: Event) -> StreamEventFuture<'_>;
 
-    /// Optional end-of-stream event (e.g., `[DONE]` for OpenAI-compatible)
+    /// Return whether this SSE event is the protocol's stream-end sentinel.
+    ///
+    /// Transport-level code must delegate concrete marker values to protocol or
+    /// provider transformers.
+    fn is_stream_end_event(&self, _event: &Event) -> bool {
+        false
+    }
+
+    /// Optional provider-specific end-of-stream sentinel event
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         None
     }
@@ -35,7 +43,7 @@ pub trait StreamChunkTransformer: Send + Sync {
     }
 
     /// Whether the StreamFactory should call `handle_stream_end` when the SSE
-    /// connection closes without an explicit `[DONE]` marker.
+    /// connection closes without an explicit protocol end marker.
     ///
     /// Default is `false` to preserve the existing semantics: an unexpected
     /// disconnect should not synthesize a StreamEnd.

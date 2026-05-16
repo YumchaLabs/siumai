@@ -458,7 +458,8 @@ impl OpenAiClient {
         // - Responses structured output uses `text.format` and is injected by `OpenAiSpec`
         //   via `OpenAiOptions.responses_api.response_format`.
         let use_responses_api = spec
-            .chat_url(false, request, &ctx)
+            .try_chat_url(false, request, &ctx)
+            .unwrap_or_default()
             .trim_end()
             .ends_with("/responses");
         let defaults = self.specific_params.clone();
@@ -901,6 +902,38 @@ mod tests {
     use crate::providers::openai::transformers;
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
+
+    fn production_source() -> &'static str {
+        include_str!("client.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn openai_client_default_provider_option_merging_does_not_read_response_metadata() {
+        let source = production_source();
+        let merge_start = source
+            .find("fn merge_default_provider_options_map_non_chat")
+            .expect("merge_default_provider_options_map_non_chat section");
+        let merge_end = source[merge_start..]
+            .find("/// Creates a new `OpenAI` client with configuration")
+            .map(|offset| merge_start + offset)
+            .expect("merge section end");
+        let merge_source = &source[merge_start..merge_end];
+
+        assert!(
+            merge_source.contains("ProviderOptionsMap"),
+            "OpenAI client non-chat request merging should stay on request provider options"
+        );
+
+        for forbidden in ["provider_metadata", "ProviderMetadata", "providerMetadata"] {
+            assert!(
+                !merge_source.contains(forbidden),
+                "OpenAI client request option merging must not read response metadata"
+            );
+        }
+    }
 
     #[derive(Clone, Default)]
     struct DummyTransport;

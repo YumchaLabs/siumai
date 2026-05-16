@@ -28,7 +28,7 @@ fn siliconflow_chat_url_matches_official_openai_compatible_endpoint() {
     req.common_params.model = "deepseek-ai/DeepSeek-V3".to_string();
 
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://api.siliconflow.cn/v1/chat/completions"
     );
 }
@@ -40,7 +40,7 @@ fn siliconflow_embedding_url_matches_official_openai_compatible_endpoint() {
 
     let req = EmbeddingRequest::new(vec!["hi".into()]).with_model("text-embedding-3-small");
     assert_eq!(
-        spec.embedding_url(&req, &ctx),
+        spec.try_embedding_url(&req, &ctx).unwrap(),
         "https://api.siliconflow.cn/v1/embeddings"
     );
 }
@@ -57,7 +57,7 @@ fn siliconflow_image_generation_url_matches_official_openai_compatible_endpoint(
         ..Default::default()
     };
     assert_eq!(
-        spec.image_url(&req, &ctx),
+        spec.try_image_url(&req, &ctx).unwrap(),
         "https://api.siliconflow.cn/v1/images/generations"
     );
 }
@@ -73,7 +73,7 @@ fn siliconflow_rerank_url_matches_official_endpoint() {
         vec!["a".to_string(), "b".to_string()],
     );
     assert_eq!(
-        spec.rerank_url(&req, &ctx),
+        spec.try_rerank_url(&req, &ctx).unwrap(),
         "https://api.siliconflow.cn/v1/rerank"
     );
 }

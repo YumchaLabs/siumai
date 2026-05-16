@@ -54,7 +54,7 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
                 // 3. Get URL from provider spec
                 let url = self
                     .provider_spec
-                    .embedding_url(&req, &self.provider_context);
+                    .try_embedding_url(&req, &self.provider_context)?;
 
                 // 4. Build execution config for common HTTP layer
                 let config = crate::execution::executors::common::HttpExecutionConfig {
@@ -206,7 +206,7 @@ impl EmbeddingExecutorBuilder {
     /// Build the executor, selecting transformers from the ProviderSpec if they were not set.
     ///
     /// This keeps providers from duplicating the `choose_embedding_transformers` wiring while still
-    /// allowing providers to override transformers explicitly when needed (e.g. config-aware Gemini).
+    /// allowing providers to override transformers explicitly when they need config-aware behavior.
     ///
     /// # Panics
     /// Panics if required fields (spec, context) are not set.
@@ -254,13 +254,20 @@ mod tests {
             );
             Ok(h)
         }
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _s: bool,
             _r: &crate::types::ChatRequest,
             _c: &crate::core::ProviderContext,
-        ) -> String {
+        ) -> Result<String, LlmError> {
             unreachable!()
+        }
+        fn try_embedding_url(
+            &self,
+            _r: &crate::types::EmbeddingRequest,
+            c: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!("{}/embeddings", c.base_url.trim_end_matches('/')))
         }
         fn choose_chat_transformers(
             &self,
@@ -364,7 +371,7 @@ mod tests {
             policy: crate::execution::ExecutionPolicy::new().with_interceptors(vec![interceptor]),
         };
         let mut req = crate::types::EmbeddingRequest::new(vec!["hi".into()]).with_model("m");
-        let mut hc = crate::types::HttpConfig::default();
+        let mut hc = crate::types::HttpConfig::empty();
         hc.headers.insert("x-req".into(), "R".into());
         req.http_config = Some(hc);
         let _ = exec.execute(req).await; // expect abort
@@ -397,13 +404,20 @@ mod tests {
             ) -> Result<HeaderMap, LlmError> {
                 Ok(HeaderMap::new())
             }
-            fn chat_url(
+            fn try_chat_url(
                 &self,
                 _s: bool,
                 _r: &crate::types::ChatRequest,
                 _c: &crate::core::ProviderContext,
-            ) -> String {
+            ) -> Result<String, LlmError> {
                 unreachable!()
+            }
+            fn try_embedding_url(
+                &self,
+                _r: &EmbeddingRequest,
+                c: &crate::core::ProviderContext,
+            ) -> Result<String, LlmError> {
+                Ok(format!("{}/embeddings", c.base_url.trim_end_matches('/')))
             }
             fn choose_chat_transformers(
                 &self,

@@ -1,7 +1,7 @@
 //! Completion model family.
 //!
-//! This module provides a Rust-first, family-oriented abstraction for completion endpoints such as
-//! OpenAI/OpenAI-compatible `/completions`. The runtime streaming lane intentionally reuses the
+//! This module provides a Rust-first, family-oriented abstraction for provider completion
+//! endpoints such as `/completions`. The runtime streaming lane intentionally reuses the
 //! shared language-model stream carrier rather than inventing a second incompatible stream model.
 
 use async_trait::async_trait;

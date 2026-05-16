@@ -2923,6 +2923,7 @@ version = "0.11.0-beta.7"
 dependencies = [
  "base64",
  "futures-util",
+ "serde",
  "serde_json",
  "siumai-core",
  "siumai-protocol-anthropic",
@@ -2948,7 +2949,6 @@ dependencies = [
  "http",
  "infer",
  "jsonrepair",
- "jsonwebtoken",
  "lru",
  "mockito",
  "once_cell",
@@ -3303,7 +3303,9 @@ dependencies = [
  "futures",
  "futures-util",
  "infer",
+ "jsonwebtoken",
  "lru",
+ "mockito",
  "rand 0.10.1",
  "reqwest 0.13.3",
  "secrecy",
@@ -3592,11 +3594,9 @@ version = "0.11.0-beta.7"
 dependencies = [
  "base64",
  "chrono",
- "futures",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tokio-util",
 ]
 
 [[package]]

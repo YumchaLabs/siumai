@@ -16,7 +16,7 @@ use axum::{
 use futures::{Stream, StreamExt};
 use tokio::time::Sleep;
 
-use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
+use siumai::prelude::unified::{ChatStream, ChatStreamEvent, LlmErrorExt};
 use siumai_bridge::{
     BridgeCustomization, BridgeLossAction, BridgeMode, BridgeOptions, BridgeOptionsOverride,
     BridgeReport, BridgeTarget, StreamBridgeContext, inspect_chat_stream_bridge,

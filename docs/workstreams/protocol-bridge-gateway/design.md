@@ -27,7 +27,7 @@ The bridge work since this document was first added has confirmed three addition
 
 The current codebase now already has:
 
-- typed bridge contracts in `siumai-core::bridge`
+- typed bridge contracts in `siumai-bridge`
 - an experimental explicit bridge facade in `siumai::experimental::bridge`
 - a request bridge planner plus direct pair bridge modules
 - explicit protocol-source typed request -> normalized request entry points for Anthropic
@@ -85,7 +85,7 @@ We will follow the architectural idea, not copy either implementation literally.
     another parser-level plugin layer.
 - Lossy conversion policy now has a stable contract and gateway wiring, but broader example and
   audit coverage still needs work.
-  - `BridgeLossPolicy` exists in `siumai-core::bridge`, and route-local closure adapters now exist
+  - `BridgeLossPolicy` exists in `siumai-bridge`, and route-local closure adapters now exist
     in `siumai-extras::bridge`, but more fixture-backed examples still add value.
 - Protocol-source request normalization now shares the bridge customization surface, but it still
   needs broader audit coverage.
@@ -112,9 +112,9 @@ The repository now exposes both bridge-owned customization and older adjacent ho
 
 Recommended primary surface:
 
-- `siumai-core::bridge::{BridgeOptions, BridgeCustomization}`
-- `siumai-core::bridge::{BridgeOptions, RequestBridgeHook, ResponseBridgeHook, StreamBridgeHook}`
-- `siumai-core::bridge::{BridgeOptionsOverride, BridgePrimitiveRemapper, BridgeLossPolicy}`
+- `siumai_bridge::{BridgeOptions, BridgeCustomization}`
+- `siumai_bridge::{BridgeOptions, RequestBridgeHook, ResponseBridgeHook, StreamBridgeHook}`
+- `siumai_bridge::{BridgeOptionsOverride, BridgePrimitiveRemapper, BridgeLossPolicy}`
 - typed contexts:
   - `RequestBridgeContext`
   - `ResponseBridgeContext`
@@ -579,8 +579,8 @@ Possible surface split:
 
 Recommended implementation split:
 
-- `siumai-core::bridge`
-  - bridge contracts, reports, contexts, and policy traits
+- `siumai-bridge`
+  - bridge contracts, reports, contexts, policy traits, planner, and explicit bridge entry points
 - `siumai::experimental::bridge`
   - planner and facade entry points
 - `siumai::experimental::bridge::request`

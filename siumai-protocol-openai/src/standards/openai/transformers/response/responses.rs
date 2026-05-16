@@ -1955,6 +1955,44 @@ mod tests {
     use crate::execution::transformers::response::ResponseTransformer;
     use crate::standards::openai::json_response::OpenAiResponsesJsonResponseConverter;
 
+    fn production_source() -> &'static str {
+        include_str!("responses.rs")
+            .split_once("#[cfg(all(test, feature = \"openai-responses\"))]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn responses_response_transformer_source_does_not_emit_request_provider_options() {
+        let source = production_source();
+
+        assert!(
+            !source.contains("providerOptions"),
+            "OpenAI Responses response parsing must not emit request-side providerOptions"
+        );
+        assert!(
+            !source.contains(".provider_options"),
+            "OpenAI Responses response parsing must not read request provider_options fields"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "OpenAI Responses response parsing must not read request provider option maps"
+        );
+
+        for line in source
+            .lines()
+            .filter(|line| line.contains("provider_options"))
+        {
+            let trimmed = line.trim();
+            assert!(
+                trimmed == "provider_options: crate::types::ProviderOptionsMap::default(),"
+                    || trimmed == "provider_options,"
+                    || trimmed.contains("provider_options.is_empty()"),
+                "OpenAI Responses response provider_options must stay empty defaults or final empty checks: {line}"
+            );
+        }
+    }
+
     #[test]
     fn responses_chat_response_preserves_raw_response_body() {
         let raw = serde_json::json!({

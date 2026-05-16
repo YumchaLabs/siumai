@@ -16,7 +16,7 @@
 //!
 //! Provider-specific parameter structs are provider-owned and live in provider crates.
 //! The `siumai-core::params` module only keeps provider-agnostic validation utilities
-//! and legacy OpenAI params until they are fully migrated.
+//! and legacy shared parameter mapping helpers until they are fully migrated.
 //!
 //! ## Relationship with `types` Module
 //!
@@ -52,12 +52,13 @@
 //!
 //! ## Provider-Specific Parameters
 //!
-//! Each provider has unique parameters beyond the common ones:
+//! Each provider has unique parameters beyond the common ones. Those options belong in provider
+//! crates and extension traits, for example:
 //!
-//! - **OpenAI**: `frequency_penalty`, `presence_penalty`, `logit_bias`, etc.
-//! - **Anthropic**: `thinking_budget`, `cache_control`, etc.
-//! - **Gemini**: `safety_settings`, `thinking_config`, etc.
-//! - **Ollama**: `keep_alive`, `raw`, `format`, etc.
+//! - generation penalty controls
+//! - reasoning or cache controls
+//! - safety settings
+//! - local-runtime controls
 
 pub mod common;
 pub mod mapper;

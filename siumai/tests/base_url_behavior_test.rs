@@ -7,7 +7,7 @@
 //! and no provider-default path segments like `/v1` or `/v1beta` are
 //! automatically appended. This mirrors the behavior of the Vercel AI SDK.
 
-use siumai::provider::Siumai;
+use siumai::compat::Siumai;
 
 /// OpenAI: custom base_url without trailing slash should be used as-is.
 #[cfg(feature = "openai")]

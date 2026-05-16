@@ -232,6 +232,23 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
+    const SOURCE: &str = include_str!("chat.rs");
+
+    #[test]
+    fn chat_request_path_does_not_read_legacy_response_metadata_maps() {
+        let snake = concat!("provider", "_metadata");
+        let camel = concat!("provider", "Metadata");
+
+        assert!(
+            !SOURCE.contains(snake),
+            "OpenAI chat request construction must not read legacy `{snake}`"
+        );
+        assert!(
+            !SOURCE.contains(camel),
+            "OpenAI chat request construction must not read legacy `{camel}` JSON fields"
+        );
+    }
+
     #[test]
     fn prepare_chat_request_for_stream_fills_missing_common_params_defaults() {
         let cfg = crate::providers::openai::OpenAiConfig::new("test-key")

@@ -4,7 +4,7 @@ pub use siumai_provider_xai::providers::xai::{
 
 /// Create the xAI provider builder.
 pub fn xai() -> XaiBuilder {
-    crate::Provider::xai()
+    crate::compat::Provider::xai()
 }
 
 /// Create the xAI provider builder.

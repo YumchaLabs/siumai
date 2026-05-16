@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use siumai_core::bridge::{
+use crate::{
     BridgeCustomization, BridgeMode, BridgePrimitiveContext, BridgePrimitiveKind,
     BridgePrimitiveRemapper, BridgeReport, BridgeTarget, BridgeWarning, BridgeWarningKind,
     RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext,
@@ -555,5 +555,29 @@ pub(crate) fn remap_stream_event(
             ChatStreamEvent::StreamEnd { response }
         }
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bridge_customization_source_stays_primitive_only() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/customize.rs"));
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source section");
+
+        for forbidden in [
+            "provider_options",
+            "providerOptions",
+            "provider_metadata",
+            "providerMetadata",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "bridge customization/remapper helpers should stay primitive-only and must not read or write `{forbidden}`"
+            );
+        }
     }
 }

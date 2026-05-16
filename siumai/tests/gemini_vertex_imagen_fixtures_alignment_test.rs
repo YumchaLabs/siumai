@@ -99,7 +99,7 @@ fn run_generate_case(root: &Path) {
     let ctx = vertex_ctx();
     let spec = siumai::experimental::providers::google_vertex::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex");
 
-    let url = spec.image_url(&req, &ctx);
+    let url = spec.try_image_url(&req, &ctx).unwrap();
     assert_eq!(url, expected_url);
 
     let transformers = spec.choose_image_transformers(&req, &ctx);
@@ -140,7 +140,7 @@ fn run_edit_case(root: &Path) {
     let ctx = vertex_ctx();
     let spec = siumai::experimental::providers::google_vertex::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex");
 
-    let url = spec.image_edit_url(&req, &ctx);
+    let url = spec.try_image_edit_url(&req, &ctx).unwrap();
     assert_eq!(url, expected_url);
 
     let selector = siumai::prelude::unified::ImageGenerationRequest {

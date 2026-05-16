@@ -62,6 +62,13 @@ mod tests {
     use super::*;
     use serde_json::Map;
 
+    fn production_source() -> &'static str {
+        include_str!("prepare_step.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
     fn provider_metadata_with_container(
         provider_id: &str,
         container_id: &str,
@@ -73,6 +80,32 @@ mod tests {
                 json!({ "id": container_id }),
             )])),
         )])
+    }
+
+    #[test]
+    fn prepare_step_source_only_bridges_response_metadata_to_request_provider_options() {
+        let source = production_source();
+
+        assert!(
+            source.contains("ProviderMetadataMap") && source.contains("ProviderOptionsMap"),
+            "prepare-step replay should bridge response metadata into request provider options"
+        );
+        assert!(
+            source.contains("provider_options.insert("),
+            "prepare-step replay must materialize request-side provider options"
+        );
+        assert!(
+            !source.contains("ContentPart"),
+            "prepare-step replay must not read legacy ContentPart provider metadata"
+        );
+        assert!(
+            !source.contains("providerMetadata"),
+            "prepare-step replay must not parse providerMetadata JSON fields directly"
+        );
+        assert!(
+            !source.contains("provider_metadata:"),
+            "prepare-step replay must not construct legacy provider_metadata fields"
+        );
     }
 
     #[test]

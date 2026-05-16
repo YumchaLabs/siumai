@@ -85,7 +85,7 @@ impl ProviderCore {
             connect_timeout: base.connect_timeout,
             proxy: base.proxy.clone(),
             user_agent: base.user_agent.clone(),
-            ..Default::default()
+            ..crate::defaults::http::config_default()
         };
         if !base.default_headers.is_empty() {
             http_config.headers.extend(base.default_headers.clone());

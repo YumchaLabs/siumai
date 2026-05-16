@@ -106,7 +106,9 @@ impl AnthropicModels {
     ) -> Result<AnthropicModelsResponse, LlmError> {
         let ctx = self.build_context();
         let config = self.build_http_config(ctx);
-        let mut url = config.provider_spec.models_url(&config.provider_context);
+        let mut url = config
+            .provider_spec
+            .try_models_url(&config.provider_context)?;
 
         // Build query parameters
         let mut query_params = Vec::new();
@@ -141,7 +143,7 @@ impl AnthropicModels {
         let config = self.build_http_config(ctx);
         let url = config
             .provider_spec
-            .model_url(&model_id, &config.provider_context);
+            .try_model_url(&model_id, &config.provider_context)?;
 
         let result = crate::execution::executors::common::execute_get_request(&config, &url, None)
             .await

@@ -1,6 +1,6 @@
 //! Shared response-target capability definitions for bridge inspection.
 
-use siumai_core::bridge::BridgeTarget;
+use crate::BridgeTarget;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ResponseUsageMode {

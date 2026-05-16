@@ -1,6 +1,6 @@
 //! Response bridge inspection.
 
-use siumai_core::bridge::{BridgeReport, BridgeTarget};
+use crate::{BridgeReport, BridgeTarget};
 use siumai_core::types::{
     ChatResponse, ContentPart, FinishReason, MessageContent, ProviderMetadataMap,
     ToolResultContentPart, ToolResultOutput,

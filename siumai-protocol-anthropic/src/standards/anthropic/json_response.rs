@@ -830,6 +830,22 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn anthropic_json_response_encoder_source_does_not_read_request_provider_options() {
+        let source = include_str!("json_response.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+
+        for forbidden in ["provider_options", ".provider_options", "providerOptions"] {
+            assert!(
+                !production_source.contains(forbidden),
+                "Anthropic JSON response encoder must not read request-side provider options fragment `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
     fn anthropic_encoder_serializes_thinking_redacted_stop_sequence_and_caller() {
         let tool_call = ContentPart::ToolCall {
             tool_call_id: "toolu_1".to_string(),

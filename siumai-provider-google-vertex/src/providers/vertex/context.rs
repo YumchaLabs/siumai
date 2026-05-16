@@ -60,7 +60,7 @@ mod tests {
 
     #[tokio::test]
     async fn build_context_does_not_override_authorization_header() {
-        let mut http_config = crate::types::HttpConfig::default();
+        let mut http_config = crate::types::HttpConfig::empty();
         http_config
             .headers
             .insert("Authorization".to_string(), "Bearer user".to_string());

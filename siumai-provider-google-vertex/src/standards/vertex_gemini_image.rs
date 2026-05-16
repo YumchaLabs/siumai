@@ -143,29 +143,39 @@ fn image_input_media_type(input: &ImageEditInput) -> String {
     "image/jpeg".to_string()
 }
 
+fn request_file_part(
+    source: FilePartSource,
+    media_type: impl Into<String>,
+    provider_options: crate::types::ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::File {
+        source,
+        media_type: media_type.into(),
+        filename: None,
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
 fn image_input_part(input: &ImageEditInput) -> Result<ContentPart, LlmError> {
     let provider_options = input.provider_options_map().clone();
     match input {
-        ImageEditInput::Url { url, .. } => Ok(ContentPart::File {
-            source: FilePartSource::url(url.clone()),
-            media_type: "image/*".to_string(),
-            filename: None,
+        ImageEditInput::Url { url, .. } => Ok(request_file_part(
+            FilePartSource::url(url.clone()),
+            "image/*",
             provider_options,
-            provider_metadata: None,
-        }),
+        )),
         ImageEditInput::File { data, .. } => {
             let source = match data {
                 ImageEditFileData::Base64(data) => FilePartSource::base64(data.clone()),
                 ImageEditFileData::Binary(data) => FilePartSource::binary(data.clone()),
             };
 
-            Ok(ContentPart::File {
+            Ok(request_file_part(
                 source,
-                media_type: image_input_media_type(input),
-                filename: None,
+                image_input_media_type(input),
                 provider_options,
-                provider_metadata: None,
-            })
+            ))
         }
     }
 }
@@ -405,25 +415,37 @@ impl ProviderSpec for VertexGeminiImageSpec {
         build_vertex_headers(&ctx.http_extra_headers)
     }
 
-    fn image_url(&self, req: &ImageGenerationRequest, ctx: &ProviderContext) -> String {
-        self.image_request_url(
+    fn try_image_url(
+        &self,
+        req: &ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(self.image_request_url(
             &normalize_vertex_model_id(req.model.as_deref().unwrap_or("")),
             ctx,
-        )
+        ))
     }
 
-    fn image_edit_url(&self, req: &ImageEditRequest, ctx: &ProviderContext) -> String {
-        self.image_request_url(
+    fn try_image_edit_url(
+        &self,
+        req: &ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(self.image_request_url(
             &normalize_vertex_model_id(req.model.as_deref().unwrap_or("")),
             ctx,
-        )
+        ))
     }
 
-    fn image_variation_url(&self, req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
-        self.image_request_url(
+    fn try_image_variation_url(
+        &self,
+        req: &ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(self.image_request_url(
             &normalize_vertex_model_id(req.model.as_deref().unwrap_or("")),
             ctx,
-        )
+        ))
     }
 
     fn image_warnings(
@@ -478,5 +500,69 @@ impl ProviderSpec for VertexGeminiImageSpec {
                 config,
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn vertex_gemini_image_request_content_construction_is_centralized() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/vertex_gemini_image.rs"
+        ));
+        let helper_start = source
+            .find("fn request_file_part")
+            .expect("request file adapter helper should exist");
+        let helper_end = source
+            .find("fn image_input_part")
+            .expect("request file adapter helper should precede image input conversion");
+        assert!(helper_start < helper_end);
+
+        let mut provider_metadata_writes = Vec::new();
+        let mut offset = 0usize;
+        for (index, line) in source.lines().enumerate() {
+            let line_start = offset;
+            offset += line.len() + 1;
+            if line.trim() == "provider_metadata: None,"
+                && !(helper_start..helper_end).contains(&line_start)
+            {
+                provider_metadata_writes.push(index + 1);
+            }
+        }
+
+        assert!(
+            provider_metadata_writes.is_empty(),
+            "Vertex Gemini image request conversion should only write legacy provider_metadata inside request_file_part: {provider_metadata_writes:?}"
+        );
+    }
+
+    #[test]
+    fn image_input_part_maps_provider_options_without_provider_metadata() {
+        let input = ImageEditInput::url("https://example.com/input.png")
+            .with_provider_option("vertex", json!({ "asset": "input" }));
+
+        let part = image_input_part(&input).expect("image input part");
+        let ContentPart::File {
+            media_type,
+            provider_options,
+            provider_metadata,
+            ..
+        } = part
+        else {
+            panic!("expected file part");
+        };
+
+        assert_eq!(media_type, "image/*");
+        assert_eq!(
+            provider_options
+                .get_object("vertex")
+                .and_then(|vertex| vertex.get("asset")),
+            Some(&json!("input"))
+        );
+        assert!(provider_metadata.is_none());
     }
 }

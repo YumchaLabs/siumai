@@ -43,13 +43,16 @@ Status legend:
 - [x] Re-export the new shared names from `siumai::prelude::unified::*`.
 - [x] Re-export the existing stable `EmbeddingModel` trait from `siumai::prelude::unified::*` so
   the direct model-family names match the audited AI SDK `types/index.ts` surface.
-- [x] Re-export the existing runtime `LanguageModelMiddleware` trait from
-  `siumai::prelude::unified::*`.
+- [x] Re-export the existing runtime `LanguageModelMiddleware` trait.
+  - Superseded by fearless boundary convergence: middleware now lives under
+    `siumai::experimental::execution::middleware::*`, not top-level
+    `siumai::prelude::unified::*`.
 - [x] Re-export the implemented video family module and `VideoModel*` traits from
   `siumai::prelude::unified::*`.
-- [x] Re-export `ProviderFactory` directly from `siumai::prelude::unified::*` as the honest Rust
-  provider-interface equivalent while leaving historical `siumai::Provider` on compat/top-level
-  construction paths.
+- [x] Re-export `ProviderFactory` as the honest Rust provider-interface equivalent while leaving
+  historical `siumai::Provider` on compat/top-level construction paths.
+  - Superseded by fearless boundary convergence: `ProviderFactory` is now scoped to
+    `siumai::prelude::unified::registry::*`.
 - [x] Add public compile-guard coverage in `siumai/tests/public_surface_imports_test.rs`.
 - [x] Add local unit coverage for warning/metadata/usage conversion behavior.
 - [x] Expose Rust-style equivalents of the AI SDK usage helpers:
@@ -100,6 +103,9 @@ Status legend:
 
 - [x] Audit `repo-ref/ai/packages/provider-utils/src/parse-json-event-stream.ts`.
 - [x] Expose `parse_json_event_stream` as the Rust-style equivalent of `parseJsonEventStream`.
+  - Superseded by fearless boundary convergence: the explicit root helper
+    `siumai::parse_json_event_stream(...)` remains, but it is no longer a direct
+    `prelude::unified::*` name.
 - [x] Use Rust stream item errors (`Stream<Item = Result<Value, LlmError>>`) instead of copying the
   TypeScript `ParseResult` union shape.
 

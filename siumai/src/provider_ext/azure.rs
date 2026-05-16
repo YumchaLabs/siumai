@@ -2,16 +2,17 @@ pub use siumai_provider_azure::providers::azure_openai::{
     AzureChatMode, AzureOpenAIProviderSettings, AzureOpenAiBuilder, AzureOpenAiClient,
     AzureOpenAiConfig, AzureOpenAiSpec, AzureUrlConfig, VERSION,
 };
+use siumai_registry::provider::SiumaiBuilder;
 
 /// Create the unified Azure provider builder.
-pub fn azure() -> crate::provider::SiumaiBuilder {
-    crate::Provider::azure()
+pub fn azure() -> SiumaiBuilder {
+    SiumaiBuilder::new().azure()
 }
 
 /// Create the unified Azure provider builder.
 ///
 /// This is the Rust package-surface analogue of AI SDK `createAzure()`.
-pub fn create_azure() -> crate::provider::SiumaiBuilder {
+pub fn create_azure() -> SiumaiBuilder {
     azure()
 }
 

@@ -3,6 +3,7 @@
 //! Alignment tests for Vercel `@ai-sdk/deepseek` Chat Completions streaming fixtures.
 
 use eventsource_stream::Event;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use siumai_provider_openai_compatible::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
 use siumai_provider_openai_compatible::providers::openai_compatible::{

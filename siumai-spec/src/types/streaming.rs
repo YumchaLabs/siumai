@@ -3,7 +3,6 @@
 
 use super::chat::ChatResponse;
 use super::chat::SourcePart;
-use crate::error::LlmError;
 use crate::types::{FinishReason, ProviderMetadataMap, ResponseMetadata, Usage, Warning};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
@@ -441,14 +440,6 @@ pub enum AudioStreamEvent {
     },
 }
 
-// Stream types
-use futures::Stream;
-use std::pin::Pin;
-
-/// Audio stream for streaming TTS
-pub type AudioStream =
-    Pin<Box<dyn Stream<Item = Result<AudioStreamEvent, LlmError>> + Send + Sync>>;
-
 impl ChatStreamEvent {
     /// Build a typed text delta event.
     pub fn text_delta_part(id: impl Into<String>, delta: impl Into<String>) -> Self {
@@ -599,17 +590,12 @@ impl ChatStreamEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
-    // Test that stream types are Send + Sync for multi-threading
     #[test]
-    fn test_stream_types_are_send_sync() {
-        // Test that stream types can be used in Arc (requires Send + Sync)
-        fn test_arc_usage() {
-            let _: Option<Arc<AudioStream>> = None;
-        }
+    fn audio_stream_event_is_send_sync_data() {
+        fn assert_send_sync<T: Send + Sync>() {}
 
-        test_arc_usage();
+        assert_send_sync::<AudioStreamEvent>();
     }
 
     #[test]

@@ -28,6 +28,40 @@ pub(super) fn serialize_event(
         b"data: [DONE]\n\n".to_vec()
     }
 
+    fn openai_custom_event_from_typed_part(
+        part: &crate::streaming::TypedStreamPart,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        let event_type = match part {
+            crate::streaming::TypedStreamPart::TextStart { .. } => "openai:text-start",
+            crate::streaming::TypedStreamPart::TextDelta { .. } => "openai:text-delta",
+            crate::streaming::TypedStreamPart::TextEnd { .. } => "openai:text-end",
+            crate::streaming::TypedStreamPart::ReasoningStart { .. } => "openai:reasoning-start",
+            crate::streaming::TypedStreamPart::ReasoningDelta { .. } => "openai:reasoning-delta",
+            crate::streaming::TypedStreamPart::ReasoningEnd { .. } => "openai:reasoning-end",
+            crate::streaming::TypedStreamPart::ToolInputStart { .. } => "openai:tool-input-start",
+            crate::streaming::TypedStreamPart::ToolInputDelta { .. } => "openai:tool-input-delta",
+            crate::streaming::TypedStreamPart::ToolInputEnd { .. } => "openai:tool-input-end",
+            crate::streaming::TypedStreamPart::ToolApprovalRequest(_) => {
+                "openai:tool-approval-request"
+            }
+            crate::streaming::TypedStreamPart::ToolCall(_) => "openai:tool-call",
+            crate::streaming::TypedStreamPart::ToolResult(_) => "openai:tool-result",
+            crate::streaming::TypedStreamPart::Custom(_) => "openai:custom",
+            crate::streaming::TypedStreamPart::Source(_) => "openai:source",
+            crate::streaming::TypedStreamPart::StreamStart { .. } => "openai:stream-start",
+            crate::streaming::TypedStreamPart::ResponseMetadata(_) => "openai:response-metadata",
+            crate::streaming::TypedStreamPart::Finish { .. } => "openai:finish",
+            crate::streaming::TypedStreamPart::Error { .. } => "openai:error",
+            crate::streaming::TypedStreamPart::ReasoningFile(_) => "openai:reasoning-file",
+            crate::streaming::TypedStreamPart::Raw { .. }
+            | crate::streaming::TypedStreamPart::File(_) => return None,
+        };
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: event_type.to_string(),
+            data: serde_json::to_value(part).ok()?,
+        })
+    }
+
     fn openai_finish_reason_str(
         reason: Option<&crate::types::FinishReason>,
     ) -> Option<&'static str> {
@@ -715,9 +749,7 @@ pub(super) fn serialize_event(
         let Some(part) = crate::streaming::TypedStreamPart::try_from_chat_event(event) else {
             return Ok(Vec::new());
         };
-        let Some(mut custom_event) =
-            part.to_protocol_custom_event(crate::streaming::StreamPartNamespace::OpenAi)
-        else {
+        let Some(mut custom_event) = openai_custom_event_from_typed_part(&part) else {
             return Ok(Vec::new());
         };
 

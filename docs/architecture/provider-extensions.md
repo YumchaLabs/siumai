@@ -75,6 +75,29 @@ let _ = text::generate(&model, req, text::GenerateOptions::default()).await?;
 # Ok(()) }
 ```
 
+Anthropic message-level options should also live in the provider extension surface. For prompt
+caching and document-part request options, use the provider-owned `AnthropicChatMessageExt` trait.
+The historical `ChatMessageBuilder` Anthropic helper methods were removed from `siumai-spec`:
+
+```rust,ignore
+use siumai::prelude::unified::*;
+use siumai::provider_ext::anthropic::options::AnthropicChatMessageExt;
+
+let system = ChatMessage::system("large reusable context")
+    .build()
+    .with_anthropic_cache_control(CacheControl::Ephemeral);
+
+let user = ChatMessage::user("summarize this")
+    .with_file_url("https://example.com/doc.pdf", "application/pdf")
+    .build()
+    .with_anthropic_document_citations_for_part(1, true)
+    .with_anthropic_document_metadata_for_part(
+        1,
+        Some("Design Doc".to_string()),
+        Some("Internal architecture notes".to_string()),
+    );
+```
+
 #### Typed provider metadata (response-side)
 
 Providers may also expose typed metadata helpers as extension traits:

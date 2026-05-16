@@ -83,3 +83,32 @@ impl MinimaxiVideoRequestBuilder {
         self.request
     }
 }
+
+#[cfg(test)]
+mod tests {
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn minimaxi_video_builder_source_does_not_read_response_metadata() {
+        let source = include_str!("video.rs");
+        let request_source = source_section(
+            source,
+            "pub struct MinimaxiVideoRequestBuilder",
+            "#[cfg(test)]",
+        );
+
+        for disallowed in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
+            assert!(
+                !request_source.contains(disallowed),
+                "MiniMaxi video request builder must stay request-only"
+            );
+        }
+    }
+}

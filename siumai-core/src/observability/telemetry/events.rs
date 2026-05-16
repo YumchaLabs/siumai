@@ -72,9 +72,9 @@ pub struct GenerationEvent {
     pub parent_span_id: Option<String>,
     /// Event timestamp
     pub timestamp: SystemTime,
-    /// Provider name (e.g., "openai", "anthropic")
+    /// Provider name (e.g., "provider-a", "provider-b")
     pub provider: String,
-    /// Model ID (e.g., "gpt-4", "claude-3-opus")
+    /// Model ID (e.g., "model-a", "model-b")
     pub model: String,
     /// Input messages (if record_inputs is true)
     pub input: Option<Vec<ChatMessage>>,

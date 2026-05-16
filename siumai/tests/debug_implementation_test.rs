@@ -3,7 +3,7 @@
 //! This module tests that all client types properly implement Debug trait
 //! with appropriate security measures for sensitive information.
 
-use siumai::provider::SiumaiBuilder;
+use siumai::compat::SiumaiBuilder;
 
 #[cfg(test)]
 mod debug_tests {
@@ -76,7 +76,7 @@ mod debug_tests {
             reqwest::Client::new(),
             common_params,
             AnthropicParams::default(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
         );
 
         let debug_output = format!("{:?}", client);
@@ -96,7 +96,7 @@ mod debug_tests {
     #[cfg(feature = "groq")]
     #[tokio::test]
     async fn test_groq_client_debug() {
-        use siumai::Provider;
+        use siumai::compat::Provider;
 
         let client = Provider::groq()
             .api_key("gsk-test-key-1234567890abcdef")
@@ -155,7 +155,7 @@ mod debug_tests {
         let config = OpenAiConfig::new("test-key".to_string()).with_model("gpt-4o-mini");
 
         let client = OpenAiClient::new(config, reqwest::Client::new());
-        let wrapper = ClientWrapper::openai(Box::new(client));
+        let wrapper = ClientWrapper::new(Box::new(client));
         let debug_output = format!("{:?}", wrapper);
 
         // Should show wrapper type without exposing internal client details

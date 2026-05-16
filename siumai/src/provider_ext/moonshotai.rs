@@ -2,12 +2,13 @@
 ///
 /// These map to the shared OpenAI-compatible runtime used by the audited MoonshotAI
 /// chat-only wrapper. For the unified AI SDK-style provider surface, use [`moonshotai()`],
-/// [`create_moonshotai()`], [`crate::Provider::moonshotai()`], or
-/// [`crate::provider::SiumaiBuilder::moonshotai()`].
+/// [`create_moonshotai()`], [`crate::compat::Provider::moonshotai()`], or
+/// [`SiumaiBuilder::moonshotai()`].
 pub use siumai_provider_openai_compatible::providers::openai_compatible::{
     MOONSHOTAI_VERSION as VERSION, MoonshotAIChatModelId, MoonshotAIClient, MoonshotAIConfig,
     MoonshotAIProviderSettings,
 };
+use siumai_registry::provider::SiumaiBuilder;
 
 /// Curated MoonshotAI model constants aligned with the audited AI SDK package subset.
 pub mod models {
@@ -20,14 +21,14 @@ pub mod models {
 ///
 /// This mirrors the AI SDK package-level `moonshotai` export more closely than the lower
 /// level `MoonshotAIClient`/`MoonshotAIConfig` compat aliases.
-pub fn moonshotai() -> crate::provider::SiumaiBuilder {
-    crate::Provider::moonshotai()
+pub fn moonshotai() -> SiumaiBuilder {
+    SiumaiBuilder::new().moonshotai()
 }
 
 /// Create the unified MoonshotAI provider builder.
 ///
 /// This is the Rust package-surface analogue of AI SDK `createMoonshotAI()`.
-pub fn create_moonshotai() -> crate::provider::SiumaiBuilder {
+pub fn create_moonshotai() -> SiumaiBuilder {
     moonshotai()
 }
 

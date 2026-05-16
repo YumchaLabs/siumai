@@ -1,11 +1,10 @@
 //! Stream bridge serialization.
 
+use crate::{BridgeMode, BridgeOptions, BridgeResult, BridgeTarget};
 use futures_util::Stream;
 use siumai_core::LlmError;
-use siumai_core::bridge::{BridgeMode, BridgeOptions, BridgeResult, BridgeTarget};
 use siumai_core::streaming::{
-    ChatByteStream, ChatStreamEvent, OpenAiResponsesStreamPartsBridge, ensure_stream_end,
-    transform_chat_event_stream,
+    ChatByteStream, ChatStreamEvent, ensure_stream_end, transform_chat_event_stream,
 };
 use siumai_core::types::ChatStreamPart;
 
@@ -16,6 +15,8 @@ use crate::target_dispatch::encode_chat_stream_for_target;
 use crate::wrapper_macros::define_stream_bridge_wrappers;
 
 use super::inspect::inspect_chat_stream_bridge;
+#[cfg(feature = "openai")]
+use super::openai_responses_parts_bridge::OpenAiResponsesStreamPartsBridge;
 
 /// Bridge a normalized `ChatStreamEvent` stream into a target protocol byte stream.
 pub fn bridge_chat_stream_to_bytes<S>(
@@ -140,19 +141,34 @@ fn transform_stream_for_target<S>(
     stream: S,
     source: Option<BridgeTarget>,
     target: BridgeTarget,
-    ctx: &siumai_core::bridge::StreamBridgeContext,
+    ctx: &crate::StreamBridgeContext,
     options: &BridgeOptions,
 ) -> std::pin::Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>>
 where
     S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + 'static,
 {
-    let stream: std::pin::Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>> =
-        if stream_bridge_profile(source, target).requires_openai_responses_stream_adapter {
+    #[cfg(feature = "openai")]
+    let stream: std::pin::Pin<
+        Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>,
+    > = {
+        let requires_openai_responses_adapter =
+            stream_bridge_profile(source, target).requires_openai_responses_stream_adapter;
+
+        if requires_openai_responses_adapter {
             let mut bridge = OpenAiResponsesStreamPartsBridge::new();
             transform_chat_event_stream(stream, move |event| bridge.bridge_event(event))
         } else {
             Box::pin(stream)
-        };
+        }
+    };
+
+    #[cfg(not(feature = "openai"))]
+    let stream: std::pin::Pin<
+        Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>,
+    > = {
+        let _ = (source, target);
+        Box::pin(stream)
+    };
 
     transform_chat_stream_with_bridge_options(
         stream,
@@ -195,8 +211,8 @@ where
 
 fn should_reject_stream(
     options: &BridgeOptions,
-    ctx: &siumai_core::bridge::StreamBridgeContext,
-    report: &mut siumai_core::bridge::BridgeReport,
+    ctx: &crate::StreamBridgeContext,
+    report: &mut crate::BridgeReport,
 ) -> bool {
     let action = options.loss_policy.stream_action(ctx, report);
     reject_if_needed(report, action, "stream", ctx.target)

@@ -356,7 +356,7 @@ where
 ///   fn build_headers(&self, _ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, siumai::LlmError> {
 ///     Ok(reqwest::header::HeaderMap::new())
 ///   }
-///   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
+///   fn try_chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> Result<String, siumai::LlmError> { Ok(String::new()) }
 ///   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
 ///     -> siumai_core::core::ChatTransformers { unimplemented!() }
 /// }
@@ -415,7 +415,7 @@ pub async fn execute_get_request(
 /// #   fn id(&self) -> &'static str { "example" }
 /// #   fn capabilities(&self) -> siumai::traits::ProviderCapabilities { Default::default() }
 /// #   fn build_headers(&self, _ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, siumai::LlmError> { Ok(reqwest::header::HeaderMap::new()) }
-/// #   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
+/// #   fn try_chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> Result<String, siumai::LlmError> { Ok(String::new()) }
 /// #   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
 /// #     -> siumai_core::core::ChatTransformers { unimplemented!() }
 /// # }
@@ -507,7 +507,7 @@ pub struct HttpBinaryResult {
 /// #   fn id(&self) -> &'static str { "example" }
 /// #   fn capabilities(&self) -> siumai::traits::ProviderCapabilities { Default::default() }
 /// #   fn build_headers(&self, _ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, siumai::LlmError> { Ok(reqwest::header::HeaderMap::new()) }
-/// #   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
+/// #   fn try_chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> Result<String, siumai::LlmError> { Ok(String::new()) }
 /// #   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
 /// #     -> siumai_core::core::ChatTransformers { unimplemented!() }
 /// # }

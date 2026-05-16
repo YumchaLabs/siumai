@@ -117,7 +117,7 @@ impl OpenAiCompatibleBuilder {
                 cp
             },
             provider_config_override: None,
-            http_config: crate::types::HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             token_provider: None,
             provider_specific_config: std::collections::HashMap::new(),

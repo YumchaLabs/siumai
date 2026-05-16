@@ -122,7 +122,7 @@ fn run_case(root: &Path) {
         Some("test-api-key".to_string()),
         HashMap::new(),
     );
-    let url = spec.rerank_url(&request, &ctx);
+    let url = spec.try_rerank_url(&request, &ctx).unwrap();
     assert_eq!(url, expected_url, "fixture case: {}", root.display());
 
     let headers = spec.build_headers(&ctx).expect("headers");

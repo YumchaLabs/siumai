@@ -154,7 +154,7 @@ fn run_case(root: &Path) {
     let ctx = vertex_ctx_enterprise();
     let spec = siumai::experimental::providers::google_vertex::standards::vertex_embedding::VertexEmbeddingStandard::new().create_spec("vertex");
 
-    let url = spec.embedding_url(&req, &ctx);
+    let url = spec.try_embedding_url(&req, &ctx).unwrap();
     assert_eq!(url, expected_url, "fixture case: {}", root.display());
 
     let transformers = spec.choose_embedding_transformers(&req, &ctx);

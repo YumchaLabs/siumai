@@ -17,7 +17,6 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ChatTransportSendMessagesOptions>();
     let _ = size_of::<ChatTransportTrigger>();
     let _ = size_of::<ResponseFormat>();
-    let _ = size_of::<CallSettings>();
     let _ = size_of::<JSONSchema7>();
     let _ = size_of::<JSONValue>();
     let _ = size_of::<Schema>();
@@ -37,11 +36,6 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ReasoningBudgetOptions<'static>>();
     let _ = size_of::<ReasoningLevel>();
     let _ = size_of::<ReasoningLevelConversionError>();
-    let _ = size_of::<StreamingToolCallDelta>();
-    let _ = size_of::<StreamingToolCallFunctionDelta>();
-    let _ = size_of::<StreamingToolCallTracker>();
-    let _ = size_of::<StreamingToolCallTrackerOptions>();
-    let _ = size_of::<StreamingToolCallTypeValidation>();
     let _ = size_of::<ToolNameMapping>();
     let _ = size_of::<TypeValidationResult>();
     let _ = size_of::<ValidationResult>();
@@ -137,10 +131,6 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<EmbeddingModelCallStartEvent>();
     let _ = size_of::<EmbeddingModelUsage>();
     let _ = size_of::<EmptyResponseBodyError>();
-    let _ = size_of::<Experimental_GenerateImageResult>();
-    let _ = size_of::<Experimental_GeneratedImage>();
-    let _ = size_of::<Experimental_SpeechResult>();
-    let _ = size_of::<Experimental_TranscriptionResult>();
     let _ = size_of::<TextPart>();
     let _ = size_of::<TextUIPart>();
     let _ = size_of::<ImagePart>();
@@ -250,8 +240,6 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LanguageModelStreamModelCallResponseMetadataPart>();
     let _ = size_of::<LanguageModelStreamModelCallStartPart>();
     let _ = size_of::<LanguageModelStreamPart>();
-    let _ = size_of::<ExperimentalLanguageModelStreamPart>();
-    let _ = size_of::<Experimental_LanguageModelStreamPart>();
     let _ = size_of::<LanguageModelUsage>();
     let _ = size_of::<LanguageModelV4AssistantContentPart>();
     let _ = size_of::<LanguageModelV4AssistantMessage>();
@@ -480,7 +468,6 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LlmError>();
     let _ = size_of::<*const dyn CompletionCapability>();
     let _ = size_of::<*const dyn CompletionModel>();
-    let _ = size_of::<*const dyn ProviderFactory>();
     #[cfg(feature = "openai")]
     let _ = registry::builtin_provider_factory("openai");
     let _ = size_of::<*const dyn ImageModel>();
@@ -490,7 +477,6 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<*const dyn LanguageModelV4>();
     let _ = size_of::<LanguageModelV4Stream>();
     let _ = size_of::<LanguageModelV4DoStreamResult>();
-    let _ = size_of::<*const dyn LanguageModelMiddleware>();
     let _ = size_of::<*const dyn RerankingModel>();
     let _ = size_of::<*const dyn SpeechModel>();
     let _ = size_of::<*const dyn TranscriptionModel>();
@@ -507,9 +493,6 @@ fn public_surface_unified_imports_compile() {
     let _ = has_tool_call(["search"]);
     let _ = filter_active_tools::<String>
         as fn(Option<&[Tool]>, Option<&[String]>) -> Option<Vec<Tool>>;
-    let _ = experimental_filter_active_tools::<String>
-        as fn(Option<&[Tool]>, Option<&[String]>) -> Option<Vec<Tool>>;
-    let _ = step_count_is as fn(usize) -> StopCondition;
     let _ = prepare_tool_choice as fn(Option<&ToolChoice>) -> LanguageModelV4ToolChoice;
     let _ = prune_messages as fn(Vec<ModelMessage>, PruneMessagesOptions) -> Vec<ModelMessage>;
     let _ = create_null_language_model_usage as fn() -> LanguageModelUsage;
@@ -768,34 +751,6 @@ fn public_surface_unified_imports_compile() {
         ),
         Some(3_000)
     );
-    let mut streaming_tool_call_tracker = StreamingToolCallTracker::new();
-    let mut streaming_tool_call_parts = Vec::new();
-    streaming_tool_call_tracker
-        .process_delta(
-            StreamingToolCallDelta::new(Some(0))
-                .with_id("call_public_surface")
-                .with_type("function")
-                .with_function_name("search")
-                .with_arguments("{}"),
-            |part| streaming_tool_call_parts.push(part),
-        )
-        .expect("streaming tool call delta");
-    assert!(matches!(
-        streaming_tool_call_parts.as_slice(),
-        [
-            LanguageModelV4StreamPart::ToolInputStart { id, tool_name, .. },
-            LanguageModelV4StreamPart::ToolInputDelta { id: delta_id, delta, .. },
-            LanguageModelV4StreamPart::ToolInputEnd { id: end_id, .. },
-            LanguageModelV4StreamPart::ToolCall(call)
-        ] if id == "call_public_surface"
-            && tool_name == "search"
-            && delta_id == "call_public_surface"
-            && delta == "{}"
-            && end_id == "call_public_surface"
-            && call.tool_call_id == "call_public_surface"
-            && call.tool_name == "search"
-            && call.input == "{}"
-    ));
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")
@@ -940,8 +895,8 @@ fn public_surface_unified_imports_compile() {
 
     let upload_data: DataContent = vec![1, 2, 3].into();
     assert_eq!(upload_data.as_bytes().expect("upload bytes"), vec![1, 2, 3]);
-    let _ = upload_file::<dyn UploadFileApi, Vec<u8>>;
-    let _ = upload_skill::<dyn UploadSkillApi>;
+    let _ = siumai::upload_file::<dyn siumai::files::UploadFileApi, Vec<u8>>;
+    let _ = siumai::upload_skill::<dyn siumai::skills::UploadSkillApi>;
 
     let upload_data_str: DataContent = "AQID".into();
     assert_eq!(
@@ -1191,6 +1146,45 @@ fn public_surface_unified_imports_compile() {
 }
 
 #[test]
+fn public_surface_experimental_middleware_imports_compile() {
+    use siumai::experimental::execution::middleware::{
+        LanguageModelMiddleware, MiddlewareBuilder, NamedMiddleware,
+    };
+
+    let _ = size_of::<*const dyn LanguageModelMiddleware>();
+    let _ = size_of::<MiddlewareBuilder>();
+    let _ = size_of::<NamedMiddleware>();
+}
+
+#[test]
+fn public_surface_retry_api_imports_compile() {
+    use reqwest::header::HeaderMap;
+    use siumai::prelude::unified::{LlmError, ProviderType};
+    use siumai::retry_api::{
+        BackoffRetryExecutor, RetryBackend, RetryOptions, RetryPolicy,
+        backoff_executor_for_provider, backoff_options_for_provider, classify_http_error,
+        maybe_retry, retry, retry_for_provider, retry_with,
+    };
+
+    let _ = size_of::<BackoffRetryExecutor>();
+    let _ = size_of::<RetryBackend>();
+    let _ = size_of::<RetryOptions>();
+    let _ = size_of::<RetryPolicy>();
+    let _ = backoff_executor_for_provider as fn(&ProviderType) -> BackoffRetryExecutor;
+    let _ = backoff_options_for_provider as fn(&ProviderType) -> RetryOptions;
+    let _ = classify_http_error as fn(&str, u16, &str, &HeaderMap, Option<&str>) -> LlmError;
+    std::mem::drop(retry(|| async { Ok::<u8, LlmError>(1) }));
+    std::mem::drop(retry_with(
+        || async { Ok::<u8, LlmError>(1) },
+        RetryOptions::default(),
+    ));
+    std::mem::drop(maybe_retry(None, || async { Ok::<u8, LlmError>(1) }));
+    std::mem::drop(retry_for_provider(&ProviderType::OpenAi, || async {
+        Ok::<u8, LlmError>(1)
+    }));
+}
+
+#[test]
 fn public_surface_ui_helpers_imports_compile() {
     use siumai::prelude::unified::{ExecutableTools, UiMessage, UiMessagePart};
     use siumai::ui::{
@@ -1219,7 +1213,7 @@ fn public_surface_ui_helpers_imports_compile() {
 #[tokio::test]
 async fn public_surface_tooling_imports_compile() {
     use futures::StreamExt;
-    use siumai::prelude::unified::{LlmError, parse_json_event_stream};
+    use siumai::prelude::unified::LlmError;
     use siumai::tooling::{
         ExecutableTool, ExecutableTools, ToolExecutionOptions, ToolExecutionResult, ToolSet,
         dynamic_tool, execute_tool, is_executable_tool, model_messages_from_chat_messages, tool,
@@ -1287,7 +1281,7 @@ async fn public_surface_tooling_imports_compile() {
         .expect("execute by name");
     assert_eq!(out["hello"], serde_json::json!("world"));
 
-    let parsed = parse_json_event_stream(futures::stream::iter(vec![Ok::<_, LlmError>(
+    let parsed = siumai::parse_json_event_stream(futures::stream::iter(vec![Ok::<_, LlmError>(
         b"data: {\"ok\":true}\n\n".to_vec(),
     )]))
     .collect::<Vec<_>>()
@@ -1320,13 +1314,16 @@ fn registry_handles_compile_as_family_models() {
     fn _assert_video_handle<T: VideoModel + VideoModelV4 + ModelMetadata>() {}
 
     let _ = size_of::<CompletionModelHandle>();
+    let _ = size_of::<BuildContext>();
     let _ = size_of::<LanguageModelHandle>();
     let _ = size_of::<EmbeddingModelHandle>();
     let _ = size_of::<ImageModelHandle>();
+    let _ = size_of::<ProviderBuildOverrides>();
     let _ = size_of::<RerankingModelHandle>();
     let _ = size_of::<SpeechModelHandle>();
     let _ = size_of::<TranscriptionModelHandle>();
     let _ = size_of::<VideoModelHandle>();
+    let _ = size_of::<*const dyn ProviderFactory>();
 
     _assert_completion_handle::<CompletionModelHandle>();
     _assert_text_handle::<LanguageModelHandle>();
@@ -1628,20 +1625,103 @@ fn public_surface_extensions_imports_compile() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn public_surface_compat_imports_compile() {
-    use siumai::compat::{Siumai, SiumaiBuilder};
+    use siumai::compat::{
+        CallSettings, Experimental_GenerateImageResult, Experimental_GeneratedImage,
+        Experimental_LanguageModelStreamPart, Experimental_SpeechResult,
+        Experimental_TranscriptionResult, ExperimentalLanguageModelStreamPart, Provider, Siumai,
+        SiumaiBuilder, StreamingToolCallDelta, StreamingToolCallFunctionDelta,
+        StreamingToolCallTracker, StreamingToolCallTrackerOptions, StreamingToolCallTypeValidation,
+        experimental_filter_active_tools, step_count_is,
+    };
 
-    let _ = size_of::<Siumai>();
-    let _ = size_of::<SiumaiBuilder>();
-}
-
-#[test]
-fn public_surface_compat_prelude_imports_compile() {
-    use siumai::prelude::compat::{Provider, Siumai, SiumaiBuilder};
-
+    let _ = size_of::<CallSettings>();
+    let _ = size_of::<Experimental_GenerateImageResult>();
+    let _ = size_of::<Experimental_GeneratedImage>();
+    let _ = size_of::<Experimental_LanguageModelStreamPart>();
+    let _ = size_of::<Experimental_SpeechResult>();
+    let _ = size_of::<Experimental_TranscriptionResult>();
+    let _ = size_of::<ExperimentalLanguageModelStreamPart>();
     let _ = size_of::<Provider>();
     let _ = size_of::<Siumai>();
     let _ = size_of::<SiumaiBuilder>();
+    let _ = size_of::<StreamingToolCallDelta>();
+    let _ = size_of::<StreamingToolCallFunctionDelta>();
+    let _ = size_of::<StreamingToolCallTracker>();
+    let _ = size_of::<StreamingToolCallTrackerOptions>();
+    let _ = size_of::<StreamingToolCallTypeValidation>();
+    let _ = experimental_filter_active_tools::<String>
+        as fn(
+            Option<&[siumai::types::Tool]>,
+            Option<&[String]>,
+        ) -> Option<Vec<siumai::types::Tool>>;
+    let _ = step_count_is as fn(usize) -> siumai::types::StopCondition;
+}
+
+#[test]
+#[allow(deprecated)]
+fn public_surface_compat_prelude_imports_compile() {
+    use siumai::experimental::streaming::LanguageModelV4StreamPart;
+    use siumai::prelude::compat::{
+        CallSettings, Experimental_GenerateImageResult, Experimental_GeneratedImage,
+        Experimental_LanguageModelStreamPart, Experimental_SpeechResult,
+        Experimental_TranscriptionResult, ExperimentalLanguageModelStreamPart, Provider, Siumai,
+        SiumaiBuilder, StreamingToolCallDelta, StreamingToolCallFunctionDelta,
+        StreamingToolCallTracker, StreamingToolCallTrackerOptions, StreamingToolCallTypeValidation,
+        experimental_filter_active_tools, step_count_is,
+    };
+
+    let _ = size_of::<CallSettings>();
+    let _ = size_of::<Experimental_GenerateImageResult>();
+    let _ = size_of::<Experimental_GeneratedImage>();
+    let _ = size_of::<Experimental_LanguageModelStreamPart>();
+    let _ = size_of::<Experimental_SpeechResult>();
+    let _ = size_of::<Experimental_TranscriptionResult>();
+    let _ = size_of::<ExperimentalLanguageModelStreamPart>();
+    let _ = size_of::<Provider>();
+    let _ = size_of::<Siumai>();
+    let _ = size_of::<SiumaiBuilder>();
+    let _ = size_of::<StreamingToolCallDelta>();
+    let _ = size_of::<StreamingToolCallFunctionDelta>();
+    let _ = size_of::<StreamingToolCallTracker>();
+    let _ = size_of::<StreamingToolCallTrackerOptions>();
+    let _ = size_of::<StreamingToolCallTypeValidation>();
+    let _ = experimental_filter_active_tools::<String>
+        as fn(
+            Option<&[siumai::types::Tool]>,
+            Option<&[String]>,
+        ) -> Option<Vec<siumai::types::Tool>>;
+    let _ = step_count_is as fn(usize) -> siumai::types::StopCondition;
+
+    let mut streaming_tool_call_tracker = StreamingToolCallTracker::new();
+    let mut streaming_tool_call_parts = Vec::new();
+    streaming_tool_call_tracker
+        .process_delta(
+            StreamingToolCallDelta::new(Some(0))
+                .with_id("call_public_surface")
+                .with_type("function")
+                .with_function_name("search")
+                .with_arguments("{}"),
+            |part| streaming_tool_call_parts.push(part),
+        )
+        .expect("streaming tool call delta");
+    assert!(matches!(
+        streaming_tool_call_parts.as_slice(),
+        [
+            LanguageModelV4StreamPart::ToolInputStart { id, tool_name, .. },
+            LanguageModelV4StreamPart::ToolInputDelta { id: delta_id, delta, .. },
+            LanguageModelV4StreamPart::ToolInputEnd { id: end_id, .. },
+            LanguageModelV4StreamPart::ToolCall(call)
+        ] if id == "call_public_surface"
+            && tool_name == "search"
+            && delta_id == "call_public_surface"
+            && delta == "{}"
+            && end_id == "call_public_surface"
+            && call.tool_call_id == "call_public_surface"
+            && call.tool_name == "search"
+            && call.input == "{}"
+    ));
 }
 
 #[test]
@@ -2518,7 +2598,7 @@ fn public_surface_google_provider_ext_compiles() {
                 .with_negative_prompt("no cats")
                 .with_person_generation("allow_all"),
         );
-    let _ = UploadFileOptions::new().with_google_upload_options(
+    let _ = siumai::files::UploadFileOptions::new().with_google_upload_options(
         GoogleFilesUploadOptions::new()
             .with_display_name("spec.pdf")
             .with_poll_interval_ms(250),

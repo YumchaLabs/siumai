@@ -4,6 +4,45 @@ use super::*;
 mod tests_gemini_metadata {
     use super::*;
 
+    fn chat_response_source() -> &'static str {
+        let source = include_str!("response.rs");
+        let (_, after_start) = source
+            .split_once("fn transform_chat_response(")
+            .expect("chat response transformer start marker should exist");
+        let (section, _) = after_start
+            .split_once("fn transform_embedding_response(")
+            .expect("chat response transformer end marker should exist");
+        section
+    }
+
+    #[test]
+    fn gemini_response_content_source_does_not_emit_request_provider_options() {
+        let source = chat_response_source();
+
+        assert!(
+            !source.contains("providerOptions"),
+            "Gemini response parsing must not emit request-side providerOptions"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "Gemini response parsing must not read request provider option maps"
+        );
+        assert!(
+            !source.contains(".provider_options"),
+            "Gemini response parsing must not read request provider_options fields"
+        );
+
+        for line in source
+            .lines()
+            .filter(|line| line.contains("provider_options"))
+        {
+            assert!(
+                line.contains("ProviderOptionsMap::default()"),
+                "Gemini response ContentPart provider_options must stay empty defaults: {line}"
+            );
+        }
+    }
+
     #[test]
     fn gemini_response_populates_provider_metadata_for_grounding_and_url_context() {
         let cfg = GeminiConfig::default()

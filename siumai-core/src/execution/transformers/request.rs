@@ -24,7 +24,7 @@ pub enum ImageHttpBody {
 
 /// Transform unified chat request into provider-specific payload
 pub trait RequestTransformer: Send + Sync {
-    /// Provider identifier (e.g., "openai", "anthropic", "gemini", or compat id)
+    /// Provider identifier (e.g., "provider-a" or compat id)
     fn provider_id(&self) -> &str;
 
     /// Transform a unified ChatRequest into a provider-specific JSON body
@@ -95,7 +95,7 @@ pub trait RequestTransformer: Send + Sync {
 pub enum ProviderParamsMergeStrategy {
     /// Insert all key/value pairs at the top-level of the JSON object
     Flatten,
-    /// Insert under a namespace object (e.g., "openai": { ... })
+    /// Insert under a namespace object (e.g., "provider-a": { ... })
     Namespace(&'static str),
 }
 
@@ -618,7 +618,7 @@ mod tests {
         };
 
         let mut req = crate::types::ChatRequest::new(vec![]);
-        req.common_params.model = "gpt-4".to_string();
+        req.common_params.model = "model-a".to_string();
         let out = tx.transform_chat(&req).unwrap();
         assert_eq!(out["service_tier"], serde_json::json!("pro"));
     }
@@ -657,7 +657,7 @@ mod tests {
         assert_eq!(out["max_completion_tokens"], serde_json::json!(100));
 
         let mut req2 = crate::types::ChatRequest::new(vec![]);
-        req2.common_params.model = "gpt-4o".to_string();
+        req2.common_params.model = "model-b".to_string();
         let out2 = tx.transform_chat(&req2).unwrap();
         assert!(out2.get("max_completion_tokens").is_none());
     }

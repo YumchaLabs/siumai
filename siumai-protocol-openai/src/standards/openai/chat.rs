@@ -301,13 +301,23 @@ impl ProviderSpec for OpenAiChatSpec {
         }
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = (stream, req);
         let endpoint = self
             .adapter
             .as_ref()
             .map(|a| a.chat_endpoint())
             .unwrap_or("/chat/completions");
-        format!("{}{}", ctx.base_url.trim_end_matches('/'), endpoint)
+        Ok(format!(
+            "{}{}",
+            ctx.base_url.trim_end_matches('/'),
+            endpoint
+        ))
     }
 
     fn chat_before_send(
@@ -491,6 +501,62 @@ mod tests {
     use super::*;
     use crate::types::ChatMessage;
     use crate::types::chat::ResponseFormat;
+
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn chat_wrapper_keeps_request_response_stream_maps_directional() {
+        let source = include_str!("chat.rs");
+
+        let request_transformer = source_section(
+            source,
+            "impl RequestTransformer for OpenAiChatRequestTransformer",
+            "#[cfg(test)]\nmod tests",
+        );
+        assert!(
+            !request_transformer.contains("provider_metadata"),
+            "OpenAI chat request transformer wrapper must not read legacy provider_metadata"
+        );
+        assert!(
+            !request_transformer.contains("providerMetadata"),
+            "OpenAI chat request transformer wrapper must not read legacy providerMetadata"
+        );
+
+        let response_transformer = source_section(
+            source,
+            "impl ResponseTransformer for OpenAiChatResponseTransformer",
+            "/// Stream transformer for OpenAI Chat API",
+        );
+        assert!(
+            !response_transformer.contains("provider_options"),
+            "OpenAI chat response transformer wrapper must not read request provider_options"
+        );
+        assert!(
+            !response_transformer.contains("providerOptions"),
+            "OpenAI chat response transformer wrapper must not read request providerOptions"
+        );
+
+        let stream_transformer = source_section(
+            source,
+            "impl StreamChunkTransformer for OpenAiChatStreamTransformer",
+            "fn build_openai_compatible_stream_converter(",
+        );
+        assert!(
+            !stream_transformer.contains("provider_options"),
+            "OpenAI chat stream transformer wrapper must not read request provider_options"
+        );
+        assert!(
+            !stream_transformer.contains("providerOptions"),
+            "OpenAI chat stream transformer wrapper must not read request providerOptions"
+        );
+    }
 
     #[test]
     fn openai_chat_request_includes_response_format_json_schema() {
@@ -691,6 +757,11 @@ impl StreamChunkTransformer for OpenAiChatStreamTransformer {
 
             inner.convert_event(event_to_process).await
         })
+    }
+
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        use crate::streaming::SseEventConverter;
+        self.inner.is_stream_end_event(event)
     }
 
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {

@@ -109,7 +109,7 @@ fn run_case(root: &Path) {
 
     let spec = OllamaSpec::new(OllamaParams::default());
     let ctx = ProviderContext::new("ollama", "http://localhost:11434", None, HashMap::new());
-    let url = spec.chat_url(false, &req, &ctx);
+    let url = spec.try_chat_url(false, &req, &ctx).unwrap();
     assert_eq!(url, expected_url, "fixture case: {}", root.display());
 }
 

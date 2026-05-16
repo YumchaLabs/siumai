@@ -16,7 +16,7 @@ use axum::{
 use futures::{Stream, StreamExt};
 use serde::Serialize;
 
-use siumai::prelude::unified::{ChatStream, ChatStreamEvent, LlmError};
+use siumai::prelude::unified::{ChatStream, ChatStreamEvent, LlmError, LlmErrorExt};
 
 #[derive(Serialize)]
 struct SsePartEnvelope<'a> {

@@ -5,7 +5,7 @@ pub use siumai_provider_deepseek::providers::deepseek::{
 
 /// Create the DeepSeek provider builder.
 pub fn deepseek() -> DeepSeekBuilder {
-    crate::Provider::deepseek()
+    crate::compat::Provider::deepseek()
 }
 
 /// Create the DeepSeek provider builder.

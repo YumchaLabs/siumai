@@ -166,7 +166,7 @@ where
 /// This helper inspects the HTTP status code, response body and headers to
 /// derive a better-typed LlmError (e.g., RateLimitError / QuotaExceededError)
 /// rather than a generic ApiError. It is provider-agnostic with light-weight
-/// heuristics, but includes common Vertex/Google patterns.
+/// heuristics.
 pub fn classify_http_error(
     provider_id: &str,
     status: u16,
@@ -186,11 +186,9 @@ pub fn classify_http_error(
     let id_keys = [
         "x-request-id",
         "x-response-id",
-        "x-openai-request-id",
         "x-trace-id",
         "traceparent",
         "x-correlation-id",
-        "x-goog-request-id",
     ];
     let request_ids_vec: Vec<String> = id_keys
         .iter()
@@ -354,7 +352,7 @@ mod tests {
     fn classify_http_error_uses_fallback_message_for_non_json_body() {
         let headers = HeaderMap::new();
         let err = classify_http_error(
-            "openai",
+            "provider-a",
             502,
             "<html>bad gateway</html>",
             &headers,
@@ -370,6 +368,26 @@ mod tests {
                 assert_eq!(message, "Bad Gateway");
             }
             other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generic_http_error_classifier_source_stays_provider_agnostic() {
+        let source = include_str!("retry_api.rs");
+        let forbidden = [
+            ["x-", "open", "ai", "-request-id"].concat(),
+            ["x-", "goog", "-request-id"].concat(),
+            ["anth", "ropic"].concat(),
+            ["gem", "ini"].concat(),
+            ["open", "ai"].concat(),
+        ];
+
+        for token in forbidden {
+            assert!(
+                !source.contains(&token),
+                "retry_api generic fallback should not hard-code provider token `{}`",
+                token
+            );
         }
     }
 }

@@ -32,6 +32,10 @@ impl StreamChunkTransformer for OpenAiStreamChunkTransformer {
         self.inner.convert_event(event)
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        self.inner.is_stream_end_event(event)
+    }
+
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         self.inner.handle_stream_end()
     }
@@ -71,6 +75,10 @@ impl StreamChunkTransformer for OpenAiResponsesStreamChunkTransformer {
         >,
     > {
         self.inner.convert_event(event)
+    }
+
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        self.inner.is_stream_end_event(event)
     }
 
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {

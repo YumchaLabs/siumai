@@ -1,7 +1,8 @@
-//! Vertex AI Utilities
+//! Vertex AI URL utilities.
 //!
-//! This module provides utility functions for working with Google Cloud Vertex AI,
-//! including URL construction for different publishers (Google, Anthropic, etc.).
+//! This module provides URL construction helpers for Google Vertex AI publishers and endpoint
+//! families. It is owned by the Google Vertex provider crate because these URL shapes are
+//! provider-specific.
 
 /// Build a Vertex AI base URL given project, location and publisher.
 ///
@@ -33,8 +34,6 @@
 pub fn vertex_base_url(project: &str, location: &str, publisher: &str) -> String {
     // Prefer the regional host (official docs use `https://{location}-aiplatform.googleapis.com`).
     // For `global`, fall back to the global host.
-    // https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/{publisher}
-    // https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/{publisher}
     let host = if location == "global" {
         "aiplatform.googleapis.com".to_string()
     } else {

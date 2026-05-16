@@ -362,6 +362,15 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
     #[derive(Clone)]
     struct CaptureTransport {
         multipart_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,
@@ -459,7 +468,7 @@ mod tests {
             SecretString::from("test-api-key".to_string()),
             "https://api.anthropic.com/v1".to_string(),
             reqwest::Client::new(),
-            crate::types::HttpConfig::default(),
+            crate::types::HttpConfig::empty(),
             vec!["skills-2025-10-02".to_string()],
             Some(Arc::new(transport.clone())),
             vec![],
@@ -534,7 +543,7 @@ mod tests {
 
     #[test]
     fn build_context_merges_beta_features_into_anthropic_beta_header() {
-        let mut cfg = crate::types::HttpConfig::default();
+        let mut cfg = crate::types::HttpConfig::empty();
         cfg.headers
             .insert("Anthropic-Beta".to_string(), "existing".to_string());
 
@@ -556,5 +565,36 @@ mod tests {
                 .map(|value| value.as_str()),
             Some("existing,skills-2025-10-02")
         );
+    }
+
+    #[test]
+    fn anthropic_skills_request_and_response_paths_keep_maps_directional() {
+        let source = include_str!("skills.rs");
+        let request_unpack = source_section(
+            source,
+            "        let SkillUploadRequest {",
+            "        let url = join_url",
+        );
+        let response_projection = source_section(
+            source,
+            "fn build_upload_result",
+            "#[async_trait]\nimpl SkillsCapability for AnthropicSkills",
+        );
+
+        assert!(
+            request_unpack.contains("provider_options: _provider_options"),
+            "Anthropic skill upload must keep unsupported request provider options explicit"
+        );
+        assert!(
+            !request_unpack.contains("provider_metadata"),
+            "Anthropic skill upload request path must not read response metadata"
+        );
+
+        for disallowed in ["provider_options", "SkillUploadRequest", "http_config"] {
+            assert!(
+                !response_projection.contains(disallowed),
+                "Anthropic skill response projection must stay response-only"
+            );
+        }
     }
 }

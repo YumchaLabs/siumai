@@ -141,6 +141,60 @@ pub fn assistant_message_with_thinking_metadata(response: &ChatResponse) -> Chat
 mod tests {
     use super::*;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn thinking_request_extension_source_does_not_read_response_metadata() {
+        let source = include_str!("thinking.rs");
+        let request_source = source_section(source, "pub async fn chat_with_thinking", "fn merge_");
+
+        for disallowed in [
+            "provider_metadata",
+            "anthropic_metadata",
+            "anthropic_reasoning_metadata",
+        ] {
+            assert!(
+                !request_source.contains(disallowed),
+                "Anthropic thinking request extension must stay request-only"
+            );
+        }
+    }
+
+    #[test]
+    fn thinking_replay_bridge_stays_explicit_cross_step_exception() {
+        let source = include_str!("thinking.rs");
+        let replay_source = source_section(
+            source,
+            "pub fn assistant_message_with_thinking_metadata",
+            "#[cfg(test)]",
+        );
+
+        for required in [
+            "response.anthropic_metadata()",
+            "part.anthropic_reasoning_metadata()",
+            "merge_anthropic_reasoning_options",
+            "\"signature\"",
+            "\"redactedData\"",
+        ] {
+            assert!(
+                replay_source.contains(required),
+                "Anthropic thinking replay bridge must remain an explicit reasoning metadata replay helper"
+            );
+        }
+
+        assert!(
+            !replay_source.contains("provider_options_map"),
+            "Anthropic thinking replay bridge must not read generic request provider option maps"
+        );
+    }
+
     #[test]
     fn assistant_message_with_thinking_metadata_uses_typed_metadata_fields() {
         let mut response = ChatResponse::new(MessageContent::MultiModal(vec![

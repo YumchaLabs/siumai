@@ -367,6 +367,31 @@ impl GeminiContentPartExt for crate::types::ContentPart {
 mod tests {
     use super::*;
 
+    fn production_source() -> &'static str {
+        include_str!("gemini.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn gemini_provider_metadata_source_does_not_read_request_provider_options() {
+        let source = production_source();
+
+        assert!(
+            !source.contains("providerOptions"),
+            "Gemini provider_metadata typed views must not read request-side providerOptions"
+        );
+        assert!(
+            !source.contains("provider_options"),
+            "Gemini provider_metadata typed views must not read request-side provider_options"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "Gemini provider_metadata typed views must not read request provider options maps"
+        );
+    }
+
     #[test]
     fn gemini_metadata_parses_logprobs_fields() {
         let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(

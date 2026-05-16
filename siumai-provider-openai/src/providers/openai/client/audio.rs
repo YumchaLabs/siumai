@@ -410,3 +410,28 @@ impl AudioCapability for OpenAiClient {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    const SOURCE: &str = include_str!("audio.rs");
+
+    #[test]
+    fn audio_mixed_request_response_path_does_not_read_legacy_response_metadata() {
+        let snake = concat!("provider", "_metadata");
+        let camel = concat!("provider", "Metadata");
+        let source_without_response_field_defaults = SOURCE.replace(&format!("{snake}: None"), "");
+
+        assert!(
+            !source_without_response_field_defaults.contains(&format!(".{snake}")),
+            "OpenAI audio request construction must not read legacy `{snake}`"
+        );
+        assert!(
+            !source_without_response_field_defaults.contains(&format!("{snake}:")),
+            "OpenAI audio response metadata must remain explicit instead of becoming implicit request input"
+        );
+        assert!(
+            !source_without_response_field_defaults.contains(camel),
+            "OpenAI audio client must not read legacy `{camel}` JSON fields"
+        );
+    }
+}

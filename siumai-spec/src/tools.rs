@@ -3,6 +3,9 @@
 //! This module provides small helpers to construct `Tool::ProviderDefined` values with
 //! stable IDs (`provider.tool_type`) and default names. The underlying serialized shape
 //! matches the Vercel AI SDK `{ type: "provider", id, name, args }` convention.
+//!
+//! Boundary note: this is a passive data-constructor module only. It must not grow runtime
+//! execution, provider HTTP, or protocol/provider crate dependencies.
 
 use crate::types::Tool;
 

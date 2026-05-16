@@ -10,6 +10,7 @@ use siumai::experimental::standards::openai::compat::adapter::{
 use siumai::experimental::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
 use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
 use siumai::experimental::standards::openai::compat::types::FieldMappings;
+use siumai::experimental::streaming::{JsonEventConverter, SseEventConverter};
 use siumai::prelude::unified::ProviderCapabilities;
 #[cfg(feature = "anthropic")]
 use siumai_provider_anthropic::providers::anthropic::streaming::AnthropicEventConverter;
@@ -75,9 +76,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::prelude::unified::{
-    ChatStreamEvent, ChatStreamPart, JsonEventConverter, SseEventConverter,
-};
+use siumai::prelude::unified::{ChatStreamEvent, ChatStreamPart};
 
 #[tokio::test]
 async fn test_openai_event_conversion() {

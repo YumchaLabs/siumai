@@ -197,13 +197,13 @@ impl ProviderSpec for GroqSpec {
         )
     }
 
-    fn chat_url(
+    fn try_chat_url(
         &self,
         stream: bool,
         req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
-    ) -> String {
-        self.chat_spec().chat_url(stream, req, ctx)
+    ) -> Result<String, LlmError> {
+        self.chat_spec().try_chat_url(stream, req, ctx)
     }
 
     fn choose_chat_transformers(

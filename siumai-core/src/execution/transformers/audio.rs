@@ -27,9 +27,9 @@ pub trait AudioTransformer: Send + Sync {
     /// Parse TTS response bytes to audio data
     ///
     /// This method allows providers to handle different response formats:
-    /// - For providers that return binary audio directly (like OpenAI),
+    /// - For providers that return binary audio directly,
     ///   the default implementation returns the bytes as-is.
-    /// - For providers that return JSON with encoded audio (like MiniMaxi),
+    /// - For providers that return JSON with encoded audio,
     ///   override this method to decode the audio from the response.
     ///
     /// # Arguments
@@ -44,7 +44,7 @@ pub trait AudioTransformer: Send + Sync {
 
     /// Parse TTS response metadata from JSON
     ///
-    /// For providers that return JSON responses with metadata (like MiniMaxi),
+    /// For providers that return JSON responses with metadata,
     /// this method extracts additional information like duration, sample rate, etc.
     ///
     /// # Arguments

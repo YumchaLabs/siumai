@@ -110,13 +110,13 @@ impl crate::core::ProviderSpec for TestProviderSpec {
     fn build_headers(&self, _ctx: &crate::core::ProviderContext) -> Result<HeaderMap, LlmError> {
         Ok(HeaderMap::new())
     }
-    fn chat_url(
+    fn try_chat_url(
         &self,
         _stream: bool,
         _req: &crate::types::ChatRequest,
         _ctx: &crate::core::ProviderContext,
-    ) -> String {
-        "http://127.0.0.1/never".to_string()
+    ) -> Result<String, LlmError> {
+        Ok("http://127.0.0.1/never".to_string())
     }
     fn choose_chat_transformers(
         &self,
@@ -703,13 +703,13 @@ async fn applies_provider_spec_chat_before_send_before_policy_hook() {
         ) -> Result<HeaderMap, LlmError> {
             Ok(HeaderMap::new())
         }
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _stream: bool,
             _req: &crate::types::ChatRequest,
             _ctx: &crate::core::ProviderContext,
-        ) -> String {
-            "http://127.0.0.1/never".to_string()
+        ) -> Result<String, LlmError> {
+            Ok("http://127.0.0.1/never".to_string())
         }
         fn choose_chat_transformers(
             &self,
@@ -812,13 +812,13 @@ async fn merges_request_headers_into_base_nonstream() {
             );
             Ok(h)
         }
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _stream: bool,
             _req: &crate::types::ChatRequest,
             _ctx: &crate::core::ProviderContext,
-        ) -> String {
-            "http://127.0.0.1/never".to_string()
+        ) -> Result<String, LlmError> {
+            Ok("http://127.0.0.1/never".to_string())
         }
         fn choose_chat_transformers(
             &self,
@@ -870,7 +870,7 @@ async fn merges_request_headers_into_base_nonstream() {
 
     let mut req = crate::types::ChatRequest::new(vec![]);
     // per-request header
-    let mut hc = crate::types::HttpConfig::default();
+    let mut hc = crate::types::HttpConfig::empty();
     hc.headers.insert("X-Req".to_string(), "req".to_string());
     req.http_config = Some(hc);
     let _ = exec.execute(req).await;
@@ -927,13 +927,13 @@ async fn merges_request_headers_into_base_stream() {
             );
             Ok(h)
         }
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _stream: bool,
             _req: &crate::types::ChatRequest,
             _ctx: &crate::core::ProviderContext,
-        ) -> String {
-            "http://127.0.0.1/never".to_string()
+        ) -> Result<String, LlmError> {
+            Ok("http://127.0.0.1/never".to_string())
         }
         fn choose_chat_transformers(
             &self,
@@ -983,7 +983,7 @@ async fn merges_request_headers_into_base_stream() {
         provider_context,
     };
     let mut req = crate::types::ChatRequest::new(vec![]);
-    let mut hc = crate::types::HttpConfig::default();
+    let mut hc = crate::types::HttpConfig::empty();
     hc.headers.insert("X-Req".to_string(), "req".to_string());
     req.http_config = Some(hc);
     let _ = exec.execute_stream(req).await;

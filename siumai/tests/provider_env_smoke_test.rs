@@ -7,7 +7,7 @@
 ))]
 
 use futures::StreamExt;
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::prelude::unified::*;
 use std::env;
 use std::time::Duration;

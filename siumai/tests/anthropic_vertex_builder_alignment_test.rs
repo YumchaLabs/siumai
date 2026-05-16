@@ -1,7 +1,7 @@
 #![cfg(feature = "google-vertex")]
 #![allow(deprecated)]
 
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::prelude::compat::Siumai;
 use std::sync::Arc;
 

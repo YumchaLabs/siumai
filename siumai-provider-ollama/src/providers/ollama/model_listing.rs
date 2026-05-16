@@ -240,7 +240,9 @@ impl ModelListingCapability for OllamaModelListingCapability {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let ctx = self.build_context();
         let config = self.build_http_config(ctx);
-        let url = config.provider_spec.models_url(&config.provider_context);
+        let url = config
+            .provider_spec
+            .try_models_url(&config.provider_context)?;
         let result = execute_get_request(&config, &url, None).await?;
         let models_response: OllamaModelsResponse =
             serde_json::from_value(result.json).map_err(|e| {
@@ -312,7 +314,7 @@ mod tests {
         let capability = OllamaModelListingCapability::new(
             "http://localhost:11434".to_string(),
             reqwest::Client::new(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
             None,
         );
 

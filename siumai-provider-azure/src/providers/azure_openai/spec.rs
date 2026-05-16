@@ -388,14 +388,19 @@ impl ProviderSpec for AzureOpenAiSpec {
         )
     }
 
-    fn chat_url(&self, _stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         // Azure OpenAI uses the deployment id as the model id for routing.
-        match self.chat_mode {
+        Ok(match self.chat_mode {
             AzureChatMode::Responses => self.build_url(ctx, &req.common_params.model, "/responses"),
             AzureChatMode::ChatCompletions => {
                 self.build_url(ctx, &req.common_params.model, "/chat/completions")
             }
-        }
+        })
     }
 
     fn choose_chat_transformers(
@@ -563,8 +568,12 @@ impl ProviderSpec for AzureOpenAiSpec {
         }))
     }
 
-    fn embedding_url(&self, req: &EmbeddingRequest, ctx: &ProviderContext) -> String {
-        self.build_url(ctx, req.model.as_deref().unwrap_or(""), "/embeddings")
+    fn try_embedding_url(
+        &self,
+        req: &EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(self.build_url(ctx, req.model.as_deref().unwrap_or(""), "/embeddings"))
     }
 
     fn choose_embedding_transformers(
@@ -578,12 +587,16 @@ impl ProviderSpec for AzureOpenAiSpec {
         spec.choose_embedding_transformers(req, ctx)
     }
 
-    fn image_url(&self, req: &ImageGenerationRequest, ctx: &ProviderContext) -> String {
-        self.build_url(
+    fn try_image_url(
+        &self,
+        req: &ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(self.build_url(
             ctx,
             req.model.as_deref().unwrap_or(""),
             "/images/generations",
-        )
+        ))
     }
 
     fn choose_image_transformers(

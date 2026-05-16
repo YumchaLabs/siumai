@@ -5,7 +5,7 @@
     feature = "minimaxi"
 ))]
 
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::experimental::client::LlmClient;
 #[cfg(feature = "openai")]
 use siumai::extensions::{SpeechExtras, TranscriptionExtras};

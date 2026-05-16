@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::{body::Body, http::header, response::Response};
 
 use siumai::experimental::encoding::JsonEncodeOptions;
-use siumai::prelude::unified::{ChatResponse, LlmError};
+use siumai::prelude::unified::{ChatResponse, LlmError, LlmErrorExt};
 #[cfg(feature = "anthropic")]
 use siumai_bridge::bridge_chat_response_to_anthropic_messages_json_bytes_with_options;
 #[cfg(feature = "google")]

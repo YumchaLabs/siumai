@@ -625,7 +625,7 @@ let client = OpenAiClient::new(cfg, http);
 
 Notes:
 
-- Streaming stability: By default, `stream_disable_compression` is derived from `SIUMAI_STREAM_DISABLE_COMPRESSION` (true unless set to `false|0|off|no`). You can override it per client using `HttpConfig::builder().stream_disable_compression(...)`.
+- Streaming stability: Runtime builder/config-first defaults derive `stream_disable_compression` from `SIUMAI_STREAM_DISABLE_COMPRESSION` (true unless set to `false|0|off|no`). Direct `HttpConfig::default()` is a deterministic data default; override per client with `HttpConfig::builder().stream_disable_compression(...)`.
 - Builder-style HTTP toggles remain available, but they are part of the builder compatibility surface. Prefer `HttpConfig` + registry/config-first clients for new code.
 
 Registry with custom middleware and interceptors:

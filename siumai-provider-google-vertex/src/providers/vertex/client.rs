@@ -250,7 +250,7 @@ impl GoogleVertexConfig {
                 ..Default::default()
             },
             api_key: None,
-            http_config: crate::types::HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             generate_id: None,
             token_provider: None,
@@ -1890,7 +1890,7 @@ mod tests {
     #[test]
     fn prepare_chat_request_for_stream_sets_stream_and_fills_defaults() {
         let cfg = GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash")
-            .with_http_config(crate::types::HttpConfig::default());
+            .with_http_config(crate::defaults::http::config_default());
         let client = GoogleVertexClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()
@@ -1909,7 +1909,7 @@ mod tests {
     #[test]
     fn prepare_chat_request_for_non_stream_clears_stream_and_preserves_explicit_model() {
         let cfg = GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash")
-            .with_http_config(crate::types::HttpConfig::default());
+            .with_http_config(crate::defaults::http::config_default());
         let client = GoogleVertexClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()

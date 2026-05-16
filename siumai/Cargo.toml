@@ -461,7 +461,7 @@ bedrock = [
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
 
-gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google", "google-vertex"]
+gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google", "google-vertex", "siumai-provider-google-vertex/gcp"]
 
 
 

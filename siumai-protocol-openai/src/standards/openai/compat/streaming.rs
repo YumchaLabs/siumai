@@ -1488,6 +1488,10 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
         })
     }
 
+    fn is_stream_end_event(&self, event: &Event) -> bool {
+        event.data.trim() == "[DONE]"
+    }
+
     fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
         if !self.state_tracker.needs_stream_end() {
             return Vec::new();
@@ -2149,6 +2153,31 @@ mod tests {
     };
     use crate::streaming::SseEventConverter;
     use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
+
+    fn production_source() -> &'static str {
+        include_str!("streaming.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn openai_compatible_streaming_source_does_not_emit_request_provider_options() {
+        let source = production_source();
+
+        for forbidden in [
+            "providerOptions",
+            "provider_options:",
+            ".provider_options",
+            "provider_options_map",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "OpenAI-compatible streaming must not emit or read request-side {forbidden}"
+            );
+        }
+    }
 
     fn parse_sse_data_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
         let text = String::from_utf8_lossy(bytes);

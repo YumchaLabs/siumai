@@ -12,7 +12,7 @@ use axum::{body::Body, extract::Request, response::Response};
 use serde::Deserialize;
 use serde_json::Value;
 use siumai::experimental::bridge::BridgeReport;
-use siumai::prelude::unified::{ChatRequest, LlmError};
+use siumai::prelude::unified::{ChatRequest, LlmError, LlmErrorExt};
 use siumai_extras::server::{
     GatewayBridgePolicy,
     axum::{

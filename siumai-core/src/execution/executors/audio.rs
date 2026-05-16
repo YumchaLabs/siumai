@@ -440,12 +440,12 @@ mod tests {
             Ok(HeaderMap::new())
         }
 
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _stream: bool,
             _req: &crate::types::ChatRequest,
             _ctx: &crate::core::ProviderContext,
-        ) -> String {
+        ) -> Result<String, LlmError> {
             unreachable!()
         }
 

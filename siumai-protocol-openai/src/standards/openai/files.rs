@@ -331,6 +331,15 @@ mod tests {
     use super::*;
     use http_body_util::BodyExt as _;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
     fn multipart_body_text(form: reqwest::multipart::Form) -> String {
         let client = reqwest::Client::new();
         let mut request = client
@@ -558,5 +567,39 @@ mod tests {
     fn configurable_provider_id_reports_custom_id() {
         let tx = OpenAiFilesTransformerWithProviderId::new("openai-compatible");
         assert_eq!(tx.provider_id(), "openai-compatible");
+    }
+
+    #[test]
+    fn openai_files_request_and_response_transformers_keep_maps_directional() {
+        let source = include_str!("files.rs");
+        let request_section = source_section(
+            source,
+            "fn upload_options_object",
+            "fn transform_file_object_impl",
+        );
+        let response_section =
+            source_section(source, "fn transform_file_object_impl", "#[derive(Clone)]");
+
+        for disallowed in [
+            "provider_metadata",
+            "transform_file_object_impl",
+            "transform_list_response_impl",
+        ] {
+            assert!(
+                !request_section.contains(disallowed),
+                "OpenAI files request helpers must stay request-only"
+            );
+        }
+
+        for disallowed in [
+            "provider_options",
+            "upload_options_object",
+            "upload_purpose",
+        ] {
+            assert!(
+                !response_section.contains(disallowed),
+                "OpenAI files response helpers must stay response-only"
+            );
+        }
     }
 }

@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = read_non_empty_env("BEDROCK_RERANK_MODEL")
         .unwrap_or_else(|| "amazon.rerank-v1:0".to_string());
 
-    let mut http_config = HttpConfig::default();
+    let mut http_config = HttpConfig::empty();
     apply_env_header(&mut http_config, "Authorization", "BEDROCK_AUTHORIZATION");
     apply_env_header(&mut http_config, "X-Amz-Date", "BEDROCK_X_AMZ_DATE");
     apply_env_header(

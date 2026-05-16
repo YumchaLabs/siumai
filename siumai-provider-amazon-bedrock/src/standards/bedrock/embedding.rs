@@ -75,10 +75,17 @@ impl ProviderSpec for BedrockEmbeddingSpec {
         )
     }
 
-    fn embedding_url(&self, req: &EmbeddingRequest, ctx: &ProviderContext) -> String {
+    fn try_embedding_url(
+        &self,
+        req: &EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let model = req.model.as_deref().unwrap_or_default();
         let encoded_model = urlencoding::encode(model);
-        crate::utils::url::join_url(&ctx.base_url, &format!("/model/{encoded_model}/invoke"))
+        Ok(crate::utils::url::join_url(
+            &ctx.base_url,
+            &format!("/model/{encoded_model}/invoke"),
+        ))
     }
 
     fn choose_embedding_transformers(
@@ -400,6 +407,48 @@ impl ResponseTransformer for BedrockEmbeddingResponseTransformer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn embedding_request_and_response_transformers_keep_provider_maps_directional() {
+        let source = include_str!("embedding.rs");
+
+        let request_transformer = source_section(
+            source,
+            "impl RequestTransformer for BedrockEmbeddingRequestTransformer",
+            "struct BedrockEmbeddingResponseTransformer",
+        );
+        assert!(
+            !request_transformer.contains("provider_metadata"),
+            "Bedrock embedding request transformer must not read legacy provider_metadata"
+        );
+        assert!(
+            !request_transformer.contains("providerMetadata"),
+            "Bedrock embedding request transformer must not read legacy providerMetadata"
+        );
+
+        let response_transformer = source_section(
+            source,
+            "impl ResponseTransformer for BedrockEmbeddingResponseTransformer",
+            "#[cfg(test)]",
+        );
+        assert!(
+            !response_transformer.contains("provider_options"),
+            "Bedrock embedding response transformer must not read request provider_options"
+        );
+        assert!(
+            !response_transformer.contains("providerOptions"),
+            "Bedrock embedding response transformer must not read request providerOptions"
+        );
+    }
 
     fn transformer() -> BedrockEmbeddingRequestTransformer {
         BedrockEmbeddingRequestTransformer {

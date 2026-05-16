@@ -308,7 +308,7 @@ mod groq_tests {
             SecretString::from("test-api-key".to_string()),
             "https://api.groq.com/openai/v1".to_string(),
             reqwest::Client::new(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
         );
 
         // Note: Methods are private, so we just test creation

@@ -104,7 +104,7 @@ impl OllamaChatCapability {
             self.http_config.headers.clone(),
         );
         let spec = std::sync::Arc::new(super::spec::OllamaSpec::new(self.ollama_params.clone()));
-        let url = spec.chat_url(false, &request, &ctx);
+        let url = spec.try_chat_url(false, &request, &ctx)?;
 
         let body = self.build_chat_request_body(&request)?;
         let body_json = serde_json::to_value(&body)?;
@@ -145,7 +145,7 @@ mod tests {
         let capability = OllamaChatCapability::new(
             "http://localhost:11434".to_string(),
             reqwest::Client::new(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
             OllamaParams::default(),
             None,
         );
@@ -173,7 +173,7 @@ mod tests {
         let capability = OllamaChatCapability::new(
             "http://localhost:11434".to_string(),
             reqwest::Client::new(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
             OllamaParams::default(),
             None,
         );

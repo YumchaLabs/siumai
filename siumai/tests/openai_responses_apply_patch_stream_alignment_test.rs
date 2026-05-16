@@ -1,5 +1,6 @@
 #![cfg(feature = "openai")]
 
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use std::path::Path;
 

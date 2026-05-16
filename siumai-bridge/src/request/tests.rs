@@ -3,15 +3,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde_json::json;
-use siumai_core::bridge::{
+use crate::{
     BridgeCustomization, BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions,
     BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget, BridgeWarning,
     BridgeWarningKind, RequestBridgeContext, RequestBridgeHook, RequestBridgePhase,
     ResponseBridgeContext, StreamBridgeContext,
 };
+use serde_json::json;
 use siumai_core::types::{
-    ChatMessage, ChatRequest, ContentPart, ProviderOptionsMap, ResponseFormat,
+    CacheControl, ChatMessage, ChatRequest, ContentPart, ProviderOptionsMap, ResponseFormat,
 };
 
 #[cfg(any(feature = "openai", feature = "anthropic"))]
@@ -45,6 +45,34 @@ use super::{
     bridge_openai_responses_json_to_chat_request_with_options,
 };
 
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+fn anthropic_cache_control_message(
+    mut message: ChatMessage,
+    cache_control: CacheControl,
+) -> ChatMessage {
+    message.metadata.cache_control = Some(cache_control);
+    message
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+fn anthropic_cache_control_part(part: ContentPart, cache_control: CacheControl) -> ContentPart {
+    part.with_provider_option(
+        "anthropic",
+        match cache_control {
+            CacheControl::Ephemeral => json!({
+                "cacheControl": { "type": "ephemeral" }
+            }),
+            CacheControl::Persistent { ttl } => {
+                let mut cache_control = json!({ "type": "ephemeral" });
+                if let Some(ttl) = ttl {
+                    cache_control["ttl"] = json!(ttl.as_secs());
+                }
+                json!({ "cacheControl": cache_control })
+            }
+        },
+    )
+}
+
 struct PrefixRemapper;
 
 impl BridgePrimitiveRemapper for PrefixRemapper {
@@ -59,7 +87,7 @@ impl BridgeLossPolicy for RejectLossyPolicy {
     fn request_action(
         &self,
         _ctx: &RequestBridgeContext,
-        report: &siumai_core::bridge::BridgeReport,
+        report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         if report.is_lossy() || report.is_rejected() {
             BridgeLossAction::Reject
@@ -71,7 +99,7 @@ impl BridgeLossPolicy for RejectLossyPolicy {
     fn response_action(
         &self,
         _ctx: &ResponseBridgeContext,
-        report: &siumai_core::bridge::BridgeReport,
+        report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         if report.is_lossy() || report.is_rejected() {
             BridgeLossAction::Reject
@@ -83,7 +111,7 @@ impl BridgeLossPolicy for RejectLossyPolicy {
     fn stream_action(
         &self,
         _ctx: &StreamBridgeContext,
-        report: &siumai_core::bridge::BridgeReport,
+        report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         if report.is_lossy() || report.is_rejected() {
             BridgeLossAction::Reject
@@ -100,7 +128,7 @@ impl RequestBridgeHook for RequestAuditHook {
         &self,
         ctx: &RequestBridgeContext,
         request: &mut ChatRequest,
-        report: &mut siumai_core::bridge::BridgeReport,
+        report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         assert_eq!(ctx.phase, RequestBridgePhase::SerializeTarget);
         assert_eq!(ctx.route_label.as_deref(), Some("tests.request.hook"));
@@ -116,7 +144,7 @@ impl RequestBridgeHook for RequestAuditHook {
         &self,
         _ctx: &RequestBridgeContext,
         body: &mut serde_json::Value,
-        _report: &mut siumai_core::bridge::BridgeReport,
+        _report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         body["metadata"] = json!({
             "hooked": true,
@@ -128,7 +156,7 @@ impl RequestBridgeHook for RequestAuditHook {
         &self,
         _ctx: &RequestBridgeContext,
         body: &serde_json::Value,
-        report: &mut siumai_core::bridge::BridgeReport,
+        report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         assert_eq!(body["metadata"]["hooked"], json!(true));
         report.add_warning(BridgeWarning::new(
@@ -146,7 +174,7 @@ impl RequestBridgeHook for NormalizeAuditHook {
         &self,
         ctx: &RequestBridgeContext,
         request: &mut ChatRequest,
-        report: &mut siumai_core::bridge::BridgeReport,
+        report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         assert_eq!(ctx.phase, RequestBridgePhase::NormalizeSource);
         assert_eq!(ctx.source, Some(BridgeTarget::OpenAiResponses));
@@ -169,7 +197,7 @@ impl BridgeCustomization for CompositeRequestCustomization {
         &self,
         ctx: &RequestBridgeContext,
         request: &mut ChatRequest,
-        report: &mut siumai_core::bridge::BridgeReport,
+        report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         assert_eq!(ctx.phase, RequestBridgePhase::SerializeTarget);
         assert_eq!(ctx.source, Some(BridgeTarget::AnthropicMessages));
@@ -192,7 +220,7 @@ impl BridgeCustomization for CompositeRequestCustomization {
         &self,
         ctx: &RequestBridgeContext,
         body: &mut serde_json::Value,
-        report: &mut siumai_core::bridge::BridgeReport,
+        report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         assert_eq!(ctx.target, BridgeTarget::OpenAiChatCompletions);
         body["metadata"] = json!({
@@ -210,7 +238,7 @@ impl BridgeCustomization for CompositeRequestCustomization {
         &self,
         _ctx: &RequestBridgeContext,
         body: &serde_json::Value,
-        report: &mut siumai_core::bridge::BridgeReport,
+        report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         assert_eq!(body["metadata"]["customized"], json!(true));
         report.add_warning(BridgeWarning::new(
@@ -1085,21 +1113,26 @@ fn openai_direct_pair_bridge_lifts_response_format_and_reasoning_effort() {
 #[test]
 fn anthropic_bridge_reports_cache_breakpoints_beyond_limit() {
     let mut request = ChatRequest::new(vec![
-        ChatMessage::system("s1")
-            .cache_control(siumai_core::types::CacheControl::Ephemeral)
-            .build(),
-        ChatMessage::system("s2")
-            .cache_control(siumai_core::types::CacheControl::Ephemeral)
-            .build(),
-        ChatMessage::user("u1")
-            .cache_control(siumai_core::types::CacheControl::Ephemeral)
-            .build(),
-        ChatMessage::assistant("a1")
-            .cache_control(siumai_core::types::CacheControl::Ephemeral)
-            .build(),
-        ChatMessage::user("u2")
-            .cache_control(siumai_core::types::CacheControl::Ephemeral)
-            .build(),
+        anthropic_cache_control_message(
+            ChatMessage::system("s1").build(),
+            siumai_core::types::CacheControl::Ephemeral,
+        ),
+        anthropic_cache_control_message(
+            ChatMessage::system("s2").build(),
+            siumai_core::types::CacheControl::Ephemeral,
+        ),
+        anthropic_cache_control_message(
+            ChatMessage::user("u1").build(),
+            siumai_core::types::CacheControl::Ephemeral,
+        ),
+        anthropic_cache_control_message(
+            ChatMessage::assistant("a1").build(),
+            siumai_core::types::CacheControl::Ephemeral,
+        ),
+        anthropic_cache_control_message(
+            ChatMessage::user("u2").build(),
+            siumai_core::types::CacheControl::Ephemeral,
+        ),
     ]);
     request.common_params.model = "claude-3-5-sonnet-latest".to_string();
 
@@ -1124,24 +1157,34 @@ fn anthropic_bridge_reports_cache_breakpoints_beyond_limit() {
 fn anthropic_bridge_reports_part_cache_breakpoints_from_canonical_provider_options() {
     let mut request = ChatRequest::new(vec![
         ChatMessage::user("u1")
-            .with_content_parts(vec![ContentPart::text("cached")])
-            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .with_content_parts(vec![anthropic_cache_control_part(
+                ContentPart::text("cached"),
+                siumai_core::types::CacheControl::Ephemeral,
+            )])
             .build(),
         ChatMessage::user("u2")
-            .with_content_parts(vec![ContentPart::text("cached")])
-            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .with_content_parts(vec![anthropic_cache_control_part(
+                ContentPart::text("cached"),
+                siumai_core::types::CacheControl::Ephemeral,
+            )])
             .build(),
         ChatMessage::user("u3")
-            .with_content_parts(vec![ContentPart::text("cached")])
-            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .with_content_parts(vec![anthropic_cache_control_part(
+                ContentPart::text("cached"),
+                siumai_core::types::CacheControl::Ephemeral,
+            )])
             .build(),
         ChatMessage::user("u4")
-            .with_content_parts(vec![ContentPart::text("cached")])
-            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .with_content_parts(vec![anthropic_cache_control_part(
+                ContentPart::text("cached"),
+                siumai_core::types::CacheControl::Ephemeral,
+            )])
             .build(),
         ChatMessage::user("u5")
-            .with_content_parts(vec![ContentPart::text("cached")])
-            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .with_content_parts(vec![anthropic_cache_control_part(
+                ContentPart::text("cached"),
+                siumai_core::types::CacheControl::Ephemeral,
+            )])
             .build(),
     ]);
     request.common_params.model = "claude-3-5-sonnet-latest".to_string();
@@ -2369,6 +2412,129 @@ fn bridge_anthropic_messages_json_to_chat_request_restores_latest_provider_defin
     assert_eq!(code_execution.args, json!({}));
 }
 
+#[test]
+fn request_normalization_source_never_populates_legacy_provider_metadata() {
+    let source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/request/normalize.rs"
+    ));
+
+    for forbidden in [
+        "providerMetadata",
+        ".get(\"provider_metadata\")",
+        ".get(\"providerMetadata\")",
+        "[\"provider_metadata\"]",
+        "[\"providerMetadata\"]",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "request normalization must not read legacy provider metadata via {forbidden}"
+        );
+    }
+
+    for (index, line) in source.lines().enumerate() {
+        if line.contains("provider_metadata") {
+            assert_eq!(
+                line.trim(),
+                "provider_metadata: None,",
+                "request normalization must not populate legacy provider_metadata at normalize.rs line {}",
+                index + 1
+            );
+        }
+    }
+}
+
+#[test]
+fn request_normalization_centralizes_legacy_request_content_constructors() {
+    let source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/request/normalize.rs"
+    ));
+    let helper_start = source
+        .find("fn request_text_part")
+        .expect("request content adapter helpers should exist");
+    let helper_end = source
+        .find("fn parse_text_like_content_parts")
+        .expect("request content adapter helpers should precede text-like parsing");
+    assert!(helper_start < helper_end);
+
+    let mut outside_helper_provider_metadata_lines = Vec::new();
+    let mut offset = 0usize;
+    for (index, line) in source.lines().enumerate() {
+        let line_start = offset;
+        offset += line.len() + 1;
+        if line.contains("provider_metadata: None,")
+            && !(helper_start..helper_end).contains(&line_start)
+        {
+            outside_helper_provider_metadata_lines.push((index + 1, line.trim().to_string()));
+        }
+    }
+
+    assert_eq!(
+        outside_helper_provider_metadata_lines.len(),
+        1,
+        "legacy request ContentPart provider_metadata construction should stay centralized; the only outside-helper occurrence is the plain-text collapse match: {outside_helper_provider_metadata_lines:?}"
+    );
+    assert_eq!(
+        outside_helper_provider_metadata_lines[0].1,
+        "provider_metadata: None,"
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn request_bridge_pair_sources_do_not_read_legacy_provider_metadata() {
+    for (path, source) in [
+        (
+            "src/request/pairs/openai_responses_to_anthropic_messages.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/request/pairs/openai_responses_to_anthropic_messages.rs"
+            )),
+        ),
+        (
+            "src/request/pairs/anthropic_messages_to_openai_responses.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/request/pairs/anthropic_messages_to_openai_responses.rs"
+            )),
+        ),
+    ] {
+        for forbidden in [
+            ".provider_metadata",
+            "provider_metadata:",
+            "providerMetadata",
+            ".get(\"provider_metadata\")",
+            "[\"provider_metadata\"]",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{path} is request bridge pair code and must not read legacy response provider metadata fragment `{forbidden}`"
+            );
+        }
+    }
+}
+
+#[cfg(feature = "google")]
+#[test]
+fn gemini_request_normalization_source_uses_provider_options_for_thought_signature() {
+    let source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/request/normalize.rs"
+    ));
+
+    assert!(source.contains("fn gemini_thought_signature_provider_options"));
+    for forbidden in [
+        "gemini_thought_signature_provider_metadata",
+        "provider_metadata: gemini_thought_signature",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "Gemini request normalization should not route thoughtSignature through legacy provider_metadata via {forbidden}"
+        );
+    }
+}
+
 #[cfg(feature = "google")]
 #[test]
 fn gemini_generate_content_request_normalization_roundtrip_preserves_core_projection() {
@@ -2546,6 +2712,26 @@ fn gemini_generate_content_request_normalization_roundtrip_preserves_core_projec
     assert_eq!(normalized.messages[2].tool_calls().len(), 2);
     assert_eq!(normalized.messages[3].role, MessageRole::Tool);
     assert_eq!(normalized.messages[3].tool_results().len(), 2);
+
+    let assistant_parts = normalized.messages[2]
+        .content
+        .as_multimodal()
+        .expect("assistant multimodal content");
+    let ContentPart::Reasoning {
+        provider_options,
+        provider_metadata,
+        ..
+    } = &assistant_parts[0]
+    else {
+        panic!("expected assistant reasoning part");
+    };
+    assert_eq!(
+        provider_options
+            .get_object("google")
+            .and_then(|google| google.get("thoughtSignature")),
+        Some(&json!("sig_1"))
+    );
+    assert!(provider_metadata.is_none());
 
     let google_options = normalized
         .provider_option("google")

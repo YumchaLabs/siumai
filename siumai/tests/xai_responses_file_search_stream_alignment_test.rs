@@ -1,5 +1,6 @@
 #![cfg(feature = "xai")]
 
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 
 fn stream_events_by_type(events: &[ChatStreamEvent], kind: &str) -> Vec<serde_json::Value> {

@@ -42,15 +42,15 @@ mod tests {
             ValidationResult::success("unused".to_string())
         });
         let mut options = ProviderOptionsMap::new();
-        options.insert("openai", serde_json::Value::Null);
+        options.insert("provider-a", serde_json::Value::Null);
 
         assert!(
-            parse_provider_options("anthropic", Some(&options), &schema)
+            parse_provider_options("provider-b", Some(&options), &schema)
                 .expect("missing provider")
                 .is_none()
         );
         assert!(
-            parse_provider_options("openai", Some(&options), &schema)
+            parse_provider_options("provider-a", Some(&options), &schema)
                 .expect("null provider")
                 .is_none()
         );
@@ -69,17 +69,17 @@ mod tests {
                 },
             );
         let mut options = ProviderOptionsMap::new();
-        options.insert("OpenAI", serde_json::json!({ "mode": "strict" }));
+        options.insert("Provider-A", serde_json::json!({ "mode": "strict" }));
 
         assert_eq!(
-            parse_provider_options("openai", Some(&options), &schema)
+            parse_provider_options("provider-a", Some(&options), &schema)
                 .expect("valid provider options"),
             Some("strict".to_string())
         );
 
-        options.insert("openai", serde_json::json!({ "mode": 42 }));
+        options.insert("provider-a", serde_json::json!({ "mode": 42 }));
         assert!(matches!(
-            parse_provider_options("openai", Some(&options), &schema),
+            parse_provider_options("provider-a", Some(&options), &schema),
             Err(LlmError::InvalidParameter(_))
         ));
     }

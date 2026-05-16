@@ -41,7 +41,7 @@ fn openrouter_chat_url_is_openai_compatible() {
     req.common_params.model = "openai/gpt-4o".to_string();
 
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://openrouter.ai/api/v1/chat/completions"
     );
 }

@@ -119,7 +119,7 @@ async fn google_vertex_metadata_ext_reads_vertex_namespace_across_public_paths()
         .await
         .expect("build siumai client");
 
-    let provider_client = siumai::Provider::vertex()
+    let provider_client = siumai::compat::Provider::vertex()
         .api_key("test-key")
         .model("gemini-pro")
         .fetch(Arc::new(provider_transport))
@@ -342,7 +342,7 @@ async fn google_vertex_metadata_ext_reads_grounding_sources_and_url_context() {
         .await
         .expect("build siumai client");
 
-    let provider_client = siumai::Provider::vertex()
+    let provider_client = siumai::compat::Provider::vertex()
         .api_key("test-key")
         .model("gemini-pro")
         .fetch(Arc::new(provider_transport))

@@ -25,6 +25,36 @@ pub(super) fn serialize_event(
         sse_event_data_frame(event, value)
     }
 
+    fn anthropic_custom_event_from_typed_part(part: &TypedStreamPart) -> Option<ChatStreamEvent> {
+        let event_type = match part {
+            TypedStreamPart::TextStart { .. } => "anthropic:text-start",
+            TypedStreamPart::TextDelta { .. } => "anthropic:text-delta",
+            TypedStreamPart::TextEnd { .. } => "anthropic:text-end",
+            TypedStreamPart::ReasoningStart { .. } => "anthropic:reasoning-start",
+            TypedStreamPart::ReasoningDelta { .. } => "anthropic:reasoning-delta",
+            TypedStreamPart::ReasoningEnd { .. } => "anthropic:reasoning-end",
+            TypedStreamPart::ToolInputStart { .. } => "anthropic:tool-input-start",
+            TypedStreamPart::ToolInputDelta { .. } => "anthropic:tool-input-delta",
+            TypedStreamPart::ToolInputEnd { .. } => "anthropic:tool-input-end",
+            TypedStreamPart::ToolCall(_) => "anthropic:tool-call",
+            TypedStreamPart::ToolResult(_) => "anthropic:tool-result",
+            TypedStreamPart::Custom(_) => "anthropic:custom",
+            TypedStreamPart::Source(_) => "anthropic:source",
+            TypedStreamPart::StreamStart { .. } => "anthropic:stream-start",
+            TypedStreamPart::ResponseMetadata(_) => "anthropic:response-metadata",
+            TypedStreamPart::Finish { .. } => "anthropic:finish",
+            TypedStreamPart::Error { .. } => "anthropic:error",
+            TypedStreamPart::ToolApprovalRequest(_)
+            | TypedStreamPart::Raw { .. }
+            | TypedStreamPart::File(_)
+            | TypedStreamPart::ReasoningFile(_) => return None,
+        };
+        Some(ChatStreamEvent::Custom {
+            event_type: event_type.to_string(),
+            data: serde_json::to_value(part).ok()?,
+        })
+    }
+
     fn reset_stream_state(state: &mut AnthropicSerializeState) {
         *state = AnthropicSerializeState::default();
     }
@@ -1142,9 +1172,7 @@ pub(super) fn serialize_event(
         let Some(part) = TypedStreamPart::try_from_chat_event(event) else {
             return Ok(Vec::new());
         };
-        if let Some(custom_event) =
-            part.to_protocol_custom_event(crate::streaming::StreamPartNamespace::Anthropic)
-        {
+        if let Some(custom_event) = anthropic_custom_event_from_typed_part(&part) {
             return serialize_event(this, &custom_event);
         }
 
@@ -1321,5 +1349,29 @@ pub(super) fn serialize_event(
             Ok(Vec::new())
         }
         other => serialize_inner(other, &mut state),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn anthropic_streaming_serialize_source_does_not_read_request_provider_options() {
+        let source = include_str!("serialize.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+
+        for forbidden in [
+            "provider_options",
+            ".provider_options",
+            "providerOptions",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "Anthropic streaming serialize source must not read request-side provider options fragment `{forbidden}`"
+            );
+        }
     }
 }

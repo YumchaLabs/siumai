@@ -416,6 +416,10 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
         })
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        event.data.trim() == "[DONE]"
+    }
+
     fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
         let state = self.state.lock().expect("completion stream state");
         let mut events = Vec::new();
@@ -767,6 +771,66 @@ mod tests {
     use siumai_core::streaming::SseEventConverter;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn source_between(start_marker: &str, end_marker: &str) -> &'static str {
+        let source = include_str!("completion.rs");
+        let (_, after_start) = source
+            .split_once(start_marker)
+            .expect("source start marker should exist");
+        let (section, _) = after_start
+            .split_once(end_marker)
+            .expect("source end marker should exist");
+        section
+    }
+
+    #[test]
+    fn completion_request_source_does_not_read_legacy_provider_metadata_fields() {
+        for source in [
+            source_between(
+                "fn completion_message_text(",
+                "fn completion_request_id_from_headers(",
+            ),
+            source_between(
+                "fn prepare_completion_request(",
+                "fn build_completion_response(",
+            ),
+        ] {
+            assert!(
+                !source.contains("providerMetadata"),
+                "OpenAI completion request construction must not read legacy providerMetadata"
+            );
+            assert!(
+                !source.contains("provider_metadata"),
+                "OpenAI completion request construction must not read legacy provider_metadata"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_response_and_stream_source_do_not_emit_request_provider_options() {
+        for source in [
+            source_between(
+                "impl crate::streaming::SseEventConverter for CompletionSseConverter",
+                "fn normalize_completion_option_key(",
+            ),
+            source_between(
+                "fn build_completion_response(",
+                "async fn completion_request_via_spec(",
+            ),
+        ] {
+            for forbidden in [
+                "providerOptions",
+                "provider_options",
+                "provider_options_map",
+                "ProviderOptionsMap",
+            ] {
+                assert!(
+                    !source.contains(forbidden),
+                    "OpenAI completion response/stream code must not emit or read request-side {forbidden}"
+                );
+            }
+        }
+    }
 
     fn make_client(base_url: &str) -> OpenAiClient {
         OpenAiClient::new(

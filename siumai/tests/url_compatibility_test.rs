@@ -186,7 +186,7 @@ fn test_anthropic_base_url_accepts_v1_suffix() {
 
     let spec = AnthropicChatStandard::new().create_spec("anthropic");
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://api.anthropic.com/v1/messages"
     );
 }

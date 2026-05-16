@@ -97,27 +97,29 @@ pub struct ChatResponse {
     /// This field contains provider-specific metadata in a nested structure:
     /// `{ "provider_id": { "key": value, ... }, ... }`
     ///
-    /// For type-safe access to common provider metadata, use the helper methods:
-    /// - `provider_metadata_as::<T>(provider_id)` for provider-agnostic typed extraction
-    ///
-    /// For OpenAI-specific typed metadata, prefer the provider extension trait:
-    /// `siumai::provider_ext::openai::OpenAiChatResponseExt::openai_metadata()`.
-    ///
-    /// For Anthropic-specific typed metadata, prefer the provider extension trait:
-    /// `siumai::provider_ext::anthropic::AnthropicChatResponseExt::anthropic_metadata()`.
-    ///
-    /// For Gemini-specific typed metadata, prefer the provider extension trait:
-    /// `siumai::provider_ext::gemini::GeminiChatResponseExt::gemini_metadata()`.
+    /// For type-safe access to provider metadata, provider crates or application code can define a
+    /// typed view and read it with `provider_metadata_as::<T>(provider_id)`. The spec crate keeps
+    /// this as provider-id keyed data and does not own provider runtime extension traits.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
+    /// ```rust
+    /// use serde::Deserialize;
+    /// use serde_json::json;
+    /// use siumai_spec::types::{ChatResponse, MessageContent, ProviderMetadataMap};
     ///
-    /// if let Some(meta) = response.anthropic_metadata() {
-    ///     if let Some(cache_tokens) = meta.cache_read_input_tokens {
-    ///         println!("Cache hit! Saved {} tokens", cache_tokens);
-    ///     }
+    /// #[derive(Debug, Deserialize, PartialEq)]
+    /// struct CacheMetadata {
+    ///     cache_read_input_tokens: Option<u64>,
     /// }
+    ///
+    /// let mut response = ChatResponse::new(MessageContent::Text("cached".to_string()));
+    /// response.provider_metadata = Some(ProviderMetadataMap::from([(
+    ///     "anthropic".to_string(),
+    ///     json!({ "cache_read_input_tokens": 128 }),
+    /// )]));
+    ///
+    /// let metadata: CacheMetadata = response.provider_metadata_as("anthropic").unwrap();
+    /// assert_eq!(metadata.cache_read_input_tokens, Some(128));
     /// ```
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_metadata: Option<ProviderMetadataMap>,
@@ -291,22 +293,19 @@ impl ChatResponse {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// use siumai::types::{ChatResponse, ChatMessage};
-    /// use siumai::prelude::*;
+    /// ```rust
+    /// use siumai_spec::types::{ChatMessage, ChatResponse, MessageContent};
     ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Siumai::builder().openai().build().await?;
     /// let mut messages = vec![ChatMessage::user("What's the weather?").build()];
-    ///
-    /// let (response, _) = client.chat().messages(&messages).execute().await?;
+    /// let response = ChatResponse::new(MessageContent::Text(
+    ///     "It is sunny and 22 C.".to_string(),
+    /// ));
     ///
     /// // Add response messages to conversation history
     /// messages.extend(response.to_messages());
     ///
     /// // Now messages contains both user message and assistant response
-    /// # Ok(())
-    /// # }
+    /// assert_eq!(messages.len(), 2);
     /// ```
     pub fn to_messages(&self) -> Vec<ChatMessage> {
         vec![ChatMessage {
@@ -364,32 +363,32 @@ impl ChatResponse {
             .unwrap_or_default()
     }
 
-    /// Get the response ID for use in multi-turn conversations (OpenAI Responses API)
+    /// Get the response ID for use in multi-turn conversations.
     ///
-    /// This is particularly useful for OpenAI's Responses API, where you can chain
-    /// conversations by passing the previous response ID to the next request.
+    /// This is useful for providers that expose response identifiers which can be passed back as
+    /// provider-specific request data in a later turn.
     ///
     /// # Example
-    /// ```rust,no_run
-    /// # use siumai::prelude::*;
-    /// # use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = Siumai::builder().openai().api_key("key").model("gpt-4o-mini").build().await?;
-    /// // Turn 1
-    /// let response1 = client.chat(vec![user!("What is Rust?")]).await?;
-    /// let response_id = response1.response_id().expect("Response ID not found");
+    /// ```rust
+    /// use serde_json::json;
+    /// use siumai_spec::types::{ChatMessage, ChatRequest, ChatResponse, MessageContent};
     ///
-    /// // Turn 2 - automatically loads context from Turn 1
-    /// let request2 = ChatRequest::new(vec![user!("Can you give me a code example?")])
-    ///     .with_openai_options(
-    ///         OpenAiOptions::new().with_responses_api(
-    ///             ResponsesApiConfig::new()
-    ///                 .with_previous_response(response_id.to_string())
-    ///         )
-    ///     );
-    /// let response2 = client.chat_request(request2).await?;
-    /// # Ok(())
-    /// # }
+    /// let mut response = ChatResponse::new(MessageContent::Text(
+    ///     "Rust is a systems programming language.".to_string(),
+    /// ));
+    /// response.id = Some("resp_123".to_string());
+    ///
+    /// let response_id = response.response_id().expect("response id");
+    ///
+    /// let request = ChatRequest::new(vec![
+    ///     ChatMessage::user("Can you give me a code example?").build(),
+    /// ])
+    /// .with_provider_option("openai", json!({ "previous_response_id": response_id }));
+    ///
+    /// assert_eq!(
+    ///     request.provider_option("openai").and_then(|value| value.get("previous_response_id")),
+    ///     Some(&json!("resp_123"))
+    /// );
     /// ```
     pub fn response_id(&self) -> Option<&str> {
         self.id.as_deref()
@@ -398,16 +397,20 @@ impl ChatResponse {
     /// Get provider-specific metadata value by provider and key
     ///
     /// # Example
-    /// ```rust,no_run
-    /// # use siumai::prelude::*;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = Siumai::builder().openai().api_key("key").model("gpt-4o-mini").build().await?;
-    /// let response = client.chat(vec![user!("Hello")]).await?;
-    /// if let Some(value) = response.get_metadata("openai", "response_id") {
-    ///     println!("OpenAI Response ID: {:?}", value);
-    /// }
-    /// # Ok(())
-    /// # }
+    /// ```rust
+    /// use serde_json::json;
+    /// use siumai_spec::types::{ChatResponse, MessageContent, ProviderMetadataMap};
+    ///
+    /// let mut response = ChatResponse::new(MessageContent::Text("Hello".to_string()));
+    /// response.provider_metadata = Some(ProviderMetadataMap::from([(
+    ///     "openai".to_string(),
+    ///     json!({ "response_id": "resp_123" }),
+    /// )]));
+    ///
+    /// assert_eq!(
+    ///     response.get_metadata("openai", "response_id"),
+    ///     Some(&json!("resp_123"))
+    /// );
     /// ```
     pub fn get_metadata(&self, provider: &str, key: &str) -> Option<&serde_json::Value> {
         self.provider_metadata.as_ref()?.get(provider)?.get(key)

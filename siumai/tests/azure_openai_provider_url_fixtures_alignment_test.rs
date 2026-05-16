@@ -116,7 +116,7 @@ fn run_case(root: &Path) {
     let got_url = match op.operation.as_str() {
         "chat" => {
             let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
-            spec.chat_url(req.stream, &req, &ctx)
+            spec.try_chat_url(req.stream, &req, &ctx).unwrap()
         }
         "embedding" => {
             let fx: EmbeddingRequestFixture = read_json(root.join("request.json"));
@@ -125,7 +125,7 @@ fn run_case(root: &Path) {
                 model: Some(fx.model),
                 ..Default::default()
             };
-            spec.embedding_url(&req, &ctx)
+            spec.try_embedding_url(&req, &ctx).unwrap()
         }
         "image_generation" => {
             let fx: ImageGenerationRequestFixture = read_json(root.join("request.json"));
@@ -135,7 +135,7 @@ fn run_case(root: &Path) {
                 count: fx.count.unwrap_or(1),
                 ..Default::default()
             };
-            spec.image_url(&req, &ctx)
+            spec.try_image_url(&req, &ctx).unwrap()
         }
         "audio_tts" => {
             let tx = spec.choose_audio_transformer(&ctx).transformer;

@@ -1,5 +1,5 @@
 #![cfg(feature = "google")]
-use siumai::Provider;
+use siumai::compat::Provider;
 
 #[tokio::test]
 async fn gemini_builder_sets_common_params() {

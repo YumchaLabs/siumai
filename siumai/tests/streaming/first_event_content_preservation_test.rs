@@ -73,7 +73,8 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::prelude::unified::{ChatStreamEvent, JsonEventConverter, SseEventConverter};
+use siumai::experimental::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::prelude::unified::ChatStreamEvent;
 
 #[tokio::test]
 async fn test_openai_first_event_with_content_preservation() {

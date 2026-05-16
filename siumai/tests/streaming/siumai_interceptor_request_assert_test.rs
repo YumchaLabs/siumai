@@ -13,10 +13,10 @@
 use std::sync::{Arc, Mutex};
 
 use reqwest::header::{ACCEPT, ACCEPT_ENCODING, HeaderMap};
+use siumai::compat::SiumaiBuilder;
 use siumai::experimental::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 use siumai::prelude::ChatCapability;
 use siumai::prelude::unified::{ChatMessage, LlmError};
-use siumai::provider::SiumaiBuilder;
 
 #[derive(Clone, Debug)]
 struct Captured {

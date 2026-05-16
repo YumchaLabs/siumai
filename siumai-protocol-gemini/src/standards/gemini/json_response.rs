@@ -318,6 +318,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gemini_json_response_encoder_source_does_not_read_request_provider_options() {
+        let source = include_str!("json_response.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+
+        for forbidden in ["provider_options", ".provider_options", "providerOptions"] {
+            assert!(
+                !production_source.contains(forbidden),
+                "Gemini JSON response encoder must not read request-side provider options fragment `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
     fn gemini_encoder_serializes_normalized_usage_and_preserves_raw_metadata() {
         let mut response = ChatResponse::new(MessageContent::Text("hello".to_string()));
         response.model = Some("gemini-2.5-pro".to_string());

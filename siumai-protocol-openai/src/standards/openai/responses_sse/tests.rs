@@ -74,6 +74,43 @@ fn parse_test_timestamp(timestamp: &str) -> chrono::DateTime<chrono::Utc> {
 }
 
 #[test]
+fn responses_sse_converter_sources_do_not_read_request_provider_options() {
+    let converter_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/standards/openai/responses_sse/converter");
+    let mut checked_files = 0usize;
+
+    for entry in std::fs::read_dir(&converter_dir).expect("Responses SSE converter dir") {
+        let entry = entry.expect("Responses SSE converter entry");
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+
+        checked_files += 1;
+        let source = std::fs::read_to_string(&path).expect("Responses SSE converter source");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(&source);
+
+        for forbidden in [
+            "provider_options",
+            ".provider_options",
+            "providerOptions",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "{} must not read request-side provider options fragment `{forbidden}`",
+                path.display()
+            );
+        }
+    }
+
+    assert!(
+        checked_files > 0,
+        "Responses SSE converter source guard should scan at least one file"
+    );
+}
+
+#[test]
 fn test_responses_event_converter_content_delta() {
     let conv = OpenAiResponsesEventConverter::new();
     let event = eventsource_stream::Event {
@@ -2956,122 +2993,6 @@ fn responses_stream_decoder_maps_hosted_dynamic_output_items() {
         apply_patch_result.result["output"],
         serde_json::json!("conflict")
     );
-}
-
-#[test]
-fn responses_stream_bridge_maps_gemini_tool_events_to_openai_output_items() {
-    let conv = OpenAiResponsesEventConverter::new();
-    let mut bridge = crate::streaming::OpenAiResponsesStreamPartsBridge::new();
-
-    let tool_call = crate::streaming::ChatStreamEvent::Custom {
-        event_type: "gemini:tool".to_string(),
-        data: serde_json::json!({
-            "type": "tool-call",
-            "toolCallId": "call_1",
-            "toolName": "code_execution",
-            "providerExecuted": true,
-            "input": { "language": "PYTHON", "code": "print(1)" }
-        }),
-    };
-
-    let tool_result = crate::streaming::ChatStreamEvent::Custom {
-        event_type: "gemini:tool".to_string(),
-        data: serde_json::json!({
-            "type": "tool-result",
-            "toolCallId": "call_1",
-            "toolName": "code_execution",
-            "providerExecuted": true,
-            "result": { "outcome": "OUTCOME_OK", "output": "1" }
-        }),
-    };
-
-    let mut frames: Vec<(String, serde_json::Value)> = Vec::new();
-    for ev in bridge.bridge_event(tool_call) {
-        let bytes = conv
-            .serialize_event(&ev)
-            .expect("serialize bridged tool-call");
-        frames.extend(parse_sse_frames(&bytes));
-    }
-    for ev in bridge.bridge_event(tool_result) {
-        let bytes = conv
-            .serialize_event(&ev)
-            .expect("serialize bridged tool-result");
-        frames.extend(parse_sse_frames(&bytes));
-    }
-
-    let added = frames
-        .iter()
-        .find(|(ev, _)| ev == "response.output_item.added");
-    let done = frames
-        .iter()
-        .find(|(ev, _)| ev == "response.output_item.done");
-    assert!(
-        added.is_some(),
-        "tool-call should produce output_item.added"
-    );
-    assert!(
-        done.is_some(),
-        "tool-result should produce output_item.done"
-    );
-
-    let added_output_index = added
-        .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
-        .unwrap_or_default();
-    let done_output_index = done
-        .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
-        .unwrap_or_default();
-
-    assert_eq!(added_output_index, done_output_index);
-}
-
-#[test]
-fn responses_stream_bridge_synthesizes_tool_call_when_only_result_is_available() {
-    let conv = OpenAiResponsesEventConverter::new();
-    let mut bridge = crate::streaming::OpenAiResponsesStreamPartsBridge::new();
-
-    let tool_result_only = crate::streaming::ChatStreamEvent::Custom {
-        event_type: "anthropic:tool-result".to_string(),
-        data: serde_json::json!({
-            "type": "tool-result",
-            "toolCallId": "call_2",
-            "toolName": "web_search",
-            "providerExecuted": true,
-            "isError": false,
-            "result": [{ "type": "web_search_result", "url": "https://example.com", "title": "Example" }]
-        }),
-    };
-
-    let mut frames: Vec<(String, serde_json::Value)> = Vec::new();
-    for ev in bridge.bridge_event(tool_result_only) {
-        let bytes = conv
-            .serialize_event(&ev)
-            .expect("serialize bridged tool-result-only");
-        frames.extend(parse_sse_frames(&bytes));
-    }
-
-    let added = frames
-        .iter()
-        .find(|(ev, _)| ev == "response.output_item.added");
-    let done = frames
-        .iter()
-        .find(|(ev, _)| ev == "response.output_item.done");
-    assert!(
-        added.is_some(),
-        "bridged tool-result should synthesize output_item.added"
-    );
-    assert!(
-        done.is_some(),
-        "bridged tool-result should produce output_item.done"
-    );
-
-    let added_output_index = added
-        .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
-        .unwrap_or_default();
-    let done_output_index = done
-        .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
-        .unwrap_or_default();
-
-    assert_eq!(added_output_index, done_output_index);
 }
 
 #[test]

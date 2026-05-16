@@ -3,15 +3,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde_json::json;
-use siumai_core::bridge::{
+use crate::{
     BridgeCustomization, BridgeMode, BridgeOptions, BridgePrimitiveContext,
     BridgePrimitiveRemapper, BridgeTarget, ResponseBridgeContext, ResponseBridgeHook,
 };
 #[cfg(feature = "anthropic")]
-use siumai_core::bridge::{
-    BridgeLossAction, BridgeLossPolicy, RequestBridgeContext, StreamBridgeContext,
-};
+use crate::{BridgeLossAction, BridgeLossPolicy, RequestBridgeContext, StreamBridgeContext};
+use serde_json::json;
 use siumai_core::encoding::JsonEncodeOptions;
 use siumai_core::types::{
     ChatResponse, ContentPart, FinishReason, MessageContent, ProviderOptionsMap,
@@ -31,6 +29,68 @@ use super::{
     bridge_chat_response_to_openai_responses_json_value,
 };
 
+#[test]
+fn response_and_stream_bridge_sources_do_not_emit_request_provider_options() {
+    for (path, source) in [
+        (
+            "src/response/inspect.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/response/inspect.rs"
+            )),
+        ),
+        (
+            "src/response/serialize.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/response/serialize.rs"
+            )),
+        ),
+        (
+            "src/response/target_caps.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/response/target_caps.rs"
+            )),
+        ),
+        (
+            "src/stream/inspect.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/stream/inspect.rs"
+            )),
+        ),
+        (
+            "src/stream/openai_responses_parts_bridge.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/stream/openai_responses_parts_bridge.rs"
+            )),
+        ),
+        (
+            "src/stream/profile.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/stream/profile.rs"
+            )),
+        ),
+        (
+            "src/stream/serialize.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/stream/serialize.rs"
+            )),
+        ),
+    ] {
+        for forbidden in ["provider_options", "providerOptions"] {
+            assert!(
+                !source.contains(forbidden),
+                "{path} is response/stream-side bridge code and must not emit request-side {forbidden}"
+            );
+        }
+    }
+}
+
 struct PrefixRemapper;
 
 impl BridgePrimitiveRemapper for PrefixRemapper {
@@ -47,7 +107,7 @@ impl BridgeLossPolicy for ContinueLossyPolicy {
     fn request_action(
         &self,
         _ctx: &RequestBridgeContext,
-        _report: &siumai_core::bridge::BridgeReport,
+        _report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         BridgeLossAction::Continue
     }
@@ -55,7 +115,7 @@ impl BridgeLossPolicy for ContinueLossyPolicy {
     fn response_action(
         &self,
         _ctx: &ResponseBridgeContext,
-        _report: &siumai_core::bridge::BridgeReport,
+        _report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         BridgeLossAction::Continue
     }
@@ -63,7 +123,7 @@ impl BridgeLossPolicy for ContinueLossyPolicy {
     fn stream_action(
         &self,
         _ctx: &StreamBridgeContext,
-        _report: &siumai_core::bridge::BridgeReport,
+        _report: &crate::BridgeReport,
     ) -> BridgeLossAction {
         BridgeLossAction::Continue
     }
@@ -76,7 +136,7 @@ impl ResponseBridgeHook for RedactResponseHook {
         &self,
         ctx: &ResponseBridgeContext,
         response: &mut ChatResponse,
-        report: &mut siumai_core::bridge::BridgeReport,
+        report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         assert_eq!(ctx.route_label.as_deref(), Some("tests.response.hook"));
         response.content = MessageContent::Text("[hooked]".to_string());
@@ -95,7 +155,7 @@ impl BridgeCustomization for CompositeResponseCustomization {
         &self,
         ctx: &ResponseBridgeContext,
         response: &mut ChatResponse,
-        report: &mut siumai_core::bridge::BridgeReport,
+        report: &mut crate::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
         assert_eq!(ctx.source, Some(BridgeTarget::AnthropicMessages));
         assert_eq!(ctx.target, BridgeTarget::OpenAiChatCompletions);

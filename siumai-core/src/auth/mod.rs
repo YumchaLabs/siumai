@@ -1,5 +1,5 @@
 //! Authentication helpers and token providers.
-//! This module defines a minimal trait to supply Bearer tokens (e.g., for Vertex AI).
+//! This module defines provider-agnostic contracts for supplying Bearer tokens.
 
 use crate::error::LlmError;
 use async_trait::async_trait;
@@ -37,11 +37,3 @@ impl TokenProvider for StaticTokenProvider {
         Ok(self.token.clone())
     }
 }
-
-#[cfg(feature = "gcp")]
-pub mod adc;
-#[cfg(feature = "gcp")]
-pub mod service_account;
-
-// Vertex AI utilities
-pub mod vertex;

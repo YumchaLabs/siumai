@@ -103,14 +103,22 @@ impl ProviderSpec for BedrockChatSpec {
         )
     }
 
-    fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        stream: bool,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let model = urlencoding::encode(&req.common_params.model);
         let suffix = if stream {
             "converse-stream"
         } else {
             "converse"
         };
-        crate::utils::url::join_url(&ctx.base_url, &format!("/model/{model}/{suffix}"))
+        Ok(crate::utils::url::join_url(
+            &ctx.base_url,
+            &format!("/model/{model}/{suffix}"),
+        ))
     }
 
     fn choose_chat_transformers(
@@ -2318,6 +2326,58 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    fn production_source_between(start_marker: &str, end_marker: &str) -> &'static str {
+        let source = include_str!("chat.rs");
+        let (_, after_start) = source
+            .split_once(start_marker)
+            .expect("source start marker should exist");
+        let (section, _) = after_start
+            .split_once(end_marker)
+            .expect("source end marker should exist");
+        section
+    }
+
+    #[test]
+    fn request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
+        let request_source = production_source_between(
+            "impl BedrockChatRequestTransformer",
+            "impl RequestTransformer",
+        );
+
+        assert!(
+            !request_source.contains("provider_metadata"),
+            "Bedrock request transformer must not read legacy ContentPart::provider_metadata"
+        );
+        assert!(
+            !request_source.contains("providerMetadata"),
+            "Bedrock request transformer must not read legacy providerMetadata JSON fields"
+        );
+    }
+
+    #[test]
+    fn response_and_stream_source_do_not_emit_request_provider_options() {
+        let response_stream_source =
+            production_source_between("struct BedrockChatResponseTransformer", "#[cfg(test)]");
+
+        assert!(
+            !response_stream_source.contains("providerOptions"),
+            "Bedrock response/stream code must not emit request-side providerOptions"
+        );
+
+        let unexpected_provider_options_writes = response_stream_source
+            .lines()
+            .filter(|line| line.contains("provider_options"))
+            .filter(|line| {
+                !line.contains("provider_options: crate::types::ProviderOptionsMap::default()")
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            unexpected_provider_options_writes.is_empty(),
+            "Bedrock response/stream code may only initialize ContentPart::provider_options with the default map; unexpected lines: {unexpected_provider_options_writes:#?}"
+        );
     }
 
     #[test]

@@ -93,7 +93,7 @@ impl AnthropicConfig {
             base_url: "https://api.anthropic.com".to_string(),
             common_params: CommonParams::default(),
             anthropic_params: AnthropicParams::default(),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),

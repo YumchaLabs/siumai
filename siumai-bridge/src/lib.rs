@@ -15,6 +15,7 @@
 //! - response inspection / serialization
 //! - stream inspection / serialization
 
+mod contracts;
 mod customize;
 mod lifecycle;
 pub mod planner;
@@ -24,6 +25,7 @@ pub mod stream;
 mod target_dispatch;
 mod wrapper_macros;
 
+pub use contracts::*;
 pub use customize::{ProviderToolRewriteCustomization, ProviderToolRewriteRule};
 pub use planner::{RequestBridgePath, RequestBridgePlan, plan_chat_request_bridge};
 pub use request::{
@@ -35,7 +37,6 @@ pub use response::{
     bridge_chat_response_to_json_value, bridge_chat_response_to_json_value_with_options,
     inspect_chat_response_bridge,
 };
-pub use siumai_core::bridge::*;
 pub use stream::{
     bridge_chat_stream_to_bytes, bridge_chat_stream_to_bytes_with_options,
     inspect_chat_stream_bridge, transform_chat_stream_with_bridge_options,

@@ -284,7 +284,12 @@ impl ProviderSpec for AnthropicChatSpec {
         }
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         let endpoint = self
             .adapter
             .as_ref()
@@ -301,7 +306,7 @@ impl ProviderSpec for AnthropicChatSpec {
             endpoint
         };
 
-        format!("{base}{endpoint}")
+        Ok(format!("{base}{endpoint}"))
     }
 
     fn chat_before_send(
@@ -442,6 +447,11 @@ impl StreamChunkTransformer for AnthropicChatStreamTransformer {
         })
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        use crate::streaming::SseEventConverter;
+        self.inner.is_stream_end_event(event)
+    }
+
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         use crate::streaming::SseEventConverter;
         self.inner.handle_stream_end()
@@ -455,6 +465,76 @@ mod tests {
     use crate::types::{ChatMessage, ChatRequest, ContentPart};
     use eventsource_stream::Event;
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    fn anthropic_citation_document_part(
+        url: impl Into<String>,
+        media_type: impl Into<String>,
+        title: impl Into<String>,
+    ) -> ContentPart {
+        ContentPart::file_url(url, media_type).with_provider_option(
+            "anthropic",
+            serde_json::json!({
+                "citations": { "enabled": true },
+                "title": title.into()
+            }),
+        )
+    }
+
+    #[test]
+    fn chat_wrapper_keeps_request_and_response_provider_maps_directional() {
+        let source = include_str!("chat.rs");
+        let request_context = source_section(
+            source,
+            "fn extract_citation_documents(",
+            "        let citation_documents = extract_citation_documents(req);",
+        );
+        assert!(request_context.contains("provider_options"));
+        assert!(
+            !request_context.contains("provider_metadata"),
+            "Anthropic chat request-side citation context must not read legacy provider_metadata"
+        );
+        assert!(
+            !request_context.contains("providerMetadata"),
+            "Anthropic chat request-side citation context must not read legacy providerMetadata"
+        );
+
+        let response_transformer = source_section(
+            source,
+            "impl ResponseTransformer for AnthropicChatResponseTransformer",
+            "#[derive(Clone)]\nstruct AnthropicChatStreamTransformer",
+        );
+        assert!(
+            !response_transformer.contains("provider_options"),
+            "Anthropic chat response transformer wrapper must not read request provider_options"
+        );
+        assert!(
+            !response_transformer.contains("providerOptions"),
+            "Anthropic chat response transformer wrapper must not read request providerOptions"
+        );
+
+        let stream_transformer = source_section(
+            source,
+            "impl StreamChunkTransformer for AnthropicChatStreamTransformer",
+            "#[cfg(test)]",
+        );
+        assert!(
+            !stream_transformer.contains("provider_options"),
+            "Anthropic chat stream transformer wrapper must not read request provider_options"
+        );
+        assert!(
+            !stream_transformer.contains("providerOptions"),
+            "Anthropic chat stream transformer wrapper must not read request providerOptions"
+        );
+    }
+
     #[test]
     fn non_stream_citation_documents_use_document_metadata_title_override() {
         let spec = AnthropicChatStandard::new().create_spec("anthropic");
@@ -466,12 +546,11 @@ mod tests {
         );
 
         let msg = ChatMessage::user("hi")
-            .with_content_parts(vec![ContentPart::file_url(
+            .with_content_parts(vec![anthropic_citation_document_part(
                 "https://example.com/a.pdf",
                 "application/pdf",
+                "My PDF",
             )])
-            .anthropic_document_citations_for_part(1, true)
-            .anthropic_document_metadata_for_part(1, Some("My PDF".to_string()), None)
             .build();
 
         let req = ChatRequest::builder().message(msg).stream(false).build();
@@ -531,12 +610,11 @@ mod tests {
         );
 
         let msg = ChatMessage::user("hi")
-            .with_content_parts(vec![ContentPart::file_url(
+            .with_content_parts(vec![anthropic_citation_document_part(
                 "https://example.com/a.pdf",
                 "application/pdf",
+                "My PDF",
             )])
-            .anthropic_document_citations_for_part(1, true)
-            .anthropic_document_metadata_for_part(1, Some("My PDF".to_string()), None)
             .build();
 
         let req = ChatRequest::builder().message(msg).stream(true).build();

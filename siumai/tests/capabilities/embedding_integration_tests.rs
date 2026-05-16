@@ -187,7 +187,7 @@ mod tests {
         }
 
         let config = OllamaParams::default();
-        let http_config = HttpConfig::default();
+        let http_config = HttpConfig::empty();
         let http_client = reqwest::Client::new();
         let embeddings = OllamaEmbeddings::new(
             "http://localhost:11434".to_string(),

@@ -54,8 +54,13 @@ impl ProviderSpec for MockProviderSpec {
         Ok(HeaderMap::new())
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
-        format!("{}/mock/chat", ctx.base_url)
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/mock/chat", ctx.base_url))
     }
 
     fn choose_chat_transformers(

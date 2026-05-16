@@ -12,9 +12,9 @@
 
 use std::collections::BTreeSet;
 
+use crate::{BridgeReport, BridgeWarning, BridgeWarningKind};
 use serde_json::{Map, Value, json};
 use siumai_core::LlmError;
-use siumai_core::bridge::{BridgeReport, BridgeWarning, BridgeWarningKind};
 use siumai_core::execution::transformers::request::RequestTransformer;
 use siumai_core::types::{
     ChatMessage, ChatRequest, ContentPart, MessageContent, MessageRole, Tool, ToolChoice,

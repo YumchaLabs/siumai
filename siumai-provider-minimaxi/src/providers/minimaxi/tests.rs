@@ -93,7 +93,7 @@ mod minimaxi_tests {
             extras: Default::default(),
         };
 
-        let image_url = spec.image_url(&request, &ctx_anthropic);
+        let image_url = spec.try_image_url(&request, &ctx_anthropic).unwrap();
         assert_eq!(image_url, "https://proxy.example.com/v1/image_generation");
 
         // Test with OpenAI base URL
@@ -107,7 +107,7 @@ mod minimaxi_tests {
             extras: Default::default(),
         };
 
-        let image_url = spec.image_url(&request, &ctx_openai);
+        let image_url = spec.try_image_url(&request, &ctx_openai).unwrap();
         assert_eq!(image_url, "https://api.minimaxi.com/v1/image_generation");
     }
 

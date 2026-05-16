@@ -224,6 +224,15 @@ mod files_tests {
     use super::*;
     use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
     fn sample_config() -> GeminiConfig {
         use secrecy::SecretString;
         GeminiConfig {
@@ -234,7 +243,7 @@ mod files_tests {
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
-            http_config: crate::types::HttpConfig::default(),
+            http_config: crate::types::HttpConfig::empty(),
             token_provider: None,
             http_transport: None,
             generate_id: None,
@@ -348,5 +357,35 @@ mod files_tests {
         let lr = tx.transform_list_response(&list_json).unwrap();
         assert_eq!(lr.files.len(), 1);
         assert!(!lr.has_more);
+    }
+
+    #[test]
+    fn gemini_files_request_and_response_paths_keep_maps_directional() {
+        let source = include_str!("files.rs");
+        let request_section =
+            source_section(source, "fn upload_provider_options", "fn state_wire_value");
+        let response_section = source_section(
+            source,
+            "fn convert_file",
+            "impl FilesTransformer for GeminiFilesTransformer",
+        );
+
+        for disallowed in ["provider_metadata", "FileObject", "transform_file_object"] {
+            assert!(
+                !request_section.contains(disallowed),
+                "Gemini file upload request helpers must stay request-only"
+            );
+        }
+
+        for disallowed in [
+            "provider_options",
+            "FileUploadRequest",
+            "upload_provider_options",
+        ] {
+            assert!(
+                !response_section.contains(disallowed),
+                "Gemini file response helpers must stay response-only"
+            );
+        }
     }
 }

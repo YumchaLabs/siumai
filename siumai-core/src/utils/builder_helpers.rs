@@ -37,8 +37,8 @@ pub fn get_api_key_with_env(
 /// - `api_key_env_aliases` (in order)
 /// - default environment variable `{PROVIDER_ID}_API_KEY`
 ///
-/// This is primarily used by "OpenAI-compatible" vendor presets where a provider id
-/// may not map cleanly to a POSIX env var name (e.g. leading digits) or when a
+/// This is primarily used by vendor presets where a provider id may not map cleanly
+/// to a POSIX env var name (e.g. leading digits) or when a
 /// provider has a widely-adopted env var name that differs from our default.
 pub fn get_api_key_with_envs(
     api_key: Option<String>,

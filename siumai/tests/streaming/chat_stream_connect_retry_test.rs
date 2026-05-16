@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use siumai::experimental::client::LlmClient;
 use siumai::prelude::*;
+use siumai::retry_api::RetryOptions;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Debug)]
@@ -80,7 +81,7 @@ impl LlmClient for ConnectRetryProvider {
 async fn chat_stream_retries_connect_then_succeeds() {
     // Fail once, then succeed on the second attempt
     let provider = ConnectRetryProvider::new(1);
-    let client = siumai::provider::Siumai::new(std::sync::Arc::new(provider))
+    let client = siumai::compat::Siumai::new(std::sync::Arc::new(provider))
         .with_retry_options(Some(RetryOptions::policy_default().with_max_attempts(3)));
 
     let stream = client

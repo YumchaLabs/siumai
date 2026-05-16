@@ -1,7 +1,7 @@
-//! Default Configuration Values
+//! Shared Default Configuration Values
 //!
-//! This module centralizes all default values used throughout the Siumai SDK.
-//! Having defaults in one place makes them easier to maintain, document, and adjust.
+//! This module centralizes provider-agnostic default values used throughout the Siumai SDK.
+//! Having shared defaults in one place makes them easier to maintain, document, and adjust.
 
 use std::time::Duration;
 
@@ -23,6 +23,43 @@ pub mod http {
 
     /// Default User-Agent string for HTTP requests
     pub const USER_AGENT: &str = concat!("siumai/", env!("CARGO_PKG_VERSION"));
+
+    /// Environment variable that controls the runtime default for disabling streaming compression.
+    pub const STREAM_DISABLE_COMPRESSION_ENV: &str = "SIUMAI_STREAM_DISABLE_COMPRESSION";
+
+    /// Resolve the runtime default for disabling streaming compression.
+    ///
+    /// The passive `siumai-spec::HttpConfig` type deliberately does not read the process
+    /// environment. Runtime crates call this helper when constructing provider/client defaults.
+    pub fn stream_disable_compression_default() -> bool {
+        stream_disable_compression_default_from_env_value(
+            std::env::var(STREAM_DISABLE_COMPRESSION_ENV)
+                .ok()
+                .as_deref(),
+        )
+    }
+
+    pub(crate) fn stream_disable_compression_default_from_env_value(value: Option<&str>) -> bool {
+        match value {
+            Some(value) => {
+                let value = value.trim().to_ascii_lowercase();
+                !(value == "false" || value == "0" || value == "off" || value == "no")
+            }
+            None => true,
+        }
+    }
+
+    /// Build runtime HTTP defaults for provider/client construction.
+    pub fn config_default() -> crate::types::HttpConfig {
+        crate::types::HttpConfig {
+            timeout: Some(REQUEST_TIMEOUT),
+            connect_timeout: Some(CONNECT_TIMEOUT),
+            headers: Default::default(),
+            proxy: None,
+            user_agent: Some(USER_AGENT.to_string()),
+            stream_disable_compression: stream_disable_compression_default(),
+        }
+    }
 
     /// Default maximum number of idle connections per host
     pub const MAX_IDLE_PER_HOST: usize = 10;
@@ -90,7 +127,7 @@ pub mod model_timeouts {
     /// These models may take 8-20 seconds to respond
     pub const LARGE_MODELS: Duration = timeouts::EXTENDED;
 
-    /// Timeout for reasoning models (DeepSeek R1, QwQ, etc.)
+    /// Timeout for long-chain reasoning models
     ///
     /// These models perform complex reasoning and may take 10-30 seconds
     pub const REASONING_MODELS: Duration = timeouts::EXTENDED;
@@ -187,67 +224,6 @@ pub mod logging {
 
     /// Default sampling rate for tracing (0.0 to 1.0)
     pub const TRACING_SAMPLING_RATE: f64 = 1.0;
-}
-
-/// Provider-specific defaults
-pub mod providers {
-    use super::*;
-
-    /// OpenAI-specific defaults
-    pub mod openai {
-        use super::*;
-
-        /// Default base URL for OpenAI API
-        pub const BASE_URL: &str = "https://api.openai.com/v1";
-
-        /// Default model for OpenAI
-        pub const DEFAULT_MODEL: &str = "gpt-4o-mini";
-
-        /// Default timeout for OpenAI requests
-        pub const TIMEOUT: Duration = timeouts::STANDARD;
-    }
-
-    /// Anthropic-specific defaults
-    pub mod anthropic {
-        use super::*;
-
-        /// Default base URL for Anthropic API
-        pub const BASE_URL: &str = "https://api.anthropic.com";
-
-        /// Default model for Anthropic
-        pub const DEFAULT_MODEL: &str = "claude-3-5-haiku-20241022";
-
-        /// Default timeout for Anthropic requests
-        pub const TIMEOUT: Duration = timeouts::STANDARD;
-    }
-
-    /// SiliconFlow-specific defaults
-    pub mod siliconflow {
-        use super::*;
-
-        /// Default base URL for SiliconFlow API
-        pub const BASE_URL: &str = "https://api.siliconflow.cn/v1";
-
-        /// Default model for SiliconFlow
-        pub const DEFAULT_MODEL: &str = "deepseek-ai/DeepSeek-V3.1";
-
-        /// Default timeout for SiliconFlow requests (longer due to large models)
-        pub const TIMEOUT: Duration = timeouts::EXTENDED;
-    }
-
-    /// Groq-specific defaults
-    pub mod groq {
-        use super::*;
-
-        /// Default base URL for Groq API
-        pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
-
-        /// Default model for Groq
-        pub const DEFAULT_MODEL: &str = "llama-3.3-70b-versatile";
-
-        /// Default timeout for Groq requests (fast inference)
-        pub const TIMEOUT: Duration = timeouts::FAST;
-    }
 }
 
 /// Model parameter defaults
@@ -410,6 +386,30 @@ mod tests {
             http::USER_AGENT,
             concat!("siumai/", env!("CARGO_PKG_VERSION"))
         );
+        assert!(http::stream_disable_compression_default_from_env_value(
+            None
+        ));
+        for false_value in ["false", "0", "off", "no", " FALSE "] {
+            assert!(!http::stream_disable_compression_default_from_env_value(
+                Some(false_value)
+            ));
+        }
+        for true_value in ["true", "1", "on", "yes", "anything-else"] {
+            assert!(http::stream_disable_compression_default_from_env_value(
+                Some(true_value)
+            ));
+        }
+    }
+
+    #[test]
+    fn test_http_config_default_is_runtime_owned() {
+        let config = http::config_default();
+
+        assert_eq!(config.timeout, Some(http::REQUEST_TIMEOUT));
+        assert_eq!(config.connect_timeout, Some(http::CONNECT_TIMEOUT));
+        assert_eq!(config.user_agent, Some(http::USER_AGENT.to_string()));
+        assert!(config.headers.is_empty());
+        assert!(config.proxy.is_none());
     }
 
     #[test]

@@ -7,9 +7,9 @@
 //!
 //! Tokens are cached in-memory and refreshed before expiration when possible.
 
+use crate::LlmError;
 use crate::auth::TokenProvider as TokenProviderTrait;
 use crate::auth::service_account::{ServiceAccountCredentials, ServiceAccountTokenProvider};
-use crate::error::LlmError;
 use reqwest::Client;
 use serde::Deserialize;
 use std::fs;

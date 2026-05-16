@@ -4,7 +4,7 @@ pub use siumai_provider_groq::providers::groq::{
 
 /// Create the Groq provider builder.
 pub fn groq() -> GroqBuilder {
-    crate::Provider::groq()
+    crate::compat::Provider::groq()
 }
 
 /// Create the Groq provider builder.

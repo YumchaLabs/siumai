@@ -123,7 +123,7 @@ pub trait HttpTransport: Send + Sync {
     /// Execute a non-streaming GET request.
     ///
     /// This is used by provider-owned resource helpers such as file metadata
-    /// fetches, binary downloads, and Anthropic skills version lookups.
+    /// fetches, binary downloads, and skill version lookups.
     async fn execute_get(
         &self,
         _request: HttpTransportGetRequest,
@@ -150,7 +150,7 @@ pub trait HttpTransport: Send + Sync {
     /// Execute a streaming multipart POST request.
     ///
     /// Providers use this for multipart SSE or progress endpoints such as
-    /// OpenAI transcription streaming. The request body is provided as fully
+    /// streaming transcription. The request body is provided as fully
     /// materialized multipart bytes with final content headers populated.
     async fn execute_multipart_stream(
         &self,

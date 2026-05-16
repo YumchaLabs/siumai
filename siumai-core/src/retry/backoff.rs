@@ -6,7 +6,7 @@
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use std::time::Duration;
 
-use crate::error::LlmError;
+use crate::error::{LlmError, LlmErrorExt};
 
 /// Professional retry executor using backoff crate
 #[derive(Debug, Clone)]
@@ -38,7 +38,7 @@ impl BackoffRetryExecutor {
             match operation().await {
                 Ok(result) => Ok(result),
                 Err(error) => {
-                    if Self::is_retryable(&error) {
+                    if error.is_retryable() {
                         Err(backoff::Error::Transient {
                             err: error,
                             retry_after: None,
@@ -50,21 +50,6 @@ impl BackoffRetryExecutor {
             }
         })
         .await
-    }
-
-    /// Check if an error is retryable
-    fn is_retryable(error: &LlmError) -> bool {
-        match error {
-            LlmError::ApiError { code, .. } => {
-                // Retry on rate limits and server errors
-                matches!(*code, 429 | 500..=599)
-            }
-            LlmError::RateLimitError(_) => true,
-            LlmError::TimeoutError(_) => true,
-            LlmError::ConnectionError(_) => true,
-            LlmError::HttpError(_) => true,
-            _ => false,
-        }
     }
 
     /// Recommended default backoff configuration (provider-agnostic).

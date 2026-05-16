@@ -39,7 +39,9 @@ Status legend:
 - [x] Audit `siumai-core/src/utils/*` for provider-specific helpers and move them to
   `auth`, `protocol`, or provider-owned modules.
   - The deprecated `siumai_core::utils::vertex` forwarding module was removed; Vertex URL helpers
-    now live only under `siumai_core::auth::vertex` and facade `siumai::experimental::auth::vertex`.
+    later moved from `siumai_core::auth::vertex` to provider-owned
+    `siumai-provider-google-vertex::auth::vertex`, with facade compatibility kept through
+    `siumai::experimental::auth::vertex`.
 - [x] Remove deprecated utility re-exports after their migration targets are documented and tested.
 - [x] Keep `siumai-core` focused on family traits, generic runtime, retry, middleware, streaming
   carriers, and provider-agnostic helpers.

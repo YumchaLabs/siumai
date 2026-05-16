@@ -692,6 +692,10 @@ impl StreamChunkTransformer for CompatStreamChunkTransformer {
         self.inner.convert_event(event)
     }
 
+    fn is_stream_end_event(&self, event: &Event) -> bool {
+        self.inner.is_stream_end_event(event)
+    }
+
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         self.inner.handle_stream_end()
     }
@@ -769,6 +773,62 @@ mod tests {
     use super::super::types::RequestType;
     use super::*;
     use crate::types::{FinishReason, MessageMetadata, MessageRole, ProviderOptionsMap};
+
+    fn source_between(start_marker: &str, end_marker: &str) -> &'static str {
+        let source = include_str!("transformers.rs");
+        let (_, after_start) = source
+            .split_once(start_marker)
+            .expect("source start marker should exist");
+        let (section, _) = after_start
+            .split_once(end_marker)
+            .expect("source end marker should exist");
+        section
+    }
+
+    #[test]
+    fn openai_compatible_request_transformer_source_does_not_read_legacy_provider_metadata_fields()
+    {
+        let source = source_between(
+            "impl RequestTransformer for CompatRequestTransformer {",
+            "/// Response transformer for OpenAI-compatible non-streaming responses",
+        );
+
+        assert!(
+            !source.contains("providerMetadata"),
+            "OpenAI-compatible request transformer must not read legacy providerMetadata"
+        );
+        assert!(
+            !source.contains("provider_metadata"),
+            "OpenAI-compatible request transformer must not read legacy provider_metadata"
+        );
+    }
+
+    #[test]
+    fn openai_compatible_chat_response_source_does_not_emit_request_provider_options() {
+        let source = source_between(
+            "fn transform_chat_response(&self, raw: &serde_json::Value)",
+            "fn transform_embedding_response(",
+        );
+
+        assert!(
+            !source.contains("providerOptions"),
+            "OpenAI-compatible chat response parsing must not emit request-side providerOptions"
+        );
+        assert!(
+            !source.contains(".provider_options"),
+            "OpenAI-compatible chat response parsing must not read request provider_options fields"
+        );
+
+        for line in source
+            .lines()
+            .filter(|line| line.contains("provider_options"))
+        {
+            assert!(
+                line.contains("ProviderOptionsMap::default()"),
+                "OpenAI-compatible response ContentPart provider_options must stay empty defaults: {line}"
+            );
+        }
+    }
 
     #[derive(Debug, Clone)]
     #[allow(dead_code)]

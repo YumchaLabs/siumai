@@ -130,7 +130,7 @@ where
     }
 }
 
-impl SkillUploadProvider for crate::provider::Siumai {
+impl SkillUploadProvider for crate::compat::Siumai {
     fn upload_skill_provider_id(&self) -> Cow<'static, str> {
         LlmClient::provider_id(self)
     }
@@ -167,5 +167,34 @@ impl SkillUploadProvider for siumai_provider_openai::providers::openai::OpenAiCl
 impl SkillUploadProvider for siumai_provider_openai::providers::openai::OpenAiSkills {
     fn upload_skill_provider_id(&self) -> Cow<'static, str> {
         Cow::Borrowed("openai")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn upload_helper_keeps_provider_policy_delegated_to_api() {
+        let source = include_str!("skills.rs");
+        let upload_flow = source_section(
+            source,
+            "pub async fn upload<A: UploadSkillApi + ?Sized>",
+            "#[async_trait]\nimpl<T> UploadSkillApi for T",
+        );
+
+        for provider_literal in ["\"anthropic\"", "\"openai\"", "\"gemini\"", "\"google\""] {
+            assert!(
+                !upload_flow.contains(provider_literal),
+                "facade skill upload helper must keep provider-specific policy delegated to provider APIs"
+            );
+        }
     }
 }

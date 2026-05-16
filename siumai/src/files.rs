@@ -208,7 +208,7 @@ where
     }
 }
 
-impl FileUploadProvider for crate::provider::Siumai {
+impl FileUploadProvider for crate::compat::Siumai {
     fn upload_file_provider_id(&self) -> Cow<'static, str> {
         LlmClient::provider_id(self)
     }
@@ -350,13 +350,16 @@ where
         http_config,
     } = payload;
 
-    let purpose = resolve_upload_purpose(provider_id, purpose.as_deref())?;
-    let anthropic_has_metadata = provider_id == "anthropic" && !metadata.is_empty();
-    let anthropic_has_provider_options = provider_id == "anthropic" && !provider_options.is_empty();
-    let anthropic_has_non_header_http_overrides = provider_id == "anthropic"
-        && http_config
+    let compatibility = FileUploadCompatibilityInput {
+        metadata_supplied: !metadata.is_empty(),
+        provider_options_supplied: !provider_options.is_empty(),
+        non_header_http_overrides: http_config
             .as_ref()
-            .is_some_and(has_non_header_http_overrides);
+            .is_some_and(has_non_header_http_overrides),
+        filename_was_explicit,
+    };
+
+    let purpose = resolve_upload_purpose(provider_id, purpose.as_deref())?;
 
     let file = api
         .upload_file(FileUploadRequest {
@@ -371,37 +374,56 @@ where
         .await?;
 
     let mut result = upload_result_from_file_object(provider_id, file);
+    result.warnings.extend(file_upload_compatibility_warnings(
+        provider_id,
+        compatibility,
+    ));
 
-    if matches!(provider_id, "gemini" | "google") && filename_was_explicit {
-        result
-            .warnings
-            .push(Warning::unsupported("filename", None::<String>));
+    Ok(result)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FileUploadCompatibilityInput {
+    metadata_supplied: bool,
+    provider_options_supplied: bool,
+    non_header_http_overrides: bool,
+    filename_was_explicit: bool,
+}
+
+fn file_upload_compatibility_warnings(
+    provider_id: &str,
+    input: FileUploadCompatibilityInput,
+) -> Vec<Warning> {
+    let mut warnings = Vec::new();
+
+    if matches!(provider_id, "gemini" | "google") && input.filename_was_explicit {
+        warnings.push(Warning::unsupported("filename", None::<String>));
     }
 
     if provider_id == "anthropic" {
-        if anthropic_has_metadata {
-            result.warnings.push(Warning::compatibility(
+        if input.metadata_supplied {
+            warnings.push(Warning::compatibility(
                 "metadata",
                 Some("Anthropic file uploads currently ignore UploadFileOptions.metadata."),
             ));
         }
 
-        if anthropic_has_provider_options {
-            result.warnings.push(Warning::compatibility(
+        if input.provider_options_supplied {
+            warnings.push(Warning::compatibility(
                 "providerOptions",
                 Some("Anthropic file uploads currently ignore UploadFileOptions.provider_options."),
             ));
         }
 
-        if anthropic_has_non_header_http_overrides {
-            result.warnings.push(Warning::compatibility(
+        if input.non_header_http_overrides {
+            warnings.push(Warning::compatibility(
                 "httpConfig",
                 Some("Anthropic file uploads currently forward only per-request headers."),
             ));
         }
     }
 
-    Ok(result)
+    warnings
 }
 
 fn upload_provider_namespace(provider_id: &str) -> &str {
@@ -477,4 +499,39 @@ fn has_non_header_http_overrides(http_config: &HttpConfig) -> bool {
         || http_config.connect_timeout.is_some()
         || http_config.proxy.is_some()
         || http_config.user_agent.is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn upload_via_file_management_keeps_provider_policy_delegated_to_helpers() {
+        let source = include_str!("files.rs");
+        let upload_flow = source_section(
+            source,
+            "async fn upload_via_file_management",
+            "#[derive(Debug, Clone, Copy)]",
+        );
+
+        for provider_literal in [
+            "\"anthropic\"",
+            "\"gemini\"",
+            "\"google\"",
+            "\"minimaxi\"",
+            "\"openai\"",
+        ] {
+            assert!(
+                !upload_flow.contains(provider_literal),
+                "facade upload flow must keep provider-specific policy delegated to helper functions"
+            );
+        }
+    }
 }

@@ -140,7 +140,7 @@ impl OpenAiCompatibleConfig {
             base_url: super::base_url::normalize_text_base_url(provider_id, base_url),
             model: String::new(),
             common_params: CommonParams::default(),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             token_provider: None,
             custom_headers: reqwest::header::HeaderMap::new(),

@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::json;
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::embedding::{self, BatchEmbeddingRequest, EmbedOptions};
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,

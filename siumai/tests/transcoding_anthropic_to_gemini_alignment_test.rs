@@ -7,6 +7,7 @@
 //! - Re-serialize into Gemini GenerateContent SSE.
 
 use eventsource_stream::Event;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use std::path::Path;
 
@@ -88,7 +89,6 @@ fn encode_gemini_generate_content_sse(
     emit_function_response_tool_results: bool,
 ) -> Vec<u8> {
     use siumai::experimental::streaming::UnsupportedStreamPartBehavior;
-    use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::gemini::streaming::GeminiEventConverter;
     use siumai::protocol::gemini::types::GeminiConfig;
 

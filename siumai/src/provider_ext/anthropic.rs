@@ -4,7 +4,7 @@ pub use siumai_provider_anthropic::providers::anthropic::{
 
 /// Create the Anthropic provider builder.
 pub fn anthropic() -> AnthropicBuilder {
-    crate::Provider::anthropic()
+    crate::compat::Provider::anthropic()
 }
 
 /// Create the Anthropic provider builder.
@@ -48,19 +48,22 @@ pub mod options {
         AnthropicTaskBudgetType, AnthropicThinkingConfig, AnthropicThinkingDisplay,
         AnthropicToolAllowedCaller, AnthropicToolOptions, PromptCachingConfig, ThinkingModeConfig,
     };
-    pub use siumai_provider_anthropic::providers::anthropic::ext::AnthropicChatRequestExt;
+    pub use siumai_provider_anthropic::providers::anthropic::ext::{
+        AnthropicChatMessageExt, AnthropicChatRequestExt,
+    };
 }
 #[allow(deprecated)]
 pub use options::{
-    AnthropicCacheControl, AnthropicCacheType, AnthropicChatRequestExt, AnthropicContainerConfig,
-    AnthropicContainerSkill, AnthropicContainerSkillType, AnthropicContextManagementAllKeep,
-    AnthropicContextManagementConfig, AnthropicContextManagementEdit,
-    AnthropicContextManagementInputTokensValue, AnthropicContextManagementThinkingKeep,
-    AnthropicContextManagementThinkingTurnsKeep, AnthropicContextManagementThinkingTurnsKeepKind,
-    AnthropicContextManagementToolUsesKeep, AnthropicContextManagementTrigger, AnthropicEffort,
-    AnthropicInferenceGeo, AnthropicLanguageModelOptions, AnthropicMcpServer,
-    AnthropicMcpServerType, AnthropicMcpToolConfiguration, AnthropicOptions,
-    AnthropicProviderOptions, AnthropicRequestCacheControl, AnthropicRequestCacheControlTtl,
+    AnthropicCacheControl, AnthropicCacheType, AnthropicChatMessageExt, AnthropicChatRequestExt,
+    AnthropicContainerConfig, AnthropicContainerSkill, AnthropicContainerSkillType,
+    AnthropicContextManagementAllKeep, AnthropicContextManagementConfig,
+    AnthropicContextManagementEdit, AnthropicContextManagementInputTokensValue,
+    AnthropicContextManagementThinkingKeep, AnthropicContextManagementThinkingTurnsKeep,
+    AnthropicContextManagementThinkingTurnsKeepKind, AnthropicContextManagementToolUsesKeep,
+    AnthropicContextManagementTrigger, AnthropicEffort, AnthropicInferenceGeo,
+    AnthropicLanguageModelOptions, AnthropicMcpServer, AnthropicMcpServerType,
+    AnthropicMcpToolConfiguration, AnthropicOptions, AnthropicProviderOptions,
+    AnthropicRequestCacheControl, AnthropicRequestCacheControlTtl,
     AnthropicRequestCacheControlType, AnthropicRequestMetadata, AnthropicResponseFormat,
     AnthropicSpeed, AnthropicStructuredOutputMode, AnthropicTaskBudget, AnthropicTaskBudgetType,
     AnthropicThinkingConfig, AnthropicThinkingDisplay, AnthropicToolAllowedCaller,
@@ -89,7 +92,7 @@ pub use siumai_provider_anthropic::providers::anthropic::{
 /// Non-unified Anthropic extension APIs (request extensions, tool helpers, thinking, etc.).
 pub mod ext {
     pub use siumai_provider_anthropic::providers::anthropic::ext::{
-        AnthropicToolExt, structured_output, thinking, tools,
+        AnthropicChatMessageExt, AnthropicToolExt, structured_output, thinking, tools,
     };
 }
 pub use ext::AnthropicToolExt;

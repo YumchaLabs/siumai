@@ -12,9 +12,9 @@ use std::collections::{BTreeSet, HashMap};
 #[cfg(feature = "anthropic")]
 use std::time::Duration;
 
+use crate::{BridgeOptions, BridgeResult, BridgeTarget};
 use serde_json::{Map, Value, json};
 use siumai_core::LlmError;
-use siumai_core::bridge::{BridgeOptions, BridgeResult, BridgeTarget};
 #[cfg(feature = "anthropic")]
 use siumai_core::types::CacheControl;
 use siumai_core::types::chat::{
@@ -740,20 +740,12 @@ fn parse_gemini_part(
             thought,
             thought_signature,
         } => {
-            let provider_metadata =
-                gemini_thought_signature_provider_metadata(thought_signature.as_deref());
+            let provider_options =
+                gemini_thought_signature_provider_options(thought_signature.as_deref());
             if thought.unwrap_or(false) {
-                Some(ContentPart::Reasoning {
-                    text: text.clone(),
-                    provider_options: ProviderOptionsMap::default(),
-                    provider_metadata,
-                })
+                Some(request_reasoning_part(text.clone(), provider_options))
             } else {
-                Some(ContentPart::Text {
-                    text: text.clone(),
-                    provider_options: ProviderOptionsMap::default(),
-                    provider_metadata,
-                })
+                Some(request_text_part(text.clone(), provider_options))
             }
         }
         GeminiPart::InlineData {
@@ -780,23 +772,17 @@ fn parse_gemini_part(
         } => {
             let tool_call_id =
                 push_pending_gemini_tool_call_id(pending_tool_call_ids, &function_call.name);
-            Some(ContentPart::ToolCall {
+            Some(request_tool_call_part(
                 tool_call_id,
-                tool_name: function_call.name.clone(),
-                arguments: function_call
+                function_call.name.clone(),
+                function_call
                     .args
                     .clone()
                     .unwrap_or_else(|| Value::Object(Map::new())),
-                provider_executed: None,
-                dynamic: None,
-                invalid: None,
-                error: None,
-                title: None,
-                provider_options: ProviderOptionsMap::default(),
-                provider_metadata: gemini_thought_signature_provider_metadata(
-                    thought_signature.as_deref(),
-                ),
-            })
+                None,
+                None,
+                gemini_thought_signature_provider_options(thought_signature.as_deref()),
+            ))
         }
         GeminiPart::FunctionResponse {
             function_response,
@@ -804,20 +790,14 @@ fn parse_gemini_part(
         } => {
             let tool_call_id =
                 take_pending_gemini_tool_call_id(pending_tool_call_ids, &function_response.name);
-            Some(ContentPart::ToolResult {
+            Some(request_tool_result_part(
                 tool_call_id,
-                tool_name: function_response.name.clone(),
-                output: parse_gemini_function_response_output(&function_response.response),
-                input: None,
-                provider_executed: None,
-                dynamic: None,
-                preliminary: None,
-                title: None,
-                provider_options: ProviderOptionsMap::default(),
-                provider_metadata: gemini_thought_signature_provider_metadata(
-                    thought_signature.as_deref(),
-                ),
-            })
+                function_response.name.clone(),
+                parse_gemini_function_response_output(&function_response.response),
+                None,
+                None,
+                gemini_thought_signature_provider_options(thought_signature.as_deref()),
+            ))
         }
         GeminiPart::ExecutableCode {
             executable_code,
@@ -831,23 +811,17 @@ fn parse_gemini_part(
                     "LANGUAGE_UNSPECIFIED"
                 }
             };
-            Some(ContentPart::ToolCall {
+            Some(request_tool_call_part(
                 tool_call_id,
-                tool_name: "code_execution".to_string(),
-                arguments: json!({
+                "code_execution",
+                json!({
                     "language": language,
                     "code": executable_code.code.clone(),
                 }),
-                provider_executed: Some(true),
-                dynamic: Some(true),
-                invalid: None,
-                error: None,
-                title: None,
-                provider_options: ProviderOptionsMap::default(),
-                provider_metadata: gemini_thought_signature_provider_metadata(
-                    thought_signature.as_deref(),
-                ),
-            })
+                Some(true),
+                Some(true),
+                gemini_thought_signature_provider_options(thought_signature.as_deref()),
+            ))
         }
         GeminiPart::CodeExecutionResult {
             code_execution_result,
@@ -861,23 +835,17 @@ fn parse_gemini_part(
                 GeminiCodeExecutionOutcome::DeadlineExceeded => "OUTCOME_DEADLINE_EXCEEDED",
                 GeminiCodeExecutionOutcome::Unspecified => "OUTCOME_UNSPECIFIED",
             };
-            Some(ContentPart::ToolResult {
+            Some(request_tool_result_part(
                 tool_call_id,
-                tool_name: "code_execution".to_string(),
-                output: ToolResultOutput::json(json!({
+                "code_execution",
+                ToolResultOutput::json(json!({
                     "outcome": outcome,
                     "output": code_execution_result.output.clone(),
                 })),
-                provider_executed: Some(true),
-                input: None,
-                dynamic: Some(true),
-                preliminary: None,
-                title: None,
-                provider_options: ProviderOptionsMap::default(),
-                provider_metadata: gemini_thought_signature_provider_metadata(
-                    thought_signature.as_deref(),
-                ),
-            })
+                Some(true),
+                Some(true),
+                gemini_thought_signature_provider_options(thought_signature.as_deref()),
+            ))
         }
     })
 }
@@ -888,32 +856,29 @@ fn parse_gemini_inline_data_part(
     data: &str,
     thought_signature: Option<&str>,
 ) -> ContentPart {
-    let provider_metadata = gemini_thought_signature_provider_metadata(thought_signature);
+    let provider_options = gemini_thought_signature_provider_options(thought_signature);
     if mime_type.starts_with("image/") {
-        ContentPart::Image {
-            source: FilePartSource::base64(data),
-            media_type: Some(mime_type.to_string()),
-            detail: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata,
-        }
+        request_image_part(
+            FilePartSource::base64(data),
+            Some(mime_type.to_string()),
+            None,
+            provider_options,
+        )
     } else if mime_type.starts_with("audio/") {
-        ContentPart::Audio {
-            source: MediaSource::Base64 {
+        request_audio_part(
+            MediaSource::Base64 {
                 data: data.to_string(),
             },
-            media_type: Some(mime_type.to_string()),
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata,
-        }
+            Some(mime_type.to_string()),
+            provider_options,
+        )
     } else {
-        ContentPart::File {
-            source: FilePartSource::base64(data),
-            media_type: mime_type.to_string(),
-            filename: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata,
-        }
+        request_file_part(
+            FilePartSource::base64(data),
+            mime_type.to_string(),
+            None,
+            provider_options,
+        )
     }
 }
 
@@ -923,37 +888,33 @@ fn parse_gemini_file_data_part(
     mime_type: Option<&str>,
     thought_signature: Option<&str>,
 ) -> ContentPart {
-    let provider_metadata = gemini_thought_signature_provider_metadata(thought_signature);
+    let provider_options = gemini_thought_signature_provider_options(thought_signature);
     match mime_type {
-        Some(mime) if mime.starts_with("image/") => ContentPart::Image {
-            source: FilePartSource::url(file_uri),
-            media_type: Some(mime.to_string()),
-            detail: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata,
-        },
-        Some(mime) if mime.starts_with("audio/") => ContentPart::Audio {
-            source: MediaSource::Url {
+        Some(mime) if mime.starts_with("image/") => request_image_part(
+            FilePartSource::url(file_uri),
+            Some(mime.to_string()),
+            None,
+            provider_options,
+        ),
+        Some(mime) if mime.starts_with("audio/") => request_audio_part(
+            MediaSource::Url {
                 url: file_uri.to_string(),
             },
-            media_type: Some(mime.to_string()),
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata,
-        },
-        Some(mime) => ContentPart::File {
-            source: FilePartSource::url(file_uri),
-            media_type: mime.to_string(),
-            filename: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata,
-        },
-        None => ContentPart::File {
-            source: FilePartSource::url(file_uri),
-            media_type: "application/octet-stream".to_string(),
-            filename: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata,
-        },
+            Some(mime.to_string()),
+            provider_options,
+        ),
+        Some(mime) => request_file_part(
+            FilePartSource::url(file_uri),
+            mime.to_string(),
+            None,
+            provider_options,
+        ),
+        None => request_file_part(
+            FilePartSource::url(file_uri),
+            "application/octet-stream",
+            None,
+            provider_options,
+        ),
     }
 }
 
@@ -972,16 +933,18 @@ fn parse_gemini_function_response_output(value: &Value) -> ToolResultOutput {
 }
 
 #[cfg(any(feature = "google", feature = "google-vertex"))]
-fn gemini_thought_signature_provider_metadata(
+fn gemini_thought_signature_provider_options(
     thought_signature: Option<&str>,
-) -> Option<HashMap<String, Value>> {
-    let thought_signature = thought_signature
+) -> ProviderOptionsMap {
+    let mut provider_options = ProviderOptionsMap::default();
+    let Some(thought_signature) = thought_signature
         .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-    Some(HashMap::from([(
-        "google".to_string(),
-        json!({ "thoughtSignature": thought_signature }),
-    )]))
+        .filter(|value| !value.is_empty())
+    else {
+        return provider_options;
+    };
+    provider_options.insert("google", json!({ "thoughtSignature": thought_signature }));
+    provider_options
 }
 
 #[cfg(any(feature = "google", feature = "google-vertex"))]
@@ -1395,18 +1358,14 @@ fn parse_openai_chat_tool_message(
 
     Ok(message_from_parts(
         MessageRole::Tool,
-        vec![ContentPart::ToolResult {
+        vec![request_tool_result_part(
             tool_call_id,
             tool_name,
-            output: parse_tool_result_output_from_string(&content, false),
-            input: None,
-            provider_executed: None,
-            dynamic: None,
-            preliminary: None,
-            title: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        }],
+            parse_tool_result_output_from_string(&content, false),
+            None,
+            None,
+            ProviderOptionsMap::default(),
+        )],
     ))
 }
 
@@ -1477,26 +1436,24 @@ fn parse_openai_chat_content_part(value: &Value) -> Result<ContentPart, LlmError
 
 fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     match obj.get("image_url") {
-        Some(Value::String(url)) => Ok(ContentPart::Image {
-            source: FilePartSource::url(url),
-            media_type: None,
-            detail: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        }),
+        Some(Value::String(url)) => Ok(request_image_part(
+            FilePartSource::url(url),
+            None,
+            None,
+            ProviderOptionsMap::default(),
+        )),
         Some(Value::Object(image)) => {
             let url = required_string(image, "url", "OpenAI image_url content part")?;
             let detail = image
                 .get("detail")
                 .and_then(Value::as_str)
                 .map(ImageDetail::from);
-            Ok(ContentPart::Image {
-                source: FilePartSource::url(url),
-                media_type: None,
+            Ok(request_image_part(
+                FilePartSource::url(url),
+                None,
                 detail,
-                provider_options: ProviderOptionsMap::default(),
-                provider_metadata: None,
-            })
+                ProviderOptionsMap::default(),
+            ))
         }
         _ => Err(LlmError::ParseError(
             "OpenAI image_url content part is missing image_url".to_string(),
@@ -1518,12 +1475,11 @@ fn parse_openai_input_audio_part(obj: &Map<String, Value>) -> Result<ContentPart
         _ => "audio/wav".to_string(),
     };
 
-    Ok(ContentPart::Audio {
-        source: MediaSource::Base64 { data },
-        media_type: Some(media_type),
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: None,
-    })
+    Ok(request_audio_part(
+        MediaSource::Base64 { data },
+        Some(media_type),
+        ProviderOptionsMap::default(),
+    ))
 }
 
 fn parse_openai_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
@@ -1533,24 +1489,20 @@ fn parse_openai_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmEr
         .and_then(|value| expect_object(value, "OpenAI file part.file"))?;
 
     if let Some(file_id) = optional_string(file, "file_id") {
-        return Ok(ContentPart::File {
-            source: FilePartSource::provider_reference(ProviderReference::single(
-                "openai", file_id,
-            )),
-            media_type: "application/pdf".to_string(),
-            filename: optional_string(file, "filename"),
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        });
+        return Ok(request_file_part(
+            FilePartSource::provider_reference(ProviderReference::single("openai", file_id)),
+            "application/pdf",
+            optional_string(file, "filename"),
+            ProviderOptionsMap::default(),
+        ));
     }
     if let Some(file_data) = optional_string(file, "file_data") {
-        return Ok(ContentPart::File {
-            source: FilePartSource::base64(strip_data_url_prefix(&file_data)),
-            media_type: "application/pdf".to_string(),
-            filename: optional_string(file, "filename"),
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        });
+        return Ok(request_file_part(
+            FilePartSource::base64(strip_data_url_prefix(&file_data)),
+            "application/pdf",
+            optional_string(file, "filename"),
+            ProviderOptionsMap::default(),
+        ));
     }
 
     Err(LlmError::ParseError(
@@ -1923,15 +1875,12 @@ fn parse_openai_responses_image_part(obj: &Map<String, Value>) -> ContentPart {
     let provider_options = openai_image_detail_provider_options(obj);
 
     if let Some(file_id) = optional_string(obj, "file_id") {
-        return ContentPart::Image {
-            source: FilePartSource::provider_reference(ProviderReference::single(
-                "openai", file_id,
-            )),
-            media_type: None,
-            detail: None,
+        return request_image_part(
+            FilePartSource::provider_reference(ProviderReference::single("openai", file_id)),
+            None,
+            None,
             provider_options,
-            provider_metadata: None,
-        };
+        );
     }
 
     let image_url = optional_string(obj, "image_url").unwrap_or_default();
@@ -1941,44 +1890,33 @@ fn parse_openai_responses_image_part(obj: &Map<String, Value>) -> ContentPart {
         FilePartSource::url(image_url)
     };
 
-    ContentPart::Image {
-        source,
-        media_type: None,
-        detail: None,
-        provider_options,
-        provider_metadata: None,
-    }
+    request_image_part(source, None, None, provider_options)
 }
 
 fn parse_openai_responses_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     if let Some(file_id) = optional_string(obj, "file_id") {
-        return Ok(ContentPart::File {
-            source: FilePartSource::provider_reference(ProviderReference::single(
-                "openai", file_id,
-            )),
-            media_type: "application/pdf".to_string(),
-            filename: optional_string(obj, "filename"),
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        });
+        return Ok(request_file_part(
+            FilePartSource::provider_reference(ProviderReference::single("openai", file_id)),
+            "application/pdf",
+            optional_string(obj, "filename"),
+            ProviderOptionsMap::default(),
+        ));
     }
     if let Some(file_url) = optional_string(obj, "file_url") {
-        return Ok(ContentPart::File {
-            source: FilePartSource::url(file_url),
-            media_type: infer_document_media_type(None, None),
-            filename: optional_string(obj, "filename"),
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        });
+        return Ok(request_file_part(
+            FilePartSource::url(file_url),
+            infer_document_media_type(None, None),
+            optional_string(obj, "filename"),
+            ProviderOptionsMap::default(),
+        ));
     }
     if let Some(file_data) = optional_string(obj, "file_data") {
-        return Ok(ContentPart::File {
-            source: FilePartSource::base64(strip_data_url_prefix(&file_data)),
-            media_type: "application/pdf".to_string(),
-            filename: optional_string(obj, "filename"),
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        });
+        return Ok(request_file_part(
+            FilePartSource::base64(strip_data_url_prefix(&file_data)),
+            "application/pdf",
+            optional_string(obj, "filename"),
+            ProviderOptionsMap::default(),
+        ));
     }
 
     Err(LlmError::ParseError(
@@ -2009,11 +1947,7 @@ fn parse_openai_responses_reasoning_item(
 
     Ok(message_from_parts(
         MessageRole::Assistant,
-        vec![ContentPart::Reasoning {
-            text,
-            provider_options,
-            provider_metadata: None,
-        }],
+        vec![request_reasoning_part(text, provider_options)],
     ))
 }
 
@@ -2033,18 +1967,14 @@ fn parse_openai_responses_function_call_item(
 
     Ok(message_from_parts(
         MessageRole::Assistant,
-        vec![ContentPart::ToolCall {
+        vec![request_tool_call_part(
             tool_call_id,
             tool_name,
             arguments,
-            provider_executed: None,
-            dynamic: None,
-            invalid: None,
-            error: None,
-            title: None,
+            None,
+            None,
             provider_options,
-            provider_metadata: None,
-        }],
+        )],
     ))
 }
 
@@ -2068,18 +1998,14 @@ fn parse_openai_responses_provider_call_item(
 
     Ok(message_from_parts(
         MessageRole::Assistant,
-        vec![ContentPart::ToolCall {
+        vec![request_tool_call_part(
             tool_call_id,
             tool_name,
-            arguments: Value::Object(arguments),
-            provider_executed: None,
-            dynamic: Some(true),
-            invalid: None,
-            error: None,
-            title: None,
+            Value::Object(arguments),
+            None,
+            Some(true),
             provider_options,
-            provider_metadata: None,
-        }],
+        )],
     ))
 }
 
@@ -2097,18 +2023,14 @@ fn parse_openai_responses_function_call_output_item(
 
     Ok(message_from_parts(
         MessageRole::Tool,
-        vec![ContentPart::ToolResult {
+        vec![request_tool_result_part(
             tool_call_id,
             tool_name,
             output,
-            input: None,
-            provider_executed: None,
-            dynamic: None,
-            preliminary: None,
-            title: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        }],
+            None,
+            None,
+            ProviderOptionsMap::default(),
+        )],
     ))
 }
 
@@ -2146,18 +2068,14 @@ fn parse_openai_responses_provider_call_output_item(
 
     Ok(message_from_parts(
         MessageRole::Tool,
-        vec![ContentPart::ToolResult {
+        vec![request_tool_result_part(
             tool_call_id,
             tool_name,
             output,
-            input: None,
-            provider_executed: None,
-            dynamic: Some(true),
-            preliminary: None,
-            title: None,
-            provider_options: ProviderOptionsMap::default(),
-            provider_metadata: None,
-        }],
+            None,
+            Some(true),
+            ProviderOptionsMap::default(),
+        )],
     ))
 }
 
@@ -2437,14 +2355,12 @@ fn parse_anthropic_image_part(obj: &Map<String, Value>) -> Result<ContentPart, L
         }
     };
 
-    Ok(ContentPart::Image {
-        source: media_source,
-        media_type: optional_string(obj, "media_type")
-            .or_else(|| optional_string(obj, "mime_type")),
-        detail: None,
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: None,
-    })
+    Ok(request_image_part(
+        media_source,
+        optional_string(obj, "media_type").or_else(|| optional_string(obj, "mime_type")),
+        None,
+        ProviderOptionsMap::default(),
+    ))
 }
 
 #[cfg(feature = "anthropic")]
@@ -2521,13 +2437,12 @@ fn parse_anthropic_document_part(obj: &Map<String, Value>) -> Result<ContentPart
         provider_options.insert("anthropic", Value::Object(anthropic));
     }
 
-    Ok(ContentPart::File {
-        source: media_source,
+    Ok(request_file_part(
+        media_source,
         media_type,
-        filename: title,
+        title,
         provider_options,
-        provider_metadata: None,
-    })
+    ))
 }
 
 #[cfg(feature = "anthropic")]
@@ -2541,18 +2456,14 @@ fn parse_anthropic_tool_result_part(obj: &Map<String, Value>) -> Result<ContentP
         .unwrap_or(false);
     let output = parse_anthropic_tool_result_output(output_value, is_error)?;
 
-    Ok(ContentPart::ToolResult {
+    Ok(request_tool_result_part(
         tool_call_id,
-        tool_name: String::new(),
+        String::new(),
         output,
-        input: None,
-        provider_executed: None,
-        dynamic: None,
-        preliminary: None,
-        title: None,
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: None,
-    })
+        None,
+        None,
+        ProviderOptionsMap::default(),
+    ))
 }
 
 #[cfg(feature = "anthropic")]
@@ -2882,11 +2793,123 @@ fn strip_wrapped_thinking(text: &str) -> Option<String> {
     Some(inner.to_string())
 }
 
+// Request-side adapters into the legacy `ContentPart` carrier. These helpers are the only place
+// request normalization should manufacture dual-use parts, and they deliberately keep response
+// metadata empty.
+fn request_text_part(text: impl Into<String>, provider_options: ProviderOptionsMap) -> ContentPart {
+    ContentPart::Text {
+        text: text.into(),
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn request_reasoning_part(
+    text: impl Into<String>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::Reasoning {
+        text: text.into(),
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn request_image_part(
+    source: FilePartSource,
+    media_type: Option<String>,
+    detail: Option<ImageDetail>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::Image {
+        source,
+        media_type,
+        detail,
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn request_audio_part(
+    source: MediaSource,
+    media_type: Option<String>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::Audio {
+        source,
+        media_type,
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn request_file_part(
+    source: FilePartSource,
+    media_type: impl Into<String>,
+    filename: Option<String>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::File {
+        source,
+        media_type: media_type.into(),
+        filename,
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn request_tool_call_part(
+    tool_call_id: impl Into<String>,
+    tool_name: impl Into<String>,
+    arguments: Value,
+    provider_executed: Option<bool>,
+    dynamic: Option<bool>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::ToolCall {
+        tool_call_id: tool_call_id.into(),
+        tool_name: tool_name.into(),
+        arguments,
+        provider_executed,
+        dynamic,
+        invalid: None,
+        error: None,
+        title: None,
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
+fn request_tool_result_part(
+    tool_call_id: impl Into<String>,
+    tool_name: impl Into<String>,
+    output: ToolResultOutput,
+    provider_executed: Option<bool>,
+    dynamic: Option<bool>,
+    provider_options: ProviderOptionsMap,
+) -> ContentPart {
+    ContentPart::ToolResult {
+        tool_call_id: tool_call_id.into(),
+        tool_name: tool_name.into(),
+        output,
+        input: None,
+        provider_executed,
+        dynamic,
+        preliminary: None,
+        title: None,
+        provider_options,
+        provider_metadata: None,
+    }
+}
+
 fn parse_text_like_content_parts(text: &str) -> Vec<ContentPart> {
     if let Some(reasoning) = strip_wrapped_thinking(text) {
-        vec![ContentPart::reasoning(reasoning)]
+        vec![request_reasoning_part(
+            reasoning,
+            ProviderOptionsMap::default(),
+        )]
     } else {
-        vec![ContentPart::text(text)]
+        vec![request_text_part(text, ProviderOptionsMap::default())]
     }
 }
 

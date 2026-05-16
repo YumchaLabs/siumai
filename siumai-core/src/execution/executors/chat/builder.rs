@@ -15,7 +15,7 @@ use super::HttpChatExecutor;
 ///
 /// # Example
 /// ```rust,ignore
-/// let executor = ChatExecutorBuilder::new("openai", http_client)
+/// let executor = ChatExecutorBuilder::new("provider-a", http_client)
 ///     .with_spec(spec)
 ///     .with_context(ctx)
 ///     .with_transformers(req_tx, resp_tx, Some(stream_tx))

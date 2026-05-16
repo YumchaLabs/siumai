@@ -20,12 +20,11 @@ use crate::types::HttpConfig;
 ///
 /// # Example
 /// ```rust,no_run
-/// use siumai::types::HttpConfig;
-/// use siumai::experimental::execution::http::client::build_http_client_from_config;
+/// use siumai_core::execution::http::client::build_http_client_from_config;
 ///
-/// let config = HttpConfig::default();
+/// let config = siumai_core::defaults::http::config_default();
 /// let client = build_http_client_from_config(&config)?;
-/// # Ok::<(), siumai::LlmError>(())
+/// # Ok::<(), siumai_core::LlmError>(())
 /// ```
 pub fn build_http_client_from_config(config: &HttpConfig) -> Result<reqwest::Client, LlmError> {
     let mut builder = reqwest::Client::builder();
@@ -78,8 +77,8 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn test_build_http_client_default() {
-        let config = HttpConfig::default();
+    fn test_build_http_client_empty_config() {
+        let config = HttpConfig::empty();
         let result = build_http_client_from_config(&config);
         assert!(result.is_ok());
     }
@@ -109,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_build_http_client_with_headers() {
-        let mut config = HttpConfig::default();
+        let mut config = HttpConfig::empty();
         config
             .headers
             .insert("X-Custom-Header".to_string(), "custom-value".to_string());
@@ -120,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_build_http_client_with_invalid_header_name() {
-        let mut config = HttpConfig::default();
+        let mut config = HttpConfig::empty();
         config
             .headers
             .insert("Invalid Header Name".to_string(), "value".to_string());

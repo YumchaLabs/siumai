@@ -849,14 +849,6 @@ pub enum LanguageModelV4StreamPart {
     },
 }
 
-/// Target namespace used when formatting a stream part into provider-specific custom events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StreamPartNamespace {
-    OpenAi,
-    Anthropic,
-    Gemini,
-}
-
 /// Controls how typed stream parts that cannot be represented in `ChatStreamEvent`
 /// should be handled during protocol re-serialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1940,21 +1932,6 @@ impl TypedStreamPart {
         }
     }
 
-    /// Format as a provider-specific protocol-side `ChatStreamEvent::Custom` (best-effort).
-    ///
-    /// This is serializer compatibility glue for provider wire formats that still
-    /// encode some typed parts as `Custom` events. Stable runtime consumers should
-    /// prefer `to_part_event()` / `to_runtime_part()` instead.
-    pub fn to_protocol_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
-        let (event_type, data) = match ns {
-            StreamPartNamespace::OpenAi => self.to_openai_custom_event_payload()?,
-            StreamPartNamespace::Anthropic => self.to_anthropic_custom_event_payload()?,
-            StreamPartNamespace::Gemini => self.to_gemini_custom_event_payload()?,
-        };
-
-        Some(ChatStreamEvent::Custom { event_type, data })
-    }
-
     /// Convert this typed stream part into a first-class runtime stream part event.
     pub fn to_part_event(&self) -> ChatStreamEvent {
         ChatStreamEvent::Part {
@@ -2045,79 +2022,6 @@ impl TypedStreamPart {
             _ => None,
         }
     }
-
-    fn to_openai_custom_event_payload(&self) -> Option<(String, serde_json::Value)> {
-        let data = serde_json::to_value(self).ok()?;
-        let event_type = match self {
-            TypedStreamPart::TextStart { .. } => "openai:text-start",
-            TypedStreamPart::TextDelta { .. } => "openai:text-delta",
-            TypedStreamPart::TextEnd { .. } => "openai:text-end",
-            TypedStreamPart::ReasoningStart { .. } => "openai:reasoning-start",
-            TypedStreamPart::ReasoningDelta { .. } => "openai:reasoning-delta",
-            TypedStreamPart::ReasoningEnd { .. } => "openai:reasoning-end",
-            TypedStreamPart::ToolInputStart { .. } => "openai:tool-input-start",
-            TypedStreamPart::ToolInputDelta { .. } => "openai:tool-input-delta",
-            TypedStreamPart::ToolInputEnd { .. } => "openai:tool-input-end",
-            TypedStreamPart::ToolApprovalRequest(_) => "openai:tool-approval-request",
-            TypedStreamPart::ToolCall(_) => "openai:tool-call",
-            TypedStreamPart::ToolResult(_) => "openai:tool-result",
-            TypedStreamPart::Custom(_) => "openai:custom",
-            TypedStreamPart::Source(_) => "openai:source",
-            TypedStreamPart::StreamStart { .. } => "openai:stream-start",
-            TypedStreamPart::ResponseMetadata(_) => "openai:response-metadata",
-            TypedStreamPart::Finish { .. } => "openai:finish",
-            TypedStreamPart::Error { .. } => "openai:error",
-            TypedStreamPart::ReasoningFile(_) => "openai:reasoning-file",
-            TypedStreamPart::Raw { .. } | TypedStreamPart::File(_) => {
-                return None;
-            }
-        };
-        Some((event_type.to_string(), data))
-    }
-
-    fn to_anthropic_custom_event_payload(&self) -> Option<(String, serde_json::Value)> {
-        let data = serde_json::to_value(self).ok()?;
-        let event_type = match self {
-            TypedStreamPart::TextStart { .. } => "anthropic:text-start",
-            TypedStreamPart::TextDelta { .. } => "anthropic:text-delta",
-            TypedStreamPart::TextEnd { .. } => "anthropic:text-end",
-            TypedStreamPart::ReasoningStart { .. } => "anthropic:reasoning-start",
-            TypedStreamPart::ReasoningDelta { .. } => "anthropic:reasoning-delta",
-            TypedStreamPart::ReasoningEnd { .. } => "anthropic:reasoning-end",
-            TypedStreamPart::ToolInputStart { .. } => "anthropic:tool-input-start",
-            TypedStreamPart::ToolInputDelta { .. } => "anthropic:tool-input-delta",
-            TypedStreamPart::ToolInputEnd { .. } => "anthropic:tool-input-end",
-            TypedStreamPart::ToolCall(_) => "anthropic:tool-call",
-            TypedStreamPart::ToolResult(_) => "anthropic:tool-result",
-            TypedStreamPart::Custom(_) => "anthropic:custom",
-            TypedStreamPart::Source(_) => "anthropic:source",
-            TypedStreamPart::StreamStart { .. } => "anthropic:stream-start",
-            TypedStreamPart::ResponseMetadata(_) => "anthropic:response-metadata",
-            TypedStreamPart::Finish { .. } => "anthropic:finish",
-            TypedStreamPart::Error { .. } => "anthropic:error",
-
-            TypedStreamPart::ToolApprovalRequest(_)
-            | TypedStreamPart::Raw { .. }
-            | TypedStreamPart::File(_)
-            | TypedStreamPart::ReasoningFile(_) => return None,
-        };
-        Some((event_type.to_string(), data))
-    }
-
-    fn to_gemini_custom_event_payload(&self) -> Option<(String, serde_json::Value)> {
-        let data = serde_json::to_value(self).ok()?;
-        let event_type = match self {
-            TypedStreamPart::ToolCall(_) | TypedStreamPart::ToolResult(_) => "gemini:tool",
-            TypedStreamPart::Custom(_) => "gemini:custom",
-            TypedStreamPart::Source(_) => "gemini:source",
-            TypedStreamPart::ReasoningStart { .. }
-            | TypedStreamPart::ReasoningDelta { .. }
-            | TypedStreamPart::ReasoningEnd { .. } => "gemini:reasoning",
-            TypedStreamPart::ReasoningFile(_) => "gemini:reasoning-file",
-            _ => return None,
-        };
-        Some((event_type.to_string(), data))
-    }
 }
 
 impl LanguageModelV4StreamPart {
@@ -2190,18 +2094,6 @@ impl LanguageModelV4StreamPart {
         }
     }
 
-    /// Format as a provider-specific protocol-side `ChatStreamEvent::Custom` (best-effort).
-    pub fn to_protocol_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
-        let data = serde_json::to_value(self).ok()?;
-        let typed_part: TypedStreamPart = self.clone().into();
-        let ChatStreamEvent::Custom { event_type, .. } = typed_part.to_protocol_custom_event(ns)?
-        else {
-            return None;
-        };
-
-        Some(ChatStreamEvent::Custom { event_type, data })
-    }
-
     /// Convert this typed stream part into a first-class runtime stream part event.
     pub fn to_part_event(&self) -> ChatStreamEvent {
         ChatStreamEvent::Part {
@@ -2259,7 +2151,7 @@ mod tests {
     #[test]
     fn stream_part_parses_from_custom_event_payload() {
         let ev = ChatStreamEvent::Custom {
-            event_type: "openai:text-delta".to_string(),
+            event_type: "provider-a:text-delta".to_string(),
             data: serde_json::json!({
                 "type": "text-delta",
                 "id": "0",
@@ -2278,30 +2170,6 @@ mod tests {
     }
 
     #[test]
-    fn stream_part_formats_to_openai_protocol_custom_event() {
-        let part = TypedStreamPart::ToolCall(TypedStreamToolCall {
-            tool_call_id: "call_1".to_string(),
-            tool_name: "web_search".to_string(),
-            input: "{}".to_string(),
-            provider_executed: Some(true),
-            dynamic: None,
-            provider_metadata: None,
-        });
-
-        let ev = part
-            .to_protocol_custom_event(StreamPartNamespace::OpenAi)
-            .expect("custom event");
-
-        match ev {
-            ChatStreamEvent::Custom { event_type, data } => {
-                assert_eq!(event_type, "openai:tool-call");
-                assert_eq!(data.get("type").and_then(|v| v.as_str()), Some("tool-call"));
-            }
-            _ => panic!("expected custom event"),
-        }
-    }
-
-    #[test]
     fn stream_part_roundtrips_runtime_tool_call_part() {
         let runtime_part = ChatStreamPart::ToolCall(ChatStreamToolCall {
             tool_call_id: "call_1".to_string(),
@@ -2310,7 +2178,7 @@ mod tests {
             provider_executed: Some(true),
             dynamic: Some(false),
             provider_metadata: Some(std::collections::HashMap::from([(
-                "openai".to_string(),
+                "provider-a".to_string(),
                 serde_json::json!({ "itemId": "fc_1" }),
             )])),
         });
@@ -2326,7 +2194,7 @@ mod tests {
                 assert_eq!(
                     call.provider_metadata
                         .as_ref()
-                        .and_then(|metadata| metadata.get("openai"))
+                        .and_then(|metadata| metadata.get("provider-a"))
                         .and_then(|metadata| metadata.get("itemId"))
                         .and_then(|value| value.as_str()),
                     Some("fc_1")
@@ -2345,47 +2213,13 @@ mod tests {
                 assert_eq!(
                     call.provider_metadata
                         .as_ref()
-                        .and_then(|metadata| metadata.get("openai"))
+                        .and_then(|metadata| metadata.get("provider-a"))
                         .and_then(|metadata| metadata.get("itemId"))
                         .and_then(|value| value.as_str()),
                     Some("fc_1")
                 );
             }
             other => panic!("unexpected runtime part: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn stream_part_formats_reasoning_to_anthropic_protocol_custom_event_with_provider_metadata() {
-        let part = TypedStreamPart::ReasoningStart {
-            id: "0".to_string(),
-            provider_metadata: Some(std::collections::HashMap::from([(
-                "anthropic".to_string(),
-                serde_json::json!({
-                    "contentBlockIndex": 0,
-                    "redactedData": "abc123"
-                }),
-            )])),
-        };
-
-        let ev = part
-            .to_protocol_custom_event(StreamPartNamespace::Anthropic)
-            .expect("custom event");
-
-        match ev {
-            ChatStreamEvent::Custom { event_type, data } => {
-                assert_eq!(event_type, "anthropic:reasoning-start");
-                assert_eq!(
-                    data.get("type").and_then(|v| v.as_str()),
-                    Some("reasoning-start")
-                );
-                assert_eq!(data.get("id").and_then(|v| v.as_str()), Some("0"));
-                assert_eq!(
-                    data.pointer("/providerMetadata/anthropic/redactedData"),
-                    Some(&serde_json::json!("abc123"))
-                );
-            }
-            _ => panic!("expected custom event"),
         }
     }
 
@@ -2564,9 +2398,9 @@ mod tests {
     fn stream_part_parse_loose_accepts_custom_content() {
         let v = serde_json::json!({
             "type": "custom",
-            "kind": "openai.compaction",
+            "kind": "provider-a.compaction",
             "providerMetadata": {
-                "openai": {
+                "provider-a": {
                     "itemId": "cmp_123"
                 }
             }
@@ -2575,12 +2409,12 @@ mod tests {
         let part = TypedStreamPart::parse_loose_json(&v).expect("parsed");
         match part {
             TypedStreamPart::Custom(custom) => {
-                assert_eq!(custom.kind, "openai.compaction");
+                assert_eq!(custom.kind, "provider-a.compaction");
                 assert_eq!(
                     custom
                         .provider_metadata
                         .as_ref()
-                        .and_then(|m| m.get("openai"))
+                        .and_then(|m| m.get("provider-a"))
                         .and_then(|m| m.get("itemId"))
                         .and_then(|v| v.as_str()),
                     Some("cmp_123")
@@ -2596,7 +2430,7 @@ mod tests {
             "type": "text-start",
             "id": "0",
             "providerMetadata": {
-                "openai": "not-an-object"
+                "provider-a": "not-an-object"
             }
         });
         assert!(serde_json::from_value::<LanguageModelV4StreamPart>(invalid.clone()).is_err());
@@ -2609,36 +2443,24 @@ mod tests {
             provider_executed: None,
             dynamic: None,
             provider_metadata: Some(std::collections::HashMap::from([(
-                "openai".to_string(),
+                "provider-a".to_string(),
                 serde_json::json!(false),
             )])),
         });
         assert!(serde_json::to_value(&invalid_part).is_err());
-        assert!(
-            invalid_part
-                .to_protocol_custom_event(StreamPartNamespace::OpenAi)
-                .is_none()
-        );
-
         let invalid_custom =
             LanguageModelV4StreamPart::Custom(LanguageModelV4StreamCustomContent {
                 kind: "compaction".to_string(),
                 provider_metadata: None,
             });
         assert!(serde_json::to_value(&invalid_custom).is_err());
-        assert!(
-            invalid_custom
-                .to_protocol_custom_event(StreamPartNamespace::OpenAi)
-                .is_none()
-        );
-
         let valid = serde_json::json!({
             "type": "tool-call",
             "toolCallId": "call_1",
             "toolName": "weather",
             "input": "{}",
             "providerMetadata": {
-                "openai": {
+                "provider-a": {
                     "itemId": "fc_1"
                 }
             }
@@ -2655,7 +2477,7 @@ mod tests {
     fn language_model_v4_stream_projection_filters_non_object_provider_metadata() {
         let metadata = std::collections::HashMap::from([
             (
-                "openai".to_string(),
+                "provider-a".to_string(),
                 serde_json::json!({ "itemId": "msg_1" }),
             ),
             ("legacy".to_string(), serde_json::json!("drop")),
@@ -2669,7 +2491,7 @@ mod tests {
         assert_eq!(
             value["providerMetadata"],
             serde_json::json!({
-                "openai": {
+                "provider-a": {
                     "itemId": "msg_1"
                 }
             })
@@ -2701,45 +2523,14 @@ mod tests {
     }
 
     #[test]
-    fn stream_part_formats_reasoning_file_to_openai_protocol_custom_event() {
-        let part = TypedStreamPart::ReasoningFile(TypedStreamReasoningFile {
-            media_type: "image/png".to_string(),
-            data: TypedStreamFileData::Base64("ZmFrZQ==".to_string()),
-            provider_metadata: Some(std::collections::HashMap::from([(
-                "openai".to_string(),
-                serde_json::json!({ "itemId": "rs_1" }),
-            )])),
-        });
-
-        let ev = part
-            .to_protocol_custom_event(StreamPartNamespace::OpenAi)
-            .expect("custom event");
-
-        match ev {
-            ChatStreamEvent::Custom { event_type, data } => {
-                assert_eq!(event_type, "openai:reasoning-file");
-                assert_eq!(
-                    data.get("type").and_then(|v| v.as_str()),
-                    Some("reasoning-file")
-                );
-                assert_eq!(
-                    data.get("mediaType").and_then(|v| v.as_str()),
-                    Some("image/png")
-                );
-            }
-            _ => panic!("expected custom event"),
-        }
-    }
-
-    #[test]
     fn stream_part_lossy_text_includes_custom_kind_and_reasoning_file_hint() {
         let custom = TypedStreamPart::Custom(TypedStreamCustomContent {
-            kind: "openai.compaction".to_string(),
+            kind: "provider-a.compaction".to_string(),
             provider_metadata: None,
         });
         assert_eq!(
             custom.to_lossy_text().as_deref(),
-            Some("[custom] openai.compaction")
+            Some("[custom] provider-a.compaction")
         );
 
         let reasoning_file = TypedStreamPart::ReasoningFile(TypedStreamReasoningFile {

@@ -26,7 +26,7 @@ impl ClientConfig {
         Self {
             api_key,
             base_url,
-            http_config: HttpConfig::default(),
+            http_config: siumai::experimental::defaults::http::config_default(),
             common_params: CommonParams::default(),
         }
     }

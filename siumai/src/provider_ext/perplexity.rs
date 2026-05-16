@@ -2,11 +2,12 @@
 ///
 /// These map to the shared OpenAI-compatible runtime used by the audited Perplexity chat
 /// wrapper. For the unified AI SDK-style provider surface, use [`perplexity()`],
-/// [`create_perplexity()`], [`crate::Provider::perplexity()`], or
-/// [`crate::provider::SiumaiBuilder::perplexity()`].
+/// [`create_perplexity()`], [`crate::compat::Provider::perplexity()`], or
+/// [`SiumaiBuilder::perplexity()`].
 pub use siumai_provider_openai_compatible::providers::openai_compatible::{
     PERPLEXITY_VERSION as VERSION, PerplexityClient, PerplexityConfig, PerplexityProviderSettings,
 };
+use siumai_registry::provider::SiumaiBuilder;
 
 /// Curated Perplexity model constants aligned with the audited AI SDK package subset.
 pub mod models {
@@ -19,14 +20,14 @@ pub mod models {
 ///
 /// This mirrors the AI SDK package-level `perplexity` export more closely than the lower
 /// level `PerplexityClient`/`PerplexityConfig` compat aliases.
-pub fn perplexity() -> crate::provider::SiumaiBuilder {
-    crate::Provider::perplexity()
+pub fn perplexity() -> SiumaiBuilder {
+    SiumaiBuilder::new().perplexity()
 }
 
 /// Create the unified Perplexity provider builder.
 ///
 /// This is the Rust package-surface analogue of AI SDK `createPerplexity()`.
-pub fn create_perplexity() -> crate::provider::SiumaiBuilder {
+pub fn create_perplexity() -> SiumaiBuilder {
     perplexity()
 }
 

@@ -5,7 +5,7 @@
 
 use siumai::experimental::client::{ClientWrapper, LlmClient};
 use siumai::prelude::*;
-use siumai::provider::Siumai;
+use siumai::compat::Siumai;
 
 /// Test that ClientWrapper implements Clone
 #[test]

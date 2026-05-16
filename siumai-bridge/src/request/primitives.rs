@@ -1,6 +1,6 @@
 //! Reusable request bridge primitives.
 
-use siumai_core::bridge::{BridgeReport, BridgeWarning, BridgeWarningKind};
+use crate::{BridgeReport, BridgeWarning, BridgeWarningKind};
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, MessageContent, MessageRole};
 
 use super::target_caps::{
@@ -352,17 +352,37 @@ fn openai_responses_store_enabled(request: &ChatRequest) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use siumai_core::bridge::{BridgeMode, BridgeTarget};
+    use crate::{BridgeMode, BridgeTarget};
     use siumai_core::types::{
         CacheControl, MessageContent, MessageMetadata, MessageRole, ProviderOptionsMap,
     };
+
+    fn anthropic_cache_control_part(part: ContentPart, cache_control: CacheControl) -> ContentPart {
+        part.with_provider_option(
+            "anthropic",
+            match cache_control {
+                CacheControl::Ephemeral => serde_json::json!({
+                    "cacheControl": { "type": "ephemeral" }
+                }),
+                CacheControl::Persistent { ttl } => {
+                    let mut cache_control = serde_json::json!({ "type": "ephemeral" });
+                    if let Some(ttl) = ttl {
+                        cache_control["ttl"] = serde_json::json!(ttl.as_secs());
+                    }
+                    serde_json::json!({ "cacheControl": cache_control })
+                }
+            },
+        )
+    }
 
     #[test]
     fn anthropic_part_cache_paths_follow_canonical_part_provider_options() {
         let request = ChatRequest::new(vec![
             ChatMessage::user("hi")
-                .with_content_parts(vec![ContentPart::text("cached")])
-                .cache_control_for_part(1, CacheControl::Ephemeral)
+                .with_content_parts(vec![anthropic_cache_control_part(
+                    ContentPart::text("cached"),
+                    CacheControl::Ephemeral,
+                )])
                 .build(),
         ]);
         let mut report =

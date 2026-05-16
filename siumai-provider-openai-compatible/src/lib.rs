@@ -17,8 +17,8 @@ pub use siumai_protocol_openai::*;
 // They are intentionally not part of this legacy crate's public compatibility surface.
 #[allow(unused_imports)]
 pub(crate) use siumai_core::{
-    LlmError, auth, client, core, defaults, encoding, error, execution, hosted_tools,
-    observability, retry, retry_api, streaming, tools, traits, types, utils,
+    LlmError, auth, client, core, defaults, encoding, error, execution, observability, retry,
+    retry_api, streaming, tools, traits, types, utils,
 };
 
 pub(crate) mod builder {

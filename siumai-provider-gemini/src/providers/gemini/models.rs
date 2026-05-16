@@ -158,7 +158,7 @@ impl GeminiModels {
         loop {
             let ctx = super::context::build_context(&self.config).await;
             let spec = crate::providers::gemini::spec::GeminiSpec;
-            let mut url = spec.models_url(&ctx);
+            let mut url = spec.try_models_url(&ctx)?;
 
             // Add pagination parameters
             let mut params = Vec::new();
@@ -219,7 +219,7 @@ impl ModelListingCapability for GeminiModels {
     async fn get_model(&self, model_id: String) -> Result<ModelInfo, LlmError> {
         let ctx = super::context::build_context(&self.config).await;
         let spec = crate::providers::gemini::spec::GeminiSpec;
-        let url = spec.model_url(&model_id, &ctx);
+        let url = spec.try_model_url(&model_id, &ctx)?;
         let config = self.build_http_config(ctx);
         let result =
             crate::execution::executors::common::execute_get_request(&config, &url, None).await?;

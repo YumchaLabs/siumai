@@ -655,6 +655,30 @@ mod tests {
     use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
     use std::sync::Mutex;
 
+    fn production_source() -> &'static str {
+        include_str!("client.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn minimaxi_client_request_option_merging_does_not_read_response_metadata() {
+        let source = production_source();
+
+        assert!(
+            source.contains("with_provider_options_map(&self.config.default_provider_options_map)"),
+            "MiniMaxi client should merge config defaults through request provider options"
+        );
+
+        for forbidden in ["providerMetadata", "ProviderMetadata"] {
+            assert!(
+                !source.contains(forbidden),
+                "MiniMaxi client request paths must not read response metadata"
+            );
+        }
+    }
+
     #[derive(Clone, Default)]
     struct NoopInterceptor;
 

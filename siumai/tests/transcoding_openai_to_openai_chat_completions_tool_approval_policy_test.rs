@@ -7,6 +7,7 @@
 //! - `Drop` => the part is omitted
 //! - `AsText` => the part is downgraded into a lossy assistant text delta
 
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use std::path::Path;
 use std::sync::Arc;

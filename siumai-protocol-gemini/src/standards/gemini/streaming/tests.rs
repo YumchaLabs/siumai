@@ -68,6 +68,27 @@ fn finish_part_event(usage: Usage) -> ChatStreamEvent {
     }
 }
 
+#[test]
+fn gemini_streaming_parser_source_does_not_read_request_provider_options() {
+    let source = include_str!("mod.rs");
+    let production_source = source
+        .split("#[cfg(test)]")
+        .next()
+        .expect("production source");
+
+    for forbidden in [
+        "provider_options",
+        ".provider_options",
+        "providerOptions",
+        "ProviderOptionsMap",
+    ] {
+        assert!(
+            !production_source.contains(forbidden),
+            "Gemini streaming parser source must not read request-side provider options fragment `{forbidden}`"
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_gemini_streaming_conversion() {
     let config = create_test_config();

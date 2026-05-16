@@ -83,7 +83,7 @@ fn run_case(root: &Path) {
         ctx_fx.http_extra_headers,
     );
 
-    let got_url = spec.chat_url(req.stream, &req, &ctx);
+    let got_url = spec.try_chat_url(req.stream, &req, &ctx).unwrap();
     assert_eq!(got_url, expected_url, "fixture case: {}", root.display());
 
     let base_headers = spec.build_headers(&ctx).expect("build headers");

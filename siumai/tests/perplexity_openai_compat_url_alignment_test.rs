@@ -28,7 +28,7 @@ fn perplexity_chat_url_matches_official_endpoint() {
     req.common_params.model = "sonar".to_string();
 
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://api.perplexity.ai/chat/completions"
     );
 }

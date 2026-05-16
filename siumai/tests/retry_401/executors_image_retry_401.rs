@@ -108,7 +108,12 @@ impl ProviderSpec for TestImageSpec {
         Ok(h)
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, _ctx: &ProviderContext) -> String {
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
         unreachable!("chat not used in this test")
     }
 
@@ -120,16 +125,28 @@ impl ProviderSpec for TestImageSpec {
         unreachable!("chat not used in this test")
     }
 
-    fn image_url(&self, _req: &ImageGenerationRequest, _ctx: &ProviderContext) -> String {
-        format!("{}/image", self.base_url)
+    fn try_image_url(
+        &self,
+        _req: &ImageGenerationRequest,
+        _ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/image", self.base_url))
     }
 
-    fn image_edit_url(&self, _req: &ImageEditRequest, _ctx: &ProviderContext) -> String {
-        format!("{}/image", self.base_url)
+    fn try_image_edit_url(
+        &self,
+        _req: &ImageEditRequest,
+        _ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/image", self.base_url))
     }
 
-    fn image_variation_url(&self, _req: &ImageVariationRequest, _ctx: &ProviderContext) -> String {
-        format!("{}/image", self.base_url)
+    fn try_image_variation_url(
+        &self,
+        _req: &ImageVariationRequest,
+        _ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(format!("{}/image", self.base_url))
     }
 
     fn choose_image_transformers(

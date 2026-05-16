@@ -35,26 +35,26 @@ mod tests {
 
     #[test]
     fn resolves_provider_reference_or_returns_error_carrier() {
-        let reference = ProviderReference::from([("openai", "file-openai")]);
+        let reference = ProviderReference::from([("provider-a", "file-provider-a")]);
 
         assert_eq!(
-            resolve_provider_reference(&reference, "openai").expect("provider reference"),
-            "file-openai"
+            resolve_provider_reference(&reference, "provider-a").expect("provider reference"),
+            "file-provider-a"
         );
 
-        let error = resolve_provider_reference(&reference, "anthropic")
+        let error = resolve_provider_reference(&reference, "provider-b")
             .expect_err("missing provider should return error carrier");
-        assert_eq!(error.provider, "anthropic");
+        assert_eq!(error.provider, "provider-b");
         assert_eq!(
-            error.reference.get("openai").map(String::as_str),
-            Some("file-openai")
+            error.reference.get("provider-a").map(String::as_str),
+            Some("file-provider-a")
         );
     }
 
     #[test]
     fn checks_file_part_source_provider_reference() {
         assert!(is_provider_reference(
-            &FilePartSource::single_provider_reference("openai", "file-openai")
+            &FilePartSource::single_provider_reference("provider-a", "file-provider-a")
         ));
         assert!(!is_provider_reference(&FilePartSource::url(
             "https://example.com/image.png"

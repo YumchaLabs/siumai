@@ -40,7 +40,6 @@ fn provider_options_object<'a>(
 
 fn extract_thought_signature(
     provider_options: Option<&crate::types::ProviderOptionsMap>,
-    provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
     config: Option<&GeminiConfig>,
 ) -> Option<String> {
     if let Some(sig) = provider_options_object(provider_options, config)
@@ -55,53 +54,16 @@ fn extract_thought_signature(
             return Some(sig.to_string());
         }
     }
-
-    let map = provider_metadata.as_ref()?;
-    for key in preferred_provider_option_keys(config) {
-        let Some(v) = map.get(key) else {
-            continue;
-        };
-        if let Some(sig) = v.get("thoughtSignature").and_then(|s| s.as_str()) {
-            let sig = sig.trim();
-            if !sig.is_empty() {
-                return Some(sig.to_string());
-            }
-        }
-    }
-    // Also accept a flat shape: { "thoughtSignature": "..." }
-    if let Some(sig) = map
-        .get("thoughtSignature")
-        .and_then(|s| s.as_str())
-        .map(str::trim)
-        && !sig.is_empty()
-    {
-        return Some(sig.to_string());
-    }
     None
 }
 
 fn extract_thought_flag(
     provider_options: Option<&crate::types::ProviderOptionsMap>,
-    provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
     config: Option<&GeminiConfig>,
 ) -> bool {
     provider_options_object(provider_options, config)
         .and_then(|map| map.get("thought"))
         .and_then(|value| value.as_bool())
-        .or_else(|| {
-            provider_metadata.as_ref().and_then(|map| {
-                for key in preferred_provider_option_keys(config) {
-                    if let Some(flag) = map
-                        .get(key)
-                        .and_then(|value| value.get("thought"))
-                        .and_then(|value| value.as_bool())
-                    {
-                        return Some(flag);
-                    }
-                }
-                map.get("thought").and_then(|value| value.as_bool())
-            })
-        })
         .unwrap_or(false)
 }
 
@@ -429,14 +391,11 @@ pub fn convert_message_to_content(
                     crate::types::ContentPart::Text {
                         text,
                         provider_options,
-                        provider_metadata,
+                        provider_metadata: _,
                     } => {
                         if !text.is_empty() {
-                            let thought_signature = extract_thought_signature(
-                                Some(provider_options),
-                                provider_metadata,
-                                config,
-                            );
+                            let thought_signature =
+                                extract_thought_signature(Some(provider_options), config);
                             parts.push(Part::Text {
                                 text: text.clone(),
                                 thought: None,
@@ -447,23 +406,19 @@ pub fn convert_message_to_content(
                     crate::types::ContentPart::Image {
                         source,
                         provider_options,
-                        provider_metadata,
+                        provider_metadata: _,
                         ..
                     }
                     | crate::types::ContentPart::File {
                         source,
                         provider_options,
-                        provider_metadata,
+                        provider_metadata: _,
                         ..
                     } => {
-                        let thought_signature = extract_thought_signature(
-                            Some(provider_options),
-                            provider_metadata,
-                            config,
-                        );
+                        let thought_signature =
+                            extract_thought_signature(Some(provider_options), config);
                         let thought =
-                            extract_thought_flag(Some(provider_options), provider_metadata, config)
-                                .then_some(true);
+                            extract_thought_flag(Some(provider_options), config).then_some(true);
                         let Some(source) = source.as_media_source() else {
                             return Err(LlmError::InvalidParameter(
                                 "Gemini prompt parts do not support provider-managed file references"
@@ -579,17 +534,13 @@ pub fn convert_message_to_content(
                         source,
                         media_type,
                         provider_options,
-                        provider_metadata,
+                        provider_metadata: _,
                         ..
                     } => {
-                        let thought_signature = extract_thought_signature(
-                            Some(provider_options),
-                            provider_metadata,
-                            config,
-                        );
+                        let thought_signature =
+                            extract_thought_signature(Some(provider_options), config);
                         let thought =
-                            extract_thought_flag(Some(provider_options), provider_metadata, config)
-                                .then_some(true);
+                            extract_thought_flag(Some(provider_options), config).then_some(true);
 
                         match source {
                             crate::types::chat::MediaSource::Url { url } => {
@@ -658,17 +609,14 @@ pub fn convert_message_to_content(
                         source,
                         media_type,
                         provider_options,
-                        provider_metadata,
+                        provider_metadata: _,
                     } => {
                         if role.as_deref() != Some("model") {
                             continue;
                         }
 
-                        let thought_signature = extract_thought_signature(
-                            Some(provider_options),
-                            provider_metadata,
-                            config,
-                        );
+                        let thought_signature =
+                            extract_thought_signature(Some(provider_options), config);
                         match source {
                             crate::types::chat::MediaSource::Url { .. } => {
                                 return Err(LlmError::InvalidParameter(
@@ -713,15 +661,12 @@ pub fn convert_message_to_content(
                     crate::types::ContentPart::Reasoning {
                         text,
                         provider_options,
-                        provider_metadata,
+                        provider_metadata: _,
                     } => {
                         // Vercel-aligned: assistant reasoning is represented as a "thought" text part.
                         if role.as_deref() == Some("model") && !text.trim().is_empty() {
-                            let thought_signature = extract_thought_signature(
-                                Some(provider_options),
-                                provider_metadata,
-                                config,
-                            );
+                            let thought_signature =
+                                extract_thought_signature(Some(provider_options), config);
                             parts.push(Part::Text {
                                 text: text.clone(),
                                 thought: Some(true),
@@ -763,12 +708,11 @@ pub fn convert_message_to_content(
             arguments,
             provider_executed,
             provider_options,
-            provider_metadata,
+            provider_metadata: _,
             ..
         } = part
         {
-            let thought_signature =
-                extract_thought_signature(Some(provider_options), provider_metadata, config);
+            let thought_signature = extract_thought_signature(Some(provider_options), config);
             if *provider_executed == Some(true) && tool_name == "code_execution" {
                 let language = match arguments.get("language").and_then(|value| value.as_str()) {
                     Some("PYTHON") => super::types::CodeLanguage::Python,
@@ -803,12 +747,11 @@ pub fn convert_message_to_content(
             output,
             provider_executed,
             provider_options,
-            provider_metadata,
+            provider_metadata: _,
             ..
         } = part
         {
-            let thought_signature =
-                extract_thought_signature(Some(provider_options), provider_metadata, config);
+            let thought_signature = extract_thought_signature(Some(provider_options), config);
 
             fn json_value_to_option_string(value: &serde_json::Value) -> Option<String> {
                 match value {
@@ -1961,6 +1904,73 @@ mod system_and_tool_message_tests {
                 assert_eq!(thought_signature.as_deref(), Some("sig_1"));
             }
             other => panic!("expected inline thought file part, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn request_conversion_ignores_legacy_provider_metadata_thought_signature() {
+        let message = crate::types::ChatMessage::assistant_with_content(vec![
+            crate::types::ContentPart::Reasoning {
+                text: "thinking".to_string(),
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(std::collections::HashMap::from([(
+                    "google".to_string(),
+                    serde_json::json!({
+                        "thought": true,
+                        "thoughtSignature": "legacy_sig"
+                    }),
+                )])),
+            },
+        ])
+        .build();
+
+        let content = convert_message_to_content(&message, None).expect("convert");
+
+        match &content.parts[0] {
+            Part::Text {
+                thought,
+                thought_signature,
+                ..
+            } => {
+                assert_eq!(*thought, Some(true));
+                assert_eq!(thought_signature, &None);
+            }
+            other => panic!("expected reasoning text part, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn request_conversion_source_only_ignores_legacy_provider_metadata_fields() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/gemini/convert.rs"
+        ));
+        let implementation = source
+            .lines()
+            .take_while(|line| !line.contains("mod tests {"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for (index, line) in implementation.lines().enumerate() {
+            if line.contains("provider_metadata") {
+                assert!(
+                    line.contains("provider_metadata_key") || line.contains("provider_metadata: _"),
+                    "Gemini request conversion should not read legacy provider_metadata at implementation line {}: {line}",
+                    index + 1
+                );
+            }
+        }
+
+        for forbidden in [
+            "extract_thought_signature(Some(provider_metadata",
+            "extract_thought_signature(provider_metadata",
+            "extract_thought_flag(Some(provider_metadata",
+            "extract_thought_flag(provider_metadata",
+        ] {
+            assert!(
+                !implementation.contains(forbidden),
+                "Gemini request conversion should not replay thought metadata from legacy provider_metadata via {forbidden}"
+            );
         }
     }
 

@@ -10,7 +10,7 @@ use std::borrow::Cow;
 
 /// Unified LLM client interface
 pub trait LlmClient: Send + Sync {
-    /// Get the canonical provider id (e.g., "openai", "anthropic")
+    /// Get the canonical provider id, for example `"provider-id"`.
     fn provider_id(&self) -> Cow<'static, str>;
 
     /// Get the provider type. Default implementation maps from `provider_id()`.
@@ -200,7 +200,7 @@ pub trait LlmClient: Send + Sync {
 /// use siumai::prelude::*;
 ///
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
-///     let model = registry::global().language_model("openai:gpt-4o-mini")?;
+///     let model = registry::global().language_model("provider-id:model-id")?;
 ///     let request = ChatRequest::new(vec![user!("Hello")]);
 ///     let _response =
 ///         siumai::text::generate(&model, request, siumai::text::GenerateOptions::default())
@@ -217,13 +217,9 @@ pub trait LlmClient: Send + Sync {
 /// use siumai::prelude::*;
 ///
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
-///     // Create a client first
-///     let openai_client = Provider::openai()
-///         .api_key("key")
-///         .build()
-///         .await?;
+///     let provider_client = build_provider_client().await?;
 ///
-///     let wrapper = ClientWrapper::openai(Box::new(openai_client));
+///     let wrapper = ClientWrapper::new(Box::new(provider_client));
 ///     let provider_type = wrapper.provider_type();
 ///     let capabilities = wrapper.get_capabilities();
 ///     Ok(())
@@ -263,36 +259,6 @@ impl ClientWrapper {
     /// Creates a provider-agnostic client wrapper.
     pub fn new(client: Box<dyn LlmClient>) -> Self {
         Self::Client(client)
-    }
-
-    /// Creates an `OpenAI` client wrapper
-    pub fn openai(client: Box<dyn LlmClient>) -> Self {
-        Self::new(client)
-    }
-
-    /// Creates an Anthropic client wrapper
-    pub fn anthropic(client: Box<dyn LlmClient>) -> Self {
-        Self::new(client)
-    }
-
-    /// Creates a Gemini client wrapper
-    pub fn gemini(client: Box<dyn LlmClient>) -> Self {
-        Self::new(client)
-    }
-
-    /// Creates a Groq client wrapper
-    pub fn groq(client: Box<dyn LlmClient>) -> Self {
-        Self::new(client)
-    }
-
-    /// Creates an xAI client wrapper
-    pub fn xai(client: Box<dyn LlmClient>) -> Self {
-        Self::new(client)
-    }
-
-    /// Creates an Ollama client wrapper
-    pub fn ollama(client: Box<dyn LlmClient>) -> Self {
-        Self::new(client)
     }
 
     /// Creates a custom client wrapper

@@ -71,7 +71,7 @@ impl MinimaxiConfig {
                 model: Self::DEFAULT_MODEL.to_string(),
                 ..Default::default()
             },
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
@@ -239,7 +239,7 @@ impl Default for MinimaxiConfig {
                 model: Self::DEFAULT_MODEL.to_string(),
                 ..Default::default()
             },
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),

@@ -28,7 +28,7 @@ fn fireworks_chat_url_matches_official_openai_compatible_endpoint() {
     req.common_params.model = "accounts/fireworks/models/llama-v3p1-8b-instruct".to_string();
 
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://api.fireworks.ai/inference/v1/chat/completions"
     );
 }
@@ -40,7 +40,7 @@ fn fireworks_embedding_url_matches_official_openai_compatible_endpoint() {
 
     let req = EmbeddingRequest::new(vec!["hi".into()]).with_model("nomic-ai/nomic-embed-text-v1.5");
     assert_eq!(
-        spec.embedding_url(&req, &ctx),
+        spec.try_embedding_url(&req, &ctx).unwrap(),
         "https://api.fireworks.ai/inference/v1/embeddings"
     );
 }

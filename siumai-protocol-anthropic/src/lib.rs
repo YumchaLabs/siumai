@@ -15,9 +15,11 @@
 // Protocol crates must not publicly mirror `siumai-core`.
 #[allow(unused_imports)]
 pub(crate) use siumai_core::{
-    LlmError, auth, client, core, defaults, encoding, error, execution, hosted_tools,
-    observability, retry, retry_api, streaming, tools, traits, types, utils,
+    LlmError, auth, client, core, defaults, encoding, error, execution, observability, retry,
+    retry_api, streaming, tools, traits, types, utils,
 };
+
+pub mod hosted_tools;
 
 /// Builder utilities shared across provider crates.
 pub(crate) mod builder {

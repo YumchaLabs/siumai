@@ -1,7 +1,7 @@
 //! Response bridge serialization.
 
+use crate::{BridgeMode, BridgeOptions, BridgeResult, BridgeTarget};
 use siumai_core::LlmError;
-use siumai_core::bridge::{BridgeMode, BridgeOptions, BridgeResult, BridgeTarget};
 use siumai_core::encoding::JsonEncodeOptions;
 use siumai_core::types::ChatResponse;
 
@@ -134,8 +134,8 @@ define_response_bridge_wrappers!(
 
 fn should_reject_response(
     options: &BridgeOptions,
-    ctx: &siumai_core::bridge::ResponseBridgeContext,
-    report: &mut siumai_core::bridge::BridgeReport,
+    ctx: &crate::ResponseBridgeContext,
+    report: &mut crate::BridgeReport,
 ) -> bool {
     let action = options.loss_policy.response_action(ctx, report);
     reject_if_needed(report, action, "response", ctx.target)

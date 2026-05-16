@@ -1,6 +1,8 @@
 //! Stream bridge implementation.
 
 mod inspect;
+#[cfg(feature = "openai")]
+mod openai_responses_parts_bridge;
 mod profile;
 mod serialize;
 
@@ -8,6 +10,8 @@ mod serialize;
 mod tests;
 
 pub use inspect::inspect_chat_stream_bridge;
+#[cfg(feature = "openai")]
+pub use openai_responses_parts_bridge::OpenAiResponsesStreamPartsBridge;
 pub use serialize::{
     bridge_chat_stream_to_bytes, bridge_chat_stream_to_bytes_with_options,
     transform_chat_stream_with_bridge_options,

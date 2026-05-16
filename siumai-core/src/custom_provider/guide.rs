@@ -82,26 +82,26 @@ use serde_json;
 ///
 /// ## Step 3: Use the client
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// # use siumai::prelude::*;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let client = quick_openai().await?;
+/// # let client = build_custom_client().await?;
 /// let messages = vec![user!("Hello, how are you?")];
 /// let response = client.chat_with_tools(messages, None).await?;
 /// println!("Response: {}", response.content.text().unwrap_or(""));
 /// # Ok(())
 /// # }
 /// ```
-/// Example: Hugging Face Provider
+/// Example: HTTP Chat Provider
 ///
-/// This example shows how to implement a provider for Hugging Face's Inference API
-pub struct HuggingFaceProvider {
+/// This example shows how to implement a provider for a JSON HTTP chat API.
+pub struct ExampleHttpProvider {
     http_client: reqwest::Client,
     config: CustomProviderConfig,
 }
 
-impl HuggingFaceProvider {
+impl ExampleHttpProvider {
     pub fn new(config: CustomProviderConfig) -> Self {
         let http_client = reqwest::Client::new();
         Self {
@@ -110,7 +110,7 @@ impl HuggingFaceProvider {
         }
     }
 
-    /// Convert messages to Hugging Face format
+    /// Convert messages to the provider JSON format
     fn convert_messages(&self, messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         messages
             .iter()
@@ -148,7 +148,7 @@ impl HuggingFaceProvider {
         payload
     }
 
-    /// Parse response from Hugging Face API
+    /// Parse response from the provider API
     fn parse_response(
         &self,
         response_data: serde_json::Value,
@@ -213,17 +213,17 @@ impl HuggingFaceProvider {
 }
 
 #[async_trait]
-impl CustomProvider for HuggingFaceProvider {
+impl CustomProvider for ExampleHttpProvider {
     fn name(&self) -> &str {
-        "huggingface"
+        "example-http"
     }
 
     fn supported_models(&self) -> Vec<String> {
         vec![
-            "microsoft/DialoGPT-medium".to_string(),
-            "microsoft/DialoGPT-large".to_string(),
-            "facebook/blenderbot-400M-distill".to_string(),
-            "facebook/blenderbot-1B-distill".to_string(),
+            "example-chat-small".to_string(),
+            "example-chat-large".to_string(),
+            "example-chat-reasoning".to_string(),
+            "example-chat-fast".to_string(),
         ]
     }
 
@@ -232,7 +232,7 @@ impl CustomProvider for HuggingFaceProvider {
     }
 
     async fn chat(&self, request: CustomChatRequest) -> Result<CustomChatResponse, LlmError> {
-        let url = format!("{}/chat/completions", self.config.base_url);
+        let url = format!("{}/chat", self.config.base_url);
         let payload = self.build_request_payload(&request);
 
         let mut req_builder = self
@@ -257,7 +257,7 @@ impl CustomProvider for HuggingFaceProvider {
             let error_text = response.text().await.unwrap_or_default();
             return Err(LlmError::api_error(
                 status_code,
-                format!("Hugging Face API error: {error_text}"),
+                format!("Provider API error: {error_text}"),
             ));
         }
 
@@ -317,10 +317,10 @@ impl CustomProvider for HuggingFaceProvider {
             ));
         }
 
-        // Add Hugging Face-specific validation
-        if !config.base_url.contains("huggingface") && !config.base_url.contains("hf.co") {
+        // Add provider-specific validation.
+        if !config.base_url.starts_with("https://") {
             return Err(LlmError::InvalidParameter(
-                "Base URL should be a Hugging Face endpoint".to_string(),
+                "Base URL should use HTTPS".to_string(),
             ));
         }
 
@@ -328,18 +328,18 @@ impl CustomProvider for HuggingFaceProvider {
     }
 }
 
-/// Builder for Hugging Face provider
-pub struct HuggingFaceProviderBuilder {
+/// Builder for the example HTTP provider
+pub struct ExampleHttpProviderBuilder {
     config: Option<CustomProviderConfig>,
 }
 
-impl Default for HuggingFaceProviderBuilder {
+impl Default for ExampleHttpProviderBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HuggingFaceProviderBuilder {
+impl ExampleHttpProviderBuilder {
     pub const fn new() -> Self {
         Self { config: None }
     }
@@ -351,21 +351,21 @@ impl HuggingFaceProviderBuilder {
 
     pub fn with_api_key<S: Into<String>>(self, api_key: S) -> Self {
         let config = CustomProviderConfig::new(
-            "huggingface",
-            "https://api-inference.huggingface.co/models",
+            "example-http",
+            "https://api.example.com/v1",
             &api_key.into(),
         );
         self.with_config(config)
     }
 }
 
-impl CustomProviderBuilder for HuggingFaceProviderBuilder {
+impl CustomProviderBuilder for ExampleHttpProviderBuilder {
     fn build(self) -> Result<std::sync::Arc<dyn CustomProvider>, LlmError> {
         let config = self
             .config
             .ok_or_else(|| LlmError::ConfigurationError("Configuration is required".to_string()))?;
 
-        let provider = HuggingFaceProvider::new(config);
+        let provider = ExampleHttpProvider::new(config);
         Ok(std::sync::Arc::new(provider))
     }
 }
@@ -374,7 +374,11 @@ impl CustomProviderBuilder for HuggingFaceProviderBuilder {
 pub mod utils {
     use super::*;
 
-    /// Convert standard `ChatMessage` to a generic JSON format
+    /// Convert standard `ChatMessage` to a generic JSON format.
+    ///
+    /// The guide intentionally does not pattern-match legacy `ContentPart` variants here. Custom
+    /// providers should own their protocol serialization outside `siumai-core` instead of copying
+    /// core documentation examples into provider request mappers.
     pub fn message_to_json(message: &ChatMessage) -> serde_json::Value {
         serde_json::json!({
             "role": match message.role {
@@ -387,26 +391,19 @@ pub mod utils {
             "content": match &message.content {
                 MessageContent::Text(text) => serde_json::Value::String(text.clone()),
                 MessageContent::MultiModal(parts) => {
-                    let content_parts: Vec<serde_json::Value> = parts.iter().map(|part| {
-                        match part {
-                            ContentPart::Text { text } => serde_json::json!({
-                                "type": "text",
-                                "text": text
-                            }),
-                            ContentPart::Image { image_url, detail } => serde_json::json!({
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": image_url,
-                                    "detail": detail.as_deref().unwrap_or("auto")
-                                }
-                            }),
-                            ContentPart::Audio { audio_url, format } => serde_json::json!({
-                                "type": "audio",
-                                "audio_url": audio_url,
-                                "format": format
-                            }),
-                        }
-                    }).collect();
+                    let content_parts: Vec<serde_json::Value> = parts
+                        .iter()
+                        .map(|part| {
+                            part.as_text()
+                                .map(|text| serde_json::json!({ "type": "text", "text": text }))
+                                .unwrap_or_else(|| {
+                                    serde_json::json!({
+                                        "type": "unsupported",
+                                        "note": "provider-specific content serialization belongs outside siumai-core"
+                                    })
+                                })
+                        })
+                        .collect();
                     serde_json::Value::Array(content_parts)
                 }
             }
@@ -438,15 +435,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_huggingface_provider_creation() {
-        let config = CustomProviderConfig::new(
-            "huggingface",
-            "https://api-inference.huggingface.co/models",
-            "test-key",
-        );
+    fn test_example_http_provider_creation() {
+        let config =
+            CustomProviderConfig::new("example-http", "https://api.example.com/v1", "test-key");
 
-        let provider = HuggingFaceProvider::new(config);
-        assert_eq!(provider.name(), "huggingface");
+        let provider = ExampleHttpProvider::new(config);
+        assert_eq!(provider.name(), "example-http");
         assert!(!provider.supported_models().is_empty());
     }
 

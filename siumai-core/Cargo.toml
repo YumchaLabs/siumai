@@ -25,7 +25,6 @@ siumai-spec = { workspace = true, default-features = false }
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-jsonwebtoken = { workspace = true, optional = true }
 reqwest.workspace = true
 http.workspace = true
 tokio.workspace = true
@@ -67,7 +66,7 @@ cohere = []
 togetherai = []
 bedrock = []
 
-gcp = ["dep:jsonwebtoken", "google"]
+gcp = ["google"]
 json-repair = ["dep:jsonrepair"]
 
 gzip = []

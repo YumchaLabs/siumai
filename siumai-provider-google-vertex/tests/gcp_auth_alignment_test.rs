@@ -1,8 +1,10 @@
 #![cfg(feature = "gcp")]
 
-use siumai_core::auth::TokenProvider;
-use siumai_core::auth::adc::AdcTokenProvider;
-use siumai_core::auth::service_account::{ServiceAccountCredentials, ServiceAccountTokenProvider};
+use siumai_provider_google_vertex::auth::TokenProvider;
+use siumai_provider_google_vertex::auth::adc::AdcTokenProvider;
+use siumai_provider_google_vertex::auth::service_account::{
+    ServiceAccountCredentials, ServiceAccountTokenProvider,
+};
 
 struct EnvGuard {
     key: &'static str,

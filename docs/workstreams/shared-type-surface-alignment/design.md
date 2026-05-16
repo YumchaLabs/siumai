@@ -224,12 +224,16 @@ surface.
 
 For the AI SDK `Provider` interface, the honest Rust equivalent is the registry `ProviderFactory`
 trait because it owns model-family factory methods. The historical `siumai::Provider` type remains
-a top-level/compat construction helper, so this workstream exposes `ProviderFactory` directly
-instead of aliasing the old builder entry point to an incompatible provider-interface meaning.
+a top-level/compat construction helper, so this workstream exposed `ProviderFactory` instead of
+aliasing the old builder entry point to an incompatible provider-interface meaning. Later fearless
+boundary convergence narrowed that path to `siumai::prelude::unified::registry::*`, keeping the
+registry contract grouped with the registry surface.
 
-The existing runtime `LanguageModelMiddleware` trait is also re-exported directly. Embedding and
-image middleware are intentionally not fabricated in this slice because there is no corresponding
-embedding/image middleware execution path yet.
+The existing runtime `LanguageModelMiddleware` trait was also made public. Later fearless boundary
+convergence classified it as advanced execution infrastructure, so the current path is
+`siumai::experimental::execution::middleware::*` instead of top-level `prelude::unified::*`.
+Embedding and image middleware are intentionally not fabricated in this slice because there is no
+corresponding embedding/image middleware execution path yet.
 
 The schema helpers are also re-exported from `siumai::prelude::unified::*` so root-package audits
 against `repo-ref/ai/packages/ai/src/index.ts` can see the provider-utils schema surface without
@@ -241,8 +245,10 @@ the package root, not only from a nested utility module.
 The tool runtime helpers are also root facade exports. The historical `tool!` macro remains
 available in macro syntax, while `tool(...)` is the value-level helper aligned with provider-utils.
 
-`parse_json_event_stream` is root-exported and prelude-exported as the public wrapper around the
-existing provider-agnostic SSE JSON parser.
+`parse_json_event_stream` is root-exported as the public wrapper around the existing
+provider-agnostic SSE JSON parser. Later fearless boundary convergence removed the direct
+`prelude::unified::*` export because it is a low-level parser helper, not one of the stable
+model-family prelude names.
 
 ## Validation
 

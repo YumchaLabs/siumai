@@ -123,13 +123,18 @@ impl ProviderSpec for OpenAiEmbeddingSpec {
         }
     }
 
-    fn embedding_url(&self, _req: &EmbeddingRequest, ctx: &ProviderContext) -> String {
+    fn try_embedding_url(
+        &self,
+        req: &EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        let _ = req;
         let endpoint = self
             .adapter
             .as_ref()
             .map(|a| a.embedding_endpoint())
             .unwrap_or("/embeddings");
-        crate::utils::url::join_url(&ctx.base_url, endpoint)
+        Ok(crate::utils::url::join_url(&ctx.base_url, endpoint))
     }
 }
 

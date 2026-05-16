@@ -2,16 +2,17 @@ pub use siumai_provider_togetherai::providers::togetherai::{
     TogetherAIErrorData, TogetherAIProviderSettings, TogetherAiBuilder, TogetherAiClient,
     TogetherAiConfig, VERSION,
 };
+use siumai_registry::provider::SiumaiBuilder;
 
 /// Create the unified TogetherAI provider builder.
-pub fn togetherai() -> crate::provider::SiumaiBuilder {
-    crate::Provider::togetherai()
+pub fn togetherai() -> SiumaiBuilder {
+    SiumaiBuilder::new().togetherai()
 }
 
 /// Create the unified TogetherAI provider builder.
 ///
 /// This is the Rust package-surface analogue of AI SDK `createTogetherAI()`.
-pub fn create_togetherai() -> crate::provider::SiumaiBuilder {
+pub fn create_togetherai() -> SiumaiBuilder {
     togetherai()
 }
 

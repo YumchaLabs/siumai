@@ -73,8 +73,12 @@ impl ProviderSpec for CohereRerankSpec {
         )
     }
 
-    fn rerank_url(&self, _req: &RerankRequest, ctx: &ProviderContext) -> String {
-        crate::utils::url::join_url(&ctx.base_url, "/rerank")
+    fn try_rerank_url(
+        &self,
+        _req: &RerankRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(crate::utils::url::join_url(&ctx.base_url, "/rerank"))
     }
 
     fn choose_rerank_transformers(

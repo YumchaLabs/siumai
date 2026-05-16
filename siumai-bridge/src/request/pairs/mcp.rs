@@ -1,5 +1,5 @@
+use crate::BridgeReport;
 use serde_json::{Map, Value, json};
-use siumai_core::bridge::BridgeReport;
 use siumai_core::types::{ChatRequest, ProviderDefinedTool};
 
 pub(crate) const ANTHROPIC_MCP_SERVER_CHOICE_ALIAS: &str = "__anthropic_mcp_server__";

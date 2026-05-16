@@ -32,6 +32,7 @@ async-stream.workspace = true
 eventsource-stream.workspace = true
 tokio-util.workspace = true
 chrono.workspace = true
+jsonwebtoken = { workspace = true, optional = true }
 thiserror.workspace = true
 uuid.workspace = true
 tracing.workspace = true
@@ -51,7 +52,7 @@ structured-messages = [
 ]
 
 # Enables GCP authentication helpers (ADC / service account token providers).
-gcp = ["siumai-core/gcp"]
+gcp = ["dep:jsonwebtoken"]
 
 # Enables Google-related shared types in `siumai-core`.
 google-vertex = [
@@ -61,3 +62,6 @@ google-vertex = [
     "dep:siumai-protocol-anthropic",
     "siumai-protocol-anthropic/anthropic-standard",
 ]
+
+[dev-dependencies]
+mockito.workspace = true

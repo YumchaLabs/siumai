@@ -1,4 +1,3 @@
-#![allow(clippy::collapsible_if)]
 //! Hook Builder for composable request transformers
 //!
 //! This module provides a builder pattern for creating ProviderRequestHooks
@@ -37,15 +36,21 @@ pub type ImagePostProcessor =
 ///
 /// # Example
 /// ```rust,no_run
-/// use siumai::experimental::execution::transformers::hook_builder::HookBuilder;
+/// use siumai_core::execution::transformers::hook_builder::HookBuilder;
 /// use serde_json::json;
 ///
 /// let hooks = HookBuilder::new()
-///     .with_openai_base()
+///     .with_chat_body_builder(|req| {
+///         Ok(json!({
+///             "model": req.common_params.model.clone(),
+///             "input": req.messages.clone(),
+///             "stream": req.stream,
+///         }))
+///     })
 ///     .with_chat_validator(|req, body| {
 ///         // Custom validation logic
 ///         if req.messages.is_empty() {
-///             return Err(siumai::error::LlmError::InvalidInput(
+///             return Err(siumai_core::error::LlmError::InvalidInput(
 ///                 "Messages cannot be empty".to_string()
 ///             ));
 ///         }
@@ -80,22 +85,6 @@ impl HookBuilder {
             image_body_builder: None,
             image_post_processors: Vec::new(),
         }
-    }
-
-    /// Start with OpenAI-compatible base chat body builder
-    ///
-    /// This provides a standard OpenAI-compatible chat request structure
-    pub fn with_openai_base(mut self) -> Self {
-        self.chat_body_builder = Some(Arc::new(openai_base_chat_body));
-        self
-    }
-
-    /// Start with Anthropic-compatible base chat body builder
-    ///
-    /// This provides a standard Anthropic-compatible chat request structure
-    pub fn with_anthropic_base(mut self) -> Self {
-        self.chat_body_builder = Some(Arc::new(anthropic_base_chat_body));
-        self
     }
 
     /// Set a custom chat body builder
@@ -250,69 +239,4 @@ impl ProviderRequestHooks for ComposableHooks {
         }
         Ok(())
     }
-}
-
-// ============================================================================
-// Built-in base body builders
-// ============================================================================
-
-/// OpenAI-compatible base chat body builder
-fn openai_base_chat_body(req: &ChatRequest) -> Result<Value, LlmError> {
-    use serde_json::json;
-
-    let mut body = json!({
-        "model": req.common_params.model,
-        "messages": req.messages,
-    });
-
-    // Add common parameters if present
-    if let Some(temp) = req.common_params.temperature {
-        body["temperature"] = json!(temp);
-    }
-    if let Some(max_tokens) = req.common_params.max_tokens {
-        body["max_tokens"] = json!(max_tokens);
-    }
-    if let Some(top_p) = req.common_params.top_p {
-        body["top_p"] = json!(top_p);
-    }
-    if req.stream {
-        body["stream"] = json!(true);
-    }
-
-    Ok(body)
-}
-
-/// Anthropic-compatible base chat body builder
-fn anthropic_base_chat_body(req: &ChatRequest) -> Result<Value, LlmError> {
-    use serde_json::json;
-
-    // Anthropic requires system messages to be separate
-    let (system_messages, user_messages): (Vec<_>, Vec<_>) = req
-        .messages
-        .iter()
-        .partition(|m| matches!(m.role, crate::types::MessageRole::System));
-
-    let mut body = json!({
-        "model": req.common_params.model,
-        "messages": user_messages,
-        "max_tokens": req.common_params.max_tokens.unwrap_or(1024),
-    });
-
-    // Add system message if present
-    if !system_messages.is_empty()
-        && let Some(first_system) = system_messages.first()
-        && let crate::types::MessageContent::Text(text) = &first_system.content
-    {
-        body["system"] = json!(text);
-    }
-
-    // Add common parameters
-    if let Some(temp) = req.common_params.temperature {
-        body["temperature"] = json!(temp);
-    }
-    if let Some(top_p) = req.common_params.top_p {
-        body["top_p"] = json!(top_p);
-    }
-
-    Ok(body)
 }

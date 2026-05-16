@@ -3,7 +3,7 @@
 //! The planner decides which high-level path a bridge should take. It does not
 //! perform protocol serialization itself.
 
-use siumai_core::bridge::BridgeTarget;
+use crate::BridgeTarget;
 
 use super::request::pairs::{DirectRequestBridgePair, direct_request_bridge_pair};
 

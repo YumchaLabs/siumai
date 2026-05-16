@@ -79,7 +79,7 @@ impl VertexAnthropicConfig {
         Self {
             base_url: base_url.into(),
             model: model.into(),
-            http_config: crate::types::HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             // AI SDK's Vertex Anthropic wrapper disables native structured outputs by default and
             // therefore routes JSON schema requests through the reserved `json` tool fallback.
             default_provider_options_map: default_vertex_anthropic_provider_options_map(),
@@ -512,7 +512,9 @@ impl VertexAnthropicClient {
 impl ModelListingCapability for VertexAnthropicClient {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let config = self.build_models_http_config().await;
-        let url = config.provider_spec.models_url(&config.provider_context);
+        let url = config
+            .provider_spec
+            .try_models_url(&config.provider_context)?;
         let res = execute_get_request(&config, &url, None).await?;
         let json = res.json;
         let mut out = Vec::new();
@@ -570,9 +572,10 @@ impl ModelListingCapability for VertexAnthropicClient {
 
     async fn get_model(&self, model_id: String) -> Result<ModelInfo, LlmError> {
         // Attempt to fetch a specific model; if endpoint is unavailable, fallback to minimal info
-        let url =
-            crate::utils::url::join_url(&self.config.base_url, &format!("models/{}", model_id));
         let config = self.build_models_http_config().await;
+        let url = config
+            .provider_spec
+            .try_model_url(&model_id, &config.provider_context)?;
         let res = match execute_get_request(&config, &url, None).await {
             Ok(res) => res,
             Err(_) => {
@@ -687,6 +690,37 @@ mod tests {
         sync::{Arc, Mutex},
         time::Duration,
     };
+
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn vertex_anthropic_client_default_provider_options_do_not_read_response_metadata() {
+        let source = include_str!("client.rs");
+        let config_source = source_section(
+            source,
+            "fn default_vertex_anthropic_provider_options_map",
+            "impl std::fmt::Debug for AnthropicVertexConfig",
+        );
+
+        assert!(
+            config_source.contains("ProviderOptionsMap"),
+            "Anthropic-on-Vertex config should keep defaults in request provider options"
+        );
+
+        for forbidden in ["provider_metadata", "ProviderMetadata", "providerMetadata"] {
+            assert!(
+                !config_source.contains(forbidden),
+                "Anthropic-on-Vertex client default request options must not read response metadata"
+            );
+        }
+    }
 
     #[derive(Clone, Default)]
     struct CaptureTransport {
@@ -1205,7 +1239,7 @@ mod tests {
         let cfg = VertexAnthropicConfig {
             base_url: "https://example.invalid".to_string(),
             model: "claude-3-5-sonnet-v2@20241022".to_string(),
-            http_config: crate::types::HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             default_provider_options_map: crate::types::ProviderOptionsMap::default(),
             http_transport: None,
             token_provider: None,
@@ -1262,7 +1296,7 @@ mod tests {
             "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
             "claude-3-5-sonnet-v2@20241022",
         )
-        .with_http_config(crate::types::HttpConfig::default());
+        .with_http_config(crate::defaults::http::config_default());
         let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()
@@ -1326,7 +1360,7 @@ mod tests {
             "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
             "claude-3-5-sonnet-v2@20241022",
         )
-        .with_http_config(crate::types::HttpConfig::default());
+        .with_http_config(crate::defaults::http::config_default());
         let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()
@@ -1348,7 +1382,7 @@ mod tests {
     fn prepare_chat_request_merges_missing_common_params_and_vertex_defaults() {
         let cfg =
             VertexAnthropicConfig::new("https://example.invalid", "claude-3-5-sonnet-v2@20241022")
-                .with_http_config(crate::types::HttpConfig::default())
+                .with_http_config(crate::defaults::http::config_default())
                 .with_provider_options_map({
                     let mut map = crate::types::ProviderOptionsMap::new();
                     map.insert("anthropic", serde_json::json!({ "send_reasoning": false }));

@@ -19,7 +19,7 @@
 //! - All providers support debug mode
 //! - All providers support tracing configuration
 
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::experimental::execution::http::interceptor::HttpInterceptor;
 use siumai::prelude::unified::LlmError;
 use std::sync::Arc;

@@ -9,8 +9,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::streaming::{ChatStreamEvent, TypedStreamPart};
-use crate::types::{
+use siumai_core::streaming::{ChatStreamEvent, TypedStreamPart};
+use siumai_core::types::{
     ChatStreamPart, ChatStreamReplay, ChatStreamToolCall, ChatStreamToolResult,
     StreamProviderMetadata,
 };
@@ -726,7 +726,7 @@ mod tests {
                 part:
                     ChatStreamPart::Source {
                         id,
-                        source: crate::types::SourcePart::Url { url, title },
+                        source: siumai_core::types::SourcePart::Url { url, title },
                         provider_metadata,
                     },
             } => {
@@ -778,7 +778,10 @@ mod tests {
             } => {
                 assert_eq!(usage.normalized_input_tokens().total, Some(3));
                 assert_eq!(usage.normalized_output_tokens().total, Some(5));
-                assert_eq!(finish_reason.unified, crate::types::FinishReason::Stop);
+                assert_eq!(
+                    finish_reason.unified,
+                    siumai_core::types::FinishReason::Stop
+                );
                 assert_eq!(finish_reason.raw.as_deref(), Some("stop"));
                 assert_eq!(
                     provider_metadata
@@ -880,7 +883,7 @@ mod tests {
         assert_eq!(file.media_type, "image/png");
         assert!(matches!(
             &file.data,
-            crate::types::ChatStreamFileData::Base64(data) if data == "ZmFrZQ=="
+            siumai_core::types::ChatStreamFileData::Base64(data) if data == "ZmFrZQ=="
         ));
         assert_eq!(
             file.provider_metadata
@@ -920,7 +923,7 @@ mod tests {
         assert_eq!(file.media_type, "image/png");
         assert!(matches!(
             &file.data,
-            crate::types::ChatStreamFileData::Base64(data) if data == "cmVhc29uaW5n"
+            siumai_core::types::ChatStreamFileData::Base64(data) if data == "cmVhc29uaW5n"
         ));
         assert_eq!(
             file.provider_metadata

@@ -9,9 +9,8 @@ use siumai::experimental::bridge::{
 };
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
 use siumai::experimental::execution::transformers::stream::StreamChunkTransformer;
-use siumai::prelude::unified::{
-    ChatByteStream, ChatRequest, ChatStreamEvent, ChatStreamPart, CommonParams,
-};
+use siumai::experimental::streaming::ChatByteStream;
+use siumai::prelude::unified::{ChatRequest, ChatStreamEvent, ChatStreamPart, CommonParams};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 

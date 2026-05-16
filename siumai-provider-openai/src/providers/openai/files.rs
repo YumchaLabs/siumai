@@ -251,6 +251,32 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
+    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_index = source.find(start).expect("section start marker");
+        let end_index = source[start_index..]
+            .find(end)
+            .map(|offset| start_index + offset)
+            .expect("section end marker");
+        &source[start_index..end_index]
+    }
+
+    #[test]
+    fn file_upload_request_path_does_not_read_legacy_provider_metadata() {
+        let source = include_str!("files.rs");
+        let request_section =
+            source_section(source, "fn validate_upload_request(", "fn build_context(");
+
+        assert!(request_section.contains("provider_options"));
+        assert!(
+            !request_section.contains("provider_metadata"),
+            "OpenAI file upload request path must not read legacy provider_metadata"
+        );
+        assert!(
+            !request_section.contains("providerMetadata"),
+            "OpenAI file upload request path must not read legacy providerMetadata"
+        );
+    }
+
     #[derive(Clone)]
     struct CaptureTransport {
         multipart_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,

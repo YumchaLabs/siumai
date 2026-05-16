@@ -54,7 +54,7 @@ async fn vertex_imagen_executor_merges_headers_and_sets_user_agent() {
         count: 1,
         ..Default::default()
     };
-    let mut http = siumai::prelude::unified::HttpConfig::default();
+    let mut http = siumai::prelude::unified::HttpConfig::empty();
     http.headers
         .insert("X-Request-Header".to_string(), "request-value".to_string());
     req.http_config = Some(http);

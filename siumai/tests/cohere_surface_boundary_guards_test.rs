@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };

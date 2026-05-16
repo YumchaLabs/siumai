@@ -213,7 +213,7 @@ impl XaiConfig {
             api_key: SecretString::from(api_key.into()),
             base_url: Self::DEFAULT_BASE_URL.to_string(),
             common_params: CommonParams::default(),
-            http_config: HttpConfig::default(),
+            http_config: crate::defaults::http::config_default(),
             http_transport: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),

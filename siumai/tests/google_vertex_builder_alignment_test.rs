@@ -1,6 +1,6 @@
 #![cfg(feature = "google-vertex")]
 
-use siumai::Provider;
+use siumai::compat::Provider;
 
 struct EnvGuard {
     key: &'static str,

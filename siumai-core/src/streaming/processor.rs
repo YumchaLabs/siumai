@@ -23,7 +23,7 @@ pub type OverflowHandler = Box<dyn FnMut(&str, usize) + Send + Sync>;
 pub struct StreamProcessorConfig {
     /// Maximum size for content buffer (in bytes)
     pub max_content_buffer_size: Option<usize>,
-    /// Maximum size for thinking buffer (in bytes)  
+    /// Maximum size for thinking buffer (in bytes)
     pub max_thinking_buffer_size: Option<usize>,
     /// Maximum number of tool calls to track
     pub max_tool_calls: Option<usize>,
@@ -1043,6 +1043,27 @@ mod tests {
     use super::*;
     use crate::types::{AudioOutput, ChatStreamFinishInfo, PromptTokensDetails, Warning};
 
+    fn production_source() -> &'static str {
+        include_str!("processor.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn stream_processor_source_does_not_read_request_provider_options() {
+        let source = production_source();
+
+        assert!(
+            !source.contains("providerOptions"),
+            "StreamProcessor must not read request-side providerOptions"
+        );
+        assert!(
+            !source.contains(".provider_options_map"),
+            "StreamProcessor must not read request provider options maps"
+        );
+    }
+
     #[test]
     fn tool_arguments_respect_max_size() {
         let mut cfg = StreamProcessorConfig {
@@ -1177,7 +1198,7 @@ mod tests {
                     raw: Some("stop".to_string()),
                 },
                 provider_metadata: Some(HashMap::from([(
-                    "openai".to_string(),
+                    "provider-a".to_string(),
                     serde_json::json!({ "finish": true }),
                 )])),
             },
@@ -1198,7 +1219,7 @@ mod tests {
             final_resp
                 .provider_metadata
                 .as_ref()
-                .and_then(|metadata| metadata.get("openai"))
+                .and_then(|metadata| metadata.get("provider-a"))
                 .and_then(|metadata| metadata.get("finish"))
                 .and_then(|value| value.as_bool()),
             Some(true)
@@ -1211,7 +1232,7 @@ mod tests {
         let response = ChatResponse {
             id: Some("resp_123".to_string()),
             content: MessageContent::Text("terminal text".to_string()),
-            model: Some("claude-3-7-sonnet".to_string()),
+            model: Some("runtime-model-terminal".to_string()),
             usage: Some(Usage::new(11, 7)),
             finish_reason: Some(FinishReason::Stop),
             raw_finish_reason: Some("end_turn".to_string()),
@@ -1233,7 +1254,7 @@ mod tests {
         let final_resp = sp.build_final_response();
 
         assert_eq!(final_resp.id.as_deref(), Some("resp_123"));
-        assert_eq!(final_resp.model.as_deref(), Some("claude-3-7-sonnet"));
+        assert_eq!(final_resp.model.as_deref(), Some("runtime-model-terminal"));
         assert_eq!(
             final_resp
                 .usage
@@ -1268,13 +1289,13 @@ mod tests {
         let _ = sp.process_event(ChatStreamEvent::StreamStart {
             metadata: ResponseMetadata {
                 id: Some("start_resp".to_string()),
-                model: Some("gpt-4o-mini".to_string()),
+                model: Some("runtime-model-start".to_string()),
                 created: Some(
                     chrono::DateTime::parse_from_rfc3339("2026-04-30T12:00:00Z")
                         .expect("valid timestamp")
                         .with_timezone(&chrono::Utc),
                 ),
-                provider: "openai".to_string(),
+                provider: "provider-a".to_string(),
                 request_id: Some("req_123".to_string()),
                 headers: Some(HashMap::from([(
                     "x-request-id".to_string(),
@@ -1294,7 +1315,7 @@ mod tests {
         let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::Stop));
 
         assert_eq!(final_resp.id.as_deref(), Some("start_resp"));
-        assert_eq!(final_resp.model.as_deref(), Some("gpt-4o-mini"));
+        assert_eq!(final_resp.model.as_deref(), Some("runtime-model-start"));
         assert_eq!(final_resp.finish_reason, Some(FinishReason::Stop));
         assert_eq!(
             final_resp.content,
@@ -1329,13 +1350,13 @@ mod tests {
                     text: "terminal fallback".to_string(),
                     provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: Some(HashMap::from([(
-                        "openai".to_string(),
+                        "provider-a".to_string(),
                         serde_json::json!({ "annotations": ["citation"] }),
                     )])),
                 },
                 ContentPart::source("source-1", "url", "https://example.com", "Example Source"),
             ]),
-            model: Some("gpt-4.1".to_string()),
+            model: Some("runtime-model-extra-content".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::Stop),
             raw_finish_reason: None,
@@ -1360,7 +1381,7 @@ mod tests {
                         text: "Hello from stream".to_string(),
                         provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata: Some(HashMap::from([(
-                            "openai".to_string(),
+                            "provider-a".to_string(),
                             serde_json::json!({ "annotations": ["citation"] }),
                         )])),
                     }
@@ -1408,11 +1429,11 @@ mod tests {
                 title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
-                    "anthropic".to_string(),
+                    "provider-b".to_string(),
                     serde_json::json!({ "server_tool_use": true }),
                 )])),
             }]),
-            model: Some("claude-3-7-sonnet".to_string()),
+            model: Some("runtime-model-tool-call".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::ToolCalls),
             raw_finish_reason: None,
@@ -1444,7 +1465,7 @@ mod tests {
                         title: None,
                         provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata: Some(HashMap::from([(
-                            "anthropic".to_string(),
+                            "provider-b".to_string(),
                             serde_json::json!({ "server_tool_use": true }),
                         )])),
                     }
@@ -1463,7 +1484,7 @@ mod tests {
                 id: "call_1".to_string(),
                 tool_name: "search".to_string(),
                 provider_metadata: Some(HashMap::from([(
-                    "openai".to_string(),
+                    "provider-a".to_string(),
                     serde_json::json!({ "itemId": "item_1" }),
                 )])),
                 provider_executed: Some(true),

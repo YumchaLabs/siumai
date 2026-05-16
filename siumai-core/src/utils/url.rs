@@ -306,34 +306,34 @@ mod tests {
 
     #[test]
     fn test_real_world_cases() {
-        // OpenAI
+        // Versioned API
         assert_eq!(
-            join_url("https://api.openai.com/v1", "chat/completions"),
-            "https://api.openai.com/v1/chat/completions"
+            join_url("https://api.example.com/v1", "chat"),
+            "https://api.example.com/v1/chat"
         );
         assert_eq!(
-            join_url("https://api.openai.com/v1/", "chat/completions"),
-            "https://api.openai.com/v1/chat/completions"
-        );
-
-        // Anthropic
-        assert_eq!(
-            join_url("https://api.anthropic.com", "v1/messages"),
-            "https://api.anthropic.com/v1/messages"
-        );
-        assert_eq!(
-            join_url("https://api.anthropic.com/", "v1/messages"),
-            "https://api.anthropic.com/v1/messages"
+            join_url("https://api.example.com/v1/", "chat"),
+            "https://api.example.com/v1/chat"
         );
 
-        // Ollama
+        // Provider host with a nested API path
         assert_eq!(
-            join_url("http://localhost:11434", "api/chat"),
-            "http://localhost:11434/api/chat"
+            join_url("https://api.provider-a.example", "v1/messages"),
+            "https://api.provider-a.example/v1/messages"
         );
         assert_eq!(
-            join_url("http://localhost:11434/", "api/chat"),
-            "http://localhost:11434/api/chat"
+            join_url("https://api.provider-a.example/", "v1/messages"),
+            "https://api.provider-a.example/v1/messages"
+        );
+
+        // Local service
+        assert_eq!(
+            join_url("http://localhost:8080", "api/chat"),
+            "http://localhost:8080/api/chat"
+        );
+        assert_eq!(
+            join_url("http://localhost:8080/", "api/chat"),
+            "http://localhost:8080/api/chat"
         );
 
         // Custom proxy with trailing slash
@@ -351,15 +351,12 @@ mod tests {
         ]);
 
         assert_eq!(
-            with_query_params("https://api.example.com/v1/chat/completions", &params),
-            "https://api.example.com/v1/chat/completions?api-version=2025-04-01&tenant=acme"
+            with_query_params("https://api.example.com/v1/chat", &params),
+            "https://api.example.com/v1/chat?api-version=2025-04-01&tenant=acme"
         );
         assert_eq!(
-            with_query_params(
-                "https://api.example.com/v1/chat/completions?legacy=true",
-                &params
-            ),
-            "https://api.example.com/v1/chat/completions?api-version=2025-04-01&tenant=acme"
+            with_query_params("https://api.example.com/v1/chat?legacy=true", &params),
+            "https://api.example.com/v1/chat?api-version=2025-04-01&tenant=acme"
         );
     }
 

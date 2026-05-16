@@ -76,6 +76,10 @@ impl SourcePart {
 }
 
 /// Content part - provider-agnostic multimodal content
+///
+/// Compatibility note: this stable carrier is still used by both request-side prompt parts and
+/// response-side generated parts. New provider-facing projections should prefer the AI SDK V4
+/// prompt/content modules, where `providerOptions` and `providerMetadata` are split by direction.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ContentPart {

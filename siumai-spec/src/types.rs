@@ -30,12 +30,6 @@
 //! use siumai::types::{ChatMessage, ChatRequest, ChatResponse, CommonParams};
 //! ```
 //!
-//! Or use the prelude for common types:
-//!
-//! ```rust
-//! use siumai::prelude::*;
-//! ```
-//!
 //! ### For Library Developers
 //!
 //! When adding new types:
@@ -44,7 +38,8 @@
 //! - **HTTP configuration** → `http.rs`
 //! - **Usage accounting** → `usage.rs`
 //! - **Chat-related** → `chat/` subdirectory
-//! - **Provider-specific typed options/metadata** → provider crates (exposed via `siumai::provider_ext::<provider>::*`)
+//! - **Provider-specific typed options/metadata** → provider crates; this crate only carries the
+//!   provider-id keyed JSON maps used to transport that data.
 //!
 //! ## Type Categories
 //!

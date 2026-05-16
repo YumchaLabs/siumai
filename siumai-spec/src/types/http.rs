@@ -1,7 +1,9 @@
 //! HTTP configuration types.
 //!
-//! This module defines `HttpConfig` and its builder, used to configure HTTP
-//! behavior for all providers.
+//! This module defines passive HTTP request/response data carriers.
+//!
+//! Runtime defaults, environment-variable policy, and concrete HTTP client construction live in
+//! `siumai-core`.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -30,7 +32,10 @@ pub struct HttpRequestInfo {
     pub body: Option<String>,
 }
 
-/// HTTP configuration
+/// HTTP configuration data.
+///
+/// This type is a passive transport-options carrier. It intentionally does not read environment
+/// variables or construct clients; runtime crates decide how to materialize defaults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpConfig {
     /// Request timeout
@@ -49,7 +54,7 @@ pub struct HttpConfig {
     ///
     /// When `true`, streaming requests explicitly set `Accept-Encoding: identity`
     /// to avoid intermediary/proxy compression which can break long-lived SSE
-    /// connections. Default is `true` for stability.
+    /// connections. Runtime crates may choose their own default policy for this field.
     pub stream_disable_compression: bool,
 }
 
@@ -101,14 +106,13 @@ impl HttpConfigBuilder {
 
     /// Build the configuration
     pub fn build(self) -> HttpConfig {
-        let default_sdc = HttpConfig::default().stream_disable_compression;
         HttpConfig {
             timeout: self.timeout,
             connect_timeout: self.connect_timeout,
             headers: self.headers,
             proxy: self.proxy,
             user_agent: self.user_agent,
-            stream_disable_compression: self.stream_disable_compression.unwrap_or(default_sdc),
+            stream_disable_compression: self.stream_disable_compression.unwrap_or_default(),
         }
     }
 }
@@ -119,20 +123,9 @@ impl HttpConfig {
         HttpConfigBuilder::new()
     }
 
-    /// Create an "empty" request-level override config.
-    ///
-    /// This is intended for per-request overrides where callers want to set
-    /// a small subset of fields (e.g. a header) without implicitly applying
-    /// global defaults like request/connect timeouts.
+    /// Create an empty request-level override config.
     pub fn empty() -> Self {
-        Self {
-            timeout: None,
-            connect_timeout: None,
-            headers: HashMap::new(),
-            proxy: None,
-            user_agent: None,
-            stream_disable_compression: Self::default().stream_disable_compression,
-        }
+        Self::default()
     }
 }
 
@@ -162,24 +155,13 @@ mod duration_option_serde {
 
 impl Default for HttpConfig {
     fn default() -> Self {
-        // Determine default for stream_disable_compression from env var (default: true)
-        let sdc = match std::env::var("SIUMAI_STREAM_DISABLE_COMPRESSION") {
-            Ok(val) => {
-                let v = val.trim().to_lowercase();
-                !(v == "false" || v == "0" || v == "off" || v == "no")
-            }
-            Err(_) => true,
-        };
-        const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
-        const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-        const DEFAULT_USER_AGENT: &str = concat!("siumai/", env!("CARGO_PKG_VERSION"));
         Self {
-            timeout: Some(DEFAULT_REQUEST_TIMEOUT),
-            connect_timeout: Some(DEFAULT_CONNECT_TIMEOUT),
+            timeout: None,
+            connect_timeout: None,
             headers: HashMap::new(),
             proxy: None,
-            user_agent: Some(DEFAULT_USER_AGENT.to_string()),
-            stream_disable_compression: sdc,
+            user_agent: None,
+            stream_disable_compression: false,
         }
     }
 }

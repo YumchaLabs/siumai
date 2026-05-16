@@ -2309,6 +2309,10 @@ impl SseEventConverter for AnthropicEventConverter {
         })
     }
 
+    fn is_stream_end_event(&self, event: &Event) -> bool {
+        event.data.trim() == "[DONE]"
+    }
+
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         // Anthropic normally emits StreamEnd via message_stop event in convert_event.
         // If we reach here without seeing message_stop, the model has not transmitted

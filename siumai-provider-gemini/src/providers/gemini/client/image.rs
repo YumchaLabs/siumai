@@ -229,7 +229,7 @@ mod tests {
             ..Default::default()
         };
 
-        let url = spec.image_url(&req, &ctx);
+        let url = spec.try_image_url(&req, &ctx).unwrap();
         assert!(url.ends_with("models/image-model:generateContent"));
 
         let bundle = spec.choose_image_transformers(&req, &ctx);

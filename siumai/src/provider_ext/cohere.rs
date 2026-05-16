@@ -4,7 +4,7 @@ pub use siumai_provider_cohere::providers::cohere::{
 
 /// Create the Cohere provider builder.
 pub fn cohere() -> CohereBuilder {
-    crate::Provider::cohere()
+    crate::compat::Provider::cohere()
 }
 
 /// Create the Cohere provider builder.

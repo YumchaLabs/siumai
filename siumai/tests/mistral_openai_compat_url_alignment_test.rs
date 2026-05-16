@@ -28,7 +28,7 @@ fn mistral_chat_url_matches_official_openapi_endpoint() {
     req.common_params.model = "mistral-large-latest".to_string();
 
     assert_eq!(
-        spec.chat_url(false, &req, &ctx),
+        spec.try_chat_url(false, &req, &ctx).unwrap(),
         "https://api.mistral.ai/v1/chat/completions"
     );
 }
@@ -40,7 +40,7 @@ fn mistral_embedding_url_matches_official_openapi_endpoint() {
 
     let req = EmbeddingRequest::new(vec!["hi".into()]).with_model("mistral-embed");
     assert_eq!(
-        spec.embedding_url(&req, &ctx),
+        spec.try_embedding_url(&req, &ctx).unwrap(),
         "https://api.mistral.ai/v1/embeddings"
     );
 }

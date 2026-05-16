@@ -77,8 +77,15 @@ impl ProviderSpec for BedrockImageSpec {
         )
     }
 
-    fn image_url(&self, req: &ImageGenerationRequest, ctx: &ProviderContext) -> String {
-        build_bedrock_invoke_url(ctx.base_url.as_str(), req.model.as_deref().unwrap_or(""))
+    fn try_image_url(
+        &self,
+        req: &ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(build_bedrock_invoke_url(
+            ctx.base_url.as_str(),
+            req.model.as_deref().unwrap_or(""),
+        ))
     }
 
     fn image_warnings(
@@ -89,8 +96,15 @@ impl ProviderSpec for BedrockImageSpec {
         generation_request_warnings(req)
     }
 
-    fn image_edit_url(&self, req: &ImageEditRequest, ctx: &ProviderContext) -> String {
-        build_bedrock_invoke_url(ctx.base_url.as_str(), req.model.as_deref().unwrap_or(""))
+    fn try_image_edit_url(
+        &self,
+        req: &ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(build_bedrock_invoke_url(
+            ctx.base_url.as_str(),
+            req.model.as_deref().unwrap_or(""),
+        ))
     }
 
     fn image_edit_warnings(
@@ -101,8 +115,15 @@ impl ProviderSpec for BedrockImageSpec {
         edit_request_warnings(req)
     }
 
-    fn image_variation_url(&self, req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
-        build_bedrock_invoke_url(ctx.base_url.as_str(), req.model.as_deref().unwrap_or(""))
+    fn try_image_variation_url(
+        &self,
+        req: &ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(build_bedrock_invoke_url(
+            ctx.base_url.as_str(),
+            req.model.as_deref().unwrap_or(""),
+        ))
     }
 
     fn image_variation_warnings(

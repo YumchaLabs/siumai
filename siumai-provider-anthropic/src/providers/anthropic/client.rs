@@ -649,6 +649,34 @@ mod tests {
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
     use std::sync::{Arc, Mutex};
 
+    fn production_source() -> &'static str {
+        include_str!("client.rs")
+            .split_once("#[cfg(test)]")
+            .expect("test marker should exist")
+            .0
+    }
+
+    #[test]
+    fn anthropic_client_middleware_request_option_checks_do_not_read_response_metadata() {
+        let source = production_source();
+        let post_generate_start = source
+            .find("fn post_generate")
+            .expect("post_generate section");
+        let post_generate_source = &source[post_generate_start..];
+
+        assert!(
+            post_generate_source.contains("provider_options_map"),
+            "Anthropic client post-generate warning middleware should inspect request options"
+        );
+
+        for forbidden in ["provider_metadata", "ProviderMetadata", "providerMetadata"] {
+            assert!(
+                !post_generate_source.contains(forbidden),
+                "Anthropic client request-side warning middleware must not read response metadata"
+            );
+        }
+    }
+
     #[derive(Clone, Default)]
     struct CaptureStreamTransport {
         last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
@@ -845,7 +873,7 @@ mod tests {
             reqwest::Client::new(),
             CommonParams::default(),
             AnthropicParams::default(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
         );
 
         assert_eq!(
@@ -884,7 +912,7 @@ mod tests {
             reqwest::Client::new(),
             CommonParams::default(),
             AnthropicParams::default(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
         )
         .with_beta_features(vec!["feature1".to_string(), "feature2".to_string()])
         .with_thinking_enabled()
@@ -911,7 +939,7 @@ mod tests {
             reqwest::Client::new(),
             CommonParams::default(),
             AnthropicParams::default(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
         )
         .add_beta_feature("computer-use-2024-10-22".to_string())
         .add_beta_feature("prompt-caching-2024-07-31".to_string());
@@ -939,7 +967,7 @@ mod tests {
             reqwest::Client::new(),
             CommonParams::default(),
             AnthropicParams::default(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
         )
         .with_beta_features(vec![
             "web-fetch-2025-09-10".to_string(),
@@ -963,7 +991,7 @@ mod tests {
             reqwest::Client::new(),
             CommonParams::default(),
             AnthropicParams::default(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
         );
 
         let files = client.files();
@@ -984,7 +1012,7 @@ mod tests {
             reqwest::Client::new(),
             CommonParams::default(),
             AnthropicParams::default(),
-            HttpConfig::default(),
+            HttpConfig::empty(),
         );
 
         let skills = client.skills();

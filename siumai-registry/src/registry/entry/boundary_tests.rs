@@ -28,7 +28,7 @@ fn source_section<'a>(source: &'a str, label: &str, start: &str, end: &str) -> &
     &section_tail[..end_index]
 }
 
-fn assert_no_compat_client_path(label: &str, source: &str) {
+fn assert_no_compat_or_downcast_path(label: &str, source: &str) {
     for forbidden in [
         "compat_language_client_with_ctx",
         "compat_completion_client_with_ctx",
@@ -44,6 +44,15 @@ fn assert_no_compat_client_path(label: &str, source: &str) {
             "{label} must use native family factory paths for primary execution, not `{forbidden}`"
         );
     }
+
+    let downcast_lines = source
+        .lines()
+        .filter(|line| line.contains(".as_") && line.contains("_capability("))
+        .collect::<Vec<_>>();
+    assert!(
+        downcast_lines.is_empty(),
+        "{label} must use native family model paths for primary execution, not LlmClient capability downcasts: {downcast_lines:?}"
+    );
 }
 
 #[test]
@@ -55,7 +64,7 @@ fn stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_exe
         ("video handle", "video.rs"),
     ] {
         let source = read_handle_source(file_name);
-        assert_no_compat_client_path(label, &source);
+        assert_no_compat_or_downcast_path(label, &source);
     }
 
     let language_source = read_handle_source("language.rs");
@@ -65,7 +74,7 @@ fn stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_exe
         "impl ChatCapability for LanguageModelHandle",
         "impl FileManagementCapability for LanguageModelHandle",
     );
-    assert_no_compat_client_path("language handle ChatCapability impl", chat_capability);
+    assert_no_compat_or_downcast_path("language handle ChatCapability impl", chat_capability);
 
     let image_source = read_handle_source("image.rs");
     let image_generation_capability = source_section(
@@ -74,7 +83,7 @@ fn stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_exe
         "impl ImageGenerationCapability for ImageModelHandle",
         "impl ImageExtras for ImageModelHandle",
     );
-    assert_no_compat_client_path(
+    assert_no_compat_or_downcast_path(
         "image handle ImageGenerationCapability impl",
         image_generation_capability,
     );
@@ -86,7 +95,7 @@ fn stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_exe
         "async fn text_to_speech(&self, request: TtsRequest)",
         "async fn text_to_speech_stream(&self, request: TtsRequest)",
     );
-    assert_no_compat_client_path(
+    assert_no_compat_or_downcast_path(
         "speech handle text_to_speech primary method",
         speech_primary,
     );
@@ -97,7 +106,7 @@ fn stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_exe
         "async fn speech_to_text(&self, request: SttRequest)",
         "async fn speech_to_text_stream(&self, request: SttRequest)",
     );
-    assert_no_compat_client_path(
+    assert_no_compat_or_downcast_path(
         "transcription handle speech_to_text primary method",
         transcription_primary,
     );

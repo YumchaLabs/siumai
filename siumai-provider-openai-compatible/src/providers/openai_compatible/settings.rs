@@ -1,6 +1,5 @@
 use crate::LlmError;
 use crate::auth::TokenProvider;
-use crate::auth::vertex::google_vertex_maas_base_url;
 use crate::builder::BuilderBase;
 use crate::execution::http::transport::HttpTransport;
 use std::collections::{BTreeMap, HashMap};
@@ -15,6 +14,13 @@ use super::{
 };
 
 const GOOGLE_VERTEX_MAAS_DEFAULT_LOCATION: &str = "global";
+
+fn google_vertex_maas_base_url(project: &str, location: &str) -> String {
+    format!(
+        "https://aiplatform.googleapis.com/v1/projects/{}/locations/{}/endpoints/openapi",
+        project, location
+    )
+}
 
 fn non_empty(value: Option<String>) -> Option<String> {
     value.and_then(|value| {

@@ -17,9 +17,11 @@
 // shared core types from `siumai-core` or the top-level `siumai` facade.
 #[allow(unused_imports)]
 pub(crate) use siumai_core::{
-    LlmError, auth, client, core, defaults, encoding, error, execution, hosted_tools,
-    observability, retry, retry_api, streaming, tools, traits, types, utils,
+    LlmError, auth, client, core, defaults, encoding, error, execution, observability, retry,
+    retry_api, streaming, tools, traits, types, utils,
 };
+
+pub mod hosted_tools;
 
 /// Protocol-owned typed metadata views.
 pub mod provider_metadata;

@@ -50,8 +50,13 @@ impl ProviderSpec for CohereSpec {
         errors::classify_cohere_http_error(self.id(), status, body_text, headers)
     }
 
-    fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
-        crate::utils::url::join_url(&ctx.base_url, "/chat")
+    fn try_chat_url(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(crate::utils::url::join_url(&ctx.base_url, "/chat"))
     }
 
     fn choose_chat_transformers(
@@ -62,8 +67,12 @@ impl ProviderSpec for CohereSpec {
         chat::CohereChatStandard::new().create_transformers(&ctx.provider_id, req)
     }
 
-    fn embedding_url(&self, _req: &EmbeddingRequest, ctx: &ProviderContext) -> String {
-        crate::utils::url::join_url(&ctx.base_url, "/embed")
+    fn try_embedding_url(
+        &self,
+        _req: &EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(crate::utils::url::join_url(&ctx.base_url, "/embed"))
     }
 
     fn choose_embedding_transformers(
@@ -74,8 +83,12 @@ impl ProviderSpec for CohereSpec {
         embedding::CohereEmbeddingStandard::new().create_transformers(&ctx.provider_id, req)
     }
 
-    fn rerank_url(&self, _req: &RerankRequest, ctx: &ProviderContext) -> String {
-        crate::utils::url::join_url(&ctx.base_url, "/rerank")
+    fn try_rerank_url(
+        &self,
+        _req: &RerankRequest,
+        ctx: &ProviderContext,
+    ) -> Result<String, LlmError> {
+        Ok(crate::utils::url::join_url(&ctx.base_url, "/rerank"))
     }
 
     fn choose_rerank_transformers(

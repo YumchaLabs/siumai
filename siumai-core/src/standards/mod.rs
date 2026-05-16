@@ -1,7 +1,7 @@
 //! Protocol standards and compatibility helpers.
 //!
 //! This module contains protocol-level building blocks that are shared across
-//! multiple provider crates (e.g. OpenAI-compatible adapter helpers).
+//! multiple provider crates.
 #![deny(unsafe_code)]
 
 pub mod tool_name_mapping;

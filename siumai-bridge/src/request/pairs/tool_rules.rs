@@ -1,5 +1,5 @@
+use crate::BridgeReport;
 use serde_json::Value;
-use siumai_core::bridge::BridgeReport;
 use siumai_core::types::{ProviderDefinedTool, Tool};
 
 pub(crate) type ProviderToolArgsMapper = fn(usize, &Value, &mut BridgeReport) -> Value;

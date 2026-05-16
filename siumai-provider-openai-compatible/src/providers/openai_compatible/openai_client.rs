@@ -1663,7 +1663,7 @@ impl OpenAiCompatibleClient {
     async fn list_models_internal(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let spec = std::sync::Arc::new(self.compat_spec());
         let ctx = self.build_context().await?;
-        let url = spec.models_url(&ctx);
+        let url = spec.try_models_url(&ctx)?;
         let config = self.http_wiring(ctx).config(spec);
 
         let result =
@@ -1744,7 +1744,7 @@ impl OpenAiCompatibleClient {
         // then fallback to the list endpoint, and finally a synthetic ModelInfo.
         let spec = std::sync::Arc::new(self.compat_spec());
         let ctx = self.build_context().await?;
-        let url = spec.model_url(&model_id, &ctx);
+        let url = spec.try_model_url(&model_id, &ctx)?;
         let config = self.http_wiring(ctx).config(spec);
 
         let direct =
@@ -2465,7 +2465,7 @@ mod tests {
             make_text_streaming_adapter(),
         )
         .with_model("compat-default-model")
-        .with_http_config(crate::types::HttpConfig::default());
+        .with_http_config(crate::defaults::http::config_default());
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
             .await
             .expect("client ok");
@@ -2492,7 +2492,7 @@ mod tests {
             make_text_streaming_adapter(),
         )
         .with_model("compat-default-model")
-        .with_http_config(crate::types::HttpConfig::default());
+        .with_http_config(crate::defaults::http::config_default());
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
             .await
             .expect("client ok");
@@ -2521,7 +2521,7 @@ mod tests {
             make_text_streaming_adapter(),
         )
         .with_model("compat-default-model")
-        .with_http_config(crate::types::HttpConfig::default());
+        .with_http_config(crate::defaults::http::config_default());
         cfg.common_params.temperature = Some(0.7);
         cfg.common_params.max_tokens = Some(256);
         cfg.common_params.top_p = Some(0.9);

@@ -12,10 +12,10 @@ pub enum ModelSpecVersion {
 
 /// Shared metadata contract for model-family objects.
 pub trait ModelMetadata: Send + Sync {
-    /// Canonical provider id (for example, `openai`).
+    /// Canonical provider id (for example, `provider-a`).
     fn provider_id(&self) -> &str;
 
-    /// Provider-specific model id (for example, `gpt-4o-mini`).
+    /// Provider-specific model id (for example, `model-a`).
     fn model_id(&self) -> &str;
 
     /// Specification version for the model-family contract.

@@ -6,6 +6,7 @@
 //! - Parse OpenAI Responses SSE chunks into unified stream events, then
 //! - Re-serialize into Anthropic Messages SSE.
 
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use std::path::Path;
 
@@ -77,7 +78,6 @@ fn encode_anthropic_messages_sse(
     events: Vec<ChatStreamEvent>,
     behavior: siumai::experimental::streaming::UnsupportedStreamPartBehavior,
 ) -> Vec<u8> {
-    use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::anthropic::params::AnthropicParams;
     use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
 

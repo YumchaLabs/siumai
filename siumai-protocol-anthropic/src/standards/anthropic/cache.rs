@@ -383,6 +383,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cache_request_builder_source_does_not_read_legacy_provider_metadata() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/anthropic/cache.rs"
+        ));
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source section");
+
+        for forbidden in [
+            ".provider_metadata",
+            "provider_metadata",
+            "providerMetadata",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "Anthropic cache request builder must not read legacy response-side `{forbidden}`"
+            );
+        }
+    }
+
+    #[test]
     fn message_cache_control_applies_to_last_content_block() {
         let msg = ChatMessage::user("part1")
             .with_content_parts(vec![ContentPart::text("part2")])

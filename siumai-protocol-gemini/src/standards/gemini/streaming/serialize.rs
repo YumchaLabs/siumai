@@ -50,6 +50,23 @@ pub(super) fn serialize_event(
         }
     }
 
+    fn gemini_custom_event_from_typed_part(part: &TypedStreamPart) -> Option<ChatStreamEvent> {
+        let event_type = match part {
+            TypedStreamPart::ToolCall(_) | TypedStreamPart::ToolResult(_) => "gemini:tool",
+            TypedStreamPart::Custom(_) => "gemini:custom",
+            TypedStreamPart::Source(_) => "gemini:source",
+            TypedStreamPart::ReasoningStart { .. }
+            | TypedStreamPart::ReasoningDelta { .. }
+            | TypedStreamPart::ReasoningEnd { .. } => "gemini:reasoning",
+            TypedStreamPart::ReasoningFile(_) => "gemini:reasoning-file",
+            _ => return None,
+        };
+        Some(ChatStreamEvent::Custom {
+            event_type: event_type.to_string(),
+            data: serde_json::to_value(part).ok()?,
+        })
+    }
+
     fn thought_signature_from_provider_metadata(
         provider_metadata: Option<&TypedStreamProviderMetadata>,
     ) -> Option<String> {
@@ -463,9 +480,7 @@ pub(super) fn serialize_event(
             }
 
             let part = TypedStreamPart::from_runtime_part(part.clone());
-            let Some(custom_event) =
-                part.to_protocol_custom_event(crate::streaming::StreamPartNamespace::Gemini)
-            else {
+            let Some(custom_event) = gemini_custom_event_from_typed_part(&part) else {
                 if this.unsupported_stream_part_behavior == UnsupportedStreamPartBehavior::AsText
                     && let Some(text) = part.to_lossy_text()
                 {
@@ -822,6 +837,30 @@ pub(super) fn serialize_event(
                     Ok(out)
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn gemini_streaming_serialize_source_does_not_read_request_provider_options() {
+        let source = include_str!("serialize.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+
+        for forbidden in [
+            "provider_options",
+            ".provider_options",
+            "providerOptions",
+            "ProviderOptionsMap",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "Gemini streaming serialize source must not read request-side provider options fragment `{forbidden}`"
+            );
         }
     }
 }

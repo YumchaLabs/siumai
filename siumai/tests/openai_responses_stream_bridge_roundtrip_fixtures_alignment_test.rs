@@ -7,9 +7,8 @@ use serde_json::Value;
 use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_stream_to_openai_responses_sse,
 };
-use siumai::prelude::unified::{
-    ChatByteStream, ChatStreamEvent, ChatStreamPart, SseEventConverter,
-};
+use siumai::experimental::streaming::{ChatByteStream, SseEventConverter};
+use siumai::prelude::unified::{ChatStreamEvent, ChatStreamPart};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

@@ -378,8 +378,9 @@ impl HttpInterceptor for HttpTracingInterceptor {
         // Count events without logging each one (avoid log explosion).
         self.state.inc_stream_events(&ctx.request_id);
 
-        // Finalize on stream-end marker.
-        if event.data.trim() == "[DONE]" || event.event == "siumai_stream_end" {
+        // Finalize on the core-owned synthetic stream-end event. Concrete
+        // provider markers are interpreted by the stream converter.
+        if event.event == "siumai_stream_end" {
             let duration_ms = self
                 .state
                 .start_times

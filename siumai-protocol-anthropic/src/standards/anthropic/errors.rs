@@ -56,6 +56,7 @@ pub fn classify_anthropic_http_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::LlmErrorExt;
 
     #[test]
     fn anthropic_error_mapping_authentication_error() {

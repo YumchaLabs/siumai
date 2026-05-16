@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
-use siumai::Provider;
+use siumai::compat::Provider;
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
     HttpTransportStreamBody, HttpTransportStreamResponse,

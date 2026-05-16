@@ -4,7 +4,7 @@
 //! and provider/model hints suitable for CLI/UI rendering, inspired by
 //! Cherry Studio's UX while keeping the logic library-first.
 
-use crate::error::{ErrorCategory, LlmError};
+use crate::error::{ErrorCategory, LlmError, LlmErrorExt};
 // Note: Do not import ProviderType here; helpers are provider-agnostic
 
 /// Error kind for presentation (coarse-grained)
@@ -98,19 +98,7 @@ pub fn summarize_error(
     let status = err.status_code();
     let kind = map_error_kind(err);
     let message = extract_raw_message(err);
-    let mut suggestions = suggest_fixes(err, provider_id);
-
-    // Add Vertex-specific header hint when auth/category implies Vertex usage
-    if matches!(
-        kind,
-        ErrorKind::Auth | ErrorKind::RateLimit | ErrorKind::Quota
-    ) && provider_id.map(|p| p.contains("vertex")).unwrap_or(false)
-    {
-        suggestions.push(
-            "If using Google Vertex AI, consider setting x-goog-user-project for billing/quota"
-                .to_string(),
-        );
-    }
+    let suggestions = suggest_fixes(err, provider_id);
 
     let raw = RawInfo {
         message: Some(message.clone()),
@@ -313,7 +301,7 @@ mod tests {
     #[test]
     fn summary_includes_suggestions() {
         let e = LlmError::api_error(401, "unauthorized");
-        let s = summarize_error(&e, Some("claude-3-7-sonnet-latest"), Some("anthropic"));
+        let s = summarize_error(&e, Some("model-a"), Some("provider-a"));
         assert!(!s.suggestions.is_empty());
         // Provider hint is best-effort; it may be None depending on registry state in unit tests.
     }

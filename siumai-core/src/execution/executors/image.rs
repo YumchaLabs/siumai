@@ -309,7 +309,9 @@ impl ImageExecutor for HttpImageExecutor {
                 }
 
                 // 3. Get URL from provider spec
-                let url = self.provider_spec.image_url(&req, &self.provider_context);
+                let url = self
+                    .provider_spec
+                    .try_image_url(&req, &self.provider_context)?;
 
                 // 4. Build execution config for common HTTP layer
                 let config = crate::execution::executors::common::HttpExecutionConfig {
@@ -377,7 +379,7 @@ impl ImageExecutor for HttpImageExecutor {
         // 1. Get URL from provider spec
         let url = self
             .provider_spec
-            .image_edit_url(&req, &self.provider_context);
+            .try_image_edit_url(&req, &self.provider_context)?;
 
         // 2. Build execution config for common HTTP layer
         let config = crate::execution::executors::common::HttpExecutionConfig {
@@ -464,7 +466,7 @@ impl ImageExecutor for HttpImageExecutor {
         // 1. Get URL from provider spec
         let url = self
             .provider_spec
-            .image_variation_url(&req, &self.provider_context);
+            .try_image_variation_url(&req, &self.provider_context)?;
 
         // 2. Build execution config for common HTTP layer
         let config = crate::execution::executors::common::HttpExecutionConfig {
@@ -559,6 +561,26 @@ mod tests {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     use std::sync::{Arc, Mutex};
 
+    #[test]
+    fn image_executor_tests_use_provider_neutral_fixtures() {
+        let source = include_str!("image.rs");
+        let forbidden = [
+            ["op", "enai"].concat(),
+            ["az", "ure"].concat(),
+            ["an", "thropic"].concat(),
+            ["ge", "mini"].concat(),
+            ["gp", "t-"].concat(),
+            ["cla", "ude-"].concat(),
+        ];
+
+        for fragment in forbidden {
+            assert!(
+                !source.contains(&fragment),
+                "core image executor tests must use provider-neutral fixture names"
+            );
+        }
+    }
+
     // Minimal ProviderSpec for image
     #[derive(Clone, Copy)]
     struct TestSpec;
@@ -580,13 +602,40 @@ mod tests {
             );
             Ok(h)
         }
-        fn chat_url(
+        fn try_chat_url(
             &self,
             _s: bool,
             _r: &crate::types::ChatRequest,
             _c: &crate::core::ProviderContext,
-        ) -> String {
+        ) -> Result<String, LlmError> {
             unreachable!()
+        }
+        fn try_image_url(
+            &self,
+            _r: &crate::types::ImageGenerationRequest,
+            c: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!(
+                "{}/images/generations",
+                c.base_url.trim_end_matches('/')
+            ))
+        }
+        fn try_image_edit_url(
+            &self,
+            _r: &crate::types::ImageEditRequest,
+            c: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!("{}/images/edits", c.base_url.trim_end_matches('/')))
+        }
+        fn try_image_variation_url(
+            &self,
+            _r: &crate::types::ImageVariationRequest,
+            c: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!(
+                "{}/images/variations",
+                c.base_url.trim_end_matches('/')
+            ))
         }
         fn choose_chat_transformers(
             &self,
@@ -688,7 +737,7 @@ mod tests {
             assert_eq!(data.as_bytes().expect("image bytes"), vec![1, 2, 3, 4]);
             assert_eq!(first.media_type(), Some("image/png"));
             assert_eq!(
-                first.provider_options_map().get("openai"),
+                first.provider_options_map().get("provider-a"),
                 Some(&serde_json::json!({ "detail": "high" }))
             );
 
@@ -734,7 +783,7 @@ mod tests {
             assert_eq!(data.as_bytes().expect("variation bytes"), vec![9, 8, 7, 6]);
             assert_eq!(req.image.media_type(), Some("image/png"));
             assert_eq!(
-                req.image.provider_options_map().get("openai"),
+                req.image.provider_options_map().get("provider-a"),
                 Some(&serde_json::json!({ "detail": "low" }))
             );
 
@@ -763,6 +812,39 @@ mod tests {
                 reqwest::header::HeaderValue::from_static("application/json"),
             );
             Ok(h)
+        }
+
+        fn try_image_url(
+            &self,
+            _req: &crate::types::ImageGenerationRequest,
+            ctx: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!(
+                "{}/images/generations",
+                ctx.base_url.trim_end_matches('/')
+            ))
+        }
+
+        fn try_image_edit_url(
+            &self,
+            _req: &crate::types::ImageEditRequest,
+            ctx: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!(
+                "{}/images/edits",
+                ctx.base_url.trim_end_matches('/')
+            ))
+        }
+
+        fn try_image_variation_url(
+            &self,
+            _req: &crate::types::ImageVariationRequest,
+            ctx: &crate::core::ProviderContext,
+        ) -> Result<String, LlmError> {
+            Ok(format!(
+                "{}/images/variations",
+                ctx.base_url.trim_end_matches('/')
+            ))
         }
 
         fn materialize_image_edit_urls(
@@ -920,7 +1002,7 @@ mod tests {
             prompt: "hello".into(),
             ..Default::default()
         };
-        let mut hc = crate::types::HttpConfig::default();
+        let mut hc = crate::types::HttpConfig::empty();
         hc.headers.insert("x-req".into(), "R".into());
         req.http_config = Some(hc);
         let _ = exec.execute(req).await; // expect abort
@@ -962,6 +1044,16 @@ mod tests {
                 _ctx: &crate::core::ProviderContext,
             ) -> Result<HeaderMap, LlmError> {
                 Ok(HeaderMap::new())
+            }
+            fn try_image_url(
+                &self,
+                _req: &crate::types::ImageGenerationRequest,
+                ctx: &crate::core::ProviderContext,
+            ) -> Result<String, LlmError> {
+                Ok(format!(
+                    "{}/images/generations",
+                    ctx.base_url.trim_end_matches('/')
+                ))
             }
             fn image_warnings(
                 &self,
@@ -1060,13 +1152,13 @@ mod tests {
         let request = crate::types::ImageEditRequest {
             images: vec![
                 crate::types::ImageEditInput::url("data:image/png;base64,AQIDBA==")
-                    .with_provider_option("openai", serde_json::json!({ "detail": "high" })),
+                    .with_provider_option("provider-a", serde_json::json!({ "detail": "high" })),
             ],
             mask: Some(crate::types::ImageEditInput::url(
                 "data:image/png;base64,BQYHCA==",
             )),
             prompt: "edit".to_string(),
-            model: Some("gpt-image-1".to_string()),
+            model: Some("image-model-a".to_string()),
             count: Some(1),
             size: None,
             aspect_ratio: None,
@@ -1110,8 +1202,8 @@ mod tests {
 
         let request = crate::types::ImageVariationRequest {
             image: crate::types::ImageEditInput::url("data:image/png;base64,CQgHBg==")
-                .with_provider_option("openai", serde_json::json!({ "detail": "low" })),
-            model: Some("gpt-image-1".to_string()),
+                .with_provider_option("provider-a", serde_json::json!({ "detail": "low" })),
+            model: Some("image-model-a".to_string()),
             count: Some(1),
             size: None,
             aspect_ratio: None,
@@ -1159,7 +1251,7 @@ mod tests {
             )],
             mask: None,
             prompt: "edit".to_string(),
-            model: Some("gemini-image".to_string()),
+            model: Some("image-model-b".to_string()),
             count: Some(1),
             size: None,
             aspect_ratio: None,
@@ -1203,7 +1295,7 @@ mod tests {
 
         let request = crate::types::ImageVariationRequest {
             image: crate::types::ImageEditInput::url("https://example.com/input.png"),
-            model: Some("gemini-image".to_string()),
+            model: Some("image-model-b".to_string()),
             count: Some(1),
             size: None,
             aspect_ratio: None,

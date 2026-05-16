@@ -3,12 +3,13 @@
 /// These map to the shared OpenAI-compatible runtime used by Fireworks chat,
 /// completion, embedding, and transcription lanes. For the unified AI SDK-style provider
 /// surface that also owns image generation/edit routing, use [`fireworks()`],
-/// [`create_fireworks()`], [`crate::Provider::fireworks()`], or
-/// [`crate::provider::SiumaiBuilder::fireworks()`].
+/// [`create_fireworks()`], [`crate::compat::Provider::fireworks()`], or
+/// [`SiumaiBuilder::fireworks()`].
 pub use siumai_provider_openai_compatible::providers::openai_compatible::{
     FIREWORKS_VERSION as VERSION, FireworksClient, FireworksConfig, FireworksEmbeddingModelId,
     FireworksErrorData, FireworksImageModelId, FireworksProviderSettings,
 };
+use siumai_registry::provider::SiumaiBuilder;
 
 /// Curated Fireworks model constants aligned with the audited AI SDK package subset.
 pub mod models {
@@ -21,14 +22,14 @@ pub mod models {
 ///
 /// This mirrors the AI SDK package-level `fireworks` export more closely than the lower
 /// level `FireworksClient`/`FireworksConfig` compat aliases.
-pub fn fireworks() -> crate::provider::SiumaiBuilder {
-    crate::Provider::fireworks()
+pub fn fireworks() -> SiumaiBuilder {
+    SiumaiBuilder::new().fireworks()
 }
 
 /// Create the unified Fireworks provider builder.
 ///
 /// This is the Rust package-surface analogue of AI SDK `createFireworks()`.
-pub fn create_fireworks() -> crate::provider::SiumaiBuilder {
+pub fn create_fireworks() -> SiumaiBuilder {
     fireworks()
 }
 
