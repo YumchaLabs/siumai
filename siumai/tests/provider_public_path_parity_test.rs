@@ -33653,30 +33653,45 @@ mod bedrock_public_path {
         BedrockChatResponseExt, BedrockEmbeddingOptions, BedrockEmbeddingRequestExt,
         BedrockRerankOptions, BedrockRerankRequestExt,
     };
-    use siumai::registry::ProviderBuildOverrides;
+
+    fn bedrock_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        built_in_registry_providers("bedrock", "bedrock")
+    }
+
+    fn bedrock_registry_builder() -> siumai::registry::builder::RegistryBuilder {
+        built_in_registry_builder("bedrock", "bedrock")
+    }
+
+    fn make_bedrock_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        bedrock_transport: Arc<dyn HttpTransport>,
+        runtime_base_url: &str,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        bedrock_registry_builder()
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/not-bedrock")
+            .fetch(global_transport)
+            .with_provider_build_overrides(
+                "bedrock",
+                provider_transport_build_overrides("ctx-key", runtime_base_url, bedrock_transport),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry")
+    }
 
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
+        let mut build_overrides = std::collections::HashMap::new();
+        build_overrides.insert(
             "bedrock".to_string(),
-            Arc::new(siumai::registry::factories::BedrockProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "bedrock".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
+            provider_transport_build_overrides("test-key", base_url, transport),
         );
 
         create_provider_registry(
-            providers,
+            bedrock_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -33688,7 +33703,7 @@ mod bedrock_public_path {
                 base_url: None,
                 reasoning_enabled: None,
                 reasoning_budget: None,
-                provider_build_overrides,
+                provider_build_overrides: build_overrides,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
@@ -33958,27 +33973,11 @@ mod bedrock_public_path {
         let global_transport = CaptureTransport::default();
         let bedrock_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "bedrock".to_string(),
-            Arc::new(siumai::registry::factories::BedrockProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_bedrock_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(bedrock_transport.clone()),
+            runtime_base_url,
         );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/not-bedrock")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "bedrock",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(runtime_base_url)
-                    .fetch(Arc::new(bedrock_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .language_model(&format!("bedrock:{model}"))
@@ -34012,27 +34011,11 @@ mod bedrock_public_path {
         let global_transport = CaptureTransport::default();
         let bedrock_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "bedrock".to_string(),
-            Arc::new(siumai::registry::factories::BedrockProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_bedrock_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(bedrock_transport.clone()),
+            runtime_base_url,
         );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/not-bedrock")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "bedrock",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(runtime_base_url)
-                    .fetch(Arc::new(bedrock_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .language_model(&format!("bedrock:{model}"))
@@ -35091,27 +35074,11 @@ mod bedrock_public_path {
         let global_transport = CaptureTransport::default();
         let bedrock_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "bedrock".to_string(),
-            Arc::new(siumai::registry::factories::BedrockProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_bedrock_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(bedrock_transport.clone()),
+            runtime_base_url,
         );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/not-bedrock")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "bedrock",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url(runtime_base_url)
-                    .fetch(Arc::new(bedrock_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .reranking_model(&format!("bedrock:{model}"))

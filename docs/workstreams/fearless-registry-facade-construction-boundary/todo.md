@@ -42,14 +42,17 @@ Last updated: 2026-05-14
       `create_provider_registry`, wiremock-backed provider-specific build overrides, custom
       transport overrides, chat, streaming chat, file management, image, speech, music, video, and
       video query parity paths.
+- [x] Apply the shared built-in registry helper to Bedrock public-path tests, covering
+      `create_provider_registry`, provider-specific build overrides, chat, streaming chat,
+      embedding, image, and rerank parity paths.
 
 ## Follow-up Candidates
 
 - [ ] Decide whether `siumai::registry::factories` should become experimental-only in a future
       breaking cleanup.
 - [ ] Continue auditing `provider_public_path_parity_test.rs` provider-by-provider for repeated
-      local registry builder snippets; next candidates are Bedrock, Anthropic, and Google Vertex.
-      Keep Azure custom URL-config paths separate from generic built-in helper migration.
+      local registry builder snippets; next candidates are Anthropic and Google Vertex. Keep Azure
+      custom URL-config paths separate from generic built-in helper migration.
 - [ ] Move provider-specific default model selection out of compatibility `SiumaiBuilder` and into
       registry/provider metadata once the construction helper is stable.
 - [ ] Revisit `ProviderBuildOverrides` ergonomics for common test/custom-transport setup.
