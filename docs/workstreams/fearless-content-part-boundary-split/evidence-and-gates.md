@@ -23,4 +23,7 @@ Last updated: 2026-05-16
 
 ## Validation Log
 
-- Pending.
+- CPB-020:
+  - `cargo fmt --package siumai --check`
+  - `cargo nextest run -p siumai --test facade_architecture_boundary_test content_part_provider_map_audit_covers_high_value_production_hits --features openai,anthropic,google --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai-spec --test content_projection_boundary_test --no-default-features --no-fail-fast`

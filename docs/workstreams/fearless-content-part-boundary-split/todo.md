@@ -20,16 +20,23 @@ Validation:
 
 ## CPB-020 - Legacy ContentPart Guard Tightening
 
-- [ ] Refresh the production direct-construction scan from
+- [x] Refresh the production direct-construction scan from
       `fearless-spec-core-boundary-convergence/content-part-construction-audit.md`.
-- [ ] Add or tighten a guard that fails when new production direct `ContentPart::...`,
+- [x] Add or tighten a guard that fails when new production direct `ContentPart::...`,
       `provider_options:`, or `provider_metadata:` hits appear outside audited adapter paths.
-- [ ] Record accepted adapter paths and false-positive buckets in this workstream.
+- [x] Record accepted adapter paths and false-positive buckets in this workstream.
 
 Validation:
 
 - `cargo nextest run -p siumai --test facade_architecture_boundary_test content_part_provider_map_audit_covers_high_value_production_hits --features openai,anthropic,google --no-default-features --no-fail-fast`
 - `cargo nextest run -p siumai-spec --test content_projection_boundary_test --no-default-features --no-fail-fast`
+
+Notes:
+
+- The refreshed scan found 121 paths covered by the existing spec/core audit, 48 explicitly
+  recorded low-priority or false-positive paths, and 0 unclassified high-value production paths.
+- The facade guard now reads `direct-content-part-scan.md` instead of allowing broad
+  `/provider_ext/`, `/mod.rs`, `/builder.rs`, `/config.rs`, and `/tests.rs` buckets.
 
 ## CPB-030 - Request Adapter Migration Slice
 

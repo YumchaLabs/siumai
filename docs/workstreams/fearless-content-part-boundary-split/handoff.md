@@ -4,11 +4,12 @@ Last updated: 2026-05-16
 
 ## Current State
 
-The workstream is open. No production code has changed yet.
+`CPB-020` is complete. The refreshed direct `ContentPart` scan is recorded in
+`direct-content-part-scan.md`, and the facade audit guard no longer auto-allows broad path buckets
+such as `/provider_ext/`, `/mod.rs`, `/builder.rs`, `/config.rs`, or `/tests.rs`.
 
-The first executable task is `CPB-020`: refresh the direct `ContentPart` construction scan, compare
-it with the existing spec/core convergence audit, and tighten source guards so new production hits
-must be classified or moved to directional adapters.
+The next executable task is `CPB-030`: pick one low-risk request construction path that still emits
+legacy `ContentPart` directly and route it through a named request-side adapter.
 
 ## Continuation Notes
 

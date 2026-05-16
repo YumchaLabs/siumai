@@ -14,7 +14,7 @@ Exit criteria:
 
 ## CPB-M2 - Direct Construction Guard Tightened
 
-Status: pending
+Status: complete
 
 Exit criteria:
 

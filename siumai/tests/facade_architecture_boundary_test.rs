@@ -86,15 +86,6 @@ fn is_audited_unified_identifier(identifier: &str) -> bool {
     matches!(identifier, "CancelHandle")
 }
 
-fn is_low_priority_content_part_audit_path(relative_path: &str) -> bool {
-    relative_path.ends_with("/tests.rs")
-        || relative_path.contains("/provider_options/")
-        || relative_path.contains("/provider_ext/")
-        || relative_path.ends_with("/mod.rs")
-        || relative_path.ends_with("/builder.rs")
-        || relative_path.ends_with("/config.rs")
-}
-
 #[test]
 fn facade_keeps_provider_extension_bodies_out_of_lib_rs() {
     let lib_rs = read_source("src/lib.rs");
@@ -347,6 +338,11 @@ fn content_part_provider_map_audit_covers_high_value_production_hits() {
         "docs/workstreams/fearless-spec-core-boundary-convergence/content-part-construction-audit.md",
     ))
     .expect("read Track C content-part construction audit");
+    let refreshed_audit =
+        fs::read_to_string(workspace_root.join(
+            "docs/workstreams/fearless-content-part-boundary-split/direct-content-part-scan.md",
+        ))
+        .expect("read ContentPart boundary split scan");
 
     let target_dirs = [
         "siumai-core/src",
@@ -377,9 +373,7 @@ fn content_part_provider_map_audit_covers_high_value_production_hits() {
                 continue;
             }
 
-            if audit.contains(&relative_path)
-                || is_low_priority_content_part_audit_path(&relative_path)
-            {
+            if audit.contains(&relative_path) || refreshed_audit.contains(&relative_path) {
                 continue;
             }
 
@@ -392,7 +386,7 @@ fn content_part_provider_map_audit_covers_high_value_production_hits() {
 
     assert!(
         missing.is_empty(),
-        "Track C audit must classify every high-value production source that directly constructs ContentPart or provider maps before the path is accepted: {missing:#?}"
+        "ContentPart boundary audits must classify every production source that directly constructs ContentPart or provider maps before the path is accepted: {missing:#?}"
     );
 }
 
