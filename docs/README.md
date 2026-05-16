@@ -42,6 +42,9 @@ documents, release process, and active workstreams for current planning.
 - Fearless spec/core boundary convergence: `docs/workstreams/fearless-spec-core-boundary-convergence/`
   - tracks the next boundary pass for keeping `siumai-spec` data-only, keeping `siumai-core`
     provider-agnostic, and moving bridge/protocol/provider residue to owning crates
+- Fearless ContentPart boundary split: `docs/workstreams/fearless-content-part-boundary-split/`
+  - splits the deferred legacy `ContentPart` dual provider-map problem into a dedicated
+    compatibility lane with directional request/response adapters
 - Fearless architecture convergence: `docs/workstreams/fearless-architecture-convergence/`
 - Current V4 refactor tracking: `docs/workstreams/fearless-refactor-v4/`
 - AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`

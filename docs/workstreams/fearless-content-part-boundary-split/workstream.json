@@ -1,0 +1,15 @@
+{
+  "slug": "fearless-content-part-boundary-split",
+  "status": "active",
+  "opened": "2026-05-16",
+  "objective": "Move legacy ContentPart toward an explicit compatibility carrier by routing request and response production through directional content adapters.",
+  "current_task": "CPB-020",
+  "next_task": "Refresh the direct ContentPart construction scan and tighten guards for unaudited production hits.",
+  "blocked": false,
+  "deferred_from": "fearless-spec-core-boundary-convergence",
+  "validation_focus": [
+    "siumai-spec content_projection_boundary_test",
+    "siumai facade_architecture_boundary_test",
+    "siumai-core core_provider_boundary_test"
+  ]
+}
