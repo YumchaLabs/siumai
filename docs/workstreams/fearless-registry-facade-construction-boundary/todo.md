@@ -81,6 +81,9 @@ Last updated: 2026-05-16
       `RegistryBuilder` provider-level shortcuts, including base-url + HTTP-config + custom-fetch
       composition, and extending guard coverage to prevent raw `RegistryOptions` plumbing from
       returning to that module.
+- [x] Continue the public-path raw options cleanup by migrating Ollama registry setup through
+      `RegistryBuilder` provider-level shortcuts, covering the default registry path and the
+      provider-specific override path with global transport/base-url defaults.
 
 ## Follow-up Candidates
 
@@ -123,3 +126,7 @@ Last updated: 2026-05-16
 - `cargo check -p siumai --tests --features google-vertex --no-default-features`
 - `cargo nextest run -p siumai --test provider_public_path_parity_test --features google-vertex --no-default-features --no-fail-fast vertex_maas_public_path`
 - `cargo check -p siumai --tests --features azure,deepseek,google-vertex --no-default-features`
+- `cargo fmt --package siumai-registry --package siumai --check`
+- `cargo nextest run -p siumai-registry --features openai --no-default-features --no-fail-fast migrated_public_path_modules_use_registry_builder_shortcuts`
+- `cargo check -p siumai --tests --features ollama --no-default-features`
+- `cargo nextest run -p siumai --test provider_public_path_parity_test --features ollama --no-default-features --no-fail-fast ollama_public_path`
