@@ -120,8 +120,8 @@ fn make_registry(
     let mut providers = std::collections::HashMap::new();
     providers.insert(
         "deepinfra".to_string(),
-        Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
-            as Arc<dyn siumai::registry::ProviderFactory>,
+        siumai::registry::builtin_provider_factory("deepinfra")
+            .expect("deepinfra built-in provider factory"),
     );
 
     RegistryBuilder::new(providers)

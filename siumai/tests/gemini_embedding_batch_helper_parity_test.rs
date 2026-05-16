@@ -59,8 +59,8 @@ fn make_registry(transport: Arc<dyn HttpTransport>) -> siumai::registry::Provide
     let mut providers = HashMap::new();
     providers.insert(
         "gemini".to_string(),
-        Arc::new(siumai::registry::factories::GeminiProviderFactory)
-            as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        siumai::registry::builtin_provider_factory("gemini")
+            .expect("gemini built-in provider factory"),
     );
 
     let mut provider_build_overrides = HashMap::new();

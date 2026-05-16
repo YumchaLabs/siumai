@@ -386,4 +386,20 @@ fn focused_public_facade_tests_use_registry_owned_builtin_factory_resolution() {
             && !public_path_source.contains("registry::factories::"),
         "provider_public_path_parity_test.rs should not instantiate concrete built-in factory structs through the facade"
     );
+
+    let facade_tests_dir = root.join("../siumai/tests");
+    for entry in fs::read_dir(&facade_tests_dir).expect("read siumai facade tests") {
+        let entry = entry.expect("read siumai facade test entry");
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read siumai facade test source");
+        assert!(
+            !source.contains("siumai::registry::factories::")
+                && !source.contains("registry::factories::"),
+            "{} should use registry-owned helpers instead of facade-visible concrete built-in factories",
+            path.display()
+        );
+    }
 }
