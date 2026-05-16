@@ -46,6 +46,9 @@ construct shared structs directly, or compare serialized snapshots.
   `experimental_filter_active_tools`, and `step_count_is` from `siumai::compat` when needed.
 - File/skill upload helpers: import upload helper types from `siumai::files::*` /
   `siumai::skills::*` instead of relying on top-level `prelude::unified::*`.
+- Registry speech handles: call `SpeechModel::synthesize(&handle, request)` for raw TTS responses
+  or `siumai::speech::synthesize(&handle, request, Default::default())` for helper results; the
+  deprecated inherent `handle.text_to_speech(...)` alias was removed.
 - JSON/SSE stream parsing: call `siumai::parse_json_event_stream(...)` explicitly instead of
   importing it from `prelude::unified::*`.
 - Low-level utility helpers: import download/header/setting/JSON parse/provider-option helper names

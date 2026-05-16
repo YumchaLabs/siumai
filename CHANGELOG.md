@@ -296,6 +296,9 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 - Low-level HTTP helper `execute_json_request_with_headers`:
   - Use `HttpExecutionConfig` + `execute_json_request` and a `ProviderSpec` with a stable
     `build_headers()` implementation.
+- Deprecated registry speech-handle inherent method `SpeechModelHandle::text_to_speech(...)`:
+  - Use `SpeechModel::synthesize(...)` for raw `TtsResponse` values or
+    `siumai::speech::synthesize(...)` for helper results.
 - `OpenAiCompatibleSpec` (legacy fallback): use `OpenAiCompatibleSpecWithAdapter` (adapter-injected spec only).
 
 ### Fixed

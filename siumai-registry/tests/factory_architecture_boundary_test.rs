@@ -263,7 +263,7 @@ fn compatibility_audit_categorizes_public_deprecated_surfaces() {
         "experimental_transcribe",
         "experimental_generate_video",
         "create_google_generative_ai()",
-        "AudioModelHandle::text_to_speech(...)",
+        "SpeechModelHandle::text_to_speech(...)",
         "execute_json_request_with_headers(...)",
         "siumai_core::utils::vertex",
         "Provider extension deprecated option/metadata aliases",
@@ -274,7 +274,7 @@ fn compatibility_audit_categorizes_public_deprecated_surfaces() {
         );
     }
 
-    for category in ["keep, time-bounded", "remove", "move"] {
+    for category in ["keep, time-bounded", "remove", "removed", "move"] {
         assert!(
             audit.contains(category),
             "compatibility audit should include `{category}` decisions"
@@ -369,6 +369,22 @@ fn static_header_json_executor_compatibility_surface_is_removed() {
                 "{relative} should not expose the removed static-header JSON executor compatibility surface `{forbidden}`"
             );
         }
+    }
+}
+
+#[test]
+fn registry_speech_handle_inherent_text_to_speech_alias_is_removed() {
+    let source = fs::read_to_string(crate_root().join("src/registry/entry/handles/audio.rs"))
+        .expect("read audio handle source");
+
+    for forbidden in [
+        "pub async fn text_to_speech(",
+        "Use the AudioCapability trait method directly",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "SpeechModelHandle should not expose the removed inherent text_to_speech alias `{forbidden}`"
+        );
     }
 }
 

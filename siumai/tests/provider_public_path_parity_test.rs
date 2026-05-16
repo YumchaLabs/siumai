@@ -1324,8 +1324,7 @@ mod openai_public_path {
             .text_to_speech(request.clone())
             .await
             .expect("config tts ok");
-        let registry_resp = registry_model
-            .text_to_speech(request)
+        let registry_resp = siumai::speech::SpeechModel::synthesize(&registry_model, request)
             .await
             .expect("registry tts ok");
 
@@ -2984,14 +2983,14 @@ mod openai_public_path {
             .speech_model("openai:gpt-4o-mini-tts")
             .expect("build openai speech model");
 
-        let response = registry_model
-            .text_to_speech(
-                TtsRequest::new("hello from openai".to_string())
-                    .with_voice("alloy".to_string())
-                    .with_format("mp3".to_string()),
-            )
-            .await
-            .expect("registry tts ok");
+        let response = siumai::speech::SpeechModel::synthesize(
+            &registry_model,
+            TtsRequest::new("hello from openai".to_string())
+                .with_voice("alloy".to_string())
+                .with_format("mp3".to_string()),
+        )
+        .await
+        .expect("registry tts ok");
 
         assert_eq!(response.audio_data, vec![1, 2, 3, 4]);
 
@@ -5665,8 +5664,7 @@ mod azure_public_path {
             .text_to_speech(request.clone())
             .await
             .expect("config tts ok");
-        let registry_resp = registry_model
-            .text_to_speech(request)
+        let registry_resp = siumai::speech::SpeechModel::synthesize(&registry_model, request)
             .await
             .expect("registry tts ok");
 
@@ -5833,14 +5831,14 @@ mod azure_public_path {
             .speech_model("azure:tts-deployment")
             .expect("build azure speech model");
 
-        let response = registry_model
-            .text_to_speech(
-                TtsRequest::new("hello from azure".to_string())
-                    .with_voice("alloy".to_string())
-                    .with_format("mp3".to_string()),
-            )
-            .await
-            .expect("registry tts ok");
+        let response = siumai::speech::SpeechModel::synthesize(
+            &registry_model,
+            TtsRequest::new("hello from azure".to_string())
+                .with_voice("alloy".to_string())
+                .with_format("mp3".to_string()),
+        )
+        .await
+        .expect("registry tts ok");
 
         assert_eq!(response.audio_data, vec![1, 2, 3, 4]);
 
@@ -6217,8 +6215,7 @@ mod azure_public_path {
             .text_to_speech(request.clone())
             .await
             .expect("config tts ok");
-        let registry_resp = registry_model
-            .text_to_speech(request)
+        let registry_resp = siumai::speech::SpeechModel::synthesize(&registry_model, request)
             .await
             .expect("registry tts ok");
 
@@ -14917,15 +14914,15 @@ mod openai_compatible_audio_public_path {
             .text_to_speech(request)
             .await
             .expect("config tts ok");
-        let registry_resp = registry_model
-            .text_to_speech(
-                TtsRequest::new("hello from together".to_string())
-                    .with_model("cartesia/sonic-2".to_string())
-                    .with_voice("alloy".to_string())
-                    .with_format("mp3".to_string()),
-            )
-            .await
-            .expect("registry tts ok");
+        let registry_resp = siumai::speech::SpeechModel::synthesize(
+            &registry_model,
+            TtsRequest::new("hello from together".to_string())
+                .with_model("cartesia/sonic-2".to_string())
+                .with_voice("alloy".to_string())
+                .with_format("mp3".to_string()),
+        )
+        .await
+        .expect("registry tts ok");
 
         assert_eq!(siumai_resp.audio_data, vec![1, 2, 3, 4]);
         assert_eq!(provider_resp.audio_data, vec![1, 2, 3, 4]);
@@ -15079,15 +15076,15 @@ mod openai_compatible_audio_public_path {
             .speech_model("togetherai:cartesia/sonic-2")
             .expect("build together speech model");
 
-        let response = registry_model
-            .text_to_speech(
-                TtsRequest::new("hello from together".to_string())
-                    .with_model(model.to_string())
-                    .with_voice("alloy".to_string())
-                    .with_format("mp3".to_string()),
-            )
-            .await
-            .expect("registry tts ok");
+        let response = siumai::speech::SpeechModel::synthesize(
+            &registry_model,
+            TtsRequest::new("hello from together".to_string())
+                .with_model(model.to_string())
+                .with_voice("alloy".to_string())
+                .with_format("mp3".to_string()),
+        )
+        .await
+        .expect("registry tts ok");
 
         assert_eq!(response.audio_data, vec![1, 2, 3, 4]);
 
@@ -15802,15 +15799,15 @@ mod openai_compatible_audio_public_path {
             .text_to_speech(request)
             .await
             .expect("config tts ok");
-        let registry_resp = registry_model
-            .text_to_speech(
-                TtsRequest::new("hello from siliconflow".to_string())
-                    .with_model(model.to_string())
-                    .with_voice("FunAudioLLM/CosyVoice2-0.5B:diana".to_string())
-                    .with_format("mp3".to_string()),
-            )
-            .await
-            .expect("registry tts ok");
+        let registry_resp = siumai::speech::SpeechModel::synthesize(
+            &registry_model,
+            TtsRequest::new("hello from siliconflow".to_string())
+                .with_model(model.to_string())
+                .with_voice("FunAudioLLM/CosyVoice2-0.5B:diana".to_string())
+                .with_format("mp3".to_string()),
+        )
+        .await
+        .expect("registry tts ok");
 
         assert_eq!(siumai_resp.audio_data, vec![1, 2, 3, 4]);
         assert_eq!(provider_resp.audio_data, vec![1, 2, 3, 4]);
@@ -15862,15 +15859,15 @@ mod openai_compatible_audio_public_path {
             .speech_model("siliconflow:FunAudioLLM/CosyVoice2-0.5B")
             .expect("build registry speech model");
 
-        let response = registry_model
-            .text_to_speech(
-                TtsRequest::new("hello from siliconflow".to_string())
-                    .with_model(model.to_string())
-                    .with_voice("FunAudioLLM/CosyVoice2-0.5B:diana".to_string())
-                    .with_format("mp3".to_string()),
-            )
-            .await
-            .expect("registry tts ok");
+        let response = siumai::speech::SpeechModel::synthesize(
+            &registry_model,
+            TtsRequest::new("hello from siliconflow".to_string())
+                .with_model(model.to_string())
+                .with_voice("FunAudioLLM/CosyVoice2-0.5B:diana".to_string())
+                .with_format("mp3".to_string()),
+        )
+        .await
+        .expect("registry tts ok");
 
         assert_eq!(response.audio_data, vec![1, 2, 3, 4]);
 
@@ -26593,15 +26590,15 @@ data: [DONE]
             .text_to_speech(request)
             .await
             .expect("config tts ok");
-        let registry_resp = registry_model
-            .text_to_speech(
-                TtsRequest::new("hello from groq".to_string())
-                    .with_voice("Fritz-PlayAI".to_string())
-                    .with_format("wav".to_string())
-                    .with_speed(1.25),
-            )
-            .await
-            .expect("registry tts ok");
+        let registry_resp = siumai::speech::SpeechModel::synthesize(
+            &registry_model,
+            TtsRequest::new("hello from groq".to_string())
+                .with_voice("Fritz-PlayAI".to_string())
+                .with_format("wav".to_string())
+                .with_speed(1.25),
+        )
+        .await
+        .expect("registry tts ok");
 
         assert_eq!(siumai_resp.audio_data, vec![1, 2, 3, 4]);
         assert_eq!(provider_resp.audio_data, vec![1, 2, 3, 4]);
@@ -30874,8 +30871,7 @@ mod minimaxi_public_path {
             .text_to_speech(request.clone())
             .await
             .expect("config tts ok");
-        let registry_resp = registry_model
-            .text_to_speech(request)
+        let registry_resp = siumai::speech::SpeechModel::synthesize(&registry_model, request)
             .await
             .expect("registry tts ok");
 
@@ -32667,23 +32663,23 @@ mod minimaxi_public_path {
             .speech_model("minimaxi:speech-2.6-hd")
             .expect("build registry speech model");
 
-        let generated = handle
-            .text_to_speech(
-                TtsRequest::new("Hello".to_string())
-                    .with_voice("male-qn-qingse".to_string())
-                    .with_format("mp3".to_string())
-                    .with_minimaxi_tts_options(
-                        MinimaxiTtsOptions::new()
-                            .with_emotion("happy")
-                            .with_pitch(5)
-                            .with_sample_rate(32000)
-                            .with_bitrate(128000)
-                            .with_channel(1)
-                            .with_subtitle_enable(true),
-                    ),
-            )
-            .await
-            .expect("text to speech through registry handle");
+        let generated = siumai::speech::SpeechModel::synthesize(
+            &handle,
+            TtsRequest::new("Hello".to_string())
+                .with_voice("male-qn-qingse".to_string())
+                .with_format("mp3".to_string())
+                .with_minimaxi_tts_options(
+                    MinimaxiTtsOptions::new()
+                        .with_emotion("happy")
+                        .with_pitch(5)
+                        .with_sample_rate(32000)
+                        .with_bitrate(128000)
+                        .with_channel(1)
+                        .with_subtitle_enable(true),
+                ),
+        )
+        .await
+        .expect("text to speech through registry handle");
 
         assert_eq!(generated.audio_data, b"Hello");
         assert!(global_transport.take().is_none());
@@ -46449,8 +46445,7 @@ data: [DONE]
             .text_to_speech(request.clone())
             .await
             .expect("config tts ok");
-        let registry_resp = registry_model
-            .text_to_speech(request)
+        let registry_resp = siumai::speech::SpeechModel::synthesize(&registry_model, request)
             .await
             .expect("registry tts ok");
 

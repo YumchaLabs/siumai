@@ -188,18 +188,6 @@ impl SpeechModelHandle {
 
         Ok(model)
     }
-
-    /// Text to speech (deprecated - use trait method directly)
-    #[deprecated(
-        since = "0.10.3",
-        note = "Use the AudioCapability trait method directly"
-    )]
-    pub async fn text_to_speech(
-        &self,
-        req: crate::types::TtsRequest,
-    ) -> Result<crate::types::TtsResponse, LlmError> {
-        AudioCapability::text_to_speech(self, req).await
-    }
 }
 
 /// Transcription model handle (STT) - delegates to factory for client creation
