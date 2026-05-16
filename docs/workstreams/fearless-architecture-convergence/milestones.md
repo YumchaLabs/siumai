@@ -96,9 +96,9 @@ Status: done
 
 Notes:
 
-- The legacy generic-client bridge implementations were moved out of `registry/entry.rs` into
-  `registry/entry/compat_client.rs`. This keeps the `ProviderFactory` compatibility defaults
-  visible while separating them from registry caching and model-handle execution.
+- The legacy generic-client family bridge implementations were removed after native family factory
+  methods covered declared built-in provider surfaces. `registry/entry/compat_client.rs` no longer
+  exists.
 - `ProviderFactory` now has explicit `compat_*_client*` generic-client aliases. Registry fallback
   adapters and extension-only handle paths call those aliases, while older generic
   `*_model*_with_ctx` trait methods have been removed.
@@ -112,24 +112,23 @@ Notes:
   the removed generic `language_model(...)` method. Generic-client construction now uses
   `compat_*_client*` aliases only.
 - Bedrock and Cohere now provide native family factory overrides for their declared stable
-  families, returning provider-owned typed clients instead of the default `ClientBacked*Model`
-  bridge.
+  families, returning provider-owned typed clients instead of generic family compatibility bridges.
 - Anthropic Vertex now exposes a typed registry builder and native text-family factory override,
-  so chat-family registry handles no longer depend on the default `ClientBackedLanguageModel`
-  bridge for that provider.
+  so chat-family registry handles no longer depend on a generic family compatibility bridge for
+  that provider.
 - OpenAI and Azure now expose native completion-family factory overrides, so their declared
-  completion family handles no longer depend on the default `ClientBackedCompletionModel` bridge.
+  completion family handles no longer depend on a family compatibility bridge.
 - Gemini and Google Vertex now expose native video-family factory overrides, so their declared
-  video family handles no longer depend on the default `ClientBackedVideoModel` bridge.
+  video family handles no longer depend on a family compatibility bridge.
 - MiniMaxi and xAI now expose native video-family factory overrides for their declared video
-  capability, replacing the default `ClientBackedVideoModel` bridge on those registry handles.
+  capability, replacing generic family compatibility bridges on those registry handles.
 - `provider_factories_use_explicit_compat_for_generic_self_calls` now guards production provider
   factories against reintroducing old generic self-call names or old `async fn *_model_with_ctx`
   override names.
 - `production_factories_do_not_override_legacy_generic_language_method` now guards production
   provider factories against reintroducing direct `async fn language_model(...)` overrides.
 - `production_factories_with_declared_family_surfaces_use_native_family_overrides` now guards
-  production provider factories against relying on default `ClientBacked*Model` bridges for
+  production provider factories against relying on generic family compatibility bridges for
   declared stable family surfaces.
 - `compatibility_audit_does_not_keep_removed_providerfactory_methods_alive` now guards the
   convergence docs against claiming removed generic factory methods are merely deprecated wrappers.
@@ -144,8 +143,9 @@ Notes:
   stable family/generic method pairs.
 - Registry architecture boundary tests now include a no-network source guard,
   `registry_family_handles_keep_llm_client_downcasts_isolated`, so stable family handles cannot
-  reintroduce `LlmClient` capability downcasts outside `compat_client.rs` or extension-only
-  language paths.
+  reintroduce `LlmClient` capability downcasts on primary family execution paths.
+- `registry_client_backed_family_model_adapters_are_removed` guards against reintroducing the
+  removed `registry/entry/compat_client.rs` module or `ClientBacked*Model` family adapters.
 - Verified commands for this slice:
   - `cargo fmt -p siumai-registry --check`
   - `cargo check -p siumai-registry --features openai --no-default-features`
@@ -176,8 +176,8 @@ Status: done
 
 Notes:
 
-- `registry/entry.rs` now delegates `ClientBacked*Model` compatibility adapters to
-  `registry/entry/compat_client.rs`.
+- `registry/entry.rs` no longer owns `ClientBacked*Model` family compatibility adapters; the
+  transitional `registry/entry/compat_client.rs` module has been removed.
 - Registry build-context and provider override merging now live in
   `registry/entry/build_context.rs`; `entry.rs` re-exports `BuildContext` and
   `ProviderBuildOverrides` to preserve public paths.
@@ -333,7 +333,8 @@ Objective deliverables and evidence:
   - Gemini model-id constants live in `siumai/src/provider_ext/gemini/models.rs`.
   - bridge implementation lives in `siumai-bridge`; `siumai` keeps only compatibility re-exports.
 - Compatibility and redundant code are isolated:
-  - `ClientBacked*Model` adapters live in `registry/entry/compat_client.rs`.
+  - `ClientBacked*Model` family adapters are removed; extension-only capability adapters live in
+    `registry/entry/extension_adapters.rs`.
   - stable family handles are guarded against `LlmClient` capability downcasts.
   - deprecated public aliases are categorized in `compatibility-audit.md`.
   - current public docs no longer recommend `Siumai::builder()` or `LlmClient` as default guidance.

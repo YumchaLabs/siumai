@@ -109,18 +109,17 @@ Status legend:
   - old generic-client `*_model*` trait methods have been removed; use `compat_*_client*` aliases
     or native family factory methods
   - Bedrock and Cohere now return provider-owned typed clients from native family factory methods
-    instead of relying on the default `ClientBacked*Model` bridge for declared stable families
+    instead of relying on generic family compatibility bridges for declared stable families
   - Anthropic Vertex now has a typed client builder and native text-family factory path instead of
-    relying on the default `ClientBackedLanguageModel` bridge
-  - OpenAI and Azure now expose native completion-family factory paths instead of relying on the
-    default `ClientBackedCompletionModel` bridge for declared completion capability
-  - Gemini and Google Vertex now expose native video-family factory paths instead of relying on the
-    default `ClientBackedVideoModel` bridge for their declared video surface
+    relying on a generic family compatibility bridge
+  - OpenAI and Azure now expose native completion-family factory paths instead of relying on a
+    generic family compatibility bridge for declared completion capability
+  - Gemini and Google Vertex now expose native video-family factory paths instead of relying on a
+    generic family compatibility bridge for their declared video surface
   - MiniMaxi and xAI now expose native video-family factory paths for their declared video
-    capability instead of relying on the default `ClientBackedVideoModel` bridge
-  - old `*_model*_with_ctx` generic-client methods remain for source compatibility until the
-    public trait contract can be tightened
-- [x] Move `ClientBacked*Model` adapters into a dedicated compatibility module.
+    capability instead of relying on a generic family compatibility bridge
+- [x] Remove `ClientBacked*Model` family adapters after native family methods covered declared
+  built-in provider surfaces.
 - [x] Remove family handle execution paths that downcast through `LlmClient` when a family model
   path exists.
   - stable registry handles now use family factory methods directly
@@ -139,11 +138,14 @@ Status legend:
   - `production_factories_do_not_override_legacy_generic_language_method` prevents production
     provider factories from reintroducing direct `async fn language_model(...)` overrides
   - `production_factories_with_declared_family_surfaces_use_native_family_overrides` prevents
-    production provider factories from relying on default `ClientBacked*Model` bridges for declared
-    stable family surfaces
+    production provider factories from relying on generic family compatibility bridges for
+    declared stable family surfaces
   - `compatibility_audit_does_not_keep_removed_providerfactory_methods_alive` prevents the
     architecture convergence docs from describing removed generic factory methods as deprecated
     wrappers
+  - `registry_client_backed_family_model_adapters_are_removed` prevents the removed
+    `registry/entry/compat_client.rs` module and `ClientBacked*Model` family adapters from
+    returning
 - [x] Move custom `ProviderFactory` guidance and runnable no-builtins example to family-model-first
   construction.
   - `docs/architecture/registry-without-builtins.md` now describes `*_family_with_ctx` methods as
@@ -168,8 +170,9 @@ Status legend:
   - `handles/video_support.rs` (done; shared video handle defaults)
   - `handles/audio.rs` (done)
   - `cache.rs` (done; duplicate TTL cache entries collapsed)
-  - `compat_client.rs` (done)
-- [x] Move `ClientBacked*Model` compatibility adapters to `registry/entry/compat_client.rs`.
+  - `compat_client.rs` (removed after native family factory coverage)
+- [x] Remove `ClientBacked*Model` family compatibility adapters after stable family paths moved to
+  native factory methods.
 - [x] Move `BuildContext` and `ProviderBuildOverrides` to `registry/entry/build_context.rs`.
 - [x] Move family model cache entries to `registry/entry/cache.rs`.
 - [x] Move `ProviderFactory` to `registry/entry/factory.rs`.

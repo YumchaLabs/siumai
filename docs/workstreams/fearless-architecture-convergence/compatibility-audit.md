@@ -30,60 +30,61 @@ Current boundary:
   `.as_*_capability()`.
 - New stable family handle code should use `ProviderFactory::*_model_family_with_ctx(...)`.
 
-### Registry Compatibility Adapters - Keep, Isolated
+### Registry Compatibility Family Adapters - Removed
 
-Status: keep until `ProviderFactory` no longer needs generic-client defaults.
+Status: removed.
 
 Location:
 
-- `siumai-registry/src/registry/entry/compat_client.rs`
+- Removed: `siumai-registry/src/registry/entry/compat_client.rs`
 
 Reason:
 
-- This module adapts legacy `Arc<dyn LlmClient>` clients into family model traits.
-- It is the correct isolation point for old provider factories that have not yet implemented native
-  family model construction.
+- The old module adapted legacy `Arc<dyn LlmClient>` clients into stable family model traits.
+- Built-in providers now expose native family factory methods for declared stable families, and
+  stable registry handles call those family methods directly.
+- ProviderFactory native family defaults now return `UnsupportedOperation` instead of silently
+  adapting a generic client through the removed family compatibility bridges.
 
-Deletion condition:
+Removed condition:
 
 - Built-in providers implement native family methods for all declared stable families.
-- `ProviderFactory` generic-client construction methods are renamed or moved behind an explicit
-  compatibility trait.
+- `ProviderFactory` generic-client construction methods use explicit `compat_*_client*` names.
+- Stable family handles are guarded against `LlmClient` capability downcasts.
 
 Current convergence step:
 
 - `ProviderFactory` exposes explicit `compat_*_client*` aliases for generic `LlmClient`
   construction.
-- Registry family adapter defaults and extension-only generic-client paths now call those
-  `compat_*` aliases.
+- Extension-only generic-client paths call those `compat_*` aliases through registry-owned
+  extension adapters.
 - `SiumaiBuilder`'s historical `Arc<dyn LlmClient>` construction path now calls
   `compat_*_client_with_ctx` explicitly instead of the older `*_model_with_ctx` names.
 - Production provider factories implement `compat_*_client*` methods for generic-client
   construction paths.
 - The old generic `*_model*` and `*_model_with_ctx` trait methods have been removed. Generic
   `LlmClient` construction now uses explicit `compat_*_client*` names only.
-- Bedrock and Cohere now use native family factory overrides for declared stable families, so those
-  registry handles no longer depend on the default `ClientBacked*Model` compatibility bridge.
+- Bedrock and Cohere now use native family factory overrides for declared stable families.
 - Anthropic Vertex now uses a typed registry builder and native text-family factory override, so
-  its language handle no longer depends on the default `ClientBackedLanguageModel` bridge.
+  its language handle no longer depends on a family compatibility bridge.
 - OpenAI and Azure now use native completion-family factory overrides for their declared
-  completion capability, so those handles no longer depend on the default
-  `ClientBackedCompletionModel` bridge.
+  completion capability.
 - Gemini and Google Vertex now use native video-family factory overrides for their declared video
-  surface, so those handles no longer depend on the default `ClientBackedVideoModel` bridge.
+  surface.
 - MiniMaxi and xAI now use native video-family factory overrides for their declared video
-  capability, so their video handles no longer depend on the default `ClientBackedVideoModel`
-  bridge.
+  capability.
 - `provider_factories_use_explicit_compat_for_generic_self_calls` guards provider factory source
   files against reintroducing old generic `self.*_model_with_ctx(...)` self-calls or old
   `async fn *_model_with_ctx(...)` generic-client overrides.
 - `production_factories_do_not_override_legacy_generic_language_method` guards production provider
   factory source files against reintroducing direct `async fn language_model(...)` overrides.
 - `production_factories_with_declared_family_surfaces_use_native_family_overrides` guards
-  production provider factory source files against relying on default `ClientBacked*Model` bridge
-  methods for declared stable family surfaces.
+  production provider factory source files against relying on generic family compatibility bridges
+  for declared stable family surfaces.
 - `compatibility_audit_does_not_keep_removed_providerfactory_methods_alive` guards this audit
   against describing the removed generic factory methods as deprecated-but-kept wrappers.
+- `registry_client_backed_family_model_adapters_are_removed` guards the source tree against
+  reintroducing `registry/entry/compat_client.rs` or `ClientBacked*Model` family adapters.
 - Custom factory guidance now points at native family methods first:
   `docs/architecture/registry-without-builtins.md` and
   `siumai-registry/examples/no_builtins_custom_factory.rs` use `language_model_text_with_ctx` as the

@@ -30,6 +30,25 @@ fn collect_markdown_files(path: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
+fn collect_rust_files(path: &Path, files: &mut Vec<PathBuf>) {
+    if path.is_file() {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+            files.push(path.to_path_buf());
+        }
+        return;
+    }
+
+    for entry in fs::read_dir(path).expect("read source directory") {
+        let entry = entry.expect("read source directory entry");
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rust_files(&path, files);
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+            files.push(path);
+        }
+    }
+}
+
 fn factory_source_path(file_name: &str) -> PathBuf {
     crate_root()
         .join("src")
@@ -354,6 +373,52 @@ fn registry_family_handles_keep_llm_client_downcasts_isolated() {
             "language.rs may only keep extension-only LlmClient downcasts until those surfaces become family models: {line}"
         );
     }
+}
+
+#[test]
+fn registry_client_backed_family_model_adapters_are_removed() {
+    let root = crate_root();
+    let entry_dir = root.join("src").join("registry").join("entry");
+
+    assert!(
+        !entry_dir.join("compat_client.rs").exists(),
+        "registry entry should not keep the removed ClientBacked*Model compatibility module file"
+    );
+    assert!(
+        !entry_dir.join("compat_client").exists(),
+        "registry entry should not keep a removed ClientBacked*Model compatibility module directory"
+    );
+
+    let mut rust_files = Vec::new();
+    collect_rust_files(&entry_dir, &mut rust_files);
+    for file in rust_files {
+        let source = fs::read_to_string(&file).expect("read registry entry source");
+        for forbidden in [
+            "ClientBackedLanguageModel",
+            "ClientBackedCompletionModel",
+            "ClientBackedEmbeddingModel",
+            "ClientBackedImageModel",
+            "ClientBackedSpeechModel",
+            "ClientBackedTranscriptionModel",
+            "ClientBackedVideoModel",
+            "ClientBackedRerankingModel",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{} should not reintroduce removed registry family compatibility adapter `{forbidden}`",
+                file.display()
+            );
+        }
+    }
+
+    let audit = fs::read_to_string(
+        root.join("../docs/workstreams/fearless-architecture-convergence/compatibility-audit.md"),
+    )
+    .expect("read compatibility audit");
+    assert!(
+        audit.contains("Registry Compatibility Family Adapters - Removed"),
+        "compatibility audit should record the removed ClientBacked*Model family adapter state"
+    );
 }
 
 #[test]
