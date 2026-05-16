@@ -210,6 +210,7 @@ async fn registry_builder_merges_provider_specific_shortcuts() {
     let _g = reg_test_guard();
 
     let seen = Arc::new(Mutex::new(None));
+    let seen_config = Arc::new(Mutex::new(None));
     let mut providers = HashMap::new();
     providers.insert(
         "testprov_shortcuts".to_string(),
@@ -218,6 +219,18 @@ async fn registry_builder_merges_provider_specific_shortcuts() {
             seen: seen.clone(),
         }) as Arc<dyn ProviderFactory>,
     );
+    providers.insert(
+        "testprov_config_shortcuts".to_string(),
+        Arc::new(ContextCapturingFactory {
+            id: "testprov_config_shortcuts",
+            seen: seen_config.clone(),
+        }) as Arc<dyn ProviderFactory>,
+    );
+
+    let provider_http_config = crate::types::HttpConfig {
+        user_agent: Some("provider-shortcut-agent".to_string()),
+        ..Default::default()
+    };
 
     let reg = crate::registry::builder::RegistryBuilder::new(providers)
         .with_api_key("global-key")
@@ -228,6 +241,12 @@ async fn registry_builder_merges_provider_specific_shortcuts() {
             "https://example.com/provider",
         )
         .with_provider_fetch("testprov_shortcuts", Arc::new(NoopTransport))
+        .with_provider_base_url_http_config_fetch(
+            "testprov_config_shortcuts",
+            "https://example.com/config-provider",
+            provider_http_config,
+            Arc::new(NoopTransport),
+        )
         .auto_middleware(false)
         .build()
         .expect("build registry");
@@ -235,14 +254,24 @@ async fn registry_builder_merges_provider_specific_shortcuts() {
     let handle = reg
         .language_model("testprov_shortcuts:model")
         .expect("build language handle");
+    let config_handle = reg
+        .language_model("testprov_config_shortcuts:model")
+        .expect("build config shortcut language handle");
     let response = handle.chat(vec![]).await.expect("chat response");
+    let config_response = config_handle.chat(vec![]).await.expect("chat response");
     assert_eq!(response.content_text(), Some("ok"));
+    assert_eq!(config_response.content_text(), Some("ok"));
 
     let observed = seen
         .lock()
         .unwrap()
         .clone()
         .expect("captured provider build context");
+    let observed_config = seen_config
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("captured provider config shortcut build context");
     assert_eq!(
         observed,
         ObservedBuildContext {
@@ -252,6 +281,20 @@ async fn registry_builder_merges_provider_specific_shortcuts() {
             has_http_client: false,
             has_http_transport: true,
             user_agent: None,
+            has_retry_options: false,
+            reasoning_enabled: None,
+            reasoning_budget: None,
+        }
+    );
+    assert_eq!(
+        observed_config,
+        ObservedBuildContext {
+            provider_id: Some("testprov_config_shortcuts".to_string()),
+            api_key: Some("global-key".to_string()),
+            base_url: Some("https://example.com/config-provider".to_string()),
+            has_http_client: false,
+            has_http_transport: true,
+            user_agent: Some("provider-shortcut-agent".to_string()),
             has_retry_options: false,
             reasoning_enabled: None,
             reasoning_budget: None,

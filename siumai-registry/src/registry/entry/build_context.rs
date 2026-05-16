@@ -37,6 +37,10 @@ impl ProviderBuildOverrides {
         Self::new().with_base_url(base_url)
     }
 
+    pub fn http_config(config: crate::types::HttpConfig) -> Self {
+        Self::new().with_http_config(config)
+    }
+
     pub fn api_key_base_url<K: Into<String>, U: Into<String>>(api_key: K, base_url: U) -> Self {
         Self::api_key(api_key).with_base_url(base_url)
     }
@@ -49,12 +53,26 @@ impl ProviderBuildOverrides {
         Self::api_key(api_key).with_http_transport(transport)
     }
 
+    pub fn base_url_fetch<S: Into<String>>(base_url: S, transport: Arc<dyn HttpTransport>) -> Self {
+        Self::base_url(base_url).with_http_transport(transport)
+    }
+
     pub fn api_key_base_url_fetch<K: Into<String>, U: Into<String>>(
         api_key: K,
         base_url: U,
         transport: Arc<dyn HttpTransport>,
     ) -> Self {
         Self::api_key_base_url(api_key, base_url).with_http_transport(transport)
+    }
+
+    pub fn base_url_http_config_fetch<S: Into<String>>(
+        base_url: S,
+        config: crate::types::HttpConfig,
+        transport: Arc<dyn HttpTransport>,
+    ) -> Self {
+        Self::base_url(base_url)
+            .with_http_config(config)
+            .with_http_transport(transport)
     }
 
     pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
@@ -278,6 +296,25 @@ mod tests {
         assert_eq!(
             base_url_only.base_url.as_deref(),
             Some("https://example.com/custom")
+        );
+
+        let mut http_config = HttpConfig::empty();
+        http_config
+            .headers
+            .insert("authorization".to_string(), "Bearer test".to_string());
+        let base_url_http_config = ProviderBuildOverrides::base_url("https://example.com/custom")
+            .with_http_config(http_config.clone());
+        assert_eq!(
+            base_url_http_config.base_url.as_deref(),
+            Some("https://example.com/custom")
+        );
+        assert_eq!(
+            base_url_http_config
+                .http_config
+                .as_ref()
+                .and_then(|config| config.headers.get("authorization"))
+                .map(String::as_str),
+            Some("Bearer test")
         );
     }
 

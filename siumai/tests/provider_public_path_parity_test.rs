@@ -10851,8 +10851,7 @@ mod vertex_maas_public_path {
     use super::*;
     use reqwest::header::AUTHORIZATION;
     use siumai::experimental::client::LlmClient;
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
-    use siumai::registry::ProviderBuildOverrides;
+    use siumai::registry::builder::RegistryBuilder;
 
     fn vertex_maas_registry_providers()
     -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
@@ -10871,6 +10870,22 @@ mod vertex_maas_public_path {
             .headers
             .insert("Authorization".to_string(), format!("Bearer {token}"));
         http_config
+    }
+
+    fn vertex_maas_registry(
+        base_url: &str,
+        transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        RegistryBuilder::new(vertex_maas_registry_providers())
+            .with_provider_base_url_http_config_fetch(
+                "vertex-maas",
+                base_url,
+                auth_http_config("test-token"),
+                transport,
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build vertex-maas registry")
     }
 
     #[test]
@@ -10960,35 +10975,7 @@ mod vertex_maas_public_path {
             .await
             .expect("build provider client");
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex-maas".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url(base_url.clone())
-                .with_http_config(auth_http_config("test-token"))
-                .fetch(Arc::new(registry_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            vertex_maas_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = vertex_maas_registry(&base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .language_model(&format!("vertex-maas:{model}"))
@@ -11058,35 +11045,7 @@ mod vertex_maas_public_path {
             .await
             .expect("build provider client");
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex-maas".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url(base_url.clone())
-                .with_http_config(auth_http_config("test-token"))
-                .fetch(Arc::new(registry_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            vertex_maas_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = vertex_maas_registry(&base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .language_model(&format!("vertex-maas:{model}"))
@@ -11188,35 +11147,7 @@ data: [DONE]
             .await
             .expect("build provider client");
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex-maas".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url(base_url.clone())
-                .with_http_config(auth_http_config("test-token"))
-                .fetch(Arc::new(registry_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            vertex_maas_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = vertex_maas_registry(&base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .language_model(&format!("vertex-maas:{model}"))
@@ -11353,35 +11284,7 @@ data: [DONE]
             .await
             .expect("build provider client");
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex-maas".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url(base_url.clone())
-                .with_http_config(auth_http_config("test-token"))
-                .fetch(Arc::new(registry_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            vertex_maas_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = vertex_maas_registry(&base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .completion_model(&format!("vertex-maas:{model}"))
@@ -11480,35 +11383,7 @@ data: [DONE]
             .await
             .expect("build provider client");
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex-maas".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url(base_url.clone())
-                .with_http_config(auth_http_config("test-token"))
-                .fetch(Arc::new(registry_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            vertex_maas_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = vertex_maas_registry(&base_url, Arc::new(registry_transport.clone()));
 
         let registry_model = registry
             .completion_model(&format!("vertex-maas:{model}"))
@@ -11610,35 +11485,7 @@ data: [DONE]
         let base_url = vertex_maas_base_url("test-project", "us-central1");
         let registry_transport = CaptureTransport::default();
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "vertex-maas".to_string(),
-            ProviderBuildOverrides::default()
-                .with_base_url(base_url)
-                .with_http_config(auth_http_config("test-token"))
-                .fetch(Arc::new(registry_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            vertex_maas_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = vertex_maas_registry(&base_url, Arc::new(registry_transport.clone()));
 
         let image_err = match registry.image_model(&format!("vertex-maas:{model}")) {
             Ok(_) => panic!("build vertex-maas registry image model should be unsupported"),

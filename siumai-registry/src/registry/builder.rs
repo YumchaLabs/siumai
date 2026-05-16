@@ -183,6 +183,18 @@ impl RegistryBuilder {
         self.merge_provider_build_overrides(provider_id, ProviderBuildOverrides::base_url(base_url))
     }
 
+    /// Set a provider-specific HTTP configuration override.
+    pub fn with_provider_http_config<S: Into<String>>(
+        self,
+        provider_id: S,
+        config: HttpConfig,
+    ) -> Self {
+        self.merge_provider_build_overrides(
+            provider_id,
+            ProviderBuildOverrides::http_config(config),
+        )
+    }
+
     /// Set provider-specific API key and base URL overrides.
     pub fn with_provider_api_key_base_url<S: Into<String>, K: Into<String>, U: Into<String>>(
         self,
@@ -230,6 +242,19 @@ impl RegistryBuilder {
         )
     }
 
+    /// Set provider-specific base URL and HTTP transport overrides.
+    pub fn with_provider_base_url_fetch<S: Into<String>, U: Into<String>>(
+        self,
+        provider_id: S,
+        base_url: U,
+        transport: Arc<dyn HttpTransport>,
+    ) -> Self {
+        self.merge_provider_build_overrides(
+            provider_id,
+            ProviderBuildOverrides::base_url_fetch(base_url, transport),
+        )
+    }
+
     /// Set provider-specific API key, base URL, and HTTP transport overrides.
     pub fn with_provider_api_key_base_url_fetch<
         S: Into<String>,
@@ -245,6 +270,20 @@ impl RegistryBuilder {
         self.merge_provider_build_overrides(
             provider_id,
             ProviderBuildOverrides::api_key_base_url_fetch(api_key, base_url, transport),
+        )
+    }
+
+    /// Set provider-specific base URL, HTTP config, and HTTP transport overrides.
+    pub fn with_provider_base_url_http_config_fetch<S: Into<String>, U: Into<String>>(
+        self,
+        provider_id: S,
+        base_url: U,
+        config: HttpConfig,
+        transport: Arc<dyn HttpTransport>,
+    ) -> Self {
+        self.merge_provider_build_overrides(
+            provider_id,
+            ProviderBuildOverrides::base_url_http_config_fetch(base_url, config, transport),
         )
     }
 

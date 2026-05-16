@@ -513,7 +513,7 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
         fs::read_to_string(root.join("../siumai/tests/provider_public_path_parity_test.rs"))
             .expect("read provider public-path parity test");
 
-    for (module_name, module_source) in [
+    for (module_name, module_source, shortcut_marker) in [
         (
             "azure_public_path",
             module_source(
@@ -521,6 +521,7 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
                 "mod azure_public_path",
                 "#[cfg(feature = \"google\")]",
             ),
+            ".with_provider_api_key_base_url_fetch(",
         ),
         (
             "deepseek_public_path",
@@ -529,11 +530,20 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
                 "mod deepseek_public_path",
                 "#[cfg(feature = \"openai\")]",
             ),
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "vertex_maas_public_path",
+            module_source(
+                &source,
+                "mod vertex_maas_public_path",
+                "#[cfg(feature = \"deepseek\")]",
+            ),
+            ".with_provider_base_url_http_config_fetch(",
         ),
     ] {
         assert!(
-            module_source.contains("RegistryBuilder")
-                && module_source.contains(".with_provider_api_key_base_url_fetch("),
+            module_source.contains("RegistryBuilder") && module_source.contains(shortcut_marker),
             "{module_name} should route provider override setup through RegistryBuilder shortcuts"
         );
         assert!(
