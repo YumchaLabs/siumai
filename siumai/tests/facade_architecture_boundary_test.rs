@@ -1000,10 +1000,19 @@ fn streaming_tool_call_helpers_are_explicit_compat_only() {
 fn stable_registry_prelude_exports_factory_signature_types() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
+    let migration_doc =
+        fs::read_to_string(crate_root().join("../docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read migration doc");
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
 
+    assert!(
+        !lib_rs.contains("registry_global")
+            && !lib_rs.contains("pub use registry::global as")
+            && !unified_source.contains("registry_global"),
+        "facade should not keep a root registry_global alias; use registry::global() or prelude::unified::registry::global()"
+    );
     assert!(
         !unified_source.contains("pub use crate::registry::ProviderFactory;"),
         "prelude::unified should not export ProviderFactory at the top level; use prelude::unified::registry::*"
@@ -1020,6 +1029,12 @@ fn stable_registry_prelude_exports_factory_signature_types() {
             .contains("`siumai::prelude::unified::registry::*` includes `BuildContext`")
             && public_surface_doc.contains("custom factory implementations"),
         "public-surface.md should document that custom factory signature types are available from the stable registry surface"
+    );
+    assert!(
+        public_surface_doc.contains("`siumai::registry_global` alias has been removed")
+            && migration_doc.contains("`siumai::registry_global` alias")
+            && migration_doc.contains("removed"),
+        "docs should steer users from registry_global to the scoped registry global handle"
     );
 }
 

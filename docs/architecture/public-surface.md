@@ -130,6 +130,8 @@ use siumai::prelude::unified::registry::*;
 ```
 
 This exports the registry handle types plus `RegistryOptions` for middleware/interceptor setup.
+The root `siumai::registry_global` alias has been removed; call `registry::global()` after importing
+the scoped registry module, or call `siumai::prelude::unified::registry::global()` explicitly.
 Registry contracts such as `ProviderFactory`, `BuildContext`, and `ProviderBuildOverrides` are
 scoped under this registry module and should not be imported from the top-level unified prelude.
 

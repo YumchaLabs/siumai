@@ -1003,6 +1003,8 @@ Notes:
   custom factory implementers can use the stable family-first registry trait signatures directly.
 - `ProviderFactory` is no longer exported from top-level `prelude::unified::*`; custom factory
   code should import it from the scoped `prelude::unified::registry::*` surface.
+- The unused root `siumai::registry_global` alias has been removed; callers use
+  `registry::global()` or `siumai::prelude::unified::registry::global()` explicitly.
 - File and skill upload helper types/functions are no longer exported as direct
   `prelude::unified::*` names. Stable imports use `siumai::files::*`, `siumai::skills::*`, or the
   root helper functions instead.

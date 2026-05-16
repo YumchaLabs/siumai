@@ -530,27 +530,6 @@ pub mod extensions {
     }
 }
 
-/// Global registry handle with built-in provider factories.
-///
-/// Only available when at least one provider feature is enabled.
-#[cfg(any(
-    feature = "openai",
-    feature = "azure",
-    feature = "anthropic",
-    feature = "google",
-    feature = "google-vertex",
-    feature = "cohere",
-    feature = "togetherai",
-    feature = "bedrock",
-    feature = "ollama",
-    feature = "xai",
-    feature = "groq",
-    feature = "minimaxi",
-    feature = "deepseek",
-    feature = "deepinfra"
-))]
-pub use registry::global as registry_global;
-
 // Model constants (simplified access)
 pub use model_catalog::model_constants as models;
 

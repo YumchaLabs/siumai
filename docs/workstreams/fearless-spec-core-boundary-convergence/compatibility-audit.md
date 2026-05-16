@@ -841,6 +841,32 @@ Validation:
 - `cargo fmt --package siumai-registry --check`
 - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-default-features --no-fail-fast`
 
+### Facade registry global root alias
+
+Surface: removed root `siumai::registry_global` alias.
+
+Owner: facade crate registry surface. The stable registry API remains the scoped
+`siumai::prelude::unified::registry::*` module and the root `siumai::registry::*` module while the
+registry surface is narrowed incrementally.
+
+Current users: no real source users were found; only the root alias existed before removal.
+
+Canonical replacement: call `registry::global()` after importing
+`siumai::prelude::unified::registry::*`, or call
+`siumai::prelude::unified::registry::global()` / `siumai::registry::global()` explicitly.
+
+Keep, move, or remove: remove. The alias did not add capability and made registry construction look
+like another facade root singleton beside the scoped family-first registry module.
+
+Migration note needed: completed in `docs/migration/migration-0.11.0-beta.7.md`.
+
+Removal window: completed in Track F.
+
+Validation:
+
+- `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_registry_prelude_exports_factory_signature_types --features openai,anthropic,google --no-default-features --no-fail-fast`
+- `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+
 ### `ClientWrapper` provider-named constructor aliases
 
 Surface: `ClientWrapper::openai(...)`, `ClientWrapper::anthropic(...)`,

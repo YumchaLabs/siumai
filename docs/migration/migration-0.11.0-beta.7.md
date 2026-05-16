@@ -12,6 +12,9 @@ construct shared structs directly, or compare serialized snapshots.
   `ImageModel`, `RerankingModel`, `SpeechModel`, `TranscriptionModel`, `VideoModel`).
 - Generic `LlmClient` paths: keep them only for migration or extension-only integrations; use
   registry family handles and `*_family_with_ctx(...)` factory methods for new code.
+- Registry global handle: call `registry::global()` or
+  `siumai::prelude::unified::registry::global()`; the root `siumai::registry_global` alias was
+  removed.
 - `ClientWrapper`: use `ClientWrapper::new(...)`; provider-named wrapper constructors were removed
   from `siumai-core`.
 - Streaming consumers: prefer semantic accessors such as `event.text_delta()` and
@@ -152,6 +155,14 @@ factory directly:
 use siumai::prelude::unified::*;
 
 let model = registry::global().language_model("openai:gpt-4o-mini")?;
+```
+
+The extra root alias `siumai::registry_global` has been removed. If older code used it, call the
+scoped registry module instead:
+
+```rust,ignore
+let model = siumai::prelude::unified::registry::global()
+    .language_model("openai:gpt-4o-mini")?;
 ```
 
 ## 2.1) Anthropic Message Helpers
