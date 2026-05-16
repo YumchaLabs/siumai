@@ -26,7 +26,8 @@ construct shared structs directly, or compare serialized snapshots.
 - StreamingToolCall* helpers: import `StreamingToolCallTracker` and related low-level delta helpers
   from `siumai::compat`, not from the facade root or `prelude::unified`.
 - Provider builder entry: import `Provider` from `siumai::compat` or `siumai::prelude::compat`;
-  the root `siumai::Provider` alias was removed.
+  the root `siumai::Provider` alias was removed. Import `Siumai` / `SiumaiBuilder` from
+  `siumai::compat` or `siumai::prelude::compat`; the root `siumai::provider::*` shim was removed.
 - Root broad type namespace: import migration-only catch-all types from
   `siumai::compat::types::*` or `siumai::prelude::compat::types::*`; the root `siumai::types::*`
   path was removed.
@@ -528,7 +529,8 @@ application streaming code.
 ## 15) Provider builder entry imports
 
 The provider-specific builder entry is explicit compatibility surface only. The historical root
-alias was removed so builder-style construction does not look like a stable facade root API.
+alias and root provider shim were removed so builder-style construction does not look like a stable
+facade root API.
 
 Before:
 
@@ -551,6 +553,21 @@ let client = Provider::openai()
     .model("gpt-4o-mini")
     .build()
     .await?;
+```
+
+If older code imported `Siumai` or `SiumaiBuilder` from the removed root provider shim, import them
+from the explicit compatibility surface instead.
+
+Before:
+
+```rust,ignore
+use siumai::provider::{Siumai, SiumaiBuilder};
+```
+
+After:
+
+```rust,ignore
+use siumai::compat::{Siumai, SiumaiBuilder};
 ```
 
 New code should prefer registry model handles or provider config/client constructors; this path is

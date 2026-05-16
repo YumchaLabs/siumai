@@ -249,6 +249,10 @@ surface when migrating older provider-utils style code. Deprecated AI SDK parity
 The root `siumai::Provider` path has been removed. Code that intentionally keeps builder-style
 construction during migration should import `siumai::compat::Provider` or
 `siumai::prelude::compat::Provider` explicitly.
+The root `siumai::provider::*` shim has been removed as well. Code that intentionally keeps
+builder-style `Siumai` / `SiumaiBuilder` construction during migration should import
+`siumai::compat::{Siumai, SiumaiBuilder}` or `siumai::prelude::compat::{Siumai, SiumaiBuilder}`;
+new code should prefer `siumai::prelude::unified::registry::*`.
 
 The root `siumai::types::*` path has also been removed. Migration code that needs the historical
 catch-all type namespace should import `siumai::compat::types::*` or
@@ -256,11 +260,6 @@ catch-all type namespace should import `siumai::compat::types::*` or
 `siumai::prelude::unified::*`, extension-only imports from `siumai::extensions::*` /
 `siumai::prelude::extensions::*`, and provider-specific data from
 `siumai::provider_ext::<provider>::*`.
-
-The historical module path `siumai::provider::*` is also a builder-era compatibility shim over
-registry-owned `Siumai` / `SiumaiBuilder` types. New code should import those names from
-`siumai::compat::*` only when it intentionally needs method-style construction. The shim is hidden
-from generated facade docs and facade implementation code should not route through it.
 
 ## Explicitly *not* stable
 

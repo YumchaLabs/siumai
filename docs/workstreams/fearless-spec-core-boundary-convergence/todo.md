@@ -887,11 +887,12 @@ Status legend:
   - The `Provider` implementation body now lives under `siumai::compat`; the facade root no longer
     re-exports it.
   - `siumai::compat::{Siumai,SiumaiBuilder}` now re-export registry-owned types directly, and
-    `siumai::provider::*` is documented as a builder-era compatibility shim.
-  - The `siumai::provider` shim is now hidden from generated facade docs, and facade production
-    code routes upload helper impls through `crate::compat::Siumai` instead of the shim.
+    the root `siumai::provider::*` builder-era compatibility shim has been removed.
+  - Facade production code routes upload helper impls through `crate::compat::Siumai`, and no
+    facade source file routes through `crate::provider::{Siumai,SiumaiBuilder}`.
   - Facade tests and examples no longer use `siumai::provider::{Siumai,SiumaiBuilder}` directly;
-    the boundary guard keeps future coverage on explicit `siumai::compat` or stable registry paths.
+    the boundary guard keeps future coverage on explicit `siumai::compat` or stable registry paths
+    and prevents the removed root shim from returning.
   - Runnable examples are also guarded against reintroducing the removed root `siumai::Provider`
     alias as a taught construction path.
   - Ordinary facade tests now use `siumai::compat::Provider` for builder-era construction coverage;
@@ -913,8 +914,12 @@ Status legend:
     `siumai::compat::Provider` path.
   - Latest Track F root Provider cleanup documents removal of root `siumai::Provider` and the
     explicit `siumai::compat::Provider` migration path.
+  - Latest Track F provider shim cleanup documents removal of root `siumai::provider::*` and the
+    explicit `siumai::compat::{Siumai,SiumaiBuilder}` migration path.
 - [x] Update migration docs for any public breaking removals.
   - `migration-0.11.0-beta.7.md` now includes the root `StreamingToolCall*` alias removal and
+    replacement imports.
+  - `migration-0.11.0-beta.7.md` now includes the root `siumai::provider::*` shim removal and
     replacement imports.
 
 ## Track G - Documentation And Final Validation

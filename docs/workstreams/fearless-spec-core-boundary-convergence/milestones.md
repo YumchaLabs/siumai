@@ -1048,13 +1048,13 @@ Notes:
   `siumai::compat::Provider` and `siumai::prelude::compat::Provider`. The historical root
   `siumai::Provider` alias has been removed, so migration-oriented builder imports must use the
   explicit compat path. The implementation body now lives under `siumai::compat`;
-  `siumai::compat::{Siumai,SiumaiBuilder}` also binds directly to registry-owned types, while
-  `siumai::provider::*` is documented as a doc-hidden builder-era compatibility shim. Facade
-  production code now routes upload helper impls through `crate::compat::Siumai` instead of that
-  shim, and facade tests/examples now use explicit `siumai::compat` or stable registry paths instead
-  of treating `siumai::provider::*` as the default construction import. Ordinary tests, the large
-  provider public-path parity suite, and public-surface import coverage all use
-  `siumai::compat::Provider`; no test/example allowlist remains for root `siumai::Provider`.
+  `siumai::compat::{Siumai,SiumaiBuilder}` also binds directly to registry-owned types, and the
+  root `siumai::provider::*` builder-era compatibility shim has been removed. Facade production
+  code now routes upload helper impls through `crate::compat::Siumai`, and facade tests/examples now
+  use explicit `siumai::compat` or stable registry paths instead of treating `siumai::provider::*`
+  as the default construction import. Ordinary tests, the large provider public-path parity suite,
+  and public-surface import coverage all use `siumai::compat::Provider`; no test/example allowlist
+  remains for root `siumai::Provider` or root `siumai::provider::*`.
   Runnable examples are also guarded against teaching the removed root alias.
 - Provider extension package helpers that return `SiumaiBuilder` now bind directly to
   `siumai-registry`'s builder type instead of routing through the facade `provider` shim.

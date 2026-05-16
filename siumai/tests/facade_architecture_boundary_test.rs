@@ -730,10 +730,12 @@ fn root_provider_builder_entry_is_compatibility_classified() {
     let lib_rs = read_source("src/lib.rs");
     let compat_rs = read_source("src/compat.rs");
     let compat_provider_rs = read_source("src/compat/provider.rs");
-    let provider_mod_rs = read_source("src/provider/mod.rs");
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
+    let migration_doc =
+        fs::read_to_string(crate_root().join("../docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read migration doc");
     let compatibility_audit = fs::read_to_string(crate_root().join(
         "../docs/workstreams/fearless-spec-core-boundary-convergence/compatibility-audit.md",
     ))
@@ -759,21 +761,12 @@ fn root_provider_builder_entry_is_compatibility_classified() {
         "compat builder-era imports should bind directly to registry-owned types instead of routing through the facade provider shim"
     );
     assert!(
-        provider_mod_rs.contains("facade shim")
-            && provider_mod_rs.contains("siumai-registry")
-            && public_surface_doc.contains("`siumai::provider::*`")
-            && public_surface_doc.contains("builder-era compatibility shim"),
-        "siumai::provider should remain documented as a compatibility shim, not the stable builder surface"
+        !crate_root().join("src/provider/mod.rs").exists(),
+        "the historical siumai::provider facade shim should be removed; use siumai::compat or registry paths"
     );
     assert!(
-        lib_rs.contains("Historical unified builder module shim")
-            && lib_rs
-                .lines()
-                .collect::<Vec<_>>()
-                .windows(2)
-                .any(|window| window[0].trim() == "#[doc(hidden)]"
-                    && window[1].trim() == "pub mod provider;"),
-        "the historical siumai::provider shim should be hidden from generated facade docs"
+        !lib_rs.contains("pub mod provider;") && !lib_rs.contains("mod provider;"),
+        "facade root should not declare the removed siumai::provider shim"
     );
     for path in rust_sources_under("src") {
         let relative_path = path
@@ -781,10 +774,6 @@ fn root_provider_builder_entry_is_compatibility_classified() {
             .expect("source path under crate root")
             .to_string_lossy()
             .replace('\\', "/");
-
-        if relative_path.starts_with("src/provider/") {
-            continue;
-        }
 
         let source = fs::read_to_string(&path).expect("read facade source file");
         assert!(
@@ -846,20 +835,28 @@ fn root_provider_builder_entry_is_compatibility_classified() {
         public_surface_doc
             .contains("Provider-specific builder construction is also compatibility-oriented")
             && public_surface_doc.contains("use siumai::compat::Provider;")
-            && public_surface_doc.contains("root `siumai::Provider` path has been removed"),
-        "public-surface.md should steer Provider builder imports through the explicit compatibility path and document root alias removal"
+            && public_surface_doc.contains("root `siumai::Provider` path has been removed")
+            && public_surface_doc.contains("root `siumai::provider::*` shim has been removed"),
+        "public-surface.md should steer builder imports through explicit compatibility paths and document root removals"
+    );
+    assert!(
+        migration_doc.contains("Provider builder entry")
+            && migration_doc.contains("root `siumai::Provider` alias was removed")
+            && migration_doc.contains("root `siumai::provider::*` shim was removed"),
+        "migration docs should classify both removed root builder-era facade paths"
     );
     assert!(
         compatibility_audit.contains("### Facade provider builder compatibility entry")
-            && compatibility_audit.contains("removed the root `siumai::Provider` re-export")
+            && compatibility_audit.contains("removed the root")
+            && compatibility_audit.contains("`siumai::Provider` re-export")
             && compatibility_audit.contains("`siumai::compat::Provider`"),
         "compatibility-audit.md should explain that Provider builder construction is explicit compat-only"
     );
     assert!(
         compatibility_audit.contains("`siumai::provider::*`")
-            && compatibility_audit.contains("directly re-exports")
+            && compatibility_audit.contains("removed the root `siumai::provider::*` shim")
             && compatibility_audit.contains("registry-owned"),
-        "compatibility-audit.md should classify siumai::provider as a builder-era shim"
+        "compatibility-audit.md should classify siumai::provider as removed builder-era facade surface"
     );
 }
 

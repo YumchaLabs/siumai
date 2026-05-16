@@ -512,12 +512,6 @@ pub use crate::provider_ext as providers;
 /// These are stable module paths for provider-specific endpoints/resources.
 pub mod provider_ext;
 
-/// Historical unified builder module shim.
-///
-/// Prefer `siumai::compat::{Siumai, SiumaiBuilder}` when intentionally using the compatibility
-/// builder path, or `siumai::prelude::unified::registry::*` for new family-first construction.
-#[doc(hidden)]
-pub mod provider;
 pub mod provider_catalog;
 
 /// Extension capabilities (non-unified surface).
