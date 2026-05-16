@@ -34970,7 +34970,6 @@ mod anthropic_public_path {
     use super::*;
     use secrecy::ExposeSecret;
     use siumai::experimental::client::LlmClient;
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, FinishReason, ResponseFormat, Tool, ToolChoice,
     };
@@ -34998,13 +34997,11 @@ mod anthropic_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(global_transport)
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "anthropic",
-                provider_transport_build_overrides(
-                    "ctx-key",
-                    "https://example.com/anthropic/v1",
-                    anthropic_transport,
-                ),
+                "ctx-key",
+                "https://example.com/anthropic/v1",
+                anthropic_transport,
             )
             .auto_middleware(false)
             .build()
@@ -35015,32 +35012,10 @@ mod anthropic_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut build_overrides = std::collections::HashMap::new();
-        build_overrides.insert(
-            "anthropic".to_string(),
-            provider_transport_build_overrides("test-key", base_url, transport),
-        );
-
-        create_provider_registry(
-            anthropic_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        anthropic_registry_builder()
+            .with_provider_api_key_base_url_fetch("anthropic", "test-key", base_url, transport)
+            .build()
+            .expect("build registry")
     }
 
     #[test]
