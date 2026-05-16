@@ -151,6 +151,8 @@ as `language_model_text_with_ctx(...)`, `embedding_model_family_with_ctx(...)`,
 method signatures from the stable registry surface. Generic `LlmClient` factory construction is
 compatibility-only and should stay behind explicit `compat_*_client(...)` /
 `compat_*_client_with_ctx(...)` methods.
+Azure's deployment-based URL mode is the current provider-specific exception; use the registry
+helper `azure_provider_factory_with_options(...)` instead of concrete Azure factory construction.
 
 ### 6) Low-level / advanced building blocks (opt-in)
 

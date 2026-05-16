@@ -58,6 +58,8 @@ Allowed:
 - `registry::create_registry_with_defaults()`
 - `registry::create_provider_registry(...)` for custom providers
 - `registry::builtin_provider_factory("provider-id")` for focused tests and advanced integrations
+- `registry::azure_provider_factory_with_options(...)` for Azure URL-mode and metadata-key
+  registry setups that cannot be represented by generic built-in factory selection
 - `ProviderBuildOverrides`, `RegistryOptions`, and `ProviderFactory`
 
 Discouraged:
@@ -87,6 +89,17 @@ recommended replacement is:
 
 ```rust
 let factory = siumai::registry::builtin_provider_factory("openai")?;
+```
+
+Azure's deployment-based URL mode is the one current built-in exception that needs a
+provider-specific registry helper:
+
+```rust
+let factory = siumai::registry::azure_provider_factory_with_options(
+    "azure",
+    AzureUrlConfig::default(),
+    "azure",
+)?;
 ```
 
 Custom providers should continue to implement and register `ProviderFactory` directly.

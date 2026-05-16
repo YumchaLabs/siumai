@@ -53,15 +53,19 @@ Last updated: 2026-05-14
       `create_provider_registry`, `RegistryBuilder`, Vertex, Anthropic Vertex, Vertex MaaS,
       provider-specific build overrides, chat, streaming chat, image, image edit, video, embedding,
       typed metadata, structured output, and unsupported non-text parity paths.
+- [x] Add a registry-owned Azure factory option helper and route Azure public-path registry setup
+      through registry-owned helpers, including default built-in construction, deployment-based URL
+      mode, provider metadata-key selection, embedding, image, speech, transcription, chat, and
+      streaming chat parity paths.
 
 ## Follow-up Candidates
 
 - [ ] Decide whether `siumai::registry::factories` should become experimental-only in a future
       breaking cleanup.
 - [ ] Continue auditing `provider_public_path_parity_test.rs` provider-by-provider for repeated
-      local registry builder snippets; remaining direct factory call sites are Azure custom
-      URL-config and OpenAI-compatible dynamic provider-id cases, which should stay separate from
-      generic built-in helper migration until explicitly classified.
+      local registry builder snippets; remaining direct factory call sites are OpenAI-compatible
+      dynamic provider-id cases, which should stay separate from generic built-in helper migration
+      until explicitly classified.
 - [ ] Move provider-specific default model selection out of compatibility `SiumaiBuilder` and into
       registry/provider metadata once the construction helper is stable.
 - [ ] Revisit `ProviderBuildOverrides` ergonomics for common test/custom-transport setup.

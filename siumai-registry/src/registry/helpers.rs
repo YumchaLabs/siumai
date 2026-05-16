@@ -312,11 +312,11 @@ pub fn builtin_provider_factory(provider_id: &str) -> Result<Arc<dyn ProviderFac
         Some(ids::BuiltinProviderId::Azure | ids::BuiltinProviderId::AzureChat) => {
             #[cfg(feature = "azure")]
             {
-                Ok(azure_provider_factory_with_options(
+                azure_provider_factory_with_options(
                     &normalized,
                     siumai_provider_azure::providers::azure_openai::AzureUrlConfig::default(),
                     "azure",
-                ))
+                )
             }
             #[cfg(not(feature = "azure"))]
             {
@@ -327,24 +327,37 @@ pub fn builtin_provider_factory(provider_id: &str) -> Result<Arc<dyn ProviderFac
     }
 }
 
+/// Resolve an Azure OpenAI built-in provider id into a registry factory with Azure URL options.
+///
+/// This is the provider-specific companion to `builtin_provider_factory` for Azure's
+/// deployment-based URL mode and metadata-key selection. It keeps concrete Azure factory
+/// construction inside the registry crate while still allowing advanced registry setups to choose
+/// Azure URL semantics explicitly.
 #[cfg(feature = "azure")]
-pub(crate) fn azure_provider_factory_with_options(
+pub fn azure_provider_factory_with_options(
     provider_id: &str,
     url_config: siumai_provider_azure::providers::azure_openai::AzureUrlConfig,
     provider_metadata_key: &'static str,
-) -> Arc<dyn ProviderFactory> {
-    let chat_mode = match provider_id {
+) -> Result<Arc<dyn ProviderFactory>, LlmError> {
+    let normalized = crate::provider::resolver::normalize_provider_id(provider_id);
+    if !ids::is_azure_family(&normalized) {
+        return Err(LlmError::InvalidParameter(format!(
+            "Azure provider factory options require an Azure provider id, got '{provider_id}'"
+        )));
+    }
+
+    let chat_mode = match normalized.as_str() {
         ids::AZURE_CHAT => {
             siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions
         }
         _ => siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses,
     };
 
-    Arc::new(
+    Ok(Arc::new(
         crate::registry::factories::AzureOpenAiProviderFactory::new(chat_mode)
             .with_url_config(url_config)
             .with_provider_metadata_key(provider_metadata_key),
-    ) as Arc<dyn ProviderFactory>
+    ) as Arc<dyn ProviderFactory>)
 }
 
 /// Create a registry with common defaults:
@@ -567,4 +580,42 @@ pub fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
         Err(_) => return false,
     };
     guard.is_same_provider(provider_id, custom_id)
+}
+
+#[cfg(all(test, feature = "azure"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn azure_provider_factory_with_options_returns_azure_factory() {
+        let factory = match azure_provider_factory_with_options(
+            "azure",
+            siumai_provider_azure::providers::azure_openai::AzureUrlConfig::default(),
+            "azure",
+        ) {
+            Ok(factory) => factory,
+            Err(err) => panic!("expected azure factory: {err:?}"),
+        };
+
+        assert_eq!(factory.provider_id().as_ref(), "azure");
+    }
+
+    #[test]
+    fn azure_provider_factory_with_options_rejects_non_azure_id() {
+        let err = match azure_provider_factory_with_options(
+            "openai",
+            siumai_provider_azure::providers::azure_openai::AzureUrlConfig::default(),
+            "azure",
+        ) {
+            Ok(_) => panic!("expected non-azure provider id to be rejected"),
+            Err(err) => err,
+        };
+
+        match err {
+            LlmError::InvalidParameter(message) => {
+                assert!(message.contains("require an Azure provider id"));
+            }
+            other => panic!("expected InvalidParameter, got {other:?}"),
+        }
+    }
 }

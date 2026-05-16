@@ -484,6 +484,12 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<*const dyn CompletionModel>();
     #[cfg(feature = "openai")]
     let _ = registry::builtin_provider_factory("openai");
+    #[cfg(feature = "azure")]
+    let _ = registry::azure_provider_factory_with_options(
+        "azure",
+        siumai::provider_ext::azure::AzureUrlConfig::default(),
+        "azure",
+    );
     let _ = size_of::<*const dyn ImageModel>();
     let _ = size_of::<*const dyn ImageModelV4>();
     let _ = size_of::<*const dyn EmbeddingModel>();

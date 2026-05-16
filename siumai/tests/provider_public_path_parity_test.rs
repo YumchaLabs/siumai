@@ -5191,7 +5191,7 @@ mod azure_public_path {
     use super::*;
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{ResponseFormat, Tool, ToolChoice};
-    use siumai::provider_ext::azure::AzureOpenAIProviderSettings;
+    use siumai::provider_ext::azure::{AzureOpenAIProviderSettings, AzureUrlConfig};
     use siumai::registry::ProviderBuildOverrides;
 
     fn azure_responses_text_stream_body() -> Vec<u8> {
@@ -5235,24 +5235,44 @@ mod azure_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        make_registry_with_factory(
-            transport,
-            base_url,
-            siumai::registry::factories::AzureOpenAiProviderFactory::default(),
-        )
+        make_registry_with_providers(transport, base_url, azure_registry_providers())
     }
 
-    fn make_registry_with_factory(
-        transport: Arc<dyn HttpTransport>,
-        base_url: &str,
-        factory: siumai::registry::factories::AzureOpenAiProviderFactory,
-    ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
+    fn azure_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        built_in_registry_providers("azure", "azure")
+    }
+
+    fn azure_registry_providers_with_options(
+        url_config: AzureUrlConfig,
+        provider_metadata_key: &'static str,
+    ) -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        let mut providers = HashMap::new();
         providers.insert(
             "azure".to_string(),
-            Arc::new(factory) as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+            siumai::registry::azure_provider_factory_with_options(
+                "azure",
+                url_config,
+                provider_metadata_key,
+            )
+            .expect("build azure registry factory with options"),
         );
+        providers
+    }
 
+    fn azure_deployment_url_config(api_version: Option<&str>) -> AzureUrlConfig {
+        let mut url_config = AzureUrlConfig::default();
+        if let Some(api_version) = api_version {
+            url_config.api_version = api_version.to_string();
+        }
+        url_config.use_deployment_based_urls = true;
+        url_config
+    }
+
+    fn make_registry_with_providers(
+        transport: Arc<dyn HttpTransport>,
+        base_url: &str,
+        providers: HashMap<String, Arc<dyn siumai::registry::ProviderFactory>>,
+    ) -> siumai::registry::ProviderRegistryHandle {
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "azure".to_string(),
@@ -5598,13 +5618,6 @@ mod azure_public_path {
         let global_transport = JsonSuccessTransport::new(response.clone());
         let azure_transport = JsonSuccessTransport::new(response);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "azure".to_string(),
-            Arc::new(siumai::registry::factories::AzureOpenAiProviderFactory::default())
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "azure".to_string(),
@@ -5615,7 +5628,7 @@ mod azure_public_path {
         );
 
         let registry = create_provider_registry(
-            providers,
+            azure_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -5869,13 +5882,6 @@ mod azure_public_path {
         let azure_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
         let model = "tts-deployment";
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "azure".to_string(),
-            Arc::new(siumai::registry::factories::AzureOpenAiProviderFactory::default())
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "azure".to_string(),
@@ -5886,7 +5892,7 @@ mod azure_public_path {
         );
 
         let registry = create_provider_registry(
-            providers,
+            azure_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -5948,13 +5954,6 @@ mod azure_public_path {
         }));
         let model = "stt-deployment";
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "azure".to_string(),
-            Arc::new(siumai::registry::factories::AzureOpenAiProviderFactory::default())
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "azure".to_string(),
@@ -5965,7 +5964,7 @@ mod azure_public_path {
         );
 
         let registry = create_provider_registry(
-            providers,
+            azure_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -6049,9 +6048,10 @@ mod azure_public_path {
         let model = "embedding-deployment";
         let base_url = "https://example.invalid/openai";
         let api_version = "2024-10-21";
-        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
-            .with_api_version(api_version)
-            .with_deployment_based_urls(true);
+        let registry_providers = azure_registry_providers_with_options(
+            azure_deployment_url_config(Some(api_version)),
+            "azure",
+        );
 
         let siumai_client = Siumai::builder()
             .azure()
@@ -6086,10 +6086,10 @@ mod azure_public_path {
         )
         .expect("build config client");
 
-        let registry = make_registry_with_factory(
+        let registry = make_registry_with_providers(
             Arc::new(registry_transport.clone()),
             base_url,
-            registry_factory,
+            registry_providers,
         );
         let registry_model = registry
             .embedding_model("azure:embedding-deployment")
@@ -6156,8 +6156,8 @@ mod azure_public_path {
 
         let model = "image-deployment";
         let base_url = "https://example.invalid/openai";
-        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
-            .with_deployment_based_urls(true);
+        let registry_providers =
+            azure_registry_providers_with_options(azure_deployment_url_config(None), "azure");
 
         let siumai_client = Siumai::builder()
             .azure()
@@ -6189,10 +6189,10 @@ mod azure_public_path {
         )
         .expect("build config client");
 
-        let registry = make_registry_with_factory(
+        let registry = make_registry_with_providers(
             Arc::new(registry_transport.clone()),
             base_url,
-            registry_factory,
+            registry_providers,
         );
         let registry_model = registry
             .image_model("azure:image-deployment")
@@ -6258,8 +6258,8 @@ mod azure_public_path {
 
         let base_url = "https://example.invalid/openai";
         let model = "tts-deployment";
-        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
-            .with_deployment_based_urls(true);
+        let registry_providers =
+            azure_registry_providers_with_options(azure_deployment_url_config(None), "azure");
 
         let siumai_client = Siumai::builder()
             .azure()
@@ -6291,10 +6291,10 @@ mod azure_public_path {
         )
         .expect("build config client");
 
-        let registry = make_registry_with_factory(
+        let registry = make_registry_with_providers(
             Arc::new(registry_transport.clone()),
             base_url,
-            registry_factory,
+            registry_providers,
         );
         let registry_model = registry
             .speech_model("azure:tts-deployment")
@@ -6362,8 +6362,8 @@ mod azure_public_path {
 
         let base_url = "https://example.invalid/openai";
         let model = "stt-deployment";
-        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
-            .with_deployment_based_urls(true);
+        let registry_providers =
+            azure_registry_providers_with_options(azure_deployment_url_config(None), "azure");
 
         let siumai_client = Siumai::builder()
             .azure()
@@ -6395,10 +6395,10 @@ mod azure_public_path {
         )
         .expect("build config client");
 
-        let registry = make_registry_with_factory(
+        let registry = make_registry_with_providers(
             Arc::new(registry_transport.clone()),
             base_url,
-            registry_factory,
+            registry_providers,
         );
         let registry_model = registry
             .transcription_model("azure:stt-deployment")
@@ -6930,8 +6930,8 @@ mod azure_public_path {
         let model = "deployment-id";
         let base_url = "https://example.invalid/openai";
         let metadata_key = "openai";
-        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
-            .with_provider_metadata_key(metadata_key);
+        let registry_providers =
+            azure_registry_providers_with_options(AzureUrlConfig::default(), metadata_key);
 
         let siumai_client = Siumai::builder()
             .azure()
@@ -6963,10 +6963,10 @@ mod azure_public_path {
         )
         .expect("build config client");
 
-        let registry = make_registry_with_factory(
+        let registry = make_registry_with_providers(
             Arc::new(registry_transport.clone()),
             base_url,
-            registry_factory,
+            registry_providers,
         );
         let registry_model = registry
             .language_model("azure:deployment-id")

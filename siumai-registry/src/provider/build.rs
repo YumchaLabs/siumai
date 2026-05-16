@@ -372,7 +372,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             &effective_provider_id,
             builder.azure_url_config.clone(),
             builder.azure_provider_metadata_key,
-        )
+        )?
     } else {
         crate::registry::helpers::builtin_provider_factory(&effective_provider_id)?
     };

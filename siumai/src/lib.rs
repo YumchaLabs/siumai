@@ -782,6 +782,9 @@ pub mod prelude {
             pub use crate::registry::{
                 builtin_provider_factory, create_registry_with_defaults, global,
             };
+
+            #[cfg(feature = "azure")]
+            pub use crate::registry::azure_provider_factory_with_options;
         }
     }
 
