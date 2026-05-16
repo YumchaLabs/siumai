@@ -54,7 +54,7 @@ Exit criteria:
 
 ## M5 - Provider Public-Path Sweep
 
-Status: In Progress
+Status: Complete
 
 Apply the shared built-in registry helpers provider-by-provider inside
 `provider_public_path_parity_test.rs` so facade parity coverage stops encoding concrete built-in
@@ -123,3 +123,11 @@ Exit criteria:
 - Internal helpers and small tests use `None` or `..Default::default()` instead of spelling every
   default field.
 - Source guard coverage prevents the raw default tuple from returning to `create_provider_registry`.
+
+## Closeout
+
+Status: Complete
+
+All milestones for this construction-boundary lane are complete as of 2026-05-16. Remaining ideas
+around making concrete factory exports experimental-only or further de-duplicating public-path test
+helpers are deferred follow-ups, not open exit criteria for this workstream.

@@ -2,6 +2,9 @@
 
 Last updated: 2026-05-16
 
+Status: Closed. All planned registry/facade construction-boundary tasks are complete; remaining
+items below are deferred follow-up candidates.
+
 ## Current Slice
 
 - [x] Define the registry/facade construction boundary in a dedicated workstream.
@@ -114,15 +117,15 @@ Last updated: 2026-05-16
       remaining OpenRouter reasoning cases, and tightening the source guard so the module cannot
       regress to generic `.with_provider_build_overrides(...)` plumbing.
 
-## Follow-up Candidates
+## Deferred Follow-up Candidates
 
-- [ ] Decide whether `siumai::registry::factories` should become experimental-only in a future
-      breaking cleanup.
-- [ ] Continue auditing `provider_public_path_parity_test.rs` for registry setup duplication that
-      can move into shared helper functions without weakening provider-specific override coverage.
-- [ ] Continue migrating larger provider-specific public-path modules from manual
-      `RegistryOptions { provider_build_overrides: ... }` setup to `RegistryBuilder`
-      provider-level shortcuts where the test does not intentionally cover raw options plumbing.
+- Deferred: decide whether `siumai::registry::factories` should become experimental-only in a
+  future breaking cleanup.
+- Deferred: continue auditing `provider_public_path_parity_test.rs` for registry setup duplication
+  that can move into shared helper functions without weakening provider-specific override coverage.
+- Deferred: continue migrating registry setup in other focused tests from manual
+  `RegistryOptions { provider_build_overrides: ... }` setup to `RegistryBuilder` provider-level
+  shortcuts where the test does not intentionally cover raw options plumbing.
 
 ## Done Criteria
 

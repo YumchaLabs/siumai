@@ -132,3 +132,12 @@ cargo nextest run -p siumai --test openai_embedding_public_helper_request_parity
 cargo nextest run -p siumai --test google_vertex_typed_metadata_boundary_test --features google-vertex --no-default-features --no-fail-fast
 git diff --check
 ```
+
+## Closeout State
+
+Closed on 2026-05-16. Built-in factory selection, default-model policy, registry option defaults,
+and common provider build override composition are now registry-owned. Migrated public facade
+parity modules use `RegistryBuilder` provider-level shortcuts instead of raw `RegistryOptions`
+maps or generic provider build override wrappers. Concrete built-in factory exports remain public
+for provider contract tests and advanced low-level integrations; narrowing that public surface is a
+separate deferred breaking-change decision.
