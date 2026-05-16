@@ -134,6 +134,8 @@ The root `siumai::registry_global` alias has been removed; call `registry::globa
 the scoped registry module, or call `siumai::prelude::unified::registry::global()` explicitly.
 Registry contracts such as `ProviderFactory`, `BuildContext`, and `ProviderBuildOverrides` are
 scoped under this registry module and should not be imported from the top-level unified prelude.
+The root `siumai::provider_catalog::*` mirror has been removed; advanced catalog lookups should
+import the owner module `siumai_registry::provider_catalog::*` explicitly.
 
 Registry construction is family-first. Custom factories should implement native family methods such
 as `language_model_text_with_ctx(...)`, `embedding_model_family_with_ctx(...)`,

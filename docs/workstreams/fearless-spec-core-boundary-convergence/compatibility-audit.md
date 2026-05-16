@@ -867,6 +867,32 @@ Validation:
 - `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_registry_prelude_exports_factory_signature_types --features openai,anthropic,google --no-default-features --no-fail-fast`
 - `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
 
+### Facade provider catalog mirror
+
+Surface: removed root `siumai::provider_catalog::*` mirror.
+
+Owner: `siumai-registry::provider_catalog` owns provider catalog lookup data and helpers. The
+facade should not mirror this registry implementation module as a stable root namespace.
+
+Current users: no real source users were found; one commented example was updated to the
+registry-owned path before removal.
+
+Canonical replacement: import `siumai_registry::provider_catalog::*` explicitly for advanced
+catalog lookups. Application code should usually resolve concrete models through registry family
+handles instead of querying provider catalogs directly.
+
+Keep, move, or remove: remove. This was a broad facade mirror over registry internals and did not
+belong to the stable Vercel-aligned facade root.
+
+Migration note needed: completed in `docs/migration/migration-0.11.0-beta.7.md`.
+
+Removal window: completed in Track F.
+
+Validation:
+
+- `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_registry_prelude_exports_factory_signature_types --features openai,anthropic,google --no-default-features --no-fail-fast`
+- `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+
 ### `ClientWrapper` provider-named constructor aliases
 
 Surface: `ClientWrapper::openai(...)`, `ClientWrapper::anthropic(...)`,

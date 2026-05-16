@@ -845,6 +845,8 @@ Status legend:
     `prelude::unified::*`, keeping registry contracts grouped under the registry surface.
   - The unused root `siumai::registry_global` alias has been removed; callers use
     `registry::global()` or `siumai::prelude::unified::registry::global()` explicitly.
+  - The unused facade root `siumai::provider_catalog::*` mirror has been removed; advanced catalog
+    code imports `siumai_registry::provider_catalog::*` explicitly.
   - File/skill upload helper types and functions are no longer direct `prelude::unified::*` names;
     they remain available through explicit `siumai::files::*`, `siumai::skills::*`, and root helper
     function paths.
@@ -926,6 +928,8 @@ Status legend:
     explicit `siumai::compat::builder::*` migration path.
   - Latest Track F registry-global cleanup documents removal of root `siumai::registry_global` and
     the scoped `registry::global()` replacement.
+  - Latest Track F provider-catalog cleanup documents removal of root
+    `siumai::provider_catalog::*` and the registry-owned replacement path.
 - [x] Update migration docs for any public breaking removals.
   - `migration-0.11.0-beta.7.md` now includes the root `StreamingToolCall*` alias removal and
     replacement imports.
@@ -935,6 +939,8 @@ Status legend:
     replacement imports.
   - `migration-0.11.0-beta.7.md` now includes the root `siumai::registry_global` alias removal and
     replacement import/call paths.
+  - `migration-0.11.0-beta.7.md` now includes the root `siumai::provider_catalog::*` mirror removal
+    and replacement import path.
 
 ## Track G - Documentation And Final Validation
 

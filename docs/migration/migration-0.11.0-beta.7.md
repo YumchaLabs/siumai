@@ -15,6 +15,9 @@ construct shared structs directly, or compare serialized snapshots.
 - Registry global handle: call `registry::global()` or
   `siumai::prelude::unified::registry::global()`; the root `siumai::registry_global` alias was
   removed.
+- Provider catalog: import advanced provider catalog lookups from
+  `siumai_registry::provider_catalog::*`; the root `siumai::provider_catalog::*` mirror was
+  removed.
 - `ClientWrapper`: use `ClientWrapper::new(...)`; provider-named wrapper constructors were removed
   from `siumai-core`.
 - Streaming consumers: prefer semantic accessors such as `event.text_delta()` and
@@ -163,6 +166,14 @@ scoped registry module instead:
 ```rust,ignore
 let model = siumai::prelude::unified::registry::global()
     .language_model("openai:gpt-4o-mini")?;
+```
+
+The facade no longer mirrors `siumai-registry`'s provider catalog at
+`siumai::provider_catalog::*`. If advanced catalog code used that path, import the registry-owned
+module explicitly:
+
+```rust,ignore
+use siumai_registry::provider_catalog::{get_provider_info, get_supported_providers};
 ```
 
 ## 2.1) Anthropic Message Helpers

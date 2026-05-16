@@ -504,8 +504,6 @@ pub use crate::provider_ext as providers;
 /// These are stable module paths for provider-specific endpoints/resources.
 pub mod provider_ext;
 
-pub mod provider_catalog;
-
 /// Extension capabilities (non-unified surface).
 ///
 /// These are intentionally *not* part of the Vercel-aligned unified model families.

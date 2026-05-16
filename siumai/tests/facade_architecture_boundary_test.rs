@@ -1000,6 +1000,10 @@ fn streaming_tool_call_helpers_are_explicit_compat_only() {
 fn stable_registry_prelude_exports_factory_signature_types() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
+    let compatibility_audit = fs::read_to_string(crate_root().join(
+        "../docs/workstreams/fearless-spec-core-boundary-convergence/compatibility-audit.md",
+    ))
+    .expect("read fearless compatibility audit");
     let migration_doc =
         fs::read_to_string(crate_root().join("../docs/migration/migration-0.11.0-beta.7.md"))
             .expect("read migration doc");
@@ -1012,6 +1016,11 @@ fn stable_registry_prelude_exports_factory_signature_types() {
             && !lib_rs.contains("pub use registry::global as")
             && !unified_source.contains("registry_global"),
         "facade should not keep a root registry_global alias; use registry::global() or prelude::unified::registry::global()"
+    );
+    assert!(
+        !lib_rs.contains("pub mod provider_catalog;")
+            && !crate_root().join("src/provider_catalog.rs").exists(),
+        "facade root should not mirror siumai-registry provider_catalog; import the registry-owned catalog explicitly"
     );
     assert!(
         !unified_source.contains("pub use crate::registry::ProviderFactory;"),
@@ -1035,6 +1044,14 @@ fn stable_registry_prelude_exports_factory_signature_types() {
             && migration_doc.contains("`siumai::registry_global` alias")
             && migration_doc.contains("removed"),
         "docs should steer users from registry_global to the scoped registry global handle"
+    );
+    assert!(
+        public_surface_doc.contains("root `siumai::provider_catalog::*` mirror has been removed")
+            && migration_doc.contains("root `siumai::provider_catalog::*` mirror")
+            && migration_doc.contains("removed")
+            && compatibility_audit.contains("removed root")
+            && compatibility_audit.contains("`siumai::provider_catalog::*` mirror"),
+        "docs should steer provider catalog users to the registry-owned provider catalog"
     );
 }
 

@@ -1005,6 +1005,9 @@ Notes:
   code should import it from the scoped `prelude::unified::registry::*` surface.
 - The unused root `siumai::registry_global` alias has been removed; callers use
   `registry::global()` or `siumai::prelude::unified::registry::global()` explicitly.
+- The unused facade root `siumai::provider_catalog::*` mirror has been removed; advanced catalog
+  code imports `siumai_registry::provider_catalog::*` explicitly while normal application code uses
+  registry family handles.
 - File and skill upload helper types/functions are no longer exported as direct
   `prelude::unified::*` names. Stable imports use `siumai::files::*`, `siumai::skills::*`, or the
   root helper functions instead.

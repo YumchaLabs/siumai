@@ -226,7 +226,7 @@ mod tests {
     // Commented out until provider info functions are implemented
     // #[test]
     // fn test_provider_info() {
-    //     use siumai::provider_catalog::{get_provider_info, get_supported_providers, is_model_supported};
+    //     use siumai_registry::provider_catalog::{get_provider_info, get_supported_providers, is_model_supported};
     //     // Test implementation when available
     // }
 
