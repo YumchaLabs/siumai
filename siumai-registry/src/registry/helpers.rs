@@ -19,7 +19,62 @@ use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_pro
 #[cfg(feature = "builtins")]
 use crate::registry::entry::ProviderFactory;
 
+/// Resolve the public compatibility default model for a provider id.
+///
+/// `SiumaiBuilder` uses this when callers choose a provider but omit `.model(...)`.
+/// Native provider defaults come from `native_provider_metadata`, while configured
+/// OpenAI-compatible providers use their provider-owned config tables.
 #[cfg(feature = "builtins")]
+pub fn builtin_provider_default_model(provider_id: &str) -> Result<String, LlmError> {
+    let normalized = crate::provider::resolver::normalize_provider_id(provider_id);
+    let native_policy_id = if ids::is_openai_family(&normalized) {
+        ids::OPENAI
+    } else if ids::is_azure_family(&normalized) {
+        ids::AZURE
+    } else {
+        normalized.as_str()
+    };
+
+    if let Some(policy) =
+        crate::native_provider_metadata::native_provider_default_model_policy(native_policy_id)
+    {
+        if let Some(model) = policy.default_model() {
+            return Ok(model.to_string());
+        }
+        if let Some(message) = policy.explicit_required_message() {
+            return Err(LlmError::ConfigurationError(message.to_string()));
+        }
+    }
+
+    #[cfg(feature = "openai")]
+    {
+        if let Some(model) =
+            siumai_provider_openai_compatible::providers::openai_compatible::default_models::get_default_chat_model(
+                &normalized,
+            )
+        {
+            return Ok(model.to_string());
+        }
+    }
+
+    if ids::BuiltinProviderId::parse(&normalized).is_some() {
+        let _ = builtin_provider_factory(&normalized)?;
+    }
+
+    #[cfg(not(feature = "openai"))]
+    {
+        if ids::BuiltinProviderId::parse(&normalized).is_none() {
+            return Err(unsupported_openai_compatible_provider(&normalized));
+        }
+    }
+
+    Err(LlmError::ConfigurationError(format!(
+        "Provider '{normalized}' requires an explicit model id"
+    )))
+}
+
+#[cfg(feature = "builtins")]
+#[allow(dead_code)]
 fn unsupported_provider_feature(provider_name: &str, feature: &str) -> LlmError {
     LlmError::UnsupportedOperation(format!(
         "{provider_name} provider requires the '{feature}' feature to be enabled"

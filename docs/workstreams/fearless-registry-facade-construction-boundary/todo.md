@@ -61,6 +61,12 @@ Last updated: 2026-05-14
       public-path registry setup through it, covering TogetherAI fallback-style audio/image/
       embedding lanes plus SiliconFlow, Jina, VoyageAI, Fireworks, Mistral, OpenRouter,
       Perplexity, and Infini registry override paths.
+- [x] Move compatibility `SiumaiBuilder` default-model selection out of the builder's
+      provider-specific `match` and into registry/provider-owned metadata helpers. Native
+      providers now declare default-model or explicit-model-required policy in
+      `native_provider_metadata`, the built-in catalog reuses that metadata for
+      `ProviderRecord::default_model`, and `SiumaiBuilder` delegates model-less construction to
+      `registry::helpers::builtin_provider_default_model(...)`.
 
 ## Follow-up Candidates
 
@@ -68,8 +74,6 @@ Last updated: 2026-05-14
       breaking cleanup.
 - [ ] Continue auditing `provider_public_path_parity_test.rs` for registry setup duplication that
       can move into shared helper functions without weakening provider-specific override coverage.
-- [ ] Move provider-specific default model selection out of compatibility `SiumaiBuilder` and into
-      registry/provider metadata once the construction helper is stable.
 - [ ] Revisit `ProviderBuildOverrides` ergonomics for common test/custom-transport setup.
 
 ## Done Criteria
@@ -78,3 +82,10 @@ Last updated: 2026-05-14
 - Facade tests that only need built-in providers do not import concrete factory types.
 - Custom registry support remains intact.
 - Focused checks pass.
+
+## Validation Log
+
+- `cargo fmt --package siumai-registry`
+- `cargo check -p siumai-registry --tests --features openai --no-default-features`
+- `cargo check -p siumai-registry --tests --features openai,anthropic,google,google-vertex,azure,groq,deepseek,ollama,cohere,togetherai,minimaxi,bedrock,xai --no-default-features`
+- `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --features openai --no-default-features --no-fail-fast compatibility_builder_uses_registry_owned_default_model_resolution focused_public_facade_tests_use_registry_owned_builtin_factory_resolution`

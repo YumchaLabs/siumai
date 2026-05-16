@@ -403,3 +403,46 @@ fn focused_public_facade_tests_use_registry_owned_builtin_factory_resolution() {
         );
     }
 }
+
+#[test]
+fn compatibility_builder_uses_registry_owned_default_model_resolution() {
+    let root = crate_root();
+    let build_source =
+        fs::read_to_string(root.join("src/provider/build.rs")).expect("read provider build source");
+    let metadata_source = fs::read_to_string(root.join("src/native_provider_metadata.rs"))
+        .expect("read native provider metadata source");
+    let registry_source =
+        fs::read_to_string(root.join("src/registry/mod.rs")).expect("read registry source");
+
+    assert!(
+        build_source.contains("registry::helpers::builtin_provider_default_model("),
+        "SiumaiBuilder compatibility construction should delegate default model selection to the registry helper"
+    );
+
+    for forbidden in [
+        "siumai_provider_openai::providers::openai::model_constants",
+        "siumai_provider_anthropic::providers::anthropic::model_constants",
+        "siumai_provider_gemini::providers::gemini::model_constants",
+        "siumai_provider_openai_compatible::providers::openai_compatible::default_models",
+        "crate::utils::builder_helpers::get_effective_model",
+        "llama3.2",
+        "grok-beta",
+        "MiniMax-M2",
+        "Meta-Llama-3.1-8B-Instruct-Turbo",
+    ] {
+        assert!(
+            !build_source.contains(forbidden),
+            "SiumaiBuilder build.rs should not encode provider default model source `{forbidden}` directly"
+        );
+    }
+
+    assert!(
+        metadata_source.contains("NativeProviderDefaultModelPolicy")
+            && metadata_source.contains("default_model_policy:"),
+        "native provider metadata should own native provider default-model policy"
+    );
+    assert!(
+        registry_source.contains("meta.default_model_policy.default_model()"),
+        "built-in provider catalog should reuse native provider default-model policy instead of hand-written per-provider patches"
+    );
+}

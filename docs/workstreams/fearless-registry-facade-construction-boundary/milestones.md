@@ -68,3 +68,20 @@ Exit criteria:
   OpenAI-compatible provider-id variants use the registry-owned OpenAI-compatible helper.
 - Remaining direct concrete factory call sites are either provider contract tests, advanced
   low-level integrations, or explicitly tracked follow-up providers.
+
+## M6 - Builder Default-Model Policy
+
+Status: Complete
+
+Move model-less compatibility `SiumaiBuilder` default selection out of the builder implementation
+and into registry/provider-owned metadata.
+
+Exit criteria:
+
+- `SiumaiBuilder` delegates default-model resolution to
+  `registry::helpers::builtin_provider_default_model(...)`.
+- Native provider metadata declares either a default model or an explicit-model-required policy.
+- Built-in provider catalog default-model records reuse the same native metadata instead of
+  hand-written per-provider patches.
+- A source guard prevents provider-specific default model constants from returning to
+  `provider/build.rs`.

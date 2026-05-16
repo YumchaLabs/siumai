@@ -81,6 +81,30 @@ mod builtins {
     }
 
     impl ProviderRecord {
+        fn native(
+            id: &str,
+            name: &str,
+            base_url: Option<String>,
+            capabilities: ProviderCapabilities,
+        ) -> ProviderRecord {
+            ProviderRecord {
+                id: id.to_string(),
+                name: name.to_string(),
+                base_url,
+                capabilities,
+                #[cfg(any(
+                    feature = "openai",
+                    feature = "togetherai",
+                    feature = "deepinfra",
+                    feature = "google-vertex"
+                ))]
+                adapter: None,
+                aliases: vec![],
+                model_prefixes: vec![],
+                default_model: None,
+            }
+        }
+
         pub fn with_alias(mut self, alias: impl Into<String>) -> Self {
             self.aliases.push(alias.into());
             self
@@ -141,34 +165,16 @@ mod builtins {
             // registry and documentation helpers.
             let metas = crate::native_provider_metadata::native_providers_metadata();
             for meta in metas {
-                self.register_native(
+                let mut record = ProviderRecord::native(
                     meta.id,
                     meta.name,
                     meta.default_base_url.map(|url| url.to_string()),
                     meta.capabilities.clone(),
                 );
-            }
-
-            #[cfg(feature = "togetherai")]
-            {
-                if let Some(rec) = self.resolve(crate::provider::ids::TOGETHERAI).cloned() {
-                    self.register(
-                        rec.with_default_model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
-                    );
+                if let Some(default_model) = meta.default_model_policy.default_model() {
+                    record.default_model = Some(default_model.to_string());
                 }
-            }
-            #[cfg(feature = "deepinfra")]
-            {
-                if let Some(rec) = self.resolve(crate::provider::ids::DEEPINFRA).cloned() {
-                    self.register(rec.with_default_model("meta-llama/Llama-3.3-70B-Instruct"));
-                }
-            }
-
-            #[cfg(feature = "deepseek")]
-            {
-                if let Some(rec) = self.resolve(crate::provider::ids::DEEPSEEK).cloned() {
-                    self.register(rec.with_default_model("deepseek-chat"));
-                }
+                self.register(record);
             }
 
             // Anthropic on Vertex AI (native wrapper around Anthropic via Vertex).
@@ -333,23 +339,7 @@ mod builtins {
             base_url: Option<String>,
             capabilities: ProviderCapabilities,
         ) {
-            let record = ProviderRecord {
-                id: id.to_string(),
-                name: name.to_string(),
-                base_url,
-                capabilities,
-                #[cfg(any(
-                    feature = "openai",
-                    feature = "togetherai",
-                    feature = "deepinfra",
-                    feature = "google-vertex"
-                ))]
-                adapter: None,
-                aliases: vec![],
-                model_prefixes: vec![],
-                default_model: None,
-            };
-            self.register(record);
+            self.register(ProviderRecord::native(id, name, base_url, capabilities));
         }
 
         pub fn add_alias(&mut self, id: &str, alias: &str) {
