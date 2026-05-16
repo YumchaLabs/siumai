@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub use siumai_core::transcription::TranscriptionModel;
-pub use siumai_core::types::{SttRequest, SttResponse};
+pub use siumai_core::types::{AudioTranslationRequest, SttRequest, SttResponse};
 
 /// Options for `transcription::transcribe`.
 #[derive(Debug, Clone, Default)]

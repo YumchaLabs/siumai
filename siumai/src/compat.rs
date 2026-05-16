@@ -59,6 +59,14 @@ pub use siumai_core::types::{
     experimental_filter_active_tools, step_count_is,
 };
 
+/// Historical broad type namespace for migration-only imports.
+///
+/// Prefer `siumai::prelude::unified::*`, `siumai::prelude::extensions::*`, or the owning
+/// family/provider module for new code.
+pub mod types {
+    pub use siumai_core::types::*;
+}
+
 /// Legacy builder base types (provider builder internals).
 ///
 /// Prefer using provider builders directly (e.g. `Provider::openai()`) unless you are

@@ -17,6 +17,7 @@ use std::time::Duration;
 pub use siumai_core::embedding::EmbeddingModel;
 pub use siumai_core::types::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingRequest, EmbeddingResponse,
+    EmbeddingTaskType,
 };
 
 /// Options for `embedding::embed` and `embedding::embed_many`.

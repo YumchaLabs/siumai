@@ -250,6 +250,13 @@ The root `siumai::Provider` path has been removed. Code that intentionally keeps
 construction during migration should import `siumai::compat::Provider` or
 `siumai::prelude::compat::Provider` explicitly.
 
+The root `siumai::types::*` path has also been removed. Migration code that needs the historical
+catch-all type namespace should import `siumai::compat::types::*` or
+`siumai::prelude::compat::types::*` explicitly. New code should prefer stable family imports from
+`siumai::prelude::unified::*`, extension-only imports from `siumai::extensions::*` /
+`siumai::prelude::extensions::*`, and provider-specific data from
+`siumai::provider_ext::<provider>::*`.
+
 The historical module path `siumai::provider::*` is also a builder-era compatibility shim over
 registry-owned `Siumai` / `SiumaiBuilder` types. New code should import those names from
 `siumai::compat::*` only when it intentionally needs method-style construction. The shim is hidden
@@ -268,11 +275,12 @@ These top-level module paths are intentionally not part of the stable facade sur
 
 They may exist in lower-level crates, but should not be used through the facade.
 
-`siumai::types::*` currently remains available as a historical compatibility path, but it is not the
-target stable surface. Prefer `siumai::prelude::unified::*` for stable family data,
+`siumai::types::*` is a removed historical compatibility path. Use the explicit migration surface
+`siumai::compat::types::*` / `siumai::prelude::compat::types::*` only when porting older code that
+needs the catch-all namespace. Prefer `siumai::prelude::unified::*` for stable family data,
 `siumai::prelude::extensions::*` for non-unified capability types, and provider extension modules
 for provider-specific options or metadata. The default `prelude::unified` type exports must stay a
-curated explicit list rather than a glob mirror of `siumai::types::*`.
+curated explicit list rather than a glob mirror of the broad compatibility type namespace.
 
 Vertex URL helpers are provider-owned. With the `google-vertex` feature enabled, the facade keeps
 the compatibility path `siumai::experimental::auth::vertex::*`, which re-exports

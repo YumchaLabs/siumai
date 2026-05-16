@@ -1429,27 +1429,30 @@ Validation:
 
 ### Facade broad type path
 
-Surface: `siumai::types::*`
+Surface: `siumai::compat::types::*` and `siumai::prelude::compat::types::*`.
+The historical root `siumai::types::*` path was removed from the facade root.
 
 Owner: facade crate compatibility surface; canonical type ownership remains in `siumai-core`,
 `siumai-spec`, and extension/provider crates.
 
-Current users: historical facade imports that predate the Vercel-aligned `prelude::unified`,
-extension preludes, public-surface compile tests, and examples that use `siumai::types::*` as a
-single catch-all type namespace.
+Current users: migration-oriented facade imports that intentionally need a single catch-all type
+namespace while older code is moved to stable family, extension, provider extension, or owning-crate
+paths.
 
 Canonical replacement: prefer `siumai::prelude::unified::*` for the stable family surface,
 `siumai::prelude::extensions::*` for non-family extension types, and
 `siumai::provider_ext::<provider>::*` for provider-specific APIs. Internal crates should import from
-the owning crate instead of the facade path.
+the owning crate instead of the facade path. If a migration temporarily needs the broad namespace,
+use `siumai::compat::types::*` or `siumai::prelude::compat::types::*`.
 
-Keep, move, or remove: keep temporarily as a documented historical facade path. It is intentionally
-not treated as the future stable surface because it mirrors broad `siumai-core::types::*`.
+Keep, move, or remove: root path removed. Keep the explicit compat paths temporarily because they
+make migration-only broad imports visible and separate them from the stable facade root. They are
+intentionally not treated as the future stable surface because they mirror broad
+`siumai-core::types::*`.
 
-Migration note needed: yes before any breaking removal or split into stable/compat type modules.
+Migration note needed: done in `docs/migration/migration-0.11.0-beta.7.md`.
 
-Removal window: not set. The next step is to split stable and compatibility type exports before
-removing the historical catch-all path.
+Removal window: no earlier than `0.12.0` for the explicit compat catch-all namespace.
 
 Validation:
 

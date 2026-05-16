@@ -131,6 +131,7 @@ below. This keeps the audit from becoming stale while the legacy dual-use carrie
 | `siumai-provider-anthropic/src/providers/anthropic/prepare_step.rs` | response-level workflow metadata to request options | `prepare_step_source_only_bridges_response_metadata_to_request_provider_options` |
 | `siumai-provider-anthropic/src/providers/anthropic/files.rs` | provider-owned Anthropic file upload/list/retrieve extension | `anthropic_files_request_and_response_paths_keep_maps_directional` |
 | `siumai-provider-anthropic/src/providers/anthropic/skills.rs` | provider-owned Anthropic skill upload extension | `anthropic_skills_request_and_response_paths_keep_maps_directional` |
+| `siumai-provider-anthropic/src/providers/anthropic/ext/chat_message.rs` | provider-owned Anthropic chat-message request option extension helper | `anthropic_chat_message_extension_source_stays_request_side` |
 | `siumai-provider-anthropic/src/providers/anthropic/ext/request_options.rs` | provider-owned Anthropic request option extension helper | `anthropic_request_option_extension_source_does_not_read_response_metadata` |
 | `siumai-provider-anthropic/src/providers/anthropic/ext/structured_output.rs` | provider-owned Anthropic structured-output request helper | `anthropic_structured_output_extension_source_does_not_read_response_metadata` |
 | `siumai-provider-anthropic/src/providers/anthropic/ext/thinking.rs` | explicit Anthropic thinking metadata replay bridge | request-only guard plus `thinking_replay_bridge_stays_explicit_cross_step_exception` |

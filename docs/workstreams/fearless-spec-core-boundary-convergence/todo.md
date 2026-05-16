@@ -37,8 +37,10 @@ Status legend:
   - `stable_unified_prelude_keeps_only_audited_compatibility_and_runtime_aliases` also keeps the
     remaining runtime bridge aliases tied to explicit compatibility-audit entries.
 - [~] Add a short audit note for every kept compatibility surface that explains why it still exists.
-  - The broad facade type path `siumai::types::*` and audited `prelude::unified` compatibility
-    aliases are now documented.
+  - The broad facade type path `siumai::types::*` has been removed from the facade root; the
+    migration-only catch-all namespace now lives under `siumai::compat::types::*` and
+    `siumai::prelude::compat::types::*`.
+  - Audited `prelude::unified` compatibility aliases are now documented.
   - The legacy `ContentPart` dual `providerOptions` / `providerMetadata` carrier is now documented
     in `compatibility-audit.md` with owner, replacement, removal window, and validation commands.
   - The kept `siumai-spec::tools` / `siumai-spec::types::tools` provider-defined tool surface is
@@ -809,15 +811,16 @@ Status legend:
     family/helper modules such as `embedding`, `image`, `video`, `retry_api`, `hosted_tools`, or
     `custom_provider`.
   - `factory_architecture_boundary_test` guards this root surface.
-- [~] Narrow facade re-exports so `siumai::types` and stable preludes expose intentional stable
+- [~] Narrow facade re-exports so broad type compatibility paths and stable preludes expose intentional stable
   data only.
-  - The historical `siumai::types::*` path remains for compatibility, but it is now explicitly
-    audited rather than treated as the target stable surface.
-  - `siumai/src/lib.rs` and `docs/architecture/public-surface.md` now both describe
-    `siumai::types::*` as a historical compatibility path rather than shared stable facade data.
+  - The historical root `siumai::types::*` path was removed. Migration code that intentionally
+    needs a broad type namespace now imports `siumai::compat::types::*` or
+    `siumai::prelude::compat::types::*`.
+  - `siumai/src/lib.rs`, `siumai/src/compat.rs`, and `docs/architecture/public-surface.md` now
+    describe the catch-all type namespace as explicit compatibility surface rather than shared
+    stable facade data.
   - `prelude::unified` is now guarded against falling back to `siumai_core::types::*`; stable type
-    exports must stay an explicit curated list while the historical broad `siumai::types::*` path
-    remains available.
+    exports must stay an explicit curated list while broad type imports remain under compat.
   - `facade_architecture_boundary_test` prevents legacy root `traits`, `error`, and `streaming`
     modules from returning to the facade.
   - `prelude::unified` no longer mirrors `siumai_core::streaming::*`; stable stream consumption
@@ -1033,7 +1036,7 @@ Status legend:
   - Latest Track F non-family extension prelude guard slice verified:
     - `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_unified_prelude_keeps_non_family_extension_types_scoped --no-default-features --features openai,anthropic,google --no-fail-fast`
   - Latest Track F broad facade type glob guard slice verified:
-    - `cargo nextest run -p siumai --test facade_architecture_boundary_test broad_facade_types_path_is_audited_while_it_exists --no-default-features --features openai,anthropic,google --no-fail-fast`
+    - `cargo nextest run -p siumai --test facade_architecture_boundary_test broad_facade_types_path_is_explicit_compat_only --no-default-features --features openai,anthropic,google --no-fail-fast`
 - [ ] Run `git diff --check` before closing the workstream.
   - Latest provider-neutral core fixture slice verified `git diff --check -- <touched siumai-core files>`;
     only existing LF/CRLF warnings were reported.

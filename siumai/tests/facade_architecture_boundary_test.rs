@@ -646,44 +646,82 @@ fn stable_unified_prelude_keeps_only_audited_compatibility_and_runtime_aliases()
 }
 
 #[test]
-fn broad_facade_types_path_is_audited_while_it_exists() {
+fn broad_facade_types_path_is_explicit_compat_only() {
     let lib_rs = read_source("src/lib.rs");
+    let compat_rs = read_source("src/compat.rs");
     let unified_source = prelude_unified_source(&lib_rs);
+    let root_types_path = ["siumai", "types"].join("::");
+    let root_types_glob = format!("`{root_types_path}::*`");
+    let compat_types_glob = "`siumai::compat::types::*`";
+    let prelude_compat_types_glob = "`siumai::prelude::compat::types::*`";
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
+    let migration_doc =
+        fs::read_to_string(crate_root().join("../docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read migration doc");
     let compatibility_audit = fs::read_to_string(crate_root().join(
         "../docs/workstreams/fearless-spec-core-boundary-convergence/compatibility-audit.md",
     ))
     .expect("read fearless compatibility audit");
 
-    let keeps_broad_types_path =
-        lib_rs.contains("pub mod types {") && lib_rs.contains("pub use siumai_core::types::*;");
+    assert!(
+        !lib_rs.lines().any(|line| line.starts_with("pub mod types")),
+        "facade root should not reintroduce the broad root type namespace"
+    );
+    assert!(
+        !lib_rs.contains("pub use siumai_core::types::*;"),
+        "facade root and stable preludes should not mirror the broad core type namespace"
+    );
+    assert!(
+        compat_rs.contains("pub mod types {")
+            && compat_rs.contains("pub use siumai_core::types::*;"),
+        "siumai::compat should own the broad type namespace for migration-only imports"
+    );
+    assert!(
+        lib_rs.contains("pub mod types {") && lib_rs.contains("pub use crate::compat::types::*;"),
+        "prelude::compat should expose compat::types without restoring a root facade type module"
+    );
+    assert!(
+        !unified_source.contains("siumai_core::types::*"),
+        "prelude::unified should stay a curated type surface and must not mirror the broad historical type path"
+    );
+    assert!(
+        public_surface_doc.contains(&root_types_glob)
+            && public_surface_doc.contains("removed historical compatibility path")
+            && public_surface_doc.contains(compat_types_glob)
+            && public_surface_doc.contains(prelude_compat_types_glob)
+            && public_surface_doc.contains("curated explicit list"),
+        "public-surface.md should document the root type removal and the explicit compat migration path"
+    );
+    assert!(
+        migration_doc.contains("Root broad type namespace")
+            && migration_doc.contains(&root_types_glob)
+            && migration_doc.contains(compat_types_glob),
+        "migration docs should include the root type namespace removal"
+    );
+    assert!(
+        compatibility_audit.contains("Facade broad type path")
+            && compatibility_audit.contains(&root_types_glob)
+            && compatibility_audit.contains(compat_types_glob)
+            && compatibility_audit.contains("removed from the facade root"),
+        "compatibility-audit.md should classify broad type imports as explicit compat-only"
+    );
 
-    if keeps_broad_types_path {
-        assert!(
-            compatibility_audit.contains("`siumai::types::*`"),
-            "the broad facade type path should remain documented while it exists"
-        );
-        assert!(
-            !unified_source.contains("siumai_core::types::*"),
-            "prelude::unified should stay a curated type surface and must not mirror the broad historical siumai::types::* path"
-        );
-        assert!(
-            lib_rs.contains("Historical broad type namespace")
-                && !lib_rs.contains("Shared stable data structures"),
-            "siumai::types should be documented as a historical broad path, not as the stable facade target"
-        );
-        assert!(
-            public_surface_doc.contains("`siumai::types::*` currently remains available")
-                && public_surface_doc.contains("historical compatibility path")
-                && public_surface_doc.contains("it is not the")
-                && public_surface_doc.contains("target stable surface")
-                && public_surface_doc.contains("must stay a")
-                && public_surface_doc.contains("curated explicit list")
-                && public_surface_doc.contains("glob mirror of `siumai::types::*`"),
-            "public-surface.md should explain why the broad facade type path is not the target stable surface"
-        );
+    let forbidden_path = format!("{root_types_path}::");
+    let forbidden_use = format!("use {root_types_path}");
+    for relative_dir in ["tests", "examples"] {
+        for path in rust_sources_under(relative_dir) {
+            let relative_path = normalized_workspace_path(&crate_root(), &path);
+            if relative_path.ends_with("tests/facade_architecture_boundary_test.rs") {
+                continue;
+            }
+            let source = fs::read_to_string(&path).expect("read facade test/example source");
+            assert!(
+                !source.contains(&forbidden_path) && !source.contains(&forbidden_use),
+                "{relative_path} should import stable types from prelude::unified, extension modules, provider extensions, or explicit compat::types"
+            );
+        }
     }
 }
 

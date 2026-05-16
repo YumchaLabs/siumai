@@ -27,6 +27,9 @@ construct shared structs directly, or compare serialized snapshots.
   from `siumai::compat`, not from the facade root or `prelude::unified`.
 - Provider builder entry: import `Provider` from `siumai::compat` or `siumai::prelude::compat`;
   the root `siumai::Provider` alias was removed.
+- Root broad type namespace: import migration-only catch-all types from
+  `siumai::compat::types::*` or `siumai::prelude::compat::types::*`; the root `siumai::types::*`
+  path was removed.
 - Deprecated AI SDK parity aliases: import `CallSettings`, `Experimental_*` result aliases,
   `experimental_filter_active_tools`, and `step_count_is` from `siumai::compat` when needed.
 - File/skill upload helpers: import upload helper types from `siumai::files::*` /
@@ -553,7 +556,38 @@ let client = Provider::openai()
 New code should prefer registry model handles or provider config/client constructors; this path is
 for migration code that still needs method-style provider builders.
 
-## 16) Provider-specific note: Vertex Gemini image
+## 16) Root broad type namespace imports
+
+The historical root `siumai::types::*` catch-all namespace moved to the explicit compatibility
+surface. This keeps broad migration imports visible and prevents the facade root from becoming the
+default type namespace again.
+
+Before:
+
+```rust,ignore
+use siumai::types::{ChatMessage, Tool, Warning};
+```
+
+After, for migration code that intentionally keeps the catch-all namespace:
+
+```rust,ignore
+use siumai::compat::types::{ChatMessage, Tool, Warning};
+```
+
+Or through the compatibility prelude:
+
+```rust,ignore
+use siumai::prelude::compat::types::{ChatMessage, Tool, Warning};
+```
+
+For new code, prefer the owning stable paths instead:
+
+```rust,ignore
+use siumai::prelude::unified::{ChatMessage, Tool, Warning};
+use siumai::extensions::types::ImageEditInput;
+```
+
+## 17) Provider-specific note: Vertex Gemini image
 
 Vertex Gemini image requests now reject mask and multi-image count settings on the Gemini image
 path when those settings are unsupported. This is intentional: it prevents a request from silently
@@ -562,7 +596,7 @@ being routed through the wrong provider mode.
 If you need mask/reference-image behavior, use the Vertex Imagen edit path and its provider options
 instead of the Gemini image generation path.
 
-## 17) Live provider smoke tests
+## 18) Live provider smoke tests
 
 The live smoke script still skips missing API keys. In `0.11.0-beta.7`, Gemini defaults to
 `gemini-2.5-flash-lite` for a more stable low-cost smoke path, and transient provider/network

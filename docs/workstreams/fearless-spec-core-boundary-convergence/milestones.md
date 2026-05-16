@@ -980,10 +980,12 @@ Notes:
 - `siumai::facade_architecture_boundary_test` now also audits the remaining
   `prelude::unified` compatibility/runtime aliases. After the deprecated AI SDK parity alias move,
   only `CancelHandle` remains on that allowlist because it is an active runtime cancellation type.
-- The historical `siumai::types::*` catch-all path remains for compatibility but is now recorded in
-  `compatibility-audit.md` as a non-target stable surface.
-- `siumai/src/lib.rs` and `docs/architecture/public-surface.md` now use the same language for that
-  path: historical compatibility, not the stable facade target.
+- The historical root `siumai::types::*` catch-all path has been removed. The compatibility
+  catch-all type namespace is now explicit under `siumai::compat::types::*` and
+  `siumai::prelude::compat::types::*`, and `compatibility-audit.md` records it as non-target stable
+  surface.
+- `siumai/src/lib.rs`, `siumai/src/compat.rs`, and `docs/architecture/public-surface.md` now use
+  the same language for that path: explicit compatibility, not the stable facade target.
 - `prelude::unified` no longer mirrors `siumai_core::streaming::*`. It keeps stable stream
   consumption types, while low-level converters, factories, encoders, and typed bridge stream parts
   are available through `siumai::experimental::streaming` for advanced integrations.
@@ -1078,10 +1080,10 @@ Notes:
   capabilities. `prelude::unified` must not directly export extension capability traits or
   extension-only request/response types; those remain under `siumai::extensions::*` and
   `prelude::extensions::*`.
-- `siumai::facade_architecture_boundary_test::broad_facade_types_path_is_audited_while_it_exists`
-  now also prevents the stable unified prelude from regressing to a glob mirror of
-  `siumai_core::types::*`. The historical `siumai::types::*` path stays audited as compatibility,
-  while Tier A type exports remain curated.
+- `siumai::facade_architecture_boundary_test::broad_facade_types_path_is_explicit_compat_only`
+  prevents the root `siumai::types::*` path from returning, keeps the broad type namespace under
+  explicit compat paths, and prevents the stable unified prelude from regressing to a glob mirror of
+  `siumai_core::types::*`. Tier A type exports remain curated.
 - Verified commands:
   - `cargo check -p siumai-registry --no-default-features`
   - `cargo check -p siumai-registry --example no_builtins_custom_factory --no-default-features`
@@ -1124,7 +1126,7 @@ Notes:
   - `cargo check -p siumai --tests --features all-providers,gcp --no-default-features`
   - `cargo nextest run -p siumai --test facade_architecture_boundary_test content_part_provider_map_audit_covers_high_value_production_hits --features openai,anthropic,google --no-default-features --no-fail-fast`
   - `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_unified_prelude_keeps_non_family_extension_types_scoped --features openai,anthropic,google --no-default-features --no-fail-fast`
-  - `cargo nextest run -p siumai --test facade_architecture_boundary_test broad_facade_types_path_is_audited_while_it_exists --features openai,anthropic,google --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai --test facade_architecture_boundary_test broad_facade_types_path_is_explicit_compat_only --features openai,anthropic,google --no-default-features --no-fail-fast`
 
 ## FSCBC-M7 - Final Validation
 

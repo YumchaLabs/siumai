@@ -516,7 +516,7 @@ fn public_surface_unified_imports_compile() {
     let _ = validate_download_url as fn(&str) -> Result<(), DownloadError>;
     let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
     let _ = convert_image_model_file_to_data_uri
-        as fn(&siumai::types::ImageEditInput) -> Result<String, LlmError>;
+        as fn(&siumai::extensions::types::ImageEditInput) -> Result<String, LlmError>;
     let _ = is_deep_equal_data as fn(&JSONValue, &JSONValue) -> bool;
     let _ = is_text_ui_part as fn(&UiMessagePart) -> bool;
     let _ = is_custom_content_ui_part as fn(&UiMessagePart) -> bool;
@@ -621,7 +621,10 @@ fn public_surface_unified_imports_compile() {
     );
     assert_eq!(
         convert_image_model_file_to_data_uri(
-            &siumai::types::ImageEditInput::base64_with_media_type("aGVsbG8=", "image/png")
+            &siumai::extensions::types::ImageEditInput::base64_with_media_type(
+                "aGVsbG8=",
+                "image/png",
+            ),
         )
         .expect("image file data uri"),
         "data:image/png;base64,aGVsbG8="
@@ -857,8 +860,10 @@ fn public_surface_unified_imports_compile() {
         vec![1, 2, 3]
     );
 
-    let translation_request =
-        siumai::types::AudioTranslationRequest::from_data_content(shared_data.clone(), "audio/wav");
+    let translation_request = siumai::transcription::AudioTranslationRequest::from_data_content(
+        shared_data.clone(),
+        "audio/wav",
+    );
     assert_eq!(
         translation_request
             .audio_bytes()
@@ -1091,18 +1096,16 @@ fn public_surface_unified_imports_compile() {
         Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
     );
 
-    let file_url_part =
-        siumai::types::ToolResultContentPart::file_url("https://example.com/report.pdf")
-            .with_media_type("application/pdf");
+    let file_url_part = ToolResultContentPart::file_url("https://example.com/report.pdf")
+        .with_media_type("application/pdf");
     let file_url_json = serde_json::to_value(&file_url_part).expect("serialize file url part");
     assert_eq!(
         file_url_json["mediaType"],
         serde_json::json!("application/pdf")
     );
 
-    let file_reference_part = siumai::types::ToolResultContentPart::file_reference(
-        ProviderReference::from([("openai", "file_123")]),
-    );
+    let file_reference_part =
+        ToolResultContentPart::file_reference(ProviderReference::from([("openai", "file_123")]));
     let file_reference_json =
         serde_json::to_value(&file_reference_part).expect("serialize file reference part");
     assert_eq!(
@@ -1114,7 +1117,7 @@ fn public_surface_unified_imports_compile() {
         serde_json::json!("file_123")
     );
 
-    let legacy_file_id_part = siumai::types::ToolResultContentPart::file_id("file_legacy");
+    let legacy_file_id_part = ToolResultContentPart::file_id("file_legacy");
     let legacy_file_id_json =
         serde_json::to_value(&legacy_file_id_part).expect("serialize legacy file-id part");
     assert_eq!(legacy_file_id_json["type"], serde_json::json!("file-id"));
@@ -1213,12 +1216,11 @@ fn public_surface_ui_helpers_imports_compile() {
 #[tokio::test]
 async fn public_surface_tooling_imports_compile() {
     use futures::StreamExt;
-    use siumai::prelude::unified::LlmError;
+    use siumai::prelude::unified::{ChatMessage, LlmError, Tool};
     use siumai::tooling::{
         ExecutableTool, ExecutableTools, ToolExecutionOptions, ToolExecutionResult, ToolSet,
         dynamic_tool, execute_tool, is_executable_tool, model_messages_from_chat_messages, tool,
     };
-    use siumai::types::Tool;
 
     let tool = tool(Tool::function(
         "search",
@@ -1241,9 +1243,8 @@ async fn public_surface_tooling_imports_compile() {
     ));
     assert!(dynamic.runtime_metadata().dynamic());
 
-    let shared_messages =
-        model_messages_from_chat_messages(&[siumai::types::ChatMessage::user("hello").build()])
-            .expect("project model messages");
+    let shared_messages = model_messages_from_chat_messages(&[ChatMessage::user("hello").build()])
+        .expect("project model messages");
     assert_eq!(shared_messages.len(), 1);
 
     let mut results = execute_tool(
@@ -1539,6 +1540,7 @@ fn public_family_helpers_compile_against_stable_family_models() {
 
 #[test]
 fn public_surface_video_family_imports_compile() {
+    use siumai::prelude::unified::ProviderReference;
     use siumai::video::{
         CreateTaskOptions, GenerateMaterializedVideoResult, GenerateOptions, GenerateVideoPrompt,
         GenerateVideoProviderMetadata, GenerateVideoResponseMetadata, GenerateVideoResult,
@@ -1582,10 +1584,7 @@ fn public_surface_video_family_imports_compile() {
         status: VideoTaskStatus::Success,
         file_id: None,
         video_url: None,
-        provider_reference: Some(siumai::types::ProviderReference::single(
-            "gemini",
-            "files/123",
-        )),
+        provider_reference: Some(ProviderReference::single("gemini", "files/123")),
         duration: None,
         video_width: None,
         video_height: None,
@@ -1653,10 +1652,10 @@ fn public_surface_compat_imports_compile() {
     let _ = size_of::<StreamingToolCallTypeValidation>();
     let _ = experimental_filter_active_tools::<String>
         as fn(
-            Option<&[siumai::types::Tool]>,
+            Option<&[siumai::compat::types::Tool]>,
             Option<&[String]>,
-        ) -> Option<Vec<siumai::types::Tool>>;
-    let _ = step_count_is as fn(usize) -> siumai::types::StopCondition;
+        ) -> Option<Vec<siumai::compat::types::Tool>>;
+    let _ = step_count_is as fn(usize) -> siumai::compat::types::StopCondition;
 }
 
 #[test]
@@ -1689,10 +1688,10 @@ fn public_surface_compat_prelude_imports_compile() {
     let _ = size_of::<StreamingToolCallTypeValidation>();
     let _ = experimental_filter_active_tools::<String>
         as fn(
-            Option<&[siumai::types::Tool]>,
+            Option<&[siumai::prelude::compat::types::Tool]>,
             Option<&[String]>,
-        ) -> Option<Vec<siumai::types::Tool>>;
-    let _ = step_count_is as fn(usize) -> siumai::types::StopCondition;
+        ) -> Option<Vec<siumai::prelude::compat::types::Tool>>;
+    let _ = step_count_is as fn(usize) -> siumai::prelude::compat::types::StopCondition;
 
     let mut streaming_tool_call_tracker = StreamingToolCallTracker::new();
     let mut streaming_tool_call_parts = Vec::new();
@@ -2233,7 +2232,7 @@ fn public_surface_anthropic_provider_ext_compiles() {
     _assert_req_ext::<ChatRequest>();
     _assert_resp_ext::<ChatResponse>();
     _assert_tool_ext::<Tool>();
-    let empty_steps: [Option<&siumai::types::ProviderMetadataMap>; 0] = [];
+    let empty_steps: [Option<&ProviderMetadata>; 0] = [];
     let _ = find_anthropic_container_id_from_last_step(empty_steps);
     let _ = forward_anthropic_container_id_from_last_step(empty_steps);
     let _ = thinking::assistant_message_with_thinking_metadata;
@@ -2585,7 +2584,7 @@ fn public_surface_google_provider_ext_compiles() {
     let _ = EmbeddingRequest::single("hello").with_google_embedding_options(
         GoogleEmbeddingModelOptions::new()
             .with_output_dimensionality(128)
-            .with_task_type(siumai::types::EmbeddingTaskType::SemanticSimilarity),
+            .with_task_type(EmbeddingTaskType::SemanticSimilarity),
     );
     let _ = siumai::image::GenerateImageRequest::new("draw a robot").with_google_image_options(
         GoogleImageModelOptions::new()
@@ -3266,7 +3265,7 @@ fn public_surface_google_vertex_provider_ext_compiles() {
         .into_config_for_model(chat::GEMINI_2_5_FLASH);
     let _ = VertexEmbeddingOptions::new()
         .with_output_dimensionality(256)
-        .with_task_type(siumai::types::EmbeddingTaskType::RetrievalDocument)
+        .with_task_type(EmbeddingTaskType::RetrievalDocument)
         .with_title("vertex-doc")
         .with_auto_truncate(true);
     let _ = vertex_builder().language_model(chat::GEMINI_2_5_FLASH);

@@ -114,16 +114,6 @@ pub mod __private {
     pub use siumai_core::types;
 }
 
-/// Historical broad type namespace.
-///
-/// This keeps the historical `siumai::types::*` import path available while the
-/// workspace remains split across `siumai-spec` and `siumai-core`. Prefer
-/// `siumai::prelude::unified::*`, `siumai::prelude::extensions::*`, or the owning crate/module for
-/// new code.
-pub mod types {
-    pub use siumai_core::types::*;
-}
-
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).
 pub mod hosted_tools {
     #[cfg(any(feature = "openai", feature = "protocol-openai"))]
@@ -687,9 +677,9 @@ pub mod prelude {
             DynamicToolError, DynamicToolResult, DynamicToolUIPart, EmbedEndEvent, EmbedManyResult,
             EmbedOutput, EmbedResponseData, EmbedResult, EmbedStartEvent, EmbedValue, Embedding,
             EmbeddingModelCallEndEvent, EmbeddingModelCallStartEvent, EmbeddingModelUsage,
-            EmbeddingRequest, EmbeddingResponse, EmptyResponseBodyError, FileOutput, FilePart,
-            FilePartSource, FileUIPart, FinishReason, FlexibleSchema, GenerateImagePrompt,
-            GenerateImageRequest, GenerateImageResult, GenerateObjectEndEvent,
+            EmbeddingRequest, EmbeddingResponse, EmbeddingTaskType, EmptyResponseBodyError,
+            FileOutput, FilePart, FilePartSource, FileUIPart, FinishReason, FlexibleSchema,
+            GenerateImagePrompt, GenerateImageRequest, GenerateImageResult, GenerateObjectEndEvent,
             GenerateObjectOutputStrategy, GenerateObjectResponseMetadata, GenerateObjectStartEvent,
             GenerateObjectStepEndEvent, GenerateObjectStepStartEvent, GenerateTextContentPart,
             GenerateTextEndEvent, GenerateTextModelInfo, GenerateTextReasoningPart,
@@ -774,33 +764,33 @@ pub mod prelude {
             ToolCallRepairError, ToolCallRepairFunctionError, ToolCallRepairResult, ToolChoice,
             ToolContent, ToolContentPart, ToolError, ToolExecutionEndEvent,
             ToolExecutionStartEvent, ToolModelMessage, ToolOutput, ToolOutputDenied, ToolResult,
-            ToolResultOutput, ToolResultPart, ToolUIPart, TranscriptionModelResponseMetadata,
-            TranscriptionResult, TranscriptionSegment, TtsRequest, TtsResponse,
-            TypeValidationContext, TypeValidationError, TypedToolCall, TypedToolError,
-            TypedToolOutputDenied, TypedToolResult, UI_MESSAGE_STREAM_HEADERS, UIDataPartSchemas,
-            UIDataTypes, UIDataTypesToSchemas, UIMessage, UIMessageChunk, UIMessagePart,
-            UIMessageStreamError, UIMessageStreamOptions, UITool, UIToolInvocation, UITools,
-            UiCustomPart, UiDataPart, UiFilePart, UiMessage, UiMessageAbortChunk, UiMessageChunk,
-            UiMessageCustomChunk, UiMessageDataChunk, UiMessageErrorChunk, UiMessageFileChunk,
-            UiMessageFinishChunk, UiMessageFinishStepChunk, UiMessageMetadataChunk, UiMessagePart,
-            UiMessageReasoningDeltaChunk, UiMessageReasoningEndChunk, UiMessageReasoningFileChunk,
-            UiMessageReasoningStartChunk, UiMessageRole, UiMessageSourceDocumentChunk,
-            UiMessageSourceUrlChunk, UiMessageStartChunk, UiMessageStartStepChunk,
-            UiMessageStreamOptions, UiMessageTextDeltaChunk, UiMessageTextEndChunk,
-            UiMessageTextStartChunk, UiMessageToolApprovalRequestChunk,
-            UiMessageToolApprovalResponseChunk, UiMessageToolInputAvailableChunk,
-            UiMessageToolInputDeltaChunk, UiMessageToolInputErrorChunk,
-            UiMessageToolInputStartChunk, UiMessageToolOutputAvailableChunk,
-            UiMessageToolOutputDeniedChunk, UiMessageToolOutputErrorChunk, UiMessageWithoutId,
-            UiPartState, UiProviderMetadata, UiReasoningFilePart, UiReasoningPart,
-            UiSourceDocumentPart, UiSourceUrlPart, UiTextPart, UiToolApproval,
-            UiToolApprovalDecision, UiToolApprovalRequest, UiToolApprovedApproval,
-            UiToolDeniedApproval, UiToolInvocation, UiToolInvocationState, UiToolKind, UiToolPart,
-            UiToolPartState, UnsupportedFunctionalityError, UnsupportedModelVersionError, Usage,
-            UsageInputTokens, UsageOutputTokens, UseCompletionOptions, UserContent,
-            UserContentPart, UserModelMessage, ValidationResult, VideoModelProviderMetadata,
-            VideoModelResponseMetadata, Warning, add_image_model_usage, add_language_model_usage,
-            as_language_model_usage, as_schema, as_schema_or_empty,
+            ToolResultContentPart, ToolResultOutput, ToolResultPart, ToolUIPart,
+            TranscriptionModelResponseMetadata, TranscriptionResult, TranscriptionSegment,
+            TtsRequest, TtsResponse, TypeValidationContext, TypeValidationError, TypedToolCall,
+            TypedToolError, TypedToolOutputDenied, TypedToolResult, UI_MESSAGE_STREAM_HEADERS,
+            UIDataPartSchemas, UIDataTypes, UIDataTypesToSchemas, UIMessage, UIMessageChunk,
+            UIMessagePart, UIMessageStreamError, UIMessageStreamOptions, UITool, UIToolInvocation,
+            UITools, UiCustomPart, UiDataPart, UiFilePart, UiMessage, UiMessageAbortChunk,
+            UiMessageChunk, UiMessageCustomChunk, UiMessageDataChunk, UiMessageErrorChunk,
+            UiMessageFileChunk, UiMessageFinishChunk, UiMessageFinishStepChunk,
+            UiMessageMetadataChunk, UiMessagePart, UiMessageReasoningDeltaChunk,
+            UiMessageReasoningEndChunk, UiMessageReasoningFileChunk, UiMessageReasoningStartChunk,
+            UiMessageRole, UiMessageSourceDocumentChunk, UiMessageSourceUrlChunk,
+            UiMessageStartChunk, UiMessageStartStepChunk, UiMessageStreamOptions,
+            UiMessageTextDeltaChunk, UiMessageTextEndChunk, UiMessageTextStartChunk,
+            UiMessageToolApprovalRequestChunk, UiMessageToolApprovalResponseChunk,
+            UiMessageToolInputAvailableChunk, UiMessageToolInputDeltaChunk,
+            UiMessageToolInputErrorChunk, UiMessageToolInputStartChunk,
+            UiMessageToolOutputAvailableChunk, UiMessageToolOutputDeniedChunk,
+            UiMessageToolOutputErrorChunk, UiMessageWithoutId, UiPartState, UiProviderMetadata,
+            UiReasoningFilePart, UiReasoningPart, UiSourceDocumentPart, UiSourceUrlPart,
+            UiTextPart, UiToolApproval, UiToolApprovalDecision, UiToolApprovalRequest,
+            UiToolApprovedApproval, UiToolDeniedApproval, UiToolInvocation, UiToolInvocationState,
+            UiToolKind, UiToolPart, UiToolPartState, UnsupportedFunctionalityError,
+            UnsupportedModelVersionError, Usage, UsageInputTokens, UsageOutputTokens,
+            UseCompletionOptions, UserContent, UserContentPart, UserModelMessage, ValidationResult,
+            VideoModelProviderMetadata, VideoModelResponseMetadata, Warning, add_image_model_usage,
+            add_language_model_usage, as_language_model_usage, as_schema, as_schema_or_empty,
             convert_data_content_to_base64_string, convert_data_content_to_uint8_array,
             convert_uint8_array_to_text, create_null_language_model_usage, empty_json_schema,
             filter_active_tools, get_chunk_timeout_ms, get_static_tool_name, get_step_timeout_ms,
@@ -859,6 +849,11 @@ pub mod prelude {
             StreamingToolCallTracker, StreamingToolCallTrackerOptions,
             StreamingToolCallTypeValidation, experimental_filter_active_tools, step_count_is,
         };
+
+        /// Historical broad type namespace for migration-oriented imports.
+        pub mod types {
+            pub use crate::compat::types::*;
+        }
     }
 
     /// Non-unified extension capabilities (provider-specific or non-family features).

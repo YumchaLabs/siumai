@@ -5,13 +5,13 @@ use serde_json::{Value, json};
 
 #[tokio::test]
 async fn public_surface_tooling_runtime_contract_compiles() {
+    use siumai::prelude::unified::{CancelHandle, ChatMessage, Context, Tool, ToolResultOutput};
     use siumai::tooling::{
         ExecutableTool, ExecutableTools, ToolExecutionOptions, ToolExecutionResult,
         ToolExecutionStream, ToolInputAvailableContext, ToolInputDeltaContext,
         ToolModelOutputContext, ToolNeedsApprovalContext, ToolRuntimeContext, ToolRuntimeMetadata,
         ToolSet, execute_tool, model_messages_from_chat_messages, tool,
     };
-    use siumai::types::{CancelHandle, ChatMessage, Context, Tool, ToolResultOutput};
 
     let _ = size_of::<ExecutableTool>();
     let _ = size_of::<ExecutableTools>();
@@ -178,7 +178,7 @@ async fn public_surface_tooling_runtime_contract_compiles() {
 
 #[test]
 fn public_surface_provider_defined_tool_metadata_compiles() {
-    use siumai::types::{ProviderDefinedTool, ProviderOptionsMap, Tool};
+    use siumai::prelude::unified::{ProviderDefinedTool, ProviderOptionsMap, Tool};
 
     let mut provider_options = ProviderOptionsMap::new();
     provider_options.insert("openai", json!({ "defer_loading": true }));

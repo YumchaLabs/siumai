@@ -1,9 +1,9 @@
-use siumai::tooling::{ExecutableTool, ExecutableTools};
-use siumai::types::{
-    ContentPart, Tool, ToolResultOutput, UiMessage, UiMessagePart, UiToolApproval,
-    UiToolApprovedApproval, UiToolInvocation, UiToolInvocationState, UiToolKind, UiToolPart,
-    UiToolPartState,
+use siumai::prelude::unified::{
+    ContentPart, MessageContent, Tool, ToolResultContentPart, ToolResultOutput, UiMessage,
+    UiMessagePart, UiToolApproval, UiToolApprovedApproval, UiToolInvocation, UiToolInvocationState,
+    UiToolKind, UiToolPart, UiToolPartState,
 };
+use siumai::tooling::{ExecutableTool, ExecutableTools};
 use siumai::ui::{
     ConvertUiMessagesOptions, convert_to_chat_request, convert_to_model_messages_with,
     convert_to_model_messages_with_tooling, validate_ui_messages,
@@ -110,10 +110,7 @@ fn facade_supports_runtime_tool_output_mapping() {
     ))
     .with_to_model_output_fn(|ctx| {
         Ok(ToolResultOutput::content(vec![
-            siumai::types::ToolResultContentPart::text(format!(
-                "{}:{}",
-                ctx.tool_call_id, ctx.output["temp"]
-            )),
+            ToolResultContentPart::text(format!("{}:{}", ctx.tool_call_id, ctx.output["temp"])),
         ]))
     })]);
 
@@ -132,7 +129,7 @@ fn facade_supports_runtime_tool_output_mapping() {
     )
     .expect("convert messages");
 
-    let siumai::types::MessageContent::MultiModal(parts) = &converted[1].content else {
+    let MessageContent::MultiModal(parts) = &converted[1].content else {
         panic!("expected tool multimodal content");
     };
     let ContentPart::ToolResult { output, .. } = &parts[0] else {
@@ -140,9 +137,7 @@ fn facade_supports_runtime_tool_output_mapping() {
     };
     assert_eq!(
         output,
-        &ToolResultOutput::content(vec![siumai::types::ToolResultContentPart::text(
-            "call_1:18"
-        )])
+        &ToolResultOutput::content(vec![ToolResultContentPart::text("call_1:18")])
     );
 }
 

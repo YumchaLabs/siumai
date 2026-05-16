@@ -4,7 +4,9 @@
 use serde::de::DeserializeOwned;
 use siumai::extensions::TranscriptionExtras;
 use siumai::prelude::compat::Siumai;
-use siumai::prelude::unified::{SpeechCapability, SttRequest, TranscriptionCapability, TtsRequest};
+use siumai::prelude::unified::{
+    SpeechCapability, SttRequest, TranscriptionCapability, TtsRequest, Warning,
+};
 use siumai::provider_ext::openai::{OpenAiSttOptions, OpenAiSttRequestExt};
 use std::path::{Path, PathBuf};
 use wiremock::matchers::{
@@ -87,7 +89,7 @@ async fn openai_tts_sends_json_and_returns_audio_bytes() {
     );
     assert_eq!(
         resp.warnings,
-        Some(vec![siumai::types::Warning::unsupported(
+        Some(vec![Warning::unsupported(
             "language",
             Some(
                 "OpenAI speech models do not support language selection. Language parameter \"en\" was ignored."
@@ -143,7 +145,7 @@ async fn openai_tts_unsupported_output_format_warns_and_falls_back_to_mp3() {
     assert_eq!(resp.audio_data, b"ID3".to_vec());
     assert_eq!(
         resp.warnings,
-        Some(vec![siumai::types::Warning::unsupported(
+        Some(vec![Warning::unsupported(
             "outputFormat",
             Some("Unsupported output format: ogg. Using mp3 instead.")
         )])
