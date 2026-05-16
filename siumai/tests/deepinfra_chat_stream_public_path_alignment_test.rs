@@ -14,7 +14,6 @@ use siumai::prelude::unified::{
     ChatCapability, ChatMessage, ChatRequest, ChatStreamEvent, ChatStreamPart, LlmError,
 };
 use siumai::provider_ext::deepinfra::{DeepInfraClient, DeepInfraConfig};
-use siumai::registry::ProviderBuildOverrides;
 use siumai_core::builder::BuilderBase;
 use siumai_provider_openai_compatible::providers::openai_compatible::{
     ConfigurableAdapter, OpenAiCompatibleBuilder, ResponseMetadataExtractor, get_provider_config,
@@ -128,13 +127,7 @@ fn make_registry(
         .with_api_key("test-key")
         .with_base_url(base_url)
         .fetch(transport.clone())
-        .with_provider_build_overrides(
-            "deepinfra",
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
-        )
+        .with_provider_api_key_base_url_fetch("deepinfra", "test-key", base_url, transport)
         .auto_middleware(false)
         .build()
         .expect("build registry")

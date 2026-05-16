@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 
@@ -10,7 +11,7 @@ pub struct ProviderBuildOverrides {
     /// Optional pre-built HTTP client override.
     pub http_client: Option<reqwest::Client>,
     /// Optional custom HTTP transport override.
-    pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    pub http_transport: Option<Arc<dyn HttpTransport>>,
     /// Optional HTTP configuration override.
     pub http_config: Option<crate::types::HttpConfig>,
     /// Optional API key override.
@@ -24,15 +25,44 @@ pub struct ProviderBuildOverrides {
 }
 
 impl ProviderBuildOverrides {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn api_key<S: Into<String>>(api_key: S) -> Self {
+        Self::new().with_api_key(api_key)
+    }
+
+    pub fn base_url<S: Into<String>>(base_url: S) -> Self {
+        Self::new().with_base_url(base_url)
+    }
+
+    pub fn api_key_base_url<K: Into<String>, U: Into<String>>(api_key: K, base_url: U) -> Self {
+        Self::api_key(api_key).with_base_url(base_url)
+    }
+
+    pub fn http_transport(transport: Arc<dyn HttpTransport>) -> Self {
+        Self::new().with_http_transport(transport)
+    }
+
+    pub fn api_key_fetch<S: Into<String>>(api_key: S, transport: Arc<dyn HttpTransport>) -> Self {
+        Self::api_key(api_key).with_http_transport(transport)
+    }
+
+    pub fn api_key_base_url_fetch<K: Into<String>, U: Into<String>>(
+        api_key: K,
+        base_url: U,
+        transport: Arc<dyn HttpTransport>,
+    ) -> Self {
+        Self::api_key_base_url(api_key, base_url).with_http_transport(transport)
+    }
+
     pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
         self.http_client = Some(client);
         self
     }
 
-    pub fn with_http_transport(
-        mut self,
-        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
-    ) -> Self {
+    pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
         self
     }
@@ -42,11 +72,12 @@ impl ProviderBuildOverrides {
         self
     }
 
-    pub fn fetch(
-        self,
-        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
-    ) -> Self {
+    pub fn fetch(self, transport: Arc<dyn HttpTransport>) -> Self {
         self.with_http_transport(transport)
+    }
+
+    pub fn with_fetch(self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.fetch(transport)
     }
 
     pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
@@ -69,7 +100,7 @@ impl ProviderBuildOverrides {
         self
     }
 
-    pub(super) fn merged_with(&self, provider_override: Option<&ProviderBuildOverrides>) -> Self {
+    pub(crate) fn merged_with(&self, provider_override: Option<&ProviderBuildOverrides>) -> Self {
         if let Some(provider_override) = provider_override {
             Self {
                 http_client: provider_override
@@ -227,6 +258,28 @@ mod tests {
     use super::ProviderBuildOverrides;
     use crate::types::HttpConfig;
     use std::time::Duration;
+
+    #[test]
+    fn provider_build_overrides_constructors_match_fluent_chain() {
+        let api_key_base_url =
+            ProviderBuildOverrides::api_key_base_url("test-key", "https://example.com/custom");
+        assert_eq!(api_key_base_url.api_key.as_deref(), Some("test-key"));
+        assert_eq!(
+            api_key_base_url.base_url.as_deref(),
+            Some("https://example.com/custom")
+        );
+
+        let api_key_only = ProviderBuildOverrides::api_key("test-key");
+        assert_eq!(api_key_only.api_key.as_deref(), Some("test-key"));
+        assert!(api_key_only.base_url.is_none());
+
+        let base_url_only = ProviderBuildOverrides::base_url("https://example.com/custom");
+        assert!(base_url_only.api_key.is_none());
+        assert_eq!(
+            base_url_only.base_url.as_deref(),
+            Some("https://example.com/custom")
+        );
+    }
 
     #[test]
     fn merged_with_merges_http_config_over_global_defaults() {

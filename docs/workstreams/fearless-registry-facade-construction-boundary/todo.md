@@ -1,6 +1,6 @@
 # Fearless Registry Facade Construction Boundary - TODO
 
-Last updated: 2026-05-14
+Last updated: 2026-05-16
 
 ## Current Slice
 
@@ -67,6 +67,10 @@ Last updated: 2026-05-14
       `native_provider_metadata`, the built-in catalog reuses that metadata for
       `ProviderRecord::default_model`, and `SiumaiBuilder` delegates model-less construction to
       `registry::helpers::builtin_provider_default_model(...)`.
+- [x] Improve `ProviderBuildOverrides` ergonomics by adding registry-owned constructors for common
+      API-key/base-URL/custom-fetch combinations and `RegistryBuilder` provider-level shortcut
+      methods, then migrate focused facade tests away from hand-rolled `provider_build_overrides`
+      maps.
 
 ## Follow-up Candidates
 
@@ -74,7 +78,9 @@ Last updated: 2026-05-14
       breaking cleanup.
 - [ ] Continue auditing `provider_public_path_parity_test.rs` for registry setup duplication that
       can move into shared helper functions without weakening provider-specific override coverage.
-- [ ] Revisit `ProviderBuildOverrides` ergonomics for common test/custom-transport setup.
+- [ ] Continue migrating larger provider-specific public-path modules from manual
+      `RegistryOptions { provider_build_overrides: ... }` setup to `RegistryBuilder`
+      provider-level shortcuts where the test does not intentionally cover raw options plumbing.
 
 ## Done Criteria
 
@@ -89,3 +95,7 @@ Last updated: 2026-05-14
 - `cargo check -p siumai-registry --tests --features openai --no-default-features`
 - `cargo check -p siumai-registry --tests --features openai,anthropic,google,google-vertex,azure,groq,deepseek,ollama,cohere,togetherai,minimaxi,bedrock,xai --no-default-features`
 - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --features openai --no-default-features --no-fail-fast compatibility_builder_uses_registry_owned_default_model_resolution focused_public_facade_tests_use_registry_owned_builtin_factory_resolution`
+- `cargo fmt --package siumai-registry --package siumai --check`
+- `cargo check -p siumai-registry --tests --features openai --no-default-features`
+- `cargo nextest run -p siumai-registry --features openai --no-default-features --no-fail-fast provider_build_overrides_constructors_match_fluent_chain registry_builder_merges_provider_specific_shortcuts focused_public_facade_tests_use_provider_build_override_shortcuts`
+- `cargo check -p siumai --tests --features openai,google,google-vertex,deepinfra --no-default-features`

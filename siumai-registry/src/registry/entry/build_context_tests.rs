@@ -140,12 +140,13 @@ async fn registry_builder_propagates_provider_build_overrides_to_language_model_
         .with_reasoning_budget(1024)
         .with_provider_build_overrides(
             "testprov_ctx",
-            crate::registry::ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.com/custom")
-                .with_reasoning(false)
-                .with_reasoning_budget(2048)
-                .fetch(Arc::new(NoopTransport)),
+            crate::registry::ProviderBuildOverrides::api_key_base_url(
+                "ctx-key",
+                "https://example.com/custom",
+            )
+            .with_reasoning(false)
+            .with_reasoning_budget(2048)
+            .fetch(Arc::new(NoopTransport)),
         )
         .with_retry_options(crate::retry_api::RetryOptions::default())
         .auto_middleware(false)
@@ -200,6 +201,60 @@ async fn registry_builder_propagates_provider_build_overrides_to_language_model_
             has_retry_options: true,
             reasoning_enabled: Some(true),
             reasoning_budget: Some(1024),
+        }
+    );
+}
+
+#[tokio::test]
+async fn registry_builder_merges_provider_specific_shortcuts() {
+    let _g = reg_test_guard();
+
+    let seen = Arc::new(Mutex::new(None));
+    let mut providers = HashMap::new();
+    providers.insert(
+        "testprov_shortcuts".to_string(),
+        Arc::new(ContextCapturingFactory {
+            id: "testprov_shortcuts",
+            seen: seen.clone(),
+        }) as Arc<dyn ProviderFactory>,
+    );
+
+    let reg = crate::registry::builder::RegistryBuilder::new(providers)
+        .with_api_key("global-key")
+        .with_base_url("https://example.com/global")
+        .with_provider_api_key_base_url(
+            "testprov_shortcuts",
+            "provider-key",
+            "https://example.com/provider",
+        )
+        .with_provider_fetch("testprov_shortcuts", Arc::new(NoopTransport))
+        .auto_middleware(false)
+        .build()
+        .expect("build registry");
+
+    let handle = reg
+        .language_model("testprov_shortcuts:model")
+        .expect("build language handle");
+    let response = handle.chat(vec![]).await.expect("chat response");
+    assert_eq!(response.content_text(), Some("ok"));
+
+    let observed = seen
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("captured provider build context");
+    assert_eq!(
+        observed,
+        ObservedBuildContext {
+            provider_id: Some("testprov_shortcuts".to_string()),
+            api_key: Some("provider-key".to_string()),
+            base_url: Some("https://example.com/provider".to_string()),
+            has_http_client: false,
+            has_http_transport: true,
+            user_agent: None,
+            has_retry_options: false,
+            reasoning_enabled: None,
+            reasoning_budget: None,
         }
     );
 }

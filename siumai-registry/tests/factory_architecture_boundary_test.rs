@@ -446,3 +446,28 @@ fn compatibility_builder_uses_registry_owned_default_model_resolution() {
         "built-in provider catalog should reuse native provider default-model policy instead of hand-written per-provider patches"
     );
 }
+
+#[test]
+fn focused_public_facade_tests_use_provider_build_override_shortcuts() {
+    let root = crate_root();
+
+    for relative in [
+        "../siumai/tests/deepinfra_chat_stream_public_path_alignment_test.rs",
+        "../siumai/tests/gemini_embedding_batch_helper_parity_test.rs",
+        "../siumai/tests/google_vertex_typed_metadata_boundary_test.rs",
+        "../siumai/tests/openai_embedding_public_helper_request_parity_test.rs",
+        "../siumai/tests/vertex_embedding_batch_helper_parity_test.rs",
+    ] {
+        let source = fs::read_to_string(root.join(relative)).expect("read public facade test");
+        assert!(
+            source.contains(".with_provider_api_key")
+                || source.contains("ProviderBuildOverrides::api_key_base_url"),
+            "{relative} should use registry-owned provider build override shortcuts"
+        );
+        assert!(
+            !source.contains("provider_build_overrides.insert(")
+                && !source.contains("provider_build_overrides:"),
+            "{relative} should not hand-roll provider_build_overrides HashMap plumbing"
+        );
+    }
+}

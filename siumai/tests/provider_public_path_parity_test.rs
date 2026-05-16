@@ -73,9 +73,7 @@ fn provider_build_overrides(
     api_key: &str,
     base_url: impl Into<String>,
 ) -> siumai::registry::ProviderBuildOverrides {
-    siumai::registry::ProviderBuildOverrides::default()
-        .with_api_key(api_key)
-        .with_base_url(base_url)
+    siumai::registry::ProviderBuildOverrides::api_key_base_url(api_key, base_url)
 }
 
 fn provider_transport_build_overrides(
@@ -83,7 +81,7 @@ fn provider_transport_build_overrides(
     base_url: impl Into<String>,
     transport: Arc<dyn HttpTransport>,
 ) -> siumai::registry::ProviderBuildOverrides {
-    provider_build_overrides(api_key, base_url).fetch(transport)
+    siumai::registry::ProviderBuildOverrides::api_key_base_url_fetch(api_key, base_url, transport)
 }
 
 #[allow(dead_code)]

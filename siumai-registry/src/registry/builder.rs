@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::LanguageModelMiddleware;
 use crate::registry::{
     ProviderBuildOverrides, ProviderFactory, ProviderRegistryHandle, create_provider_registry,
@@ -164,6 +165,89 @@ impl RegistryBuilder {
         self
     }
 
+    /// Set a provider-specific API key override.
+    pub fn with_provider_api_key<S: Into<String>, K: Into<String>>(
+        self,
+        provider_id: S,
+        api_key: K,
+    ) -> Self {
+        self.merge_provider_build_overrides(provider_id, ProviderBuildOverrides::api_key(api_key))
+    }
+
+    /// Set a provider-specific base URL override.
+    pub fn with_provider_base_url<S: Into<String>, U: Into<String>>(
+        self,
+        provider_id: S,
+        base_url: U,
+    ) -> Self {
+        self.merge_provider_build_overrides(provider_id, ProviderBuildOverrides::base_url(base_url))
+    }
+
+    /// Set provider-specific API key and base URL overrides.
+    pub fn with_provider_api_key_base_url<S: Into<String>, K: Into<String>, U: Into<String>>(
+        self,
+        provider_id: S,
+        api_key: K,
+        base_url: U,
+    ) -> Self {
+        self.merge_provider_build_overrides(
+            provider_id,
+            ProviderBuildOverrides::api_key_base_url(api_key, base_url),
+        )
+    }
+
+    /// Set a provider-specific HTTP transport override.
+    pub fn with_provider_http_transport<S: Into<String>>(
+        self,
+        provider_id: S,
+        transport: Arc<dyn HttpTransport>,
+    ) -> Self {
+        self.merge_provider_build_overrides(
+            provider_id,
+            ProviderBuildOverrides::http_transport(transport),
+        )
+    }
+
+    /// Alias for `with_provider_http_transport(...)`.
+    pub fn with_provider_fetch<S: Into<String>>(
+        self,
+        provider_id: S,
+        transport: Arc<dyn HttpTransport>,
+    ) -> Self {
+        self.with_provider_http_transport(provider_id, transport)
+    }
+
+    /// Set provider-specific API key and HTTP transport overrides.
+    pub fn with_provider_api_key_fetch<S: Into<String>, K: Into<String>>(
+        self,
+        provider_id: S,
+        api_key: K,
+        transport: Arc<dyn HttpTransport>,
+    ) -> Self {
+        self.merge_provider_build_overrides(
+            provider_id,
+            ProviderBuildOverrides::api_key_fetch(api_key, transport),
+        )
+    }
+
+    /// Set provider-specific API key, base URL, and HTTP transport overrides.
+    pub fn with_provider_api_key_base_url_fetch<
+        S: Into<String>,
+        K: Into<String>,
+        U: Into<String>,
+    >(
+        self,
+        provider_id: S,
+        api_key: K,
+        base_url: U,
+        transport: Arc<dyn HttpTransport>,
+    ) -> Self {
+        self.merge_provider_build_overrides(
+            provider_id,
+            ProviderBuildOverrides::api_key_base_url_fetch(api_key, base_url, transport),
+        )
+    }
+
     /// Set request timeout for all clients created via the registry.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         let mut cfg = self.http_config.unwrap_or_default();
@@ -248,5 +332,21 @@ impl RegistryBuilder {
             auto_middleware: self.auto_middleware,
         };
         Ok(create_provider_registry(self.providers, Some(opts)))
+    }
+
+    fn merge_provider_build_overrides<S: Into<String>>(
+        mut self,
+        provider_id: S,
+        overrides: ProviderBuildOverrides,
+    ) -> Self {
+        let provider_id = provider_id.into();
+        let merged = self
+            .provider_build_overrides
+            .get(&provider_id)
+            .cloned()
+            .unwrap_or_default()
+            .merged_with(Some(&overrides));
+        self.provider_build_overrides.insert(provider_id, merged);
+        self
     }
 }

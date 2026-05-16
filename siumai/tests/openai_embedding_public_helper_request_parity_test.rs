@@ -7,9 +7,8 @@ use siumai::embedding::{self, EmbedOptions};
 use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };
-use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
 use siumai::prelude::unified::{EmbeddingRequest, LlmError, RequestOptions, TimeoutConfiguration};
-use siumai::registry::ProviderBuildOverrides;
+use siumai::registry::builder::RegistryBuilder;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -52,42 +51,22 @@ impl HttpTransport for JsonSuccessTransport {
 }
 
 fn make_registry(transport: Arc<dyn HttpTransport>) -> siumai::registry::ProviderRegistryHandle {
-    let mut providers = HashMap::new();
+    let mut providers = std::collections::HashMap::new();
     providers.insert(
         "openai".to_string(),
         siumai::registry::builtin_provider_factory("openai")
             .expect("openai builtin provider factory"),
     );
 
-    let mut provider_build_overrides = HashMap::new();
-    provider_build_overrides.insert(
-        "openai".to_string(),
-        ProviderBuildOverrides::default()
-            .with_api_key("test-key")
-            .with_base_url("https://example.invalid/openai")
-            .fetch(transport),
-    );
-
-    create_provider_registry(
-        providers,
-        Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: Vec::new(),
-            http_interceptors: Vec::new(),
-            http_client: None,
-            http_transport: None,
-            http_config: None,
-            api_key: None,
-            base_url: None,
-            reasoning_enabled: None,
-            reasoning_budget: None,
-            provider_build_overrides,
-            retry_options: None,
-            max_cache_entries: None,
-            client_ttl: None,
-            auto_middleware: true,
-        }),
-    )
+    RegistryBuilder::new(providers)
+        .with_provider_api_key_base_url_fetch(
+            "openai",
+            "test-key",
+            "https://example.invalid/openai",
+            transport,
+        )
+        .build()
+        .expect("build registry")
 }
 
 #[tokio::test]

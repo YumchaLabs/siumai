@@ -1,6 +1,6 @@
 # Fearless Registry Facade Construction Boundary - Milestones
 
-Last updated: 2026-05-14
+Last updated: 2026-05-16
 
 ## M1 - Workstream Framing
 
@@ -85,3 +85,20 @@ Exit criteria:
   hand-written per-provider patches.
 - A source guard prevents provider-specific default model constants from returning to
   `provider/build.rs`.
+
+## M7 - Provider Build Override Ergonomics
+
+Status: Complete
+
+Move common provider-specific API-key/base-URL/custom-fetch override composition into registry-owned
+constructors and `RegistryBuilder` shortcut methods.
+
+Exit criteria:
+
+- `ProviderBuildOverrides` has intent-named constructors for common test and custom transport setup.
+- `RegistryBuilder` exposes provider-level shortcut methods that merge with existing provider
+  overrides instead of requiring callers to hand-roll `HashMap` plumbing.
+- Focused facade tests use the shortcuts for OpenAI, Gemini, Vertex, and DeepInfra request parity
+  setup.
+- A source guard prevents the focused facade tests from regressing to manual
+  `provider_build_overrides` maps.
