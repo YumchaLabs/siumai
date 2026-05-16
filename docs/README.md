@@ -45,6 +45,9 @@ documents, release process, and active workstreams for current planning.
 - Fearless ContentPart boundary split: `docs/workstreams/fearless-content-part-boundary-split/`
   - splits the deferred legacy `ContentPart` dual provider-map problem into a dedicated
     compatibility lane with directional request/response adapters
+- Fearless vision compatibility removal: `docs/workstreams/fearless-vision-compat-removal/`
+  - removes the deprecated dedicated vision compatibility surface in favor of multimodal chat and
+    image-family APIs
 - Fearless architecture convergence: `docs/workstreams/fearless-architecture-convergence/`
 - Current V4 refactor tracking: `docs/workstreams/fearless-refactor-v4/`
 - AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`

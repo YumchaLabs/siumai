@@ -1,0 +1,15 @@
+{
+  "slug": "fearless-vision-compat-removal",
+  "status": "active",
+  "opened": "2026-05-16",
+  "objective": "Remove the deprecated dedicated vision compatibility surface and route users to multimodal chat or image-family APIs.",
+  "current_task": "VCR-020",
+  "next_task": "Add source guard coverage before deleting VisionCapability, VisionCapabilityProxy, and Siumai::vision_capability.",
+  "blocked": false,
+  "deferred_from": "fearless-architecture-convergence",
+  "validation_focus": [
+    "siumai-core trait surface",
+    "siumai-registry factory_architecture_boundary_test",
+    "siumai public_surface_imports_test"
+  ]
+}
