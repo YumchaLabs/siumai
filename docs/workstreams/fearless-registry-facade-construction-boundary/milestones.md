@@ -51,3 +51,18 @@ Exit criteria:
 - `siumai-registry` and `siumai` focused checks pass with affected feature sets.
 - Focused nextest runs pass.
 - `git diff --check` has no whitespace errors.
+
+## M5 - Provider Public-Path Sweep
+
+Status: In Progress
+
+Apply the shared built-in registry helpers provider-by-provider inside
+`provider_public_path_parity_test.rs` so facade parity coverage stops encoding concrete built-in
+factory names.
+
+Exit criteria:
+
+- OpenAI, Gemini, Cohere, TogetherAI, DeepInfra, DeepSeek, Groq, Ollama, and XAI public-path
+  registry setup use registry-owned built-in helper routing.
+- Remaining direct concrete factory call sites are either provider contract tests, advanced
+  low-level integrations, or explicitly tracked follow-up providers.

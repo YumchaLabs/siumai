@@ -43046,32 +43046,54 @@ mod xai_public_path {
         XaiImageRequestExt, XaiOptions, XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
         XaiVideoOptions, XaiVideoRequestExt,
     };
-    use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::builder::RegistryBuilder;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, Request as WiremockRequest, ResponseTemplate};
 
+    fn xai_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        built_in_registry_providers("xai", "xai")
+    }
+
+    fn xai_registry_builder() -> RegistryBuilder {
+        RegistryBuilder::new(xai_registry_providers())
+    }
+
+    fn make_xai_override_registry(
+        global_transport: Arc<dyn HttpTransport>,
+        xai_transport: Arc<dyn HttpTransport>,
+    ) -> siumai::registry::ProviderRegistryHandle {
+        xai_registry_builder()
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global/v1/")
+            .fetch(global_transport)
+            .with_provider_build_overrides(
+                "xai",
+                provider_transport_build_overrides(
+                    "ctx-key",
+                    "https://example.com/xai/v1/",
+                    xai_transport,
+                ),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry")
+    }
+
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "xai".to_string(),
-            Arc::new(siumai::registry::factories::XAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "xai".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url("https://example.com/custom/v1")
-                .fetch(transport),
+            provider_transport_build_overrides(
+                "test-key",
+                "https://example.com/custom/v1",
+                transport,
+            ),
         );
 
         create_provider_registry(
-            providers,
+            xai_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -43097,24 +43119,18 @@ mod xai_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "xai".to_string(),
-            Arc::new(siumai::registry::factories::XAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             "xai".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url("https://example.com/custom/v1")
-                .fetch(transport),
+            provider_transport_build_overrides(
+                "test-key",
+                "https://example.com/custom/v1",
+                transport,
+            ),
         );
 
         create_provider_registry(
-            providers,
+            xai_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -43140,14 +43156,7 @@ mod xai_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "xai".to_string(),
-            Arc::new(siumai::registry::factories::XAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        RegistryBuilder::new(providers)
+        xai_registry_builder()
             .with_api_key("test-key")
             .with_base_url("https://example.com/custom/v1")
             .with_reasoning(reasoning_enabled)
@@ -45248,27 +45257,10 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let xai_transport = JsonSuccessTransport::new(response_json);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "xai".to_string(),
-            Arc::new(siumai::registry::factories::XAIProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_xai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(xai_transport.clone()),
         );
-
-        let registry = RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global/v1/")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "xai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/xai/v1/")
-                    .fetch(Arc::new(xai_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let response = registry
             .language_model("xai:grok-4")
@@ -45332,27 +45324,10 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let xai_transport = SseSuccessTransport::new(stream_body);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "xai".to_string(),
-            Arc::new(siumai::registry::factories::XAIProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_xai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(xai_transport.clone()),
         );
-
-        let registry = RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global/v1/")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "xai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/xai/v1/")
-                    .fetch(Arc::new(xai_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let mut stream = registry
             .language_model("xai:grok-4")
@@ -46577,27 +46552,10 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let xai_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "xai".to_string(),
-            Arc::new(siumai::registry::factories::XAIProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_xai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(xai_transport.clone()),
         );
-
-        let registry = RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global/v1/")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "xai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/xai/v1/")
-                    .fetch(Arc::new(xai_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .language_model("xai:grok-4")
@@ -46664,27 +46622,10 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let xai_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "xai".to_string(),
-            Arc::new(siumai::registry::factories::XAIProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
+        let registry = make_xai_override_registry(
+            Arc::new(global_transport.clone()),
+            Arc::new(xai_transport.clone()),
         );
-
-        let registry = RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global/v1/")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "xai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/xai/v1/")
-                    .fetch(Arc::new(xai_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
 
         let handle = registry
             .language_model("xai:grok-4")
@@ -47494,23 +47435,14 @@ data: [DONE]
         .await
         .expect("build config client");
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
+        let mut build_overrides = std::collections::HashMap::new();
+        build_overrides.insert(
             "xai".to_string(),
-            Arc::new(siumai::registry::factories::XAIProviderFactory)
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "xai".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(format!("{}/v1", registry_server.uri())),
+            provider_build_overrides("test-key", format!("{}/v1", registry_server.uri())),
         );
 
         let registry = create_provider_registry(
-            providers,
+            xai_registry_providers(),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -47522,7 +47454,7 @@ data: [DONE]
                 base_url: None,
                 reasoning_enabled: None,
                 reasoning_budget: None,
-                provider_build_overrides,
+                provider_build_overrides: build_overrides,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
