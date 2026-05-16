@@ -24061,7 +24061,6 @@ mod groq_public_path {
     use futures_util::StreamExt;
     use siumai::experimental::client::LlmClient;
     use siumai::extensions::{SpeechExtras, TranscriptionExtras};
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
@@ -24069,7 +24068,6 @@ mod groq_public_path {
         GroqChatRequestExt, GroqChatResponseExt, GroqOptions, GroqReasoningEffort,
         GroqReasoningFormat, GroqServiceTier,
     };
-    use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::builder::RegistryBuilder;
 
     fn groq_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
@@ -24084,37 +24082,10 @@ mod groq_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let providers = groq_registry_providers();
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "groq".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
-        );
-
-        create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        groq_registry_builder()
+            .with_provider_api_key_base_url_fetch("groq", "test-key", base_url, transport)
+            .build()
+            .expect("build registry")
     }
 
     #[test]
@@ -25875,12 +25846,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "groq",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com")
-                    .fetch(Arc::new(groq_transport.clone())),
+                "ctx-key",
+                "https://example.com",
+                Arc::new(groq_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -25930,12 +25900,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "groq",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com")
-                    .fetch(Arc::new(groq_transport.clone())),
+                "ctx-key",
+                "https://example.com",
+                Arc::new(groq_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -26553,12 +26522,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "groq",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com")
-                    .fetch(Arc::new(groq_transport.clone())),
+                "ctx-key",
+                "https://example.com",
+                Arc::new(groq_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -26621,12 +26589,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "groq",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com")
-                    .fetch(Arc::new(groq_transport.clone())),
+                "ctx-key",
+                "https://example.com",
+                Arc::new(groq_transport.clone()),
             )
             .auto_middleware(false)
             .build()
