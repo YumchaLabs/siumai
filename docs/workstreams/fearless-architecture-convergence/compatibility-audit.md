@@ -200,7 +200,7 @@ release.
 | --- | --- | --- |
 | `Siumai::builder()` | keep, time-bounded | Compatibility-only unified builder. New code should use `registry::global().language_model("provider:model")`, other family handles, or config-first provider clients. Planned removal remains no earlier than `0.12.0`. |
 | `siumai::compat::{Siumai, SiumaiBuilder, builder::*}` | keep, time-bounded | Explicit migration import surface for method-style code. Do not re-export these names as the default stable prelude path. |
-| `SiumaiBuilder::provider(...)` | remove after builder-retention window | Use `.provider_id(...)` or provider-specific helper methods while migrating existing builder code. |
+| `SiumaiBuilder::provider(...)` | removed | Use `.provider_id(...)` or provider-specific helper methods while migrating existing builder code. |
 | `SiumaiBuilder::vision(...)`, `Siumai::vision_capability()`, `VisionCapability`, `VisionCapabilityProxy` | removed | Dedicated vision is not a stable family. Use multimodal chat messages for image understanding and image-generation family APIs for image creation. Removed by `docs/workstreams/fearless-vision-compat-removal/`. |
 | `experimental_generate_image`, `experimental_generate_speech`, `experimental_transcribe`, `experimental_generate_video` | keep, move out of recommendations | Deprecated AI SDK import-spelling aliases. Prefer `generate_image`, `synthesize`, `transcribe`, and `generate`. Keep aliases only for migration/import parity. |
 | `create_google_generative_ai()` | keep, move out of recommendations | Deprecated analogue of AI SDK `createGoogleGenerativeAI()`. Prefer `create_google()`. |

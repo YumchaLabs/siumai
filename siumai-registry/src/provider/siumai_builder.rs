@@ -6,7 +6,7 @@ use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
-use crate::types::{CommonParams, HttpConfig, ProviderType};
+use crate::types::{CommonParams, HttpConfig};
 #[cfg(feature = "anthropic")]
 use siumai_provider_anthropic::provider_options::anthropic::{
     AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort,
@@ -283,7 +283,7 @@ impl LanguageModelMiddleware for OllamaDefaultOptionsMiddleware {
 /// `SiumaiBuilder::build()` does not construct HTTP clients or provider
 /// implementations directly. Instead it:
 /// - collects unified configuration (HTTP, tracing, retry, model middlewares)
-/// - maps `ProviderType` / `provider_id` and default models
+/// - maps `provider_id` and default models
 /// - builds a `BuildContext`
 /// - delegates to explicit `ProviderFactory::compat_*_client_with_ctx(...)` methods
 ///   because the historical `Siumai` wrapper still stores an `Arc<dyn LlmClient>`
@@ -361,16 +361,6 @@ impl SiumaiBuilder {
             google_token_provider: None,
             model_middlewares: Vec::new(),
         }
-    }
-
-    /// Set the provider type
-    #[deprecated(
-        since = "0.11.0-beta.5",
-        note = "Use `.provider_id(...)` or provider-specific helpers like `.openai()`/`.anthropic()`; the unified builder routes by provider_id."
-    )]
-    pub fn provider(mut self, provider_type: ProviderType) -> Self {
-        self.provider_id.get_or_insert(provider_type.to_string());
-        self
     }
 
     /// Set the provider by canonical id (dynamic dispatch)

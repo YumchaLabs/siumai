@@ -389,6 +389,23 @@ fn registry_speech_handle_inherent_text_to_speech_alias_is_removed() {
 }
 
 #[test]
+fn siumai_builder_provider_type_alias_is_removed() {
+    let source = fs::read_to_string(crate_root().join("src/provider/siumai_builder.rs"))
+        .expect("read siumai builder source");
+
+    for forbidden in [
+        "pub fn provider(",
+        "provider_type: ProviderType",
+        "maps `ProviderType`",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "SiumaiBuilder should not expose the removed ProviderType-based provider alias `{forbidden}`"
+        );
+    }
+}
+
+#[test]
 fn public_docs_do_not_recommend_compatibility_surfaces_as_default() {
     let docs_root = crate_root().join("../docs");
     let mut files = Vec::new();

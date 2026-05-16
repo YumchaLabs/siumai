@@ -299,6 +299,8 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 - Deprecated registry speech-handle inherent method `SpeechModelHandle::text_to_speech(...)`:
   - Use `SpeechModel::synthesize(...)` for raw `TtsResponse` values or
     `siumai::speech::synthesize(...)` for helper results.
+- Deprecated `SiumaiBuilder::provider(ProviderType)`:
+  - Use `.provider_id("...")` or provider-specific builder helpers such as `.openai()`.
 - `OpenAiCompatibleSpec` (legacy fallback): use `OpenAiCompatibleSpecWithAdapter` (adapter-injected spec only).
 
 ### Fixed

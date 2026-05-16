@@ -39,6 +39,8 @@ construct shared structs directly, or compare serialized snapshots.
   `siumai::compat` or `siumai::prelude::compat`; the root `siumai::provider::*` shim was removed.
   Legacy builder base internals moved to `siumai::compat::builder::*`; the root
   `siumai::builder::*` shim was removed.
+- `SiumaiBuilder::provider(ProviderType)` was removed; use `.provider_id("openai")`,
+  `.provider_id("anthropic")`, or provider-specific helpers such as `.openai()` / `.anthropic()`.
 - Root broad type namespace: import migration-only catch-all types from
   `siumai::compat::types::*` or `siumai::prelude::compat::types::*`; the root `siumai::types::*`
   path was removed.
