@@ -48,6 +48,9 @@ construct shared structs directly, or compare serialized snapshots.
   `siumai::skills::*` instead of relying on top-level `prelude::unified::*`.
 - JSON/SSE stream parsing: call `siumai::parse_json_event_stream(...)` explicitly instead of
   importing it from `prelude::unified::*`.
+- Low-level utility helpers: import download/header/setting/JSON parse/provider-option helper names
+  from the facade root, e.g. `siumai::{parse_json, normalize_headers}`, not
+  `prelude::unified::*`.
 - Retry API controls: import `RetryOptions`, `RetryPolicy`, `retry_with`, and related helpers from
   `siumai::retry_api`, not from `prelude::unified::*`.
 - Error policy helpers: if you call `is_retryable()`, `status_code()`, `category()`,
@@ -365,7 +368,30 @@ let stream = siumai::parse_json_event_stream(byte_stream);
 Advanced stream integration code can also import lower-level streaming utilities from
 `siumai::experimental::streaming::*`.
 
-## 9) Retry API imports
+## 9) Low-level utility helper imports
+
+The unified prelude no longer mirrors low-level utility helpers from `siumai-core::utils`. These
+helpers remain available as explicit facade root imports for advanced utility users.
+
+Before:
+
+```rust,ignore
+use siumai::prelude::unified::{parse_json, normalize_headers, load_api_key};
+```
+
+After:
+
+```rust,ignore
+use siumai::{parse_json, normalize_headers, load_api_key};
+```
+
+This applies to download helpers, header normalization, environment setting loaders, JSON
+instruction/parse helpers, provider-option/reference parsers, URL support helpers, and runtime type
+validators. Application-facing helper names such as `json_schema`, `generate_id`,
+`create_id_generator`, `has_tool_call`, `filter_active_tools`, UI part predicates,
+`SerialJobExecutor`, and `ToolNameMapping` remain in `prelude::unified`.
+
+## 10) Retry API imports
 
 Retry options and retry helper functions remain stable, but they are now scoped to the explicit
 runtime module instead of the stable family prelude.
@@ -385,7 +411,7 @@ use siumai::retry_api::{RetryOptions, RetryPolicy, retry_with};
 Per-call family options still accept `RetryOptions`; only the import path for direct retry API
 controls changes.
 
-## 10) Custom `ProviderSpec` route hooks
+## 11) Custom `ProviderSpec` route hooks
 
 The historical string-returning `ProviderSpec` route hooks were removed:
 `chat_url`, `embedding_url`, `image_url`, `image_edit_url`, `image_variation_url`, `rerank_url`,

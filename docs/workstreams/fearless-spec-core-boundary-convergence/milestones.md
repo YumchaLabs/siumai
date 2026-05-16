@@ -1045,6 +1045,10 @@ Notes:
   request-only source guard.
 - `parse_json_event_stream(...)` is no longer exported as a direct `prelude::unified::*` name. The
   explicit root helper remains for callers that need JSON/SSE parsing.
+- Low-level utility helper families such as download/header/settings/JSON parse/provider-option
+  helpers are no longer direct `prelude::unified::*` names. Explicit facade root imports remain
+  available for opt-in utility users, while application-facing helpers such as schema/id/tool/stop
+  condition/UI predicates stay in the unified prelude.
 - Deprecated AI SDK parity names (`CallSettings`, `Experimental_*` result aliases,
   `experimental_filter_active_tools`, and `step_count_is`) moved out of `prelude::unified` and into
   `siumai::compat` / `prelude::compat`. Stable code should use the non-experimental names.

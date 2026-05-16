@@ -1827,6 +1827,38 @@ Validation:
 - `cargo nextest run -p siumai --test facade_architecture_boundary_test --features openai,anthropic,google --no-default-features --no-fail-fast`
 - `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
 
+### Facade low-level utility helper prelude imports
+
+Surface: `Download*`, `HeaderRecord`, `Load*Options`, JSON instruction/parse helpers,
+provider-option/reference parsers, URL support helpers, runtime type validators, and related
+low-level `siumai-core::utils` names that were previously available from `prelude::unified::*`.
+
+Owner: `siumai-core::utils` owns the implementations. The facade root keeps explicit helper
+re-exports for opt-in utility users, while `prelude::unified` should remain application-facing and
+avoid mirroring the full utility module.
+
+Current users: public-surface compile tests. No ordinary examples or application-facing docs were
+found that require these low-level names from `prelude::unified::*`.
+
+Canonical replacement: import low-level utility helpers from the facade root, for example
+`use siumai::{parse_json, normalize_headers, load_api_key};`. Stable application helper names such
+as `json_schema`, `create_id_generator`, `generate_id`, stop-condition helpers, UI predicates,
+`SerialJobExecutor`, and `ToolNameMapping` remain direct `prelude::unified::*` imports.
+
+Keep, move, or remove: move out of direct `prelude::unified`; keep explicit root helper paths. This
+shrinks the default prelude without breaking opt-in root utility users.
+
+Migration note needed: completed in `docs/migration/migration-0.11.0-beta.7.md`.
+
+Removal window: completed for direct `prelude::unified` names during this Track F slice.
+
+Validation:
+
+- `cargo fmt --package siumai --check`
+- `cargo nextest run -p siumai --test facade_architecture_boundary_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+- `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+- `cargo check -p siumai --tests --features openai,anthropic,google --no-default-features`
+
 ### Facade file and skill upload helper paths
 
 Surface: `UploadFileApi`, `UploadFileOptions`, `UploadFileResult`, `UploadSkillApi`,

@@ -4,6 +4,20 @@ use std::mem::size_of;
 #[allow(deprecated)]
 fn public_surface_unified_imports_compile() {
     use siumai::prelude::unified::*;
+    use siumai::{
+        DEFAULT_JSON_GENERIC_SUFFIX, DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX,
+        DEFAULT_MAX_DOWNLOAD_SIZE, Download, DownloadOptions, DownloadedFile, HeaderRecord,
+        JsonInstructionMessageOptions, JsonInstructionOptions, JsonParseResult, LoadApiKeyOptions,
+        LoadOptionalSettingOptions, LoadSettingOptions, SupportedUrlMap, TypeValidationResult,
+        UrlSupportRegex, combine_headers, create_download, download_url, extract_response_headers,
+        inject_json_instruction, inject_json_instruction_into_messages, is_parsable_json,
+        is_provider_reference, is_url_supported, load_api_key, load_optional_setting, load_setting,
+        normalize_header_map, normalize_headers, normalize_optional_headers, parse_json,
+        parse_json_with_schema, parse_provider_options, read_response_with_size_limit,
+        resolve_provider_reference, safe_parse_json, safe_parse_json_with_schema,
+        safe_validate_types, validate_download_url, validate_types, with_user_agent_suffix,
+        without_trailing_slash,
+    };
 
     let _ = size_of::<AISDKError>();
     let _ = size_of::<APICallError>();
@@ -513,6 +527,8 @@ fn public_surface_unified_imports_compile() {
     let _ = DEFAULT_MAX_DOWNLOAD_SIZE;
     let _ = DEFAULT_REASONING_BUDGET_PERCENTAGES;
     let _ = create_download as fn(DownloadOptions) -> Download;
+    let _download_url_future = download_url("data:text/plain;base64,aGVsbG8=");
+    let _ = read_response_with_size_limit;
     let _ = validate_download_url as fn(&str) -> Result<(), DownloadError>;
     let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
     let _ = convert_image_model_file_to_data_uri
@@ -653,6 +669,8 @@ fn public_surface_unified_imports_compile() {
         Some("https://example.com")
     );
     assert_eq!(DEFAULT_JSON_SCHEMA_PREFIX, "JSON schema:");
+    assert_eq!(DEFAULT_JSON_GENERIC_SUFFIX, "You MUST answer with JSON.");
+    assert!(DEFAULT_JSON_SCHEMA_SUFFIX.contains("You MUST answer with a JSON object"));
     assert_eq!(
         inject_json_instruction(JsonInstructionOptions::new().with_prompt("Return data")),
         "Return data\n\nYou MUST answer with JSON."

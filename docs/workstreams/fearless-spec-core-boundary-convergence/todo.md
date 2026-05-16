@@ -878,6 +878,9 @@ Status legend:
     with the same request-only boundary.
   - `parse_json_event_stream(...)` is no longer a direct `prelude::unified::*` name; explicit root
     helper and `experimental::streaming` paths remain available for JSON/SSE parser use cases.
+  - Low-level utility helper families such as download/header/settings/JSON parse/provider-option
+    helpers are no longer direct `prelude::unified::*` names; explicit facade root imports remain
+    available for opt-in utility users.
   - `prelude::unified` no longer exports deprecated AI SDK parity names such as `CallSettings`,
     `Experimental_*` result aliases, `experimental_filter_active_tools`, or `step_count_is`.
     Those migration spellings now live in `siumai::compat` / `prelude::compat`.
@@ -934,6 +937,8 @@ Status legend:
     `siumai::provider_catalog::*` and the registry-owned replacement path.
   - Latest Track F OpenAI-compatible provider-list macro cleanup documents removal of the facade
     root macro re-export and the provider-owned replacement path.
+  - Latest Track F low-level utility prelude cleanup documents explicit root imports for
+    download/header/settings/JSON parse/provider-option helper names.
 - [x] Update migration docs for any public breaking removals.
   - `migration-0.11.0-beta.7.md` now includes the root `StreamingToolCall*` alias removal and
     replacement imports.
@@ -948,6 +953,8 @@ Status legend:
   - `migration-0.11.0-beta.7.md` now includes the root
     `siumai::siumai_for_each_openai_compatible_provider` re-export removal and direct provider-crate
     import path.
+  - `migration-0.11.0-beta.7.md` now includes the low-level utility helper removal from
+    `prelude::unified::*` and the explicit root import path.
 
 ## Track G - Documentation And Final Validation
 

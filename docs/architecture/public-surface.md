@@ -169,6 +169,19 @@ such as `ChatStream`, `ChatStreamEvent`, `ChatStreamPart`, and `ChatStreamHandle
 The root helper `siumai::parse_json_event_stream(...)` remains available for explicit JSON/SSE
 parsing, but it is not a top-level `prelude::unified::*` name.
 
+Low-level utility helpers are explicit root imports, not default unified-prelude names. Helpers such
+as download helpers, header normalization, environment setting loaders, JSON parsing/instruction
+helpers, provider-option/reference parsers, URL support maps, and runtime type validators remain
+available for opt-in utility users:
+
+```rust
+use siumai::{parse_json, normalize_headers};
+```
+
+`prelude::unified` keeps the application-facing AI SDK helper layer, including schema helpers,
+ID generation helpers, stop-condition helpers, UI part predicates, `SerialJobExecutor`, and
+`ToolNameMapping`, without mirroring the whole `siumai-core::utils` module.
+
 Generic `ClientWrapper` construction is provider-agnostic. Use `ClientWrapper::new(...)` for boxed
 advanced clients; provider-named wrapper constructors do not belong in `siumai-core`.
 

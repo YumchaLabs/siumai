@@ -501,6 +501,103 @@ fn stable_unified_prelude_does_not_mirror_core_streaming_internals() {
 }
 
 #[test]
+fn stable_unified_prelude_scopes_low_level_utility_helpers() {
+    let lib_rs = read_source("src/lib.rs");
+    let unified_source = prelude_unified_source(&lib_rs);
+    let public_surface_doc =
+        fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+
+    for utility_name in [
+        "DEFAULT_JSON_GENERIC_SUFFIX",
+        "DEFAULT_JSON_SCHEMA_PREFIX",
+        "DEFAULT_JSON_SCHEMA_SUFFIX",
+        "DEFAULT_MAX_DOWNLOAD_SIZE",
+        "Download",
+        "DownloadOptions",
+        "DownloadedFile",
+        "HeaderRecord",
+        "JsonInstructionMessageOptions",
+        "JsonInstructionOptions",
+        "JsonParseResult",
+        "LoadApiKeyOptions",
+        "LoadOptionalSettingOptions",
+        "LoadSettingOptions",
+        "SupportedUrlMap",
+        "TypeValidationResult",
+        "UrlSupportRegex",
+        "combine_headers",
+        "create_download",
+        "download_url",
+        "extract_response_headers",
+        "inject_json_instruction",
+        "inject_json_instruction_into_messages",
+        "is_parsable_json",
+        "is_provider_reference",
+        "is_url_supported",
+        "load_api_key",
+        "load_optional_setting",
+        "load_setting",
+        "normalize_header_map",
+        "normalize_headers",
+        "normalize_optional_headers",
+        "parse_json",
+        "parse_json_with_schema",
+        "parse_provider_options",
+        "read_response_with_size_limit",
+        "resolve_provider_reference",
+        "safe_parse_json",
+        "safe_parse_json_with_schema",
+        "safe_validate_types",
+        "validate_download_url",
+        "validate_types",
+        "with_user_agent_suffix",
+        "without_trailing_slash",
+    ] {
+        assert!(
+            !source_identifiers(unified_source).contains(utility_name),
+            "prelude::unified should not export low-level utility helper `{utility_name}`"
+        );
+        assert!(
+            source_identifiers(&lib_rs).contains(utility_name),
+            "the explicit facade root should still export `{utility_name}` for opt-in utility users"
+        );
+    }
+
+    for stable_utility_name in [
+        "generate_id",
+        "create_id_generator",
+        "IdGenerator",
+        "IdGeneratorOptions",
+        "json_schema",
+        "json_schema_with_validator",
+        "lazy_schema",
+        "as_schema",
+        "as_schema_or_empty",
+        "empty_json_schema",
+        "filter_active_tools",
+        "has_tool_call",
+        "is_step_count",
+        "is_tool_ui_part",
+        "last_assistant_message_is_complete_with_tool_calls",
+        "SerialJobExecutor",
+        "ToolNameMapping",
+        "create_tool_name_mapping",
+    ] {
+        assert!(
+            source_identifiers(unified_source).contains(stable_utility_name),
+            "prelude::unified should keep AI SDK application helper `{stable_utility_name}`"
+        );
+    }
+
+    assert!(
+        public_surface_doc.contains("Low-level utility helpers are explicit root imports")
+            && public_surface_doc.contains("use siumai::{parse_json, normalize_headers};"),
+        "public-surface.md should document scoped low-level utility helper imports"
+    );
+}
+
+#[test]
 fn stable_unified_prelude_scopes_retry_api() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
