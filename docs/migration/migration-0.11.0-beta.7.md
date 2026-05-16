@@ -28,6 +28,8 @@ construct shared structs directly, or compare serialized snapshots.
 - Provider builder entry: import `Provider` from `siumai::compat` or `siumai::prelude::compat`;
   the root `siumai::Provider` alias was removed. Import `Siumai` / `SiumaiBuilder` from
   `siumai::compat` or `siumai::prelude::compat`; the root `siumai::provider::*` shim was removed.
+  Legacy builder base internals moved to `siumai::compat::builder::*`; the root
+  `siumai::builder::*` shim was removed.
 - Root broad type namespace: import migration-only catch-all types from
   `siumai::compat::types::*` or `siumai::prelude::compat::types::*`; the root `siumai::types::*`
   path was removed.
@@ -568,6 +570,21 @@ After:
 
 ```rust,ignore
 use siumai::compat::{Siumai, SiumaiBuilder};
+```
+
+If older custom-provider code imported builder base internals from the removed root builder shim,
+use the explicit compatibility builder module.
+
+Before:
+
+```rust,ignore
+use siumai::builder::BuilderBase;
+```
+
+After:
+
+```rust,ignore
+use siumai::compat::builder::BuilderBase;
 ```
 
 New code should prefer registry model handles or provider config/client constructors; this path is

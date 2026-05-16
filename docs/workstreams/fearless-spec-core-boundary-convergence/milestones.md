@@ -1055,6 +1055,10 @@ Notes:
   as the default construction import. Ordinary tests, the large provider public-path parity suite,
   and public-surface import coverage all use `siumai::compat::Provider`; no test/example allowlist
   remains for root `siumai::Provider` or root `siumai::provider::*`.
+- The root `siumai::builder::*` builder-base shim has also been removed. The explicit
+  `siumai::compat::builder::*` path now binds directly to `siumai-core`, and
+  `siumai::compat::Provider` imports `siumai_core::builder::BuilderBase` directly instead of
+  routing through a facade builder module.
   Runnable examples are also guarded against teaching the removed root alias.
 - Provider extension package helpers that return `SiumaiBuilder` now bind directly to
   `siumai-registry`'s builder type instead of routing through the facade `provider` shim.

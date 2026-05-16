@@ -1506,14 +1506,16 @@ Validation:
 
 ### Facade provider builder compatibility entry
 
-Surface: `siumai::compat::Provider`, `siumai::compat::{Siumai,SiumaiBuilder}`, and
+Surface: `siumai::compat::Provider`, `siumai::compat::{Siumai,SiumaiBuilder}`,
+`siumai::compat::builder::*`, and
 `siumai::prelude::compat::{Provider,Siumai,SiumaiBuilder}`. The historical root
-`siumai::provider::*` shim has been removed.
+`siumai::provider::*` and `siumai::builder::*` shims have been removed.
 
 Owner: `siumai::compat::Provider` owns the compatibility entry type. The facade root no longer
-re-exports that type or declares a root `provider` shim; concrete provider builder implementations
-remain provider-owned. `Siumai` / `SiumaiBuilder` compatibility imports bind directly to the
-registry-owned types.
+re-exports that type or declares root `provider` / `builder` shims; concrete provider builder
+implementations remain provider-owned. `Siumai` / `SiumaiBuilder` compatibility imports bind
+directly to the registry-owned types. Legacy builder base types remain explicit under
+`siumai::compat::builder::*` and bind directly to `siumai-core`.
 
 Current users: historical provider-specific builder construction and provider parity tests that
 intentionally import `Provider::openai()` style builders from `siumai::compat` or
@@ -1526,9 +1528,10 @@ When builder-style construction is intentionally needed during migration, import
 
 Keep, move, or remove: move the implementation body out of `siumai/src/lib.rs` and into the
 explicit compat surface, then remove the root `siumai::Provider` re-export and the root
-`siumai::provider::*` shim. The root `siumai::Provider` re-export was removed first; this slice
-removed the root `siumai::provider::*` shim as well. In other words, Track F removed the root
-`siumai::Provider` re-export and removed the root `siumai::provider::*` shim. The explicit
+`siumai::provider::*` and `siumai::builder::*` shims. The root `siumai::Provider` re-export was
+removed first; later slices removed the root `siumai::provider::*` and `siumai::builder::*` shims.
+In other words, Track F removed the root `siumai::Provider` re-export, removed the root
+`siumai::provider::*` shim, and removed the root `siumai::builder::*` shim. The explicit
 compatibility path now owns the entry type, and examples, public-surface tests, and migration docs
 use `siumai::compat::Provider` or `siumai::prelude::compat::Provider`.
 
@@ -1539,7 +1542,9 @@ examples now use `siumai::compat::*` or stable registry paths instead of `siumai
 with a source guard to prevent the shim from returning as a test/example construction path.
 Ordinary tests, the large provider public-path parity suite, and public-surface import coverage now
 use `siumai::compat::Provider` for builder-era construction coverage. The facade boundary guard no
-longer allowlists the root `siumai::Provider` alias or root `siumai::provider::*` shim.
+longer allowlists the root `siumai::Provider` alias, root `siumai::provider::*` shim, or root
+`siumai::builder::*` shim. The compat `Provider` implementation now imports
+`siumai_core::builder::BuilderBase` directly instead of routing through a facade builder module.
 
 Provider extension package helpers that return `SiumaiBuilder` also bind directly to the
 registry-owned type. The facade boundary guard rejects `crate::provider::SiumaiBuilder` references
@@ -1550,10 +1555,12 @@ alias; when they need the centralized compatibility builder entry they use the e
 Migration note needed: completed in `docs/migration/migration-0.11.0-beta.7.md`; replace
 `siumai::Provider` with `siumai::compat::Provider` or `siumai::prelude::compat::Provider`, and
 replace `siumai::provider::{Siumai,SiumaiBuilder}` with `siumai::compat::{Siumai,SiumaiBuilder}`.
+Replace `siumai::builder::*` imports with `siumai::compat::builder::*` only for migration code that
+still needs builder internals.
 
-Removal window: completed for the facade root alias and root provider shim in Track F. The explicit
-compat path remains time-bounded alongside provider-owned config/client constructors and registry
-model handles.
+Removal window: completed for the facade root alias plus root provider and builder shims in Track F.
+The explicit compat path remains time-bounded alongside provider-owned config/client constructors
+and registry model handles.
 
 Validation:
 

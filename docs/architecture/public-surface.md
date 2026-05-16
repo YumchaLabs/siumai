@@ -253,6 +253,9 @@ The root `siumai::provider::*` shim has been removed as well. Code that intentio
 builder-style `Siumai` / `SiumaiBuilder` construction during migration should import
 `siumai::compat::{Siumai, SiumaiBuilder}` or `siumai::prelude::compat::{Siumai, SiumaiBuilder}`;
 new code should prefer `siumai::prelude::unified::registry::*`.
+The root `siumai::builder::*` shim has been removed. Code that intentionally needs legacy builder
+base internals during migration should import them from `siumai::compat::builder::*`; normal
+application code should not depend on builder base types.
 
 The root `siumai::types::*` path has also been removed. Migration code that needs the historical
 catch-all type namespace should import `siumai::compat::types::*` or
@@ -267,6 +270,7 @@ These top-level module paths are intentionally not part of the stable facade sur
 
 - `siumai::types::*`
 - `siumai::provider::*`
+- `siumai::builder::*`
 - `siumai::traits::*`
 - `siumai::error::*`
 - `siumai::streaming::*`

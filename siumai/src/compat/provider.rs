@@ -24,13 +24,13 @@
 /// ```
 pub struct Provider;
 
+use siumai_core::builder::BuilderBase;
+
 impl Provider {
     /// Create an `OpenAI` client builder
     #[cfg(feature = "openai")]
     pub fn openai() -> siumai_provider_openai::providers::openai::OpenAiBuilder {
-        siumai_provider_openai::providers::openai::OpenAiBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
+        siumai_provider_openai::providers::openai::OpenAiBuilder::new(BuilderBase::default())
     }
 
     /// Create an explicit `OpenAI Responses` client builder.
@@ -61,7 +61,7 @@ impl Provider {
     #[cfg(feature = "anthropic")]
     pub fn anthropic() -> siumai_provider_anthropic::providers::anthropic::AnthropicBuilder {
         siumai_provider_anthropic::providers::anthropic::AnthropicBuilder::new(
-            crate::builder::BuilderBase::default(),
+            BuilderBase::default(),
         )
     }
 
@@ -69,24 +69,20 @@ impl Provider {
     #[cfg(feature = "bedrock")]
     pub fn bedrock() -> siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder {
         siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
-            crate::builder::BuilderBase::default(),
+            BuilderBase::default(),
         )
     }
 
     /// Create a Cohere client builder
     #[cfg(feature = "cohere")]
     pub fn cohere() -> siumai_provider_cohere::providers::cohere::CohereBuilder {
-        siumai_provider_cohere::providers::cohere::CohereBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
+        siumai_provider_cohere::providers::cohere::CohereBuilder::new(BuilderBase::default())
     }
 
     /// Create a Gemini client builder
     #[cfg(feature = "google")]
     pub fn gemini() -> siumai_provider_gemini::providers::gemini::GeminiBuilder {
-        siumai_provider_gemini::providers::gemini::GeminiBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
+        siumai_provider_gemini::providers::gemini::GeminiBuilder::new(BuilderBase::default())
     }
 
     /// Create a Google client builder alias (AI SDK package-aligned).
@@ -157,38 +153,32 @@ impl Provider {
     /// Create an Ollama client builder
     #[cfg(feature = "ollama")]
     pub fn ollama() -> siumai_provider_ollama::providers::ollama::OllamaBuilder {
-        siumai_provider_ollama::providers::ollama::OllamaBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
+        siumai_provider_ollama::providers::ollama::OllamaBuilder::new(BuilderBase::default())
     }
 
     /// Create an xAI client builder
     #[cfg(feature = "xai")]
     pub fn xai() -> siumai_provider_xai::providers::xai::XaiBuilder {
-        siumai_provider_xai::providers::xai::XaiBuilder::new(crate::builder::BuilderBase::default())
+        siumai_provider_xai::providers::xai::XaiBuilder::new(BuilderBase::default())
     }
 
     /// Create a Groq client builder
     #[cfg(feature = "groq")]
     pub fn groq() -> siumai_provider_groq::providers::groq::GroqBuilder {
-        siumai_provider_groq::providers::groq::GroqBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
+        siumai_provider_groq::providers::groq::GroqBuilder::new(BuilderBase::default())
     }
 
     /// Create a MiniMaxi client builder
     #[cfg(feature = "minimaxi")]
     pub fn minimaxi() -> siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder {
-        siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
+        siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(BuilderBase::default())
     }
 
     /// Create a Google Vertex client builder
     #[cfg(feature = "google-vertex")]
     pub fn vertex() -> siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder {
         siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
-            crate::builder::BuilderBase::default(),
+            BuilderBase::default(),
         )
     }
 
@@ -207,7 +197,7 @@ impl Provider {
     pub fn anthropic_vertex()
     -> siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder {
         siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder::new(
-            crate::builder::BuilderBase::default(),
+            BuilderBase::default(),
         )
     }
 
@@ -221,8 +211,6 @@ impl Provider {
     /// Create a DeepSeek client builder
     #[cfg(feature = "deepseek")]
     pub fn deepseek() -> siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder {
-        siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
+        siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(BuilderBase::default())
     }
 }

@@ -888,6 +888,8 @@ Status legend:
     re-exports it.
   - `siumai::compat::{Siumai,SiumaiBuilder}` now re-export registry-owned types directly, and
     the root `siumai::provider::*` builder-era compatibility shim has been removed.
+  - `siumai::compat::builder::*` now re-exports core builder base internals directly, and the root
+    `siumai::builder::*` shim has been removed.
   - Facade production code routes upload helper impls through `crate::compat::Siumai`, and no
     facade source file routes through `crate::provider::{Siumai,SiumaiBuilder}`.
   - Facade tests and examples no longer use `siumai::provider::{Siumai,SiumaiBuilder}` directly;
@@ -903,6 +905,8 @@ Status legend:
     registry-owned builder instead of routing through `crate::provider::SiumaiBuilder`.
   - Provider extension helpers no longer call the facade root `crate::Provider` alias; remaining
     centralized builder construction goes through explicit `crate::compat::Provider`.
+  - `siumai::compat::Provider` no longer routes provider builders through `crate::builder`; it
+    imports `siumai_core::builder::BuilderBase` directly.
   - Execution middleware contracts are documented as `experimental` instead of stable unified
     prelude exports.
   - Deprecated AI SDK parity names and helper spellings are now explicit compat imports rather
@@ -916,10 +920,14 @@ Status legend:
     explicit `siumai::compat::Provider` migration path.
   - Latest Track F provider shim cleanup documents removal of root `siumai::provider::*` and the
     explicit `siumai::compat::{Siumai,SiumaiBuilder}` migration path.
+  - Latest Track F builder shim cleanup documents removal of root `siumai::builder::*` and the
+    explicit `siumai::compat::builder::*` migration path.
 - [x] Update migration docs for any public breaking removals.
   - `migration-0.11.0-beta.7.md` now includes the root `StreamingToolCall*` alias removal and
     replacement imports.
   - `migration-0.11.0-beta.7.md` now includes the root `siumai::provider::*` shim removal and
+    replacement imports.
+  - `migration-0.11.0-beta.7.md` now includes the root `siumai::builder::*` shim removal and
     replacement imports.
 
 ## Track G - Documentation And Final Validation

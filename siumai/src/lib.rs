@@ -372,14 +372,6 @@ pub mod compat;
 // NOTE: These low-level modules are intentionally NOT re-exported at the top-level.
 // Use `siumai::experimental::*` for advanced integrations and internal building blocks.
 
-/// Legacy builder module (provider construction internals).
-///
-/// Prefer `registry::global()` (or config-first provider constructors) for stable construction.
-#[doc(hidden)]
-pub mod builder {
-    pub use siumai_core::builder::*;
-}
-
 /// Experimental low-level APIs (advanced use only).
 ///
 /// This module exposes lower-level building blocks from `siumai-core` (executors, middleware,

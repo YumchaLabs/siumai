@@ -761,6 +761,17 @@ fn root_provider_builder_entry_is_compatibility_classified() {
         "compat builder-era imports should bind directly to registry-owned types instead of routing through the facade provider shim"
     );
     assert!(
+        !lib_rs.contains("pub mod builder {")
+            && !lib_rs.contains("pub use siumai_core::builder::*;")
+            && !compat_provider_rs.contains("crate::builder::"),
+        "facade root should not expose the legacy core builder module; compat/provider should bind to core builder internals directly"
+    );
+    assert!(
+        compat_rs.contains("pub mod builder {")
+            && compat_rs.contains("pub use siumai_core::builder::*;"),
+        "siumai::compat::builder should remain the explicit migration path for legacy builder base types"
+    );
+    assert!(
         !crate_root().join("src/provider/mod.rs").exists(),
         "the historical siumai::provider facade shim should be removed; use siumai::compat or registry paths"
     );
@@ -840,10 +851,21 @@ fn root_provider_builder_entry_is_compatibility_classified() {
         "public-surface.md should steer builder imports through explicit compatibility paths and document root removals"
     );
     assert!(
+        public_surface_doc.contains("root `siumai::builder::*` shim has been removed")
+            && public_surface_doc.contains("siumai::compat::builder"),
+        "public-surface.md should document the removed root builder shim and explicit compat builder path"
+    );
+    assert!(
         migration_doc.contains("Provider builder entry")
             && migration_doc.contains("root `siumai::Provider` alias was removed")
             && migration_doc.contains("root `siumai::provider::*` shim was removed"),
         "migration docs should classify both removed root builder-era facade paths"
+    );
+    assert!(
+        migration_doc.contains("root")
+            && migration_doc.contains("`siumai::builder::*` shim was removed")
+            && migration_doc.contains("siumai::compat::builder"),
+        "migration docs should classify the removed root builder shim"
     );
     assert!(
         compatibility_audit.contains("### Facade provider builder compatibility entry")
@@ -853,8 +875,15 @@ fn root_provider_builder_entry_is_compatibility_classified() {
         "compatibility-audit.md should explain that Provider builder construction is explicit compat-only"
     );
     assert!(
+        compatibility_audit.contains("`siumai::builder::*`")
+            && compatibility_audit.contains("removed the root `siumai::builder::*` shim")
+            && compatibility_audit.contains("`siumai::compat::builder::*`"),
+        "compatibility-audit.md should classify legacy builder base types as compat-only"
+    );
+    assert!(
         compatibility_audit.contains("`siumai::provider::*`")
-            && compatibility_audit.contains("removed the root `siumai::provider::*` shim")
+            && compatibility_audit.contains("removed the root")
+            && compatibility_audit.contains("`siumai::provider::*` shim")
             && compatibility_audit.contains("registry-owned"),
         "compatibility-audit.md should classify siumai::provider as removed builder-era facade surface"
     );

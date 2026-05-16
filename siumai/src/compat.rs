@@ -72,5 +72,5 @@ pub mod types {
 /// Prefer using provider builders directly (e.g. `Provider::openai()`) unless you are
 /// implementing a custom provider.
 pub mod builder {
-    pub use crate::builder::*;
+    pub use siumai_core::builder::*;
 }
