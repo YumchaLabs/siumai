@@ -105,6 +105,9 @@ Last updated: 2026-05-16
 - [x] Continue the public-path raw options cleanup by migrating OpenAI-compatible audio registry
       setup through `RegistryBuilder`, keeping the generic override helper but removing raw
       `RegistryOptions` construction from the module.
+- [x] Continue the provider override shortcut cleanup by migrating OpenAI, Gemini, Cohere, and
+      TogetherAI public-path registry helpers away from generic `.with_provider_build_overrides(...)`
+      wrappers and removing now-unused top-level provider override helper functions.
 
 ## Follow-up Candidates
 
@@ -179,3 +182,7 @@ Last updated: 2026-05-16
 - `cargo nextest run -p siumai-registry --features openai --no-default-features --no-fail-fast migrated_public_path_modules_use_registry_builder_shortcuts`
 - `cargo check -p siumai --tests --features openai --no-default-features`
 - `cargo nextest run -p siumai --test provider_public_path_parity_test --features openai --no-default-features --no-fail-fast openai_compatible_audio_public_path`
+- `cargo fmt --package siumai-registry --package siumai --check`
+- `cargo nextest run -p siumai-registry --features openai --no-default-features --no-fail-fast migrated_public_path_modules_use_registry_builder_shortcuts`
+- `cargo check -p siumai --tests --features openai,google,cohere,togetherai --no-default-features`
+- `cargo nextest run -p siumai --test provider_public_path_parity_test --features openai,google,cohere,togetherai --no-default-features --no-fail-fast openai_public_path gemini_public_path cohere_public_path togetherai_public_path`

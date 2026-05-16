@@ -69,21 +69,6 @@ fn built_in_registry_builder(
     ))
 }
 
-fn provider_build_overrides(
-    api_key: &str,
-    base_url: impl Into<String>,
-) -> siumai::registry::ProviderBuildOverrides {
-    siumai::registry::ProviderBuildOverrides::api_key_base_url(api_key, base_url)
-}
-
-fn provider_transport_build_overrides(
-    api_key: &str,
-    base_url: impl Into<String>,
-    transport: Arc<dyn HttpTransport>,
-) -> siumai::registry::ProviderBuildOverrides {
-    siumai::registry::ProviderBuildOverrides::api_key_base_url_fetch(api_key, base_url, transport)
-}
-
 #[allow(dead_code)]
 #[derive(Clone, Default)]
 struct CaptureTransport {
@@ -796,13 +781,11 @@ mod openai_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(global_transport)
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "openai",
-                provider_transport_build_overrides(
-                    "ctx-key",
-                    "https://example.com/openai/v1",
-                    provider_transport,
-                ),
+                "ctx-key",
+                "https://example.com/openai/v1",
+                provider_transport,
             )
             .auto_middleware(false)
             .build()
@@ -814,10 +797,7 @@ mod openai_public_path {
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
         openai_registry_builder("openai")
-            .with_provider_build_overrides(
-                "openai",
-                provider_transport_build_overrides("test-key", base_url, transport),
-            )
+            .with_provider_api_key_base_url_fetch("openai", "test-key", base_url, transport)
             .build()
             .expect("build openai registry")
     }
@@ -827,10 +807,7 @@ mod openai_public_path {
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
         openai_registry_builder("openai-chat")
-            .with_provider_build_overrides(
-                "openai-chat",
-                provider_transport_build_overrides("test-key", base_url, transport),
-            )
+            .with_provider_api_key_base_url_fetch("openai-chat", "test-key", base_url, transport)
             .build()
             .expect("build openai chat registry")
     }
@@ -7534,13 +7511,11 @@ mod gemini_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(global_transport)
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "gemini",
-                provider_transport_build_overrides(
-                    "ctx-key",
-                    "https://example.com/v1beta",
-                    provider_transport,
-                ),
+                "ctx-key",
+                "https://example.com/v1beta",
+                provider_transport,
             )
             .auto_middleware(false)
             .build()
@@ -7552,10 +7527,7 @@ mod gemini_public_path {
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
         gemini_registry_builder()
-            .with_provider_build_overrides(
-                "gemini",
-                provider_transport_build_overrides("test-key", base_url, transport),
-            )
+            .with_provider_api_key_base_url_fetch("gemini", "test-key", base_url, transport)
             .build()
             .expect("build gemini registry")
     }
@@ -9099,9 +9071,10 @@ mod gemini_public_path {
         .expect("build config client");
 
         let registry = gemini_registry_builder()
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url(
                 "gemini",
-                provider_build_overrides("test-key", format!("{}/v1beta", registry_server.uri())),
+                "test-key",
+                format!("{}/v1beta", registry_server.uri()),
             )
             .build()
             .expect("build gemini registry");
@@ -9250,13 +9223,11 @@ mod cohere_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(global_transport)
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "cohere",
-                provider_transport_build_overrides(
-                    "ctx-key",
-                    "https://example.com/cohere",
-                    provider_transport,
-                ),
+                "ctx-key",
+                "https://example.com/cohere",
+                provider_transport,
             )
             .auto_middleware(false)
             .build()
@@ -9776,13 +9747,11 @@ mod togetherai_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(global_transport)
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "togetherai",
-                provider_transport_build_overrides(
-                    "ctx-key",
-                    "https://example.com/together",
-                    provider_transport,
-                ),
+                "ctx-key",
+                "https://example.com/together",
+                provider_transport,
             )
             .auto_middleware(false)
             .build()

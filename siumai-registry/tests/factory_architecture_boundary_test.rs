@@ -515,6 +515,15 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
 
     for (module_name, module_source, shortcut_marker) in [
         (
+            "openai_public_path",
+            module_source(
+                &source,
+                "mod openai_public_path",
+                "#[cfg(feature = \"azure\")]",
+            ),
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
             "azure_public_path",
             module_source(
                 &source,
@@ -529,6 +538,33 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
                 &source,
                 "mod deepseek_public_path",
                 "#[cfg(feature = \"openai\")]",
+            ),
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "gemini_public_path",
+            module_source(
+                &source,
+                "mod gemini_public_path",
+                "#[cfg(feature = \"cohere\")]",
+            ),
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "cohere_public_path",
+            module_source(
+                &source,
+                "mod cohere_public_path",
+                "#[cfg(feature = \"togetherai\")]",
+            ),
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "togetherai_public_path",
+            module_source(
+                &source,
+                "mod togetherai_public_path",
+                "#[cfg(feature = \"deepinfra\")]",
             ),
             ".with_provider_api_key_base_url_fetch(",
         ),
@@ -620,5 +656,11 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
                 && !module_source.contains("create_provider_registry("),
             "{module_name} should not hand-roll raw RegistryOptions provider override plumbing"
         );
+        if module_name != "openai_compatible_audio_public_path" {
+            assert!(
+                !module_source.contains(".with_provider_build_overrides("),
+                "{module_name} should use provider-level RegistryBuilder shortcuts instead of generic provider build overrides"
+            );
+        }
     }
 }
