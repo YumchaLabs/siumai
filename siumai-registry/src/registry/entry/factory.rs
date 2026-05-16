@@ -5,7 +5,9 @@ use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use crate::error::LlmError;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::text::LanguageModel as FamilyLanguageModel;
-use crate::traits::ProviderCapabilities;
+use crate::traits::{
+    FileManagementCapability, MusicGenerationCapability, ProviderCapabilities, SkillsCapability,
+};
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::rerank::RerankingModel as FamilyRerankingModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
@@ -13,10 +15,20 @@ use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 use siumai_core::video::VideoModel as FamilyVideoModel;
 
 use super::build_context::BuildContext;
+use super::extension_adapters::{
+    ClientBackedFileManagementCapability, ClientBackedMusicGenerationCapability,
+    ClientBackedSkillsCapability,
+};
 
 fn unsupported_native_family_model(provider_id: &str, family: &str) -> LlmError {
     LlmError::UnsupportedOperation(format!(
         "Provider '{provider_id}' does not expose a native {family} family model path"
+    ))
+}
+
+fn unsupported_extension(provider_id: &str, extension: &str) -> LlmError {
+    LlmError::UnsupportedOperation(format!(
+        "Provider '{provider_id}' does not expose a {extension} extension path"
     ))
 }
 
@@ -75,6 +87,94 @@ pub trait ProviderFactory: Send + Sync {
         _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.compat_language_client(model_id).await
+    }
+
+    /// Create a file-management extension capability with build context.
+    ///
+    /// File management remains an extension surface rather than a stable model family. The default
+    /// implementation adapts a legacy generic client, while provider factories can override this
+    /// method with native extension objects.
+    async fn file_management_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FileManagementCapability>, LlmError> {
+        let client = self.compat_language_client_with_ctx(model_id, ctx).await?;
+        if client.as_file_management_capability().is_none() {
+            return Err(unsupported_extension(
+                self.provider_id().as_ref(),
+                "file-management",
+            ));
+        }
+
+        Ok(Arc::new(ClientBackedFileManagementCapability::new(
+            client,
+            self.provider_id().into_owned(),
+        )))
+    }
+
+    /// Create a file-management extension capability without an explicit build context.
+    async fn file_management_capability(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn FileManagementCapability>, LlmError> {
+        self.file_management_capability_with_ctx(model_id, &BuildContext::default())
+            .await
+    }
+
+    /// Create a skill-upload extension capability with build context.
+    async fn skills_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn SkillsCapability>, LlmError> {
+        let client = self.compat_language_client_with_ctx(model_id, ctx).await?;
+        if client.as_skills_capability().is_none() {
+            return Err(unsupported_extension(self.provider_id().as_ref(), "skills"));
+        }
+
+        Ok(Arc::new(ClientBackedSkillsCapability::new(
+            client,
+            self.provider_id().into_owned(),
+        )))
+    }
+
+    /// Create a skill-upload extension capability without an explicit build context.
+    async fn skills_capability(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn SkillsCapability>, LlmError> {
+        self.skills_capability_with_ctx(model_id, &BuildContext::default())
+            .await
+    }
+
+    /// Create a music-generation extension capability with build context.
+    async fn music_generation_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn MusicGenerationCapability>, LlmError> {
+        let client = self.compat_language_client_with_ctx(model_id, ctx).await?;
+        if client.as_music_generation_capability().is_none() {
+            return Err(unsupported_extension(
+                self.provider_id().as_ref(),
+                "music-generation",
+            ));
+        }
+
+        Ok(Arc::new(ClientBackedMusicGenerationCapability::new(
+            client,
+            self.provider_id().into_owned(),
+        )))
+    }
+
+    /// Create a music-generation extension capability without an explicit build context.
+    async fn music_generation_capability(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn MusicGenerationCapability>, LlmError> {
+        self.music_generation_capability_with_ctx(model_id, &BuildContext::default())
+            .await
     }
 
     /// Create a completion-family model with build context.

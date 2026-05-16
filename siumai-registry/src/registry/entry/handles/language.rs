@@ -141,7 +141,10 @@ impl LanguageModelHandle {
         Ok(model)
     }
 
-    async fn build_language_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn build_file_management_capability(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn FileManagementCapability>, LlmError> {
         let ctx = build_registry_context(
             &self.provider_id,
             &self.http_interceptors,
@@ -156,7 +159,51 @@ impl LanguageModelHandle {
         );
 
         self.factory
-            .compat_language_client_with_ctx(model_id, &ctx)
+            .file_management_capability_with_ctx(model_id, &ctx)
+            .await
+    }
+
+    async fn build_skills_capability(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn SkillsCapability>, LlmError> {
+        let ctx = build_registry_context(
+            &self.provider_id,
+            &self.http_interceptors,
+            &self.retry_options,
+            &self.http_client,
+            &self.http_transport,
+            &self.http_config,
+            &self.api_key,
+            &self.base_url,
+            self.reasoning_enabled,
+            self.reasoning_budget,
+        );
+
+        self.factory
+            .skills_capability_with_ctx(model_id, &ctx)
+            .await
+    }
+
+    async fn build_music_generation_capability(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn MusicGenerationCapability>, LlmError> {
+        let ctx = build_registry_context(
+            &self.provider_id,
+            &self.http_interceptors,
+            &self.retry_options,
+            &self.http_client,
+            &self.http_transport,
+            &self.http_config,
+            &self.api_key,
+            &self.base_url,
+            self.reasoning_enabled,
+            self.reasoning_budget,
+        );
+
+        self.factory
+            .music_generation_capability_with_ctx(model_id, &ctx)
             .await
     }
 
@@ -459,57 +506,37 @@ impl ChatCapability for LanguageModelHandle {
 #[async_trait::async_trait]
 impl FileManagementCapability for LanguageModelHandle {
     async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let files = client.as_file_management_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support file management.",
-                self.provider_id
-            ))
-        })?;
+        let files = self
+            .build_file_management_capability(&self.model_id)
+            .await?;
         files.upload_file(request).await
     }
 
     async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let files = client.as_file_management_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support file management.",
-                self.provider_id
-            ))
-        })?;
+        let files = self
+            .build_file_management_capability(&self.model_id)
+            .await?;
         files.list_files(query).await
     }
 
     async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let files = client.as_file_management_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support file management.",
-                self.provider_id
-            ))
-        })?;
+        let files = self
+            .build_file_management_capability(&self.model_id)
+            .await?;
         files.retrieve_file(file_id).await
     }
 
     async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let files = client.as_file_management_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support file management.",
-                self.provider_id
-            ))
-        })?;
+        let files = self
+            .build_file_management_capability(&self.model_id)
+            .await?;
         files.delete_file(file_id).await
     }
 
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let files = client.as_file_management_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support file management.",
-                self.provider_id
-            ))
-        })?;
+        let files = self
+            .build_file_management_capability(&self.model_id)
+            .await?;
         files.get_file_content(file_id).await
     }
 }
@@ -520,13 +547,7 @@ impl SkillsCapability for LanguageModelHandle {
         &self,
         request: SkillUploadRequest,
     ) -> Result<SkillUploadResult, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let skills = client.as_skills_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support skills.",
-                self.provider_id
-            ))
-        })?;
+        let skills = self.build_skills_capability(&self.model_id).await?;
         skills.upload_skill(request).await
     }
 }
@@ -575,13 +596,9 @@ impl MusicGenerationCapability for LanguageModelHandle {
         &self,
         request: MusicGenerationRequest,
     ) -> Result<MusicGenerationResponse, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let music = client.as_music_generation_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support music generation.",
-                self.provider_id
-            ))
-        })?;
+        let music = self
+            .build_music_generation_capability(&self.model_id)
+            .await?;
         music.generate_music(request).await
     }
 

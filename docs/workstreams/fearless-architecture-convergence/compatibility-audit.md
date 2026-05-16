@@ -89,29 +89,35 @@ Current convergence step:
   primary construction method, while the generic-client example path uses
   `compat_language_client`.
 
-### Language-Handle Extension Paths - Keep Temporarily
+### Language-Handle Extension Paths - Isolated Extension Adapters
 
-Status: keep as extension-only compatibility.
+Status: isolated behind registry-owned extension adapters.
 
 Location:
 
 - `siumai-registry/src/registry/entry/handles/language.rs`
+- `siumai-registry/src/registry/entry/extension_adapters.rs`
 
-Allowed downcasts:
+Current seam:
 
-- `.as_file_management_capability()`
-- `.as_skills_capability()`
-- `.as_music_generation_capability()`
+- `LanguageModelHandle` calls explicit `ProviderFactory` extension methods for file, skill, and
+  music surfaces.
+- Default factory methods adapt legacy `Arc<dyn LlmClient>` clients through registry-owned
+  `ClientBacked*Capability` adapters.
+- The handle no longer owns direct `compat_language_client_with_ctx(...)` calls or
+  `as_*_capability()` downcasts for these extension implementations.
 
 Reason:
 
 - File, skill, and music surfaces are still extension-style APIs in the registry language handle.
 - Chat and video execution already use family model paths.
+- Keeping the compatibility adapter behind the provider-factory seam gives providers a native
+  override point later without changing handle code.
 
 Deletion condition:
 
-- File, skill, and music become first-class family or extension-handle traits with registry factory
-  construction paths.
+- File, skill, and music become first-class family handles or provider-owned native extension
+  factory overrides cover the built-in providers that declare those surfaces.
 
 ### Facade `Siumai` Wrapper - Compatibility Surface
 

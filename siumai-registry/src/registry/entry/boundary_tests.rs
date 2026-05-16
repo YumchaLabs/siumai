@@ -28,6 +28,14 @@ fn source_section<'a>(source: &'a str, label: &str, start: &str, end: &str) -> &
     &section_tail[..end_index]
 }
 
+fn source_section_to_end<'a>(source: &'a str, label: &str, start: &str) -> &'a str {
+    let start_index = source
+        .find(start)
+        .unwrap_or_else(|| panic!("missing start marker `{start}` in {label}"));
+
+    &source[start_index..]
+}
+
 fn assert_no_compat_or_downcast_path(label: &str, source: &str) {
     for forbidden in [
         "compat_language_client_with_ctx",
@@ -75,6 +83,32 @@ fn stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_exe
         "impl FileManagementCapability for LanguageModelHandle",
     );
     assert_no_compat_or_downcast_path("language handle ChatCapability impl", chat_capability);
+
+    for (label, start, end) in [
+        (
+            "language handle FileManagementCapability impl",
+            "impl FileManagementCapability for LanguageModelHandle",
+            "impl SkillsCapability for LanguageModelHandle",
+        ),
+        (
+            "language handle SkillsCapability impl",
+            "impl SkillsCapability for LanguageModelHandle",
+            "impl VideoGenerationCapability for LanguageModelHandle",
+        ),
+    ] {
+        let section = source_section(&language_source, label, start, end);
+        assert_no_compat_or_downcast_path(label, section);
+    }
+
+    let music_extension = source_section_to_end(
+        &language_source,
+        "language handle MusicGenerationCapability impl",
+        "impl MusicGenerationCapability for LanguageModelHandle",
+    );
+    assert_no_compat_or_downcast_path(
+        "language handle MusicGenerationCapability impl",
+        music_extension,
+    );
 
     let image_source = read_handle_source("image.rs");
     let image_generation_capability = source_section(

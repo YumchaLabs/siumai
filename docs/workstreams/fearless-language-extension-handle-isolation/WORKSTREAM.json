@@ -1,10 +1,10 @@
 {
   "slug": "fearless-language-extension-handle-isolation",
-  "status": "open",
+  "status": "closed",
   "opened": "2026-05-16",
   "objective": "Isolate registry language-handle file, skill, and music extension downcasts behind provider-factory adapters.",
-  "current_task": "LEH-020",
-  "next_task": "Add registry-owned extension adapters and ProviderFactory extension methods.",
+  "current_task": null,
+  "next_task": "No follow-up split; open provider-specific native extension lanes only when needed.",
   "blocked": false,
   "validation_focus": [
     "siumai-registry registry::entry extension tests",

@@ -48,6 +48,7 @@ mod build_context_tests;
 mod cache;
 #[cfg(test)]
 mod cache_tests;
+mod extension_adapters;
 mod factory;
 mod handles;
 #[cfg(test)]

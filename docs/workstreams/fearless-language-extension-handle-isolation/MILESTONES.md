@@ -2,6 +2,8 @@
 
 Last updated: 2026-05-16
 
+Status: completed
+
 ## M1 - Framed
 
 - Workstream docs exist and are linked from the docs index.
@@ -26,3 +28,5 @@ Last updated: 2026-05-16
 - Source guards lock the new seam.
 - Compatibility audit documents the new state.
 - Focused gates pass.
+- No follow-up is split from this lane; native provider-owned extension overrides can be opened as
+  later provider-specific lanes when needed.

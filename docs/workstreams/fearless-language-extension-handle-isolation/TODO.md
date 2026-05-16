@@ -20,8 +20,8 @@ Validation:
 
 ## LEH-020 - Registry Extension Adapters
 
-- [ ] Add registry-owned adapters for client-backed file, skill, and music extension traits.
-- [ ] Add explicit `ProviderFactory` extension methods with compatibility defaults.
+- [x] Add registry-owned adapters for client-backed file, skill, and music extension traits.
+- [x] Add explicit `ProviderFactory` extension methods with compatibility defaults.
 
 Validation:
 
@@ -29,8 +29,8 @@ Validation:
 
 ## LEH-030 - Handle Routing
 
-- [ ] Route `LanguageModelHandle` file, skill, and music implementations through factory extension methods.
-- [ ] Remove handle-local compatibility-client construction for extension methods.
+- [x] Route `LanguageModelHandle` file, skill, and music implementations through factory extension methods.
+- [x] Remove handle-local compatibility-client construction for extension methods.
 
 Validation:
 
@@ -38,8 +38,8 @@ Validation:
 
 ## LEH-040 - Guards And Audit
 
-- [ ] Add or tighten source guards proving language-handle extension methods do not downcast.
-- [ ] Update compatibility audit notes from "keep temporarily" to "isolated behind adapters".
+- [x] Add or tighten source guards proving language-handle extension methods do not downcast.
+- [x] Update compatibility audit notes from "keep temporarily" to "isolated behind adapters".
 
 Validation:
 
@@ -48,6 +48,6 @@ Validation:
 
 ## LEH-050 - Closeout
 
-- [ ] Run final focused gates.
-- [ ] Update evidence, milestones, handoff, and journal notes.
-- [ ] Close or split any residual follow-up.
+- [x] Run final focused gates.
+- [x] Update evidence, milestones, handoff, and journal notes.
+- [x] Close or split any residual follow-up.
