@@ -69,7 +69,7 @@ For navigation/discoverability, each provider extension module may also expose s
 
 Provider package helper constructors that return `SiumaiBuilder` bind to the registry-owned builder
 type directly; provider extension helpers should not route through the historical
-`siumai::provider::*` shim or the root `siumai::Provider` alias.
+`siumai::provider::*` shim or the removed root `siumai::Provider` alias.
 
 ### 2.1) Protocol mapping (stable facade)
 
@@ -246,9 +246,9 @@ surface when migrating older provider-utils style code. Deprecated AI SDK parity
 `Experimental_LanguageModelStreamPart`, `Experimental_SpeechResult`,
 `Experimental_TranscriptionResult`, `ExperimentalLanguageModelStreamPart`,
 `experimental_filter_active_tools`, and `step_count_is` also live in the explicit compat surface.
-The historical root path `siumai::Provider` remains temporarily available for source
-compatibility, but the implementation is owned by `siumai::compat::Provider`; new documentation
-should prefer the explicit compatibility path above.
+The root `siumai::Provider` path has been removed. Code that intentionally keeps builder-style
+construction during migration should import `siumai::compat::Provider` or
+`siumai::prelude::compat::Provider` explicitly.
 
 The historical module path `siumai::provider::*` is also a builder-era compatibility shim over
 registry-owned `Siumai` / `SiumaiBuilder` types. New code should import those names from

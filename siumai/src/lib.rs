@@ -874,37 +874,6 @@ pub mod prelude {
     }
 }
 
-/// Provider-specific builder convenience entry point.
-///
-/// Prefer `siumai::prelude::unified::registry::*` or config-first provider clients for stable
-/// construction. `siumai::Provider` remains as a temporary root-level compatibility alias; prefer
-/// `siumai::compat::Provider` or `siumai::prelude::compat::Provider` when you intentionally need
-/// this builder-style construction path.
-///
-/// The implementation is owned by `siumai::compat`; this root path exists only for source
-/// compatibility.
-///
-/// # Example
-/// ```rust,no_run
-/// use siumai::prelude::{compat::Provider, unified::*};
-///
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let openai_client = Provider::openai()
-///         .api_key("your-openai-key")
-///         .model("gpt-4")
-///         .build()
-///         .await?;
-///
-///     let messages = vec![user!("Hello!")];
-///     let response = openai_client.chat(messages).await?;
-///     println!("OpenAI says: {}", response.text().unwrap_or_default());
-///
-///     Ok(())
-/// }
-/// ```
-pub use compat::Provider;
-
 // Macros moved to a dedicated module for cleanliness
 mod macros;
 
@@ -913,7 +882,7 @@ mod model_catalog;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compat::Siumai;
+    use crate::compat::{Provider, Siumai};
     use crate::prelude::unified::*;
 
     #[test]

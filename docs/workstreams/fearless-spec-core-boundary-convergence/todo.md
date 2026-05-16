@@ -879,24 +879,22 @@ Status legend:
   - `StreamingToolCall*` helper aliases have moved out of `prelude::unified` and the facade root;
     migration imports now use `siumai::compat` / `prelude::compat`.
   - Provider-specific builder construction is now explicitly available from `siumai::compat::Provider`
-    and `siumai::prelude::compat::Provider`; the historical root `siumai::Provider` path remains
-    temporarily for source compatibility and is documented as compatibility-only.
-  - The `Provider` implementation body now lives under `siumai::compat`; the facade root only
-    re-exports it as a temporary compatibility alias.
+    and `siumai::prelude::compat::Provider`; the historical root `siumai::Provider` alias has been
+    removed so builder-style construction is explicit compat-only.
+  - The `Provider` implementation body now lives under `siumai::compat`; the facade root no longer
+    re-exports it.
   - `siumai::compat::{Siumai,SiumaiBuilder}` now re-export registry-owned types directly, and
     `siumai::provider::*` is documented as a builder-era compatibility shim.
   - The `siumai::provider` shim is now hidden from generated facade docs, and facade production
     code routes upload helper impls through `crate::compat::Siumai` instead of the shim.
   - Facade tests and examples no longer use `siumai::provider::{Siumai,SiumaiBuilder}` directly;
     the boundary guard keeps future coverage on explicit `siumai::compat` or stable registry paths.
-  - Runnable examples are also guarded against reintroducing the temporary root `siumai::Provider`
+  - Runnable examples are also guarded against reintroducing the removed root `siumai::Provider`
     alias as a taught construction path.
   - Ordinary facade tests now use `siumai::compat::Provider` for builder-era construction coverage;
-    the temporary root `siumai::Provider` alias is allowed only in explicit public-surface
-    compatibility tests.
+    the root `siumai::Provider` alias is no longer allowlisted.
   - The large `provider_public_path_parity_test` suite now imports `siumai::compat::Provider`
-    instead of the facade root alias, so root `siumai::Provider` coverage is limited to
-    `public_surface_imports_test`.
+    instead of the facade root alias, and `public_surface_imports_test` now does the same.
   - Provider extension package helpers that return `SiumaiBuilder` now bind directly to the
     registry-owned builder instead of routing through `crate::provider::SiumaiBuilder`.
   - Provider extension helpers no longer call the facade root `crate::Provider` alias; remaining
@@ -909,8 +907,9 @@ Status legend:
   - Latest Track F slice documents removal of root `StreamingToolCall*` aliases and the explicit
     `siumai::compat` / `prelude::compat` migration paths.
   - Latest Track F provider parity cleanup documents that large parity tests use the explicit
-    `siumai::compat::Provider` path and keep root `siumai::Provider` only for public-surface
-    compatibility coverage.
+    `siumai::compat::Provider` path.
+  - Latest Track F root Provider cleanup documents removal of root `siumai::Provider` and the
+    explicit `siumai::compat::Provider` migration path.
 - [x] Update migration docs for any public breaking removals.
   - `migration-0.11.0-beta.7.md` now includes the root `StreamingToolCall*` alias removal and
     replacement imports.

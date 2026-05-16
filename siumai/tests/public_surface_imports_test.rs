@@ -1827,8 +1827,8 @@ fn public_surface_openai_provider_ext_compiles() {
     let _ = siumai::provider_ext::openai::hosted_tools::web_search().build();
     let _ = siumai::provider_ext::openai::tools::web_search();
     let _ = siumai::provider_ext::openai::provider_tools::web_search();
-    let _ = siumai::Provider::openai_responses();
-    let _ = siumai::Provider::openai_chat();
+    let _ = siumai::compat::Provider::openai_responses();
+    let _ = siumai::compat::Provider::openai_chat();
     let _ = speech_streaming::tts_sse_stream;
     let _ = transcription_streaming::stt_sse_stream;
 }
@@ -2289,7 +2289,7 @@ fn public_surface_anthropic_provider_ext_compiles() {
         .with_anthropic_effort(AnthropicEffort::High)
         .with_anthropic_task_budget(AnthropicTaskBudget::tokens(400000))
         .with_anthropic_inference_geo(AnthropicInferenceGeo::Us);
-    let _ = siumai::Provider::anthropic()
+    let _ = siumai::compat::Provider::anthropic()
         .api_key("test-key")
         .model("claude-sonnet-4-5")
         .with_anthropic_thinking_mode(ThinkingModeConfig {
@@ -2332,7 +2332,7 @@ fn public_surface_anthropic_provider_ext_compiles() {
         .with_anthropic_effort(AnthropicEffort::High)
         .with_anthropic_task_budget(AnthropicTaskBudget::tokens(400000))
         .with_anthropic_inference_geo(AnthropicInferenceGeo::Us);
-    let _ = siumai::Provider::anthropic();
+    let _ = siumai::compat::Provider::anthropic();
 }
 
 #[cfg(feature = "protocol-anthropic")]
@@ -2440,15 +2440,15 @@ fn public_surface_gemini_provider_ext_compiles() {
     let _ = siumai::provider_ext::gemini::tools::google_maps();
     let _ = siumai::provider_ext::gemini::tools::google_search();
     let _ = siumai::provider_ext::gemini::provider_tools::google_search();
-    let _ = siumai::Provider::gemini();
-    let _ = siumai::Provider::gemini().language_model(chat::GEMINI_2_5_FLASH);
-    let _ = siumai::Provider::gemini().chat(chat::GEMINI_2_5_PRO);
-    let _ = siumai::Provider::gemini().embedding_model(embedding::GEMINI_EMBEDDING_001);
-    let _ = siumai::Provider::gemini().embedding(embedding::GEMINI_EMBEDDING_2_PREVIEW);
-    let _ = siumai::Provider::gemini().image_model(image::GEMINI_2_5_FLASH_IMAGE);
-    let _ = siumai::Provider::gemini().image(image::IMAGEN_4_0_GENERATE_001);
-    let _ = siumai::Provider::gemini().video_model(video::VEO_3_1_GENERATE_PREVIEW);
-    let _ = siumai::Provider::gemini().video(video::VEO_3_1_FAST_GENERATE_PREVIEW);
+    let _ = siumai::compat::Provider::gemini();
+    let _ = siumai::compat::Provider::gemini().language_model(chat::GEMINI_2_5_FLASH);
+    let _ = siumai::compat::Provider::gemini().chat(chat::GEMINI_2_5_PRO);
+    let _ = siumai::compat::Provider::gemini().embedding_model(embedding::GEMINI_EMBEDDING_001);
+    let _ = siumai::compat::Provider::gemini().embedding(embedding::GEMINI_EMBEDDING_2_PREVIEW);
+    let _ = siumai::compat::Provider::gemini().image_model(image::GEMINI_2_5_FLASH_IMAGE);
+    let _ = siumai::compat::Provider::gemini().image(image::IMAGEN_4_0_GENERATE_001);
+    let _ = siumai::compat::Provider::gemini().video_model(video::VEO_3_1_GENERATE_PREVIEW);
+    let _ = siumai::compat::Provider::gemini().video(video::VEO_3_1_FAST_GENERATE_PREVIEW);
 }
 
 #[cfg(feature = "google")]
@@ -2614,24 +2614,29 @@ fn public_surface_google_provider_ext_compiles() {
     let _ = siumai::provider_ext::google::tools::url_context();
     let _ = siumai::provider_ext::google::tools::google_search();
     let _ = siumai::provider_ext::google::provider_tools::google_search();
-    let _ = siumai::Provider::google();
-    let _ = siumai::Provider::google().language_model(chat::GEMINI_2_5_FLASH);
-    let _ = siumai::Provider::google().chat(chat::GEMINI_2_5_PRO);
+    let _ = siumai::compat::Provider::google();
+    let _ = siumai::compat::Provider::google().language_model(chat::GEMINI_2_5_FLASH);
+    let _ = siumai::compat::Provider::google().chat(chat::GEMINI_2_5_PRO);
     #[allow(deprecated)]
-    let _ = siumai::Provider::google().generative_ai(chat::GEMINI_2_0_FLASH);
-    let _ = siumai::Provider::google().embedding_model(embedding::GEMINI_EMBEDDING_001);
-    let _ = siumai::Provider::google().embedding(embedding::GEMINI_EMBEDDING_2_PREVIEW);
+    let _ = siumai::compat::Provider::google().generative_ai(chat::GEMINI_2_0_FLASH);
+    let _ = siumai::compat::Provider::google().embedding_model(embedding::GEMINI_EMBEDDING_001);
+    let _ = siumai::compat::Provider::google().embedding(embedding::GEMINI_EMBEDDING_2_PREVIEW);
     #[allow(deprecated)]
-    let _ = siumai::Provider::google().text_embedding(embedding::GEMINI_EMBEDDING_001);
+    let _ = siumai::compat::Provider::google().text_embedding(embedding::GEMINI_EMBEDDING_001);
     #[allow(deprecated)]
-    let _ = siumai::Provider::google().text_embedding_model(embedding::GEMINI_EMBEDDING_2_PREVIEW);
-    let _ = siumai::Provider::google().image_model(image::GEMINI_2_5_FLASH_IMAGE);
-    let _ = siumai::Provider::google().image(image::IMAGEN_4_0_GENERATE_001);
-    let _ = siumai::Provider::google().video_model(video::VEO_3_1_GENERATE_PREVIEW);
-    let _ = siumai::Provider::google().video(video::VEO_3_1_FAST_GENERATE_PREVIEW);
-    let _ = siumai::Provider::google().name("my-gemini-proxy");
-    let _ = siumai::Provider::google().api_key("test-key").files();
-    let _ = siumai::Provider::gemini().api_key("test-key").files();
+    let _ = siumai::compat::Provider::google()
+        .text_embedding_model(embedding::GEMINI_EMBEDDING_2_PREVIEW);
+    let _ = siumai::compat::Provider::google().image_model(image::GEMINI_2_5_FLASH_IMAGE);
+    let _ = siumai::compat::Provider::google().image(image::IMAGEN_4_0_GENERATE_001);
+    let _ = siumai::compat::Provider::google().video_model(video::VEO_3_1_GENERATE_PREVIEW);
+    let _ = siumai::compat::Provider::google().video(video::VEO_3_1_FAST_GENERATE_PREVIEW);
+    let _ = siumai::compat::Provider::google().name("my-gemini-proxy");
+    let _ = siumai::compat::Provider::google()
+        .api_key("test-key")
+        .files();
+    let _ = siumai::compat::Provider::gemini()
+        .api_key("test-key")
+        .files();
     let _ = Siumai::builder().google();
 }
 
@@ -2719,11 +2724,11 @@ fn public_surface_cohere_provider_ext_compiles() {
     let _ = rerank_req;
 
     let _ = CohereConfig::new("test-key").with_model(chat::COMMAND_A_03_2025);
-    let _ = siumai::Provider::cohere()
+    let _ = siumai::compat::Provider::cohere()
         .language_model(chat::COMMAND_A_03_2025)
         .with_http_client(reqwest::Client::new());
-    let _ = siumai::Provider::cohere().embedding_model(embedding::EMBED_V4);
-    let _ = siumai::Provider::cohere().reranking_model(rerank::RERANK_V3_5);
+    let _ = siumai::compat::Provider::cohere().embedding_model(embedding::EMBED_V4);
+    let _ = siumai::compat::Provider::cohere().reranking_model(rerank::RERANK_V3_5);
 }
 
 #[cfg(feature = "togetherai")]
@@ -2827,7 +2832,7 @@ fn public_surface_togetherai_provider_ext_compiles() {
             .with_negative_prompt("blurry"),
     );
 
-    let _ = siumai::Provider::togetherai().model(chat::META_LLAMA_3_1_8B_INSTRUCT_TURBO);
+    let _ = siumai::compat::Provider::togetherai().model(chat::META_LLAMA_3_1_8B_INSTRUCT_TURBO);
     let _ = TogetherAiConfig::new("test-key").with_model(rerank::LLAMA_RANK_V1);
 }
 
@@ -3102,14 +3107,15 @@ fn public_surface_bedrock_provider_ext_compiles() {
         .with_bedrock_document_citations(true);
 
     let _ = (chat_req, embed_req, rerank_req);
-    let _ = siumai::Provider::bedrock().embedding("amazon.titan-embed-text-v2:0");
-    let _ = siumai::Provider::bedrock().embedding_model("amazon.titan-embed-text-v2:0");
-    let _ = siumai::Provider::bedrock().image("amazon.nova-canvas-v1:0");
-    let _ = siumai::Provider::bedrock().image_model("amazon.nova-canvas-v1:0");
-    let _ = siumai::Provider::bedrock().reranking("amazon.rerank-v1:0");
-    let _ = siumai::Provider::bedrock().reranking_model("amazon.rerank-v1:0");
-    let _ = siumai::Provider::bedrock().text_embedding("amazon.titan-embed-text-v2:0");
-    let _ = siumai::Provider::bedrock().text_embedding_model("amazon.titan-embed-text-v2:0");
+    let _ = siumai::compat::Provider::bedrock().embedding("amazon.titan-embed-text-v2:0");
+    let _ = siumai::compat::Provider::bedrock().embedding_model("amazon.titan-embed-text-v2:0");
+    let _ = siumai::compat::Provider::bedrock().image("amazon.nova-canvas-v1:0");
+    let _ = siumai::compat::Provider::bedrock().image_model("amazon.nova-canvas-v1:0");
+    let _ = siumai::compat::Provider::bedrock().reranking("amazon.rerank-v1:0");
+    let _ = siumai::compat::Provider::bedrock().reranking_model("amazon.rerank-v1:0");
+    let _ = siumai::compat::Provider::bedrock().text_embedding("amazon.titan-embed-text-v2:0");
+    let _ =
+        siumai::compat::Provider::bedrock().text_embedding_model("amazon.titan-embed-text-v2:0");
     #[cfg(feature = "anthropic")]
     {
         let _ = siumai::provider_ext::bedrock::tools::web_search_20260209();
@@ -3351,8 +3357,8 @@ fn public_surface_google_vertex_provider_ext_compiles() {
                 GoogleVertexReferenceImage::new().with_gcs_uri("gs://bucket/reference.png"),
             ]),
     );
-    let _ = siumai::Provider::vertex();
-    let _ = siumai::Provider::vertex_maas();
+    let _ = siumai::compat::Provider::vertex();
+    let _ = siumai::compat::Provider::vertex_maas();
     let _ = Siumai::builder().vertex();
     let _ = Siumai::builder().vertex_maas();
 }
@@ -3470,7 +3476,7 @@ fn public_surface_anthropic_vertex_provider_ext_compiles() {
     let _ = siumai::provider_ext::anthropic_vertex::provider_tools::web_search_20250305();
     let _ = siumai::provider_ext::anthropic_vertex::provider_tools::tool_search_regex_20251119();
     let _ = siumai::provider_ext::anthropic_vertex::provider_tools::tool_search_bm25_20251119();
-    let _ = siumai::Provider::anthropic_vertex()
+    let _ = siumai::compat::Provider::anthropic_vertex()
         .project("demo-project")
         .location("global")
         .base_url("https://example.com/custom")
@@ -3479,7 +3485,7 @@ fn public_surface_anthropic_vertex_provider_ext_compiles() {
         .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
         .with_disable_parallel_tool_use(true)
         .with_send_reasoning(false);
-    let _ = siumai::Provider::vertex_anthropic();
+    let _ = siumai::compat::Provider::vertex_anthropic();
     let _ = Siumai::builder()
         .anthropic_vertex()
         .project("demo-project")
@@ -3490,7 +3496,7 @@ fn public_surface_anthropic_vertex_provider_ext_compiles() {
         .with_anthropic_vertex_disable_parallel_tool_use(true)
         .with_anthropic_vertex_send_reasoning(false);
     let _ = Siumai::builder().vertex_anthropic();
-    let _ = siumai::Provider::anthropic_vertex();
+    let _ = siumai::compat::Provider::anthropic_vertex();
 }
 
 #[cfg(feature = "protocol-gemini")]
@@ -3541,7 +3547,7 @@ fn public_surface_groq_provider_ext_compiles() {
     let _ = GroqProviderSettings::new()
         .with_api_key("test-key")
         .into_config_for_model("openai/gpt-oss-20b");
-    let _ = siumai::Provider::groq().headers(Default::default());
+    let _ = siumai::compat::Provider::groq().headers(Default::default());
     let _ = size_of::<audio_options::GroqTtsOptions>();
     let _ = size_of::<audio_options::GroqSttOptions>();
     let _ = size_of::<GroqMetadata>();
@@ -3790,7 +3796,7 @@ fn public_surface_xai_provider_ext_compiles() {
     let _ =
         siumai::provider_ext::xai::provider_tools::file_search(vec!["collection_1".to_string()]);
     let _ = siumai::provider_ext::xai::provider_tools::mcp("https://example.com/mcp");
-    let _ = siumai::Provider::xai();
+    let _ = siumai::compat::Provider::xai();
 }
 
 #[cfg(feature = "ollama")]
@@ -4003,8 +4009,8 @@ fn public_surface_azure_provider_ext_compiles() {
     let typed = resp.azure_metadata().expect("azure metadata");
     assert_eq!(typed.service_tier.as_deref(), Some("default"));
 
-    let _ = siumai::Provider::azure();
-    let _ = siumai::Provider::azure_chat();
+    let _ = siumai::compat::Provider::azure();
+    let _ = siumai::compat::Provider::azure_chat();
 }
 
 #[cfg(feature = "deepseek")]

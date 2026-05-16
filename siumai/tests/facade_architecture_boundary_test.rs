@@ -708,10 +708,10 @@ fn root_provider_builder_entry_is_compatibility_classified() {
         "siumai::compat should own the Provider builder construction implementation and explicit compatibility import path"
     );
     assert!(
-        lib_rs.contains("pub use compat::Provider;")
+        !lib_rs.contains("pub use compat::Provider;")
             && !lib_rs.contains("pub struct Provider;")
             && !lib_rs.contains("impl Provider {"),
-        "facade root should only re-export Provider as a compatibility alias instead of owning the implementation body"
+        "facade root should not export Provider; builder-era construction belongs under siumai::compat::Provider"
     );
     assert!(
         compat_rs.contains("pub use siumai_registry::provider::Siumai;")
@@ -775,15 +775,11 @@ fn root_provider_builder_entry_is_compatibility_classified() {
                 "{relative_path} should use siumai::compat or stable registry paths instead of the historical siumai::provider shim"
             );
 
-            let root_provider_alias_is_explicit_compatibility_coverage = matches!(
-                relative_path.as_str(),
-                "tests/public_surface_imports_test.rs"
-            );
-            if relative_dir == "tests" && !root_provider_alias_is_explicit_compatibility_coverage {
+            if relative_dir == "tests" {
                 assert!(
                     !source.contains("use siumai::Provider")
                         && !source.contains("siumai::Provider::"),
-                    "{relative_path} should use siumai::compat::Provider or stable registry paths instead of the temporary root siumai::Provider alias"
+                    "{relative_path} should use siumai::compat::Provider or stable registry paths instead of the removed root siumai::Provider alias"
                 );
             }
 
@@ -791,7 +787,7 @@ fn root_provider_builder_entry_is_compatibility_classified() {
                 assert!(
                     !source.contains("use siumai::Provider")
                         && !source.contains("siumai::Provider::"),
-                    "{relative_path} should not teach the temporary root siumai::Provider alias"
+                    "{relative_path} should not teach the removed root siumai::Provider alias"
                 );
             }
         }
@@ -805,28 +801,21 @@ fn root_provider_builder_entry_is_compatibility_classified() {
         "siumai::compat should own the explicit compatibility import path for legacy streaming tool-call helpers"
     );
     assert!(
-        lib_rs.contains("siumai::Provider")
-            && lib_rs.contains("temporary root-level compatibility alias")
-            && lib_rs.contains("siumai::compat::Provider"),
-        "root Provider docs should classify the root builder entry as temporary compatibility and point to siumai::compat::Provider"
-    );
-    assert!(
-        lib_rs.contains("use siumai::prelude::{compat::Provider, unified::*};"),
-        "root Provider rustdoc example should use the explicit compatibility import path instead of the default prelude"
+        !lib_rs.contains("siumai::Provider") && lib_rs.contains("siumai::compat"),
+        "facade root docs should not describe a removed root Provider alias"
     );
     assert!(
         public_surface_doc
             .contains("Provider-specific builder construction is also compatibility-oriented")
             && public_surface_doc.contains("use siumai::compat::Provider;")
-            && public_surface_doc
-                .contains("historical root path `siumai::Provider` remains temporarily available"),
-        "public-surface.md should steer Provider builder imports through the explicit compatibility path"
+            && public_surface_doc.contains("root `siumai::Provider` path has been removed"),
+        "public-surface.md should steer Provider builder imports through the explicit compatibility path and document root alias removal"
     );
     assert!(
         compatibility_audit.contains("### Facade provider builder compatibility entry")
-            && compatibility_audit.contains("`siumai::Provider`")
+            && compatibility_audit.contains("removed the root `siumai::Provider` re-export")
             && compatibility_audit.contains("`siumai::compat::Provider`"),
-        "compatibility-audit.md should explain why the root Provider builder entry still exists"
+        "compatibility-audit.md should explain that Provider builder construction is explicit compat-only"
     );
     assert!(
         compatibility_audit.contains("`siumai::provider::*`")
