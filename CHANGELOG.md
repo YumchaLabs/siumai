@@ -24,6 +24,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Refreshed supporting dependencies for schema validation, registry caching, HTTP, WebSocket, and
   random-number utilities (`jsonschema` 0.46, `lru` 0.18, `reqwest` 0.13.3,
   `tokio-tungstenite` 0.29, and `rand` 0.10).
+- Removed the deprecated low-level `execute_json_request_with_headers(...)` compatibility helper;
+  custom executor code should use `execute_json_request(...)` with `HttpExecutionConfig` and a
+  `ProviderSpec` for static headers.
 
 ## [0.11.0-beta.7] - 2026-05-05
 
@@ -277,7 +280,6 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 
 - `AudioCapability` (compat trait): prefer `SpeechCapability` + `TranscriptionCapability` on the unified surface.
 - `ModelListingCapability`, `ModerationCapability`, `FileManagementCapability` on the top-level: prefer `siumai::prelude::extensions::*`.
-- Low-level HTTP helper `execute_json_request_with_headers` (for custom provider code): prefer `HttpExecutionConfig` + `execute_json_request` and/or a `ProviderSpec` with a stable `build_headers()` implementation.
 
 ### Removed
 
@@ -291,6 +293,9 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
   - `VisionCapability`, `VisionCapabilityProxy`, `Siumai::vision_capability()`,
     `ImageGenRequest`, `ImageResponse`, `VisionRequest`, and `VisionResponse`
   - Use multimodal chat messages for image understanding and image-family APIs for image creation.
+- Low-level HTTP helper `execute_json_request_with_headers`:
+  - Use `HttpExecutionConfig` + `execute_json_request` and a `ProviderSpec` with a stable
+    `build_headers()` implementation.
 - `OpenAiCompatibleSpec` (legacy fallback): use `OpenAiCompatibleSpecWithAdapter` (adapter-injected spec only).
 
 ### Fixed

@@ -14,8 +14,6 @@ mod streaming_response;
 mod verbs;
 
 pub use bytes::{execute_bytes_request, execute_multipart_bytes_request};
-#[allow(deprecated)]
-pub use json::execute_json_request_with_headers;
 pub use json::{execute_json_request, execute_request};
 pub use multipart::execute_multipart_request;
 pub use streaming_response::{

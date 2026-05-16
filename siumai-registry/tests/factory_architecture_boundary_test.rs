@@ -350,6 +350,29 @@ fn dedicated_vision_compatibility_surface_is_removed() {
 }
 
 #[test]
+fn static_header_json_executor_compatibility_surface_is_removed() {
+    let root = crate_root();
+
+    for relative in [
+        "../siumai-core/src/execution/executors/common.rs",
+        "../siumai-core/src/execution/executors/http_request/json.rs",
+        "../siumai-core/src/execution/executors/http_request/mod.rs",
+    ] {
+        let source = fs::read_to_string(root.join(relative)).expect("read executor source");
+        for forbidden in [
+            "execute_json_request_with_headers",
+            "StaticHeadersSpec",
+            "static_headers",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{relative} should not expose the removed static-header JSON executor compatibility surface `{forbidden}`"
+            );
+        }
+    }
+}
+
+#[test]
 fn public_docs_do_not_recommend_compatibility_surfaces_as_default() {
     let docs_root = crate_root().join("../docs");
     let mut files = Vec::new();

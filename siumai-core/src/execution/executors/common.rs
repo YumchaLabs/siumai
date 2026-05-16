@@ -122,41 +122,6 @@ where
     .await
 }
 
-/// Execute a JSON HTTP request using explicit base headers (no ProviderSpec).
-///
-/// This helper is useful for code paths that already have a fully constructed
-/// header map and do not rely on ProviderSpec routing or header building.
-#[allow(clippy::too_many_arguments)]
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Use execute_json_request with HttpExecutionConfig; if you need static headers, use a ProviderSpec whose build_headers() returns that HeaderMap."
-)]
-pub async fn execute_json_request_with_headers(
-    http_client: &reqwest::Client,
-    provider_id: &str,
-    url: &str,
-    headers_base: HeaderMap,
-    body: serde_json::Value,
-    interceptors: &[Arc<dyn HttpInterceptor>],
-    retry_options: Option<RetryOptions>,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
-    stream: bool,
-) -> Result<HttpExecutionResult, LlmError> {
-    #[allow(deprecated)]
-    crate::execution::executors::http_request::execute_json_request_with_headers(
-        http_client,
-        provider_id,
-        url,
-        headers_base,
-        body,
-        interceptors,
-        retry_options,
-        per_request_headers,
-        stream,
-    )
-    .await
-}
-
 /// Execute a JSON HTTP request with unified retry, interceptors, and error handling
 ///
 /// This function provides the complete HTTP execution pipeline:
