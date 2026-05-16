@@ -1,6 +1,6 @@
 # Fearless Architecture Convergence - Compatibility Audit
 
-Last updated: 2026-05-13
+Last updated: 2026-05-16
 
 ## Scope
 
@@ -59,8 +59,9 @@ Current convergence step:
 - `SiumaiBuilder`'s historical `Arc<dyn LlmClient>` construction path now calls
   `compat_*_client_with_ctx` explicitly instead of the older `*_model_with_ctx` names.
 - Production provider factories implement `compat_*_client*` methods for generic-client
-  construction paths. The old `*_model*` generic-client trait methods are deprecated
-  source-compatible wrappers, not production override points.
+  construction paths.
+- The old generic `*_model*` and `*_model_with_ctx` trait methods have been removed. Generic
+  `LlmClient` construction now uses explicit `compat_*_client*` names only.
 - Bedrock and Cohere now use native family factory overrides for declared stable families, so those
   registry handles no longer depend on the default `ClientBacked*Model` compatibility bridge.
 - Anthropic Vertex now uses a typed registry builder and native text-family factory override, so
@@ -81,8 +82,8 @@ Current convergence step:
 - `production_factories_with_declared_family_surfaces_use_native_family_overrides` guards
   production provider factory source files against relying on default `ClientBacked*Model` bridge
   methods for declared stable family surfaces.
-- The older generic `*_model*` methods remain deprecated for source compatibility until the public
-  trait contract can be tightened.
+- `compatibility_audit_does_not_keep_removed_providerfactory_methods_alive` guards this audit
+  against describing the removed generic factory methods as deprecated-but-kept wrappers.
 - Custom factory guidance now points at native family methods first:
   `docs/architecture/registry-without-builtins.md` and
   `siumai-registry/examples/no_builtins_custom_factory.rs` use `language_model_text_with_ctx` as the

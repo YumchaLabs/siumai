@@ -1,6 +1,6 @@
 # Fearless Architecture Convergence - TODO
 
-Last updated: 2026-05-13
+Last updated: 2026-05-16
 
 Status legend:
 
@@ -77,11 +77,11 @@ Status legend:
 
 - [x] Make family-returning `ProviderFactory` methods the required construction contract.
   - `ProviderFactory` trait docs now describe generic `LlmClient` construction as legacy
-    compatibility only; the actual API shape still keeps the generic method for source
-    compatibility
+    compatibility only; explicit `compat_*_client*` names are the only generic-client factory
+    methods
   - `factory_architecture_boundary_test` now locks the trait doc wording alongside the family-first
     custom factory example and README/docs index links
-  - `language_model_text_with_ctx` now appears before the legacy generic `language_model` entry
+  - `language_model_text_with_ctx` now appears before the explicit `compat_language_client` entry
     point in `ProviderFactory`, making the primary family path the first thing readers see
   - `factory_architecture_boundary_test` now also locks that family-first ordering in the trait
     source text itself
@@ -101,13 +101,13 @@ Status legend:
   - the historical `SiumaiBuilder` wrapper now calls `compat_*_client_with_ctx` explicitly when it
     must build an `Arc<dyn LlmClient>`
   - production provider factories now implement `compat_*_client_with_ctx` for generic-client
-    construction paths; old `*_model_with_ctx` names are compatibility wrappers only
+    construction paths; old `*_model_with_ctx` names have been removed
   - production provider factories no longer self-call old `*_model_with_ctx` names from their
     generic-client wrapper/fallback paths
   - production provider factories now implement `compat_language_client(...)` instead of
-    overriding deprecated `language_model(...)`
-  - old generic-client `*_model*` trait methods are explicitly deprecated wrappers that point to
-    `compat_*_client*` aliases or native family factory methods
+    overriding removed `language_model(...)`
+  - old generic-client `*_model*` trait methods have been removed; use `compat_*_client*` aliases
+    or native family factory methods
   - Bedrock and Cohere now return provider-owned typed clients from native family factory methods
     instead of relying on the default `ClientBacked*Model` bridge for declared stable families
   - Anthropic Vertex now has a typed client builder and native text-family factory path instead of
@@ -141,6 +141,9 @@ Status legend:
   - `production_factories_with_declared_family_surfaces_use_native_family_overrides` prevents
     production provider factories from relying on default `ClientBacked*Model` bridges for declared
     stable family surfaces
+  - `compatibility_audit_does_not_keep_removed_providerfactory_methods_alive` prevents the
+    architecture convergence docs from describing removed generic factory methods as deprecated
+    wrappers
 - [x] Move custom `ProviderFactory` guidance and runnable no-builtins example to family-model-first
   construction.
   - `docs/architecture/registry-without-builtins.md` now describes `*_family_with_ctx` methods as

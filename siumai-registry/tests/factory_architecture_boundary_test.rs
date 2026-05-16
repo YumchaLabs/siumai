@@ -427,6 +427,54 @@ fn compatibility_audit_categorizes_public_deprecated_surfaces() {
 }
 
 #[test]
+fn compatibility_audit_does_not_keep_removed_providerfactory_methods_alive() {
+    let root = crate_root();
+    let checked_docs = [
+        (
+            "compatibility-audit.md",
+            root.join(
+                "../docs/workstreams/fearless-architecture-convergence/compatibility-audit.md",
+            ),
+        ),
+        (
+            "milestones.md",
+            root.join("../docs/workstreams/fearless-architecture-convergence/milestones.md"),
+        ),
+        (
+            "todo.md",
+            root.join("../docs/workstreams/fearless-architecture-convergence/todo.md"),
+        ),
+    ];
+
+    for (name, path) in checked_docs {
+        let source = fs::read_to_string(path).expect("read architecture convergence doc");
+        for stale in [
+            "remain deprecated",
+            "remain as source-compatible wrappers",
+            "explicit deprecated source-compatibility wrappers",
+            "source-compatible wrappers for now",
+            "old generic-client `*_model*` trait methods are deprecated",
+        ] {
+            assert!(
+                !source.contains(stale),
+                "{name} should not describe removed ProviderFactory generic-client methods as still-kept deprecated wrappers: {stale}"
+            );
+        }
+    }
+
+    let audit = fs::read_to_string(
+        root.join("../docs/workstreams/fearless-architecture-convergence/compatibility-audit.md"),
+    )
+    .expect("read compatibility audit");
+    assert!(
+        audit.contains(
+            "The old generic `*_model*` and `*_model_with_ctx` trait methods have been removed"
+        ),
+        "compatibility audit should record the current ProviderFactory contract, not a stale deprecated-wrapper state"
+    );
+}
+
+#[test]
 fn dedicated_vision_compatibility_surface_is_removed() {
     let root = crate_root();
 
