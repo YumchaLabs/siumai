@@ -5187,10 +5187,9 @@ data: [DONE]
 #[cfg(feature = "azure")]
 mod azure_public_path {
     use super::*;
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{ResponseFormat, Tool, ToolChoice};
     use siumai::provider_ext::azure::{AzureOpenAIProviderSettings, AzureUrlConfig};
-    use siumai::registry::ProviderBuildOverrides;
+    use siumai::registry::builder::RegistryBuilder;
 
     fn azure_responses_text_stream_body() -> Vec<u8> {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -5271,35 +5270,10 @@ mod azure_public_path {
         base_url: &str,
         providers: HashMap<String, Arc<dyn siumai::registry::ProviderFactory>>,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "azure".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
-        );
-
-        create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        RegistryBuilder::new(providers)
+            .with_provider_api_key_base_url_fetch("azure", "test-key", base_url, transport)
+            .build()
+            .expect("build azure registry")
     }
 
     #[test]
@@ -5616,35 +5590,19 @@ mod azure_public_path {
         let global_transport = JsonSuccessTransport::new(response.clone());
         let azure_transport = JsonSuccessTransport::new(response);
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "azure".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.invalid/custom-openai")
-                .fetch(Arc::new(azure_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            azure_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.invalid/global-openai".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = RegistryBuilder::new(azure_registry_providers())
+            .with_api_key("global-key")
+            .with_base_url("https://example.invalid/global-openai")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_api_key_base_url_fetch(
+                "azure",
+                "ctx-key",
+                "https://example.invalid/custom-openai",
+                Arc::new(azure_transport.clone()),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build azure registry");
 
         let handle = registry
             .image_model("azure:image-deployment")
@@ -5880,35 +5838,19 @@ mod azure_public_path {
         let azure_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
         let model = "tts-deployment";
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "azure".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.invalid/custom-openai")
-                .fetch(Arc::new(azure_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            azure_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.invalid/global-openai".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = RegistryBuilder::new(azure_registry_providers())
+            .with_api_key("global-key")
+            .with_base_url("https://example.invalid/global-openai")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_api_key_base_url_fetch(
+                "azure",
+                "ctx-key",
+                "https://example.invalid/custom-openai",
+                Arc::new(azure_transport.clone()),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build azure registry");
 
         let registry_model = registry
             .speech_model("azure:tts-deployment")
@@ -5952,35 +5894,19 @@ mod azure_public_path {
         }));
         let model = "stt-deployment";
 
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "azure".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("ctx-key")
-                .with_base_url("https://example.invalid/custom-openai")
-                .fetch(Arc::new(azure_transport.clone())),
-        );
-
-        let registry = create_provider_registry(
-            azure_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: Some(Arc::new(global_transport.clone())),
-                http_config: None,
-                api_key: Some("global-key".to_string()),
-                base_url: Some("https://example.invalid/global-openai".to_string()),
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: false,
-            }),
-        );
+        let registry = RegistryBuilder::new(azure_registry_providers())
+            .with_api_key("global-key")
+            .with_base_url("https://example.invalid/global-openai")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_api_key_base_url_fetch(
+                "azure",
+                "ctx-key",
+                "https://example.invalid/custom-openai",
+                Arc::new(azure_transport.clone()),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build azure registry");
 
         let registry_model = registry
             .transcription_model("azure:stt-deployment")
@@ -11747,14 +11673,12 @@ mod deepseek_public_path {
     use super::*;
     use futures_util::StreamExt;
     use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
     use siumai::provider_ext::deepseek::{
         DeepSeekChatRequestExt, DeepSeekChatResponseExt, DeepSeekOptions, DeepSeekProviderSettings,
     };
-    use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::builder::RegistryBuilder;
 
     fn deepseek_registry_providers() -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>>
@@ -11789,74 +11713,22 @@ mod deepseek_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let providers = deepseek_registry_providers();
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "deepseek".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
-        );
-
-        create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: Some(reasoning_enabled),
-                reasoning_budget: Some(reasoning_budget),
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        deepseek_registry_builder()
+            .with_reasoning(reasoning_enabled)
+            .with_reasoning_budget(reasoning_budget)
+            .with_provider_api_key_base_url_fetch("deepseek", "test-key", base_url, transport)
+            .build()
+            .expect("build deepseek registry")
     }
 
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let providers = deepseek_registry_providers();
-
-        let mut provider_build_overrides = std::collections::HashMap::new();
-        provider_build_overrides.insert(
-            "deepseek".to_string(),
-            ProviderBuildOverrides::default()
-                .with_api_key("test-key")
-                .with_base_url(base_url)
-                .fetch(transport),
-        );
-
-        create_provider_registry(
-            providers,
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        deepseek_registry_builder()
+            .with_provider_api_key_base_url_fetch("deepseek", "test-key", base_url, transport)
+            .build()
+            .expect("build deepseek registry")
     }
 
     fn make_registry_builder_with_global_reasoning_defaults(
@@ -13403,12 +13275,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "deepseek",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/deepseek/v1")
-                    .fetch(Arc::new(deepseek_transport.clone())),
+                "ctx-key",
+                "https://example.com/deepseek/v1",
+                Arc::new(deepseek_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -13454,12 +13325,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "deepseek",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/deepseek/v1")
-                    .fetch(Arc::new(deepseek_transport.clone())),
+                "ctx-key",
+                "https://example.com/deepseek/v1",
+                Arc::new(deepseek_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -14682,12 +14552,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1/")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "deepseek",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/deepseek/v1/")
-                    .fetch(Arc::new(deepseek_transport.clone())),
+                "ctx-key",
+                "https://example.com/deepseek/v1/",
+                Arc::new(deepseek_transport.clone()),
             )
             .auto_middleware(false)
             .build()
@@ -14761,12 +14630,11 @@ data: [DONE]
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1/")
             .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "deepseek",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/deepseek/v1/")
-                    .fetch(Arc::new(deepseek_transport.clone())),
+                "ctx-key",
+                "https://example.com/deepseek/v1/",
+                Arc::new(deepseek_transport.clone()),
             )
             .auto_middleware(false)
             .build()

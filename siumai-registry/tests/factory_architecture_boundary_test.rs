@@ -495,3 +495,52 @@ fn registry_options_default_is_create_provider_registry_default_source() {
         "registry helpers should reuse RegistryOptions::default instead of spelling every default field"
     );
 }
+
+fn module_source<'a>(source: &'a str, marker: &str, next_marker: &str) -> &'a str {
+    let start = source.find(marker).expect("module marker present");
+    let rest = &source[start..];
+    if let Some(end) = rest.find(next_marker) {
+        &rest[..end]
+    } else {
+        rest
+    }
+}
+
+#[test]
+fn migrated_public_path_modules_use_registry_builder_shortcuts() {
+    let root = crate_root();
+    let source =
+        fs::read_to_string(root.join("../siumai/tests/provider_public_path_parity_test.rs"))
+            .expect("read provider public-path parity test");
+
+    for (module_name, module_source) in [
+        (
+            "azure_public_path",
+            module_source(
+                &source,
+                "mod azure_public_path",
+                "#[cfg(feature = \"google\")]",
+            ),
+        ),
+        (
+            "deepseek_public_path",
+            module_source(
+                &source,
+                "mod deepseek_public_path",
+                "#[cfg(feature = \"openai\")]",
+            ),
+        ),
+    ] {
+        assert!(
+            module_source.contains("RegistryBuilder")
+                && module_source.contains(".with_provider_api_key_base_url_fetch("),
+            "{module_name} should route provider override setup through RegistryBuilder shortcuts"
+        );
+        assert!(
+            !module_source.contains("provider_build_overrides.insert(")
+                && !module_source.contains("RegistryOptions {")
+                && !module_source.contains("create_provider_registry("),
+            "{module_name} should not hand-roll raw RegistryOptions provider override plumbing"
+        );
+    }
+}

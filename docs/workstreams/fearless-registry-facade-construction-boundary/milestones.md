@@ -58,7 +58,7 @@ Status: In Progress
 
 Apply the shared built-in registry helpers provider-by-provider inside
 `provider_public_path_parity_test.rs` so facade parity coverage stops encoding concrete built-in
-factory names.
+factory names and hand-written registry construction plumbing.
 
 Exit criteria:
 
@@ -66,6 +66,8 @@ Exit criteria:
   Bedrock, Anthropic, and Google Vertex public-path registry setup use registry-owned built-in
   helper routing; Azure URL-mode variants use the registry-owned Azure option helper; dynamic
   OpenAI-compatible provider-id variants use the registry-owned OpenAI-compatible helper.
+- Azure and DeepSeek public-path registry setup use `RegistryBuilder` provider-level shortcuts
+  rather than hand-written `RegistryOptions { provider_build_overrides: ... }` maps.
 - Remaining direct concrete factory call sites are either provider contract tests, advanced
   low-level integrations, or explicitly tracked follow-up providers.
 

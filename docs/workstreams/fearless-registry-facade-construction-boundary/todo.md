@@ -74,6 +74,9 @@ Last updated: 2026-05-16
 - [x] Make `RegistryOptions::default()` the single source of registry option defaults, update
       `create_provider_registry(..., None)` to reuse it, and migrate internal helpers plus small
       tests away from full-field default option literals.
+- [x] Continue the public-path raw options cleanup by migrating Azure and DeepSeek
+      `provider_public_path_parity_test.rs` registry setup through `RegistryBuilder`
+      provider-level shortcuts and adding guard coverage for those modules.
 
 ## Follow-up Candidates
 
@@ -106,3 +109,7 @@ Last updated: 2026-05-16
 - `cargo check -p siumai-registry --tests --features openai --no-default-features`
 - `cargo nextest run -p siumai-registry --features openai --no-default-features --no-fail-fast registry_options_default_keeps_registry_creation_defaults registry_options_default_is_create_provider_registry_default_source lru_cache_eviction ttl_expiration language_model_inherits_registry_interceptors`
 - `cargo check -p siumai --tests --features openai --no-default-features`
+- `cargo fmt --package siumai-registry --package siumai --check`
+- `cargo check -p siumai-registry --tests --features openai --no-default-features`
+- `cargo nextest run -p siumai-registry --features openai --no-default-features --no-fail-fast migrated_public_path_modules_use_registry_builder_shortcuts focused_public_facade_tests_use_provider_build_override_shortcuts`
+- `cargo check -p siumai --tests --features azure,deepseek --no-default-features`
