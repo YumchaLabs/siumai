@@ -14,7 +14,8 @@ use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer}
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{
     ChatMessage, ChatRequest, CommonParams, ContentPart, FilePartSource, ImageEditFileData,
-    ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest, Warning,
+    ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
+    MessageContent, Warning,
 };
 use reqwest::header::HeaderMap;
 use siumai_protocol_gemini::standards::gemini::transformers::{
@@ -129,6 +130,14 @@ fn validate_gemini_image_count(count: Option<u32>) -> Result<(), LlmError> {
     Ok(())
 }
 
+fn request_text_part(text: impl Into<String>) -> ContentPart {
+    ContentPart::Text {
+        text: text.into(),
+        provider_options: Default::default(),
+        provider_metadata: None,
+    }
+}
+
 fn image_input_media_type(input: &ImageEditInput) -> String {
     if let Some(media_type) = input.media_type() {
         return media_type.to_string();
@@ -193,7 +202,7 @@ fn build_image_chat_request(
     if let Some(prompt) = prompt
         && !prompt.is_empty()
     {
-        parts.push(ContentPart::text(prompt.to_string()));
+        parts.push(request_text_part(prompt));
     }
 
     for file in files {
@@ -515,14 +524,15 @@ mod tests {
             "/src/standards/vertex_gemini_image.rs"
         ));
         let helper_start = source
-            .find("fn request_file_part")
-            .expect("request file adapter helper should exist");
+            .find("fn request_text_part")
+            .expect("request content adapter helpers should exist");
         let helper_end = source
             .find("fn image_input_part")
-            .expect("request file adapter helper should precede image input conversion");
+            .expect("request content adapter helpers should precede image input conversion");
         assert!(helper_start < helper_end);
 
         let mut provider_metadata_writes = Vec::new();
+        let mut direct_text_constructors = Vec::new();
         let mut offset = 0usize;
         for (index, line) in source.lines().enumerate() {
             let line_start = offset;
@@ -532,11 +542,21 @@ mod tests {
             {
                 provider_metadata_writes.push(index + 1);
             }
+            if line.contains("ContentPart::text(")
+                && !line.contains("line.contains(")
+                && !(helper_start..helper_end).contains(&line_start)
+            {
+                direct_text_constructors.push(index + 1);
+            }
         }
 
         assert!(
             provider_metadata_writes.is_empty(),
-            "Vertex Gemini image request conversion should only write legacy provider_metadata inside request_file_part: {provider_metadata_writes:?}"
+            "Vertex Gemini image request conversion should only write legacy provider_metadata inside request content adapters: {provider_metadata_writes:?}"
+        );
+        assert!(
+            direct_text_constructors.is_empty(),
+            "Vertex Gemini image request conversion should route text prompts through request_text_part: {direct_text_constructors:?}"
         );
     }
 
@@ -563,6 +583,36 @@ mod tests {
                 .and_then(|vertex| vertex.get("asset")),
             Some(&json!("input"))
         );
+        assert!(provider_metadata.is_none());
+    }
+
+    #[test]
+    fn build_image_chat_request_routes_prompt_through_request_text_adapter() {
+        let config = GeminiConfig::new("test-key").with_model("gemini-2.5-flash-image".to_string());
+        let request = build_image_chat_request(
+            &config,
+            Some("Draw a blue square"),
+            &[],
+            None,
+            None,
+            &Default::default(),
+        )
+        .expect("image chat request");
+
+        let MessageContent::MultiModal(parts) = &request.messages[0].content else {
+            panic!("expected multimodal request content");
+        };
+        let ContentPart::Text {
+            text,
+            provider_options,
+            provider_metadata,
+        } = &parts[0]
+        else {
+            panic!("expected prompt text part");
+        };
+
+        assert_eq!(text, "Draw a blue square");
+        assert!(provider_options.is_empty());
         assert!(provider_metadata.is_none());
     }
 }

@@ -27,3 +27,7 @@ Last updated: 2026-05-16
   - `cargo fmt --package siumai --check`
   - `cargo nextest run -p siumai --test facade_architecture_boundary_test content_part_provider_map_audit_covers_high_value_production_hits --features openai,anthropic,google --no-default-features --no-fail-fast`
   - `cargo nextest run -p siumai-spec --test content_projection_boundary_test --no-default-features --no-fail-fast`
+- CPB-030:
+  - `cargo fmt --package siumai-provider-google-vertex --check`
+  - `cargo nextest run -p siumai-provider-google-vertex --lib vertex_gemini_image_request_content_construction_is_centralized build_image_chat_request_routes_prompt_through_request_text_adapter image_input_part_maps_provider_options_without_provider_metadata --features google-vertex --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai-spec --test content_projection_boundary_test --no-default-features --no-fail-fast`

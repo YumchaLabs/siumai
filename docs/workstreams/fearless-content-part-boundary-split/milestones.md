@@ -24,7 +24,7 @@ Exit criteria:
 
 ## CPB-M3 - Request Adapter Slice Shipped
 
-Status: pending
+Status: complete
 
 Exit criteria:
 
