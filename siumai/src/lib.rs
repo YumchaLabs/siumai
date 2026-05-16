@@ -809,13 +809,6 @@ pub mod prelude {
     pub mod extensions {
         pub use crate::extensions::*;
     }
-
-    /// Registry module kept for compatibility with historical imports.
-    ///
-    /// Prefer `siumai::prelude::unified::registry::*` for the Vercel-aligned surface.
-    pub mod registry {
-        pub use super::unified::registry::*;
-    }
 }
 
 // Macros moved to a dedicated module for cleanliness

@@ -174,6 +174,22 @@ let model = siumai::prelude::unified::registry::global()
     .language_model("openai:gpt-4o-mini")?;
 ```
 
+The historical `siumai::prelude::registry::*` mirror has also been removed.
+
+Before:
+
+```rust,ignore
+use siumai::prelude::registry::*;
+```
+
+After:
+
+```rust,ignore
+use siumai::prelude::unified::registry::*;
+// or
+use siumai::registry::*;
+```
+
 The facade no longer mirrors `siumai-registry`'s provider catalog at
 `siumai::provider_catalog::*`. If advanced catalog code used that path, import the registry-owned
 module explicitly:

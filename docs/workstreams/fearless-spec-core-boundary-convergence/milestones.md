@@ -1005,6 +1005,8 @@ Notes:
   code should import it from the scoped `prelude::unified::registry::*` surface.
 - The unused root `siumai::registry_global` alias has been removed; callers use
   `registry::global()` or `siumai::prelude::unified::registry::global()` explicitly.
+- The unused historical `siumai::prelude::registry::*` mirror has been removed; callers use
+  `siumai::prelude::unified::registry::*` or root `siumai::registry::*`.
 - The unused facade root `siumai::provider_catalog::*` mirror has been removed; advanced catalog
   code imports `siumai_registry::provider_catalog::*` explicitly while normal application code uses
   registry family handles.

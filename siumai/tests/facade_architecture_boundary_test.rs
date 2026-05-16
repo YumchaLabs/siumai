@@ -1103,6 +1103,12 @@ fn streaming_tool_call_helpers_are_explicit_compat_only() {
 fn stable_registry_prelude_exports_factory_signature_types() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
+    let compat_prelude_source = lib_rs[lib_rs
+        .find("pub mod compat {")
+        .expect("compat prelude module")..]
+        .split("mod macros;")
+        .next()
+        .expect("prelude tail before macros");
     let compatibility_audit = fs::read_to_string(crate_root().join(
         "../docs/workstreams/fearless-spec-core-boundary-convergence/compatibility-audit.md",
     ))
@@ -1130,6 +1136,11 @@ fn stable_registry_prelude_exports_factory_signature_types() {
         "prelude::unified should not export ProviderFactory at the top level; use prelude::unified::registry::*"
     );
     assert!(
+        !compat_prelude_source.contains("pub mod registry {")
+            && !compat_prelude_source.contains("pub use super::unified::registry::*;"),
+        "facade should not keep a historical prelude::registry mirror; use prelude::unified::registry::* or siumai::registry::*"
+    );
+    assert!(
         lib_rs.contains("pub mod registry {")
             && lib_rs.contains("ProviderFactory")
             && lib_rs.contains("BuildContext")
@@ -1147,6 +1158,12 @@ fn stable_registry_prelude_exports_factory_signature_types() {
             && migration_doc.contains("`siumai::registry_global` alias")
             && migration_doc.contains("removed"),
         "docs should steer users from registry_global to the scoped registry global handle"
+    );
+    assert!(
+        public_surface_doc.contains("`siumai::prelude::registry::*` mirror has been removed")
+            && migration_doc.contains("`siumai::prelude::registry::*` mirror")
+            && migration_doc.contains("removed"),
+        "docs should steer users from the historical prelude registry mirror to prelude::unified::registry"
     );
     assert!(
         public_surface_doc.contains("root `siumai::provider_catalog::*` mirror has been removed")

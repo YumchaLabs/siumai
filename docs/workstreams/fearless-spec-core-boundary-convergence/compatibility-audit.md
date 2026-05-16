@@ -867,6 +867,33 @@ Validation:
 - `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_registry_prelude_exports_factory_signature_types --features openai,anthropic,google --no-default-features --no-fail-fast`
 - `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
 
+### Facade prelude registry mirror
+
+Surface: removed `siumai::prelude::registry::*` mirror.
+
+Owner: facade crate registry surface. The stable registry prelude is
+`siumai::prelude::unified::registry::*`; the root `siumai::registry::*` module remains available for
+explicit registry imports.
+
+Current users: no real source users were found.
+
+Canonical replacement: import `siumai::prelude::unified::registry::*` for prelude-oriented code, or
+`siumai::registry::*` when using the root registry module explicitly.
+
+Keep, move, or remove: remove. The mirror duplicated the stable unified registry module and kept a
+historical prelude path alive without adding capability.
+
+Migration note needed: completed in `docs/migration/migration-0.11.0-beta.7.md`.
+
+Removal window: completed in Track F.
+
+Validation:
+
+- `cargo fmt --package siumai --check`
+- `cargo nextest run -p siumai --test facade_architecture_boundary_test stable_registry_prelude_exports_factory_signature_types --features openai,anthropic,google --no-default-features --no-fail-fast`
+- `cargo nextest run -p siumai --test public_surface_imports_test --features openai,anthropic,google --no-default-features --no-fail-fast`
+- `cargo check -p siumai --tests --features openai,anthropic,google --no-default-features`
+
 ### Facade provider catalog mirror
 
 Surface: removed root `siumai::provider_catalog::*` mirror.

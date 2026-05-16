@@ -845,6 +845,8 @@ Status legend:
     `prelude::unified::*`, keeping registry contracts grouped under the registry surface.
   - The unused root `siumai::registry_global` alias has been removed; callers use
     `registry::global()` or `siumai::prelude::unified::registry::global()` explicitly.
+  - The unused historical `siumai::prelude::registry::*` mirror has been removed; callers use
+    `siumai::prelude::unified::registry::*` or root `siumai::registry::*`.
   - The unused facade root `siumai::provider_catalog::*` mirror has been removed; advanced catalog
     code imports `siumai_registry::provider_catalog::*` explicitly.
   - The OpenAI-compatible provider-list macro is no longer re-exported from the facade root; registry
@@ -933,6 +935,8 @@ Status legend:
     explicit `siumai::compat::builder::*` migration path.
   - Latest Track F registry-global cleanup documents removal of root `siumai::registry_global` and
     the scoped `registry::global()` replacement.
+  - Latest Track F prelude-registry cleanup documents removal of the historical
+    `siumai::prelude::registry::*` mirror and the unified/root registry replacements.
   - Latest Track F provider-catalog cleanup documents removal of root
     `siumai::provider_catalog::*` and the registry-owned replacement path.
   - Latest Track F OpenAI-compatible provider-list macro cleanup documents removal of the facade
@@ -948,6 +952,8 @@ Status legend:
     replacement imports.
   - `migration-0.11.0-beta.7.md` now includes the root `siumai::registry_global` alias removal and
     replacement import/call paths.
+  - `migration-0.11.0-beta.7.md` now includes the historical
+    `siumai::prelude::registry::*` mirror removal and replacement import paths.
   - `migration-0.11.0-beta.7.md` now includes the root `siumai::provider_catalog::*` mirror removal
     and replacement import path.
   - `migration-0.11.0-beta.7.md` now includes the root
