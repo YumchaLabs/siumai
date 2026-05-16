@@ -614,7 +614,7 @@ impl ImageExtras for TogetherAiImageClient {
 
 #[cfg(feature = "togetherai")]
 #[derive(Clone)]
-struct TogetherAiUnifiedClient {
+struct TogetherAiCompatCompositeClient {
     text_client:
         siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
     image_client: TogetherAiImageClient,
@@ -622,9 +622,9 @@ struct TogetherAiUnifiedClient {
 }
 
 #[cfg(feature = "togetherai")]
-impl std::fmt::Debug for TogetherAiUnifiedClient {
+impl std::fmt::Debug for TogetherAiCompatCompositeClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TogetherAiUnifiedClient")
+        f.debug_struct("TogetherAiCompatCompositeClient")
             .field("provider_id", &ids::TOGETHERAI)
             .field("text_model", &self.text_client.model_id())
             .field("image_model", &self.image_client.model_id())
@@ -634,7 +634,7 @@ impl std::fmt::Debug for TogetherAiUnifiedClient {
 }
 
 #[cfg(feature = "togetherai")]
-impl LlmClient for TogetherAiUnifiedClient {
+impl LlmClient for TogetherAiCompatCompositeClient {
     fn provider_id(&self) -> Cow<'static, str> {
         Cow::Borrowed(ids::TOGETHERAI)
     }
@@ -729,7 +729,7 @@ impl LlmClient for TogetherAiUnifiedClient {
 
 #[cfg(feature = "togetherai")]
 #[async_trait::async_trait]
-impl ImageGenerationCapability for TogetherAiUnifiedClient {
+impl ImageGenerationCapability for TogetherAiCompatCompositeClient {
     async fn generate_images(
         &self,
         request: ImageGenerationRequest,
@@ -744,7 +744,7 @@ impl ImageGenerationCapability for TogetherAiUnifiedClient {
 
 #[cfg(feature = "togetherai")]
 #[async_trait::async_trait]
-impl ImageExtras for TogetherAiUnifiedClient {
+impl ImageExtras for TogetherAiCompatCompositeClient {
     async fn edit_image(
         &self,
         request: ImageEditRequest,
@@ -792,7 +792,7 @@ impl ProviderFactory for TogetherAiProviderFactory {
         let text_client = build_text_client_with_ctx(model_id, ctx).await?;
         let image_client = TogetherAiImageClient::from_text_client(&text_client);
         let rerank_client = build_native_rerank_client_with_ctx(model_id, ctx)?;
-        Ok(Arc::new(TogetherAiUnifiedClient {
+        Ok(Arc::new(TogetherAiCompatCompositeClient {
             text_client,
             image_client,
             rerank_client,

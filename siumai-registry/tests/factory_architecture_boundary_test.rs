@@ -30,6 +30,75 @@ fn collect_markdown_files(path: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
+fn factory_source_path(file_name: &str) -> PathBuf {
+    crate_root()
+        .join("src")
+        .join("registry")
+        .join("factories")
+        .join(file_name)
+}
+
+fn read_factory_source(file_name: &str) -> String {
+    let path = factory_source_path(file_name);
+    fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+}
+
+fn async_method_source<'a>(source: &'a str, file_name: &str, method_name: &str) -> &'a str {
+    let marker = format!("    async fn {method_name}(");
+    let start = source
+        .find(&marker)
+        .unwrap_or_else(|| panic!("missing `{method_name}` in {file_name}"));
+    let tail = &source[start..];
+    let search_start = marker.len();
+    let search_tail = &tail[search_start..];
+    let end = search_tail
+        .find("\n    async fn ")
+        .or_else(|| search_tail.find("\n    fn provider_id("))
+        .map(|index| search_start + index)
+        .unwrap_or(tail.len());
+
+    &tail[..end]
+}
+
+fn assert_factory_family_method_stays_native(
+    file_name: &str,
+    method_name: &str,
+    method_source: &str,
+    composite_client: &str,
+) {
+    let composite_construction = format!("Arc::new({composite_client} {{");
+    let forbidden_compat_calls = [
+        "compat_language_client_with_ctx(",
+        "compat_completion_client_with_ctx(",
+        "compat_embedding_client_with_ctx(",
+        "compat_image_client_with_ctx(",
+        "compat_speech_client_with_ctx(",
+        "compat_transcription_client_with_ctx(",
+        "compat_reranking_client_with_ctx(",
+    ];
+
+    assert!(
+        !method_source.contains(&composite_construction),
+        "{file_name}::{method_name} should construct a native family model, not `{composite_client}`"
+    );
+    for forbidden in forbidden_compat_calls {
+        assert!(
+            !method_source.contains(forbidden),
+            "{file_name}::{method_name} should not route stable family construction through `{forbidden}`"
+        );
+    }
+
+    let downcast_lines = method_source
+        .lines()
+        .filter(|line| line.contains(".as_") && line.contains("_capability("))
+        .collect::<Vec<_>>();
+    assert!(
+        downcast_lines.is_empty(),
+        "{file_name}::{method_name} should not depend on LlmClient capability downcasts: {downcast_lines:?}"
+    );
+}
+
 #[test]
 fn no_builtins_custom_factory_example_is_family_first() {
     let root = crate_root();
@@ -126,6 +195,81 @@ fn no_builtins_custom_factory_example_is_family_first() {
         "async fn compat_reranking_client(",
         "reranking family methods should be listed before the compat reranking client entry point",
     );
+}
+
+#[test]
+fn hybrid_provider_composite_clients_are_compat_only_adapters() {
+    let cases: &[(&str, &str, &[&str])] = &[
+        (
+            "deepinfra.rs",
+            "DeepInfraCompatCompositeClient",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+            ],
+        ),
+        (
+            "fireworks.rs",
+            "FireworksCompatCompositeClient",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        ),
+        (
+            "togetherai.rs",
+            "TogetherAiCompatCompositeClient",
+            &[
+                "language_model_text_with_ctx",
+                "completion_model_family_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "speech_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+                "reranking_model_family_with_ctx",
+            ],
+        ),
+    ];
+
+    for &(file_name, composite_client, family_methods) in cases {
+        let source = read_factory_source(file_name);
+        let composite_construction = format!("Arc::new({composite_client} {{");
+        assert!(
+            source.contains(&format!("struct {composite_client}")),
+            "{file_name} should make its private composite client role explicit"
+        );
+        assert!(
+            !source.contains("UnifiedClient"),
+            "{file_name} should not name the compatibility composite client as the target unified architecture"
+        );
+        assert_eq!(
+            source.matches(&composite_construction).count(),
+            1,
+            "{file_name} should construct `{composite_client}` in exactly one place"
+        );
+
+        let compat_language =
+            async_method_source(&source, file_name, "compat_language_client_with_ctx");
+        assert!(
+            compat_language.contains(&composite_construction),
+            "{file_name} should construct `{composite_client}` only in compat_language_client_with_ctx"
+        );
+
+        for &method_name in family_methods {
+            let method = async_method_source(&source, file_name, method_name);
+            assert_factory_family_method_stays_native(
+                file_name,
+                method_name,
+                method,
+                composite_client,
+            );
+        }
+    }
 }
 
 #[test]

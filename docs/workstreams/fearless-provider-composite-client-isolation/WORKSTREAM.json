@@ -1,0 +1,14 @@
+{
+  "slug": "fearless-provider-composite-client-isolation",
+  "status": "closed",
+  "opened": "2026-05-16",
+  "objective": "Isolate DeepInfra, Fireworks, and TogetherAI provider composite clients as compat-only adapters while keeping stable family factory paths native.",
+  "current_task": null,
+  "next_task": "No immediate follow-up; open a future compatibility-wrapper deletion lane when method-style generic LlmClient compatibility can be removed.",
+  "blocked": false,
+  "validation_focus": [
+    "siumai-registry hybrid provider factories",
+    "factory_architecture_boundary_test",
+    "compatibility audit and migration notes"
+  ]
+}

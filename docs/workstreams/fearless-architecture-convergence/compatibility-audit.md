@@ -138,9 +138,9 @@ Deletion condition:
 - Migration docs and public examples no longer recommend `Siumai` method dispatch.
 - Provider-specific features are reachable through family handles or explicit extension handles.
 
-### Provider Composite Clients - Keep Until Factory Split
+### Provider Composite Clients - Compat-Only Isolated
 
-Status: keep temporarily.
+Status: isolated as compatibility adapters.
 
 Locations include:
 
@@ -154,10 +154,24 @@ Reason:
   rerank, audio, or video clients.
 - Their `LlmClient` implementations expose multiple capability views as a compatibility bridge.
 
+Current seam:
+
+- The private composite wrappers are named `*CompatCompositeClient`.
+- `compat_language_client_with_ctx(...)` is the only construction point for those wrappers.
+- Stable family methods construct native family objects directly and are source-guarded against
+  composite-client construction, `compat_*_client_with_ctx(...)` self-calls, and `LlmClient`
+  capability downcasts.
+
+Current guard:
+
+- `siumai-registry::factory_architecture_boundary_test::hybrid_provider_composite_clients_are_compat_only_adapters`
+
 Deletion condition:
 
 - Factory methods construct each family through provider-owned native family objects directly.
 - Composite `LlmClient` wrappers are no longer needed for stable family dispatch.
+- Historical method-style `Siumai` and generic `LlmClient` compatibility paths are either removed
+  or rewritten to compose family models without exposing capability downcasts.
 
 ### Trait Declarations, Proxies, And Tests - Keep
 

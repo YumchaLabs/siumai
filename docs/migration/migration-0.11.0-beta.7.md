@@ -140,6 +140,12 @@ Generic `LlmClient` factory construction remains available only through explicit
 `compat_*_client(...)` / `compat_*_client_with_ctx(...)` methods. Use those methods for migration
 code or for extension-only surfaces that do not yet have a first-class model family.
 
+Hybrid built-in providers such as DeepInfra, Fireworks, and TogetherAI may still keep an internal
+compat composite client for historical method-style construction. Treat those wrappers as
+migration adapters only. Custom `ProviderFactory` implementations should construct stable family
+models directly in the `*_family_with_ctx(...)` methods instead of reusing a generic `LlmClient`
+wrapper and downcasting capabilities.
+
 `ClientWrapper` is now provider-agnostic in `siumai-core`. Provider-named convenience constructors
 such as `ClientWrapper::openai(...)` were removed; use `ClientWrapper::new(...)` instead.
 

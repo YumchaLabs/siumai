@@ -27,6 +27,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Removed the deprecated low-level `execute_json_request_with_headers(...)` compatibility helper;
   custom executor code should use `execute_json_request(...)` with `HttpExecutionConfig` and a
   `ProviderSpec` for static headers.
+- Marked DeepInfra, Fireworks, and TogetherAI registry composite clients as internal compat-only
+  adapters. Stable family factory paths stay on native family methods and are guarded against
+  routing through those compatibility wrappers.
 
 ## [0.11.0-beta.7] - 2026-05-05
 

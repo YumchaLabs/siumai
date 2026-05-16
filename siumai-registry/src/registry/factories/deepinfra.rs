@@ -758,15 +758,15 @@ impl ImageExtras for DeepInfraImageClient {
 }
 
 #[derive(Clone)]
-struct DeepInfraUnifiedClient {
+struct DeepInfraCompatCompositeClient {
     text_client:
         siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
     image_client: DeepInfraImageClient,
 }
 
-impl std::fmt::Debug for DeepInfraUnifiedClient {
+impl std::fmt::Debug for DeepInfraCompatCompositeClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DeepInfraUnifiedClient")
+        f.debug_struct("DeepInfraCompatCompositeClient")
             .field("provider_id", &ids::DEEPINFRA)
             .field("text_model", &self.text_client.model_id())
             .field("image_model", &self.image_client.model_id())
@@ -774,7 +774,7 @@ impl std::fmt::Debug for DeepInfraUnifiedClient {
     }
 }
 
-impl crate::client::LlmClient for DeepInfraUnifiedClient {
+impl crate::client::LlmClient for DeepInfraCompatCompositeClient {
     fn provider_id(&self) -> Cow<'static, str> {
         Cow::Borrowed(ids::DEEPINFRA)
     }
@@ -852,7 +852,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
     ) -> Result<Arc<dyn crate::client::LlmClient>, LlmError> {
         let text_client = build_text_client_with_ctx(model_id, ctx).await?;
         let image_client = DeepInfraImageClient::from_text_client(&text_client);
-        Ok(Arc::new(DeepInfraUnifiedClient {
+        Ok(Arc::new(DeepInfraCompatCompositeClient {
             text_client,
             image_client,
         }))
