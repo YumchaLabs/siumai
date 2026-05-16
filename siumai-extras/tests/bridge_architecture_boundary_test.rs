@@ -47,3 +47,28 @@ fn runtime_bridge_code_imports_dedicated_bridge_crate() {
         "siumai-extras runtime code should import bridge APIs from siumai_bridge directly: {offenders:?}"
     );
 }
+
+#[test]
+fn runtime_bridge_code_does_not_use_removed_siumai_types_root() {
+    let root = crate_root();
+    let mut source_files = Vec::new();
+    collect_rs_files(&root.join("src"), &mut source_files);
+
+    let offenders: Vec<_> = source_files
+        .iter()
+        .filter_map(|path| {
+            let source = fs::read_to_string(path).expect("read source file");
+            source.contains("siumai::types::").then(|| {
+                path.strip_prefix(&root)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string()
+            })
+        })
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "siumai-extras runtime code should not import the removed `siumai::types::*` root path: {offenders:?}"
+    );
+}

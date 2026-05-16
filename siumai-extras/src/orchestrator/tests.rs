@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use serde_json::{Value, json};
-use siumai::types::ToolResultOutput;
+use siumai::prelude::unified::ToolResultOutput;
 
 use super::*;
 use super::{PrepareStepResult, StepResult, StopCondition, step_count_is};

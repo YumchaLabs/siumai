@@ -380,9 +380,13 @@ Additional evidence added:
   - production-source imports or construction seams from those upper layers
   - provider-specific facade builder entry points such as `Provider::openai` and
     `Siumai::builder`
+- `siumai-extras::bridge_architecture_boundary_test` now rejects the removed
+  `siumai::types::*` root path in runtime bridge code, so the bridge/orchestrator layer no longer
+  compiles against the removed facade catch-all namespace.
 
 Focused validation:
 
 - `cargo nextest run -p siumai-spec --test spec_purity_boundary_test --no-default-features --no-fail-fast`
 - `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-default-features --no-fail-fast`
+- `cargo nextest run -p siumai-extras --test bridge_architecture_boundary_test --no-default-features --features openai --no-fail-fast`
 - `cargo fmt --package siumai-spec --package siumai-core --check`

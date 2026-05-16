@@ -8,9 +8,9 @@ use serde_json::{Map, Value};
 use super::prepare_step::PrepareStepFn;
 use super::stop_condition::StopCondition;
 use siumai::experimental::observability::telemetry::TelemetryConfig;
+use siumai::prelude::unified::ProviderMetadata as ProviderMetadataMap;
 use siumai::prelude::unified::*;
 use siumai::tooling::{ToolExecutionOptions, ToolRuntimeMetadata};
-use siumai::types::ProviderMetadataMap;
 use std::collections::HashMap;
 
 pub use siumai::tooling::ToolExecutionResult;
@@ -928,8 +928,8 @@ mod tests {
     use super::{OrchestratorContext, ToolResolver};
     use futures::StreamExt;
     use serde_json::json;
+    use siumai::prelude::unified::{ModelMessage, Tool, UserContent, UserModelMessage};
     use siumai::tooling::{ToolExecutionOptions, tool};
-    use siumai::types::{Tool, UserContent};
 
     #[tokio::test]
     async fn executable_tools_resolver_preserves_streamed_tool_execution() {
@@ -990,9 +990,9 @@ mod tests {
             "search",
             json!({ "q": "rust" }),
             ToolExecutionOptions::new("call_runtime")
-                .with_messages(vec![siumai::types::ModelMessage::User(
-                    siumai::types::UserModelMessage::new(UserContent::text("hello")),
-                )])
+                .with_messages(vec![ModelMessage::User(UserModelMessage::new(
+                    UserContent::text("hello"),
+                ))])
                 .with_context(
                     [("tenant".to_string(), json!("acme"))]
                         .into_iter()

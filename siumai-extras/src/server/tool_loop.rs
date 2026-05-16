@@ -549,9 +549,8 @@ mod tests {
     use serde_json::json;
     use siumai::prelude::unified::{
         CancelHandle, ChatStreamHandle, ChatStreamToolCall, ChatStreamToolResult,
-        ProviderOptionsMap, ResponseMetadata,
+        ProviderOptionsMap, ResponseMetadata, ToolResultOutput,
     };
-    use siumai::types::ToolResultOutput;
     use std::sync::Mutex;
 
     struct MockResolver;
