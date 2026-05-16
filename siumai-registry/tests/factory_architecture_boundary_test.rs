@@ -283,6 +283,73 @@ fn compatibility_audit_categorizes_public_deprecated_surfaces() {
 }
 
 #[test]
+fn dedicated_vision_compatibility_surface_is_removed() {
+    let root = crate_root();
+
+    for relative in [
+        "../siumai-core/src/client.rs",
+        "../siumai-core/src/core/mod.rs",
+        "../siumai-core/src/traits.rs",
+        "../siumai-core/src/traits/vision.rs",
+        "../siumai-registry/src/provider/mod.rs",
+        "../siumai-registry/src/provider/proxies.rs",
+        "../siumai-registry/src/provider/siumai.rs",
+        "../siumai-registry/src/provider/siumai/llm_client.rs",
+    ] {
+        let path = root.join(relative);
+        if !path.exists() {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read source");
+        for forbidden in [
+            "VisionCapability",
+            "VisionCapabilityProxy",
+            "as_vision_capability",
+            "vision_capability",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{relative} should not expose the removed dedicated vision compatibility surface `{forbidden}`"
+            );
+        }
+    }
+
+    let spec_image = fs::read_to_string(root.join("../siumai-spec/src/types/image.rs"))
+        .expect("read image types");
+    for forbidden in [
+        "pub type ImageGenRequest",
+        "pub type ImageResponse",
+        "pub type VisionRequest",
+        "pub type VisionResponse",
+    ] {
+        assert!(
+            !spec_image.contains(forbidden),
+            "vision-only legacy alias `{forbidden}` should be removed from siumai-spec image types"
+        );
+    }
+
+    let factories_dir = root.join("src").join("registry").join("factories");
+    for entry in fs::read_dir(factories_dir).expect("read registry factories directory") {
+        let path = entry.expect("read registry factory entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if matches!(file_name, "contract_tests.rs" | "test.rs" | "mod.rs") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path).expect("read registry factory source");
+        assert!(
+            !source.contains("as_vision_capability"),
+            "{file_name} should not forward the removed vision downcast"
+        );
+    }
+}
+
+#[test]
 fn public_docs_do_not_recommend_compatibility_surfaces_as_default() {
     let docs_root = crate_root().join("../docs");
     let mut files = Vec::new();

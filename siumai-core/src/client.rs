@@ -104,15 +104,6 @@ pub trait LlmClient: Send + Sync {
         None
     }
 
-    /// Get as vision capability if supported
-    ///
-    /// Returns None by default. Providers that support vision
-    /// should override this method to return Some(self).
-    #[allow(deprecated)]
-    fn as_vision_capability(&self) -> Option<&dyn VisionCapability> {
-        None
-    }
-
     /// Get as image generation capability if supported
     ///
     /// Returns None by default. Providers that support image generation
@@ -410,11 +401,6 @@ impl LlmClient for ClientWrapper {
 
     fn as_transcription_extras(&self) -> Option<&dyn TranscriptionExtras> {
         self.client().as_transcription_extras()
-    }
-
-    #[allow(deprecated)]
-    fn as_vision_capability(&self) -> Option<&dyn VisionCapability> {
-        self.client().as_vision_capability()
     }
 
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {

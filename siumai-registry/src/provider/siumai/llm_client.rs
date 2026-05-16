@@ -52,11 +52,6 @@ impl LlmClient for Siumai {
         self.client.as_transcription_extras()
     }
 
-    #[allow(deprecated)]
-    fn as_vision_capability(&self) -> Option<&dyn VisionCapability> {
-        self.client.as_vision_capability()
-    }
-
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
         self.client.as_image_generation_capability()
     }

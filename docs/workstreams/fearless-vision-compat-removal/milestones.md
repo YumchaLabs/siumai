@@ -14,7 +14,7 @@ Exit criteria:
 
 ## VCR-M2 - Guard Added
 
-Status: pending
+Status: complete
 
 Exit criteria:
 
@@ -24,7 +24,7 @@ Exit criteria:
 
 ## VCR-M3 - Compatibility Code Removed
 
-Status: pending
+Status: complete
 
 Exit criteria:
 
@@ -35,7 +35,7 @@ Exit criteria:
 
 ## VCR-M4 - Migration Docs Updated
 
-Status: pending
+Status: complete
 
 Exit criteria:
 
@@ -45,10 +45,17 @@ Exit criteria:
 
 ## VCR-M5 - Workstream Closed
 
-Status: pending
+Status: complete
 
 Exit criteria:
 
 - Focused checks pass.
 - `git diff --check` passes.
 - Handoff and evidence docs record the final state.
+
+Notes:
+
+- `VisionCapability`, `VisionCapabilityProxy`, `Siumai::vision_capability()`, the `LlmClient`
+  vision downcast, and the vision-only request/response aliases were removed.
+- The beta.7 migration guide points users to multimodal chat for image understanding and
+  image-family APIs for image creation.

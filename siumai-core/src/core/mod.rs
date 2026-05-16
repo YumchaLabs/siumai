@@ -28,7 +28,6 @@
 //! ### Capability Traits (Re-exported from `traits` module)
 //! - **`ChatCapability`** - Chat completion capability
 //! - **`EmbeddingCapability`** - Embedding generation capability
-//! - **`VisionCapability`** - Vision/image analysis capability
 //! - **`SpeechCapability`** - Speech/TTS capability
 //! - **`TranscriptionCapability`** - Transcription/STT capability
 //! - **`ImageGenerationCapability`** - Image generation capability
@@ -82,12 +81,11 @@ pub use provider_spec::{
 };
 
 // Re-export capability traits directly from traits module
-#[allow(deprecated)]
 pub use crate::traits::{
     AudioCapability, ChatCapability, ChatExtensions, EmbeddingCapability, EmbeddingExtensions,
     FileManagementCapability, ImageGenerationCapability, ModelListingCapability,
     ModerationCapability, ProviderCapabilities, RerankCapability, SkillsCapability,
-    SpeechCapability, TimeoutCapability, TranscriptionCapability, VisionCapability,
+    SpeechCapability, TimeoutCapability, TranscriptionCapability,
 };
 
 pub use client::LlmClient;

@@ -46,13 +46,13 @@
 //! ### Request Types
 //! - `ChatRequest` - Chat completion requests
 //! - `EmbeddingRequest` - Embedding generation requests
-//! - `ImageGenRequest` - Image generation requests
+//! - `ImageGenerationRequest` - Image generation requests
 //! - `AudioRequest` - Audio transcription/generation requests
 //!
 //! ### Response Types
 //! - `ChatResponse` - Chat completion responses
 //! - `EmbeddingResponse` - Embedding vectors
-//! - `ImageResponse` - Generated images
+//! - `ImageGenerationResponse` - Generated images
 //! - `AudioResponse` - Audio transcription/generation results
 //!
 //! ### Common Types

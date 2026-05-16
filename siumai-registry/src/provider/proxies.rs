@@ -118,56 +118,6 @@ impl<'a> EmbeddingCapabilityProxy<'a> {
     // removed deprecated placeholder_operation; use embed() instead
 }
 
-/// Type-safe proxy for vision capabilities
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "VisionCapabilityProxy is deprecated; use multimodal Chat messages for image understanding, and ImageGenerationCapability for image generation."
-)]
-pub struct VisionCapabilityProxy<'a> {
-    provider: &'a Siumai,
-    reported_support: bool,
-}
-
-#[allow(deprecated)]
-impl<'a> VisionCapabilityProxy<'a> {
-    pub const fn new(provider: &'a Siumai, reported_support: bool) -> Self {
-        Self {
-            provider,
-            reported_support,
-        }
-    }
-
-    /// Check if the provider reports vision support (for reference only)
-    pub const fn is_reported_as_supported(&self) -> bool {
-        self.reported_support
-    }
-
-    /// Get provider id for debugging
-    pub fn provider_id(&self) -> String {
-        self.provider.provider_id().into_owned()
-    }
-
-    /// Get a support status message (optional, for user-controlled information)
-    pub fn support_status_message(&self) -> String {
-        if self.reported_support {
-            format!("Provider {} reports vision support", self.provider_id())
-        } else {
-            format!(
-                "Provider {} does not report vision support, but this may still work depending on the model",
-                self.provider_id()
-            )
-        }
-    }
-
-    /// Placeholder for future vision operations
-    pub async fn placeholder_operation(&self) -> Result<String, LlmError> {
-        // No automatic warnings - let the user decide if they want to check support
-        Err(LlmError::UnsupportedOperation(
-            "Vision operations not yet implemented. Use provider-specific client.".to_string(),
-        ))
-    }
-}
-
 // Debug/Default impl moved to provider/siumai_builder.rs
 
 #[cfg(test)]

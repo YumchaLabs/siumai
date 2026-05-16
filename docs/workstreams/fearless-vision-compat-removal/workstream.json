@@ -1,10 +1,10 @@
 {
   "slug": "fearless-vision-compat-removal",
-  "status": "active",
+  "status": "closed",
   "opened": "2026-05-16",
   "objective": "Remove the deprecated dedicated vision compatibility surface and route users to multimodal chat or image-family APIs.",
-  "current_task": "VCR-020",
-  "next_task": "Add source guard coverage before deleting VisionCapability, VisionCapabilityProxy, and Siumai::vision_capability.",
+  "current_task": null,
+  "next_task": "No follow-up split; open a new lane only if downstream evidence shows a missing migration replacement.",
   "blocked": false,
   "deferred_from": "fearless-architecture-convergence",
   "validation_focus": [

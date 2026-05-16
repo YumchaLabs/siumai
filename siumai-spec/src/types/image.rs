@@ -945,28 +945,6 @@ pub struct GeneratedImage {
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
-// Keep for backward compatibility
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Deprecated with VisionCapability; use ImageGenerationRequest/ImageGenerationResponse and multimodal Chat messages instead."
-)]
-pub type ImageGenRequest = ();
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Deprecated with VisionCapability; use ImageGenerationRequest/ImageGenerationResponse and multimodal Chat messages instead."
-)]
-pub type ImageResponse = ();
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Deprecated with VisionCapability; use multimodal Chat messages instead."
-)]
-pub type VisionRequest = ();
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Deprecated with VisionCapability; use multimodal Chat messages instead."
-)]
-pub type VisionResponse = ();
-
 #[cfg(test)]
 mod tests {
     use super::*;

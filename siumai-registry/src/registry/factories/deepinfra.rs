@@ -809,11 +809,6 @@ impl crate::client::LlmClient for DeepInfraUnifiedClient {
         self.text_client.as_embedding_extensions()
     }
 
-    #[allow(deprecated)]
-    fn as_vision_capability(&self) -> Option<&dyn crate::traits::VisionCapability> {
-        self.text_client.as_vision_capability()
-    }
-
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
         Some(&self.image_client)
     }

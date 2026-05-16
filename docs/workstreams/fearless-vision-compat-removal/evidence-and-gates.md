@@ -29,3 +29,12 @@ Last updated: 2026-05-16
 
 - VCR-010:
   - Documentation review.
+- VCR-020 through VCR-050:
+  - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test dedicated_vision_compatibility_surface_is_removed --features openai,google --no-default-features --no-fail-fast`
+  - `cargo fmt --package siumai-spec --package siumai-core --package siumai-registry --package siumai --check`
+  - `cargo check -p siumai-core --no-default-features`
+  - `cargo check -p siumai-registry --tests --features openai,google --no-default-features`
+  - `cargo check -p siumai --tests --features openai,google --no-default-features`
+  - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --features openai,google --no-default-features --no-fail-fast`
+  - `cargo nextest run -p siumai --test public_surface_imports_test --features openai,google --no-default-features --no-fail-fast`
+  - `git diff --check`

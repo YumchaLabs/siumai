@@ -4,15 +4,15 @@ Last updated: 2026-05-16
 
 ## Current State
 
-The workstream is open. `VCR-010` is complete.
+The workstream is closed. `VCR-010` through `VCR-050` are complete.
 
-The next executable task is `VCR-020`: add source guard coverage that prevents the dedicated vision
-compatibility family from returning to production public surfaces.
+The dedicated vision compatibility surface has been removed from production core, registry, and spec
+sources. The beta.7 migration guide now points users to multimodal chat for image understanding and
+image-family APIs for image creation.
 
 ## Continuation Notes
 
-- The compatibility audit already says the dedicated vision surface should be removed.
-- Prefer deletion over another deprecation window unless a compile check reveals a real remaining
-  owner.
-- Keep historical docs searchable; source guards should target production source/public tests, not
-  migration text.
+- The removal guard intentionally allows historical docs and migration text to keep naming the
+  removed symbols.
+- No follow-up is split from this lane. Reopen only if downstream evidence shows a missing
+  migration replacement.

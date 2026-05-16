@@ -65,6 +65,8 @@ construct shared structs directly, or compare serialized snapshots.
 - Usage and metadata snapshots: expect AI SDK-aligned field names and provider-rooted metadata.
 - Content parts: use prompt/request content types for inputs and generated-output content types for
   responses; treat `ContentPart` as a compatibility carrier.
+- Dedicated vision compatibility: use multimodal chat for image understanding and image-family APIs
+  for image creation; `VisionCapability` and its proxy/request aliases were removed.
 - Raw provider envelopes: opt in through request/response retention controls instead of parsing
   debug output.
 - Custom `ProviderSpec` implementations: replace string-returning `*_url(...)` hooks with
@@ -376,6 +378,52 @@ use siumai::prelude::unified::LanguageModelV4Content;
 Migration-only code can continue to import `ContentPart`, but new provider/protocol code should
 cross into it through named request or response adapters so provider options and provider metadata
 stay directional.
+
+## 5.2) Dedicated vision compatibility removal
+
+The old dedicated vision compatibility surface has been removed:
+
+- `VisionCapability`
+- `VisionCapabilityProxy`
+- `Siumai::vision_capability()`
+- `ImageGenRequest`
+- `ImageResponse`
+- `VisionRequest`
+- `VisionResponse`
+
+Siumai no longer treats "vision" as its own model family. For image understanding, send images as
+multimodal chat input. For image creation, use the image-generation family.
+
+Before:
+
+```rust,ignore
+let vision = client.vision_capability();
+let _ = vision.placeholder_operation().await?;
+```
+
+After, for image understanding:
+
+```rust,ignore
+use siumai::prelude::unified::{ChatMessage, ChatRequest, text};
+
+let request = ChatRequest::new(vec![
+    ChatMessage::user("Describe this image")
+        .with_image("https://example.com/image.png", Some("high".to_string()))
+        .build(),
+]);
+
+let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
+```
+
+After, for image creation:
+
+```rust,ignore
+use siumai::prelude::unified::GenerateImageRequest;
+
+let request = GenerateImageRequest::new("A small red robot on a workbench");
+let response =
+    siumai::image::generate(&model, request, siumai::image::GenerateOptions::default()).await?;
+```
 
 ## 6) Raw provider request/response envelopes
 

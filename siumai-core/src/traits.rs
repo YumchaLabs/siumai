@@ -9,7 +9,6 @@
 //! - **`chat`** - Chat completion capabilities (`ChatCapability`, `ChatExtensions`)
 //! - **`completion`** - Completion capability (`CompletionCapability`)
 //! - **`embedding`** - Embedding generation capabilities (`EmbeddingCapability`, `EmbeddingExtensions`)
-//! - **`vision`** - Vision/image analysis capabilities (`VisionCapability`)
 //! - **`image`** - Image generation capabilities (`ImageGenerationCapability`, `ImageExtras`)
 //! - **`audio`** - Narrow audio family traits (`SpeechCapability`, `TranscriptionCapability`)
 //!   plus compatibility-only `AudioCapability`
@@ -45,7 +44,6 @@
 //! #### Core Capability Traits
 //! - `ChatCapability` - Basic chat completion
 //! - `EmbeddingCapability` - Vector embeddings
-//! - `VisionCapability` - Image analysis and generation
 //! - `SpeechCapability` - Text-to-speech
 //! - `TranscriptionCapability` - Speech-to-text
 //! - `ImageGenerationCapability` - Image generation
@@ -93,10 +91,6 @@ pub use embedding::{EmbeddingCapability, EmbeddingExtensions};
 
 mod image;
 pub use image::{ImageExtras, ImageGenerationCapability};
-
-mod vision;
-#[allow(deprecated)]
-pub use vision::VisionCapability;
 
 mod files;
 pub use files::FileManagementCapability;
@@ -165,14 +159,12 @@ mod tests {
 
     // Test that all capability traits are Send + Sync
     #[test]
-    #[allow(deprecated)]
     fn test_capability_traits_are_send_sync() {
         use std::sync::Arc;
 
         fn test_arc_usage() {
             let _: Option<Arc<dyn ChatCapability>> = None;
             let _: Option<Arc<dyn AudioCapability>> = None;
-            let _: Option<Arc<dyn VisionCapability>> = None;
             let _: Option<Arc<dyn EmbeddingCapability>> = None;
             let _: Option<Arc<dyn ImageGenerationCapability>> = None;
             let _: Option<Arc<dyn FileManagementCapability>> = None;

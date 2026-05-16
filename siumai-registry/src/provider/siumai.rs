@@ -5,8 +5,6 @@ use crate::traits::*;
 use crate::types::*;
 use std::sync::Arc;
 
-#[allow(deprecated)]
-use super::VisionCapabilityProxy;
 use super::{AudioCapabilityProxy, EmbeddingCapabilityProxy, SiumaiBuilder};
 
 mod audio;
@@ -195,19 +193,6 @@ impl Siumai {
     /// Actual support depends on the specific model being used.
     pub fn embedding_capability(&self) -> EmbeddingCapabilityProxy<'_> {
         EmbeddingCapabilityProxy::new(self, self.supports("embedding"))
-    }
-
-    /// Type-safe vision capability access
-    ///
-    /// Note: This method provides access regardless of reported capability support.
-    /// Actual support depends on the specific model being used.
-    #[deprecated(
-        since = "0.11.0-beta.5",
-        note = "Vercel-aligned unified surface does not expose a Vision capability. For image understanding, send images as multimodal Chat messages; for image generation, use generate_images()."
-    )]
-    #[allow(deprecated)]
-    pub fn vision_capability(&self) -> VisionCapabilityProxy<'_> {
-        VisionCapabilityProxy::new(self, self.supports("vision"))
     }
 
     /// Generate embeddings for the given input texts

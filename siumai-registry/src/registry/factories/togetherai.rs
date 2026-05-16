@@ -702,11 +702,6 @@ impl LlmClient for TogetherAiUnifiedClient {
         self.text_client.as_transcription_extras()
     }
 
-    #[allow(deprecated)]
-    fn as_vision_capability(&self) -> Option<&dyn crate::traits::VisionCapability> {
-        self.text_client.as_vision_capability()
-    }
-
     fn as_image_generation_capability(
         &self,
     ) -> Option<&dyn crate::traits::ImageGenerationCapability> {

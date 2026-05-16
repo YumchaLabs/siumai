@@ -9,8 +9,6 @@ mod siumai;
 pub use siumai::{ProviderMetadata, Siumai};
 
 mod proxies;
-#[allow(deprecated)]
-pub use proxies::VisionCapabilityProxy;
 pub use proxies::{AudioCapabilityProxy, EmbeddingCapabilityProxy};
 
 /// Compatibility builder for the historical method-style `Siumai` wrapper.

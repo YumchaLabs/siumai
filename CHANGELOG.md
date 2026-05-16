@@ -277,7 +277,6 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 
 - `AudioCapability` (compat trait): prefer `SpeechCapability` + `TranscriptionCapability` on the unified surface.
 - `ModelListingCapability`, `ModerationCapability`, `FileManagementCapability` on the top-level: prefer `siumai::prelude::extensions::*`.
-  - `VisionCapability` remains available for compatibility, but vision is treated as multimodal Chat (Vercel-aligned) rather than a separate family.
 - Low-level HTTP helper `execute_json_request_with_headers` (for custom provider code): prefer `HttpExecutionConfig` + `execute_json_request` and/or a `ProviderSpec` with a stable `build_headers()` implementation.
 
 ### Removed
@@ -288,6 +287,10 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 - Provider-specific capability traits from the core surface:
   - `traits::{OpenAiCapability, AnthropicCapability, GeminiCapability, ...}`
   - Use `siumai::provider_ext::<provider>`, provider-hosted tools (`siumai::hosted_tools::<provider>`), and `providerOptions` instead.
+- Dedicated vision compatibility:
+  - `VisionCapability`, `VisionCapabilityProxy`, `Siumai::vision_capability()`,
+    `ImageGenRequest`, `ImageResponse`, `VisionRequest`, and `VisionResponse`
+  - Use multimodal chat messages for image understanding and image-family APIs for image creation.
 - `OpenAiCompatibleSpec` (legacy fallback): use `OpenAiCompatibleSpecWithAdapter` (adapter-injected spec only).
 
 ### Fixed

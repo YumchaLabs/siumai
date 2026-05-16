@@ -20,9 +20,9 @@ Validation:
 
 ## VCR-020 - Removal Guard
 
-- [ ] Add or update source guard coverage proving the dedicated vision compatibility family is
+- [x] Add or update source guard coverage proving the dedicated vision compatibility family is
       removed from production public surfaces.
-- [ ] Keep the guard narrow enough to allow historical migration notes and audit text.
+- [x] Keep the guard narrow enough to allow historical migration notes and audit text.
 
 Validation:
 
@@ -30,10 +30,10 @@ Validation:
 
 ## VCR-030 - Remove Vision Compatibility Code
 
-- [ ] Remove `VisionCapability` from core traits and `LlmClient` downcast methods.
-- [ ] Remove `VisionCapabilityProxy` and `Siumai::vision_capability()`.
-- [ ] Remove provider/factory forwarding impls that only delegate the deprecated vision downcast.
-- [ ] Remove deprecated request/response type aliases that only existed for the vision trait.
+- [x] Remove `VisionCapability` from core traits and `LlmClient` downcast methods.
+- [x] Remove `VisionCapabilityProxy` and `Siumai::vision_capability()`.
+- [x] Remove provider/factory forwarding impls that only delegate the deprecated vision downcast.
+- [x] Remove deprecated request/response type aliases that only existed for the vision trait.
 
 Validation:
 
@@ -43,9 +43,9 @@ Validation:
 
 ## VCR-040 - Migration And Public Surface Docs
 
-- [ ] Update the beta.7 migration guide with canonical replacements.
-- [ ] Update compatibility audit notes from planned removal to removed.
-- [ ] Update public surface/import coverage that intentionally pinned the old deprecated names.
+- [x] Update the beta.7 migration guide with canonical replacements.
+- [x] Update compatibility audit notes from planned removal to removed.
+- [x] Update public surface/import coverage that intentionally pinned the old deprecated names.
 
 Validation:
 
@@ -54,10 +54,18 @@ Validation:
 
 ## VCR-050 - Closeout
 
-- [ ] Run final focused gates.
-- [ ] Update evidence, milestone, handoff, and journal notes.
-- [ ] Close or split any residual follow-up.
+- [x] Run final focused gates.
+- [x] Update evidence, milestone, handoff, and journal notes.
+- [x] Close or split any residual follow-up.
 
 Validation:
 
 - Full focused gate list from `evidence-and-gates.md`.
+
+Notes:
+
+- `siumai-registry::factory_architecture_boundary_test::dedicated_vision_compatibility_surface_is_removed`
+  now guards the removal.
+- Historical docs and migration notes may still mention the removed names, but production core,
+  registry, and spec sources cannot re-expose them.
+- No residual follow-up is split from this workstream.
