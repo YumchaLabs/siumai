@@ -151,6 +151,9 @@ as `language_model_text_with_ctx(...)`, `embedding_model_family_with_ctx(...)`,
 method signatures from the stable registry surface. Generic `LlmClient` factory construction is
 compatibility-only and should stay behind explicit `compat_*_client(...)` /
 `compat_*_client_with_ctx(...)` methods.
+OpenAI-compatible vendor or dynamic provider ids should use
+`openai_compatible_provider_factory(...)` instead of concrete OpenAI-compatible factory
+construction.
 Azure's deployment-based URL mode is the current provider-specific exception; use the registry
 helper `azure_provider_factory_with_options(...)` instead of concrete Azure factory construction.
 

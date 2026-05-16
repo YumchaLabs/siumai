@@ -15132,6 +15132,18 @@ mod openai_compatible_audio_public_path {
             .expect("build config client")
     }
 
+    fn openai_compatible_registry_providers(
+        provider_id: &str,
+    ) -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        let mut providers = HashMap::new();
+        providers.insert(
+            provider_id.to_string(),
+            siumai::registry::openai_compatible_provider_factory(provider_id)
+                .unwrap_or_else(|err| panic!("{provider_id} openai-compatible factory: {err:?}")),
+        );
+        providers
+    }
+
     fn make_registry(
         provider_id: &str,
         transport: Arc<dyn HttpTransport>,
@@ -15150,16 +15162,6 @@ mod openai_compatible_audio_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            provider_id.to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    provider_id.to_string(),
-                ),
-            ) as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(
             provider_id.to_string(),
@@ -15169,7 +15171,7 @@ mod openai_compatible_audio_public_path {
         );
 
         create_provider_registry(
-            providers,
+            openai_compatible_registry_providers(provider_id),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -15196,17 +15198,7 @@ mod openai_compatible_audio_public_path {
         reasoning_enabled: bool,
         reasoning_budget: i32,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            provider_id.to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    provider_id.to_string(),
-                ),
-            ) as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
-        RegistryBuilder::new(providers)
+        RegistryBuilder::new(openai_compatible_registry_providers(provider_id))
             .with_api_key("test-key")
             .with_reasoning(reasoning_enabled)
             .with_reasoning_budget(reasoning_budget)
@@ -15219,21 +15211,11 @@ mod openai_compatible_audio_public_path {
         provider_id: &str,
         overrides: ProviderBuildOverrides,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            provider_id.to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    provider_id.to_string(),
-                ),
-            ) as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
-        );
-
         let mut provider_build_overrides = std::collections::HashMap::new();
         provider_build_overrides.insert(provider_id.to_string(), overrides);
 
         create_provider_registry(
-            providers,
+            openai_compatible_registry_providers(provider_id),
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
@@ -15452,17 +15434,7 @@ mod openai_compatible_audio_public_path {
         let together_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
         let model = "cartesia/sonic-2";
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "togetherai".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("togetherai"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -15519,17 +15491,7 @@ mod openai_compatible_audio_public_path {
             "language": "en"
         }));
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "togetherai".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("togetherai"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -15889,30 +15851,22 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let siliconflow_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "siliconflow".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "siliconflow".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global/v1")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "siliconflow",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/siliconflow/v1")
-                    .fetch(Arc::new(siliconflow_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = siumai::registry::builder::RegistryBuilder::new(
+            openai_compatible_registry_providers("siliconflow"),
+        )
+        .with_api_key("global-key")
+        .with_base_url("https://example.com/global/v1")
+        .fetch(Arc::new(global_transport.clone()))
+        .with_provider_build_overrides(
+            "siliconflow",
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.com/siliconflow/v1")
+                .fetch(Arc::new(siliconflow_transport.clone())),
+        )
+        .auto_middleware(false)
+        .build()
+        .expect("build registry");
 
         let handle = registry
             .reranking_model("siliconflow:BAAI/bge-reranker-v2-m3")
@@ -15945,30 +15899,22 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let jina_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "jina".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "jina".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global/v1")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "jina",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/jina/v1")
-                    .fetch(Arc::new(jina_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = siumai::registry::builder::RegistryBuilder::new(
+            openai_compatible_registry_providers("jina"),
+        )
+        .with_api_key("global-key")
+        .with_base_url("https://example.com/global/v1")
+        .fetch(Arc::new(global_transport.clone()))
+        .with_provider_build_overrides(
+            "jina",
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.com/jina/v1")
+                .fetch(Arc::new(jina_transport.clone())),
+        )
+        .auto_middleware(false)
+        .build()
+        .expect("build registry");
 
         let handle = registry
             .reranking_model("jina:jina-reranker-m0")
@@ -15996,30 +15942,22 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let voyageai_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "voyageai".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "voyageai".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("global-key")
-            .with_base_url("https://example.com/global/v1")
-            .fetch(Arc::new(global_transport.clone()))
-            .with_provider_build_overrides(
-                "voyageai",
-                ProviderBuildOverrides::default()
-                    .with_api_key("ctx-key")
-                    .with_base_url("https://example.com/voyageai/v1")
-                    .fetch(Arc::new(voyageai_transport.clone())),
-            )
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
+        let registry = siumai::registry::builder::RegistryBuilder::new(
+            openai_compatible_registry_providers("voyageai"),
+        )
+        .with_api_key("global-key")
+        .with_base_url("https://example.com/global/v1")
+        .fetch(Arc::new(global_transport.clone()))
+        .with_provider_build_overrides(
+            "voyageai",
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.com/voyageai/v1")
+                .fetch(Arc::new(voyageai_transport.clone())),
+        )
+        .auto_middleware(false)
+        .build()
+        .expect("build registry");
 
         let handle = registry
             .reranking_model("voyageai:rerank-2")
@@ -16284,17 +16222,7 @@ mod openai_compatible_audio_public_path {
         let siliconflow_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
         let model = "FunAudioLLM/CosyVoice2-0.5B";
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "siliconflow".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "siliconflow".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("siliconflow"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -16459,17 +16387,7 @@ mod openai_compatible_audio_public_path {
             "language": "zh"
         }));
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "siliconflow".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "siliconflow".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("siliconflow"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -16716,17 +16634,7 @@ mod openai_compatible_audio_public_path {
             "language": "en"
         }));
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "fireworks".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "fireworks".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("fireworks"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .with_provider_build_overrides(
@@ -17211,17 +17119,7 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let siliconflow_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "siliconflow".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "siliconflow".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("siliconflow"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -17286,17 +17184,7 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let together_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "togetherai".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("togetherai"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -17473,17 +17361,7 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let mistral_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "mistral".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "mistral".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("mistral"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -18281,17 +18159,7 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let fireworks_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "fireworks".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "fireworks".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("fireworks"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -18464,17 +18332,7 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let siliconflow_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "siliconflow".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "siliconflow".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("siliconflow"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -18644,17 +18502,7 @@ mod openai_compatible_audio_public_path {
         let global_transport = CaptureTransport::default();
         let openrouter_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openrouter".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "openrouter".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("openrouter"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -20133,17 +19981,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let perplexity_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "perplexity".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "perplexity".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("perplexity"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
@@ -20191,17 +20029,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let perplexity_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "perplexity".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "perplexity".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("perplexity"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
@@ -20264,17 +20092,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let perplexity_transport = SseSuccessTransport::new(stream_body);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "perplexity".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "perplexity".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("perplexity"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
@@ -20389,17 +20207,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let perplexity_transport = JsonSuccessTransport::new(response_json);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "perplexity".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "perplexity".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("perplexity"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(Arc::new(global_transport.clone()))
@@ -22482,17 +22290,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let openrouter_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openrouter".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "openrouter".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("openrouter"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -22540,17 +22338,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let openrouter_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openrouter".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "openrouter".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("openrouter"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -22651,17 +22439,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let openrouter_transport = JsonSuccessTransport::new(response_json);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openrouter".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "openrouter".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("openrouter"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -22904,17 +22682,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let openrouter_transport = SseSuccessTransport::new(stream_body);
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "openrouter".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "openrouter".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("openrouter"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -23870,17 +23638,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let together_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "togetherai".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "togetherai".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("togetherai"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -24270,17 +24028,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let jina_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "jina".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "jina".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("jina"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -24336,17 +24084,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let voyageai_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "voyageai".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "voyageai".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("voyageai"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
@@ -24399,17 +24137,7 @@ data: [DONE]
         let global_transport = CaptureTransport::default();
         let infini_transport = CaptureTransport::default();
 
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "infini".to_string(),
-            Arc::new(
-                siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "infini".to_string(),
-                ),
-            ) as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-
-        let registry = RegistryBuilder::new(providers)
+        let registry = RegistryBuilder::new(openai_compatible_registry_providers("infini"))
             .with_api_key("global-key")
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))

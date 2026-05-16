@@ -57,15 +57,17 @@ Last updated: 2026-05-14
       through registry-owned helpers, including default built-in construction, deployment-based URL
       mode, provider metadata-key selection, embedding, image, speech, transcription, chat, and
       streaming chat parity paths.
+- [x] Add a registry-owned OpenAI-compatible provider factory helper and route dynamic provider-id
+      public-path registry setup through it, covering TogetherAI fallback-style audio/image/
+      embedding lanes plus SiliconFlow, Jina, VoyageAI, Fireworks, Mistral, OpenRouter,
+      Perplexity, and Infini registry override paths.
 
 ## Follow-up Candidates
 
 - [ ] Decide whether `siumai::registry::factories` should become experimental-only in a future
       breaking cleanup.
-- [ ] Continue auditing `provider_public_path_parity_test.rs` provider-by-provider for repeated
-      local registry builder snippets; remaining direct factory call sites are OpenAI-compatible
-      dynamic provider-id cases, which should stay separate from generic built-in helper migration
-      until explicitly classified.
+- [ ] Continue auditing `provider_public_path_parity_test.rs` for registry setup duplication that
+      can move into shared helper functions without weakening provider-specific override coverage.
 - [ ] Move provider-specific default model selection out of compatibility `SiumaiBuilder` and into
       registry/provider metadata once the construction helper is stable.
 - [ ] Revisit `ProviderBuildOverrides` ergonomics for common test/custom-transport setup.

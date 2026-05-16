@@ -696,7 +696,9 @@ pub use entry::{
 pub use helpers::{create_bare_registry, create_empty_registry};
 
 #[cfg(feature = "builtins")]
-pub use helpers::{builtin_provider_factory, create_registry_with_defaults};
+pub use helpers::{
+    builtin_provider_factory, create_registry_with_defaults, openai_compatible_provider_factory,
+};
 
 #[cfg(feature = "azure")]
 pub use helpers::azure_provider_factory_with_options;

@@ -781,6 +781,7 @@ pub mod prelude {
             ))]
             pub use crate::registry::{
                 builtin_provider_factory, create_registry_with_defaults, global,
+                openai_compatible_provider_factory,
             };
 
             #[cfg(feature = "azure")]

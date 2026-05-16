@@ -34,21 +34,27 @@ fn unsupported_openai_compatible_provider(provider_id: &str) -> LlmError {
 }
 
 #[cfg(feature = "builtins")]
-fn openai_compatible_provider_factory(
+/// Resolve an OpenAI-compatible provider id into a registry factory.
+///
+/// Unlike `builtin_provider_factory`, this helper intentionally accepts provider ids that are not
+/// native Siumai families. This covers configured OpenAI-compatible vendors and advanced custom
+/// compatible ids while keeping concrete factory construction inside the registry crate.
+pub fn openai_compatible_provider_factory(
     provider_id: &str,
 ) -> Result<Arc<dyn ProviderFactory>, LlmError> {
+    let normalized = crate::provider::resolver::normalize_provider_id(provider_id);
     #[cfg(feature = "openai")]
     {
         Ok(Arc::new(
             crate::registry::factories::OpenAICompatibleProviderFactory::new(
-                provider_id.to_string(),
+                normalized.to_string(),
             ),
         ) as Arc<dyn ProviderFactory>)
     }
 
     #[cfg(not(feature = "openai"))]
     {
-        Err(unsupported_openai_compatible_provider(provider_id))
+        Err(unsupported_openai_compatible_provider(&normalized))
     }
 }
 
@@ -582,10 +588,26 @@ pub fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
     guard.is_same_provider(provider_id, custom_id)
 }
 
-#[cfg(all(test, feature = "azure"))]
+#[cfg(all(test, any(feature = "azure", feature = "openai")))]
 mod tests {
     use super::*;
 
+    #[cfg(feature = "openai")]
+    #[test]
+    fn openai_compatible_provider_factory_uses_requested_provider_id() {
+        let factory = match openai_compatible_provider_factory("openrouter") {
+            Ok(factory) => factory,
+            Err(err) => panic!("expected openai-compatible factory: {err:?}"),
+        };
+
+        let capabilities = factory.capabilities();
+        assert_eq!(factory.provider_id().as_ref(), "openai-compatible");
+        assert!(capabilities.chat);
+        assert!(capabilities.embedding);
+        assert!(capabilities.streaming);
+    }
+
+    #[cfg(feature = "azure")]
     #[test]
     fn azure_provider_factory_with_options_returns_azure_factory() {
         let factory = match azure_provider_factory_with_options(
@@ -600,6 +622,7 @@ mod tests {
         assert_eq!(factory.provider_id().as_ref(), "azure");
     }
 
+    #[cfg(feature = "azure")]
     #[test]
     fn azure_provider_factory_with_options_rejects_non_azure_id() {
         let err = match azure_provider_factory_with_options(

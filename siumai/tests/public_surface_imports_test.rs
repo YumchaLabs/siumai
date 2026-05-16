@@ -484,6 +484,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<*const dyn CompletionModel>();
     #[cfg(feature = "openai")]
     let _ = registry::builtin_provider_factory("openai");
+    #[cfg(feature = "openai")]
+    let _ = registry::openai_compatible_provider_factory("openrouter");
     #[cfg(feature = "azure")]
     let _ = registry::azure_provider_factory_with_options(
         "azure",
