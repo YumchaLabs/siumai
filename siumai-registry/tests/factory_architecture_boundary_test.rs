@@ -582,6 +582,15 @@ fn migrated_public_path_modules_use_registry_builder_shortcuts() {
             ),
             ".with_provider_api_key_base_url_fetch(",
         ),
+        (
+            "minimaxi_public_path",
+            module_source(
+                &source,
+                "mod minimaxi_public_path",
+                "#[cfg(feature = \"bedrock\")]",
+            ),
+            ".with_provider_api_key_base_url_fetch(",
+        ),
     ] {
         assert!(
             module_source.contains("RegistryBuilder") && module_source.contains(shortcut_marker),

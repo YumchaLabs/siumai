@@ -29229,7 +29229,6 @@ mod minimaxi_public_path {
         FileManagementCapability, MusicGenerationCapability, SpeechExtras,
         VideoGenerationCapability,
     };
-    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, FinishReason, Tool, ToolChoice,
     };
@@ -29396,9 +29395,10 @@ mod minimaxi_public_path {
         minimaxi_registry_builder()
             .with_api_key("global-key")
             .with_base_url(minimaxi_wiremock_base_url(global_server))
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url(
                 "minimaxi",
-                provider_build_overrides("ctx-key", minimaxi_wiremock_base_url(minimaxi_server)),
+                "ctx-key",
+                minimaxi_wiremock_base_url(minimaxi_server),
             )
             .auto_middleware(false)
             .build()
@@ -29413,13 +29413,11 @@ mod minimaxi_public_path {
             .with_api_key("global-key")
             .with_base_url("https://example.com/global")
             .fetch(global_transport)
-            .with_provider_build_overrides(
+            .with_provider_api_key_base_url_fetch(
                 "minimaxi",
-                provider_transport_build_overrides(
-                    "ctx-key",
-                    "https://example.com/custom",
-                    minimaxi_transport,
-                ),
+                "ctx-key",
+                "https://example.com/custom",
+                minimaxi_transport,
             )
             .auto_middleware(false)
             .build()
@@ -29430,61 +29428,17 @@ mod minimaxi_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
-        let mut build_overrides = std::collections::HashMap::new();
-        build_overrides.insert(
-            "minimaxi".to_string(),
-            provider_transport_build_overrides("test-key", base_url, transport),
-        );
-
-        create_provider_registry(
-            minimaxi_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        minimaxi_registry_builder()
+            .with_provider_api_key_base_url_fetch("minimaxi", "test-key", base_url, transport)
+            .build()
+            .expect("build registry")
     }
 
     fn make_registry_without_transport(base_url: &str) -> siumai::registry::ProviderRegistryHandle {
-        let mut build_overrides = std::collections::HashMap::new();
-        build_overrides.insert(
-            "minimaxi".to_string(),
-            provider_build_overrides("test-key", base_url),
-        );
-
-        create_provider_registry(
-            minimaxi_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        )
+        minimaxi_registry_builder()
+            .with_provider_api_key_base_url("minimaxi", "test-key", base_url)
+            .build()
+            .expect("build registry")
     }
 
     fn assert_minimaxi_default_options_request(
@@ -31376,32 +31330,14 @@ mod minimaxi_public_path {
         )
         .expect("build config client");
 
-        let mut build_overrides = std::collections::HashMap::new();
-        build_overrides.insert(
-            "minimaxi".to_string(),
-            provider_build_overrides("test-key", minimaxi_wiremock_base_url(&registry_server)),
-        );
-
-        let registry = create_provider_registry(
-            minimaxi_registry_providers(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                http_interceptors: Vec::new(),
-                http_client: None,
-                http_transport: None,
-                http_config: None,
-                api_key: None,
-                base_url: None,
-                reasoning_enabled: None,
-                reasoning_budget: None,
-                provider_build_overrides: build_overrides,
-                retry_options: None,
-                max_cache_entries: None,
-                client_ttl: None,
-                auto_middleware: true,
-            }),
-        );
+        let registry = minimaxi_registry_builder()
+            .with_provider_api_key_base_url(
+                "minimaxi",
+                "test-key",
+                minimaxi_wiremock_base_url(&registry_server),
+            )
+            .build()
+            .expect("build registry");
         let registry_client = registry
             .video_model("minimaxi:hailuo-2.3")
             .expect("build registry video model");
