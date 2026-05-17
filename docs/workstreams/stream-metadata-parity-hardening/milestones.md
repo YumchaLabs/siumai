@@ -1,6 +1,6 @@
 # Stream Metadata Parity Hardening - Milestones
 
-Last updated: 2026-04-11
+Last updated: 2026-05-17
 
 ## Completed
 
@@ -17,10 +17,13 @@ Last updated: 2026-04-11
 - Suppressed duplicate reasoning-delta emission during Gemini GenerateContent bridge
   round-trips
 - Revalidated all `provider_public_path_parity_test` cases under `--features google-vertex`
+- Promoted standard OpenAI-compatible response metadata extraction from a provider allowlist to the
+  config-driven adapter family, including generic/custom providers
+- Locked alias-safe metadata namespace normalization for legacy `moonshot` -> `moonshotai`
 
 ## Next
 
-- Continue auditing other OpenAI-compatible typed metadata helpers for missing camelCase/usage
-  fields compared with `repo-ref/ai`
 - Keep checking mixed `Part + Custom` serializer paths for other providers as more stable runtime
   parts are enabled by default
+- Revisit provider-specific metadata helpers only when new AI SDK provider packages add response
+  metadata fields beyond the shared OpenAI-compatible subset

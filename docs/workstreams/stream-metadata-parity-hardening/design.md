@@ -1,6 +1,6 @@
 # Stream Metadata Parity Hardening - Design
 
-Last updated: 2026-05-01
+Last updated: 2026-05-17
 
 ## Problem
 
@@ -95,6 +95,25 @@ camelCase replay payloads into:
 The typed DeepSeek metadata helper accepts both spellings while serializing the AI SDK-style
 camelCase keys.
 
+### 6. Promote standard OpenAI-compatible metadata extraction out of the provider allowlist
+
+The config-driven OpenAI-compatible adapter now treats standard Chat Completions response metadata
+as a family-level capability instead of a hard-coded provider allowlist. This matches the AI SDK
+`createOpenAICompatible` behavior for generic providers:
+
+- `sources`
+- `choices[0].logprobs.content`
+- `usage.completion_tokens_details.accepted_prediction_tokens`
+- `usage.completion_tokens_details.rejected_prediction_tokens`
+
+are extracted for every `ConfigurableAdapter` provider when present. Perplexity keeps its dedicated
+hosted-search metadata extractor because its response shape carries additional provider-owned
+fields.
+
+Alias providers use the canonical provider metadata namespace before stream/non-stream transformers
+apply any requested public key. This prevents legacy aliases such as `moonshot` from leaking
+parallel `providerMetadata.moonshot` roots when the public API expects `providerMetadata.moonshotai`.
+
 ## Validation
 
 Locked by:
@@ -105,3 +124,5 @@ Locked by:
 - `cargo nextest run -p siumai-provider-deepseek deepseek_metadata --no-fail-fast`
 - `cargo nextest run -p siumai --test provider_public_path_parity_test --features google-vertex --no-fail-fast`
 - `cargo nextest run -p siumai --test gemini_generate_content_stream_bridge_roundtrip_fixtures_alignment_test vertex_generate_content_stream_bridge_roundtrip_fixture_summary_cases_match --features google-vertex`
+- `cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast`
+- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`

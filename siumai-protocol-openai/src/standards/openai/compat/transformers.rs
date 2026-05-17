@@ -1631,7 +1631,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_openai_compatible_provider_keeps_empty_provider_metadata_root_by_default() {
+    fn generic_openai_compatible_provider_extracts_standard_provider_metadata() {
         let adapter: Arc<dyn ProviderAdapter> =
             Arc::new(ConfigurableAdapter::new(ProviderConfig {
                 id: "test-provider".to_string(),
@@ -1688,11 +1688,23 @@ mod tests {
         });
 
         let resp = tx.transform_chat_response(&raw).unwrap();
-        let provider_metadata = resp.provider_metadata.expect("provider metadata root");
+        let provider_metadata = resp.provider_metadata.expect("provider metadata");
         assert_eq!(provider_metadata.len(), 1);
+        let metadata = provider_metadata
+            .get("test-provider")
+            .expect("test-provider metadata");
         assert_eq!(
-            provider_metadata.get("test-provider"),
-            Some(&serde_json::json!({}))
+            metadata["sources"][0]["url"],
+            serde_json::json!("https://example.com")
+        );
+        assert_eq!(metadata["logprobs"][0]["token"], serde_json::json!("hello"));
+        assert_eq!(
+            metadata.get("acceptedPredictionTokens"),
+            Some(&serde_json::json!(5))
+        );
+        assert_eq!(
+            metadata.get("rejectedPredictionTokens"),
+            Some(&serde_json::json!(6))
         );
     }
 

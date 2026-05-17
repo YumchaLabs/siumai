@@ -307,8 +307,8 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     /// Extract provider-owned response metadata from a parsed OpenAI-compatible payload.
     ///
     /// This is the compat-layer analogue of AI SDK's provider-specific `metadataExtractor`.
-    /// Generic OpenAI-compatible plumbing should not infer provider metadata namespaces on its own;
-    /// providers/adapters opt into the extra fields they want to surface.
+    /// Configuration-driven OpenAI-compatible adapters surface the standard Chat Completions
+    /// metadata fields; custom adapters can keep this empty or merge additional fields.
     fn extract_response_provider_metadata(
         &self,
         _raw: &serde_json::Value,

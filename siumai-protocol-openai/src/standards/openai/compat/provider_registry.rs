@@ -6,7 +6,7 @@
 use super::adapter::ProviderAdapter;
 use super::metadata::{
     NestedProviderMetadata, extract_openai_compatible_provider_metadata,
-    extract_perplexity_provider_metadata,
+    extract_perplexity_provider_metadata, provider_options_key,
 };
 use super::types::{FieldAccessor, FieldMappings, JsonFieldAccessor, RequestType};
 use crate::error::LlmError;
@@ -445,12 +445,10 @@ impl ProviderAdapter for ConfigurableAdapter {
         &self,
         raw: &serde_json::Value,
     ) -> Option<NestedProviderMetadata> {
+        let metadata_key = provider_options_key(&self.config.id);
         match self.config.id.as_str() {
-            "perplexity" => extract_perplexity_provider_metadata(&self.config.id, raw),
-            "openai" | "openrouter" | "xai" | "groq" | "deepseek" => {
-                extract_openai_compatible_provider_metadata(&self.config.id, raw)
-            }
-            _ => None,
+            "perplexity" => extract_perplexity_provider_metadata(&metadata_key, raw),
+            _ => extract_openai_compatible_provider_metadata(&metadata_key, raw),
         }
     }
 
@@ -678,7 +676,7 @@ mod tests {
     }
 
     #[test]
-    fn configurable_adapter_only_extracts_metadata_for_opted_in_providers() {
+    fn configurable_adapter_extracts_standard_metadata_for_openai_compatible_providers() {
         let openai = ConfigurableAdapter::new(ProviderConfig {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
@@ -700,7 +698,13 @@ mod tests {
                         "top_logprobs": []
                     }]
                 }
-            }]
+            }],
+            "usage": {
+                "completion_tokens_details": {
+                    "accepted_prediction_tokens": 15,
+                    "rejected_prediction_tokens": 5
+                }
+            }
         });
         assert!(openai.extract_response_provider_metadata(&raw).is_some());
 
@@ -715,7 +719,62 @@ mod tests {
             api_key_env: None,
             api_key_env_aliases: Vec::new(),
         });
-        assert!(generic.extract_response_provider_metadata(&raw).is_none());
+        let metadata = generic
+            .extract_response_provider_metadata(&raw)
+            .expect("generic metadata");
+        let generic = metadata
+            .get("test-provider")
+            .expect("generic provider namespace");
+        assert_eq!(generic["logprobs"][0]["token"], serde_json::json!("hello"));
+        assert_eq!(
+            generic.get("acceptedPredictionTokens"),
+            Some(&serde_json::json!(15))
+        );
+        assert_eq!(
+            generic.get("rejectedPredictionTokens"),
+            Some(&serde_json::json!(5))
+        );
+    }
+
+    #[test]
+    fn configurable_adapter_canonicalizes_moonshot_alias_metadata_namespace() {
+        let adapter = ConfigurableAdapter::new(ProviderConfig {
+            id: "moonshot".to_string(),
+            name: "Moonshot".to_string(),
+            base_url: "https://api.moonshot.ai/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("kimi-k2-0905".to_string()),
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        });
+        let raw = serde_json::json!({
+            "usage": {
+                "completion_tokens_details": {
+                    "accepted_prediction_tokens": 9,
+                    "rejected_prediction_tokens": 3
+                }
+            }
+        });
+
+        let metadata = adapter
+            .extract_response_provider_metadata(&raw)
+            .expect("moonshot metadata");
+        assert!(metadata.contains_key("moonshotai"));
+        assert!(!metadata.contains_key("moonshot"));
+        assert_eq!(
+            metadata
+                .get("moonshotai")
+                .and_then(|value| value.get("acceptedPredictionTokens")),
+            Some(&serde_json::json!(9))
+        );
+        assert_eq!(
+            metadata
+                .get("moonshotai")
+                .and_then(|value| value.get("rejectedPredictionTokens")),
+            Some(&serde_json::json!(3))
+        );
     }
 
     #[test]

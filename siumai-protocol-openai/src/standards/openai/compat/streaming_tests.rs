@@ -1520,6 +1520,66 @@ async fn compat_stream_finish_keeps_requested_provider_metadata_key_even_without
 }
 
 #[tokio::test]
+async fn compat_stream_finish_extracts_generic_standard_metadata_under_requested_key() {
+    let base = "https://api.example.com/v1".to_string();
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "test-provider".to_string(),
+        name: "Test Provider".to_string(),
+        base_url: base.clone(),
+        field_mappings: Default::default(),
+        capabilities: vec!["chat".to_string(), "streaming".to_string()],
+        default_model: None,
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+    let cfg = OpenAiCompatibleConfig::new("test-provider", "sk-test", &base, adapter.clone())
+        .with_model("test-model");
+    let conv = OpenAiCompatibleEventConverter::new(cfg, adapter)
+        .with_provider_metadata_key("testProvider");
+
+    let finish_event = Event {
+        event: "".to_string(),
+        data: r#"{"id":"chatcmpl_1","model":"test-model","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":{"content":[{"token":"hello","logprob":-0.1,"bytes":[104,101,108,108,111],"top_logprobs":[]}]}}],"sources":[{"url":"https://example.com"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3,"completion_tokens_details":{"accepted_prediction_tokens":15,"rejected_prediction_tokens":5}}}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let finish = conv
+        .convert_event(finish_event)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part:
+                    ChatStreamPart::Finish {
+                        provider_metadata, ..
+                    },
+            } => provider_metadata,
+            _ => None,
+        })
+        .expect("finish provider metadata");
+
+    assert!(!finish.contains_key("test-provider"));
+    let metadata = finish.get("testProvider").expect("testProvider metadata");
+    assert_eq!(
+        metadata["sources"][0]["url"],
+        serde_json::json!("https://example.com")
+    );
+    assert_eq!(metadata["logprobs"][0]["token"], serde_json::json!("hello"));
+    assert_eq!(
+        metadata.get("acceptedPredictionTokens"),
+        Some(&serde_json::json!(15))
+    );
+    assert_eq!(
+        metadata.get("rejectedPredictionTokens"),
+        Some(&serde_json::json!(5))
+    );
+}
+
+#[tokio::test]
 async fn compat_stream_tool_call_carries_thought_signature_under_requested_metadata_key() {
     let base = "https://api.example.com/v1".to_string();
     let adapter: Arc<dyn ProviderAdapter> = Arc::new(ConfigurableAdapter::new(ProviderConfig {
