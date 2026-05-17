@@ -14,9 +14,13 @@ AI SDK models TogetherAI as one provider surface:
 
 with a split runtime behind that surface:
 
-- chat/completion/embedding/speech/transcription use the shared OpenAI-compatible boundary
+- chat/completion/embedding use the shared OpenAI-compatible boundary
 - image generation/edit use provider-owned `POST /images/generations`
 - reranking uses provider-owned `POST /rerank`
+
+Siumai also keeps TogetherAI speech/transcription as a Rust OpenAI-compatible audio extension
+because Together documents `/audio/speech` and `/audio/transcriptions`, but those audio families are
+not part of the audited `@ai-sdk/togetherai` package surface.
 
 Siumai had drifted in two steps:
 
@@ -39,10 +43,10 @@ That drift caused four real problems:
 ## Goals
 
 - Make `togetherai` the canonical AI SDK-style provider id.
-- Expose one public provider surface for chat/completion/embedding/speech/transcription plus
-  provider-owned image and rerank.
+- Expose one public provider surface for AI SDK-aligned chat/completion/embedding/image/rerank plus
+  Siumai's explicit OpenAI-compatible audio extension.
 - Keep the existing provider-owned native rerank implementation.
-- Reuse the shared OpenAI-compatible runtime only for the text/audio families instead of building a
+- Reuse the shared OpenAI-compatible runtime only for the text and extension audio families instead of building a
   second native TogetherAI text runtime.
 - Keep TogetherAI-specific typed image/rerank option helpers on the public Rust surface.
 - Keep low-level compatibility only where it does not preserve a second public TogetherAI identity.
@@ -88,7 +92,7 @@ The main provider composition happens in
 That factory now aggregates three concrete clients:
 
 - OpenAI-compatible `OpenAiCompatibleClient` for
-  chat/completion/embedding/speech/transcription
+  chat/completion/embedding plus Siumai extension speech/transcription
 - provider-owned `TogetherAiImageClient` for image generation/edit
 - native `TogetherAiClient` for rerank
 
@@ -99,7 +103,7 @@ stacks.
 
 `TogetherAiUnifiedClient` is a registry-layer wrapper that delegates:
 
-- chat/completion/embedding/speech/transcription capabilities to the compat client
+- chat/completion/embedding plus Siumai extension speech/transcription capabilities to the compat client
 - image generation plus image extras to the provider-owned image client
 - rerank capability to the native provider-owned client
 
@@ -112,14 +116,15 @@ high-level shape as AI SDK without forcing a deeper provider-crate merger first.
 
 - base URL
 - primary chat default
-- completion/embedding/speech/transcription family defaults
+- completion/embedding plus Siumai extension speech/transcription family defaults
 - shared family-default metadata reused by the unified provider for default-model lookup
 - capability flags for the shared compat lanes
 
 as the historical `together` preset.
 
-That gives the registry a canonical AI SDK-style provider id for the shared text/audio lanes
-without forcing the canonical image family back onto the generic compat image runtime.
+That gives the registry a canonical AI SDK-style provider id for the shared text lanes and a
+documented Rust audio extension without forcing the canonical image family back onto the generic
+compat image runtime.
 
 ### 5. Public facade follows the unified story
 
@@ -155,8 +160,8 @@ This preserves both stories:
   the older Rust `TogetherAi*` aliases available for compatibility
 - `provider_ext::togetherai` now also exposes `TogetherAIErrorData`, so TogetherAI package-surface
   audits no longer have to fall back to generic compat error types just to decode provider errors
-- registry metadata for `togetherai` now advertises the full AI SDK-style capability set instead of
-  rerank only
+- registry metadata for `togetherai` now advertises the AI SDK-aligned package families plus the
+  explicit Siumai audio extension instead of the old rerank-only surface
 
 ## Validation strategy
 

@@ -38,15 +38,17 @@ Status: completed
 
 Acceptance criteria:
 
-- one built `togetherai` client can expose chat/completion/embedding/image/audio plus rerank
+- one built `togetherai` client can expose AI SDK-aligned chat/completion/embedding/image/rerank
+  plus Siumai extension audio
 - image and rerank remain provider-owned
 - registry handles can still resolve provider-specific family paths cleanly
 
 Current state:
 
-- `TogetherAiProviderFactory` now aggregates compat text/audio clients, a provider-owned image
+- `TogetherAiProviderFactory` now aggregates compat text plus extension audio clients, a provider-owned image
   client, and native rerank
-- `TogetherAiUnifiedClient` delegates chat/completion/embedding/speech/transcription to compat,
+- `TogetherAiUnifiedClient` delegates chat/completion/embedding plus Siumai extension
+  speech/transcription to compat,
   image generation/edit to the provider-owned image client, and rerank to native
 - completion, embedding, image, speech, transcription, and rerank family-model paths are all wired,
   with canonical image generation/edit pinned to `/images/generations`
@@ -76,7 +78,7 @@ Current state:
 - public import/runtime tests now lock the unified top-level builder, provider-owned image
   generation/edit semantics, typed image options, and rerank parity behavior
 - changelogs and structural-alignment docs now describe `togetherai` as the canonical unified
-  surface with compat text/audio lanes plus provider-owned image/rerank
+  surface with AI SDK-aligned text/image/rerank lanes plus Siumai extension audio
 - the compat `togetherai` plus legacy `together` presets now also advertise `completion`
   explicitly in static metadata so the shared compat package boundary matches the audited AI SDK
   surface without relying on inferred completion support

@@ -1371,6 +1371,13 @@ mod tests {
         assert_eq!(info.name.as_ref(), "TogetherAI");
         assert_ne!(info.description.as_ref(), "Custom provider");
         assert!(
+            info.description
+                .as_ref()
+                .contains("AI SDK-aligned image/rerank")
+                && info.description.as_ref().contains("Siumai audio extension"),
+            "expected TogetherAI metadata to separate AI SDK package families from Siumai audio extension families"
+        );
+        assert!(
             info.capabilities.rerank
                 && info.capabilities.chat
                 && info.capabilities.completion
@@ -1379,7 +1386,7 @@ mod tests {
                 && info.capabilities.speech
                 && info.capabilities.transcription
                 && info.capabilities.audio,
-            "expected togetherai to expose the unified AI SDK-style provider surface"
+            "expected togetherai to expose AI SDK package families plus Siumai audio extension families"
         );
         assert!(
             info.supported_models

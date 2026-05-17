@@ -377,13 +377,13 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_rerank(),
     });
 
-    // TogetherAI (OpenAI-compatible text/audio/image + native rerank)
+    // TogetherAI (AI SDK text/image/rerank plus Siumai OpenAI-compatible audio extension)
     #[cfg(feature = "togetherai")]
     out.push(NativeProviderMetadata {
         id: "togetherai",
         name: "TogetherAI",
         description:
-            "TogetherAI unified provider surface via OpenAI-compatible chat/completion/audio/image endpoints plus native /v1/rerank",
+            "TogetherAI unified provider surface via OpenAI-compatible chat/completion/embedding, AI SDK-aligned image/rerank, and Siumai audio extension endpoints",
         default_base_url: Some("https://api.together.xyz/v1"),
         default_model_policy: NativeProviderDefaultModelPolicy::Default(
             siumai_provider_togetherai::providers::togetherai::models::CHAT,

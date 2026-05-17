@@ -83,6 +83,10 @@ vertical slices instead of becoming one cross-provider mega patch.
   plus tools; Siumai keeps Groq speech/TTS as a provider-owned Rust extension. New registry catalog
   and factory tests lock that boundary so speech models stay out of the AI SDK-aligned
   chat/transcription catalog while remaining listed on the Rust provider surface.
+- AIPC-080 then re-audited TogetherAI terminology. The upstream `@ai-sdk/togetherai` package
+  surface is chat/completion/embedding/image/reranking. Siumai intentionally keeps
+  speech/transcription as OpenAI-compatible audio extensions, so the docs and metadata now name
+  those audio paths as Siumai extensions instead of folding them into AI SDK package parity.
 
 ## Blockers
 

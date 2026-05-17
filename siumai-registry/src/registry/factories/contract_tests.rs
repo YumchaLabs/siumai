@@ -2322,6 +2322,23 @@ mod togetherai_contract {
         assert!(caps.supports("audio"));
     }
 
+    #[test]
+    fn togetherai_package_surface_and_audio_extension_boundary_is_explicit() {
+        let source = include_str!("togetherai.rs");
+
+        assert!(
+            source.contains("OpenAI-compatible chat/completion/embedding families")
+                && source.contains("provider-owned image + rerank"),
+            "TogetherAI factory docs should name the audited AI SDK package surface"
+        );
+        assert!(
+            source.contains("Siumai additionally keeps TogetherAI speech/transcription")
+                && source.contains("not part of")
+                && source.contains("@ai-sdk/togetherai"),
+            "TogetherAI factory docs should keep audio as a Siumai extension, not as AI SDK package parity"
+        );
+    }
+
     #[tokio::test]
     async fn togetherai_factory_prefers_ctx_http_client_over_http_config() {
         let _lock = lock_env();

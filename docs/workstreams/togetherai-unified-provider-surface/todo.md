@@ -24,7 +24,7 @@ Status legend:
 ## Track B - Runtime/factory architecture
 
 - [x] Reuse the shared OpenAI-compatible runtime for TogetherAI
-  chat/completion/embedding/speech/transcription.
+  chat/completion/embedding plus Siumai extension speech/transcription.
 - [x] Keep canonical TogetherAI image generation/edit on a provider-owned runtime instead of the
   generic compat image lane.
 - [x] Keep native rerank on `siumai-provider-togetherai`.

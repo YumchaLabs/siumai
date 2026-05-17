@@ -1,8 +1,12 @@
 //! TogetherAI provider factory.
 //!
 //! AI SDK exposes TogetherAI as a single provider surface:
-//! - OpenAI-compatible chat/completion/embedding/audio families
+//! - OpenAI-compatible chat/completion/embedding families
 //! - provider-owned image + rerank
+//!
+//! Siumai additionally keeps TogetherAI speech/transcription as an OpenAI-compatible audio
+//! extension because Together documents those endpoints, but those audio families are not part of
+//! the audited `@ai-sdk/togetherai` package surface.
 //!
 //! Siumai keeps the provider-owned rerank client in `siumai-provider-togetherai`, reuses the
 //! shared OpenAI-compatible runtime for text/audio, and owns the image family here under the
