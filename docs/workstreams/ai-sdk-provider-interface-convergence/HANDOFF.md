@@ -105,6 +105,14 @@ vertical slices instead of becoming one cross-provider mega patch.
   and `VERSION` exported. Siumai already exposes the matching Rust package helpers and guards the
   registry/provider-owned boundary so completion/embedding/image/audio/rerank do not leak in from
   the shared OpenAI-compatible runtime. The AIPC inventory row is now Green.
+- AIPC-080 then re-audited Amazon Bedrock. The upstream `@ai-sdk/amazon-bedrock` package surface is
+  chat/language-model, embedding/text-embedding aliases, image, rerank, Anthropic tools, settings,
+  and `VERSION`. Siumai already exposes the matching Rust package helpers through
+  `provider_ext::bedrock`, uses provider-owned Bedrock clients for registry family paths, and has
+  public-path parity coverage for settings plus chat/embedding/image/rerank request construction.
+  SigV4 credential-provider hooks and upstream test-only `generateId` stay deferred, and Siumai does
+  not export a public image-options type because the upstream package index does not export one.
+  The AIPC inventory row is now Green.
 
 ## Blockers
 
