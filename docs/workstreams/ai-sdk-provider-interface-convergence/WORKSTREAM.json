@@ -42,10 +42,12 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "AIPC-040",
-    "title": "Reduce primary stable-family registry execution through compatibility clients",
+    "id": "AIPC-050",
+    "title": "Converge AI SDK-stable stream semantics on stable stream parts",
     "scope": [
-      "siumai-registry/src/registry/entry",
+      "siumai-core",
+      "siumai-protocol-*",
+      "siumai-extras",
       "docs/workstreams/ai-sdk-provider-interface-convergence"
     ]
   },

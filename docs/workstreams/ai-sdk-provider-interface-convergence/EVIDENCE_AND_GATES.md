@@ -5,11 +5,15 @@ Last updated: 2026-05-18
 
 ## Smallest Current Repro
 
-The first implementation slice is a source-guard and registry-boundary audit.
+The active implementation slice is stream semantics convergence after the core and registry guard
+slices completed.
 
 ```bash
 cargo nextest run -p siumai-core --no-fail-fast
 cargo nextest run -p siumai-registry --no-fail-fast
+cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast
+cargo nextest run -p siumai-protocol-anthropic --all-features --no-fail-fast
+cargo nextest run -p siumai-protocol-gemini --all-features --no-fail-fast
 ```
 
 ## Gate Set
@@ -94,3 +98,6 @@ should still run the full formatting gate.
 | 2026-05-18 | `cargo nextest run -p siumai-registry stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_execution --no-fail-fast` | Passed | Reconfirmed the existing registry stable-family handle guard. |
 | 2026-05-18 | `cargo nextest run -p siumai-registry --no-fail-fast` | Passed | 96 tests passed; existing warnings are unrelated dead-code warnings in test support. |
 | 2026-05-18 | `cargo nextest run -p siumai-core --no-fail-fast` | Passed | 426 tests passed after moving the new guard into the existing integration boundary test suite. |
+| 2026-05-18 | `cargo fmt -p siumai-registry --check` | Passed | Formatting gate for the AIPC-040 registry handle boundary slice. |
+| 2026-05-18 | `cargo nextest run -p siumai-registry remaining_registry_handle_compat_paths_are_extension_only --no-fail-fast` | Passed | Proves remaining registry compat client paths are isolated to extension-only image/audio helpers. |
+| 2026-05-18 | `cargo nextest run -p siumai-registry --no-fail-fast` | Passed | 97 tests passed; existing warnings are unrelated dead-code warnings in test support. |

@@ -23,7 +23,7 @@ Status legend:
 | Provider options | `shared/v4/shared-v4-provider-options.ts` | `ProviderOptionsMap`, provider-owned typed option modules | Green | Continue enforcing request-time-only semantics on new paths. |
 | Provider metadata | `packages/ai/src/types/provider-metadata.ts` | `ProviderMetadataMap`, provider-owned typed metadata helpers | Green | Continue using provider-rooted response metadata. |
 | Stream part union | `language-model-v4-stream-part.ts` | `ChatStreamEvent::Part`, `ChatStreamPart`, `LanguageModelV4StreamPart`, replay carriers | Amber | Continue parser/serializer migration toward stable parts and isolate protocol-only replay. |
-| Registry/provider factory | `packages/ai/src/registry`, provider callable factories | `siumai-registry::ProviderFactory`, registry handles | Amber | Reduce stable family execution through compat clients where native family paths exist. |
+| Registry/provider factory | `packages/ai/src/registry`, provider callable factories | `siumai-registry::ProviderFactory`, registry handles | Green | Keep AIPC-030/AIPC-040 guards green as new families and extension helpers land. |
 | OpenAI-compatible adapter | `packages/openai-compatible` | `siumai-provider-openai-compatible`, `siumai-protocol-openai` | Amber | Re-audit promoted vendor capability inheritance and typed option/metadata parity. |
 | Protocol bridge/gateway | `packages/gateway`, protocol adapters | `siumai-bridge`, `siumai-extras::server`, protocol crates | Amber | Keep bridge semantics typed and report lossy conversion explicitly. |
 | Legacy content compatibility | V3/V4 prompt/content split | `ContentPart` compatibility boundary plus V4 prompt/content projections | Amber | Do not move `ContentPart` until ADR-0008 future-breaking conditions are met. |
@@ -58,7 +58,7 @@ Status legend:
 | Compatibility path | Allowed use | Risk | Follow-up |
 | --- | --- | --- | --- |
 | `LlmClient` | Backward compatibility, pooling, extension adapters, migration bridges | New features may land only on generic-client downcasts | AIPC-030/AIPC-040 source guard and handle audit. |
-| `compat_*_client_with_ctx` | Historical factory methods and extension-only surfaces | Stable family handles may silently route through legacy clients | Audit each registry handle and factory. |
+| `compat_*_client_with_ctx` | Historical factory methods and extension-only surfaces | Stable family handles may silently route through legacy clients | AIPC-040 locks remaining handle usages to extension-only image/audio helpers. |
 | `as_*_capability()` | Compatibility client capability discovery | Broad optional interface hides stable family ownership | Keep out of stable family primary paths unless documented. |
 | Legacy `ContentPart` | Serde and compatibility payload carrier | Request/response provider channels can mix | Follow ADR-0008; use directional adapters for new code. |
 | Provider-scoped `Custom` stream events | Provider-native escape hatch and protocol replay only | Major AI SDK stream semantics can become raw JSON again | Prefer `ChatStreamEvent::Part` for stable semantics. |

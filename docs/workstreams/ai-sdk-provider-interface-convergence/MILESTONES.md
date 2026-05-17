@@ -38,7 +38,7 @@ cargo nextest run -p siumai-core --no-fail-fast
 cargo nextest run -p siumai-registry --no-fail-fast
 ```
 
-Status: in progress
+Status: completed
 
 ## M2 - Stream Semantics Convergence
 
@@ -60,7 +60,7 @@ cargo nextest run -p siumai-protocol-gemini --all-features --no-fail-fast
 cargo nextest run -p siumai-bridge --no-fail-fast
 ```
 
-Status: not started
+Status: in progress
 
 ## M3 - Provider Package Parity
 

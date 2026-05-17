@@ -39,17 +39,18 @@ Status legend:
   guard remains green. A stale empty `siumai-core/src/standards/openai` working-tree directory was
   removed locally because the guard correctly rejected it; no tracked code was deleted.
 
-- [~] AIPC-040 [owner=codex] [deps=AIPC-030] [scope=siumai-registry/src/registry/entry]
+- [x] AIPC-040 [owner=codex] [deps=AIPC-030] [scope=siumai-registry/src/registry/entry]
   Goal: Reduce primary stable-family registry execution through `compat_*_client_with_ctx` or
   `as_*_capability()` where native family models already exist.
   Validation: focused registry handle tests, then `cargo nextest run -p siumai-registry --no-fail-fast`
   Evidence: updated handle tests and factory/handle code.
-  Handoff: Extension-only lanes such as files, skills, and music may remain client-backed when no
-  stable family trait exists.
+  Handoff: Primary stable family handles remain free of compat/downcast paths. The remaining image
+  and audio compat clients are locked to extension-only edit/variation/streaming/listing/translation
+  helper paths where no stable family trait currently owns the behavior.
 
 ## M2 - Stream Semantics Convergence
 
-- [ ] AIPC-050 [owner=unassigned] [deps=AIPC-030] [scope=siumai-core,siumai-protocol-*,siumai-extras]
+- [~] AIPC-050 [owner=codex] [deps=AIPC-030] [scope=siumai-core,siumai-protocol-*,siumai-extras]
   Goal: Continue migrating AI SDK-stable stream semantics to `ChatStreamEvent::Part(ChatStreamPart)`
   and keep protocol-only replay hints out of stable provider metadata.
   Validation: focused protocol stream tests for the affected provider, then package nextest.
