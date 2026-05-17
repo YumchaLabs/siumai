@@ -60,10 +60,11 @@ cargo nextest run -p siumai-protocol-gemini --all-features --no-fail-fast
 cargo nextest run -p siumai-bridge --no-fail-fast
 ```
 
-Status: in progress
+Status: completed
 
-Progress note: AIPC-050 is complete. AIPC-060 remains open to finish the bridge/gateway assertion
-side of this milestone.
+Progress note: AIPC-050 and AIPC-060 are complete. Provider stream parsers/serializers, bridge
+paths, and extras gateway helpers now have stable-part-first regression coverage for the highest-risk
+tool stream paths audited in this milestone.
 
 ## M3 - Provider Package Parity
 
@@ -85,7 +86,7 @@ cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-
 cargo nextest run --profile ci --all-features --workspace
 ```
 
-Status: not started
+Status: in progress
 
 ## M4 - Workstream Hygiene And Closeout
 

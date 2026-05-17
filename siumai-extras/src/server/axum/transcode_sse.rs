@@ -937,6 +937,32 @@ mod transcode_tests {
         }
     }
 
+    #[cfg(feature = "openai")]
+    fn parse_sse_json_frames(text: &str) -> Vec<(String, serde_json::Value)> {
+        text.split("\n\n")
+            .filter_map(|frame| {
+                let mut event = None;
+                let mut data_lines = Vec::new();
+
+                for line in frame.lines() {
+                    if let Some(value) = line.strip_prefix("event: ") {
+                        event = Some(value.to_string());
+                    } else if let Some(value) = line.strip_prefix("data: ") {
+                        data_lines.push(value);
+                    }
+                }
+
+                let event = event?;
+                let data = data_lines.join("\n");
+                if data == "[DONE]" || data.is_empty() {
+                    return None;
+                }
+
+                Some((event, serde_json::from_str(&data).expect("json sse data")))
+            })
+            .collect()
+    }
+
     #[test]
     fn transcode_options_defaults_are_stable() {
         let opts = TranscodeSseOptions::default();
@@ -1339,6 +1365,87 @@ mod transcode_tests {
             .expect("body bytes");
         let text = String::from_utf8(body.to_vec()).expect("utf8");
         assert!(text.contains("HELLO"));
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "openai")]
+    async fn openai_responses_direct_helper_bridges_stable_provider_tool_parts() {
+        use futures::stream;
+        use siumai::prelude::unified::{ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult};
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolInputStart {
+                    id: "call_1".to_string(),
+                    tool_name: "code_execution".to_string(),
+                    provider_metadata: None,
+                    provider_executed: Some(true),
+                    dynamic: Some(false),
+                    title: None,
+                },
+            }),
+            Ok(ChatStreamEvent::tool_input_delta_part(
+                "call_1",
+                r#"{"language":"PYTHON","#,
+            )),
+            Ok(ChatStreamEvent::tool_input_delta_part(
+                "call_1",
+                r#""code":"print(1)"}"#,
+            )),
+            Ok(ChatStreamEvent::tool_input_end_part("call_1")),
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                    tool_call_id: "call_1".to_string(),
+                    tool_name: "code_execution".to_string(),
+                    input: String::new(),
+                    provider_executed: Some(true),
+                    dynamic: Some(false),
+                    provider_metadata: None,
+                }),
+            }),
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                    tool_call_id: "call_1".to_string(),
+                    tool_name: "code_execution".to_string(),
+                    result: serde_json::json!({ "outcome": "OUTCOME_OK", "output": "1" }),
+                    is_error: Some(false),
+                    preliminary: None,
+                    dynamic: Some(false),
+                    provider_metadata: None,
+                }),
+            }),
+        ]));
+
+        let resp = to_openai_responses_sse_response_with_options(
+            chat_stream,
+            TranscodeSseOptions::default().with_bridge_source(BridgeTarget::GeminiGenerateContent),
+        );
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        let text = String::from_utf8(body.to_vec()).expect("utf8");
+        let frames = parse_sse_json_frames(&text);
+
+        let added = frames
+            .iter()
+            .find(|(event, value)| {
+                event == "response.output_item.added" && value["item"]["id"] == "call_1"
+            })
+            .expect("stable provider tool-call should produce output_item.added");
+        assert_eq!(
+            added.1["item"]["input"],
+            serde_json::json!(r#"{"language":"PYTHON","code":"print(1)"}"#)
+        );
+
+        let done = frames
+            .iter()
+            .find(|(event, value)| {
+                event == "response.output_item.done" && value["item"]["id"] == "call_1"
+            })
+            .expect("stable provider tool-result should produce output_item.done");
+        assert_eq!(done.1["item"]["status"], serde_json::json!("completed"));
+        assert_eq!(done.1["item"]["output"]["output"], serde_json::json!("1"));
     }
 
     #[tokio::test]

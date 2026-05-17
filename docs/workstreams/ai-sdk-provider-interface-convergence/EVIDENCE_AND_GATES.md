@@ -5,16 +5,14 @@ Last updated: 2026-05-18
 
 ## Smallest Current Repro
 
-The active implementation slice is bridge/gateway stable-part convergence after the core, registry,
-and first protocol stream-semantics slices completed.
+The active implementation slice is OpenAI-compatible promoted vendor package parity after the core,
+registry, protocol stream, and bridge/gateway guard slices completed.
 
 ```bash
 cargo nextest run -p siumai-core --no-fail-fast
 cargo nextest run -p siumai-registry --no-fail-fast
-cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast
-cargo nextest run -p siumai-protocol-anthropic --all-features --no-fail-fast
-cargo nextest run -p siumai-protocol-gemini --all-features --no-fail-fast
-cargo nextest run -p siumai-bridge --all-features --no-fail-fast
+cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast
+cargo nextest run -p siumai --test public_surface_imports_test --no-fail-fast
 ```
 
 ## Gate Set
@@ -121,3 +119,7 @@ should still run the full formatting gate.
 | 2026-05-18 | `cargo nextest run -p siumai-bridge --all-features --no-fail-fast` | Passed | 108 bridge tests passed after the stable provider-tool stream part bridge regression test. |
 | 2026-05-18 | `cargo nextest run -p siumai-extras --features server,openai,anthropic,google --test gateway_axum_smoke_test --no-fail-fast` | Passed | 20 gateway Axum smoke tests passed after the extras seam import cleanup; existing Gemini unreachable-pattern warning is unrelated. |
 | 2026-05-18 | `cargo nextest run -p siumai-extras --features server,openai --test bridge_architecture_boundary_test --no-fail-fast` | Passed | 3 extras bridge boundary tests passed, including the new direct `siumai_bridge::stream` adapter guard. |
+| 2026-05-18 | `cargo nextest run -p siumai-extras --features server,openai openai_responses_direct_helper_bridges_stable_provider_tool_parts --no-fail-fast` | Passed | Proves the direct extras OpenAI Responses SSE helper bridges stable provider-tool stream parts into output item frames. |
+| 2026-05-18 | `cargo fmt -p siumai-extras -- --check` | Passed | Formatting gate after the direct extras SSE helper regression test. |
+| 2026-05-18 | `cargo nextest run -p siumai-extras --features server,openai --lib transcode_tests --no-fail-fast` | Passed | 18 extras Axum transcode tests passed, including the direct stable provider-tool stream part helper regression. |
+| 2026-05-18 | `cargo nextest run -p siumai-extras --features server,openai,anthropic,google --test gateway_axum_smoke_test --no-fail-fast` | Passed | 20 gateway Axum smoke tests passed after closing AIPC-060; existing Gemini unreachable-pattern warning is unrelated. |

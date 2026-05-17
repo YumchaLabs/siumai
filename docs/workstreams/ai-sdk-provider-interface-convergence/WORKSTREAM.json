@@ -42,11 +42,11 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "AIPC-060",
-    "title": "Move gateway/protocol bridge assertions toward stable-part-first expectations",
+    "id": "AIPC-070",
+    "title": "Re-audit OpenAI-compatible promoted vendor capability inheritance",
     "scope": [
-      "siumai-extras",
-      "siumai-bridge",
+      "siumai-provider-openai-compatible",
+      "provider docs",
       "docs/workstreams/ai-sdk-provider-interface-convergence"
     ]
   },

@@ -6,7 +6,7 @@ Last updated: 2026-05-18
 ## Current State
 
 The program workstream is open. The target seams, initial parity inventory, milestones, gates, and
-task ledger are recorded. AIPC-030, AIPC-040, and AIPC-050 are complete. AIPC-050 closed after three
+task ledger are recorded. AIPC-030, AIPC-040, AIPC-050, and AIPC-060 are complete. AIPC-050 closed after three
 stream-part slices: OpenAI Responses public feature-surface tests now exercise stable
 `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event inputs; extras
 gateway smoke tests now require stable downstream tool stream parts for the Anthropic-to-OpenAI
@@ -15,26 +15,26 @@ serializer behavior cannot be covered only through custom event inputs. Converte
 compatibility tests remain in place where they explicitly prove backward compatibility or
 provider-native replay behavior.
 
-AIPC-060 is now in progress. The first bridge/gateway slice added coverage that OpenAI Responses
-stream bridging emits output item frames from stable provider-tool stream parts, not only V3/custom
-compatibility events. Extras Axum SSE code now imports the OpenAI Responses parts adapter directly
-from `siumai_bridge::stream` instead of through the facade experimental streaming re-export, and a
-boundary test locks that seam.
+AIPC-060 closed after bridge and extras gateway/helper coverage proved that OpenAI Responses stream
+bridging emits output item frames from stable provider-tool stream parts, not only V3/custom
+compatibility events. Extras Axum SSE code imports the OpenAI Responses parts adapter directly from
+`siumai_bridge::stream` instead of through the facade experimental streaming re-export, and a
+boundary test locks that seam. M2 is complete.
 
 This lane is intentionally a coordination and execution program. It should keep spawning bounded
 vertical slices instead of becoming one cross-provider mega patch.
 
 ## Active Task
 
-- Task ID: AIPC-060
+- Task ID: AIPC-070
 - Owner: codex
 - Files:
-  - `siumai-bridge`
-  - `siumai-extras`
+  - `siumai-provider-openai-compatible`
+  - provider package docs/tests
   - `docs/workstreams/ai-sdk-provider-interface-convergence/*`
 - Validation:
-  - `cargo nextest run -p siumai-bridge --no-fail-fast`
-  - focused `siumai-extras` gateway tests
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
+  - focused public/provider surface tests for touched vendors
 
 ## Decisions Since Last Update
 
@@ -63,6 +63,9 @@ vertical slices instead of becoming one cross-provider mega patch.
 - AIPC-060 treats `OpenAiResponsesStreamPartsBridge` as bridge-owned. The facade may re-export it
   for advanced users, but extras runtime gateway code should import it directly from
   `siumai_bridge::stream`.
+- AIPC-060 added direct extras SSE helper coverage for stable provider-tool stream parts, so the
+  bridge/gateway stream milestone can close without removing compatibility-boundary custom-event
+  readers in object/tool-loop helpers.
 
 ## Blockers
 
@@ -70,6 +73,6 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Continue AIPC-060 by deciding whether the direct extras SSE transcode helper needs its own stable
-provider-tool stream part test, then close AIPC-060 or split any remaining loose custom-event readers
-as compatibility-boundary follow-ons.
+Execute AIPC-070. Start with a capability inventory for promoted OpenAI-compatible vendors, compare
+that to the AI SDK package surfaces and Siumai's documented package decisions, then add focused
+tests for any accidental inherited capability.

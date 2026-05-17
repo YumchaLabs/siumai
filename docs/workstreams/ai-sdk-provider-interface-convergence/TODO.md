@@ -59,18 +59,19 @@ Status legend:
   Anthropic/Gemini serializer guards now prefer stable stream parts for AI SDK-stable semantics.
   Keep provider-custom inputs only in explicitly named compatibility or provider-native tests.
 
-- [~] AIPC-060 [owner=codex] [deps=AIPC-050] [scope=siumai-extras,siumai-bridge,docs]
+- [x] AIPC-060 [owner=codex] [deps=AIPC-050] [scope=siumai-extras,siumai-bridge,docs]
   Goal: Move gateway/protocol bridge assertions toward stable-part-first expectations.
   Validation: `cargo nextest run -p siumai-bridge --no-fail-fast` and focused
   `siumai-extras` gateway tests.
   Evidence: bridge/gateway tests and migration notes.
-  Handoff: First slice added a stable provider-tool stream part bridge regression test and tightened
-  extras gateway code to import bridge-owned OpenAI Responses stream adapters directly from
-  `siumai_bridge::stream`. Keep Axum/server transport concerns out of `siumai-core`.
+  Handoff: Stable provider-tool stream parts are now covered both in the bridge crate and the
+  extras OpenAI Responses SSE helper. Extras runtime gateway code imports bridge-owned OpenAI
+  Responses stream adapters directly from `siumai_bridge::stream`; Axum/server transport concerns
+  remain out of `siumai-core`.
 
 ## M3 - Provider Package Parity
 
-- [ ] AIPC-070 [owner=unassigned] [deps=AIPC-020] [scope=siumai-provider-openai-compatible,provider docs]
+- [~] AIPC-070 [owner=codex] [deps=AIPC-020] [scope=siumai-provider-openai-compatible,provider docs]
   Goal: Re-audit OpenAI-compatible promoted vendors so package capability inheritance matches
   AI SDK package surfaces or documented Siumai decisions.
   Validation: focused provider public-path tests for each touched vendor.
