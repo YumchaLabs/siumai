@@ -127,6 +127,22 @@ fn test_responses_event_converter_content_delta() {
 }
 
 #[test]
+fn test_responses_event_converter_preserves_empty_plain_text_delta() {
+    let conv = OpenAiResponsesEventConverter::new();
+    let event = eventsource_stream::Event {
+        event: "message".to_string(),
+        data: r#"{"delta":""}"#.to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let fut = conv.convert_event(event);
+    let events = futures::executor::block_on(fut);
+    assert!(!events.is_empty());
+    let ev = events.first().unwrap().as_ref().unwrap();
+    assert_eq!(ev.text_delta(), Some(""));
+}
+
+#[test]
 fn test_responses_event_converter_tool_call_delta() {
     let conv = OpenAiResponsesEventConverter::new();
     let event = eventsource_stream::Event {
@@ -1620,6 +1636,38 @@ fn responses_reasoning_summary_text_delta_emits_typed_reasoning_part() {
 }
 
 #[test]
+fn responses_reasoning_summary_text_delta_preserves_empty_delta_field() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let ev = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":""}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+
+    let out = futures::executor::block_on(conv.convert_event(ev));
+    assert_eq!(out.len(), 1);
+    assert!(out.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::TypedStreamPart::ReasoningDelta {
+                delta,
+                provider_metadata,
+                ..
+            })
+                if delta == ""
+                    && provider_metadata
+                        .as_ref()
+                        .and_then(|meta| meta.get("openai"))
+                        .and_then(|meta| meta.get("itemId"))
+                        == Some(&serde_json::json!("rs_1"))
+        )
+    }));
+}
+
+#[test]
 fn responses_created_emits_part_stream_start_and_response_metadata() {
     let conv = OpenAiResponsesEventConverter::new();
     let event = eventsource_stream::Event {
@@ -1688,6 +1736,21 @@ fn responses_message_output_text_events_emit_text_parts() {
             stream_part(event),
             Some(crate::streaming::TypedStreamPart::TextDelta { id, delta, .. })
                 if id == "msg_1" && delta == "Hello"
+        )
+    }));
+
+    let empty_delta = eventsource_stream::Event {
+        event: "response.output_text.delta".to_string(),
+        data: r#"{"type":"response.output_text.delta","item_id":"msg_1","delta":""}"#.to_string(),
+        id: "2b".to_string(),
+        retry: None,
+    };
+    let empty_delta_out = futures::executor::block_on(conv.convert_event(empty_delta));
+    assert!(empty_delta_out.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::TypedStreamPart::TextDelta { id, delta, .. })
+                if id == "msg_1" && delta == ""
         )
     }));
 

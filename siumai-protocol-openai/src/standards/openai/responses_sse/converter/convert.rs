@@ -221,9 +221,7 @@ impl OpenAiResponsesEventConverter {
         // Handle delta as plain text or delta.content
         if let Some(delta) = json.get("delta") {
             // Case 1: delta is a plain string (response.output_text.delta)
-            if let Some(s) = delta.as_str()
-                && !s.is_empty()
-            {
+            if let Some(s) = delta.as_str() {
                 return Some(vec![crate::streaming::ChatStreamEvent::Part {
                     part: crate::types::ChatStreamPart::TextDelta {
                         id: "text".to_string(),
@@ -382,10 +380,7 @@ impl OpenAiResponsesEventConverter {
         if item_id.is_empty() {
             return None;
         }
-        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
-        if delta.is_empty() {
-            return None;
-        }
+        let delta = json.get("delta").and_then(|v| v.as_str())?;
 
         let id = self.text_stream_part_id(item_id);
 
@@ -767,10 +762,7 @@ impl OpenAiResponsesEventConverter {
         if item_id.is_empty() {
             return None;
         }
-        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
-        if delta.is_empty() {
-            return None;
-        }
+        let delta = json.get("delta").and_then(|v| v.as_str())?;
 
         match self.stream_parts_style {
             StreamPartsStyle::OpenAi => {

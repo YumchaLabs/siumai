@@ -312,8 +312,7 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 .and_then(|choices| choices.first())
                 .and_then(|choice| choice.get("text"))
                 .and_then(|value| value.as_str())
-                .map(ToString::to_string)
-                .unwrap_or_default();
+                .map(ToString::to_string);
             let finish_reason_raw = raw
                 .get("choices")
                 .and_then(|value| value.as_array())
@@ -350,8 +349,8 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                     state.finish_reason_raw = Some(raw_reason);
                 }
                 merge_completion_provider_metadata(&mut state.provider_metadata, provider_metadata);
-                if !delta.is_empty() {
-                    state.text.push_str(&delta);
+                if let Some(delta) = delta.as_deref() {
+                    state.text.push_str(delta);
                 }
 
                 let metadata = state.response_metadata(&provider_id);
@@ -364,7 +363,7 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 if emit_response_metadata {
                     state.response_metadata_emitted = true;
                 }
-                let emit_text_start = !delta.is_empty() && !state.text_started;
+                let emit_text_start = delta.is_some() && !state.text_started;
                 if emit_text_start {
                     state.text_started = true;
                 }
@@ -408,7 +407,7 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 }));
             }
 
-            if !delta.is_empty() {
+            if let Some(delta) = delta {
                 events.push(Ok(ChatStreamEvent::text_delta_part("0", delta)));
             }
 
@@ -1031,6 +1030,54 @@ mod tests {
             body["stream_options"],
             serde_json::json!({ "include_usage": true })
         );
+    }
+
+    #[tokio::test]
+    async fn openai_completion_stream_preserves_empty_and_whitespace_text_deltas() {
+        let server = MockServer::start().await;
+
+        let sse = concat!(
+            "data: {\"id\":\"cmpl-openai-lossless\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[{\"text\":\"A\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-openai-lossless\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[{\"text\":\"\\n\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-openai-lossless\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[{\"text\":\"\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-openai-lossless\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[{\"text\":\"B\",\"index\":0,\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+
+        Mock::given(method("POST"))
+            .and(path("/v1/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_raw(sse, "text/event-stream"),
+            )
+            .mount(&server)
+            .await;
+
+        let client = make_client(&format!("{}/v1", server.uri()));
+        let mut stream = client
+            .complete_stream(CompletionRequest::new("hello"))
+            .await
+            .expect("completion stream");
+
+        let mut deltas = Vec::new();
+        let mut end = None;
+        while let Some(item) = stream.next().await {
+            match item.expect("stream event") {
+                event if event.text_delta().is_some() => {
+                    deltas.push(event.text_delta().expect("text delta").to_string());
+                }
+                ChatStreamEvent::StreamEnd { response } => {
+                    end = Some(response);
+                    break;
+                }
+                ChatStreamEvent::StreamStart { .. } | ChatStreamEvent::Part { .. } => {}
+                other => panic!("unexpected completion stream event: {other:?}"),
+            }
+        }
+
+        assert_eq!(deltas, vec!["A", "\n", "", "B"]);
+        assert_eq!(end.expect("stream end").content_text(), Some("A\nB"));
     }
 
     #[tokio::test]
