@@ -6,10 +6,10 @@ Last updated: 2026-05-18
 ## Current State
 
 The program workstream is open. The target seams, initial parity inventory, milestones, gates, and
-task ledger are recorded. AIPC-030 and AIPC-040 are complete. `siumai-core::standards` now has an
-integration boundary guard against provider/protocol island directories or modules, and registry
-handle tests now lock stable-family primary execution away from compatibility clients while allowing
-the remaining image/audio compat paths only in extension-only helpers.
+task ledger are recorded. AIPC-030 and AIPC-040 are complete. AIPC-050 is in progress with the
+first OpenAI Responses stream-part slice landed locally: public feature-surface tests now exercise
+stable `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event inputs, while
+the converter-level custom-event compatibility tests remain in place.
 
 This lane is intentionally a coordination and execution program. It should keep spawning bounded
 vertical slices instead of becoming one cross-provider mega patch.
@@ -39,6 +39,9 @@ vertical slices instead of becoming one cross-provider mega patch.
 - AIPC-040 found that remaining registry handle compatibility clients are already extension-only:
   image edit/variation helpers and audio streaming/listing/translation helpers. A new boundary test
   locks that shape so primary stable-family execution does not regress.
+- AIPC-050 started with OpenAI Responses because its public feature surface still modeled stable
+  tool stream parts through `Custom("openai:*")` inputs even though production serialization already
+  accepts `ChatStreamEvent::Part`.
 
 ## Blockers
 
@@ -46,5 +49,6 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Start AIPC-050 by auditing protocol stream events for stable AI SDK semantics that still travel as
-provider custom/raw replay data. Prefer one provider slice first, with focused tests before widening.
+Continue AIPC-050 by auditing Anthropic/Gemini and `siumai-extras` gateway stream tests for any
+remaining stable AI SDK semantics asserted through provider custom/raw replay data. Keep legacy
+custom-event compatibility tests only where they explicitly prove backward compatibility.

@@ -101,3 +101,7 @@ should still run the full formatting gate.
 | 2026-05-18 | `cargo fmt -p siumai-registry --check` | Passed | Formatting gate for the AIPC-040 registry handle boundary slice. |
 | 2026-05-18 | `cargo nextest run -p siumai-registry remaining_registry_handle_compat_paths_are_extension_only --no-fail-fast` | Passed | Proves remaining registry compat client paths are isolated to extension-only image/audio helpers. |
 | 2026-05-18 | `cargo nextest run -p siumai-registry --no-fail-fast` | Passed | 97 tests passed; existing warnings are unrelated dead-code warnings in test support. |
+| 2026-05-18 | `cargo fmt -p siumai-protocol-openai --check` | Passed | Formatting gate for the OpenAI Responses AIPC-050 stream-part slice. |
+| 2026-05-18 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses --test responses_sse_feature_surface_test --no-fail-fast` | Passed | Proves the public OpenAI Responses feature surface roundtrips stable `ChatStreamEvent::Part` tool call/result parts. |
+| 2026-05-18 | `cargo nextest run -p siumai-protocol-openai responses_feature_surface_uses_stable_parts_for_tool_stream_parts --no-fail-fast` | Passed | Proves the public OpenAI Responses feature surface does not regress to provider custom events for stable tool stream parts. |
+| 2026-05-18 | `cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast` | Passed | 448 tests passed for the OpenAI protocol package after the first AIPC-050 slice. |

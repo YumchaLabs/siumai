@@ -1,7 +1,10 @@
 #![cfg(all(feature = "openai-standard", feature = "openai-responses"))]
 
 use eventsource_stream::Event;
+use std::collections::HashMap;
+
 use siumai_core::streaming::{ChatStreamEvent, SseEventConverter};
+use siumai_core::types::{ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult};
 use siumai_protocol_openai::standards::openai::responses_sse::OpenAiResponsesEventConverter;
 
 fn parse_sse_frames(bytes: &[u8]) -> Vec<(String, serde_json::Value)> {
@@ -28,39 +31,44 @@ fn parse_sse_frames(bytes: &[u8]) -> Vec<(String, serde_json::Value)> {
         .collect()
 }
 
+fn openai_provider_metadata(
+    value: serde_json::Value,
+) -> siumai_core::types::StreamProviderMetadata {
+    HashMap::from([("openai".to_string(), value)])
+}
+
 #[test]
 fn openai_responses_public_feature_surface_roundtrips_mcp_tool_stream_parts() {
     let encoder = OpenAiResponsesEventConverter::new();
 
     let tool_call_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-call".to_string(),
-            data: serde_json::json!({
-                "type": "tool-call",
-                "toolCallId": "mcp_1",
-                "toolName": "mcp.web_search_exa",
-                "providerExecuted": true,
-                "dynamic": true,
-                "input": "{\"query\":\"nyc mayor\"}",
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: "mcp_1".to_string(),
+                tool_name: "mcp.web_search_exa".to_string(),
+                provider_executed: Some(true),
+                dynamic: Some(true),
+                input: "{\"query\":\"nyc mayor\"}".to_string(),
+                provider_metadata: None,
             }),
         })
         .expect("serialize mcp tool-call");
     let tool_result_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-result".to_string(),
-            data: serde_json::json!({
-                "type": "tool-result",
-                "toolCallId": "mcp_1",
-                "toolName": "mcp.web_search_exa",
-                "providerExecuted": true,
-                "dynamic": true,
-                "result": {
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                tool_call_id: "mcp_1".to_string(),
+                tool_name: "mcp.web_search_exa".to_string(),
+                result: serde_json::json!({
                     "type": "call",
                     "serverLabel": "exa",
                     "name": "web_search_exa",
                     "arguments": "{\"query\":\"nyc mayor\"}",
                     "output": { "hits": 3 }
-                }
+                }),
+                is_error: None,
+                preliminary: None,
+                dynamic: Some(true),
+                provider_metadata: None,
             }),
         })
         .expect("serialize mcp tool-result");
@@ -130,27 +138,26 @@ fn openai_responses_public_feature_surface_roundtrips_tool_search_without_raw_it
     let encoder = OpenAiResponsesEventConverter::new();
 
     let tool_call_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-call".to_string(),
-            data: serde_json::json!({
-                "type": "tool-call",
-                "toolCallId": "call_final",
-                "toolName": "toolSearch",
-                "input": "{\"arguments\":{\"goal\":\"Find weather\"},\"call_id\":\"call_final\"}",
-                "providerMetadata": {
-                    "openai": { "itemId": "tsc_client_1" }
-                }
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: "call_final".to_string(),
+                tool_name: "toolSearch".to_string(),
+                input: "{\"arguments\":{\"goal\":\"Find weather\"},\"call_id\":\"call_final\"}"
+                    .to_string(),
+                provider_executed: None,
+                dynamic: None,
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "itemId": "tsc_client_1"
+                }))),
             }),
         })
         .expect("serialize tool_search tool-call");
     let tool_result_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-result".to_string(),
-            data: serde_json::json!({
-                "type": "tool-result",
-                "toolCallId": "call_final",
-                "toolName": "toolSearch",
-                "result": {
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                tool_call_id: "call_final".to_string(),
+                tool_name: "toolSearch".to_string(),
+                result: serde_json::json!({
                     "tools": [
                         {
                             "type": "function",
@@ -158,10 +165,13 @@ fn openai_responses_public_feature_surface_roundtrips_tool_search_without_raw_it
                             "parameters": { "type": "object" }
                         }
                     ]
-                },
-                "providerMetadata": {
-                    "openai": { "itemId": "tso_client_1" }
-                }
+                }),
+                is_error: None,
+                preliminary: None,
+                dynamic: None,
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "itemId": "tso_client_1"
+                }))),
             }),
         })
         .expect("serialize tool_search tool-result");

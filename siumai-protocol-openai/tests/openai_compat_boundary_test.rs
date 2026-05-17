@@ -88,6 +88,39 @@ fn provider_and_protocol_crates_do_not_publicly_mirror_core() {
     );
 }
 
+#[test]
+fn responses_feature_surface_uses_stable_parts_for_tool_stream_parts() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/responses_sse_feature_surface_test.rs"),
+    )
+    .expect("responses SSE feature surface test source");
+
+    for forbidden in [
+        r#"event_type: "openai:tool-call""#,
+        r#"event_type: "openai:tool-result""#,
+        r#""openai:tool-call""#,
+        r#""openai:tool-result""#,
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "OpenAI Responses public feature surface tests must use stable ChatStreamEvent::Part \
+             tool stream parts instead of provider custom events: found {forbidden}"
+        );
+    }
+
+    for required in [
+        "ChatStreamEvent::Part",
+        "ChatStreamPart::ToolCall",
+        "ChatStreamPart::ToolResult",
+    ] {
+        assert!(
+            source.contains(required),
+            "OpenAI Responses public feature surface tests should exercise stable stream parts: \
+             missing {required}"
+        );
+    }
+}
+
 fn collect_forbidden_imports(root: &Path, forbidden: &str, offenders: &mut Vec<String>) {
     let mut files = Vec::new();
     collect_rs_files(root, &mut files);
