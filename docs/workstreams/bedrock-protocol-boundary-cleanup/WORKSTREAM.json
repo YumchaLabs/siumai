@@ -1,0 +1,14 @@
+{
+  "slug": "bedrock-protocol-boundary-cleanup",
+  "status": "active",
+  "opened": "2026-05-17",
+  "objective": "Improve Bedrock chat protocol locality without changing public paths or wire behavior.",
+  "current_task": "BPC-030 Bedrock chat production boundary audit",
+  "next_task": "Reassess request planning, response metadata, and stream conversion after test isolation; stop if another split would only move code by size.",
+  "blocked": false,
+  "validation_focus": [
+    "siumai-provider-amazon-bedrock focused Bedrock no-network tests",
+    "source guards for request/response metadata direction",
+    "docs-only workstream ledger consistency"
+  ]
+}
