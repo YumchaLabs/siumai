@@ -1,0 +1,13 @@
+{
+  "slug": "workstream-status-hygiene",
+  "status": "closed",
+  "opened": "2026-05-17",
+  "objective": "Create a single workstream inventory and status hygiene rule without touching production code.",
+  "current_task": "closed",
+  "next_task": "No immediate follow-on. Normalize unknown legacy lanes only when they become relevant to new work.",
+  "blocked": false,
+  "validation_focus": [
+    "docs/workstreams inventory count",
+    "git diff --check"
+  ]
+}
