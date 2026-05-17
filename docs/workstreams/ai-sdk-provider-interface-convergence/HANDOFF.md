@@ -93,6 +93,13 @@ vertical slices instead of becoming one cross-provider mega patch.
   fixed. Siumai's xAI speech/TTS path remains a documented provider-owned Rust extension outside
   the audited AI SDK package surface, while completion/embedding/rerank/transcription stay
   unsupported.
+- AIPC-080 then re-audited Cohere. Existing code/tests already align the native Cohere package
+  surface to chat/embedding/rerank on `/v2`, with public `cohere()`, `create_cohere()`,
+  `CohereProviderSettings`, `VERSION`, typed options, and curated model modules. The stale Cohere
+  child-workstream notes that still treated settings/version as deferred were corrected, and the
+  AIPC inventory row is now Green. `CohereErrorData` remains deferred because it is not exported
+  from the audited upstream package index; upstream `generateId` remains deferred because Siumai has
+  no comparable provider-level stable ID hook.
 
 ## Blockers
 

@@ -84,6 +84,9 @@ that older OpenAI-compatible contract, but it is no longer the canonical public 
   `models::{chat, embedding, rerank, model_sets}`, and AI SDK-style option aliases such as
   `CohereLanguageModelOptions` / `CohereEmbeddingModelOptions` /
   `CohereRerankingModelOptions`)
+- public facade exports Rust package analogues for `cohere`, `createCohere`,
+  `CohereProviderSettings`, and `VERSION` as `cohere()`, `create_cohere()`,
+  `CohereProviderSettings`, and `VERSION`
 - public-path tests now assert positive unified behavior instead of intentional chat rejection
 - boundary tests now pin explicit-model semantics and the separation between native `/v2` and
   compat `/v1`
@@ -94,8 +97,8 @@ The implemented surface is currently locked by:
 
 - native/registry contract tests for chat, embeddings, and rerank
 - public-path parity tests across builder/provider/config/registry paths
-- public-surface compile guards for the Cohere typed exports, curated model modules, and AI SDK
-  compatibility aliases
+- public-surface compile guards for the Cohere typed exports, curated model modules, package
+  settings/version helpers, and AI SDK compatibility aliases
 - boundary tests proving native `cohere` requires explicit models and remains distinct from the
   compatibility preset
 
@@ -104,6 +107,6 @@ The implemented surface is currently locked by:
 - Continue auditing Cohere typed request/option parity against `repo-ref/ai/packages/cohere/src/*`
   as upstream adds fields or semantics.
 - Keep the curated model catalog aligned with the audited AI SDK reference set.
-- Keep TypeScript-only package exports such as `CohereProviderSettings`, `CohereErrorData`, and
-  `VERSION` intentionally deferred on the Rust side unless a cross-provider Rust pattern emerges
-  first.
+- Keep `generateId` and non-index error-data mirrors intentionally deferred unless a cross-provider
+  Rust pattern emerges. `CohereErrorData` exists in the upstream internals but is not currently
+  re-exported from the audited package index, so it is not part of the Rust package-surface target.

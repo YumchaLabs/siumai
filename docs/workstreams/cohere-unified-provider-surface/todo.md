@@ -69,9 +69,14 @@ Status legend:
 - [x] Enforce the audited AI SDK runtime batch-size guard on native embeddings.
   - native `cohere` embedding requests now fail fast when a single `/v2/embed` call carries more
     than `96` inputs, matching `repo-ref/ai/packages/cohere/src/cohere-embedding-model.ts`
-- [-] Mirror TypeScript-only package exports such as `CohereProviderSettings`,
-  `CohereErrorData`, or `VERSION` one-for-one on the Rust side.
-  - deferred intentionally because the Rust provider facade uses `CohereConfig`,
-    `CohereBuilder`, and `Provider::cohere()` as the stable settings/construction story, and other
-    aligned provider packages do not expose separate TS-style settings/error-data aliases either
+- [x] Mirror the audited package-index construction/settings/version names where Rust has a
+  cross-provider pattern.
+  - `provider_ext::cohere` now exposes `cohere()`, `create_cohere()`,
+    `CohereProviderSettings`, and `VERSION`, with public-surface compile guards.
+- [-] Mirror non-index internals such as `CohereErrorData` one-for-one on the Rust side.
+  - deferred intentionally because the audited `repo-ref/ai/packages/cohere/src/index.ts` package
+    index does not export `CohereErrorData`; it remains an upstream internal error-handler type.
+- [-] Mirror upstream `generateId` on the Rust side.
+  - deferred intentionally because the current Cohere runtime does not own a comparable
+    provider-level stable ID hook.
 - [ ] Revisit the curated model list whenever the audited AI SDK reference set changes.
