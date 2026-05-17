@@ -764,7 +764,7 @@ fn collect_text_deltas(events: &[ChatStreamEvent]) -> String {
 }
 
 #[cfg(feature = "anthropic")]
-fn typed_or_custom_tool_parts(
+fn stable_tool_parts(
     events: &[ChatStreamEvent],
     kind: &str,
     tool_name: &str,
@@ -772,12 +772,6 @@ fn typed_or_custom_tool_parts(
     events
         .iter()
         .filter_map(|event| match event {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!(kind))
-                    && data.get("toolName") == Some(&serde_json::json!(tool_name)) =>
-            {
-                Some(data.clone())
-            }
             ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
                 match (kind, part) {
                     ("tool-call", siumai::prelude::unified::ChatStreamPart::ToolCall(call))
@@ -795,6 +789,37 @@ fn typed_or_custom_tool_parts(
             _ => None,
         })
         .collect()
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn gateway_smoke_asserts_stable_tool_stream_parts() {
+    let source = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/gateway_axum_smoke_test.rs"),
+    )
+    .expect("gateway smoke test source");
+
+    let legacy_helper_name = format!("{}{}", "typed_or_", "custom_tool_parts");
+    let legacy_custom_match = format!("{}{}{}", "ChatStreamEvent::Custom", " { data, ", ".. }");
+
+    for forbidden in [legacy_helper_name.as_str(), legacy_custom_match.as_str()] {
+        assert!(
+            !source.contains(forbidden),
+            "gateway smoke tests must assert stable tool stream parts instead of accepting \
+             provider custom stream payloads: found {forbidden}"
+        );
+    }
+
+    for required in [
+        "stable_tool_parts",
+        "ChatStreamPart::ToolCall",
+        "ChatStreamPart::ToolResult",
+    ] {
+        assert!(
+            source.contains(required),
+            "gateway smoke tests should exercise stable tool stream parts: missing {required}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -1071,8 +1096,8 @@ async fn gateway_route_smoke_transcodes_anthropic_fixture_to_openai_sse() {
         .await
         .expect("body bytes");
     let downstream = decode_openai_responses_sse_body(&body);
-    let calls = typed_or_custom_tool_parts(&downstream, "tool-call", "web_fetch");
-    let results = typed_or_custom_tool_parts(&downstream, "tool-result", "web_fetch");
+    let calls = stable_tool_parts(&downstream, "tool-call", "web_fetch");
+    let results = stable_tool_parts(&downstream, "tool-result", "web_fetch");
 
     assert!(!calls.is_empty(), "expected downstream web_fetch tool-call");
     assert!(

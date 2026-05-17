@@ -7,9 +7,11 @@ Last updated: 2026-05-18
 
 The program workstream is open. The target seams, initial parity inventory, milestones, gates, and
 task ledger are recorded. AIPC-030 and AIPC-040 are complete. AIPC-050 is in progress with the
-first OpenAI Responses stream-part slice landed locally: public feature-surface tests now exercise
-stable `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event inputs, while
-the converter-level custom-event compatibility tests remain in place.
+first two stream-part assertion slices landed locally: OpenAI Responses public feature-surface tests
+now exercise stable `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event
+inputs, and extras gateway smoke tests now require stable downstream tool stream parts for the
+Anthropic-to-OpenAI Responses route. Converter-level custom-event compatibility tests remain in
+place where they explicitly prove backward compatibility.
 
 This lane is intentionally a coordination and execution program. It should keep spawning bounded
 vertical slices instead of becoming one cross-provider mega patch.
@@ -42,6 +44,8 @@ vertical slices instead of becoming one cross-provider mega patch.
 - AIPC-050 started with OpenAI Responses because its public feature surface still modeled stable
   tool stream parts through `Custom("openai:*")` inputs even though production serialization already
   accepts `ChatStreamEvent::Part`.
+- AIPC-050 then tightened the extras gateway smoke helper from typed-or-custom to stable-part-only
+  so gateway tests cannot mask a regression from stable tool parts back to provider custom payloads.
 
 ## Blockers
 
@@ -49,6 +53,6 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Continue AIPC-050 by auditing Anthropic/Gemini and `siumai-extras` gateway stream tests for any
-remaining stable AI SDK semantics asserted through provider custom/raw replay data. Keep legacy
-custom-event compatibility tests only where they explicitly prove backward compatibility.
+Continue AIPC-050 by auditing protocol serializer unit tests for remaining stable AI SDK semantics
+that are only exercised through provider custom/raw inputs. Keep legacy custom-event compatibility
+tests only where they explicitly prove backward compatibility.
