@@ -1,17 +1,20 @@
 use super::OpenAiClient;
 use crate::error::LlmError;
 use crate::execution::executors::common::{HttpBody, execute_json_request};
+use crate::standards::openai::completion_metadata::{
+    extract_completion_provider_metadata, flatten_completion_stream_provider_metadata,
+    merge_completion_provider_metadata,
+};
 use crate::standards::openai::utils::{parse_finish_reason, parse_openai_usage_value};
 use crate::streaming::{ChatStream, ChatStreamEvent};
 use crate::traits::CompletionCapability;
 use crate::types::{
     ChatMessage, ChatResponse, ChatStreamFinishInfo, ChatStreamPart, CompletionRequest,
     CompletionResponse, ContentPart, FinishReason, MessageContent, MessageRole,
-    ProviderMetadataMap, ResponseMetadata, Usage, Warning, merge_provider_metadata,
+    ProviderMetadataMap, ResponseMetadata, Usage, Warning,
 };
 use async_trait::async_trait;
 use chrono::TimeZone;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 #[allow(unreachable_patterns)]
@@ -132,50 +135,6 @@ fn completion_created_at(raw: &serde_json::Value) -> Option<chrono::DateTime<chr
         .get("created")
         .and_then(|value| value.as_i64().or_else(|| value.as_u64().map(|v| v as i64)))?;
     chrono::Utc.timestamp_opt(created, 0).single()
-}
-
-fn completion_provider_metadata(
-    provider_id: &str,
-    raw: &serde_json::Value,
-) -> Option<ProviderMetadataMap> {
-    let mut metadata = HashMap::new();
-
-    if let Some(logprobs) = raw
-        .get("choices")
-        .and_then(|value| value.as_array())
-        .and_then(|choices| choices.first())
-        .and_then(|choice| choice.get("logprobs"))
-        .filter(|value| !value.is_null())
-    {
-        metadata.insert("logprobs".to_string(), logprobs.clone());
-    }
-
-    if metadata.is_empty() {
-        None
-    } else {
-        Some(HashMap::from([(
-            provider_id.to_string(),
-            serde_json::Value::Object(metadata.into_iter().collect()),
-        )]))
-    }
-}
-
-fn merge_completion_provider_metadata(
-    target: &mut Option<ProviderMetadataMap>,
-    source: Option<ProviderMetadataMap>,
-) {
-    let Some(source) = source else {
-        return;
-    };
-
-    let target = target.get_or_insert_with(HashMap::new);
-    merge_provider_metadata(target, source);
-}
-
-fn flatten_completion_stream_provider_metadata(
-    nested: &Option<ProviderMetadataMap>,
-) -> Option<ProviderMetadataMap> {
-    nested.clone()
 }
 
 #[derive(Debug, Clone)]
@@ -324,7 +283,7 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 .as_deref()
                 .and_then(|value| parse_finish_reason(Some(value)));
             let usage = raw.get("usage").and_then(parse_openai_usage_value);
-            let provider_metadata = completion_provider_metadata(&provider_id, &raw);
+            let provider_metadata = extract_completion_provider_metadata(&provider_id, &raw);
             let created = completion_created_at(&raw);
 
             let mut events = Vec::new();
@@ -674,7 +633,7 @@ impl OpenAiClient {
                 body: Some(raw.clone()),
             }),
             warnings: (!warnings.is_empty()).then_some(warnings),
-            provider_metadata: completion_provider_metadata("openai", &raw),
+            provider_metadata: extract_completion_provider_metadata("openai", &raw),
         }
     }
 

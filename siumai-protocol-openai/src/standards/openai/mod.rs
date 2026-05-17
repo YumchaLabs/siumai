@@ -25,6 +25,7 @@
 pub mod audio;
 pub mod chat;
 pub mod compat;
+pub mod completion_metadata;
 pub mod embedding;
 pub mod errors;
 pub mod files;

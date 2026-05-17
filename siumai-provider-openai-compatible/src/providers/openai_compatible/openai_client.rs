@@ -17,6 +17,10 @@ use crate::providers::openai_compatible::middleware::OpenAiCompatibleStructuredO
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleToolWarningsMiddleware;
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
+use crate::standards::openai::completion_metadata::{
+    extract_completion_provider_metadata, flatten_completion_stream_provider_metadata,
+    merge_completion_provider_metadata,
+};
 use crate::standards::openai::utils::{
     parse_provider_openai_finish_reason, parse_provider_openai_usage_value,
 };
@@ -244,58 +248,6 @@ fn completion_created_at(raw: &serde_json::Value) -> Option<chrono::DateTime<chr
     chrono::Utc.timestamp_opt(created, 0).single()
 }
 
-fn completion_provider_metadata(
-    provider_id: &str,
-    raw: &serde_json::Value,
-) -> Option<ProviderMetadataMap> {
-    let mut metadata = std::collections::HashMap::new();
-
-    if let Some(sources) = raw
-        .get("sources")
-        .filter(|value| !value.is_null())
-        .filter(|value| value.as_array().is_some_and(|arr| !arr.is_empty()))
-    {
-        metadata.insert("sources".to_string(), sources.clone());
-    }
-
-    if let Some(logprobs) = raw
-        .get("choices")
-        .and_then(|value| value.as_array())
-        .and_then(|choices| choices.first())
-        .and_then(|choice| choice.get("logprobs"))
-        .filter(|value| !value.is_null())
-    {
-        metadata.insert("logprobs".to_string(), logprobs.clone());
-    }
-
-    if metadata.is_empty() {
-        None
-    } else {
-        Some(std::collections::HashMap::from([(
-            provider_id.to_string(),
-            serde_json::Value::Object(metadata.into_iter().collect()),
-        )]))
-    }
-}
-
-fn merge_completion_provider_metadata(
-    target: &mut Option<ProviderMetadataMap>,
-    source: Option<ProviderMetadataMap>,
-) {
-    let Some(source) = source else {
-        return;
-    };
-
-    let target = target.get_or_insert_with(std::collections::HashMap::new);
-    merge_provider_metadata(target, source);
-}
-
-fn flatten_completion_stream_provider_metadata(
-    nested: &Option<ProviderMetadataMap>,
-) -> Option<ProviderMetadataMap> {
-    nested.clone()
-}
-
 #[derive(Debug, Clone)]
 struct CompletionStreamState {
     text: String,
@@ -446,7 +398,8 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
             let usage = raw
                 .get("usage")
                 .and_then(|usage| parse_provider_openai_usage_value(provider_id.as_str(), usage));
-            let provider_metadata = completion_provider_metadata(&provider_metadata_key, &raw);
+            let provider_metadata =
+                extract_completion_provider_metadata(&provider_metadata_key, &raw);
             let created = completion_created_at(&raw);
 
             let mut events = Vec::new();
@@ -1105,7 +1058,7 @@ impl OpenAiCompatibleClient {
                 body: Some(raw.clone()),
             }),
             warnings: (!warnings.is_empty()).then_some(warnings),
-            provider_metadata: completion_provider_metadata(&provider_metadata_key, &raw),
+            provider_metadata: extract_completion_provider_metadata(&provider_metadata_key, &raw),
         }
     }
 
@@ -6511,7 +6464,7 @@ data: [DONE]
         let transport = SseResponseTransport::new(
             br#"data: {"id":"cmpl_3","model":"compat-model","choices":[{"text":"Hel","finish_reason":null}]}
 
-data: {"id":"cmpl_3","model":"compat-model","choices":[{"text":"lo","finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
+data: {"id":"cmpl_3","model":"compat-model","choices":[{"text":"lo","finish_reason":"stop","logprobs":{"tokens":["lo"],"token_logprobs":[-0.3],"top_logprobs":[{"lo":-0.3}]}}],"sources":[{"url":"https://example.com/stream-source"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
 
 data: [DONE]
 
@@ -6556,6 +6509,24 @@ data: [DONE]
             Some(3)
         );
         assert_eq!(end.content_text(), Some("Hello"));
+        assert_eq!(
+            end.provider_metadata
+                .as_ref()
+                .and_then(|root| root.get("compat-chat"))
+                .and_then(|meta| meta.get("logprobs")),
+            Some(&serde_json::json!({
+                "tokens": ["lo"],
+                "token_logprobs": [-0.3],
+                "top_logprobs": [{ "lo": -0.3 }]
+            }))
+        );
+        assert_eq!(
+            end.provider_metadata
+                .as_ref()
+                .and_then(|root| root.get("compat-chat"))
+                .and_then(|meta| meta.get("sources")),
+            Some(&serde_json::json!([{ "url": "https://example.com/stream-source" }]))
+        );
 
         let captured = transport.take_stream().expect("captured completion stream");
         assert_eq!(captured.url, "https://api.test.com/v1/completions");
@@ -6755,7 +6726,8 @@ data: [DONE]
                             "top_logprobs": [{"hello": -0.2}]
                         }
                     }
-                ]
+                ],
+                "sources": [{ "url": "https://example.com/source" }]
             }),
             &HeaderMap::new(),
             Vec::new(),
@@ -6783,6 +6755,14 @@ data: [DONE]
                 "token_logprobs": [-0.2],
                 "top_logprobs": [{"hello": -0.2}]
             }))
+        );
+        assert_eq!(
+            response
+                .provider_metadata
+                .as_ref()
+                .and_then(|root| root.get("openrouter"))
+                .and_then(|meta| meta.get("sources")),
+            Some(&serde_json::json!([{ "url": "https://example.com/source" }]))
         );
     }
 

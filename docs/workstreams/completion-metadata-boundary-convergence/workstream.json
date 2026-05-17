@@ -1,0 +1,19 @@
+{
+  "slug": "completion-metadata-boundary-convergence",
+  "title": "Completion Metadata Boundary Convergence",
+  "status": "closed",
+  "created": "2026-05-17",
+  "updated": "2026-05-17",
+  "current_task": "CMBC-050",
+  "scope": [
+    "siumai-protocol-openai/src/standards/openai",
+    "siumai-provider-openai/src/providers/openai/client/completion.rs",
+    "siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client.rs"
+  ],
+  "validation": [
+    "cargo fmt -p siumai-protocol-openai -p siumai-provider-openai -p siumai-provider-openai-compatible",
+    "cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast",
+    "cargo nextest run -p siumai-provider-openai --features openai --no-fail-fast",
+    "cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast"
+  ]
+}
