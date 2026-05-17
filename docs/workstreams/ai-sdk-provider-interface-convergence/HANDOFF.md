@@ -100,6 +100,11 @@ vertical slices instead of becoming one cross-provider mega patch.
   AIPC inventory row is now Green. `CohereErrorData` remains deferred because it is not exported
   from the audited upstream package index; upstream `generateId` remains deferred because Siumai has
   no comparable provider-level stable ID hook.
+- AIPC-080 then re-audited DeepSeek. A new lightweight child record documents that the upstream
+  `@ai-sdk/deepseek` package is chat/language-model only, with settings, error data, typed options,
+  and `VERSION` exported. Siumai already exposes the matching Rust package helpers and guards the
+  registry/provider-owned boundary so completion/embedding/image/audio/rerank do not leak in from
+  the shared OpenAI-compatible runtime. The AIPC inventory row is now Green.
 
 ## Blockers
 
