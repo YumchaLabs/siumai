@@ -65,6 +65,7 @@ use self::cache::{
 pub use self::factory::ProviderFactory;
 #[cfg(test)]
 use self::handles::image_model_handle_max_images_per_call;
+use self::handles::image_model_handle_supports_model;
 #[cfg(test)]
 use self::handles::video_model_handle_max_videos_per_call;
 pub use self::handles::{
@@ -390,6 +391,12 @@ impl ProviderRegistryHandle {
             return Err(LlmError::UnsupportedOperation(format!(
                 "Provider '{}' does not expose image_generation on the image_model handle",
                 provider_id
+            )));
+        }
+        if !image_model_handle_supports_model(&provider_id, &model_id) {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Model '{}' on provider '{}' does not expose image_generation on the image_model handle",
+                model_id, provider_id
             )));
         }
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);

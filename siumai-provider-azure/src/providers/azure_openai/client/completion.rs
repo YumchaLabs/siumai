@@ -412,6 +412,10 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
         })
     }
 
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        event.data.trim() == "[DONE]"
+    }
+
     fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
         let state = self.state.lock().expect("completion stream state");
         let mut events = Vec::new();

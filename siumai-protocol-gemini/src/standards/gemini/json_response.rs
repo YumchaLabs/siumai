@@ -4,17 +4,18 @@
 use crate::encoding::{JsonEncodeOptions, JsonResponseConverter};
 use crate::error::LlmError;
 use crate::types::{
-    ChatResponse, ContentPart as UnifiedContentPart, FinishReason, MessageContent, SourcePart,
-    Usage,
+    ChatResponse, ContentPart as UnifiedContentPart, FinishReason, MessageContent,
+    ProviderMetadataMap, SourcePart, ToolResultContentPart, ToolResultOutput, Usage,
 };
+use base64::Engine;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use super::convert::convert_message_to_content;
 use super::types::{
-    Candidate, Content, FinishReason as GeminiFinishReason, GenerateContentResponse,
-    GroundingMetadata, LogprobsResult, PromptFeedback, SafetyRating, UrlContextMetadata,
-    UsageMetadata,
+    Blob, Candidate, CodeExecutionOutcome, CodeExecutionResult, CodeLanguage, Content,
+    ExecutableCode, FileData, FinishReason as GeminiFinishReason, FunctionCall, FunctionResponse,
+    GenerateContentResponse, GroundingMetadata, LogprobsResult, Part, PromptFeedback, SafetyRating,
+    UrlContextMetadata, UsageMetadata,
 };
 
 fn gemini_finish_reason(reason: Option<&FinishReason>) -> Option<GeminiFinishReason> {
@@ -190,9 +191,7 @@ fn merged_grounding_metadata(response: &ChatResponse) -> Option<GroundingMetadat
 }
 
 fn response_content(response: &ChatResponse) -> Result<Content, LlmError> {
-    let assistant_message = response.to_assistant_message();
-
-    match &assistant_message.content {
+    match &response.content {
         MessageContent::Text(text) if text.trim().is_empty() => Ok(Content {
             role: Some("model".to_string()),
             parts: Vec::new(),
@@ -201,8 +200,450 @@ fn response_content(response: &ChatResponse) -> Result<Content, LlmError> {
             role: Some("model".to_string()),
             parts: Vec::new(),
         }),
-        _ => convert_message_to_content(&assistant_message, None),
+        MessageContent::Text(text) => Ok(Content {
+            role: Some("model".to_string()),
+            parts: vec![Part::Text {
+                text: text.clone(),
+                thought: None,
+                thought_signature: None,
+            }],
+        }),
+        MessageContent::MultiModal(content_parts) => {
+            let mut parts = Vec::new();
+            for part in content_parts {
+                push_response_part(&mut parts, part)?;
+            }
+            if parts.is_empty() {
+                return Err(LlmError::InvalidInput("Message has no content".to_string()));
+            }
+            Ok(Content {
+                role: Some("model".to_string()),
+                parts,
+            })
+        }
+        _ => {
+            let text = response.content.all_text();
+            if text.trim().is_empty() {
+                Ok(Content {
+                    role: Some("model".to_string()),
+                    parts: Vec::new(),
+                })
+            } else {
+                Ok(Content {
+                    role: Some("model".to_string()),
+                    parts: vec![Part::Text {
+                        text,
+                        thought: None,
+                        thought_signature: None,
+                    }],
+                })
+            }
+        }
     }
+}
+
+fn response_thought_signature(provider_metadata: Option<&ProviderMetadataMap>) -> Option<String> {
+    let provider_metadata = provider_metadata?;
+
+    for preferred in ["google", "vertex"] {
+        if let Some(sig) = provider_metadata
+            .get(preferred)
+            .and_then(|value| value.get("thoughtSignature"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|sig| !sig.is_empty())
+        {
+            return Some(sig.to_string());
+        }
+    }
+
+    provider_metadata.values().find_map(|value| {
+        value
+            .get("thoughtSignature")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|sig| !sig.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn parse_data_url(data_url: &str) -> Option<(String, String)> {
+    let (header, data) = data_url.strip_prefix("data:")?.split_once(',')?;
+    let mime_type = header
+        .split_once(';')
+        .map(|(mime_type, _)| mime_type)
+        .unwrap_or(header);
+    Some((mime_type.to_string(), data.to_string()))
+}
+
+fn guess_mime_type(url: &str) -> String {
+    crate::utils::guess_mime_from_path_or_url(url)
+        .unwrap_or_else(|| "application/octet-stream".to_string())
+}
+
+fn push_media_response_part(
+    parts: &mut Vec<Part>,
+    source: &crate::types::chat::MediaSource,
+    media_type: Option<&str>,
+    thought: Option<bool>,
+    thought_signature: Option<String>,
+) {
+    match source {
+        crate::types::chat::MediaSource::Url { url } if url.starts_with("data:") => {
+            if let Some((mime_type, data)) = parse_data_url(url) {
+                parts.push(Part::InlineData {
+                    inline_data: Blob { mime_type, data },
+                    thought,
+                    thought_signature,
+                });
+            }
+        }
+        crate::types::chat::MediaSource::Url { url } => {
+            parts.push(Part::FileData {
+                file_data: FileData {
+                    file_uri: url.clone(),
+                    mime_type: Some(
+                        media_type
+                            .map(ToOwned::to_owned)
+                            .unwrap_or_else(|| guess_mime_type(url)),
+                    ),
+                },
+                thought,
+                thought_signature,
+            });
+        }
+        crate::types::chat::MediaSource::Base64 { data } => {
+            parts.push(Part::InlineData {
+                inline_data: Blob {
+                    mime_type: media_type.unwrap_or("application/octet-stream").to_string(),
+                    data: data.clone(),
+                },
+                thought,
+                thought_signature,
+            });
+        }
+        crate::types::chat::MediaSource::Binary { data } => {
+            parts.push(Part::InlineData {
+                inline_data: Blob {
+                    mime_type: media_type.unwrap_or("application/octet-stream").to_string(),
+                    data: base64::engine::general_purpose::STANDARD.encode(data),
+                },
+                thought,
+                thought_signature,
+            });
+        }
+    }
+}
+
+fn json_value_to_option_string(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+fn parse_code_execution_outcome(value: Option<&str>) -> CodeExecutionOutcome {
+    match value {
+        Some("OUTCOME_OK") => CodeExecutionOutcome::Ok,
+        Some("OUTCOME_FAILED") => CodeExecutionOutcome::Failed,
+        Some("OUTCOME_DEADLINE_EXCEEDED") => CodeExecutionOutcome::DeadlineExceeded,
+        _ => CodeExecutionOutcome::Unspecified,
+    }
+}
+
+fn code_execution_result_from_output(output: &ToolResultOutput) -> CodeExecutionResult {
+    match output {
+        ToolResultOutput::Json { value, .. } | ToolResultOutput::ErrorJson { value, .. } => {
+            let obj = value.as_object();
+            CodeExecutionResult {
+                outcome: parse_code_execution_outcome(
+                    obj.and_then(|inner| inner.get("outcome"))
+                        .and_then(Value::as_str),
+                ),
+                output: obj
+                    .and_then(|inner| inner.get("output"))
+                    .and_then(json_value_to_option_string),
+            }
+        }
+        ToolResultOutput::Text { value, .. } | ToolResultOutput::ErrorText { value, .. } => {
+            CodeExecutionResult {
+                outcome: CodeExecutionOutcome::Unspecified,
+                output: Some(value.clone()),
+            }
+        }
+        ToolResultOutput::Content { value, .. } => CodeExecutionResult {
+            outcome: CodeExecutionOutcome::Unspecified,
+            output: Some(format!("Multimodal content with {} parts", value.len())),
+        },
+        ToolResultOutput::ExecutionDenied { reason, .. } => CodeExecutionResult {
+            outcome: CodeExecutionOutcome::Failed,
+            output: reason.clone(),
+        },
+    }
+}
+
+fn push_function_response_part(
+    parts: &mut Vec<Part>,
+    tool_name: &str,
+    content: Value,
+    thought_signature: Option<String>,
+) {
+    parts.push(Part::FunctionResponse {
+        function_response: FunctionResponse {
+            name: tool_name.to_string(),
+            response: json!({
+                "name": tool_name,
+                "content": content
+            }),
+        },
+        thought_signature,
+    });
+}
+
+fn push_tool_result_content_parts(
+    parts: &mut Vec<Part>,
+    tool_name: &str,
+    value: &[ToolResultContentPart],
+    thought_signature: Option<String>,
+) {
+    for content_part in value {
+        match content_part {
+            ToolResultContentPart::Text { text, .. } => {
+                push_function_response_part(
+                    parts,
+                    tool_name,
+                    Value::String(text.clone()),
+                    thought_signature.clone(),
+                );
+            }
+            ToolResultContentPart::ImageData {
+                data, media_type, ..
+            }
+            | ToolResultContentPart::FileData {
+                data, media_type, ..
+            } => {
+                parts.push(Part::InlineData {
+                    inline_data: Blob {
+                        mime_type: media_type.clone(),
+                        data: data.clone(),
+                    },
+                    thought: None,
+                    thought_signature: thought_signature.clone(),
+                });
+                parts.push(Part::Text {
+                    text: "Tool executed successfully and returned this file as a response"
+                        .to_string(),
+                    thought: None,
+                    thought_signature: thought_signature.clone(),
+                });
+            }
+            content_part => {
+                let text = serde_json::to_string(content_part).unwrap_or_default();
+                if !text.is_empty() {
+                    parts.push(Part::Text {
+                        text,
+                        thought: None,
+                        thought_signature: thought_signature.clone(),
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn push_response_tool_result_part(
+    parts: &mut Vec<Part>,
+    tool_name: &str,
+    output: &ToolResultOutput,
+    thought_signature: Option<String>,
+) {
+    if tool_name == "code_execution" {
+        parts.push(Part::CodeExecutionResult {
+            code_execution_result: code_execution_result_from_output(output),
+            thought_signature,
+        });
+        return;
+    }
+
+    match output {
+        ToolResultOutput::Text { value, .. } | ToolResultOutput::ErrorText { value, .. } => {
+            push_function_response_part(
+                parts,
+                tool_name,
+                Value::String(value.clone()),
+                thought_signature,
+            );
+        }
+        ToolResultOutput::Json { value, .. } | ToolResultOutput::ErrorJson { value, .. } => {
+            push_function_response_part(parts, tool_name, value.clone(), thought_signature);
+        }
+        ToolResultOutput::ExecutionDenied { reason, .. } => {
+            push_function_response_part(
+                parts,
+                tool_name,
+                Value::String(
+                    reason
+                        .clone()
+                        .unwrap_or_else(|| "Tool call execution denied.".to_string()),
+                ),
+                thought_signature,
+            );
+        }
+        ToolResultOutput::Content { value, .. } => {
+            push_tool_result_content_parts(parts, tool_name, value, thought_signature);
+        }
+    }
+}
+
+fn push_response_part(parts: &mut Vec<Part>, part: &UnifiedContentPart) -> Result<(), LlmError> {
+    match part {
+        UnifiedContentPart::Text {
+            text,
+            provider_metadata,
+            ..
+        } => {
+            if !text.is_empty() {
+                parts.push(Part::Text {
+                    text: text.clone(),
+                    thought: None,
+                    thought_signature: response_thought_signature(provider_metadata.as_ref()),
+                });
+            }
+        }
+        UnifiedContentPart::Reasoning {
+            text,
+            provider_metadata,
+            ..
+        } => {
+            if !text.trim().is_empty() {
+                parts.push(Part::Text {
+                    text: text.clone(),
+                    thought: Some(true),
+                    thought_signature: response_thought_signature(provider_metadata.as_ref()),
+                });
+            }
+        }
+        UnifiedContentPart::Image {
+            source,
+            media_type,
+            provider_metadata,
+            ..
+        } => {
+            let Some(source) = source.as_media_source() else {
+                return Err(LlmError::InvalidParameter(
+                    "Gemini response parts do not support provider-managed file references"
+                        .to_string(),
+                ));
+            };
+            push_media_response_part(
+                parts,
+                source,
+                media_type.as_deref().or(Some("image/jpeg")),
+                None,
+                response_thought_signature(provider_metadata.as_ref()),
+            );
+        }
+        UnifiedContentPart::File {
+            source,
+            media_type,
+            provider_metadata,
+            ..
+        } => {
+            let Some(source) = source.as_media_source() else {
+                return Err(LlmError::InvalidParameter(
+                    "Gemini response parts do not support provider-managed file references"
+                        .to_string(),
+                ));
+            };
+            push_media_response_part(
+                parts,
+                source,
+                Some(media_type.as_str()),
+                None,
+                response_thought_signature(provider_metadata.as_ref()),
+            );
+        }
+        UnifiedContentPart::Audio {
+            source,
+            media_type,
+            provider_metadata,
+            ..
+        } => {
+            push_media_response_part(
+                parts,
+                source,
+                media_type.as_deref().or(Some("audio/wav")),
+                None,
+                response_thought_signature(provider_metadata.as_ref()),
+            );
+        }
+        UnifiedContentPart::ReasoningFile {
+            source,
+            media_type,
+            provider_metadata,
+            ..
+        } => {
+            push_media_response_part(
+                parts,
+                source,
+                Some(media_type.as_str()),
+                Some(true),
+                response_thought_signature(provider_metadata.as_ref()),
+            );
+        }
+        UnifiedContentPart::ToolCall {
+            tool_name,
+            arguments,
+            provider_executed,
+            provider_metadata,
+            ..
+        } => {
+            let thought_signature = response_thought_signature(provider_metadata.as_ref());
+            if *provider_executed == Some(true) && tool_name == "code_execution" {
+                let language = match arguments.get("language").and_then(Value::as_str) {
+                    Some("PYTHON") => CodeLanguage::Python,
+                    _ => CodeLanguage::Unspecified,
+                };
+                let code = arguments
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                parts.push(Part::ExecutableCode {
+                    executable_code: ExecutableCode { language, code },
+                    thought_signature,
+                });
+            } else {
+                parts.push(Part::FunctionCall {
+                    function_call: FunctionCall {
+                        name: tool_name.clone(),
+                        args: Some(arguments.clone()),
+                    },
+                    thought_signature,
+                });
+            }
+        }
+        UnifiedContentPart::ToolResult {
+            tool_name,
+            output,
+            provider_metadata,
+            ..
+        } => {
+            push_response_tool_result_part(
+                parts,
+                tool_name,
+                output,
+                response_thought_signature(provider_metadata.as_ref()),
+            );
+        }
+        UnifiedContentPart::Source { .. }
+        | UnifiedContentPart::Custom { .. }
+        | UnifiedContentPart::ToolApprovalRequest { .. }
+        | UnifiedContentPart::ToolApprovalResponse { .. } => {}
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]

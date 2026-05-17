@@ -66,6 +66,48 @@ pub(in crate::registry::entry) fn image_model_handle_max_images_per_call(
     }
 }
 
+pub(in crate::registry::entry) fn image_model_handle_supports_model(
+    provider_id: &str,
+    model_id: &str,
+) -> bool {
+    let provider_id = provider_id.to_ascii_lowercase();
+    let model = model_id.to_ascii_lowercase();
+
+    match provider_id.as_str() {
+        // Azure image deployments are user-defined deployment names, not model ids.
+        "azure" | "azure-chat" => true,
+        "openai" | "openai-chat" | "openai-responses" => {
+            model.starts_with("dall-e")
+                || model.starts_with("gpt-image")
+                || model == "chatgpt-image-latest"
+        }
+        "gemini" => model.contains("image"),
+        "google-vertex" | "vertex" => model.contains("imagen") || model.contains("image"),
+        "bedrock" => {
+            model.contains("nova-canvas")
+                || model.contains("titan-image")
+                || model.contains("stable-image")
+        }
+        "minimaxi" => model.starts_with("image-"),
+        "xai" => model.starts_with("grok-imagine-image"),
+        "deepinfra" | "fireworks" | "siliconflow" | "together" | "togetherai"
+        | "openai-compatible" | "302ai" | "aihubmix" => is_known_image_model_name(&model),
+        // Unknown providers can expose arbitrary external model ids.
+        _ => true,
+    }
+}
+
+fn is_known_image_model_name(model: &str) -> bool {
+    model.contains("flux")
+        || model.contains("stable-diffusion")
+        || model.contains("sdxl")
+        || model.contains("sd3")
+        || model.contains("kolors")
+        || model.contains("image")
+        || model.contains("imagen")
+        || model.contains("canvas")
+}
+
 /// Implementation of ImageGenerationCapability for ImageModelHandle
 ///
 /// This allows the handle to be used directly as an image generation client, aligning with

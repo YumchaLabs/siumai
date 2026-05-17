@@ -1,6 +1,7 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::image::ImageModel as FamilyImageModel;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
@@ -117,6 +118,16 @@ impl ProviderFactory for GroqProviderFactory {
         _model_id: &str,
         _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Groq does not currently expose a provider-owned image family path".to_string(),
+        ))
+    }
+
+    async fn image_model_family_with_ctx(
+        &self,
+        _model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "Groq does not currently expose a provider-owned image family path".to_string(),
         ))

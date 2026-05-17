@@ -13,6 +13,7 @@ pub use embedding::EmbeddingModelHandle;
 pub use image::ImageModelHandle;
 #[cfg(test)]
 pub(in crate::registry::entry) use image::image_model_handle_max_images_per_call;
+pub(in crate::registry::entry) use image::image_model_handle_supports_model;
 pub use language::LanguageModelHandle;
 pub use rerank::RerankingModelHandle;
 pub use video::VideoModelHandle;

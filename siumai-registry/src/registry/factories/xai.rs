@@ -5,6 +5,7 @@ use crate::image::ImageModel as FamilyImageModel;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
+use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 use siumai_core::video::VideoModel as FamilyVideoModel;
 use siumai_provider_xai::providers::xai::XaiClient;
 
@@ -160,6 +161,16 @@ impl ProviderFactory for XAIProviderFactory {
         _model_id: &str,
         _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "xAI does not currently expose a provider-owned transcription family path".to_string(),
+        ))
+    }
+
+    async fn transcription_model_family_with_ctx(
+        &self,
+        _model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyTranscriptionModel>, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "xAI does not currently expose a provider-owned transcription family path".to_string(),
         ))
