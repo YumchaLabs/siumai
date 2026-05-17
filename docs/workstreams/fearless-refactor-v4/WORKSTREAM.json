@@ -3,7 +3,7 @@
   "status": "active",
   "opened": "2026-03-06",
   "objective": "Finish the family-model-centered fearless refactor while keeping provider-specific complexity below narrow provider/protocol module boundaries.",
-  "current_task": "OpenAI-compatible builder test module isolation",
+  "current_task": "OpenAI-compatible settings test module isolation",
   "next_task": "Audit whether any remaining OpenAI-compatible extension/runtime modules still have real ownership/coupling problems; stop if further splitting would only move data without improving locality.",
   "blocked": false,
   "validation_focus": [

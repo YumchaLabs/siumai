@@ -23,7 +23,8 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
   - `openai_client/completion/tests.rs` owns completion no-network contracts and source guards.
 - Repeated simple provider settings adapters now share `simple_compat_provider_settings!`; only
   generic OpenAI-compatible settings, Vertex MaaS settings, and Alibaba settings stay hand-written
-  because they own different construction behavior.
+  because they own different construction behavior. Provider settings contract tests now live in
+  `settings/tests.rs`.
 - Provider family default-model data has been split into `config/family_defaults.rs`; `config.rs`
   remains the compatibility lookup facade used by runtime/default-model callers.
 - Built-in provider registry data has been split into `config/builtin_providers.rs`; `config.rs`
@@ -60,6 +61,8 @@ new provider families need dedicated registry ownership.
 - Keep completion SSE state and event conversion in `openai_client/completion/streaming.rs`.
 - Keep simple provider settings adapters on the macro path unless the provider has real divergent
   construction behavior.
+- Keep provider settings contract tests in `settings/tests.rs`; `settings.rs` should stay focused
+  on settings construction code.
 - Keep provider family defaults in `config/family_defaults.rs`; `config.rs` should remain a lookup
   facade rather than a mixed data owner.
 - Keep built-in provider registry data in `config/builtin_providers.rs`; `config.rs` should not own
