@@ -31,6 +31,9 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
 - OpenAI-compatible builder reasoning defaults have been split into `builder/reasoning.rs`; the
   parent `builder.rs` shell now keeps construction, config convergence, HTTP wiring, and build
   orchestration instead of owning provider-specific thinking/reasoning parameter mapping.
+- OpenAI-compatible request-option extension tests now live in `ext/request_options/tests.rs`,
+  leaving `ext/request_options.rs` focused on public extension traits and provider-options map
+  merging.
 - Existing capability modules remain execution owners:
   - `chat`
   - `completion`
@@ -61,12 +64,15 @@ new provider families need dedicated registry ownership.
   `build_builtin_providers` or the static built-in provider map.
 - Keep provider-specific builder reasoning defaults in `builder/reasoning.rs`; `builder.rs` should
   remain a construction shell rather than another provider-option mapping table.
+- Keep request-option contract tests in `ext/request_options/tests.rs`; `ext/request_options.rs`
+  should remain the public extension-trait shell.
 - Prefer focused no-network tests and source guards over broad rewrites.
 
 ## Validation Commands
 
 - `cargo fmt -p siumai-provider-openai-compatible`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast builder`
+- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast request_options`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast completion`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast settings`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast config`

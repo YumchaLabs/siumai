@@ -24,12 +24,15 @@ Last updated: 2026-05-17
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/config/family_defaults.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/builder.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/builder/reasoning.rs`
+  - `siumai-provider-openai-compatible/src/providers/openai_compatible/ext/request_options.rs`
+  - `siumai-provider-openai-compatible/src/providers/openai_compatible/ext/request_options/tests.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/providers/models/mod.rs`
 
 ## Required Gates
 
 - `cargo fmt -p siumai-provider-openai-compatible`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast builder`
+- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast request_options`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast completion`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast settings`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast config`
@@ -88,3 +91,9 @@ Last updated: 2026-05-17
     - Result: 22 tests passed, 210 skipped.
   - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
     - Result: 232 tests passed, 0 skipped.
+- OpenAI-compatible request-option extension test isolation:
+  - `cargo fmt -p siumai-provider-openai-compatible`
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast request_options`
+    - Result: 20 tests passed, 213 skipped.
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
+    - Result: 233 tests passed, 0 skipped.
