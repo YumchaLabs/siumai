@@ -41,4 +41,4 @@ Acceptance criteria:
 - Remaining risks or follow-ons are explicit.
 - Workstream status is closed or the next bounded task is identified.
 
-Status: pending
+Status: completed

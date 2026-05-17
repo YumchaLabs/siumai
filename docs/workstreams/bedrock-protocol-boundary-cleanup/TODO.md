@@ -1,6 +1,6 @@
 # Bedrock Protocol Boundary Cleanup - TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-17
 
 Status legend:
@@ -41,8 +41,9 @@ Status legend:
 
 ## M3 - Closeout
 
-- [ ] BPC-040 [owner=planner] [deps=BPC-030] [scope=docs/workstreams/bedrock-protocol-boundary-cleanup]
+- [x] BPC-040 [owner=codex] [deps=BPC-030] [scope=docs/workstreams/bedrock-protocol-boundary-cleanup]
   Goal: Close the lane or split a narrower follow-on.
   Validation: `git diff --check`; final focused gates recorded.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`
-  Handoff: Summarize remaining risks in `HANDOFF.md`.
+  Handoff: Lane closed. No immediate follow-on was split; future Bedrock work should start from a
+  concrete behavior issue rather than a file-size cleanup.

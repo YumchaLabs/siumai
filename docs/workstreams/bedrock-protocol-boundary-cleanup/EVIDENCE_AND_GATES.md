@@ -29,3 +29,6 @@ Last updated: 2026-05-17
   - `cargo fmt -p siumai-provider-amazon-bedrock`
   - `cargo nextest run -p siumai-provider-amazon-bedrock --all-features --no-fail-fast bedrock`
     - Result: 74 tests passed, 0 skipped.
+- BPC-040 closeout:
+  - `git diff --check`
+    - Result: passed.

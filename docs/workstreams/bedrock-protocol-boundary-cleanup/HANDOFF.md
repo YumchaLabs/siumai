@@ -4,8 +4,8 @@ Last updated: 2026-05-17
 
 ## Current State
 
-The workstream is active. Scope is intentionally narrow: improve Bedrock chat protocol locality
-without changing public module paths or wire behavior.
+The workstream is closed. Bedrock chat protocol locality improved without changing public module
+paths or wire behavior.
 
 ## Current Task
 
@@ -49,5 +49,12 @@ BPC-020 is complete:
 
 ## Next Recommendation
 
-Run BPC-040 closeout unless a new Bedrock-specific issue appears. The remaining request/response
-code should not be split just to reduce file size.
+No immediate follow-on is recommended. The remaining request/response code should not be split just
+to reduce file size; open a new workstream only for a concrete Bedrock behavior issue or a helper
+with proven reuse across Bedrock chat, embedding, image, or rerank.
+
+## Residual Risk
+
+Focused Bedrock no-network tests passed, but this lane did not run live AWS Bedrock integration
+tests. Wire behavior is protected by existing contract tests and source guards, not by live service
+round trips.

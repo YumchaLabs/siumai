@@ -1,6 +1,6 @@
 # Bedrock Protocol Boundary Cleanup
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-17
 
 ## Why This Lane Exists
@@ -84,3 +84,10 @@ This lane can close when:
 - focused Bedrock no-network gates pass,
 - docs record any deferred follow-ons,
 - and `WORKSTREAM.json` / `HANDOFF.md` describe the next step or closure.
+
+## Closeout Summary
+
+Closed on 2026-05-17. Bedrock chat tests now live in `chat/tests.rs`, stream JSON conversion lives
+in `chat/streaming.rs`, and `chat.rs` remains the public standard shell for request and non-stream
+response conversion. Request planning and response shaping were intentionally left together because
+their remaining helpers are shared Bedrock protocol mapping code, not independent modules.
