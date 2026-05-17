@@ -31,7 +31,7 @@ Acceptance criteria:
   split into a smaller bounded task.
 - No file-size-only split remains on the task ledger.
 
-Status: in progress
+Status: completed
 
 ## M3 - Closeout
 

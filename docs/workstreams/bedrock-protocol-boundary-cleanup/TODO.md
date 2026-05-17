@@ -30,11 +30,14 @@ Status legend:
 
 ## M2 - Production Boundary Audit
 
-- [~] BPC-030 [owner=unassigned] [deps=BPC-020] [scope=siumai-provider-amazon-bedrock/src/standards/bedrock/chat.rs]
+- [x] BPC-030 [owner=codex] [deps=BPC-020] [scope=siumai-provider-amazon-bedrock/src/standards/bedrock/chat.rs,siumai-provider-amazon-bedrock/src/standards/bedrock/chat/streaming.rs,siumai-provider-amazon-bedrock/src/standards/bedrock/chat/tests.rs]
   Goal: Reassess request planning, response metadata, and stream conversion after test isolation.
-  Validation: Written decision in `HANDOFF.md` and, if code changes, focused Bedrock nextest gates.
-  Evidence: `HANDOFF.md`
-  Handoff: Split a follow-on only if another seam has real locality or leverage.
+  Validation: `cargo fmt -p siumai-provider-amazon-bedrock`; `cargo nextest run -p siumai-provider-amazon-bedrock --all-features --no-fail-fast bedrock`
+  Evidence: `siumai-provider-amazon-bedrock/src/standards/bedrock/chat/streaming.rs`, `HANDOFF.md`
+  Handoff: Stream conversion was extracted because it owns Bedrock stream DTOs, accumulator state,
+  and JSON event conversion. Request planning and response shaping remain in `chat.rs` because the
+  remaining helpers are shared Bedrock protocol mapping code; splitting them now would mostly create
+  cross-module private glue.
 
 ## M3 - Closeout
 

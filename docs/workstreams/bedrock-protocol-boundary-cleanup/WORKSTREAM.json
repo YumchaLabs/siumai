@@ -3,8 +3,8 @@
   "status": "active",
   "opened": "2026-05-17",
   "objective": "Improve Bedrock chat protocol locality without changing public paths or wire behavior.",
-  "current_task": "BPC-030 Bedrock chat production boundary audit",
-  "next_task": "Reassess request planning, response metadata, and stream conversion after test isolation; stop if another split would only move code by size.",
+  "current_task": "BPC-040 Closeout",
+  "next_task": "Close the workstream unless a new Bedrock-specific issue appears; do not split request/response code by file size alone.",
   "blocked": false,
   "validation_focus": [
     "siumai-provider-amazon-bedrock focused Bedrock no-network tests",

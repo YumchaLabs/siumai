@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::provider_metadata::bedrock::BedrockChatResponseExt;
 use crate::provider_options::{
@@ -6,6 +5,7 @@ use crate::provider_options::{
     BedrockServiceTier,
 };
 use crate::providers::bedrock::ext::BedrockChatRequestExt;
+use crate::streaming::{ChatStreamEvent, ChatStreamPart, JsonEventConverter};
 
 fn test_transformers(uses_json_response_tool: bool) -> ChatTransformers {
     BedrockChatStandard::new().create_transformers(
@@ -70,6 +70,13 @@ fn production_source_between(start_marker: &str, end_marker: &str) -> &'static s
     section
 }
 
+fn response_and_stream_production_source() -> String {
+    let response_source =
+        production_source_between("struct BedrockChatResponseTransformer", "#[cfg(test)]");
+    let stream_source = include_str!("streaming.rs");
+    format!("{response_source}\n{stream_source}")
+}
+
 #[test]
 fn request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
     let request_source = production_source_between(
@@ -89,8 +96,7 @@ fn request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
 
 #[test]
 fn response_and_stream_source_do_not_emit_request_provider_options() {
-    let response_stream_source =
-        production_source_between("struct BedrockChatResponseTransformer", "#[cfg(test)]");
+    let response_stream_source = response_and_stream_production_source();
 
     assert!(
         !response_stream_source.contains("providerOptions"),
