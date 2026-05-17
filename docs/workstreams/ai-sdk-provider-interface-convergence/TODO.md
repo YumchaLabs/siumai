@@ -29,16 +29,17 @@ Status legend:
 
 ## M1 - Core And Registry Guard Slices
 
-- [~] AIPC-030 [owner=codex] [deps=AIPC-020] [scope=siumai-core,siumai-registry,docs]
+- [x] AIPC-030 [owner=codex] [deps=AIPC-020] [scope=siumai-core,siumai-registry,docs]
   Goal: Audit and strengthen source guards for provider-specific behavior in `siumai-core` and
   generic-client execution in stable registry family paths.
   Validation: `cargo nextest run -p siumai-core --no-fail-fast` and
   `cargo nextest run -p siumai-registry --no-fail-fast`
   Evidence: source guards and boundary tests under the affected crates.
-  Handoff: If a guard exposes real drift, split the code move into a smaller task before widening
-  the patch.
+  Handoff: Added a `siumai-core::standards` guard and confirmed the existing registry family-handle
+  guard remains green. A stale empty `siumai-core/src/standards/openai` working-tree directory was
+  removed locally because the guard correctly rejected it; no tracked code was deleted.
 
-- [ ] AIPC-040 [owner=unassigned] [deps=AIPC-030] [scope=siumai-registry/src/registry/entry]
+- [~] AIPC-040 [owner=codex] [deps=AIPC-030] [scope=siumai-registry/src/registry/entry]
   Goal: Reduce primary stable-family registry execution through `compat_*_client_with_ctx` or
   `as_*_capability()` where native family models already exist.
   Validation: focused registry handle tests, then `cargo nextest run -p siumai-registry --no-fail-fast`

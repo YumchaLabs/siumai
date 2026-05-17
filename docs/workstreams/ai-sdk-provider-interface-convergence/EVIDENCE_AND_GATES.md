@@ -89,3 +89,8 @@ should still run the full formatting gate.
 | Date | Command | Result | Notes |
 | --- | --- | --- | --- |
 | 2026-05-18 | `git status --short --branch` | Passed | Opening worktree was clean on `main`. |
+| 2026-05-18 | `cargo fmt -p siumai-core --check` | Passed | Formatting gate for the AIPC-030 core guard slice. |
+| 2026-05-18 | `cargo nextest run -p siumai-core core_standards_module_does_not_reintroduce_provider_protocol_islands --no-fail-fast` | Passed | Proves `siumai-core::standards` cannot regain provider/protocol island directories or modules. |
+| 2026-05-18 | `cargo nextest run -p siumai-registry stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_execution --no-fail-fast` | Passed | Reconfirmed the existing registry stable-family handle guard. |
+| 2026-05-18 | `cargo nextest run -p siumai-registry --no-fail-fast` | Passed | 96 tests passed; existing warnings are unrelated dead-code warnings in test support. |
+| 2026-05-18 | `cargo nextest run -p siumai-core --no-fail-fast` | Passed | 426 tests passed after moving the new guard into the existing integration boundary test suite. |

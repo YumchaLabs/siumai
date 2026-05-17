@@ -225,6 +225,66 @@ fn core_does_not_own_provider_hosted_tool_factories() {
 }
 
 #[test]
+fn core_standards_module_does_not_reintroduce_provider_protocol_islands() {
+    let standards_dir = crate_root().join("src").join("standards");
+    let standards_mod =
+        fs::read_to_string(standards_dir.join("mod.rs")).expect("read src/standards/mod.rs");
+    let provider_fragments = [
+        "amazon",
+        "anthropic",
+        "azure",
+        "bedrock",
+        "cohere",
+        "deepinfra",
+        "deepseek",
+        "fireworks",
+        "gemini",
+        "google",
+        "groq",
+        "mistral",
+        "moonshot",
+        "ollama",
+        "openai",
+        "perplexity",
+        "togetherai",
+        "vertex",
+        "xai",
+    ];
+
+    let mut violations = Vec::new();
+    for entry in fs::read_dir(&standards_dir).expect("read src/standards") {
+        let entry = entry.expect("read standards entry");
+        let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().replace('_', "-");
+
+        if path.is_dir() {
+            violations.push(format!(
+                "{}: protocol/provider standard subdirectories belong in protocol or provider crates",
+                path.display()
+            ));
+        }
+
+        for fragment in provider_fragments {
+            if file_name.contains(fragment)
+                || standards_mod.contains(&format!("pub mod {fragment}"))
+                || standards_mod.contains(&format!("mod {fragment}"))
+            {
+                violations.push(format!(
+                    "{}: provider/protocol fragment `{fragment}`",
+                    path.display()
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "siumai-core::standards must stay provider-agnostic; protocol/provider islands belong in `siumai-protocol-*` or `siumai-provider-*` crates:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn core_client_wrapper_does_not_expose_provider_specific_constructors() {
     let client =
         fs::read_to_string(crate_root().join("src").join("client.rs")).expect("read src/client.rs");

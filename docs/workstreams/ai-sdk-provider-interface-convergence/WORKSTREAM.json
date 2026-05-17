@@ -42,11 +42,10 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "AIPC-030",
-    "title": "Audit and strengthen core/registry source guards",
+    "id": "AIPC-040",
+    "title": "Reduce primary stable-family registry execution through compatibility clients",
     "scope": [
-      "siumai-core",
-      "siumai-registry",
+      "siumai-registry/src/registry/entry",
       "docs/workstreams/ai-sdk-provider-interface-convergence"
     ]
   },
