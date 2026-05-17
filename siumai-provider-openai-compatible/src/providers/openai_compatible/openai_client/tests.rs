@@ -1,4 +1,5 @@
 use super::*;
+use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
@@ -76,6 +77,61 @@ fn make_text_streaming_adapter() -> Arc<ConfigurableAdapter> {
         api_key_env: None,
         api_key_env_aliases: vec![],
     }))
+}
+
+#[tokio::test]
+async fn promoted_vendor_clients_only_expose_explicit_completion_capability() {
+    async fn builtin_client_for_surface(provider_id: &str) -> OpenAiCompatibleClient {
+        let fallback_model = "capability-surface-test-model";
+        OpenAiCompatibleClient::from_builtin(provider_id, "test-key", Some(fallback_model))
+            .await
+            .unwrap_or_else(|err| panic!("expected {provider_id} client: {err:?}"))
+    }
+
+    let non_completion_providers = [
+        "deepseek",
+        "groq",
+        "xai",
+        "openrouter",
+        "siliconflow",
+        "alibaba",
+        "qwen",
+        "mistral",
+        "perplexity",
+        "moonshotai",
+    ];
+
+    for provider_id in non_completion_providers {
+        let client = builtin_client_for_surface(provider_id).await;
+
+        assert!(
+            !client.capabilities().supports("completion"),
+            "expected {provider_id} not to report completion support"
+        );
+        assert!(
+            client.as_completion_capability().is_none(),
+            "expected {provider_id} not to expose completion capability downcast"
+        );
+    }
+
+    for provider_id in [
+        "together",
+        "togetherai",
+        "deepinfra",
+        "fireworks",
+        "vertex-maas",
+    ] {
+        let client = builtin_client_for_surface(provider_id).await;
+
+        assert!(
+            client.capabilities().supports("completion"),
+            "expected {provider_id} to report explicit completion support"
+        );
+        assert!(
+            client.as_completion_capability().is_some(),
+            "expected {provider_id} to expose completion capability downcast"
+        );
+    }
 }
 
 #[derive(Clone, Default)]

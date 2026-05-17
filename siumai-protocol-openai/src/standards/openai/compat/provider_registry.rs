@@ -113,13 +113,10 @@ pub fn provider_config_declares_chat_surface(config: &ProviderConfig) -> bool {
 }
 
 pub fn provider_config_declares_completion_surface(config: &ProviderConfig) -> bool {
-    if !provider_config_declares_chat_surface(config) {
-        return false;
-    }
-
-    // Some AI SDK-packaged compat providers intentionally expose only chat/language models
-    // even though they reuse OpenAI-style chat-completions transport underneath.
-    !matches!(config.id.as_str(), "mistral" | "perplexity" | "moonshotai")
+    config
+        .capabilities
+        .iter()
+        .any(|cap| cap.as_str() == "completion")
 }
 
 impl ProviderAdapter for ConfigurableAdapter {
@@ -585,6 +582,33 @@ mod tests {
                 "embedding".to_string(),
             ],
             default_model: None,
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+
+        let adapter = ConfigurableAdapter::new(cfg);
+        let caps = adapter.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("streaming"));
+        assert!(!caps.supports("completion"));
+        assert!(caps.supports("embedding"));
+    }
+
+    #[test]
+    fn configurable_adapter_completion_surface_is_explicit() {
+        let cfg = ProviderConfig {
+            id: "completion-capable".to_string(),
+            name: "Completion Capable".to_string(),
+            base_url: "https://example.invalid/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "completion".to_string(),
+                "tools".to_string(),
+                "embedding".to_string(),
+            ],
+            default_model: Some("text-davinci-compatible".to_string()),
             supports_reasoning: false,
             api_key_env: None,
             api_key_env_aliases: Vec::new(),

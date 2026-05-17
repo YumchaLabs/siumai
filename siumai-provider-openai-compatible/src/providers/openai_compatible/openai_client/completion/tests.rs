@@ -21,6 +21,7 @@ fn make_text_streaming_adapter() -> Arc<ConfigurableAdapter> {
         base_url: "https://api.test.com/v1".to_string(),
         field_mappings: ProviderFieldMappings::default(),
         capabilities: vec![
+            "completion".to_string(),
             "chat".to_string(),
             "streaming".to_string(),
             "tools".to_string(),

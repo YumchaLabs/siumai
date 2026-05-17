@@ -578,6 +578,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
                     .to_string(),
             field_mappings: ProviderFieldMappings::default(),
             capabilities: vec![
+                "completion".to_string(),
                 "tools".to_string(),
                 "vision".to_string(),
                 "embedding".to_string(),

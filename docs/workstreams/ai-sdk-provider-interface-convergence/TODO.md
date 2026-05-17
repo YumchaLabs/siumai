@@ -71,14 +71,18 @@ Status legend:
 
 ## M3 - Provider Package Parity
 
-- [~] AIPC-070 [owner=codex] [deps=AIPC-020] [scope=siumai-provider-openai-compatible,provider docs]
+- [x] AIPC-070 [owner=codex] [deps=AIPC-020] [scope=siumai-provider-openai-compatible,provider docs]
   Goal: Re-audit OpenAI-compatible promoted vendors so package capability inheritance matches
   AI SDK package surfaces or documented Siumai decisions.
   Validation: focused provider public-path tests for each touched vendor.
   Evidence: provider capability matrix rows and tests.
-  Handoff: Split one child workstream per vendor if the fix needs provider-specific API changes.
+  Handoff: Completion family exposure is now explicit metadata rather than inferred from chat
+  transport. DeepSeek, Groq, xAI, OpenRouter, SiliconFlow, Alibaba/Qwen, Mistral, Perplexity, and
+  MoonshotAI do not inherit completion through the shared OpenAI-compatible runtime. TogetherAI,
+  DeepInfra, Fireworks, generic OpenAI-compatible configs, and Vertex MaaS keep explicit completion
+  capability where Siumai has documented support.
 
-- [ ] AIPC-080 [owner=unassigned] [deps=AIPC-020] [scope=siumai-provider-*,siumai-protocol-*,docs]
+- [~] AIPC-080 [owner=codex] [deps=AIPC-020] [scope=siumai-provider-*,siumai-protocol-*,docs]
   Goal: Run provider-by-provider package parity slices for native providers.
   Validation: package-specific no-network tests and public import tests.
   Evidence: child workstreams or inventory rows for OpenAI, Azure, Anthropic, Google/Gemini,

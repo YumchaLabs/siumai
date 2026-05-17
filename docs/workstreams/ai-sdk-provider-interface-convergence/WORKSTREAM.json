@@ -42,11 +42,11 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "AIPC-070",
-    "title": "Re-audit OpenAI-compatible promoted vendor capability inheritance",
+    "id": "AIPC-080",
+    "title": "Run provider-by-provider package parity slices for native providers",
     "scope": [
-      "siumai-provider-openai-compatible",
-      "provider docs",
+      "siumai-provider-*",
+      "siumai-protocol-*",
       "docs/workstreams/ai-sdk-provider-interface-convergence"
     ]
   },

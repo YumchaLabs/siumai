@@ -36,6 +36,7 @@ pub fn generic_provider_config(provider_id: &str, name: &str, base_url: &str) ->
         base_url: base_url.to_string(),
         field_mappings: ProviderFieldMappings::default(),
         capabilities: vec![
+            "completion".to_string(),
             "tools".to_string(),
             "vision".to_string(),
             "embedding".to_string(),
@@ -168,11 +169,14 @@ mod tests {
     #[test]
     fn test_provider_capabilities() {
         assert!(provider_supports_capability("deepseek", "reasoning"));
+        assert!(!provider_supports_capability("deepseek", "completion"));
         assert!(provider_supports_capability("openrouter", "tools"));
         assert!(provider_supports_capability("openrouter", "embedding"));
+        assert!(!provider_supports_capability("openrouter", "completion"));
         assert!(provider_supports_capability("perplexity", "tools"));
         assert!(provider_supports_capability("siliconflow", "rerank"));
         assert!(provider_supports_capability("siliconflow", "embedding"));
+        assert!(!provider_supports_capability("siliconflow", "completion"));
         assert!(provider_supports_capability(
             "siliconflow",
             "image_generation"
@@ -198,8 +202,11 @@ mod tests {
         assert!(provider_supports_capability("moonshotai", "reasoning"));
         assert!(!provider_supports_capability("moonshotai", "completion"));
         assert!(provider_supports_capability("alibaba", "reasoning"));
+        assert!(!provider_supports_capability("alibaba", "completion"));
         assert!(provider_supports_capability("qwen", "reasoning"));
+        assert!(!provider_supports_capability("qwen", "completion"));
         assert!(provider_supports_capability("vertex-maas", "embedding"));
+        assert!(provider_supports_capability("vertex-maas", "completion"));
         assert!(!provider_supports_capability(
             "vertex-maas",
             "image_generation"
@@ -209,6 +216,7 @@ mod tests {
         assert!(!provider_supports_capability("perplexity", "completion"));
         assert!(provider_supports_capability("fireworks", "completion"));
         assert!(!provider_supports_capability("groq", "vision"));
+        assert!(!provider_supports_capability("groq", "completion"));
         assert!(provider_supports_capability("groq", "transcription"));
         assert!(provider_supports_capability("groq", "audio"));
         assert!(!provider_supports_capability("openrouter", "speech"));
@@ -217,6 +225,7 @@ mod tests {
         assert!(!provider_supports_capability("xai", "speech"));
         assert!(!provider_supports_capability("xai", "transcription"));
         assert!(!provider_supports_capability("xai", "audio"));
+        assert!(!provider_supports_capability("xai", "completion"));
         assert!(!provider_supports_capability("fireworks", "speech"));
         assert!(provider_supports_capability("fireworks", "transcription"));
         assert!(provider_supports_capability("fireworks", "audio"));
@@ -326,6 +335,33 @@ mod tests {
             assert!(
                 config.capabilities.iter().any(|cap| cap == "completion"),
                 "expected {provider_id} compat preset metadata to advertise completion explicitly"
+            );
+        }
+    }
+
+    #[test]
+    fn test_non_completion_promoted_presets_keep_completion_metadata_absent() {
+        for provider_id in [
+            "deepseek",
+            "groq",
+            "xai",
+            "openrouter",
+            "siliconflow",
+            "alibaba",
+            "qwen",
+            "mistral",
+            "perplexity",
+            "moonshotai",
+        ] {
+            let config = get_provider_config(provider_id)
+                .unwrap_or_else(|| panic!("missing provider config for {provider_id}"));
+            assert!(
+                !config.capabilities.iter().any(|cap| cap == "completion"),
+                "expected {provider_id} compat preset metadata to keep completion absent"
+            );
+            assert!(
+                !provider_supports_capability(provider_id, "completion"),
+                "expected {provider_id} compat preset not to expose completion through ConfigurableAdapter"
             );
         }
     }

@@ -24,7 +24,7 @@ Status legend:
 | Provider metadata | `packages/ai/src/types/provider-metadata.ts` | `ProviderMetadataMap`, provider-owned typed metadata helpers | Green | Continue using provider-rooted response metadata. |
 | Stream part union | `language-model-v4-stream-part.ts` | `ChatStreamEvent::Part`, `ChatStreamPart`, `LanguageModelV4StreamPart`, replay carriers | Green | AIPC-050/AIPC-060 closed the highest-risk stable stream-part test and bridge/gateway assertion gaps; keep custom events to compatibility/provider-native boundaries. |
 | Registry/provider factory | `packages/ai/src/registry`, provider callable factories | `siumai-registry::ProviderFactory`, registry handles | Green | Keep AIPC-030/AIPC-040 guards green as new families and extension helpers land. |
-| OpenAI-compatible adapter | `packages/openai-compatible` | `siumai-provider-openai-compatible`, `siumai-protocol-openai` | Amber | Re-audit promoted vendor capability inheritance and typed option/metadata parity. |
+| OpenAI-compatible adapter | `packages/openai-compatible` | `siumai-provider-openai-compatible`, `siumai-protocol-openai` | Green | Completion family exposure is explicit metadata, not inherited from chat transport; continue typed option/metadata parity review. |
 | Protocol bridge/gateway | `packages/gateway`, protocol adapters | `siumai-bridge`, `siumai-extras::server`, protocol crates | Green | Bridge and extras helper tests cover stable provider-tool stream parts into OpenAI Responses output items; extras runtime gateway code imports bridge-owned stream adapters through `siumai_bridge::stream`. |
 | Legacy content compatibility | V3/V4 prompt/content split | `ContentPart` compatibility boundary plus V4 prompt/content projections | Amber | Do not move `ContentPart` until ADR-0008 future-breaking conditions are met. |
 
@@ -34,21 +34,21 @@ Status legend:
 | --- | --- | --- | --- | --- |
 | `openai` | `siumai-provider-openai`, `siumai-protocol-openai`, `provider_ext::openai` | Native OpenAI plus Responses/Chat/Completion/Embedding/Files/Skills typed surfaces | Amber | Check remaining Responses stream/custom-tool replay and typed option surface drift. |
 | `azure` | `siumai-provider-azure`, OpenAI protocol reuse | Azure OpenAI provider with OpenAI-family semantics | Amber | Keep Azure-specific metadata/options provider-owned and avoid generic OpenAI leakage. |
-| `openai-compatible` | `siumai-provider-openai-compatible` | Shared OpenAI-compatible runtime plus vendor presets | Amber | Audit promoted vendors for accidental inherited capabilities. |
+| `openai-compatible` | `siumai-provider-openai-compatible` | Shared OpenAI-compatible runtime plus vendor presets | Green | Keep generic custom-provider configs broad while promoted presets advertise only documented package families. |
 | `anthropic` | `siumai-provider-anthropic`, `siumai-protocol-anthropic` | Native Anthropic Messages, files, skills, tools, stream semantics | Amber | Review rarer provider-specific stream custom/raw hints after stable-part migration. |
 | `google` | `siumai-provider-gemini`, `siumai-protocol-gemini` | Gemini/Google provider runtime | Amber | Continue stream and reasoning-file/source coverage review. |
 | `google-vertex` | `siumai-provider-google-vertex`, Gemini/Anthropic/OpenAI-compatible integrations | Vertex, Anthropic Vertex, Vertex MaaS | Amber | Separate Vertex-native, Anthropic-on-Vertex, and Vertex MaaS package boundaries clearly. |
 | `amazon-bedrock` | `siumai-provider-amazon-bedrock` | Native Bedrock runtime | Amber | Keep Bedrock-specific request/stream semantics provider-owned; review wider fixture coverage. |
 | `cohere` | `siumai-provider-cohere` | Native Cohere v2 chat/embedding/rerank | Amber | Recheck package settings and embedding/rerank middleware parity after core guard slice. |
 | `deepseek` | `siumai-provider-deepseek` | Native DeepSeek chat-only provider-owned path | Amber | Keep custom provider-root metadata and include-usage stream behavior locked. |
-| `groq` | `siumai-provider-groq`, OpenAI-compatible runtime | Promoted OpenAI-compatible provider surface | Amber | Verify package capability boundary does not inherit unsupported families. |
+| `groq` | `siumai-provider-groq`, OpenAI-compatible runtime | Promoted OpenAI-compatible provider surface | Green | OpenAI-compatible preset no longer inherits completion; native Groq package surface remains chat/transcription-oriented. |
 | `xai` | `siumai-provider-xai` | Native xAI chat/responses/image/video/tools | Amber | Review provider-tool and stream custom-tool coverage beyond audited lanes. |
 | `togetherai` | `siumai-provider-togetherai`, OpenAI-compatible runtime | Hybrid shared text/audio plus provider-owned image/rerank | Amber | Keep provider-owned image/rerank off generic compat image execution. |
-| `mistral` | OpenAI-compatible promoted wrapper | Chat + embedding boundary | Amber | Ensure completion/image remain unsupported unless upstream package changes. |
-| `perplexity` | OpenAI-compatible promoted wrapper | Chat/search provider boundary | Amber | Keep typed web-search options and metadata shape aligned. |
-| `fireworks` | OpenAI-compatible promoted wrapper plus provider-owned image | Hybrid text plus provider-owned image | Amber | Verify completion/embedding/transcription boundaries match documented package decisions. |
-| `deepinfra` | OpenAI-compatible promoted wrapper plus provider-owned image | Hybrid text/embedding plus image | Amber | Keep base URL normalization and image routes provider-owned. |
-| `moonshotai` | OpenAI-compatible promoted wrapper | Chat-only package boundary | Amber | Keep historical `moonshot` alias hidden as migration-only. |
+| `mistral` | OpenAI-compatible promoted wrapper | Chat + embedding boundary | Green | Completion remains unsupported unless upstream package policy changes. |
+| `perplexity` | OpenAI-compatible promoted wrapper | Chat/search provider boundary | Green | Completion and non-text families remain unsupported; keep typed web-search options and metadata shape aligned. |
+| `fireworks` | OpenAI-compatible promoted wrapper plus provider-owned image | Hybrid text plus provider-owned image | Green | Completion/embedding/transcription are explicit documented compat capabilities; speech remains unsupported. |
+| `deepinfra` | OpenAI-compatible promoted wrapper plus provider-owned image | Hybrid text/embedding plus image | Green | Completion/embedding are explicit compat capabilities; image remains provider-owned outside generic compat inference. |
+| `moonshotai` | OpenAI-compatible promoted wrapper | Chat-only package boundary | Green | Completion remains unsupported and historical `moonshot` alias stays hidden as migration-only. |
 | `ollama` | `siumai-provider-ollama` | Siumai-native provider not mirrored as AI SDK official package | Deferred | Maintain Rust package boundary; do not force AI SDK package parity. |
 | `minimaxi` | `siumai-provider-minimaxi` | Siumai provider with text/audio/video/music capabilities | Deferred | Use provider-owned typed options; no official AI SDK package parity target. |
 | `gateway` | `siumai-bridge`, `siumai-extras` | Bridge/gateway runtime helpers, not a Vercel Gateway provider clone | Deferred | Only add real gateway provider behavior if a future workstream owns it. |

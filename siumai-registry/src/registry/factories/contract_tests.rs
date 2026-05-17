@@ -5869,6 +5869,47 @@ mod openai_contract {
     }
 
     #[tokio::test]
+    async fn openai_compatible_factory_promoted_chat_vendors_do_not_inherit_completion_capability()
+    {
+        let _lock = lock_env();
+
+        for provider_id in [
+            "deepseek",
+            "groq",
+            "xai",
+            "openrouter",
+            "siliconflow",
+            "alibaba",
+            "qwen",
+            "mistral",
+            "perplexity",
+            "moonshotai",
+        ] {
+            let factory = OpenAICompatibleProviderFactory::new(provider_id.to_string());
+            let caps = factory.capabilities();
+            assert!(caps.supports("chat"), "expected {provider_id} chat surface");
+            assert!(
+                !caps.supports("completion"),
+                "expected {provider_id} not to expose completion capability"
+            );
+
+            let ctx = BuildContext {
+                provider_id: Some(provider_id.to_string()),
+                api_key: Some("ctx-key".to_string()),
+                base_url: Some(format!("https://example.com/{provider_id}/v1")),
+                ..Default::default()
+            };
+
+            assert_unsupported_operation_contains(
+                factory
+                    .completion_model_family_with_ctx("capability-surface-test-model", &ctx)
+                    .await,
+                "'completion' family path",
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn openai_compatible_factory_mistral_rejects_native_completion_family_path() {
         let _lock = lock_env();
 

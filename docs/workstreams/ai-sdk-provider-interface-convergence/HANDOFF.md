@@ -6,8 +6,8 @@ Last updated: 2026-05-18
 ## Current State
 
 The program workstream is open. The target seams, initial parity inventory, milestones, gates, and
-task ledger are recorded. AIPC-030, AIPC-040, AIPC-050, and AIPC-060 are complete. AIPC-050 closed after three
-stream-part slices: OpenAI Responses public feature-surface tests now exercise stable
+task ledger are recorded. AIPC-030, AIPC-040, AIPC-050, AIPC-060, and AIPC-070 are complete.
+AIPC-050 closed after three stream-part slices: OpenAI Responses public feature-surface tests now exercise stable
 `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event inputs; extras
 gateway smoke tests now require stable downstream tool stream parts for the Anthropic-to-OpenAI
 Responses route; Anthropic and Gemini serializer tests now have custom-input source guards so stable
@@ -21,20 +21,27 @@ compatibility events. Extras Axum SSE code imports the OpenAI Responses parts ad
 `siumai_bridge::stream` instead of through the facade experimental streaming re-export, and a
 boundary test locks that seam. M2 is complete.
 
+AIPC-070 closed after re-auditing promoted OpenAI-compatible vendor completion inheritance. The
+shared compat adapter no longer infers completion from chat transport; completion is exposed only
+when provider metadata explicitly contains `completion`. DeepSeek, Groq, xAI, OpenRouter,
+SiliconFlow, Alibaba/Qwen, Mistral, Perplexity, and MoonshotAI are locked as non-completion compat
+presets. TogetherAI, DeepInfra, Fireworks, generic custom OpenAI-compatible configs, and Vertex MaaS
+retain explicit completion support where Siumai has documented family coverage.
+
 This lane is intentionally a coordination and execution program. It should keep spawning bounded
 vertical slices instead of becoming one cross-provider mega patch.
 
 ## Active Task
 
-- Task ID: AIPC-070
+- Task ID: AIPC-080
 - Owner: codex
 - Files:
-  - `siumai-provider-openai-compatible`
-  - provider package docs/tests
+  - `siumai-provider-*`
+  - `siumai-protocol-*`
   - `docs/workstreams/ai-sdk-provider-interface-convergence/*`
 - Validation:
-  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
-  - focused public/provider surface tests for touched vendors
+  - package-specific no-network tests
+  - focused public import tests for touched providers
 
 ## Decisions Since Last Update
 
@@ -66,6 +73,12 @@ vertical slices instead of becoming one cross-provider mega patch.
 - AIPC-060 added direct extras SSE helper coverage for stable provider-tool stream parts, so the
   bridge/gateway stream milestone can close without removing compatibility-boundary custom-event
   readers in object/tool-loop helpers.
+- AIPC-070 makes OpenAI-compatible completion capability metadata explicit. The old denylist model
+  was too brittle because every chat-capable promoted vendor inherited completion unless listed as
+  an exception.
+- Vertex MaaS remains completion-capable, but it is a dedicated Google Vertex MaaS factory/package
+  decision rather than evidence that ordinary OpenAI-compatible promoted presets should inherit
+  completion.
 
 ## Blockers
 
@@ -73,6 +86,7 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Execute AIPC-070. Start with a capability inventory for promoted OpenAI-compatible vendors, compare
-that to the AI SDK package surfaces and Siumai's documented package decisions, then add focused
-tests for any accidental inherited capability.
+Execute AIPC-080 one provider family at a time. Start with a native provider whose package surface
+is already first-class in Siumai but still marked Amber in `PARITY_INVENTORY.md`, compare it against
+`repo-ref/ai`, and add a narrow no-network test or source guard for any drift before moving to the
+next provider.
