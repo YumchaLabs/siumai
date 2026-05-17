@@ -12,7 +12,8 @@ use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatible
 use siumai::experimental::standards::openai::compat::types::{
     FieldMappings, ModelConfig, RequestType,
 };
-use siumai::experimental::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::experimental::streaming::JsonEventConverter;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::{ChatStreamEvent, ChatStreamPart, LlmError, ProviderCapabilities};
 #[cfg(feature = "anthropic")]
 use siumai_provider_anthropic::providers::anthropic::streaming::AnthropicEventConverter;

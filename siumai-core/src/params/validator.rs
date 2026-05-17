@@ -82,15 +82,15 @@ impl EnhancedParameterValidator {
         }
 
         // Stop sequences are provider-owned semantically, but empty sequences are never useful.
-        if let Some(stop_sequences) = &params.stop_sequences {
-            if let Some(index) = stop_sequences.iter().position(|value| value.is_empty()) {
-                report.add_error(ValidationError::InvalidFormat {
-                    parameter: format!("stop_sequences[{index}]"),
-                    value: String::new(),
-                    expected_format: "non-empty string".to_string(),
-                });
-                has_errors = true;
-            }
+        if let Some(stop_sequences) = &params.stop_sequences
+            && let Some(index) = stop_sequences.iter().position(|value| value.is_empty())
+        {
+            report.add_error(ValidationError::InvalidFormat {
+                parameter: format!("stop_sequences[{index}]"),
+                value: String::new(),
+                expected_format: "non-empty string".to_string(),
+            });
+            has_errors = true;
         }
 
         if has_errors {

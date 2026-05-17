@@ -10,7 +10,8 @@ use siumai::experimental::standards::openai::compat::adapter::{
 use siumai::experimental::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
 use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
 use siumai::experimental::standards::openai::compat::types::FieldMappings;
-use siumai::experimental::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::experimental::streaming::JsonEventConverter;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::ProviderCapabilities;
 #[cfg(feature = "anthropic")]
 use siumai_provider_anthropic::providers::anthropic::streaming::AnthropicEventConverter;

@@ -19,7 +19,6 @@
 use siumai::experimental::client::LlmClient;
 use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::{SpeechCapability, TranscriptionCapability, TtsRequest};
-use siumai::prelude::*;
 use std::env;
 
 async fn test_text_to_speech<T: SpeechCapability>(client: &T, provider_name: &str) {

@@ -10,9 +10,9 @@ use axum::{
 };
 use eventsource_stream::Event;
 use futures::stream;
+use siumai::experimental::streaming::SseEventConverter;
 #[cfg(feature = "anthropic")]
 use siumai::prelude::unified::ProviderDefinedTool;
-use siumai::prelude::unified::SseEventConverter;
 use siumai::prelude::unified::Tool;
 use siumai::prelude::unified::{ChatResponse, ChatStream, ChatStreamEvent, MessageContent};
 use siumai_extras::server::{

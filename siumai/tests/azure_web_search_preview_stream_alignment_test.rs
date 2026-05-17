@@ -1,7 +1,6 @@
 #![cfg(feature = "azure")]
 
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
-use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use std::path::Path;
 

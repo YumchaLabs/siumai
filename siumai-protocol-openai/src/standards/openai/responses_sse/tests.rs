@@ -1789,7 +1789,7 @@ fn responses_reasoning_summary_text_delta_preserves_empty_delta_field() {
                 provider_metadata,
                 ..
             })
-                if delta == ""
+                if delta.is_empty()
                     && provider_metadata
                         .as_ref()
                         .and_then(|meta| meta.get("openai"))
@@ -1882,7 +1882,7 @@ fn responses_message_output_text_events_emit_text_parts() {
         matches!(
             stream_part(event),
             Some(crate::streaming::TypedStreamPart::TextDelta { id, delta, .. })
-                if id == "msg_1" && delta == ""
+                if id == "msg_1" && delta.is_empty()
         )
     }));
 

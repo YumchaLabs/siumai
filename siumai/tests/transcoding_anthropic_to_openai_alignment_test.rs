@@ -8,7 +8,8 @@
 //! 3) Parse the resulting downstream stream without losing critical tool boundaries.
 
 use eventsource_stream::Event;
-use siumai::experimental::streaming::{OpenAiResponsesStreamPartsBridge, SseEventConverter};
+use siumai::experimental::streaming::OpenAiResponsesStreamPartsBridge;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use siumai_core::types::ChatStreamPart;
 use std::path::Path;

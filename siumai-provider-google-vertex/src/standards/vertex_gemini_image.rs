@@ -14,8 +14,7 @@ use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer}
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{
     ChatMessage, ChatRequest, CommonParams, ContentPart, FilePartSource, ImageEditFileData,
-    ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
-    MessageContent, Warning,
+    ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest, Warning,
 };
 use reqwest::header::HeaderMap;
 use siumai_protocol_gemini::standards::gemini::transformers::{
@@ -515,6 +514,7 @@ impl ProviderSpec for VertexGeminiImageSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::MessageContent;
     use serde_json::json;
 
     #[test]

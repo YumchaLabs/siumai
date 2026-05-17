@@ -39,7 +39,7 @@ impl CompletionStreamState {
             provider,
             self.id.as_deref(),
             self.model.as_deref(),
-            self.created.clone(),
+            self.created,
         )
     }
 
@@ -522,19 +522,18 @@ mod tests {
 
     #[test]
     fn completion_request_source_does_not_read_legacy_provider_metadata_fields() {
-        for source in [source_between(
+        let source = source_between(
             "fn prepare_completion_request(",
             "fn build_completion_response(",
-        )] {
-            assert!(
-                !source.contains("providerMetadata"),
-                "OpenAI completion request construction must not read legacy providerMetadata"
-            );
-            assert!(
-                !source.contains("provider_metadata"),
-                "OpenAI completion request construction must not read legacy provider_metadata"
-            );
-        }
+        );
+        assert!(
+            !source.contains("providerMetadata"),
+            "OpenAI completion request construction must not read legacy providerMetadata"
+        );
+        assert!(
+            !source.contains("provider_metadata"),
+            "OpenAI completion request construction must not read legacy provider_metadata"
+        );
     }
 
     #[test]

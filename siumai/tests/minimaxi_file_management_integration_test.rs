@@ -14,7 +14,6 @@
 use siumai::extensions::FileManagementCapability;
 use siumai::extensions::types::{FileListQuery, FileUploadRequest};
 use siumai::prelude::compat::Siumai;
-use siumai::prelude::*;
 use std::collections::HashMap;
 use std::env;
 

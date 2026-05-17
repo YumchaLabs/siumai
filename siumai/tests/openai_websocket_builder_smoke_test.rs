@@ -2,7 +2,6 @@
 #![allow(deprecated)]
 
 use siumai::prelude::compat::Siumai;
-use siumai::prelude::unified::*;
 
 #[tokio::test]
 async fn siumai_builder_can_build_openai_websocket_session_without_connecting() {

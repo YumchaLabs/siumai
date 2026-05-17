@@ -21,7 +21,7 @@ fn openai_protocol_is_not_imported_from_core() {
         "siumai-extras/src",
         "siumai-extras/tests",
     ] {
-        collect_forbidden_imports(&workspace.join(root), &forbidden, &mut offenders);
+        collect_forbidden_imports(&workspace.join(root), forbidden, &mut offenders);
     }
 
     assert!(

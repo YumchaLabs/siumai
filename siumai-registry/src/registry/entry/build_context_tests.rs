@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_lock)]
+
 use super::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

@@ -7,7 +7,8 @@ use serde_json::Value;
 use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_stream_to_anthropic_messages_sse,
 };
-use siumai::experimental::streaming::{ChatByteStream, SseEventConverter};
+use siumai::experimental::streaming::ChatByteStream;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::{ChatStreamEvent, ChatStreamPart};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

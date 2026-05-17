@@ -13,6 +13,7 @@ use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatible
 use siumai::experimental::standards::openai::compat::types::{
     FieldMappings, ModelConfig, RequestType,
 };
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::ProviderCapabilities;
 #[cfg(feature = "google")]
 use siumai_provider_gemini::providers::gemini::streaming::GeminiEventConverter;
@@ -73,7 +74,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::experimental::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::experimental::streaming::JsonEventConverter;
 use siumai::prelude::unified::ChatStreamEvent;
 
 #[tokio::test]

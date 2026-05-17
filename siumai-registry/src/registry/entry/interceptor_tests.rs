@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_lock)]
+
 use super::*;
 use crate::execution::http::interceptor::LoggingInterceptor;
 use std::collections::HashMap;

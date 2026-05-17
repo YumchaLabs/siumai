@@ -13,6 +13,7 @@ use siumai::experimental::standards::openai::compat::provider_registry::{
 };
 use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
 use siumai::experimental::standards::openai::compat::types::FieldMappings;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::ProviderCapabilities;
 #[cfg(feature = "anthropic")]
 use siumai_provider_anthropic::providers::anthropic::streaming::AnthropicEventConverter;
@@ -78,7 +79,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::experimental::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::experimental::streaming::JsonEventConverter;
 use siumai::prelude::unified::ChatStreamEvent;
 
 fn make_groq_converter() -> OpenAiCompatibleEventConverter {

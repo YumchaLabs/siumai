@@ -7,7 +7,8 @@
 //! - Re-serialize into OpenAI Chat Completions SSE and OpenAI Responses SSE.
 
 use eventsource_stream::Event;
-use siumai::experimental::streaming::{OpenAiResponsesStreamPartsBridge, SseEventConverter};
+use siumai::experimental::streaming::OpenAiResponsesStreamPartsBridge;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::*;
 use siumai_core::types::ChatStreamPart;
 use std::path::Path;

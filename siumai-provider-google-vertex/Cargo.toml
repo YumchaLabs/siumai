@@ -49,6 +49,8 @@ default = []
 
 structured-messages = [
     "siumai-core/structured-messages",
+    "siumai-protocol-gemini/structured-messages",
+    "siumai-protocol-anthropic?/structured-messages",
 ]
 
 # Enables GCP authentication helpers (ADC / service account token providers).

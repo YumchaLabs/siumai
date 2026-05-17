@@ -6,7 +6,8 @@ use serde::Serialize;
 use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_stream_to_openai_chat_completions_sse,
 };
-use siumai::experimental::streaming::{ChatByteStream, SseEventConverter};
+use siumai::experimental::streaming::ChatByteStream;
+use siumai::experimental::streaming::SseEventConverter;
 use siumai::prelude::unified::ChatStreamEvent;
 use siumai_core::types::ChatStreamPart;
 use siumai_core::types::SourcePart;
