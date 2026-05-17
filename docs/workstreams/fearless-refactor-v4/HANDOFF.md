@@ -15,6 +15,8 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
   - `openai_client/types.rs`
   - `openai_client/runtime.rs`
   - `openai_client/compatibility.rs`
+- The parent OpenAI-compatible client regression suite has been moved to `openai_client/tests.rs`,
+  leaving `openai_client.rs` as a thin shell plus `mod tests;`.
 - Existing capability modules remain execution owners:
   - `chat`
   - `completion`

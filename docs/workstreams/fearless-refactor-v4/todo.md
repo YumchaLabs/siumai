@@ -1114,5 +1114,6 @@ Status legend:
 
 - [~] Shrink the shared OpenAI-compatible client shell.
   - The production `openai_client.rs` shell now delegates protocol response structs to `openai_client/types.rs`, construction and runtime wiring to `openai_client/runtime.rs`, and `ModelMetadata` / `LlmClient` compatibility exposure to `openai_client/compatibility.rs`.
+  - The large parent-module regression suite now lives in `openai_client/tests.rs`, leaving the parent shell readable while preserving the same private-module test access.
   - Existing capability implementation modules (`chat`, `completion`, `embedding`, `image`, `audio`, `rerank`, `models`) remain the execution owners; this cleanup is intentionally about the client shell boundary, not capability behavior.
   - Source guards should keep `impl LlmClient`, HTTP wiring helpers, default-model resolution, and protocol response structs out of the shell file after the split.

@@ -40,3 +40,7 @@ Last updated: 2026-05-17
     - Result: 227 tests passed, 0 skipped.
   - `git diff --check`
     - Result: passed; Git reported Windows LF-to-CRLF working-copy warnings only.
+- OpenAI-compatible client test module isolation:
+  - `cargo fmt -p siumai-provider-openai-compatible`
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast openai_client`
+    - Result: 85 tests passed, 142 skipped.
