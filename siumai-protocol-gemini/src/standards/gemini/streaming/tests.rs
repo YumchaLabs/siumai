@@ -89,6 +89,35 @@ fn gemini_streaming_parser_source_does_not_read_request_provider_options() {
     }
 }
 
+#[test]
+fn gemini_streaming_serializer_custom_inputs_are_compat_or_provider_native_only() {
+    let source = include_str!("tests.rs");
+    let custom_serialize = format!("{}{}{}", "serialize_event(&", "ChatStreamEvent::", "Custom");
+    let mut current_test = String::new();
+    let mut offenders = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("fn ") {
+            current_test = rest.split('(').next().unwrap_or_default().to_string();
+        }
+
+        if line.contains(&custom_serialize)
+            && !current_test.contains("v3")
+            && !current_test.contains("provider")
+            && !current_test.contains("compat")
+        {
+            offenders.push(format!("{}:{}", current_test, line_index + 1));
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "Gemini streaming serializer tests must use stable Part inputs unless they are explicit V3 \
+         compatibility or provider-native custom tests: {offenders:?}"
+    );
+}
+
 #[tokio::test]
 async fn test_gemini_streaming_conversion() {
     let config = create_test_config();

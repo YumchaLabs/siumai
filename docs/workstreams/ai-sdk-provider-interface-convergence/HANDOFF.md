@@ -11,7 +11,9 @@ first two stream-part assertion slices landed locally: OpenAI Responses public f
 now exercise stable `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event
 inputs, and extras gateway smoke tests now require stable downstream tool stream parts for the
 Anthropic-to-OpenAI Responses route. Converter-level custom-event compatibility tests remain in
-place where they explicitly prove backward compatibility.
+place where they explicitly prove backward compatibility. Anthropic and Gemini serializer tests now
+also have custom-input source guards so stable serializer behavior cannot be covered only through
+custom event inputs.
 
 This lane is intentionally a coordination and execution program. It should keep spawning bounded
 vertical slices instead of becoming one cross-provider mega patch.
@@ -46,6 +48,9 @@ vertical slices instead of becoming one cross-provider mega patch.
   accepts `ChatStreamEvent::Part`.
 - AIPC-050 then tightened the extras gateway smoke helper from typed-or-custom to stable-part-only
   so gateway tests cannot mask a regression from stable tool parts back to provider custom payloads.
+- AIPC-050 added protocol serializer source guards for Anthropic and Gemini: `Custom` serializer
+  inputs are allowed only in explicitly named V3 compatibility, provider-native, or compatibility
+  tests.
 
 ## Blockers
 
@@ -53,6 +58,6 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Continue AIPC-050 by auditing protocol serializer unit tests for remaining stable AI SDK semantics
-that are only exercised through provider custom/raw inputs. Keep legacy custom-event compatibility
-tests only where they explicitly prove backward compatibility.
+Continue AIPC-050 by deciding whether the stream-semantics milestone is now sufficient to close or
+whether `siumai-extras` object/tool-loop helpers need a separate compatibility-boundary slice for
+their loose custom-event parsers.
