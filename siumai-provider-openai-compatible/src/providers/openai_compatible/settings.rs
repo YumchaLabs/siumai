@@ -328,78 +328,13 @@ simple_compat_provider_settings! {
     pub struct TogetherAIProviderSettings => TogetherAIConfig, "togetherai";
 }
 
-/// Package-level DeepInfra provider settings aligned with
-/// `repo-ref/ai/packages/deepinfra/src/deepinfra-provider.ts`.
-///
-/// This carrier is model-agnostic. Model selection happens later through
-/// `into_builder_for_model(...)` or `into_config_for_model(...)`.
-#[derive(Clone, Default)]
-pub struct DeepInfraProviderSettings {
-    pub api_key: Option<String>,
-    pub base_url: Option<String>,
-    pub headers: HashMap<String, String>,
-    pub fetch: Option<Arc<dyn HttpTransport>>,
-}
-
-impl DeepInfraProviderSettings {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
-        self.api_key = Some(api_key.into());
-        self
-    }
-
-    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
-        self.base_url = Some(base_url.into());
-        self
-    }
-
-    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers.extend(headers);
-        self
-    }
-
-    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
-    }
-
-    pub fn with_fetch(mut self, fetch: Arc<dyn HttpTransport>) -> Self {
-        self.fetch = Some(fetch);
-        self
-    }
-
-    pub fn into_builder(self) -> OpenAiCompatibleBuilder {
-        let mut builder = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepinfra");
-
-        if let Some(api_key) = self.api_key {
-            builder = builder.api_key(api_key);
-        }
-        if let Some(base_url) = self.base_url {
-            builder = builder.base_url(base_url);
-        }
-        if !self.headers.is_empty() {
-            builder = builder.custom_headers(self.headers);
-        }
-        if let Some(fetch) = self.fetch {
-            builder = builder.fetch(fetch);
-        }
-
-        builder
-    }
-
-    pub fn into_builder_for_model<S: Into<String>>(self, model: S) -> OpenAiCompatibleBuilder {
-        self.into_builder().model(model)
-    }
-
-    pub fn into_config_for_model<S: Into<String>>(
-        self,
-        model: S,
-    ) -> Result<DeepInfraConfig, LlmError> {
-        self.into_builder_for_model(model).into_config()
-    }
+simple_compat_provider_settings! {
+    /// Package-level DeepInfra provider settings aligned with
+    /// `repo-ref/ai/packages/deepinfra/src/deepinfra-provider.ts`.
+    ///
+    /// This carrier is model-agnostic. Model selection happens later through
+    /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
+    pub struct DeepInfraProviderSettings => DeepInfraConfig, "deepinfra";
 }
 /// Package-level Google Vertex MaaS provider settings aligned with
 /// `repo-ref/ai/packages/google-vertex/src/maas/google-vertex-maas-provider-node.ts`.
@@ -623,301 +558,41 @@ impl AlibabaProviderSettings {
     }
 }
 
-/// Package-level MoonshotAI provider settings aligned with
-/// `repo-ref/ai/packages/moonshotai/src/moonshotai-provider.ts`.
-///
-/// This carrier is model-agnostic. Model selection happens later through
-/// `into_builder_for_model(...)` or `into_config_for_model(...)`.
-#[derive(Clone, Default)]
-pub struct MoonshotAIProviderSettings {
-    pub api_key: Option<String>,
-    pub base_url: Option<String>,
-    pub headers: HashMap<String, String>,
-    pub fetch: Option<Arc<dyn HttpTransport>>,
+simple_compat_provider_settings! {
+    /// Package-level MoonshotAI provider settings aligned with
+    /// `repo-ref/ai/packages/moonshotai/src/moonshotai-provider.ts`.
+    ///
+    /// This carrier is model-agnostic. Model selection happens later through
+    /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
+    pub struct MoonshotAIProviderSettings => MoonshotAIConfig, "moonshotai";
+}
+simple_compat_provider_settings! {
+    /// Package-level Fireworks provider settings aligned with
+    /// `repo-ref/ai/packages/fireworks/src/fireworks-provider.ts`.
+    ///
+    /// This carrier is model-agnostic. Model selection happens later through
+    /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
+    pub struct FireworksProviderSettings => FireworksConfig, "fireworks";
+}
+simple_compat_provider_settings! {
+    /// Package-level Mistral provider settings aligned with
+    /// `repo-ref/ai/packages/mistral/src/mistral-provider.ts`.
+    ///
+    /// This carrier is model-agnostic. Model selection happens later through
+    /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
+    ///
+    /// Note: upstream `generateId` is intentionally deferred until the shared compat runtime owns an
+    /// honest provider-level stable-id hook.
+    pub struct MistralProviderSettings => MistralConfig, "mistral";
 }
 
-impl MoonshotAIProviderSettings {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
-        self.api_key = Some(api_key.into());
-        self
-    }
-
-    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
-        self.base_url = Some(base_url.into());
-        self
-    }
-
-    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers.extend(headers);
-        self
-    }
-
-    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
-    }
-
-    pub fn with_fetch(mut self, fetch: Arc<dyn HttpTransport>) -> Self {
-        self.fetch = Some(fetch);
-        self
-    }
-
-    pub fn into_builder(self) -> OpenAiCompatibleBuilder {
-        let mut builder = OpenAiCompatibleBuilder::new(BuilderBase::default(), "moonshotai");
-
-        if let Some(api_key) = self.api_key {
-            builder = builder.api_key(api_key);
-        }
-        if let Some(base_url) = self.base_url {
-            builder = builder.base_url(base_url);
-        }
-        if !self.headers.is_empty() {
-            builder = builder.custom_headers(self.headers);
-        }
-        if let Some(fetch) = self.fetch {
-            builder = builder.fetch(fetch);
-        }
-
-        builder
-    }
-
-    pub fn into_builder_for_model<S: Into<String>>(self, model: S) -> OpenAiCompatibleBuilder {
-        self.into_builder().model(model)
-    }
-
-    pub fn into_config_for_model<S: Into<String>>(
-        self,
-        model: S,
-    ) -> Result<MoonshotAIConfig, LlmError> {
-        self.into_builder_for_model(model).into_config()
-    }
-}
-/// Package-level Fireworks provider settings aligned with
-/// `repo-ref/ai/packages/fireworks/src/fireworks-provider.ts`.
-///
-/// This carrier is model-agnostic. Model selection happens later through
-/// `into_builder_for_model(...)` or `into_config_for_model(...)`.
-#[derive(Clone, Default)]
-pub struct FireworksProviderSettings {
-    pub api_key: Option<String>,
-    pub base_url: Option<String>,
-    pub headers: HashMap<String, String>,
-    pub fetch: Option<Arc<dyn HttpTransport>>,
-}
-
-impl FireworksProviderSettings {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
-        self.api_key = Some(api_key.into());
-        self
-    }
-
-    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
-        self.base_url = Some(base_url.into());
-        self
-    }
-
-    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers.extend(headers);
-        self
-    }
-
-    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
-    }
-
-    pub fn with_fetch(mut self, fetch: Arc<dyn HttpTransport>) -> Self {
-        self.fetch = Some(fetch);
-        self
-    }
-
-    pub fn into_builder(self) -> OpenAiCompatibleBuilder {
-        let mut builder = OpenAiCompatibleBuilder::new(BuilderBase::default(), "fireworks");
-
-        if let Some(api_key) = self.api_key {
-            builder = builder.api_key(api_key);
-        }
-        if let Some(base_url) = self.base_url {
-            builder = builder.base_url(base_url);
-        }
-        if !self.headers.is_empty() {
-            builder = builder.custom_headers(self.headers);
-        }
-        if let Some(fetch) = self.fetch {
-            builder = builder.fetch(fetch);
-        }
-
-        builder
-    }
-
-    pub fn into_builder_for_model<S: Into<String>>(self, model: S) -> OpenAiCompatibleBuilder {
-        self.into_builder().model(model)
-    }
-
-    pub fn into_config_for_model<S: Into<String>>(
-        self,
-        model: S,
-    ) -> Result<FireworksConfig, LlmError> {
-        self.into_builder_for_model(model).into_config()
-    }
-}
-/// Package-level Mistral provider settings aligned with
-/// `repo-ref/ai/packages/mistral/src/mistral-provider.ts`.
-///
-/// This carrier is model-agnostic. Model selection happens later through
-/// `into_builder_for_model(...)` or `into_config_for_model(...)`.
-///
-/// Note: upstream `generateId` is intentionally deferred until the shared compat runtime owns an
-/// honest provider-level stable-id hook.
-#[derive(Clone, Default)]
-pub struct MistralProviderSettings {
-    pub api_key: Option<String>,
-    pub base_url: Option<String>,
-    pub headers: HashMap<String, String>,
-    pub fetch: Option<Arc<dyn HttpTransport>>,
-}
-
-impl MistralProviderSettings {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
-        self.api_key = Some(api_key.into());
-        self
-    }
-
-    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
-        self.base_url = Some(base_url.into());
-        self
-    }
-
-    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers.extend(headers);
-        self
-    }
-
-    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
-    }
-
-    pub fn with_fetch(mut self, fetch: Arc<dyn HttpTransport>) -> Self {
-        self.fetch = Some(fetch);
-        self
-    }
-
-    pub fn into_builder(self) -> OpenAiCompatibleBuilder {
-        let mut builder = OpenAiCompatibleBuilder::new(BuilderBase::default(), "mistral");
-
-        if let Some(api_key) = self.api_key {
-            builder = builder.api_key(api_key);
-        }
-        if let Some(base_url) = self.base_url {
-            builder = builder.base_url(base_url);
-        }
-        if !self.headers.is_empty() {
-            builder = builder.custom_headers(self.headers);
-        }
-        if let Some(fetch) = self.fetch {
-            builder = builder.fetch(fetch);
-        }
-
-        builder
-    }
-
-    pub fn into_builder_for_model<S: Into<String>>(self, model: S) -> OpenAiCompatibleBuilder {
-        self.into_builder().model(model)
-    }
-
-    pub fn into_config_for_model<S: Into<String>>(
-        self,
-        model: S,
-    ) -> Result<MistralConfig, LlmError> {
-        self.into_builder_for_model(model).into_config()
-    }
-}
-
-/// Package-level Perplexity provider settings aligned with
-/// `repo-ref/ai/packages/perplexity/src/perplexity-provider.ts`.
-///
-/// This carrier is model-agnostic. Model selection happens later through
-/// `into_builder_for_model(...)` or `into_config_for_model(...)`.
-#[derive(Clone, Default)]
-pub struct PerplexityProviderSettings {
-    pub api_key: Option<String>,
-    pub base_url: Option<String>,
-    pub headers: HashMap<String, String>,
-    pub fetch: Option<Arc<dyn HttpTransport>>,
-}
-
-impl PerplexityProviderSettings {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
-        self.api_key = Some(api_key.into());
-        self
-    }
-
-    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
-        self.base_url = Some(base_url.into());
-        self
-    }
-
-    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers.extend(headers);
-        self
-    }
-
-    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
-    }
-
-    pub fn with_fetch(mut self, fetch: Arc<dyn HttpTransport>) -> Self {
-        self.fetch = Some(fetch);
-        self
-    }
-
-    pub fn into_builder(self) -> OpenAiCompatibleBuilder {
-        let mut builder = OpenAiCompatibleBuilder::new(BuilderBase::default(), "perplexity");
-
-        if let Some(api_key) = self.api_key {
-            builder = builder.api_key(api_key);
-        }
-        if let Some(base_url) = self.base_url {
-            builder = builder.base_url(base_url);
-        }
-        if !self.headers.is_empty() {
-            builder = builder.custom_headers(self.headers);
-        }
-        if let Some(fetch) = self.fetch {
-            builder = builder.fetch(fetch);
-        }
-
-        builder
-    }
-
-    pub fn into_builder_for_model<S: Into<String>>(self, model: S) -> OpenAiCompatibleBuilder {
-        self.into_builder().model(model)
-    }
-
-    pub fn into_config_for_model<S: Into<String>>(
-        self,
-        model: S,
-    ) -> Result<PerplexityConfig, LlmError> {
-        self.into_builder_for_model(model).into_config()
-    }
+simple_compat_provider_settings! {
+    /// Package-level Perplexity provider settings aligned with
+    /// `repo-ref/ai/packages/perplexity/src/perplexity-provider.ts`.
+    ///
+    /// This carrier is model-agnostic. Model selection happens later through
+    /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
+    pub struct PerplexityProviderSettings => PerplexityConfig, "perplexity";
 }
 #[cfg(test)]
 mod tests {
@@ -931,6 +606,49 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct NoopTransport;
+
+    #[test]
+    fn simple_provider_settings_stay_macro_generated() {
+        let source = include_str!("settings.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
+
+        for (settings, config) in [
+            ("DeepSeekProviderSettings", "DeepSeekConfig"),
+            ("GroqProviderSettings", "GroqConfig"),
+            ("XaiProviderSettings", "XaiConfig"),
+            ("TogetherAIProviderSettings", "TogetherAIConfig"),
+            ("DeepInfraProviderSettings", "DeepInfraConfig"),
+            ("MoonshotAIProviderSettings", "MoonshotAIConfig"),
+            ("FireworksProviderSettings", "FireworksConfig"),
+            ("MistralProviderSettings", "MistralConfig"),
+            ("PerplexityProviderSettings", "PerplexityConfig"),
+        ] {
+            let marker = format!("pub struct {settings} => {config}");
+            assert!(
+                source.contains(&marker),
+                "{settings} should use simple_compat_provider_settings!"
+            );
+
+            let manual_impl = format!("impl {settings} {{");
+            assert!(
+                !source.contains(&manual_impl),
+                "{settings} should not duplicate the simple settings adapter impl"
+            );
+        }
+
+        for custom_impl in [
+            "impl OpenAICompatibleProviderSettings {",
+            "impl GoogleVertexMaasProviderSettings {",
+            "impl AlibabaProviderSettings {",
+        ] {
+            assert!(
+                source.contains(custom_impl),
+                "custom settings adapter should remain hand-written: {custom_impl}"
+            );
+        }
+    }
 
     #[async_trait]
     impl HttpTransport for NoopTransport {

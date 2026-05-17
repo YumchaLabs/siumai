@@ -21,6 +21,9 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
   - `openai_client/completion/mod.rs` owns completion request/response orchestration.
   - `openai_client/completion/streaming.rs` owns the SSE stream state and converter.
   - `openai_client/completion/tests.rs` owns completion no-network contracts and source guards.
+- Repeated simple provider settings adapters now share `simple_compat_provider_settings!`; only
+  generic OpenAI-compatible settings, Vertex MaaS settings, and Alibaba settings stay hand-written
+  because they own different construction behavior.
 - Existing capability modules remain execution owners:
   - `chat`
   - `completion`
@@ -32,9 +35,9 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
 
 ## Next Step
 
-Reassess whether `audio`, `builder`, `config`, or `settings` have real ownership/coupling problems.
-Do not split by file size alone; prefer the next cut only when it improves locality or narrows a
-real interface.
+Reassess whether `audio`, `builder`, or `config` have real ownership/coupling problems. Do not
+split by file size alone; prefer the next cut only when it improves locality or narrows a real
+interface.
 
 ## Guardrails
 
@@ -43,12 +46,15 @@ real interface.
 - Keep capability execution logic in capability modules.
 - Keep provider catalog data in provider-family catalog modules.
 - Keep completion SSE state and event conversion in `openai_client/completion/streaming.rs`.
+- Keep simple provider settings adapters on the macro path unless the provider has real divergent
+  construction behavior.
 - Prefer focused no-network tests and source guards over broad rewrites.
 
 ## Validation Commands
 
 - `cargo fmt -p siumai-provider-openai-compatible`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast completion`
+- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast settings`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast openai_client`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
 - `git diff --check`

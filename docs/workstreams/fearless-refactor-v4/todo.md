@@ -1121,3 +1121,7 @@ Status legend:
 - [x] Deepen the OpenAI-compatible completion runtime boundary.
   - `openai_client/completion/` is now a directory module. `mod.rs` owns completion request/response orchestration, `streaming.rs` owns SSE stream state and event conversion, and `tests.rs` owns completion no-network contracts.
   - Source guards now keep completion logic out of the monolithic client shell and keep streaming state/converter logic out of the completion shell.
+
+- [x] Converge repeated OpenAI-compatible simple provider settings adapters.
+  - `DeepInfraProviderSettings`, `MoonshotAIProviderSettings`, `FireworksProviderSettings`, `MistralProviderSettings`, and `PerplexityProviderSettings` now share the same `simple_compat_provider_settings!` implementation path as the other simple compat provider settings.
+  - `OpenAICompatibleProviderSettings`, `GoogleVertexMaasProviderSettings`, and `AlibabaProviderSettings` remain hand-written because they own genuinely different construction behavior.
