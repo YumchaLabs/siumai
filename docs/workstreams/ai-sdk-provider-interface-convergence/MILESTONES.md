@@ -62,6 +62,9 @@ cargo nextest run -p siumai-bridge --no-fail-fast
 
 Status: in progress
 
+Progress note: AIPC-050 is complete. AIPC-060 remains open to finish the bridge/gateway assertion
+side of this milestone.
+
 ## M3 - Provider Package Parity
 
 Exit criteria:

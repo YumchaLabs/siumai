@@ -6,30 +6,29 @@ Last updated: 2026-05-18
 ## Current State
 
 The program workstream is open. The target seams, initial parity inventory, milestones, gates, and
-task ledger are recorded. AIPC-030 and AIPC-040 are complete. AIPC-050 is in progress with the
-first two stream-part assertion slices landed locally: OpenAI Responses public feature-surface tests
-now exercise stable `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event
-inputs, and extras gateway smoke tests now require stable downstream tool stream parts for the
-Anthropic-to-OpenAI Responses route. Converter-level custom-event compatibility tests remain in
-place where they explicitly prove backward compatibility. Anthropic and Gemini serializer tests now
-also have custom-input source guards so stable serializer behavior cannot be covered only through
-custom event inputs.
+task ledger are recorded. AIPC-030, AIPC-040, and AIPC-050 are complete. AIPC-050 closed after three
+stream-part slices: OpenAI Responses public feature-surface tests now exercise stable
+`ChatStreamEvent::Part` tool call/result inputs instead of provider custom event inputs; extras
+gateway smoke tests now require stable downstream tool stream parts for the Anthropic-to-OpenAI
+Responses route; Anthropic and Gemini serializer tests now have custom-input source guards so stable
+serializer behavior cannot be covered only through custom event inputs. Converter-level custom-event
+compatibility tests remain in place where they explicitly prove backward compatibility or
+provider-native replay behavior.
 
 This lane is intentionally a coordination and execution program. It should keep spawning bounded
 vertical slices instead of becoming one cross-provider mega patch.
 
 ## Active Task
 
-- Task ID: AIPC-050
+- Task ID: AIPC-060
 - Owner: codex
 - Files:
-  - `siumai-core`
-  - `siumai-protocol-*`
+  - `siumai-bridge`
   - `siumai-extras`
   - `docs/workstreams/ai-sdk-provider-interface-convergence/*`
 - Validation:
-  - focused protocol stream tests for the affected provider
-  - package-scoped `cargo nextest`
+  - `cargo nextest run -p siumai-bridge --no-fail-fast`
+  - focused `siumai-extras` gateway tests
 
 ## Decisions Since Last Update
 
@@ -51,6 +50,10 @@ vertical slices instead of becoming one cross-provider mega patch.
 - AIPC-050 added protocol serializer source guards for Anthropic and Gemini: `Custom` serializer
   inputs are allowed only in explicitly named V3 compatibility, provider-native, or compatibility
   tests.
+- AIPC-050 intentionally did not remove loose custom-event parsers in extras object/tool-loop/server
+  helpers. Those are compatibility-boundary consumers rather than stable protocol feature-surface
+  tests and should be audited under AIPC-060 only if bridge/gateway evidence shows they can hide a
+  stable-part regression.
 
 ## Blockers
 
@@ -58,6 +61,6 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Continue AIPC-050 by deciding whether the stream-semantics milestone is now sufficient to close or
-whether `siumai-extras` object/tool-loop helpers need a separate compatibility-boundary slice for
-their loose custom-event parsers.
+Execute AIPC-060. Start with `siumai-bridge` stream tests and bridge conversion helpers, then audit
+the remaining extras gateway/transcode assertions for stable-part-first coverage. Keep Axum/server
+transport concerns out of `siumai-core`.

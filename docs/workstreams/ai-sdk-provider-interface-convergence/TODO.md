@@ -50,15 +50,16 @@ Status legend:
 
 ## M2 - Stream Semantics Convergence
 
-- [~] AIPC-050 [owner=codex] [deps=AIPC-030] [scope=siumai-core,siumai-protocol-*,siumai-extras]
+- [x] AIPC-050 [owner=codex] [deps=AIPC-030] [scope=siumai-core,siumai-protocol-*,siumai-extras]
   Goal: Continue migrating AI SDK-stable stream semantics to `ChatStreamEvent::Part(ChatStreamPart)`
   and keep protocol-only replay hints out of stable provider metadata.
   Validation: focused protocol stream tests for the affected provider, then package nextest.
   Evidence: stream parser/serializer tests and `PARITY_INVENTORY.md` status updates.
-  Handoff: Do not widen `ChatStreamPart` for protocol-only replay details unless the inventory
-  shows an AI SDK stable semantic slot.
+  Handoff: OpenAI Responses public feature tests, extras gateway tool assertions, and
+  Anthropic/Gemini serializer guards now prefer stable stream parts for AI SDK-stable semantics.
+  Keep provider-custom inputs only in explicitly named compatibility or provider-native tests.
 
-- [ ] AIPC-060 [owner=unassigned] [deps=AIPC-050] [scope=siumai-extras,siumai-bridge,docs]
+- [~] AIPC-060 [owner=codex] [deps=AIPC-050] [scope=siumai-extras,siumai-bridge,docs]
   Goal: Move gateway/protocol bridge assertions toward stable-part-first expectations.
   Validation: `cargo nextest run -p siumai-bridge --no-fail-fast` and focused
   `siumai-extras` gateway tests.

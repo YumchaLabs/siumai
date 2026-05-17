@@ -42,12 +42,11 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "AIPC-050",
-    "title": "Converge AI SDK-stable stream semantics on stable stream parts",
+    "id": "AIPC-060",
+    "title": "Move gateway/protocol bridge assertions toward stable-part-first expectations",
     "scope": [
-      "siumai-core",
-      "siumai-protocol-*",
       "siumai-extras",
+      "siumai-bridge",
       "docs/workstreams/ai-sdk-provider-interface-convergence"
     ]
   },
