@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "slug": "ai-sdk-provider-interface-convergence",
+  "title": "AI SDK Provider Interface Convergence",
+  "status": "active",
+  "updated": "2026-05-18",
+  "scope_kind": "program",
+  "problem": "Siumai needs one authoritative program lane to keep core, registry, protocol, provider, and OpenAI-compatible package seams converged with the AI SDK reference without reopening one giant V4 refactor lane.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/ai-sdk-provider-interface-convergence/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/ai-sdk-provider-interface-convergence/TODO.md"
+    },
+    {
+      "role": "inventory",
+      "path": "docs/workstreams/ai-sdk-provider-interface-convergence/PARITY_INVENTORY.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/ai-sdk-provider-interface-convergence/EVIDENCE_AND_GATES.md"
+    }
+  ],
+  "gates": [
+    "cargo nextest run -p siumai-core --no-fail-fast",
+    "cargo nextest run -p siumai-registry --no-fail-fast",
+    "cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast",
+    "cargo nextest run -p siumai-protocol-anthropic --all-features --no-fail-fast",
+    "cargo nextest run -p siumai-protocol-gemini --all-features --no-fail-fast",
+    "cargo nextest run --profile ci --all-features --workspace"
+  ],
+  "evidence": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence/PARITY_INVENTORY.md"
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0006-family-model-first-trait-policy.md",
+    "docs/adr/0007-llmclient-demotion-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
+  ],
+  "active_task": {
+    "id": "AIPC-030",
+    "title": "Audit and strengthen core/registry source guards",
+    "scope": [
+      "siumai-core",
+      "siumai-registry",
+      "docs/workstreams/ai-sdk-provider-interface-convergence"
+    ]
+  },
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue one bounded vertical slice at a time. Split a child workstream when a provider or seam needs separate ownership. Do not turn this program into a single mega implementation patch."
+  }
+}

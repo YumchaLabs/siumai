@@ -1,6 +1,6 @@
 # Workstream Index
 
-Last updated: 2026-05-17
+Last updated: 2026-05-18
 
 This index is the navigation surface for `docs/workstreams/`. It records what can be inferred from existing workstream files; it does not rewrite historical status by assumption.
 
@@ -14,16 +14,17 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 ## Summary
 
-- Total workstream directories: 65
-- Machine-readable status files: 9
+- Total workstream directories: 66
+- Machine-readable status files: 10
 - Closed or closed-like lanes: 11
-- Active-like lanes: 0
+- Active-like lanes: 1
 - Unknown legacy lanes: 54
 
 ## Inventory
 
 | Workstream | Status | Source | Machine-readable |
 | --- | --- | --- | --- |
+| `docs/workstreams/ai-sdk-provider-interface-convergence` | active | `WORKSTREAM.json` | yes |
 | `docs/workstreams/ai-sdk-structural-alignment` | unknown | `none` | no |
 | `docs/workstreams/anthropic-files-shared-contract-alignment` | unknown | `none` | no |
 | `docs/workstreams/anthropic-package-surface-alignment` | unknown | `none` | no |
