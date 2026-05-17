@@ -1112,8 +1112,12 @@ Status legend:
   - `providers/openai_compatible/providers/models.rs` is now a directory facade with provider-family files (`deepseek`, `openrouter`, `deepinfra`, `vertex_maas`, `fireworks`, `xai`, `siliconflow`, `groq`, `togetherai`, `moonshot`, and aliases), while `get_models_for_provider(...)`, `is_model_supported(...)`, and public module paths remain compatible.
   - The facade includes a source guard so provider model constants and family `all_models()` implementations stay in provider-family modules instead of returning to a monolithic catalog.
 
-- [~] Shrink the shared OpenAI-compatible client shell.
+- [x] Shrink the shared OpenAI-compatible client shell.
   - The production `openai_client.rs` shell now delegates protocol response structs to `openai_client/types.rs`, construction and runtime wiring to `openai_client/runtime.rs`, and `ModelMetadata` / `LlmClient` compatibility exposure to `openai_client/compatibility.rs`.
   - The large parent-module regression suite now lives in `openai_client/tests.rs`, leaving the parent shell readable while preserving the same private-module test access.
   - Existing capability implementation modules (`chat`, `completion`, `embedding`, `image`, `audio`, `rerank`, `models`) remain the execution owners; this cleanup is intentionally about the client shell boundary, not capability behavior.
   - Source guards should keep `impl LlmClient`, HTTP wiring helpers, default-model resolution, and protocol response structs out of the shell file after the split.
+
+- [x] Deepen the OpenAI-compatible completion runtime boundary.
+  - `openai_client/completion/` is now a directory module. `mod.rs` owns completion request/response orchestration, `streaming.rs` owns SSE stream state and event conversion, and `tests.rs` owns completion no-network contracts.
+  - Source guards now keep completion logic out of the monolithic client shell and keep streaming state/converter logic out of the completion shell.
