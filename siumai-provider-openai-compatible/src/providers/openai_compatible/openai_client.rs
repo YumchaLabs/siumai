@@ -4,7 +4,7 @@
 
 use super::openai_config::OpenAiCompatibleConfig;
 use crate::client::LlmClient;
-use crate::core::{ProviderContext, ProviderSpec};
+use crate::core::ProviderContext;
 use crate::error::LlmError;
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleAlibabaCacheControlWarningMiddleware;
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleDeprecatedProviderOptionsWarningMiddleware;
@@ -16,12 +16,11 @@ use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
 use crate::retry_api::RetryOptions;
 use crate::traits::{
     AudioCapability, ChatCapability, CompletionCapability, EmbeddingCapability,
-    ImageGenerationCapability, ModelListingCapability, RerankCapability, SpeechCapability,
-    SpeechExtras, TranscriptionCapability, TranscriptionExtras,
+    ImageGenerationCapability, RerankCapability, SpeechCapability, SpeechExtras,
+    TranscriptionCapability, TranscriptionExtras,
 };
 // use crate::execution::transformers::request::RequestTransformer; // unused
 use crate::types::*;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use siumai_core::traits::ModelMetadata;
 use std::sync::Arc;
@@ -34,6 +33,7 @@ mod chat;
 mod completion;
 mod embedding;
 mod image;
+mod models;
 mod rerank;
 
 /// OpenAI Compatible Chat Response with provider-specific fields
@@ -508,197 +508,6 @@ impl ModelMetadata for OpenAiCompatibleClient {
 
     fn model_id(&self) -> &str {
         self.config.model.as_str()
-    }
-}
-
-impl OpenAiCompatibleClient {
-    /// List available models from the provider
-    async fn list_models_internal(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        let spec = std::sync::Arc::new(self.compat_spec());
-        let ctx = self.build_context().await?;
-        let url = spec.try_models_url(&ctx)?;
-        let config = self.http_wiring(ctx).config(spec);
-
-        let result =
-            crate::execution::executors::common::execute_get_request(&config, &url, None).await?;
-        let models_response: serde_json::Value = result.json;
-
-        // Parse OpenAI-compatible models response
-        let models = models_response
-            .get("data")
-            .and_then(|data| data.as_array())
-            .ok_or_else(|| LlmError::ParseError("Invalid models response format".to_string()))?;
-
-        let mut model_infos = Vec::new();
-        for model in models {
-            if let Some(model_id) = model.get("id").and_then(|id| id.as_str()) {
-                let model_info = ModelInfo {
-                    id: model_id.to_string(),
-                    name: Some(model_id.to_string()),
-                    description: model
-                        .get("description")
-                        .and_then(|d| d.as_str())
-                        .map(|s| s.to_string()),
-                    owned_by: model
-                        .get("owned_by")
-                        .and_then(|o| o.as_str())
-                        .unwrap_or(&self.config.provider_id)
-                        .to_string(),
-                    created: model.get("created").and_then(|c| c.as_u64()),
-                    capabilities: self.determine_model_capabilities(model_id),
-                    context_window: None, // Not typically provided by OpenAI-compatible APIs
-                    max_output_tokens: None, // Not typically provided by OpenAI-compatible APIs
-                    input_cost_per_token: None, // Not typically provided by OpenAI-compatible APIs
-                    output_cost_per_token: None, // Not typically provided by OpenAI-compatible APIs
-                };
-                model_infos.push(model_info);
-            }
-        }
-
-        Ok(model_infos)
-    }
-
-    /// Determine model capabilities based on model ID
-    fn determine_model_capabilities(&self, model_id: &str) -> Vec<String> {
-        let mut capabilities = vec!["chat".to_string()];
-
-        // Add capabilities based on model name patterns
-        if model_id.contains("embed") || model_id.contains("embedding") {
-            capabilities.push("embedding".to_string());
-        }
-
-        if model_id.contains("rerank") || model_id.contains("bge-reranker") {
-            capabilities.push("rerank".to_string());
-        }
-
-        if model_id.contains("flux")
-            || model_id.contains("stable-diffusion")
-            || model_id.contains("kolors")
-        {
-            capabilities.push("image_generation".to_string());
-        }
-
-        // Add thinking capability for supported models
-        if self
-            .config
-            .adapter
-            .get_model_config(model_id)
-            .supports_thinking
-        {
-            capabilities.push("thinking".to_string());
-        }
-
-        capabilities
-    }
-
-    /// Get detailed information about a specific model
-    async fn get_model_internal(&self, model_id: String) -> Result<ModelInfo, LlmError> {
-        // Best-effort: prefer the dedicated retrieve endpoint when the provider supports it,
-        // then fallback to the list endpoint, and finally a synthetic ModelInfo.
-        let spec = std::sync::Arc::new(self.compat_spec());
-        let ctx = self.build_context().await?;
-        let url = spec.try_model_url(&model_id, &ctx)?;
-        let config = self.http_wiring(ctx).config(spec);
-
-        let direct =
-            crate::execution::executors::common::execute_get_request(&config, &url, None).await;
-
-        match direct {
-            Ok(result) => {
-                let json = result.json;
-
-                // OpenAI model retrieve response is usually a single object.
-                if let Some(model_id) = json.get("id").and_then(|id| id.as_str()) {
-                    return Ok(ModelInfo {
-                        id: model_id.to_string(),
-                        name: Some(model_id.to_string()),
-                        description: json
-                            .get("description")
-                            .and_then(|d| d.as_str())
-                            .map(|s| s.to_string()),
-                        owned_by: json
-                            .get("owned_by")
-                            .and_then(|o| o.as_str())
-                            .unwrap_or(&self.config.provider_id)
-                            .to_string(),
-                        created: json.get("created").and_then(|c| c.as_u64()),
-                        capabilities: self.determine_model_capabilities(model_id),
-                        context_window: None,
-                        max_output_tokens: None,
-                        input_cost_per_token: None,
-                        output_cost_per_token: None,
-                    });
-                }
-
-                // Some vendors might wrap it as `data: [...]` (rare). Best-effort parse.
-                if let Some(model) = json
-                    .get("data")
-                    .and_then(|d| d.as_array())
-                    .and_then(|arr| arr.first())
-                    && let Some(model_id) = model.get("id").and_then(|id| id.as_str())
-                {
-                    return Ok(ModelInfo {
-                        id: model_id.to_string(),
-                        name: Some(model_id.to_string()),
-                        description: model
-                            .get("description")
-                            .and_then(|d| d.as_str())
-                            .map(|s| s.to_string()),
-                        owned_by: model
-                            .get("owned_by")
-                            .and_then(|o| o.as_str())
-                            .unwrap_or(&self.config.provider_id)
-                            .to_string(),
-                        created: model.get("created").and_then(|c| c.as_u64()),
-                        capabilities: self.determine_model_capabilities(model_id),
-                        context_window: None,
-                        max_output_tokens: None,
-                        input_cost_per_token: None,
-                        output_cost_per_token: None,
-                    });
-                }
-            }
-            Err(LlmError::ApiError { code: 404, .. }) => {
-                // Fall through to list+basic.
-            }
-            Err(e) => {
-                // If the provider advertises ModelListingCapability but doesn't support
-                // the retrieve endpoint, it may still support listing.
-                // For other errors (auth/rate limit/etc.), don't mask the failure.
-                return Err(e);
-            }
-        }
-
-        // Fallback: try to find from list.
-        let models = self.list_models_internal().await?;
-        if let Some(model) = models.into_iter().find(|m| m.id == model_id) {
-            return Ok(model);
-        }
-
-        // Final fallback: create a basic model info.
-        Ok(ModelInfo {
-            id: model_id.clone(),
-            name: Some(model_id.clone()),
-            description: Some(format!("{} model: {}", self.config.provider_id, model_id)),
-            owned_by: self.config.provider_id.clone(),
-            created: None,
-            capabilities: self.determine_model_capabilities(&model_id),
-            context_window: None,
-            max_output_tokens: None,
-            input_cost_per_token: None,
-            output_cost_per_token: None,
-        })
-    }
-}
-
-#[async_trait]
-impl ModelListingCapability for OpenAiCompatibleClient {
-    async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        self.list_models_internal().await
-    }
-
-    async fn get_model(&self, model_id: String) -> Result<ModelInfo, LlmError> {
-        self.get_model_internal(model_id).await
     }
 }
 
