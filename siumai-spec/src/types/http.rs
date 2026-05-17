@@ -36,7 +36,7 @@ pub struct HttpRequestInfo {
 ///
 /// This type is a passive transport-options carrier. It intentionally does not read environment
 /// variables or construct clients; runtime crates decide how to materialize defaults.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HttpConfig {
     /// Request timeout
     #[serde(with = "duration_option_serde")]
@@ -150,18 +150,5 @@ mod duration_option_serde {
     {
         let secs: Option<u64> = Option::deserialize(deserializer)?;
         Ok(secs.map(Duration::from_secs))
-    }
-}
-
-impl Default for HttpConfig {
-    fn default() -> Self {
-        Self {
-            timeout: None,
-            connect_timeout: None,
-            headers: HashMap::new(),
-            proxy: None,
-            user_agent: None,
-            stream_disable_compression: false,
-        }
     }
 }
