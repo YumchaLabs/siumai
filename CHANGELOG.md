@@ -4,32 +4,37 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+No changes yet.
+
+## [0.11.0-beta.8] - 2026-05-17
+
+Stabilization release after `0.11.0-beta.7`. Most users can upgrade by changing the Cargo version
+only.
+
+### Fixed
+
+- Fixed OpenAI-compatible streaming dropping whitespace and line breaks in streamed text deltas.
+  This fixes [#19](https://github.com/YumchaLabs/siumai/issues/19); thanks @longzou for the report.
+- Improved lossless streaming behavior for OpenAI and OpenAI-compatible providers.
+- Improved OpenAI response metadata consistency across streaming and non-streaming paths.
+
 ### Changed
 
-- Updated `siumai-extras` MCP integration to `rmcp` 1.6 and the current streamable HTTP client
-  transport. The legacy `mcp_tools_from_sse` helper remains as a deprecated compatibility alias;
-  new MCP HTTP clients should use `mcp_tools_from_http`.
-- Moved runnable MCP examples out of the core crate and into `siumai-extras`, where they now live
-  beside the actual MCP integration surface.
-- `siumai-extras` tool-loop gateway examples and APIs now use the canonical `LanguageModel`
-  family surface instead of the older `ChatCapability` shape.
-- Cleaned up example guidance after the beta.7 refactor: `Usage` examples now show the current
-  builder/accessor API only, the Moonshot builder-only demo was removed, and `siumai-extras`
-  examples are explicitly registered with feature boundaries.
-- Added a `siumai-extras/examples` index and removed the stale core-crate orchestrator example
-  README now that runnable orchestrator examples live in `siumai-extras`.
-- Added `UsageInputTokens` and `UsageOutputTokens` to the unified prelude so callers can use the
-  canonical `Usage::builder().with_input_tokens(...)` / `with_output_tokens(...)` path without
-  falling back to lower-level type imports.
-- Refreshed supporting dependencies for schema validation, registry caching, HTTP, WebSocket, and
-  random-number utilities (`jsonschema` 0.46, `lru` 0.18, `reqwest` 0.13.3,
-  `tokio-tungstenite` 0.29, and `rand` 0.10).
-- Removed the deprecated low-level `execute_json_request_with_headers(...)` compatibility helper;
-  custom executor code should use `execute_json_request(...)` with `HttpExecutionConfig` and a
-  `ProviderSpec` for static headers.
-- Marked DeepInfra, Fireworks, and TogetherAI registry composite clients as internal compat-only
-  adapters. Stable family factory paths stay on native family methods and are guarded against
-  routing through those compatibility wrappers.
+- Refreshed MCP HTTP integration and examples in `siumai-extras`.
+- Updated examples to use the current model-family and usage APIs.
+- Added OpenAI support for newer model/option surfaces such as `gpt-image-2` and Responses allowed
+  tools.
+- Added `UsageInputTokens` and `UsageOutputTokens` to the unified prelude.
+
+### Migration Notes
+
+- If you used deprecated beta-era root/prelude/provider aliases, move to registry, model-family
+  modules, or `provider_ext::*`.
+- If you used `execute_json_request_with_headers(...)`, use `execute_json_request(...)` with
+  `HttpExecutionConfig` and `ProviderSpec`.
+- If your tests snapshot raw stream chunks, update snapshots that assumed whitespace-only deltas
+  were omitted.
+- For MCP HTTP integrations, prefer `siumai_extras::mcp::mcp_tools_from_http`.
 
 ## [0.11.0-beta.7] - 2026-05-05
 

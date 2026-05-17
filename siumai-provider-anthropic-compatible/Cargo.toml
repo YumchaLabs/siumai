@@ -16,7 +16,7 @@ categories = ["api-bindings"]
 doctest = false
 
 [dependencies]
-siumai-protocol-anthropic = { version = "0.11.0-beta.7", path = "../siumai-protocol-anthropic", default-features = false }
+siumai-protocol-anthropic = { version = "0.11.0-beta.8", path = "../siumai-protocol-anthropic", default-features = false }
 
 [features]
 default = []
@@ -28,4 +28,3 @@ anthropic-standard = ["siumai-protocol-anthropic/anthropic-standard"]
 
 # Matches the feature name used by downstream crates.
 anthropic = ["siumai-protocol-anthropic/anthropic"]
-

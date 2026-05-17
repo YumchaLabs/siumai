@@ -25,7 +25,7 @@ This README keeps things straightforward: what you can do, how to customize, and
 
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.7"
+siumai = "0.11.0-beta.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -41,11 +41,11 @@ Feature flags (enable only what you need):
 
 ```toml
 # One provider
-siumai = { version = "0.11.0-beta.7", features = ["openai"] }
+siumai = { version = "0.11.0-beta.8", features = ["openai"] }
 # Multiple providers
-siumai = { version = "0.11.0-beta.7", features = ["openai", "anthropic", "google"] }
+siumai = { version = "0.11.0-beta.8", features = ["openai", "anthropic", "google"] }
 # All
-siumai = { version = "0.11.0-beta.7", features = ["all-providers"] }
+siumai = { version = "0.11.0-beta.8", features = ["all-providers"] }
 ```
 
 Note: `siumai` enables `openai` by default. Disable defaults via `default-features = false`.
@@ -54,8 +54,8 @@ Optional package for advanced utilities:
 
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.7"
-siumai-extras = { version = "0.11.0-beta.7", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
+siumai = "0.11.0-beta.8"
+siumai-extras = { version = "0.11.0-beta.8", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
 ```
 
 ## Usage
@@ -390,7 +390,7 @@ Chat Completions (`POST /chat/completions`).
 
 ```toml
 # Cargo.toml
-siumai = { version = "0.11.0-beta.7", features = ["openai-websocket"] }
+siumai = { version = "0.11.0-beta.8", features = ["openai-websocket"] }
 ```
 
 ```rust,no_run

@@ -28,7 +28,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.11.0-beta.7"
+version = "0.11.0-beta.8"
 edition = "2024"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -87,11 +87,11 @@ regex = "1.11"
 
 # Core crate (for workspace consumption)
 # Disable default features; downstream crates must opt-in provider features explicitly
-siumai = { version = "0.11.0-beta.7", path = "siumai", default-features = false }
-siumai-core = { version = "0.11.0-beta.7", path = "siumai-core", default-features = false }
-siumai-bridge = { version = "0.11.0-beta.7", path = "siumai-bridge", default-features = false }
-siumai-spec = { version = "0.11.0-beta.7", path = "siumai-spec", default-features = false }
-siumai-registry = { version = "0.11.0-beta.7", path = "siumai-registry", default-features = false }
+siumai = { version = "0.11.0-beta.8", path = "siumai", default-features = false }
+siumai-core = { version = "0.11.0-beta.8", path = "siumai-core", default-features = false }
+siumai-bridge = { version = "0.11.0-beta.8", path = "siumai-bridge", default-features = false }
+siumai-spec = { version = "0.11.0-beta.8", path = "siumai-spec", default-features = false }
+siumai-registry = { version = "0.11.0-beta.8", path = "siumai-registry", default-features = false }
 
 # Security
 secrecy = { version = "0.10", features = ["serde"] }

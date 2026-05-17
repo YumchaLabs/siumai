@@ -16,8 +16,8 @@ This crate provides optional functionality that extends `siumai` without adding 
 
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.7"
-siumai-extras = { version = "0.11.0-beta.7", features = ["schema", "telemetry", "mcp"] }
+siumai = "0.11.0-beta.8"
+siumai-extras = { version = "0.11.0-beta.8", features = ["schema", "telemetry", "mcp"] }
 ```
 
 ## Usage
