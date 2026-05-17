@@ -24,6 +24,7 @@ Last updated: 2026-05-17
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/config/family_defaults.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/builder.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/builder/reasoning.rs`
+  - `siumai-provider-openai-compatible/src/providers/openai_compatible/builder/tests.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/ext/request_options.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/ext/request_options/tests.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/providers/models/mod.rs`
@@ -95,5 +96,11 @@ Last updated: 2026-05-17
   - `cargo fmt -p siumai-provider-openai-compatible`
   - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast request_options`
     - Result: 20 tests passed, 213 skipped.
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
+    - Result: 233 tests passed, 0 skipped.
+- OpenAI-compatible builder test module isolation:
+  - `cargo fmt -p siumai-provider-openai-compatible`
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast builder`
+    - Result: 22 tests passed, 211 skipped.
   - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
     - Result: 233 tests passed, 0 skipped.

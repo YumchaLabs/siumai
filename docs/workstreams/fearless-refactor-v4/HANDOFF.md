@@ -31,6 +31,8 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
 - OpenAI-compatible builder reasoning defaults have been split into `builder/reasoning.rs`; the
   parent `builder.rs` shell now keeps construction, config convergence, HTTP wiring, and build
   orchestration instead of owning provider-specific thinking/reasoning parameter mapping.
+- OpenAI-compatible builder tests now live in `builder/tests.rs`, leaving the parent builder shell
+  focused on construction and config convergence.
 - OpenAI-compatible request-option extension tests now live in `ext/request_options/tests.rs`,
   leaving `ext/request_options.rs` focused on public extension traits and provider-options map
   merging.
@@ -64,6 +66,8 @@ new provider families need dedicated registry ownership.
   `build_builtin_providers` or the static built-in provider map.
 - Keep provider-specific builder reasoning defaults in `builder/reasoning.rs`; `builder.rs` should
   remain a construction shell rather than another provider-option mapping table.
+- Keep builder contract tests in `builder/tests.rs`; `builder.rs` should expose the construction
+  interface rather than carrying the full parity suite inline.
 - Keep request-option contract tests in `ext/request_options/tests.rs`; `ext/request_options.rs`
   should remain the public extension-trait shell.
 - Prefer focused no-network tests and source guards over broad rewrites.

@@ -1135,6 +1135,10 @@ Status legend:
   - Provider-specific thinking/reasoning default mapping now lives in `builder/reasoning.rs`, while `builder.rs` keeps construction, config convergence, HTTP wiring, and build orchestration.
   - A source guard keeps `with_thinking(...)`, `with_thinking_budget(...)`, `reasoning(...)`, `reasoning_budget(...)`, and `provider_thinking_value(...)` out of the builder shell so new provider-specific reasoning defaults have a focused owner.
 
+- [x] Isolate OpenAI-compatible builder tests.
+  - `builder.rs` now stays focused on construction, config convergence, HTTP wiring, and build orchestration, while builder contract tests live in `builder/tests.rs`.
+  - The existing builder source guard now also keeps the parent shell on a dedicated test module path so future builder parity tests do not bury the construction interface again.
+
 - [x] Isolate OpenAI-compatible request-option extension tests.
   - `ext/request_options.rs` now stays focused on public extension traits and provider-options map merging, while request-option contract tests live in `ext/request_options/tests.rs`.
   - A source guard keeps representative request-option contract tests out of the production extension shell so provider-specific public helper coverage does not bury the interface definitions again.
