@@ -1,0 +1,14 @@
+{
+  "slug": "fearless-refactor-v4",
+  "status": "active",
+  "opened": "2026-03-06",
+  "objective": "Finish the family-model-centered fearless refactor while keeping provider-specific complexity below narrow provider/protocol module boundaries.",
+  "current_task": "OpenAI-compatible internal boundary cleanup",
+  "next_task": "Finish validating and committing the OpenAI-compatible client shell split, then reassess remaining large compat-runtime modules for real coupling instead of file size alone.",
+  "blocked": false,
+  "validation_focus": [
+    "siumai-provider-openai-compatible openai_client focused no-network tests",
+    "siumai-provider-openai-compatible full no-network package tests",
+    "source guards preventing monolithic compat runtime regressions"
+  ]
+}
