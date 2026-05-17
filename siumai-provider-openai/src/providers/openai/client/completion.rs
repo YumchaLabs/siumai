@@ -6,116 +6,16 @@ use crate::standards::openai::completion_metadata::{
     extract_completion_provider_metadata, flatten_completion_stream_provider_metadata,
     merge_completion_provider_metadata,
 };
+use crate::standards::openai::completion_request::{self, CompletionBodyOptions};
 use crate::standards::openai::utils::{parse_finish_reason, parse_openai_usage_value};
 use crate::streaming::{ChatStream, ChatStreamEvent};
 use crate::traits::CompletionCapability;
 use crate::types::{
-    ChatMessage, ChatResponse, ChatStreamFinishInfo, ChatStreamPart, CompletionRequest,
-    CompletionResponse, ContentPart, FinishReason, MessageContent, MessageRole,
-    ProviderMetadataMap, ResponseMetadata, Usage, Warning,
+    ChatResponse, ChatStreamFinishInfo, ChatStreamPart, CompletionRequest, CompletionResponse,
+    FinishReason, MessageContent, ProviderMetadataMap, ResponseMetadata, Usage, Warning,
 };
 use async_trait::async_trait;
 use std::sync::Arc;
-
-#[allow(unreachable_patterns)]
-fn completion_message_text(content: &MessageContent, role_name: &str) -> Result<String, LlmError> {
-    match content {
-        MessageContent::Text(text) => Ok(text.clone()),
-        MessageContent::MultiModal(parts) => {
-            let mut text = String::new();
-            for part in parts {
-                match part {
-                    ContentPart::Text {
-                        text: part_text, ..
-                    } => text.push_str(part_text),
-                    ContentPart::ToolCall { .. } => {
-                        return Err(LlmError::UnsupportedOperation(format!(
-                            "Completion prompts do not support tool-call parts in {role_name} messages"
-                        )));
-                    }
-                    ContentPart::ToolResult { .. } => {
-                        return Err(LlmError::UnsupportedOperation(
-                            "Completion prompts do not support tool messages".to_string(),
-                        ));
-                    }
-                    _ => {
-                        return Err(LlmError::UnsupportedOperation(format!(
-                            "Completion prompts only support text content in {role_name} messages"
-                        )));
-                    }
-                }
-            }
-            Ok(text)
-        }
-        _ => Err(LlmError::UnsupportedOperation(format!(
-            "Completion prompts do not support structured JSON content in {role_name} messages"
-        ))),
-    }
-}
-
-#[derive(Debug, Clone)]
-struct CompletionPromptMaterialization {
-    prompt: String,
-    stop_sequences: Vec<String>,
-}
-
-fn materialize_completion_prompt(
-    prompt: &[ChatMessage],
-) -> Result<CompletionPromptMaterialization, LlmError> {
-    if prompt.is_empty() {
-        return Err(LlmError::InvalidParameter(
-            "Completion prompt cannot be empty".to_string(),
-        ));
-    }
-
-    let mut text = String::new();
-    let mut remaining = prompt;
-
-    if let Some(first) = prompt.first()
-        && first.role == MessageRole::System
-    {
-        text.push_str(&completion_message_text(&first.content, "system")?);
-        text.push_str("\n\n");
-        remaining = &prompt[1..];
-    }
-
-    for message in remaining {
-        match message.role {
-            MessageRole::System => {
-                return Err(LlmError::InvalidParameter(
-                    "Unexpected system message in completion prompt".to_string(),
-                ));
-            }
-            MessageRole::Developer => {
-                return Err(LlmError::UnsupportedOperation(
-                    "Completion prompts do not support developer messages".to_string(),
-                ));
-            }
-            MessageRole::Tool => {
-                return Err(LlmError::UnsupportedOperation(
-                    "Completion prompts do not support tool messages".to_string(),
-                ));
-            }
-            MessageRole::User => {
-                text.push_str("user:\n");
-                text.push_str(&completion_message_text(&message.content, "user")?);
-                text.push_str("\n\n");
-            }
-            MessageRole::Assistant => {
-                text.push_str("assistant:\n");
-                text.push_str(&completion_message_text(&message.content, "assistant")?);
-                text.push_str("\n\n");
-            }
-        }
-    }
-
-    text.push_str("assistant:\n");
-
-    Ok(CompletionPromptMaterialization {
-        prompt: text,
-        stop_sequences: vec!["\nuser:".to_string()],
-    })
-}
 
 #[derive(Debug, Clone)]
 struct CompletionStreamState {
@@ -472,93 +372,12 @@ impl OpenAiClient {
         request: &CompletionRequest,
         stream: bool,
     ) -> Result<(serde_json::Value, Vec<Warning>), LlmError> {
-        let prompt = materialize_completion_prompt(&request.prompt)?;
-        let mut warnings = Vec::new();
-
-        if request.common_params.top_k.is_some() {
-            warnings.push(Warning::unsupported("topK", None::<String>));
-        }
-        if request
-            .tools
-            .as_ref()
-            .is_some_and(|tools| !tools.is_empty())
-        {
-            warnings.push(Warning::unsupported("tools", None::<String>));
-        }
-        if request.tool_choice.is_some() {
-            warnings.push(Warning::unsupported("toolChoice", None::<String>));
-        }
-        if request.response_format.is_some() {
-            warnings.push(Warning::unsupported(
-                "responseFormat",
-                Some("JSON response format is not supported."),
-            ));
-        }
-
-        let stop = prompt
-            .stop_sequences
-            .into_iter()
-            .chain(
-                request
-                    .common_params
-                    .stop_sequences
-                    .clone()
-                    .unwrap_or_default(),
-            )
-            .collect::<Vec<_>>();
-
-        let mut body = serde_json::Map::new();
-        body.insert(
-            "model".to_string(),
-            serde_json::Value::String(request.common_params.model.clone()),
-        );
-
-        if let Some(max_tokens) = request
-            .common_params
-            .max_completion_tokens
-            .or(request.common_params.max_tokens)
-        {
-            body.insert("max_tokens".to_string(), serde_json::json!(max_tokens));
-        }
-        if let Some(temperature) = request.common_params.temperature {
-            body.insert("temperature".to_string(), serde_json::json!(temperature));
-        }
-        if let Some(top_p) = request.common_params.top_p {
-            body.insert("top_p".to_string(), serde_json::json!(top_p));
-        }
-        if let Some(frequency_penalty) = request.common_params.frequency_penalty {
-            body.insert(
-                "frequency_penalty".to_string(),
-                serde_json::json!(frequency_penalty),
-            );
-        }
-        if let Some(presence_penalty) = request.common_params.presence_penalty {
-            body.insert(
-                "presence_penalty".to_string(),
-                serde_json::json!(presence_penalty),
-            );
-        }
-        if let Some(seed) = request.common_params.seed {
-            body.insert("seed".to_string(), serde_json::json!(seed));
-        }
-
-        body.extend(self.completion_provider_options(request));
-        body.insert(
-            "prompt".to_string(),
-            serde_json::Value::String(prompt.prompt),
-        );
-        if !stop.is_empty() {
-            body.insert("stop".to_string(), serde_json::json!(stop));
-        }
-        if stream {
-            body.insert("stream".to_string(), serde_json::json!(true));
-            body.insert(
-                "stream_options".to_string(),
-                serde_json::json!({ "include_usage": true }),
-            );
-        }
-
-        Ok((serde_json::Value::Object(body), warnings))
+        completion_request::build_completion_body(
+            request,
+            CompletionBodyOptions::new(stream)
+                .with_include_usage(stream)
+                .with_provider_options(self.completion_provider_options(request)),
+        )
     }
 
     fn build_completion_response(
@@ -703,13 +522,10 @@ mod tests {
 
     #[test]
     fn completion_request_source_does_not_read_legacy_provider_metadata_fields() {
-        for source in [
-            source_between("fn completion_message_text(", "#[derive(Debug, Clone)]"),
-            source_between(
-                "fn prepare_completion_request(",
-                "fn build_completion_response(",
-            ),
-        ] {
+        for source in [source_between(
+            "fn prepare_completion_request(",
+            "fn build_completion_response(",
+        )] {
             assert!(
                 !source.contains("providerMetadata"),
                 "OpenAI completion request construction must not read legacy providerMetadata"
