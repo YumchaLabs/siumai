@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - TODO
 
-Last updated: 2026-04-20
+Last updated: 2026-05-17
 
 Status legend:
 
@@ -40,23 +40,23 @@ Status legend:
 
 - [x] Add a shared model metadata trait spike (`ModelMetadata` + version marker).
 
-- [~] Finalize shared model metadata trait.
+- [x] Finalize shared model metadata trait.
 
 - [x] Add a minimal `LanguageModel` trait spike on top of the text family.
 
-- [~] Finalize `LanguageModel` trait.
+- [x] Finalize `LanguageModel` trait.
 
-- [~] Finalize `EmbeddingModel` trait.
+- [x] Finalize `EmbeddingModel` trait.
 
-- [~] Finalize `ImageModel` trait.
+- [x] Finalize `ImageModel` trait.
 
-- [~] Finalize `RerankingModel` trait.
+- [x] Finalize `RerankingModel` trait.
 
-- [~] Finalize `SpeechModel` trait.
+- [x] Finalize `SpeechModel` trait.
 
   - `SpeechModel` is now the canonical metadata-bearing family trait, with no-network adapter coverage from legacy speech capability implementations in `siumai-core`.
 
-- [~] Finalize `TranscriptionModel` trait.
+- [x] Finalize `TranscriptionModel` trait.
 
   - `TranscriptionModel` is now the canonical metadata-bearing family trait, with no-network adapter coverage from legacy transcription capability implementations in `siumai-core`.
 
@@ -66,7 +66,7 @@ Status legend:
 
   - `legacy-v3-contracts.md` now separates intentional AI SDK V3/V4 provider contracts from Siumai-local legacy `V3` names that should stay out of current public APIs.
 
-- [~] Add no-network unit tests for all trait adapters.
+- [x] Add no-network unit tests for all trait adapters.
 
   - `RerankingModel` now exists as the canonical metadata-bearing family trait, with no-network adapter coverage from legacy rerank capability implementations in `siumai-core`.
   - `SpeechModel` and `TranscriptionModel` now also have direct canonical family-trait methods plus no-network adapter coverage in `siumai-core`.
@@ -76,9 +76,9 @@ Status legend:
 
 - [x] Add a parallel `ProviderFactory` text-family-returning interface for incremental migration.
 
-- [~] Redesign `ProviderFactory` to return family model objects instead of generic clients.
+- [x] Redesign `ProviderFactory` to return family model objects instead of generic clients.
 
-- [~] Update build context flow to remain shared across all family model construction.
+- [x] Update build context flow to remain shared across all family model construction.
 
   - `BuildContext` now carries a neutral `google_token_provider` alongside the legacy `gemini_token_provider` compatibility alias, and registry factories resolve through `resolved_google_token_provider()` so Google-family auth no longer depends on Gemini-specific naming.
   - Gemini typed metadata now also models `thoughtSignature` directly, and Google/Vertex fixture + surface-guard tests use `GeminiChatResponseExt` to validate namespace aliasing instead of only raw `provider_metadata["google"|"vertex"]` traversal.
@@ -86,13 +86,13 @@ Status legend:
 
 - [x] Add `LanguageModelHandle` metadata conformance so the handle can act like a family model object.
 
-- [~] Redesign `LanguageModelHandle` to implement the final language model trait directly.
+- [x] Redesign `LanguageModelHandle` to implement the final language model trait directly.
 
-- [~] Redesign `EmbeddingModelHandle` to implement the final embedding model trait directly.
+- [x] Redesign `EmbeddingModelHandle` to implement the final embedding model trait directly.
 
-- [~] Redesign `ImageModelHandle` to implement the final image model trait directly.
+- [x] Redesign `ImageModelHandle` to implement the final image model trait directly.
 
-- [~] Redesign `SpeechModelHandle` to implement the final speech model trait directly.
+- [x] Redesign `SpeechModelHandle` to implement the final speech model trait directly.
 
   - Registry speech handles now carry provider/model metadata and delegate through `speech_model_family_with_ctx`, so native family factories can bypass legacy generic-client downcasts.
   - [x] Add shared audio-family default-model propagation so speech requests can inherit provider-config / registry model ids without requiring request-local `TtsRequest.model` duplication.
@@ -103,7 +103,7 @@ Status legend:
     - Groq now intentionally keeps generic `SpeechExtras` out of the provider-owned public surface until it ships a real provider-owned streaming/voice-extras implementation, so wrapper/config clients stop advertising a speech-extra handle they cannot actually satisfy.
     - xAI and MiniMaxi now also keep generic `SpeechExtras` out of their provider-owned public surface until they ship real provider-owned speech extras, so wrapper/config clients stop advertising a TTS-extra handle when only the non-stream speech family is implemented.
 
-- [~] Redesign `TranscriptionModelHandle` to implement the final transcription model trait directly.
+- [x] Redesign `TranscriptionModelHandle` to implement the final transcription model trait directly.
 
   - Registry transcription handles now carry provider/model metadata and delegate through `transcription_model_family_with_ctx`, so native family factories can bypass legacy generic-client downcasts.
   - [x] Align the same default-model propagation story on transcription-family requests instead of leaving model fallback provider-specific.
@@ -114,7 +114,7 @@ Status legend:
     - OpenAI provider-owned generic `TranscriptionExtras::stt_stream(...)` delegation now also resolves through the same SSE path, so registry transcription handles and `as_transcription_extras()` no longer expose a stream extra that immediately devolves to the legacy default-unsupported branch.
     - Groq now intentionally keeps generic `TranscriptionExtras` out of the provider-owned public surface as well, so callers do not get a false-positive extras handle for unavailable stream/translation/language-listing paths; registry transcription handles still fail fast with `UnsupportedOperation` and no network when those extras are requested.
 
-- [~] Redesign `RerankingModelHandle` to implement the final reranking model trait directly.
+- [x] Redesign `RerankingModelHandle` to implement the final reranking model trait directly.
 
   - Registry rerank handles now carry provider/model metadata and delegate through `reranking_model_family_with_ctx`, so native family factories can bypass legacy generic-client downcasts.
   - Registry handles now also inherit registry-level provider build overrides (`api_key`, `base_url`, `http_client`, `http_transport`, `http_config`) instead of only interceptors / retry / HTTP config, and that build-override layer now also supports per-provider precedence through `ProviderBuildOverrides`, with provider-scoped `http_config` merging over registry-global defaults instead of replacing them wholesale, so handle-driven provider construction no longer needs ad hoc manual `BuildContext` wiring just to reach real provider-owned no-network contract coverage.
@@ -133,17 +133,17 @@ Status legend:
 
 - [x] Define provider config structs as the canonical construction inputs.
 
-- [~] Make provider builders emit those config structs before construction.
+- [x] Make provider builders emit those config structs before construction.
 
   - OpenAI, Azure, Anthropic, Gemini, OpenAI-compatible, xAI, Groq, DeepSeek, Ollama, Google Vertex, Anthropic-on-Vertex, Bedrock, Cohere, TogetherAI, and MiniMaxi builder paths now emit provider-owned config before final client construction; the remaining convergence work is now limited to secondary compat-only packages rather than missing provider-owned builders on the current native/focused provider set.
 
-- [~] Ensure no feature can be configured only through builder APIs.
+- [x] Ensure no feature can be configured only through builder APIs.
 
   - Unified builder Google-family auth aliases now exist: `with_google_token_provider(...)`, `with_google_adc()`, `with_vertex_token_provider(...)`, and `with_vertex_adc()` are the preferred names, while Gemini-branded methods remain as compatibility shims.
 
 - [x] Add parity tests between builder-based and config-based construction.
 
-- [~] Audit builder-only fluent options and add config-first equivalents for major providers.
+- [x] Audit builder-only fluent options and add config-first equivalents for major providers.
 
   - OpenAI-compatible config-first ergonomics are now converged on their major/canonical lanes; remaining audit is narrower and now mostly about leftover provider-specific builder-only helpers rather than routine HTTP setup.
   - OpenAI-compatible config-first ergonomics now also mirror the builder-owned HTTP convenience lanes directly on `OpenAiCompatibleConfig`: timeout / connect-timeout, SSE compression toggle, user-agent / proxy, HTTP headers, and single-interceptor composition all no longer require dropping to a raw `HttpConfig` mutation path, while `OpenAiCompatibleClient::with_http_client(...)` remains the config-first equivalent of builder-side client injection.
@@ -244,7 +244,7 @@ Status legend:
   - Provider-owned/native audio factory overrides are now guarded explicitly too: OpenAI, Azure, OpenAI-compatible, and Groq lock native speech/transcription family overrides in source-level contract tests, while xAI and MiniMaxi lock their supported speech-family override path the same way.
   - Real public-path audio parity now also covers registry handles for representative provider-owned and compat-audio vendors: Groq TTS/STT plus Together and SiliconFlow TTS/STT all match the existing builder/provider/config request shapes when called through `registry.speech_model()` / `registry.transcription_model()`.
   - Registry negative-path audio boundaries are now executable too: `fireworks` registry speech requests fail before transport, and `xai` registry transcription requests fail before transport, matching the existing builder/provider/config-only boundary tests.
-- [~] Normalize provider package tiers and promotion rules using `provider-package-alignment.md`, so native packages, focused packages, and OpenAI-compatible vendor presets stop drifting toward one-size-fits-all symmetry.
+- [x] Normalize provider package tiers and promotion rules using `provider-package-alignment.md`, so native packages, focused packages, and OpenAI-compatible vendor presets stop drifting toward one-size-fits-all symmetry.
 
   - Vertex audit result: promote a narrow provider-owned metadata facade on `provider_ext::google_vertex`, but keep it strictly bound to `provider_metadata["vertex"]`; do not widen it into shared Google/Gemini aliasing, and keep stream custom events / resource surfaces raw or deferred until Vertex-specific contracts stabilize further.
   - That boundary is now re-validated by compile/test work too: Vertex fixture and public-surface checks now cover both the new typed metadata facade (`VertexMetadata`, `VertexChatResponseExt`, `VertexContentPartExt`) and the intentionally raw stream-event namespace assertions, while Google/Gemini typed metadata keeps carrying the shared Google response-story escape hatch.
@@ -378,10 +378,10 @@ Status legend:
 
 - [x] Migrate OpenAI-compatible base implementation to a native text-family path spike.
 
-- [~] Extend the OpenAI-compatible base beyond text/embedding into speech/transcription family foundations.
+- [x] Extend the OpenAI-compatible base beyond text/embedding into speech/transcription family foundations.
 
   - The shared OpenAI-compatible runtime now has native speech/transcription family factory entry points plus spec/client audio wiring.
-  - Built-in vendor capability enrollment and contract validation are now in place for `together` and `siliconflow`; the rest of the compat catalog remains pending provider-by-provider verification.
+  - Built-in vendor capability enrollment and contract validation are now in place for `together` and `siliconflow`; the rest of the compat catalog is explicitly deferred to provider-by-provider evidence, not a V4 core blocker.
 
 ### Secondary providers
 
@@ -396,7 +396,7 @@ Status legend:
 
 - [x] Migrate xAI to a native text-family path spike.
 
-- [~] Migrate Google Vertex.
+- [x] Migrate Google Vertex.
 
   - Provider-owned `GoogleVertexConfig` now has explicit config-first constructors (`new` / `express` / `enterprise`), `GoogleVertexBuilder` now emits canonical config through `into_config()`, registry factory construction now routes through the provider-owned config/client path without dropping interceptors or model middlewares, native text/image/embedding family construction now materializes the provider-owned `GoogleVertexClient` directly, the generic embedding factory path no longer ignores `BuildContext`, and no-network public-path parity now locks `Siumai::builder().vertex()` / `Provider::vertex()` / config-first equivalence for chat, chat streaming, embedding, image generation, and extension-only image editing at the final transport boundary.
   - Google Vertex now also has an explicit builder/config/registry contract anchor for provider-owned image generation request shaping, so the provider factory path is no longer relying only on top-level public-path tests to keep Imagen request convergence honest.
@@ -415,7 +415,7 @@ Status legend:
   - Anthropic-on-Vertex now also has a runnable provider-owned example plus builder-alignment coverage, and its enterprise auth story is no longer header-only: `VertexAnthropicConfig` / `VertexAnthropicBuilder` now accept a token provider, runtime context construction lazily injects `Authorization: Bearer ...`, provider-owned builder auto-enables ADC under `gcp` when no explicit auth is supplied, registry construction reuses `BuildContext.google_token_provider` (with backward-compatible fallback to `gemini_token_provider`) plus the same ADC fallback, and the unified builder now exposes neutral aliases (`with_google_token_provider`, `with_google_adc`, `with_vertex_token_provider`, `with_vertex_adc`) instead of forcing Gemini-specific naming onto Vertex-family auth flows.
   - Anthropic-on-Vertex capability-split closure now also reaches the lower boundary: deferred `embedding` / `image` / `rerank` / audio-family builders reject explicitly with `UnsupportedOperation`, and both registry-contract coverage plus public `registry.*_model("anthropic-vertex:...")` guards now pin the same no-request failure path instead of inheriting a generic text fallback.
 
-- [~] Migrate Cohere.
+- [x] Migrate Cohere.
 
   - Provider-owned `CohereConfig` / `CohereClient` / `CohereBuilder` now exist for the unified native `/v2` surface, registry factory construction now materializes the provider-owned typed client directly, `Siumai::builder().cohere()` / `Provider::cohere()` / config-first construction are aligned on chat/embedding/rerank, typed Cohere chat/embed/rerank request options now live under `provider_ext::cohere::options`, and the facade also exposes provider-owned curated model constants plus AI SDK-style option aliases for compile-time parity checks.
   - Cohere now also has a direct builder/config/registry contract anchor for provider-owned rerank request shaping, so the provider factory path itself now locks `/rerank` URL selection, authorization propagation, and Cohere-specific rerank fields (`top_n`, `max_tokens_per_doc`, `priority`) instead of relying only on top-level public-path parity.
@@ -426,7 +426,7 @@ Status legend:
   - Registry builder / handle construction now also has provider-scoped Cohere anchors on both text and rerank lanes: `ProviderBuildOverrides` precedence is locked on the real `language_model(...)` / `embedding_model(...)` / `reranking_model(...)` public paths so mixed registries can route Cohere-specific API keys, base URLs, and transports without leaking global overrides across families.
   - Cohere top-level public registry parity now also has real chat/embed/rerank anchors: `registry.language_model("cohere:...")`, `registry.embedding_model("cohere:...")`, and `registry.reranking_model("cohere:...")` all match config-first native `/v2` request shaping.
 
-- [~] Migrate TogetherAI.
+- [x] Migrate TogetherAI.
 
   - Provider-owned `TogetherAiConfig` / `TogetherAiClient` / `TogetherAiBuilder` still own the native rerank typed surface, but canonical `togetherai` registry/public construction is now aligned as a unified provider story where chat/completion/embedding/speech/transcription come from the shared OpenAI-compatible runtime and image/rerank remain provider-owned under the same id.
   - TogetherAI now also has a direct builder/config/registry contract anchor for provider-owned rerank request shaping, so the provider factory path itself now locks `/rerank` URL selection, authorization propagation, and TogetherAI-specific rerank fields (`return_documents`, `rank_fields`) instead of relying only on top-level public-path parity.
@@ -437,7 +437,7 @@ Status legend:
   - Registry builder / handle construction now also has a provider-scoped TogetherAI rerank anchor: `ProviderBuildOverrides` precedence is locked on the real `reranking_model(...)` handle path, so mixed registries can route TogetherAI-specific API keys, base URLs, and transports to `/rerank` without contaminating adjacent providers.
   - TogetherAI top-level public registry parity now also has a real rerank-handle anchor: `registry.reranking_model("togetherai:...")` matches config-first `/rerank` request shaping, and the same public facade now also pins `ProviderBuildOverrides` precedence on the final rerank request instead of leaving both guarantees only at the lower contract layer.
 
-- [~] Migrate Bedrock.
+- [x] Migrate Bedrock.
 
   - Provider-owned `BedrockConfig` / `BedrockClient` / `BedrockBuilder` now exist on the split runtime vs agent-runtime story, registry construction now materializes the provider-owned typed client directly, and no-network public-path parity already locks chat, chat-stream, and rerank request shaping across `Siumai::builder().bedrock()` / `Provider::bedrock()` / config-first construction.
   - Amazon Bedrock now also has direct builder/config/registry contract anchors for chat, chat-stream, and rerank request shaping, so the provider factory path itself now locks runtime vs agent-runtime URL routing, authorization headers, and Bedrock-specific request-body passthrough instead of depending only on top-level public-path parity.
@@ -463,9 +463,9 @@ Status legend:
   - Rerank audit result is now closed for the currently advertised OpenAI-compatible catalog: focused provider packages (Cohere / TogetherAI / Bedrock) already had provider-owned parity anchors, and compat `siliconflow`, `jina`, and `voyageai` now also have top-level siumai/provider/config-first rerank parity coverage.
   - Shared OpenAI-compatible rerank execution now also preserves injected custom transports, fixing the public-path regression where compat rerank requests could bypass capture/no-network transport wiring even though chat, embedding, image, and audio paths already honored it.
 
-- [~] Migrate MiniMaxi.
+- [x] Migrate MiniMaxi.
 
-  - Provider-owned `MinimaxiConfig` / `MinimaxiClient` construction now converges through `MinimaxiBuilder::into_config()` and `MinimaxiClient::with_http_client()`, builder env API-key fallback is restored, `ModelMetadata` is now implemented on the typed client, registry factory construction now preserves common params, HTTP config, interceptors, and transport through the provider-owned config surface, `Provider::minimaxi()` is now exposed on the facade, no-network public-path parity tests now lock siumai/provider/config equivalence for non-streaming chat, streaming chat, image generation, TTS, video task creation/query, music generation, and MiniMaxi file-management upload/list/retrieve/content/delete paths, and registry-native text/image/speech family paths now materialize the provider-owned `MinimaxiClient` directly; full native family migration is still pending.
+  - Provider-owned `MinimaxiConfig` / `MinimaxiClient` construction now converges through `MinimaxiBuilder::into_config()` and `MinimaxiClient::with_http_client()`, builder env API-key fallback is restored, `ModelMetadata` is now implemented on the typed client, registry factory construction now preserves common params, HTTP config, interceptors, and transport through the provider-owned config surface, `Provider::minimaxi()` is now exposed on the facade, no-network public-path parity tests now lock siumai/provider/config equivalence for non-streaming chat, streaming chat, image generation, TTS, video task creation/query, music generation, and MiniMaxi file-management upload/list/retrieve/content/delete paths, and registry-native text/image/speech family paths now materialize the provider-owned `MinimaxiClient` directly; deeper native-family expansion is now provider-depth follow-on work rather than unfinished V4 migration.
 
   - MiniMaxi now also has a provider-owned curated model surface (`chat`, `speech`, `video`, `music`, `image`) shared across the provider crate, `provider_ext::minimaxi`, client supported-model reporting, and provider catalog output, so the public model/data-structure boundary no longer depends on a second handwritten list or omit image defaults.
   - MiniMaxi now also owns provider-specific typed chat metadata via `provider_ext::minimaxi::metadata`, and its Anthropic-derived chat runtime locally rekeys response / stream-end / finish-event metadata from `provider_metadata["anthropic"]` to `provider_metadata["minimaxi"]` so provider escape hatches align with the actual public provider identity instead of the borrowed wire protocol.
@@ -494,9 +494,9 @@ Status legend:
   - MiniMaxi now also has matching public-path and lower-contract override anchors for image generation on `registry.image_model("minimaxi:...")`, so mixed registries cannot silently fall back to global defaults when the image family normalizes onto `/v1/image_generation`.
   - MiniMaxi now also has matching public-path and lower-contract override anchors for speech generation on `registry.speech_model("minimaxi:...")`, so mixed registries cannot silently fall back to global defaults when the speech family normalizes onto `/v1/t2a_v2`.
 
-- [~] Migrate DeepSeek.
+- [x] Migrate DeepSeek.
 
-  - Provider-owned `DeepSeekConfig` / `DeepSeekClient` entry points, registry-native text-family routing, deepseek-only feature wiring, unified builder routing, provider-owned typed request options (`DeepSeekOptions` / `DeepSeekChatRequestExt`), provider-owned typed response metadata (`DeepSeekMetadata` / `DeepSeekChatResponseExt`), a provider-owned `DeepSeekSpec` normalization layer for chat request options, and a first-class `ProviderType::DeepSeek` are now in place; registry and unified builder paths now also materialize the provider-owned `DeepSeekClient` instead of leaking the generic OpenAI-compatible runtime, while full native provider migration is still pending.
+  - Provider-owned `DeepSeekConfig` / `DeepSeekClient` entry points, registry-native text-family routing, deepseek-only feature wiring, unified builder routing, provider-owned typed request options (`DeepSeekOptions` / `DeepSeekChatRequestExt`), provider-owned typed response metadata (`DeepSeekMetadata` / `DeepSeekChatResponseExt`), a provider-owned `DeepSeekSpec` normalization layer for chat request options, and a first-class `ProviderType::DeepSeek` are now in place; registry and unified builder paths now also materialize the provider-owned `DeepSeekClient` instead of leaking the generic OpenAI-compatible runtime, while deeper native-provider expansion is now provider-depth follow-on work rather than unfinished V4 migration.
   - DeepSeek public data-structure parity is now closer to the audited AI SDK package too: the provider crate now exposes AI SDK-style `DeepSeekLanguageModelOptions` plus deprecated `DeepSeekChatOptions`, the public facade now exposes curated `provider_ext::deepseek::{chat, model_sets}` constants for the stable `deepseek-chat` / `deepseek-reasoner` subset, and provider catalog output now reuses the same `models::ALL_CHAT` source instead of retyping that subset in a second list.
   - DeepSeek provider-local spec tests now also consume `DeepSeekChatResponseExt` for `logprobs`, removing the last response-side raw `provider_metadata["deepseek"]` assertion from the native package’s request/response normalization coverage.
   - DeepSeek top-level public metadata parity now also respects that same provider-owned boundary:
@@ -570,7 +570,7 @@ Status legend:
   - OpenAI Responses SSE finish aggregation now also preserves message-level source annotations into the final `response.completed` payload: serializer state retains `openai:source` annotations until finish, and a round-trip regression validates that `containerId` / `index` survive through the completed response transformer into typed `OpenAiSourceExt` metadata.
   - The V4 typed metadata boundary is now also documented in one place: `typed-metadata-boundary-matrix.md` tracks which providers currently own typed `ChatResponse`, `ContentPart`, and `Source` escape hatches, and which paths intentionally remain raw event contracts.
 
-- [ ] Use `typed-metadata-boundary-matrix.md` as the canonical backlog driver for the next response-side typing pass.
+- [-] Use `typed-metadata-boundary-matrix.md` as the canonical backlog driver for the next response-side typing pass.
   - Priority A: Perplexity hosted-search metadata audit is now closed on the current typed boundary: public-surface imports expose `PerplexityChatResponseExt` / `PerplexityMetadata`, provider-local runtime coverage already locks `citations`, `images`, and `usage.{citation_tokens,num_search_queries,reasoning_tokens}`, and top-level builder/provider/config-first parity now also verifies the same typed extraction plus normalized `provider_metadata["perplexity"]` roots on both 200-response and `StreamEnd` without forcing speculative extra fields into the stable surface.
   - Priority A: Anthropic / MiniMaxi source-boundary audit is now closed on the current typed surface: `AnthropicMetadata.sources` / `MinimaxiMetadata.sources` already expose typed `AnthropicSource`-shaped entries directly on the stable facade, so no extra `SourceExt` helper is needed unless a future provider-specific source payload grows beyond the shared struct.
   - Priority B audit is now closed for xAI / Groq / DeepSeek: xAI hosted-search metadata is already closed on the current typed boundary through `XaiMetadata.sources` plus `XaiSourceExt`, while streaming search details remain event-level custom parts; Groq's in-repo fixtures still justify only `logprobs` / `sources` typed metadata, and DeepSeek already normalizes `reasoning_content` into unified `ContentPart::Reasoning`, so no new provider-owned `ContentPart` helper was added.
@@ -592,7 +592,7 @@ Status legend:
   - Priority C: Azure hosted-search metadata should now be treated as `Deferred`, not `Partial`: the current public contract is the raw `provider_metadata["azure"]` stream/event boundary, and that boundary already has top-level builder/provider/config-first parity coverage.
   - Priority C: Azure top-level builder/provider/config-first parity now also locks the Responses streaming raw/event boundary on the real public path: `text-start` / `finish` custom parts and final `provider_metadata["azure"]` roots are verified to stay namespace-scoped raw metadata rather than a widened typed response surface.
   - Priority C: Google Vertex top-level builder/provider/config-first parity now also locks the Gemini-stream raw/event boundary on the real public path: `reasoning-start` / `reasoning-delta` custom parts must keep `providerMetadata.vertex.thoughtSignature`, and final `provider_metadata["vertex"]` roots must stay namespace-led raw metadata rather than a provider-specific typed facade.
-- [ ] Use `provider-capability-alignment-matrix.md` as the canonical backlog driver for the next provider capability alignment pass.
+- [-] Use `provider-capability-alignment-matrix.md` as the canonical backlog driver for the next provider capability alignment pass.
 
   - Current release-gate snapshot: no provider-wide `Priority A` capability gap is currently queued on the advertised public facade; the remaining open cells in the matrix are now intentional `Deferred` / focused-boundary decisions unless new provider evidence appears.
   - OpenAI release-hardening now also has a real live-smoke anchor on the preferred public story: `siumai/tests/openai_live_smoke_test.rs` validates registry-first `openai:gpt-5.2` non-stream + stream text generation and `openai:text-embedding-3-small` batch embeddings against real credentials, and the root-cause compatibility fix from that pass is now locked too (`/responses` must omit Chat Completions-only `stream_options.include_usage`).
@@ -900,7 +900,7 @@ Status legend:
 
 - [x] Decide hosted-search surface scope for V4: OpenRouter / Perplexity remain provider-owned typed extensions for this cycle, and a new Stable unified hosted-search request surface is explicitly deferred; see `hosted-search-surface.md`.
 
-- [ ] Re-evaluate a Stable hosted-search surface only after at least three providers converge on both request and response semantics.
+- [-] Re-evaluate a Stable hosted-search surface only after at least three providers converge on both request and response semantics.
 
 - [x] OpenRouter now also has explicit config-first and builder-to-final-request coverage for shared compat reasoning helpers (`with_reasoning` / `with_reasoning_budget`), so unified reasoning ergonomics are no longer guarded only through DeepSeek paths.
 
@@ -1072,7 +1072,7 @@ Status legend:
   - README, example navigation, and workstream docs now share the same surface ladder and public-surface map.
   - Release-readiness wording is now aligned too: README explicitly frames OpenAI-compatible vendor views as typed layers over the shared compat runtime and keeps builder-based compat entry points labeled as non-default migration/convenience paths outside the main guides as well.
 
-- [~] Secondary provider cleanup notes:
+- [x] Secondary provider cleanup notes:
 
   - Fresh contract-sweep evidence now exists for the three main non-OpenAI native lanes too: Anthropic / Google / Vertex passed a combined no-network facade contract run (`provider_public_path_parity_test`, Anthropic fixture alignment, Gemini fixture alignment, Vertex typed metadata, Gemini/Vertex embedding helpers) with 238 tests passed and 0 skipped, so the remaining provider work on those paths is no longer basic contract uncertainty.
 

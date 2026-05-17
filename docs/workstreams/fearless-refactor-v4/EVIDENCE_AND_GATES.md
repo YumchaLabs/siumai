@@ -10,7 +10,12 @@ Last updated: 2026-05-17
   - `docs/adr/0006-family-model-first-trait-policy.md`
   - `docs/adr/0007-llmclient-demotion-policy.md`
 - Task ledger: `docs/workstreams/fearless-refactor-v4/todo.md`
+- Follow-ons: `docs/workstreams/fearless-refactor-v4/follow-ons.md`
 - Validation matrix: `docs/workstreams/fearless-refactor-v4/validation-matrix.md`
+- Typed metadata matrix: `docs/workstreams/fearless-refactor-v4/typed-metadata-boundary-matrix.md`
+- Provider capability matrix:
+  `docs/workstreams/fearless-refactor-v4/provider-capability-alignment-matrix.md`
+- Hosted search scope: `docs/workstreams/fearless-refactor-v4/hosted-search-surface.md`
 - Current OpenAI-compatible boundary files:
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client/runtime.rs`
@@ -30,7 +35,13 @@ Last updated: 2026-05-17
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/ext/request_options/tests.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/providers/models/mod.rs`
 
-## Closeout Decision
+## V4 Core Closeout Decision
+
+The V4 core architecture workstream is closed as of 2026-05-17. The remaining backlog is
+matrix-driven follow-on work, not unfinished V4 core architecture. New work should start from a
+concrete provider behavior gap, public API gap, or documented provider evidence.
+
+## Track J Closeout Decision
 
 Track J - OpenAI-compatible internal boundary cleanup is closed as of 2026-05-17. The remaining
 large files are intentional capability-local implementations, static provider data, or public
@@ -39,15 +50,9 @@ ownership/coupling problem; do not continue the lane by mechanically splitting f
 
 ## Required Gates
 
-- `cargo fmt -p siumai-provider-openai-compatible`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast builder`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast request_options`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast completion`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast settings`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast config`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast openai_client`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
-- `git diff --check`
+- Historical code gates are recorded below for the lanes that changed code.
+- Docs-only closeout gate:
+  - `git diff --check`
 
 ## Validation Log
 
@@ -124,5 +129,11 @@ ownership/coupling problem; do not continue the lane by mechanically splitting f
   - Latest code gate before closeout:
     `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
     - Result: 233 tests passed, 0 skipped.
+  - Docs-only closeout gate:
+    `git diff --check`
+- V4 core ledger closeout:
+  - `todo.md` has no remaining `[~]` or `[ ]` implementation items for the V4 core ledger.
+  - Remaining typed metadata, provider capability, hosted-search, and OpenAI-compatible internal
+    boundary work is explicitly routed through `follow-ons.md`.
   - Docs-only closeout gate:
     `git diff --check`

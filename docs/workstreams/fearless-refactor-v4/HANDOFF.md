@@ -4,9 +4,12 @@ Last updated: 2026-05-17
 
 ## Current State
 
-The workstream remains active. The public V4 story is already mostly aligned around
-family-model execution, registry-first app code, config-first provider code, and explicit
-compatibility surfaces.
+The workstream is closed. The public V4 story is aligned around family-model execution,
+registry-first app code, config-first provider code, and explicit compatibility surfaces.
+
+Remaining work is not part of this V4 core ledger. Use `follow-ons.md` plus the typed metadata,
+provider capability, and hosted-search matrices to open a new bounded workstream only when a
+concrete behavior, provider, or public API gap appears.
 
 The OpenAI-compatible internal boundary cleanup lane is now closed:
 
@@ -53,9 +56,15 @@ The OpenAI-compatible internal boundary cleanup lane is now closed:
 
 ## Next Step
 
-Stop Track J. Open a new follow-on only when there is a concrete behavior bug, public API drift, or
-real ownership/coupling problem. The config facade is now thin enough that further config splitting
-should happen only if new provider families need dedicated registry ownership.
+Do not continue this workstream. Open a follow-on only when one of these drivers exists:
+
+- Typed metadata: `typed-metadata-boundary-matrix.md` shows a response-side contract worth
+  promoting out of raw provider metadata.
+- Capability alignment: `provider-capability-alignment-matrix.md` shows advertised public behavior
+  diverging from real provider behavior.
+- Hosted search: at least three providers converge on both request and response semantics.
+- OpenAI-compatible internals: a concrete behavior bug, API drift, or real ownership/coupling
+  problem appears.
 
 ## Guardrails
 
@@ -90,15 +99,11 @@ should happen only if new provider families need dedicated registry ownership.
   module owns one request/response protocol boundary and has focused no-network coverage.
 - Future public-path bugs should be fixed through the same config-first / family-model contract
   path, not by adding another builder-only adapter branch.
+- Deferred matrix cells are expected. They should become work only when new provider documentation,
+  fixture evidence, or public API demand makes the boundary concrete.
 
 ## Validation Commands
 
-- `cargo fmt -p siumai-provider-openai-compatible`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast builder`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast request_options`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast completion`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast settings`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast config`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast openai_client`
-- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
+- Historical OpenAI-compatible lane gates are recorded in `EVIDENCE_AND_GATES.md`.
+- Future follow-ons should define their own focused package gates before editing code.
 - `git diff --check`

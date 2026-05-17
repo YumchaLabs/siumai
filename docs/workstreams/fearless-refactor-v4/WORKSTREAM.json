@@ -1,19 +1,18 @@
 {
   "slug": "fearless-refactor-v4",
-  "status": "active",
+  "status": "closed",
   "opened": "2026-03-06",
   "objective": "Finish the family-model-centered fearless refactor while keeping provider-specific complexity below narrow provider/protocol module boundaries.",
-  "current_task": "OpenAI-compatible internal boundary cleanup lane closed",
-  "next_task": "Do not continue Track J mechanically; open a new task only for a concrete behavior bug, API drift, or real ownership/coupling problem.",
+  "current_task": "V4 core ledger closed",
+  "next_task": "Use follow-ons.md plus the typed metadata, provider capability, and hosted-search matrices to open a new bounded workstream only when a concrete gap appears.",
   "blocked": false,
   "validation_focus": [
-    "siumai-provider-openai-compatible completion focused no-network tests",
-    "siumai-provider-openai-compatible builder focused no-network tests",
-    "siumai-provider-openai-compatible request_options focused no-network tests",
-    "siumai-provider-openai-compatible settings focused no-network tests",
-    "siumai-provider-openai-compatible config focused no-network tests",
-    "siumai-provider-openai-compatible openai_client focused no-network tests",
-    "siumai-provider-openai-compatible full no-network package tests",
-    "source guards preventing monolithic compat runtime regressions"
+    "family-model trait and registry handle contract evidence",
+    "builder/config/registry parity evidence",
+    "provider capability alignment matrix",
+    "typed metadata boundary matrix",
+    "OpenAI-compatible boundary closeout evidence",
+    "source guards preventing monolithic compat runtime regressions",
+    "docs-only closeout gate"
   ]
 }

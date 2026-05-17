@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - Milestones
 
-Last updated: 2026-04-20
+Last updated: 2026-05-17
 
 This workstream defines the next architectural refactor after the current V3 line.
 
@@ -56,7 +56,7 @@ Notes:
 
 - Handle-level no-network tests now validate native family execution for text, embedding, and image.
 
-Status: in progress
+Status: completed
 
 ## V4-M2 - Registry returns family model objects
 
@@ -117,9 +117,12 @@ Notes:
 
 - `ImageExtras` intentionally still uses the generic client path because image editing and variation remain extension-only for V4.
 
-- Remaining handle cleanup still applies to other families and broader cache/middleware invariants.
+- Historical note: earlier handle cleanup originally applied to other families and broader
+  cache/middleware invariants. The current V4 closeout treats the family handle architecture as
+  completed; any future handle work should start from a concrete cache, middleware, or
+  provider-family bug rather than from this milestone.
 
-Status: in progress
+Status: completed
 
 ## V4-M3 - Builder and config paths converge
 
@@ -462,7 +465,7 @@ Notes:
 - Anthropic now also has a provider-owned typed escape hatch for that route: `AnthropicStructuredOutputMode` is exported through `provider_ext::anthropic` and wired into `AnthropicOptions::with_structured_output_mode(...)`, removing the need for raw JSON provider-option payloads when callers want to force `jsonTool`.
 - xAI speech now also has a provider-owned typed escape hatch on `/v1/tts`: `XaiTtsOptions` is exported through `provider_ext::xai` and applied via `XaiTtsRequestExt`, so `sample_rate` / `bit_rate` no longer need raw JSON provider-option payloads on examples or public-path parity tests.
 
-Status: in progress
+Status: completed
 
 ## V4-M4 - OpenAI path migrated
 
@@ -485,9 +488,12 @@ Notes:
 - Azure OpenAI registry construction now also has native text/embedding/image/speech/transcription family paths backed by the provider-owned `AzureOpenAiClient`, with contract coverage for metadata-bearing family construction.
 - Azure OpenAI now also has a provider-owned builder/config/client story instead of config-first only construction: `AzureOpenAiBuilder` emits `AzureOpenAiConfig`, `provider_ext::azure` exports that builder on the public surface, package-local `into_config()` tests guard the new path, the registry factory now routes through that same builder/config boundary instead of hand-assembling config/client pairs, and focused registry contract tests now lock builder/config/registry request convergence for both Responses and Chat Completions routing.
 
-- This milestone is only partially complete because the migration has not yet expanded across all remaining OpenAI family surfaces.
+- Historical note: this milestone was once partial while remaining OpenAI family surfaces were still
+  being migrated. Later image, speech/transcription, registry, metadata, and live-smoke work closed
+  the V4 architectural migration bar; future OpenAI work should be opened as provider-specific
+  feature depth, not as unfinished V4 migration.
 
-Status: in progress
+Status: completed
 
 ## V4-M5 - Anthropic and Gemini migrated
 
@@ -507,7 +513,7 @@ Notes:
 
 - Gemini native embedding-family and image-family paths now also exist and are covered by contract tests.
 
-Status: in progress
+Status: completed
 
 ## V4-M6 - OpenAI-compatible and secondary providers migrated
 
@@ -643,7 +649,7 @@ Notes:
 - Top-level public construction safety rails now also cover `Siumai::builder()` / `Provider::*()` / provider config-first clients for xAI, Groq, DeepSeek, and Ollama, and the unified `Siumai` wrapper now preserves full-request semantics instead of degrading `chat_request` / `chat_stream_request` into message/tool-only fallbacks.
 - DeepSeek public-path parity now also locks builder-level reasoning defaults on the real wrapper story, and the registry factory now consumes `BuildContext.reasoning_enabled` / `reasoning_budget` so `Siumai::builder().deepseek()` no longer drops default reasoning knobs that provider/config-first construction already preserved.
 
-- DeepSeek wrapper parity is now stronger through provider-owned config/client entry types, config-first convergence, deepseek-only feature wiring, unified builder routing, registry-native text-family routing, and runtime-provider smoke coverage, but its full native provider migration is still pending.
+- DeepSeek wrapper parity is now stronger through provider-owned config/client entry types, config-first convergence, deepseek-only feature wiring, unified builder routing, registry-native text-family routing, and runtime-provider smoke coverage; deeper native-provider expansion is now provider-depth follow-on work rather than unfinished V4 migration.
 
 - Registry-backed and unified-builder DeepSeek construction now also surface the provider-owned `DeepSeekClient`, and `siumai::provider_ext::deepseek` is available as the stable typed escape hatch.
 
@@ -693,9 +699,11 @@ Notes:
 
 - Gemini now also locks common typed request options through both provider-owned serialization coverage and protocol-level request-shaping tests, including `responseLogprobs` / `logprobs`, `responseJsonSchema`, `retrievalConfig`, `mediaResolution`, and `imageConfig`; its structured-output path now also has explicit precedence coverage for `responseFormat`, `structuredOutputs`, and legacy `responseJsonSchema`, turning the Google-specific escape hatch story into a documented contract rather than example-only behavior.
 
-- Secondary provider migration remains pending beyond those providers.
+- Historical note: secondary provider migration is now closed for the V4 architecture bar. Remaining
+  provider depth should be opened as matrix-driven follow-on work when a concrete provider gap
+  appears.
 
-Status: in progress
+Status: completed
 
 ## V4-M7 - Audio surface cleaned up
 
@@ -815,7 +823,7 @@ Acceptance criteria:
 - Legacy audio migration shims are now also locked by direct core regression tests: the compatibility-only `AudioCapability` bridge continues to adapt into the narrower `SpeechCapability` and `TranscriptionCapability` families while recommended public code paths move away from the broad audio trait.
 - Provider-specific extras remain available through extension traits.
 
-Status: in progress
+Status: completed
 
 ## V4-M8 - Public API story unified
 
@@ -840,7 +848,7 @@ Notes:
 - Workstream docs now point to `public-api-story.md` as the single place that defines surface intent and
   future-change policy.
 
-Status: in progress
+Status: completed
 
 ## V4-M9 - Stabilization and release readiness
 
@@ -854,7 +862,7 @@ Acceptance criteria:
 
 - Follow-up cleanup candidates are identified for the next cycle.
 
-Status: in progress
+Status: completed
 
 Notes:
 
@@ -892,3 +900,10 @@ It should wait for the following minimum bar:
 That gives the project a real architectural pivot with the most important providers covered,
 
 while allowing secondary providers to finish migration incrementally.
+
+## Closeout summary - 2026-05-17
+
+The V4 core architecture workstream is closed. Remaining provider depth, response-side typing, and
+capability-alignment work is intentionally split into matrix-driven follow-ons instead of keeping
+this milestone ledger open indefinitely. See `follow-ons.md`, `typed-metadata-boundary-matrix.md`,
+`provider-capability-alignment-matrix.md`, and `hosted-search-surface.md`.

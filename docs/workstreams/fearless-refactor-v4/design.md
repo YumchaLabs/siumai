@@ -409,6 +409,10 @@ paths and behavior remain compatible. The remaining large OpenAI-compatible modu
 refactor target by size alone: future work needs a concrete ownership, coupling, behavior, or public
 API trigger.
 
+The V4 core architecture workstream is also closed. Remaining work now belongs to bounded follow-ons
+driven by `follow-ons.md`, the typed metadata boundary matrix, the provider capability alignment
+matrix, or the hosted-search scope note.
+
 ## Final recommendation
 
 The right strategy is **not** to remove builders and **not** to clone AI SDK naming.
