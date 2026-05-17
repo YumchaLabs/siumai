@@ -113,6 +113,13 @@ vertical slices instead of becoming one cross-provider mega patch.
   SigV4 credential-provider hooks and upstream test-only `generateId` stay deferred, and Siumai does
   not export a public image-options type because the upstream package index does not export one.
   The AIPC inventory row is now Green.
+- AIPC-080 then re-audited Anthropic. The upstream `@ai-sdk/anthropic` package surface is
+  language/chat/messages, files, skills, provider tools, settings/version, typed options/metadata,
+  and container-id forwarding. Siumai already had the provider-owned files and skills resources, but
+  registry metadata and `AnthropicClient` capability discovery did not advertise files consistently.
+  The provider metadata/client capability drift is now fixed and guarded while embedding, image,
+  rerank, speech, transcription, and audio remain unsupported family paths. The AIPC inventory row
+  is now Green.
 
 ## Blockers
 

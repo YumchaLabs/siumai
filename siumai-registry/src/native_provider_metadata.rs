@@ -143,6 +143,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
                 .with_streaming()
                 .with_tools()
                 .with_vision()
+                .with_file_management()
                 .with_custom_feature("skills", true)
                 .with_custom_feature("thinking", true),
         });

@@ -9936,6 +9936,8 @@ mod anthropic_contract {
         assert!(caps.supports("streaming"));
         assert!(caps.supports("tools"));
         assert!(caps.supports("vision"));
+        assert!(caps.supports("file_management"));
+        assert!(caps.supports("skills"));
         assert!(caps.supports("thinking"));
         assert_embedding_image_rerank_capabilities_absent(&caps);
         assert!(!caps.supports("speech"));
@@ -10017,6 +10019,8 @@ mod anthropic_contract {
         assert_no_deferred_capability_leaks(client.as_ref());
         assert!(client.as_speech_capability().is_none());
         assert!(client.as_transcription_capability().is_none());
+        assert!(client.as_file_management_capability().is_some());
+        assert!(client.as_skills_capability().is_some());
 
         let typed = client
             .as_any()

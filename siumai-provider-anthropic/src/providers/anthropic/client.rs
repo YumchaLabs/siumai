@@ -594,6 +594,7 @@ impl LlmClient for AnthropicClient {
             .with_streaming()
             .with_tools()
             .with_vision()
+            .with_file_management()
             .with_custom_feature("skills", true)
             .with_custom_feature("prompt_caching", true)
             .with_custom_feature("thinking_mode", true)
@@ -608,6 +609,12 @@ impl LlmClient for AnthropicClient {
     }
 
     fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
+
+    fn as_file_management_capability(
+        &self,
+    ) -> Option<&dyn crate::traits::FileManagementCapability> {
         Some(self)
     }
 

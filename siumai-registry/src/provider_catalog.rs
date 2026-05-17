@@ -982,6 +982,40 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "anthropic")]
+    fn provider_catalog_uses_native_metadata_for_anthropic() {
+        let info = super::get_provider_info_by_id("anthropic").expect("anthropic should exist");
+        assert_eq!(info.provider_type, super::ProviderType::Anthropic);
+        assert_eq!(info.name.as_ref(), "Anthropic");
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.capabilities.chat
+                && info.capabilities.streaming
+                && info.capabilities.tools
+                && info.capabilities.vision
+                && info.capabilities.file_management
+                && info.capabilities.supports("skills")
+                && info.capabilities.supports("thinking"),
+            "expected Anthropic to expose the AI SDK-aligned chat/files/skills/tools surface"
+        );
+        assert!(
+            !info.capabilities.completion
+                && !info.capabilities.embedding
+                && !info.capabilities.image_generation
+                && !info.capabilities.rerank
+                && !info.capabilities.speech
+                && !info.capabilities.transcription,
+            "expected Anthropic non-package model families to remain deferred"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "claude-3-5-sonnet-20241022"),
+            "expected Anthropic curated chat models to be listed"
+        );
+    }
+
+    #[test]
     #[cfg(feature = "xai")]
     fn provider_catalog_uses_native_metadata_for_xai() {
         use siumai_provider_xai::providers::xai::models;
