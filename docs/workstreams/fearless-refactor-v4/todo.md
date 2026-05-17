@@ -1125,3 +1125,7 @@ Status legend:
 - [x] Converge repeated OpenAI-compatible simple provider settings adapters.
   - `DeepInfraProviderSettings`, `MoonshotAIProviderSettings`, `FireworksProviderSettings`, `MistralProviderSettings`, and `PerplexityProviderSettings` now share the same `simple_compat_provider_settings!` implementation path as the other simple compat provider settings.
   - `OpenAICompatibleProviderSettings`, `GoogleVertexMaasProviderSettings`, and `AlibabaProviderSettings` remain hand-written because they own genuinely different construction behavior.
+
+- [x] Deepen the OpenAI-compatible provider config boundary.
+  - Provider family default-model data now lives in `config/family_defaults.rs`, while `config.rs` remains the lookup facade for existing callers.
+  - A source guard keeps `ProviderFamilyDefaults` out of the facade so default-model routing stays separate from the built-in provider registry table.

@@ -19,6 +19,8 @@ Last updated: 2026-05-17
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client/completion/mod.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client/completion/streaming.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/settings.rs`
+  - `siumai-provider-openai-compatible/src/providers/openai_compatible/config.rs`
+  - `siumai-provider-openai-compatible/src/providers/openai_compatible/config/family_defaults.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/providers/models/mod.rs`
 
 ## Required Gates
@@ -26,6 +28,7 @@ Last updated: 2026-05-17
 - `cargo fmt -p siumai-provider-openai-compatible`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast completion`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast settings`
+- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast config`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast openai_client`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
 - `git diff --check`
@@ -63,3 +66,9 @@ Last updated: 2026-05-17
     - Result: 16 tests passed, 213 skipped.
   - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
     - Result: 229 tests passed, 0 skipped.
+- OpenAI-compatible provider family-default split:
+  - `cargo fmt -p siumai-provider-openai-compatible`
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast config`
+    - Result: 31 tests passed, 199 skipped.
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
+    - Result: 230 tests passed, 0 skipped.
