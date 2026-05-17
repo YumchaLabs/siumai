@@ -286,7 +286,7 @@ impl ResponseTransformer for CompatResponseTransformer {
         // Extract thinking content using adapter field mappings directly from raw JSON
         let mappings = self.adapter.get_field_mappings(&self.config.model);
         let accessor = self.adapter.get_field_accessor();
-        let thinking_content = accessor.extract_thinking_content(raw, &mappings);
+        let thinking_content = accessor.extract_generated_thinking(raw, &mappings);
 
         let choice = resp
             .choices

@@ -440,6 +440,26 @@ async fn responses_shape_json_string_event_yields_content() {
 }
 
 #[tokio::test]
+async fn responses_shape_json_string_event_preserves_empty_content() {
+    let conv = make_converter();
+
+    let event = Event {
+        event: "message".to_string(),
+        data: r#""""#.to_string(),
+        id: "empty-json-string".to_string(),
+        retry: None,
+    };
+    let out = conv.convert_event(event).await;
+    let text_deltas = out
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter_map(|ev| ev.text_delta().map(ToString::to_string))
+        .collect::<Vec<_>>();
+
+    assert_eq!(text_deltas, vec![String::new()]);
+}
+
+#[tokio::test]
 async fn chat_completions_stream_preserves_whitespace_only_content_deltas() {
     let conv = make_converter();
     let chunks = [
@@ -485,6 +505,33 @@ async fn chat_completions_stream_preserves_whitespace_only_content_deltas() {
 }
 
 #[tokio::test]
+async fn chat_completions_stream_preserves_empty_content_delta_when_field_is_present() {
+    let conv = make_converter();
+
+    let events = convert_ok(
+        &conv,
+        Event {
+            event: "message".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"content":""}}]}"#.to_string(),
+            id: "empty-content".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    let text_deltas = events
+        .iter()
+        .filter_map(|event| event.text_delta().map(ToString::to_string))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        text_deltas,
+        vec![String::new()],
+        "OpenAI-compatible streaming text delta extraction is field-presence based"
+    );
+}
+
+#[tokio::test]
 async fn chat_completions_stream_preserves_whitespace_only_reasoning_deltas() {
     let conv = make_converter();
     let chunks = [
@@ -520,6 +567,33 @@ async fn chat_completions_stream_preserves_whitespace_only_reasoning_deltas() {
         reasoning_deltas,
         vec!["思考一", "\n", "思考二", "\n\n", "思考三"],
         "OpenAI-compatible streaming reasoning deltas must preserve provider whitespace"
+    );
+}
+
+#[tokio::test]
+async fn chat_completions_stream_preserves_empty_reasoning_delta_when_field_is_present() {
+    let conv = make_converter();
+
+    let events = convert_ok(
+        &conv,
+        Event {
+            event: "message".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"reasoning_content":""}}]}"#.to_string(),
+            id: "empty-reasoning".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    let reasoning_deltas = events
+        .iter()
+        .filter_map(|event| event.reasoning_delta().map(ToString::to_string))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        reasoning_deltas,
+        vec![String::new()],
+        "OpenAI-compatible streaming reasoning delta extraction is field-presence based"
     );
 }
 

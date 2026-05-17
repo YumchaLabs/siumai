@@ -865,7 +865,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn byte_sse_stream_preserves_whitespace_only_event_data_for_converter() {
+    async fn byte_sse_stream_preserves_whitespace_only_event_data_and_skips_empty_frames() {
         let headers = reqwest::header::HeaderMap::from_iter([(
             reqwest::header::CONTENT_TYPE,
             reqwest::header::HeaderValue::from_static("text/event-stream"),
@@ -873,6 +873,7 @@ mod tests {
         let chunks = vec![
             Ok(b"data: hello\n\n".to_vec()),
             Ok(b"data:  \n\n".to_vec()),
+            Ok(b"data:\n\n".to_vec()),
             Ok(b"data: world\n\n".to_vec()),
         ];
 

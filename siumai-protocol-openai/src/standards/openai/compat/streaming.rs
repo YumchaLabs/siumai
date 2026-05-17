@@ -361,9 +361,7 @@ impl OpenAiCompatibleEventConverter {
         // If the event data itself is a JSON string (common when SSE named events
         // carry plain text as data, e.g., Responses "output_text.delta" proxied),
         // treat it directly as a content delta.
-        if let Some(s) = json.as_str()
-            && !s.is_empty()
-        {
+        if let Some(s) = json.as_str() {
             for part in self.open_text_lane() {
                 builder = builder.add_part(part);
             }
@@ -986,7 +984,7 @@ impl OpenAiCompatibleEventConverter {
 
         // Convert event to JSON for dynamic field access
         if let Ok(json) = serde_json::to_value(event) {
-            field_accessor.extract_content(&json, &field_mappings)
+            field_accessor.extract_generated_content(&json, &field_mappings)
         } else {
             None
         }
@@ -999,9 +997,7 @@ impl OpenAiCompatibleEventConverter {
         let field_accessor = self.adapter.get_field_accessor();
 
         // First try standard mappings (e.g., choices.0.delta.content)
-        if let Some(text) = field_accessor.extract_content(json, &field_mappings)
-            && !text.is_empty()
-        {
+        if let Some(text) = field_accessor.extract_generated_content(json, &field_mappings) {
             return Some(text);
         }
 
@@ -1015,7 +1011,6 @@ impl OpenAiCompatibleEventConverter {
         for p in compat_paths {
             if let Some(val) = json.pointer(&to_pointer(p))
                 && let Some(s) = val.as_str()
-                && !s.is_empty()
             {
                 return Some(s.to_string());
             }
@@ -1026,9 +1021,7 @@ impl OpenAiCompatibleEventConverter {
         // hitting chat/completions. In that case, content can appear as a plain
         // string under `delta` with an accompanying type like
         // `response.output_text.delta`.
-        if let Some(s) = json.get("delta").and_then(|d| d.as_str())
-            && !s.is_empty()
-        {
+        if let Some(s) = json.get("delta").and_then(|d| d.as_str()) {
             return Some(s.to_string());
         }
 
@@ -1038,7 +1031,6 @@ impl OpenAiCompatibleEventConverter {
             .get("delta")
             .and_then(|d| d.get("text"))
             .and_then(|v| v.as_str())
-            && !s.is_empty()
         {
             return Some(s.to_string());
         }
@@ -1094,7 +1086,7 @@ impl OpenAiCompatibleEventConverter {
 
         // Convert event to JSON for dynamic field access
         if let Ok(json) = serde_json::to_value(event) {
-            field_accessor.extract_thinking_content(&json, &field_mappings)
+            field_accessor.extract_generated_thinking(&json, &field_mappings)
         } else {
             None
         }
@@ -1105,16 +1097,13 @@ impl OpenAiCompatibleEventConverter {
         let model = &self.config.model;
         let field_mappings = self.adapter.get_field_mappings(model);
         let field_accessor = self.adapter.get_field_accessor();
-        if let Some(t) = field_accessor.extract_thinking_content(json, &field_mappings)
-            && !t.is_empty()
-        {
+        if let Some(t) = field_accessor.extract_generated_thinking(json, &field_mappings) {
             return Some(t);
         }
         let compat_paths = ["delta.reasoning.text", "choices.0.delta.reasoning.text"];
         for p in compat_paths {
             if let Some(val) = json.pointer(&to_pointer(p))
                 && let Some(s) = val.as_str()
-                && !s.is_empty()
             {
                 return Some(s.to_string());
             }

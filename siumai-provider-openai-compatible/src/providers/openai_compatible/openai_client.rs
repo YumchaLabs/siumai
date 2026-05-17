@@ -432,8 +432,7 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 .and_then(|choices| choices.first())
                 .and_then(|choice| choice.get("text"))
                 .and_then(|value| value.as_str())
-                .map(ToString::to_string)
-                .unwrap_or_default();
+                .map(ToString::to_string);
             let finish_reason_raw = raw
                 .get("choices")
                 .and_then(|value| value.as_array())
@@ -472,8 +471,8 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                     state.finish_reason_raw = Some(raw_reason);
                 }
                 merge_completion_provider_metadata(&mut state.provider_metadata, provider_metadata);
-                if !delta.is_empty() {
-                    state.text.push_str(&delta);
+                if let Some(delta) = delta.as_deref() {
+                    state.text.push_str(delta);
                 }
 
                 let metadata = state.response_metadata(&provider_id);
@@ -486,7 +485,7 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 if emit_response_metadata {
                     state.response_metadata_emitted = true;
                 }
-                let emit_text_start = !delta.is_empty() && !state.text_started;
+                let emit_text_start = delta.is_some() && !state.text_started;
                 if emit_text_start {
                     state.text_started = true;
                 }
@@ -530,12 +529,16 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 }));
             }
 
-            if !delta.is_empty() {
+            if let Some(delta) = delta {
                 events.push(Ok(ChatStreamEvent::text_delta_part("0", delta)));
             }
 
             events
         })
+    }
+
+    fn is_stream_end_event(&self, event: &eventsource_stream::Event) -> bool {
+        event.data.trim() == "[DONE]"
     }
 
     fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
@@ -5522,6 +5525,68 @@ data: [DONE]
     }
 
     #[tokio::test]
+    async fn chat_stream_request_runtime_preserves_lossless_text_and_reasoning_deltas() {
+        let adapter = make_text_streaming_adapter();
+        let transport = SseResponseTransport::new(
+            br#"data: {"id":"1","model":"compat-model","choices":[{"index":0,"delta":{"content":"alpha","role":"assistant"},"finish_reason":null}]}
+
+data: {"id":"1","model":"compat-model","choices":[{"index":0,"delta":{"content":"\n"},"finish_reason":null}]}
+
+data: {"id":"1","model":"compat-model","choices":[{"index":0,"delta":{"content":""},"finish_reason":null}]}
+
+data: {"id":"1","model":"compat-model","choices":[{"index":0,"delta":{"reasoning_content":"\n\n"},"finish_reason":null}]}
+
+data: {"id":"1","model":"compat-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#.to_vec(),
+        );
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "compat-chat",
+            "test-key",
+            "https://api.test.com/v1",
+            adapter,
+        )
+        .with_model("compat-model")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("compat-model")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let stream = crate::traits::ChatCapability::chat_stream_request(&client, request)
+            .await
+            .expect("stream ok");
+        let events = stream.collect::<Vec<_>>().await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert_eq!(captured.body["stream"], serde_json::json!(true));
+
+        let mut text_deltas = Vec::new();
+        let mut reasoning_deltas = Vec::new();
+
+        for event in events {
+            let event = event.expect("stream event");
+            if let Some(delta) = event.text_delta() {
+                text_deltas.push(delta.to_string());
+            }
+            if let Some(delta) = event.reasoning_delta() {
+                reasoning_deltas.push(delta.to_string());
+            }
+        }
+
+        assert_eq!(text_deltas, vec!["alpha", "\n", ""]);
+        assert_eq!(reasoning_deltas, vec!["\n\n"]);
+    }
+
+    #[tokio::test]
     async fn chat_stream_request_runtime_xai_strips_stream_only_fields_at_transport_boundary() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
             id: "xai".to_string(),
@@ -6499,6 +6564,48 @@ data: [DONE]
             captured.body["stream_options"],
             serde_json::json!({ "include_usage": true })
         );
+    }
+
+    #[tokio::test]
+    async fn completion_stream_request_runtime_preserves_empty_and_whitespace_text_deltas() {
+        let transport = SseResponseTransport::new(
+            br#"data: {"id":"cmpl_lossless","model":"compat-model","choices":[{"text":"A","finish_reason":null}]}
+
+data: {"id":"cmpl_lossless","model":"compat-model","choices":[{"text":"\n","finish_reason":null}]}
+
+data: {"id":"cmpl_lossless","model":"compat-model","choices":[{"text":"","finish_reason":null}]}
+
+data: {"id":"cmpl_lossless","model":"compat-model","choices":[{"text":"B","finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#,
+        );
+
+        let config = OpenAiCompatibleConfig::new(
+            "compat-chat",
+            "test-key",
+            "https://api.test.com/v1",
+            make_completion_adapter(),
+        )
+        .with_model("compat-model")
+        .with_http_transport(Arc::new(transport.clone()));
+        let client = OpenAiCompatibleClient::new(config).await.unwrap();
+
+        let request = CompletionRequest::new("hi").with_model("compat-model");
+        let mut stream = crate::traits::CompletionCapability::complete_stream(&client, request)
+            .await
+            .unwrap();
+
+        let mut deltas = Vec::new();
+        while let Some(event) = stream.next().await {
+            let event = event.unwrap();
+            if let Some(delta) = event.text_delta() {
+                deltas.push(delta.to_string());
+            }
+        }
+
+        assert_eq!(deltas, vec!["A", "\n", "", "B"]);
     }
 
     #[tokio::test]

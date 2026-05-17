@@ -1,0 +1,14 @@
+{
+  "slug": "stream-delta-lossless-boundary",
+  "status": "closed",
+  "opened": "2026-05-17",
+  "objective": "Make generated stream text and reasoning deltas lossless across raw transport, SSE parsing, OpenAI-compatible field extraction, and provider public surfaces.",
+  "current_task": null,
+  "next_task": "No split follow-up. Keep future provider stream audits opportunistic and enforce the lossless generated delta invariant on new streaming adapters.",
+  "blocked": false,
+  "validation_focus": [
+    "cargo nextest run -p siumai-protocol-openai --all-features",
+    "cargo nextest run -p siumai-core streaming::factory",
+    "cargo nextest run -p siumai-provider-openai-compatible --all-features"
+  ]
+}

@@ -33,19 +33,99 @@ pub struct FieldMappings {
 /// This provides a more configurable approach similar to Cherry Studio's
 /// response transformation system.
 pub trait FieldAccessor {
-    /// Extract a field value from a JSON object using a field path
+    /// Extract a legacy/control field value from a JSON object using a field path.
+    ///
+    /// This helper may coerce primitive JSON values into strings. Do not use it for generated
+    /// model text, where exact string payload semantics matter.
     fn get_field_value(&self, json: &serde_json::Value, field_path: &str) -> Option<String>;
 
-    /// Extract thinking content using configured field mappings
+    /// Extract a control field value from a JSON object using a field path.
+    fn get_control_field_value(
+        &self,
+        json: &serde_json::Value,
+        field_path: &str,
+    ) -> Option<String> {
+        self.get_field_value(json, field_path)
+    }
+
+    /// Extract a generated text delta from a JSON object using a field path.
+    ///
+    /// Generated deltas are payload, not control values. Implementations should preserve the
+    /// string exactly and return `Some("")` when the field is present as an empty JSON string.
+    fn get_generated_delta_value(
+        &self,
+        json: &serde_json::Value,
+        field_path: &str,
+    ) -> Option<String> {
+        self.get_field_value(json, field_path)
+    }
+
+    /// Extract generated thinking/reasoning content using configured field mappings.
+    fn extract_generated_thinking(
+        &self,
+        json: &serde_json::Value,
+        mappings: &FieldMappings,
+    ) -> Option<String> {
+        for field_name in &mappings.thinking_fields {
+            let paths = vec![
+                format!("choices.0.delta.{}", field_name),
+                format!("choices.0.message.{}", field_name),
+                format!("delta.{}", field_name),
+                format!("message.{}", field_name),
+                field_name.to_string(),
+            ];
+
+            for path in paths {
+                if let Some(value) = self.get_generated_delta_value(json, &path) {
+                    return Some(value);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Extract generated regular content.
+    fn extract_generated_content(
+        &self,
+        json: &serde_json::Value,
+        mappings: &FieldMappings,
+    ) -> Option<String> {
+        let content_field = &mappings.content_field;
+        let paths = vec![
+            format!("choices.0.delta.{}", content_field),
+            format!("choices.0.message.{}", content_field),
+            format!("delta.{}", content_field),
+            format!("message.{}", content_field),
+            content_field.to_string(),
+        ];
+
+        for path in paths {
+            if let Some(value) = self.get_generated_delta_value(json, &path) {
+                return Some(value);
+            }
+        }
+
+        None
+    }
+
+    /// Legacy name for generated thinking/reasoning extraction.
     fn extract_thinking_content(
         &self,
         json: &serde_json::Value,
         mappings: &FieldMappings,
-    ) -> Option<String>;
+    ) -> Option<String> {
+        self.extract_generated_thinking(json, mappings)
+    }
 
-    /// Extract regular content
-    fn extract_content(&self, json: &serde_json::Value, mappings: &FieldMappings)
-    -> Option<String>;
+    /// Legacy name for generated content extraction.
+    fn extract_content(
+        &self,
+        json: &serde_json::Value,
+        mappings: &FieldMappings,
+    ) -> Option<String> {
+        self.extract_generated_content(json, mappings)
+    }
 }
 
 impl Default for FieldMappings {
@@ -114,59 +194,13 @@ impl FieldAccessor for JsonFieldAccessor {
             .and_then(|v| self.extract_string_value(v))
     }
 
-    fn extract_thinking_content(
+    fn get_generated_delta_value(
         &self,
         json: &serde_json::Value,
-        mappings: &FieldMappings,
+        field_path: &str,
     ) -> Option<String> {
-        // Try each thinking field in priority order
-        for field_name in &mappings.thinking_fields {
-            // Define possible paths for thinking content
-            let paths = vec![
-                format!("choices.0.delta.{}", field_name),
-                format!("choices.0.message.{}", field_name),
-                format!("delta.{}", field_name),
-                format!("message.{}", field_name),
-                field_name.to_string(), // Direct field access
-            ];
-
-            for path in paths {
-                if let Some(value) = self.get_field_value(json, &path)
-                    && !value.is_empty()
-                {
-                    return Some(value);
-                }
-            }
-        }
-
-        None
-    }
-
-    fn extract_content(
-        &self,
-        json: &serde_json::Value,
-        mappings: &FieldMappings,
-    ) -> Option<String> {
-        let content_field = &mappings.content_field;
-
-        // Define possible paths for content
-        let paths = vec![
-            format!("choices.0.delta.{}", content_field),
-            format!("choices.0.message.{}", content_field),
-            format!("delta.{}", content_field),
-            format!("message.{}", content_field),
-            content_field.to_string(), // Direct field access
-        ];
-
-        for path in paths {
-            if let Some(value) = self.get_field_value(json, &path)
-                && !value.is_empty()
-            {
-                return Some(value);
-            }
-        }
-
-        None
+        self.get_nested_value(json, field_path)
+            .and_then(|v| v.as_str().map(ToOwned::to_owned))
     }
 }
 
@@ -304,7 +338,9 @@ mod tests {
         });
 
         assert_eq!(
-            accessor.extract_content(&json, &mappings).as_deref(),
+            accessor
+                .extract_generated_content(&json, &mappings)
+                .as_deref(),
             Some("\n\n")
         );
     }
@@ -325,9 +361,52 @@ mod tests {
 
         assert_eq!(
             accessor
-                .extract_thinking_content(&json, &mappings)
+                .extract_generated_thinking(&json, &mappings)
                 .as_deref(),
             Some("\n\n")
         );
+    }
+
+    #[test]
+    fn json_field_accessor_preserves_empty_generated_content() {
+        let accessor = JsonFieldAccessor;
+        let mappings = FieldMappings::default();
+        let json = serde_json::json!({
+            "choices": [
+                {
+                    "delta": {
+                        "content": ""
+                    }
+                }
+            ]
+        });
+
+        assert_eq!(
+            accessor
+                .extract_generated_content(&json, &mappings)
+                .as_deref(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn json_field_accessor_does_not_coerce_generated_delta_primitives() {
+        let accessor = JsonFieldAccessor;
+        let mappings = FieldMappings::default();
+        let json = serde_json::json!({
+            "choices": [
+                {
+                    "delta": {
+                        "content": 42
+                    }
+                }
+            ]
+        });
+
+        assert_eq!(
+            accessor.get_field_value(&json, "choices.0.delta.content"),
+            Some("42".to_string())
+        );
+        assert_eq!(accessor.extract_generated_content(&json, &mappings), None);
     }
 }
