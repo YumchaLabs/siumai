@@ -2,6 +2,7 @@ use super::OpenAiClient;
 use crate::error::LlmError;
 use crate::execution::executors::common::{HttpBody, execute_json_request};
 use crate::standards::openai::completion_metadata::{
+    completion_created_at, completion_response_metadata, completion_stream_response_metadata,
     extract_completion_provider_metadata, flatten_completion_stream_provider_metadata,
     merge_completion_provider_metadata,
 };
@@ -14,7 +15,6 @@ use crate::types::{
     ProviderMetadataMap, ResponseMetadata, Usage, Warning,
 };
 use async_trait::async_trait;
-use chrono::TimeZone;
 use std::sync::Arc;
 
 #[allow(unreachable_patterns)]
@@ -117,26 +117,6 @@ fn materialize_completion_prompt(
     })
 }
 
-fn completion_request_id_from_headers(headers: &reqwest::header::HeaderMap) -> Option<String> {
-    for key in ["x-request-id", "request-id"] {
-        if let Some(value) = headers.get(key)
-            && let Ok(value) = value.to_str()
-            && !value.trim().is_empty()
-        {
-            return Some(value.to_string());
-        }
-    }
-
-    None
-}
-
-fn completion_created_at(raw: &serde_json::Value) -> Option<chrono::DateTime<chrono::Utc>> {
-    let created = raw
-        .get("created")
-        .and_then(|value| value.as_i64().or_else(|| value.as_u64().map(|v| v as i64)))?;
-    chrono::Utc.timestamp_opt(created, 0).single()
-}
-
 #[derive(Debug, Clone)]
 struct CompletionStreamState {
     text: String,
@@ -155,15 +135,12 @@ struct CompletionStreamState {
 
 impl CompletionStreamState {
     fn response_metadata(&self, provider: &str) -> ResponseMetadata {
-        ResponseMetadata {
-            id: self.id.clone(),
-            model: self.model.clone(),
-            created: self.created,
-            provider: provider.to_string(),
-            request_id: None,
-            headers: None,
-            body: None,
-        }
+        completion_stream_response_metadata(
+            provider,
+            self.id.as_deref(),
+            self.model.as_deref(),
+            self.created.clone(),
+        )
     }
 
     fn finish_usage(&self) -> Usage {
@@ -614,24 +591,7 @@ impl OpenAiClient {
             finish_reason,
             raw_finish_reason,
             usage: raw.get("usage").and_then(parse_openai_usage_value),
-            response_metadata: Some(ResponseMetadata {
-                id: raw
-                    .get("id")
-                    .and_then(|value| value.as_str())
-                    .map(ToString::to_string),
-                model: raw
-                    .get("model")
-                    .and_then(|value| value.as_str())
-                    .map(ToString::to_string),
-                created: completion_created_at(&raw),
-                provider: "openai".to_string(),
-                request_id: completion_request_id_from_headers(headers),
-                headers: {
-                    let headers = crate::execution::http::headers::headermap_to_hashmap(headers);
-                    (!headers.is_empty()).then_some(headers)
-                },
-                body: Some(raw.clone()),
-            }),
+            response_metadata: Some(completion_response_metadata("openai", &raw, headers, true)),
             warnings: (!warnings.is_empty()).then_some(warnings),
             provider_metadata: extract_completion_provider_metadata("openai", &raw),
         }
@@ -744,10 +704,7 @@ mod tests {
     #[test]
     fn completion_request_source_does_not_read_legacy_provider_metadata_fields() {
         for source in [
-            source_between(
-                "fn completion_message_text(",
-                "fn completion_request_id_from_headers(",
-            ),
+            source_between("fn completion_message_text(", "#[derive(Debug, Clone)]"),
             source_between(
                 "fn prepare_completion_request(",
                 "fn build_completion_response(",
@@ -864,10 +821,17 @@ mod tests {
         assert_eq!(response.raw_finish_reason.as_deref(), Some("stop"));
         assert_eq!(response.id(), Some("cmpl-openai-1"));
         assert_eq!(response.model(), Some("gpt-3.5-turbo-instruct"));
-        let response_body = response
+        let response_metadata = response
             .response_metadata
             .as_ref()
-            .and_then(|metadata| metadata.body.as_ref())
+            .expect("completion response metadata");
+        assert_eq!(
+            response_metadata.request_id.as_deref(),
+            Some("req_openai_completion")
+        );
+        let response_body = response_metadata
+            .body
+            .as_ref()
             .expect("completion response body");
         assert_eq!(response_body["id"], serde_json::json!("cmpl-openai-1"));
         assert_eq!(

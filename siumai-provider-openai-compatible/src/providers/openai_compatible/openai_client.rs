@@ -18,6 +18,7 @@ use crate::providers::openai_compatible::middleware::OpenAiCompatibleToolWarning
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
 use crate::standards::openai::completion_metadata::{
+    completion_created_at, completion_response_metadata, completion_stream_response_metadata,
     extract_completion_provider_metadata, flatten_completion_stream_provider_metadata,
     merge_completion_provider_metadata,
 };
@@ -35,7 +36,6 @@ use crate::traits::{
 // use crate::execution::transformers::request::RequestTransformer; // unused
 use crate::types::*;
 use async_trait::async_trait;
-use chrono::TimeZone;
 use serde::{Deserialize, Serialize};
 use siumai_core::traits::ModelMetadata;
 use std::sync::Arc;
@@ -228,26 +228,6 @@ fn materialize_completion_prompt(
     })
 }
 
-fn completion_request_id_from_headers(headers: &reqwest::header::HeaderMap) -> Option<String> {
-    for key in ["x-request-id", "request-id"] {
-        if let Some(value) = headers.get(key)
-            && let Ok(value) = value.to_str()
-            && !value.trim().is_empty()
-        {
-            return Some(value.to_string());
-        }
-    }
-
-    None
-}
-
-fn completion_created_at(raw: &serde_json::Value) -> Option<chrono::DateTime<chrono::Utc>> {
-    let created = raw
-        .get("created")
-        .and_then(|value| value.as_i64().or_else(|| value.as_u64().map(|v| v as i64)))?;
-    chrono::Utc.timestamp_opt(created, 0).single()
-}
-
 #[derive(Debug, Clone)]
 struct CompletionStreamState {
     text: String,
@@ -266,15 +246,12 @@ struct CompletionStreamState {
 
 impl CompletionStreamState {
     fn response_metadata(&self, provider: &str) -> ResponseMetadata {
-        ResponseMetadata {
-            id: self.id.clone(),
-            model: self.model.clone(),
-            created: self.created,
-            provider: provider.to_string(),
-            request_id: None,
-            headers: None,
-            body: None,
-        }
+        completion_stream_response_metadata(
+            provider,
+            self.id.as_deref(),
+            self.model.as_deref(),
+            self.created.clone(),
+        )
     }
 
     fn finish_usage(&self) -> Usage {
@@ -1039,24 +1016,12 @@ impl OpenAiCompatibleClient {
             usage: raw.get("usage").and_then(|usage| {
                 parse_provider_openai_usage_value(self.config.provider_id.as_str(), usage)
             }),
-            response_metadata: Some(ResponseMetadata {
-                id: raw
-                    .get("id")
-                    .and_then(|value| value.as_str())
-                    .map(ToString::to_string),
-                model: raw
-                    .get("model")
-                    .and_then(|value| value.as_str())
-                    .map(ToString::to_string),
-                created: completion_created_at(&raw),
-                provider: self.config.provider_id.clone(),
-                request_id: completion_request_id_from_headers(headers),
-                headers: {
-                    let headers = crate::execution::http::headers::headermap_to_hashmap(headers);
-                    (!headers.is_empty()).then_some(headers)
-                },
-                body: Some(raw.clone()),
-            }),
+            response_metadata: Some(completion_response_metadata(
+                self.config.provider_id.clone(),
+                &raw,
+                headers,
+                true,
+            )),
             warnings: (!warnings.is_empty()).then_some(warnings),
             provider_metadata: extract_completion_provider_metadata(&provider_metadata_key, &raw),
         }
@@ -6709,6 +6674,9 @@ data: [DONE]
         .await
         .expect("build completion client");
 
+        let mut headers = HeaderMap::new();
+        headers.insert("request-id", "req_compat_completion".parse().unwrap());
+
         let response = client.build_completion_response(
             serde_json::json!({
                 "id": "cmpl_compat_1",
@@ -6729,7 +6697,7 @@ data: [DONE]
                 ],
                 "sources": [{ "url": "https://example.com/source" }]
             }),
-            &HeaderMap::new(),
+            &headers,
             Vec::new(),
         );
 
@@ -6739,6 +6707,13 @@ data: [DONE]
             .as_ref()
             .and_then(|metadata| metadata.body.as_ref())
             .expect("compatible completion response body");
+        assert_eq!(
+            response
+                .response_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.request_id.as_deref()),
+            Some("req_compat_completion")
+        );
         assert_eq!(response_body["id"], serde_json::json!("cmpl_compat_1"));
         assert_eq!(
             response_body["choices"][0]["text"],
