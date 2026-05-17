@@ -23,7 +23,7 @@ cargo nextest run -p siumai-protocol-openai --all-features
 Proves OpenAI-compatible stream conversion and field extraction preserve generated whitespace
 deltas.
 
-Result: passed, 431 tests.
+Result: passed, 435 tests.
 
 ### Shared Stream Factory Gate
 
@@ -75,6 +75,9 @@ Result: passed.
 - `siumai-protocol-openai/src/standards/openai/compat/streaming.rs`
 - `siumai-protocol-openai/src/standards/openai/compat/streaming_tests.rs`
 - `siumai-protocol-openai/src/standards/openai/compat/transformers.rs`
+- `siumai-protocol-openai/src/standards/openai/responses_sse/converter/convert.rs`
+- `siumai-protocol-openai/src/standards/openai/responses_sse/converter/serialize.rs`
+- `siumai-protocol-openai/src/standards/openai/responses_sse/tests.rs`
 - `siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client.rs`
 
 ## Notes
@@ -85,3 +88,7 @@ Result: passed.
 - During all-features validation, completion streaming exposed the same boundary shape: `[DONE]`
   was not converter-owned and empty `choices[].text` deltas were not field-presence based. That
   was fixed in this lane.
+- A follow-up audit found the same invariant gap in the OpenAI Responses SSE parser/serializer
+  paths used by gateway and bridge routes. Text, reasoning, and tool-input deltas now keep
+  field-presence semantics in both directions: control identifiers may still reject empty values,
+  but generated `delta` payloads are not dropped because they are `""`.

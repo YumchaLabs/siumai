@@ -987,6 +987,138 @@ fn responses_code_interpreter_code_delta_escapes_json_string() {
 }
 
 #[test]
+fn responses_tool_input_delta_events_preserve_empty_delta_fields() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let function_call_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "id": "fc_1",
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "lookup",
+                "status": "in_progress"
+            }
+        })
+        .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let _ = futures::executor::block_on(conv.convert_event(function_call_added));
+
+    let function_call_delta = eventsource_stream::Event {
+        event: "response.function_call_arguments.delta".to_string(),
+        data: serde_json::json!({
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_1",
+            "output_index": 0,
+            "delta": ""
+        })
+        .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let function_call_delta_out =
+        futures::executor::block_on(conv.convert_event(function_call_delta));
+    assert_eq!(function_call_delta_out.len(), 1);
+    match stream_part(&function_call_delta_out[0]).expect("function call tool-input-delta") {
+        crate::streaming::TypedStreamPart::ToolInputDelta { id, delta, .. } => {
+            assert_eq!(id, "call_1");
+            assert_eq!(delta, "");
+        }
+        other => panic!("expected tool-input-delta part, got {other:?}"),
+    }
+
+    let code_interpreter_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.added",
+            "output_index": 1,
+            "item": {
+                "id": "ci_empty",
+                "type": "code_interpreter_call",
+                "status": "in_progress",
+                "container_id": "cntr_empty"
+            }
+        })
+        .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let _ = futures::executor::block_on(conv.convert_event(code_interpreter_added));
+
+    let code_interpreter_delta = eventsource_stream::Event {
+        event: "response.code_interpreter_call_code.delta".to_string(),
+        data: serde_json::json!({
+            "type": "response.code_interpreter_call_code.delta",
+            "item_id": "ci_empty",
+            "output_index": 1,
+            "delta": ""
+        })
+        .to_string(),
+        id: "4".to_string(),
+        retry: None,
+    };
+    let code_interpreter_delta_out =
+        futures::executor::block_on(conv.convert_event(code_interpreter_delta));
+    assert_eq!(code_interpreter_delta_out.len(), 1);
+    match stream_part(&code_interpreter_delta_out[0]).expect("code tool-input-delta") {
+        crate::streaming::TypedStreamPart::ToolInputDelta { id, delta, .. } => {
+            assert_eq!(id, "ci_empty");
+            assert_eq!(delta, "");
+        }
+        other => panic!("expected tool-input-delta part, got {other:?}"),
+    }
+
+    let apply_patch_added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "type": "response.output_item.added",
+            "output_index": 2,
+            "item": {
+                "id": "ap_empty",
+                "type": "apply_patch_call",
+                "call_id": "call_patch_empty",
+                "status": "in_progress",
+                "operation": {
+                    "type": "update_file",
+                    "path": "src/lib.rs"
+                }
+            }
+        })
+        .to_string(),
+        id: "5".to_string(),
+        retry: None,
+    };
+    let _ = futures::executor::block_on(conv.convert_event(apply_patch_added));
+
+    let apply_patch_delta = eventsource_stream::Event {
+        event: "response.apply_patch_call_operation_diff.delta".to_string(),
+        data: serde_json::json!({
+            "type": "response.apply_patch_call_operation_diff.delta",
+            "item_id": "ap_empty",
+            "output_index": 2,
+            "delta": ""
+        })
+        .to_string(),
+        id: "6".to_string(),
+        retry: None,
+    };
+    let apply_patch_delta_out = futures::executor::block_on(conv.convert_event(apply_patch_delta));
+    assert_eq!(apply_patch_delta_out.len(), 1);
+    match stream_part(&apply_patch_delta_out[0]).expect("apply patch tool-input-delta") {
+        crate::streaming::TypedStreamPart::ToolInputDelta { id, delta, .. } => {
+            assert_eq!(id, "call_patch_empty");
+            assert_eq!(delta, "");
+        }
+        other => panic!("expected tool-input-delta part, got {other:?}"),
+    }
+}
+
+#[test]
 fn responses_apply_patch_diff_delta_escapes_and_done_does_not_duplicate() {
     let conv = OpenAiResponsesEventConverter::new();
     let mut stitched_input = String::new();
@@ -2181,6 +2313,78 @@ fn responses_stream_proxy_serializes_v3_reasoning_delta_even_with_non_openai_eve
     let frames = parse_sse_frames(&bytes);
     assert!(frames.iter().any(|(ev, v)| {
         ev == "response.reasoning_summary_text.delta" && v["delta"] == serde_json::json!("think")
+    }));
+}
+
+#[test]
+fn responses_stream_proxy_serializes_empty_generated_delta_fields() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("resp_test".to_string()),
+                model: Some("gpt-test".to_string()),
+                created: None,
+                provider: "openai".to_string(),
+                request_id: None,
+                headers: None,
+                body: None,
+            },
+        })
+        .expect("serialize start");
+
+    let text_bytes = conv
+        .serialize_event(&typed_event(crate::streaming::TypedStreamPart::TextDelta {
+            id: "msg_1".to_string(),
+            delta: "".to_string(),
+            provider_metadata: None,
+        }))
+        .expect("serialize empty text delta");
+    let text_frames = parse_sse_frames(&text_bytes);
+    assert!(text_frames.iter().any(|(ev, v)| {
+        ev == "response.output_text.delta" && v["delta"] == serde_json::json!("")
+    }));
+
+    let reasoning_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:reasoning-delta".to_string(),
+            data: serde_json::json!({
+                "type": "reasoning-delta",
+                "id": "rs_1:0",
+                "delta": "",
+            }),
+        })
+        .expect("serialize empty reasoning delta");
+    let reasoning_frames = parse_sse_frames(&reasoning_bytes);
+    assert!(reasoning_frames.iter().any(|(ev, v)| {
+        ev == "response.reasoning_summary_text.delta" && v["delta"] == serde_json::json!("")
+    }));
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-start".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-start",
+                "id": "call_empty",
+                "toolName": "lookup",
+            }),
+        })
+        .expect("serialize tool-input-start");
+
+    let tool_delta_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-delta".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-delta",
+                "id": "call_empty",
+                "delta": "",
+            }),
+        })
+        .expect("serialize empty tool-input delta");
+    let tool_delta_frames = parse_sse_frames(&tool_delta_bytes);
+    assert!(tool_delta_frames.iter().any(|(ev, v)| {
+        ev == "response.function_call_arguments.delta" && v["delta"] == serde_json::json!("")
     }));
 }
 

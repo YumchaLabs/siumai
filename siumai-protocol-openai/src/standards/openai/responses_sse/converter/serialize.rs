@@ -1415,9 +1415,6 @@ pub(super) fn serialize_event(
                     let Some(delta) = data.get("delta").and_then(|v| v.as_str()) else {
                         return Ok(Vec::new());
                     };
-                    if delta.is_empty() {
-                        return Ok(Vec::new());
-                    }
 
                     maybe_emit_response_created(this, &mut state)?;
                     let (response_id, _, _) = ensure_response_metadata(this, &mut state);
@@ -1502,9 +1499,6 @@ pub(super) fn serialize_event(
                     let Some(delta) = data.get("delta").and_then(|v| v.as_str()) else {
                         return Ok(Vec::new());
                     };
-                    if delta.is_empty() {
-                        return Ok(Vec::new());
-                    }
 
                     maybe_emit_response_created(this, &mut state)?;
                     ensure_response_metadata(this, &mut state);
@@ -1929,7 +1923,7 @@ pub(super) fn serialize_event(
                     let Some(delta) = data.get("delta").and_then(|v| v.as_str()) else {
                         return Ok(Vec::new());
                     };
-                    if call_id.is_empty() || delta.is_empty() {
+                    if call_id.is_empty() {
                         return Ok(Vec::new());
                     }
 

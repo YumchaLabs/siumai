@@ -19,6 +19,8 @@ construction:
   reach converters.
 - OpenAI-compatible provider chat and completion stream public paths have regression coverage.
 - Completion streaming now declares `[DONE]` as converter-owned stream end framing.
+- OpenAI Responses SSE parser/serializer paths used by gateway and bridge routes preserve empty
+  generated text, reasoning, and tool-input deltas.
 
 ## Validation
 
@@ -27,6 +29,8 @@ Passed:
 - `cargo nextest run -p siumai-protocol-openai --all-features`
 - `cargo nextest run -p siumai-core streaming::factory`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features`
+- `cargo nextest run -p siumai-protocol-openai --all-features responses_tool_input_delta_events_preserve_empty_delta_fields`
+- `cargo nextest run -p siumai-protocol-openai --all-features responses_stream_proxy_serializes_empty_generated_delta_fields`
 
 - `git diff --check`
 

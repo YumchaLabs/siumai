@@ -1081,7 +1081,7 @@ impl OpenAiResponsesEventConverter {
         let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
 
         let (call_id, _tool_name) = self.function_call_meta(item_id)?;
-        if call_id.is_empty() || delta.is_empty() {
+        if call_id.is_empty() {
             return None;
         }
 
@@ -1193,8 +1193,8 @@ impl OpenAiResponsesEventConverter {
         json: &serde_json::Value,
     ) -> Option<crate::streaming::ChatStreamEvent> {
         let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
-        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
-        if item_id.is_empty() || delta.is_empty() {
+        let delta = json.get("delta").and_then(|v| v.as_str())?;
+        if item_id.is_empty() {
             return None;
         }
         let call_id = self.apply_patch_call_id(item_id)?;
@@ -1289,8 +1289,8 @@ impl OpenAiResponsesEventConverter {
         json: &serde_json::Value,
     ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
         let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
-        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
-        if item_id.is_empty() || delta.is_empty() {
+        let delta = json.get("delta").and_then(|v| v.as_str())?;
+        if item_id.is_empty() {
             return None;
         }
 

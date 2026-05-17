@@ -51,3 +51,16 @@ Last updated: 2026-05-17
   Validation: `git diff --check` plus all focused gates in `EVIDENCE_AND_GATES.md`
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`
   Handoff: Commit with conventional commit once closeout checks pass.
+
+## M5 - Post-Close Responses SSE Bridge Parity
+
+- [x] SDL-060 [owner=codex] [deps=SDL-050] [scope=siumai-protocol-openai/src/standards/openai/responses_sse]
+  Goal: Extend the same generated-delta field-presence invariant to OpenAI Responses SSE
+  parser/serializer paths used by gateway and bridge routes.
+  Validation: `cargo nextest run -p siumai-protocol-openai --all-features`
+  Evidence:
+  `siumai-protocol-openai/src/standards/openai/responses_sse/converter/convert.rs`,
+  `siumai-protocol-openai/src/standards/openai/responses_sse/converter/serialize.rs`,
+  `siumai-protocol-openai/src/standards/openai/responses_sse/tests.rs`
+  Handoff: Keep control identifiers required, but treat generated `delta` fields as payload even
+  when the payload is the empty string.
