@@ -64,7 +64,9 @@ Status legend:
   Validation: `cargo nextest run -p siumai-bridge --no-fail-fast` and focused
   `siumai-extras` gateway tests.
   Evidence: bridge/gateway tests and migration notes.
-  Handoff: Keep Axum/server transport concerns out of `siumai-core`.
+  Handoff: First slice added a stable provider-tool stream part bridge regression test and tightened
+  extras gateway code to import bridge-owned OpenAI Responses stream adapters directly from
+  `siumai_bridge::stream`. Keep Axum/server transport concerns out of `siumai-core`.
 
 ## M3 - Provider Package Parity
 

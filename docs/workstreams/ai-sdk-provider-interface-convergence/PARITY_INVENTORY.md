@@ -25,7 +25,7 @@ Status legend:
 | Stream part union | `language-model-v4-stream-part.ts` | `ChatStreamEvent::Part`, `ChatStreamPart`, `LanguageModelV4StreamPart`, replay carriers | Amber | AIPC-050 closed the first stable stream-part test migration; AIPC-060 owns bridge/gateway stable-part-first assertions. |
 | Registry/provider factory | `packages/ai/src/registry`, provider callable factories | `siumai-registry::ProviderFactory`, registry handles | Green | Keep AIPC-030/AIPC-040 guards green as new families and extension helpers land. |
 | OpenAI-compatible adapter | `packages/openai-compatible` | `siumai-provider-openai-compatible`, `siumai-protocol-openai` | Amber | Re-audit promoted vendor capability inheritance and typed option/metadata parity. |
-| Protocol bridge/gateway | `packages/gateway`, protocol adapters | `siumai-bridge`, `siumai-extras::server`, protocol crates | Amber | Gateway smoke tests now assert stable downstream tool stream parts; keep bridge semantics typed and report lossy conversion explicitly. |
+| Protocol bridge/gateway | `packages/gateway`, protocol adapters | `siumai-bridge`, `siumai-extras::server`, protocol crates | Amber | Bridge tests now cover stable provider-tool stream parts into OpenAI Responses output items; extras runtime gateway code imports bridge-owned stream adapters through `siumai_bridge::stream`. |
 | Legacy content compatibility | V3/V4 prompt/content split | `ContentPart` compatibility boundary plus V4 prompt/content projections | Amber | Do not move `ContentPart` until ADR-0008 future-breaking conditions are met. |
 
 ## Provider Package Inventory

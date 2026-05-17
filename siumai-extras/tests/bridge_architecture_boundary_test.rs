@@ -49,6 +49,25 @@ fn runtime_bridge_code_imports_dedicated_bridge_crate() {
 }
 
 #[test]
+fn openai_responses_gateway_parts_adapter_uses_bridge_stream_seam_directly() {
+    let root = crate_root();
+    let source_path = root.join("src/server/axum/transcode_sse.rs");
+    let source = fs::read_to_string(&source_path).expect("read transcode_sse.rs");
+
+    assert!(
+        source.contains("siumai_bridge::stream::OpenAiResponsesStreamPartsBridge"),
+        "gateway OpenAI Responses stream adapter should use the dedicated bridge crate seam"
+    );
+    assert!(
+        !source.contains("siumai::experimental::streaming::OpenAiResponsesStreamPartsBridge")
+            && !source.contains(
+                "siumai::experimental::streaming::{\n        OpenAiResponsesStreamPartsBridge"
+            ),
+        "gateway runtime code should not import bridge-owned adapters through the facade experimental streaming path"
+    );
+}
+
+#[test]
 fn runtime_bridge_code_does_not_use_removed_siumai_types_root() {
     let root = crate_root();
     let mut source_files = Vec::new();

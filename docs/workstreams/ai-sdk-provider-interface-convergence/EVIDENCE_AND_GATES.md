@@ -5,8 +5,8 @@ Last updated: 2026-05-18
 
 ## Smallest Current Repro
 
-The active implementation slice is stream semantics convergence after the core and registry guard
-slices completed.
+The active implementation slice is bridge/gateway stable-part convergence after the core, registry,
+and first protocol stream-semantics slices completed.
 
 ```bash
 cargo nextest run -p siumai-core --no-fail-fast
@@ -14,6 +14,7 @@ cargo nextest run -p siumai-registry --no-fail-fast
 cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast
 cargo nextest run -p siumai-protocol-anthropic --all-features --no-fail-fast
 cargo nextest run -p siumai-protocol-gemini --all-features --no-fail-fast
+cargo nextest run -p siumai-bridge --all-features --no-fail-fast
 ```
 
 ## Gate Set
@@ -114,3 +115,9 @@ should still run the full formatting gate.
 | 2026-05-18 | `cargo nextest run -p siumai-protocol-gemini --all-features gemini_streaming_serializer_custom_inputs_are_compat_or_provider_native_only --no-fail-fast` | Passed | Proves Gemini serializer tests only use custom-event inputs for explicit V3 compatibility or provider-native custom cases. |
 | 2026-05-18 | `cargo nextest run -p siumai-protocol-anthropic --all-features --no-fail-fast` | Passed | 219 Anthropic protocol tests passed after the serializer boundary slice. |
 | 2026-05-18 | `cargo nextest run -p siumai-protocol-gemini --all-features --no-fail-fast` | Passed | 138 Gemini protocol tests passed after the serializer boundary slice. |
+| 2026-05-18 | `cargo fmt -p siumai-bridge -p siumai-extras -- --check` | Passed | Formatting gate for the first AIPC-060 bridge/gateway slice. |
+| 2026-05-18 | `cargo nextest run -p siumai-bridge --features openai,google openai_responses_stream_bridge_maps_stable_provider_tool_parts_to_output_items --no-fail-fast` | Passed | Proves OpenAI Responses stream bridging emits output item frames from stable provider-tool stream parts, not only custom compatibility events. |
+| 2026-05-18 | `cargo nextest run -p siumai-extras --features server,openai openai_responses_gateway_parts_adapter_uses_bridge_stream_seam_directly --no-fail-fast` | Passed | Proves extras gateway code imports the OpenAI Responses stream parts adapter through `siumai_bridge::stream`. |
+| 2026-05-18 | `cargo nextest run -p siumai-bridge --all-features --no-fail-fast` | Passed | 108 bridge tests passed after the stable provider-tool stream part bridge regression test. |
+| 2026-05-18 | `cargo nextest run -p siumai-extras --features server,openai,anthropic,google --test gateway_axum_smoke_test --no-fail-fast` | Passed | 20 gateway Axum smoke tests passed after the extras seam import cleanup; existing Gemini unreachable-pattern warning is unrelated. |
+| 2026-05-18 | `cargo nextest run -p siumai-extras --features server,openai --test bridge_architecture_boundary_test --no-fail-fast` | Passed | 3 extras bridge boundary tests passed, including the new direct `siumai_bridge::stream` adapter guard. |

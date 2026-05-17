@@ -13,7 +13,8 @@ use futures_util::{StreamExt, stream};
 use siumai_core::streaming::ChatByteStream;
 use siumai_core::types::{
     ChatResponse, ChatStreamEvent, ChatStreamFinishInfo, ChatStreamPart, ChatStreamReplay,
-    ChatStreamToolCall, ContentPart, FinishReason, MessageContent, ResponseMetadata, Usage,
+    ChatStreamToolCall, ChatStreamToolResult, ContentPart, FinishReason, MessageContent,
+    ResponseMetadata, Usage,
 };
 
 #[cfg(feature = "anthropic")]
@@ -723,6 +724,93 @@ async fn openai_responses_stream_bridge_maps_gemini_tool_events_to_output_items(
         .unwrap_or_default();
     let done_output_index = done
         .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+        .unwrap_or_default();
+
+    assert_eq!(added_output_index, done_output_index);
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn openai_responses_stream_bridge_maps_stable_provider_tool_parts_to_output_items() {
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputStart {
+                id: "call_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                provider_metadata: None,
+                provider_executed: Some(true),
+                dynamic: Some(false),
+                title: None,
+            },
+        }),
+        Ok(ChatStreamEvent::tool_input_delta_part(
+            "call_1",
+            r#"{"language":"PYTHON","#,
+        )),
+        Ok(ChatStreamEvent::tool_input_delta_part(
+            "call_1",
+            r#""code":"print(1)"}"#,
+        )),
+        Ok(ChatStreamEvent::tool_input_end_part("call_1")),
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                input: String::new(),
+                provider_executed: Some(true),
+                dynamic: Some(false),
+                provider_metadata: None,
+            }),
+        }),
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                result: serde_json::json!({ "outcome": "OUTCOME_OK", "output": "1" }),
+                is_error: Some(false),
+                preliminary: None,
+                dynamic: Some(false),
+                provider_metadata: None,
+            }),
+        }),
+    ]);
+
+    let bridged = bridge_chat_stream_to_openai_responses_sse(
+        stream,
+        Some(BridgeTarget::GeminiGenerateContent),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+    let frames = parse_sse_frames(&body);
+
+    let added = frames
+        .iter()
+        .find(|(ev, value)| ev == "response.output_item.added" && value["item"]["id"] == "call_1")
+        .expect("stable provider tool-call should produce output_item.added");
+    assert_eq!(
+        added.1["item"]["input"],
+        serde_json::json!(r#"{"language":"PYTHON","code":"print(1)"}"#)
+    );
+
+    let done = frames
+        .iter()
+        .find(|(ev, value)| ev == "response.output_item.done" && value["item"]["id"] == "call_1")
+        .expect("stable provider tool-result should produce output_item.done");
+    assert_eq!(done.1["item"]["status"], serde_json::json!("completed"));
+    assert_eq!(done.1["item"]["output"]["output"], serde_json::json!("1"));
+
+    let added_output_index = added
+        .1
+        .get("output_index")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default();
+    let done_output_index = done
+        .1
+        .get("output_index")
+        .and_then(|value| value.as_u64())
         .unwrap_or_default();
 
     assert_eq!(added_output_index, done_output_index);

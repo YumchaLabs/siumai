@@ -15,6 +15,12 @@ serializer behavior cannot be covered only through custom event inputs. Converte
 compatibility tests remain in place where they explicitly prove backward compatibility or
 provider-native replay behavior.
 
+AIPC-060 is now in progress. The first bridge/gateway slice added coverage that OpenAI Responses
+stream bridging emits output item frames from stable provider-tool stream parts, not only V3/custom
+compatibility events. Extras Axum SSE code now imports the OpenAI Responses parts adapter directly
+from `siumai_bridge::stream` instead of through the facade experimental streaming re-export, and a
+boundary test locks that seam.
+
 This lane is intentionally a coordination and execution program. It should keep spawning bounded
 vertical slices instead of becoming one cross-provider mega patch.
 
@@ -54,6 +60,9 @@ vertical slices instead of becoming one cross-provider mega patch.
   helpers. Those are compatibility-boundary consumers rather than stable protocol feature-surface
   tests and should be audited under AIPC-060 only if bridge/gateway evidence shows they can hide a
   stable-part regression.
+- AIPC-060 treats `OpenAiResponsesStreamPartsBridge` as bridge-owned. The facade may re-export it
+  for advanced users, but extras runtime gateway code should import it directly from
+  `siumai_bridge::stream`.
 
 ## Blockers
 
@@ -61,6 +70,6 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Execute AIPC-060. Start with `siumai-bridge` stream tests and bridge conversion helpers, then audit
-the remaining extras gateway/transcode assertions for stable-part-first coverage. Keep Axum/server
-transport concerns out of `siumai-core`.
+Continue AIPC-060 by deciding whether the direct extras SSE transcode helper needs its own stable
+provider-tool stream part test, then close AIPC-060 or split any remaining loose custom-event readers
+as compatibility-boundary follow-ons.

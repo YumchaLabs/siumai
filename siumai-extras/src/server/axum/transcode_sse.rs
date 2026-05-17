@@ -523,17 +523,17 @@ fn encode_openai_responses_sse_stream(
     stream: ChatStream,
     opts: &TranscodeSseOptions,
 ) -> ByteStream {
-    use siumai::experimental::streaming::{
-        OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_sse, ensure_stream_end,
-        transform_chat_event_stream,
-    };
+    use siumai::experimental::streaming::{encode_chat_stream_as_sse, ensure_stream_end};
     use siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter;
+    use siumai_bridge::stream::OpenAiResponsesStreamPartsBridge;
 
     let stream =
         apply_openai_responses_typed_stream_policy(stream, opts.unsupported_stream_part_behavior);
     let stream = if opts.bridge_openai_responses_stream_parts {
         let mut bridge = OpenAiResponsesStreamPartsBridge::new();
-        transform_chat_event_stream(stream, move |ev| bridge.bridge_event(ev))
+        siumai::experimental::streaming::transform_chat_event_stream(stream, move |ev| {
+            bridge.bridge_event(ev)
+        })
     } else {
         stream
     };
