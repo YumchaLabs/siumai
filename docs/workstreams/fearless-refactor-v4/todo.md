@@ -1130,3 +1130,7 @@ Status legend:
   - Provider family default-model data now lives in `config/family_defaults.rs`, while `config.rs` remains the lookup facade for existing callers.
   - A source guard keeps `ProviderFamilyDefaults` out of the facade so default-model routing stays separate from the built-in provider registry table.
   - Built-in provider registry data now also lives in `config/builtin_providers.rs`; `config.rs` retains the existing lookup facade and source guards prevent the registry table from returning to the facade.
+
+- [x] Split OpenAI-compatible builder reasoning defaults from the builder shell.
+  - Provider-specific thinking/reasoning default mapping now lives in `builder/reasoning.rs`, while `builder.rs` keeps construction, config convergence, HTTP wiring, and build orchestration.
+  - A source guard keeps `with_thinking(...)`, `with_thinking_budget(...)`, `reasoning(...)`, `reasoning_budget(...)`, and `provider_thinking_value(...)` out of the builder shell so new provider-specific reasoning defaults have a focused owner.

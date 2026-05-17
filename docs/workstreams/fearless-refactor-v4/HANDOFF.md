@@ -28,6 +28,9 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
   remains the compatibility lookup facade used by runtime/default-model callers.
 - Built-in provider registry data has been split into `config/builtin_providers.rs`; `config.rs`
   still owns generic provider config construction and lookup/capability facade functions.
+- OpenAI-compatible builder reasoning defaults have been split into `builder/reasoning.rs`; the
+  parent `builder.rs` shell now keeps construction, config convergence, HTTP wiring, and build
+  orchestration instead of owning provider-specific thinking/reasoning parameter mapping.
 - Existing capability modules remain execution owners:
   - `chat`
   - `completion`
@@ -56,11 +59,14 @@ new provider families need dedicated registry ownership.
   facade rather than a mixed data owner.
 - Keep built-in provider registry data in `config/builtin_providers.rs`; `config.rs` should not own
   `build_builtin_providers` or the static built-in provider map.
+- Keep provider-specific builder reasoning defaults in `builder/reasoning.rs`; `builder.rs` should
+  remain a construction shell rather than another provider-option mapping table.
 - Prefer focused no-network tests and source guards over broad rewrites.
 
 ## Validation Commands
 
 - `cargo fmt -p siumai-provider-openai-compatible`
+- `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast builder`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast completion`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast settings`
 - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast config`
