@@ -75,15 +75,12 @@ This keeps the audited package index easier to compare one-to-one against
 The `XaiClient` wrapper still intentionally keeps its provider-owned capability surface narrower
 than the underlying generic OpenAI-compatible client:
 
-- chat / streaming
-- speech
-- image generation
-- video generation
-- file management
+- AI SDK-aligned chat / responses / image / video / file management / tools
+- Siumai provider-owned text-to-speech
 
-It still does **not** re-open provider-owned embedding or rerank just because the inner shared
-runtime has those families for other vendors. That matches the upstream `@ai-sdk/xai` package
-boundary more closely.
+It still does **not** re-open provider-owned completion, embedding, rerank, or transcription just
+because the inner shared runtime has those families for other vendors. The text-to-speech lane is a
+deliberate Rust extension, not part of the audited upstream `@ai-sdk/xai` package surface.
 
 ### 3. Treat file upload as a first-class provider-owned xAI lane
 
@@ -136,6 +133,7 @@ This workstream currently closes the following xAI package-surface gaps:
 - the provider-owned/public xAI surface now also exposes `XaiVideoModelId`
 - the provider-owned `XaiClient` now exposes file management and backs
   `siumai::files::upload(...)`
+- registry metadata now advertises xAI `file_management`, matching the provider-owned files lane
 - the xAI upload lane is locked by no-network multipart regression tests on both the provider crate
   and top-level facade/helper path
 - `XaiVideoOptions` now also covers upstream `mode` and `referenceImageUrls`
@@ -144,6 +142,8 @@ This workstream currently closes the following xAI package-surface gaps:
   compatibility aliases
 - the provider-owned xAI video runtime now covers the audited `/videos/extensions` and
   reference-to-video route split
+- xAI text-to-speech remains documented as a Siumai provider-owned Rust extension; completion,
+  embedding, rerank, and transcription remain unsupported on the xAI provider-owned package surface
 
 ## Validation
 

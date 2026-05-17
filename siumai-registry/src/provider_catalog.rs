@@ -982,6 +982,61 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "xai")]
+    fn provider_catalog_uses_native_metadata_for_xai() {
+        use siumai_provider_xai::providers::xai::models;
+
+        let info = super::get_provider_info_by_id("xai").expect("xai should exist");
+        assert_eq!(info.provider_type, super::ProviderType::XAI);
+        assert_eq!(info.name.as_ref(), "xAI");
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.description.as_ref().contains("AI SDK-aligned")
+                && info.description.as_ref().contains("files/tools")
+                && info
+                    .description
+                    .as_ref()
+                    .contains("provider-owned Rust speech extension"),
+            "expected xAI metadata to separate the AI SDK package surface from Siumai speech extension"
+        );
+        assert!(
+            info.capabilities.chat
+                && info.capabilities.streaming
+                && info.capabilities.tools
+                && info.capabilities.vision
+                && info.capabilities.image_generation
+                && info.capabilities.file_management
+                && info.capabilities.speech,
+            "expected xAI to expose AI SDK package families plus Siumai speech extension"
+        );
+        assert!(
+            !info.capabilities.completion
+                && !info.capabilities.embedding
+                && !info.capabilities.rerank
+                && !info.capabilities.transcription,
+            "expected xAI non-package families to remain deferred"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::grok_4::GROK_4),
+            "expected xAI chat/responses models to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::images::GROK_IMAGINE_IMAGE),
+            "expected xAI image models to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::video::GROK_IMAGINE_VIDEO),
+            "expected xAI video models to be listed"
+        );
+    }
+
+    #[test]
     #[cfg(feature = "minimaxi")]
     fn provider_catalog_uses_native_metadata_for_minimaxi() {
         let info = super::get_provider_info_by_id("minimaxi").expect("minimaxi should exist");

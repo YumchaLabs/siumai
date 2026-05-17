@@ -11961,6 +11961,7 @@ mod xai_contract {
             .expect("build provider-owned Xai client");
 
         assert!(client.as_embedding_capability().is_none());
+        assert!(client.as_file_management_capability().is_some());
         assert!(client.as_image_generation_capability().is_some());
         assert!(client.as_rerank_capability().is_none());
         assert!(client.as_video_generation_capability().is_some());
@@ -11988,6 +11989,27 @@ mod xai_contract {
         assert!(!caps.supports("transcription"));
         assert!(!caps.supports("embedding"));
         assert!(!caps.supports("rerank"));
+    }
+
+    #[tokio::test]
+    async fn xai_factory_declares_files_and_speech_boundary() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::XAIProviderFactory;
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("streaming"));
+        assert!(caps.supports("tools"));
+        assert!(caps.supports("image_generation"));
+        assert!(caps.supports("video"));
+        assert!(caps.supports("file_management"));
+        assert!(caps.supports("speech"));
+        assert!(caps.supports("audio"));
+        assert!(!caps.supports("completion"));
+        assert!(!caps.supports("embedding"));
+        assert!(!caps.supports("rerank"));
+        assert!(!caps.supports("transcription"));
     }
 
     #[tokio::test]

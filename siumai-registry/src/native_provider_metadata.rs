@@ -306,7 +306,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
     out.push(NativeProviderMetadata {
         id: "xai",
         name: "xAI",
-        description: "xAI Grok models with reasoning, vision, provider-owned image generation, speech, and video task APIs",
+        description: "xAI AI SDK-aligned chat/responses/image/video/files/tools plus Siumai provider-owned Rust speech extension",
         default_base_url: Some("https://api.x.ai/v1"),
         default_model_policy: NativeProviderDefaultModelPolicy::Default(
             siumai_provider_xai::providers::xai::models::legacy::GROK_BETA,
@@ -318,6 +318,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_vision()
             .with_image_generation()
             .with_speech()
+            .with_file_management()
             .with_custom_feature("video", true),
     });
 

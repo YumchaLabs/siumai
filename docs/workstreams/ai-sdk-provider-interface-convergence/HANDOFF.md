@@ -87,6 +87,12 @@ vertical slices instead of becoming one cross-provider mega patch.
   surface is chat/completion/embedding/image/reranking. Siumai intentionally keeps
   speech/transcription as OpenAI-compatible audio extensions, so the docs and metadata now name
   those audio paths as Siumai extensions instead of folding them into AI SDK package parity.
+- AIPC-080 then re-audited xAI. The upstream `@ai-sdk/xai` package surface is
+  chat/responses/image/video/files/tools and explicitly rejects embedding. Siumai already had a
+  provider-owned files lane, but registry metadata did not advertise `file_management`; that is now
+  fixed. Siumai's xAI speech/TTS path remains a documented provider-owned Rust extension outside
+  the audited AI SDK package surface, while completion/embedding/rerank/transcription stay
+  unsupported.
 
 ## Blockers
 
