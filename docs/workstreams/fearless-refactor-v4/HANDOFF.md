@@ -26,6 +26,8 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
   because they own different construction behavior.
 - Provider family default-model data has been split into `config/family_defaults.rs`; `config.rs`
   remains the compatibility lookup facade used by runtime/default-model callers.
+- Built-in provider registry data has been split into `config/builtin_providers.rs`; `config.rs`
+  still owns generic provider config construction and lookup/capability facade functions.
 - Existing capability modules remain execution owners:
   - `chat`
   - `completion`
@@ -37,9 +39,9 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
 
 ## Next Step
 
-Reassess whether the remaining built-in provider config registry table should be split by provider
-family. Stop if the remaining split would only move data without improving locality or narrowing a
-real interface.
+Reassess whether any remaining OpenAI-compatible internal modules have real ownership/coupling
+problems. The config facade is now thin enough that further config splitting should happen only if
+new provider families need dedicated registry ownership.
 
 ## Guardrails
 
@@ -52,6 +54,8 @@ real interface.
   construction behavior.
 - Keep provider family defaults in `config/family_defaults.rs`; `config.rs` should remain a lookup
   facade rather than a mixed data owner.
+- Keep built-in provider registry data in `config/builtin_providers.rs`; `config.rs` should not own
+  `build_builtin_providers` or the static built-in provider map.
 - Prefer focused no-network tests and source guards over broad rewrites.
 
 ## Validation Commands

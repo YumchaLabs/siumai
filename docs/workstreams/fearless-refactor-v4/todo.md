@@ -1129,3 +1129,4 @@ Status legend:
 - [x] Deepen the OpenAI-compatible provider config boundary.
   - Provider family default-model data now lives in `config/family_defaults.rs`, while `config.rs` remains the lookup facade for existing callers.
   - A source guard keeps `ProviderFamilyDefaults` out of the facade so default-model routing stays separate from the built-in provider registry table.
+  - Built-in provider registry data now also lives in `config/builtin_providers.rs`; `config.rs` retains the existing lookup facade and source guards prevent the registry table from returning to the facade.

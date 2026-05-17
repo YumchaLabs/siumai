@@ -4,7 +4,7 @@
   "opened": "2026-03-06",
   "objective": "Finish the family-model-centered fearless refactor while keeping provider-specific complexity below narrow provider/protocol module boundaries.",
   "current_task": "OpenAI-compatible remaining provider config audit",
-  "next_task": "Reassess whether built-in provider config registry data should be split by provider family, or stop if the remaining split would only move data without improving locality.",
+  "next_task": "Audit whether any remaining OpenAI-compatible internal modules still have real ownership/coupling problems; stop if further config splitting would only move data without improving locality.",
   "blocked": false,
   "validation_focus": [
     "siumai-provider-openai-compatible completion focused no-network tests",

@@ -20,6 +20,7 @@ Last updated: 2026-05-17
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client/completion/streaming.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/settings.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/config.rs`
+  - `siumai-provider-openai-compatible/src/providers/openai_compatible/config/builtin_providers.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/config/family_defaults.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/providers/models/mod.rs`
 
@@ -72,3 +73,9 @@ Last updated: 2026-05-17
     - Result: 31 tests passed, 199 skipped.
   - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
     - Result: 230 tests passed, 0 skipped.
+- OpenAI-compatible built-in provider registry split:
+  - `cargo fmt -p siumai-provider-openai-compatible`
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast config`
+    - Result: 32 tests passed, 199 skipped.
+  - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
+    - Result: 231 tests passed, 0 skipped.
