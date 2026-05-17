@@ -8,7 +8,7 @@ The workstream remains active. The public V4 story is already mostly aligned aro
 family-model execution, registry-first app code, config-first provider code, and explicit
 compatibility surfaces.
 
-The current continuation lane is OpenAI-compatible internal boundary cleanup:
+The OpenAI-compatible internal boundary cleanup lane is now closed:
 
 - Provider model catalog split is complete and committed.
 - `OpenAiCompatibleClient` production shell has been split into focused submodules:
@@ -37,6 +37,8 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
 - OpenAI-compatible request-option extension tests now live in `ext/request_options/tests.rs`,
   leaving `ext/request_options.rs` focused on public extension traits and provider-options map
   merging.
+- OpenAI-compatible settings tests now live in `settings/tests.rs`, leaving `settings.rs` focused on
+  settings construction code and the simple-settings macro.
 - Existing capability modules remain execution owners:
   - `chat`
   - `completion`
@@ -45,12 +47,15 @@ The current continuation lane is OpenAI-compatible internal boundary cleanup:
   - `audio`
   - `rerank`
   - `models`
+- Closeout audit result: the remaining large OpenAI-compatible files are intentional
+  capability-local implementations, static provider data, or public facades. Further splitting would
+  mostly move data without improving ownership or reducing runtime coupling.
 
 ## Next Step
 
-Reassess whether any remaining OpenAI-compatible internal modules have real ownership/coupling
-problems. The config facade is now thin enough that further config splitting should happen only if
-new provider families need dedicated registry ownership.
+Stop Track J. Open a new follow-on only when there is a concrete behavior bug, public API drift, or
+real ownership/coupling problem. The config facade is now thin enough that further config splitting
+should happen only if new provider families need dedicated registry ownership.
 
 ## Guardrails
 
@@ -74,6 +79,17 @@ new provider families need dedicated registry ownership.
 - Keep request-option contract tests in `ext/request_options/tests.rs`; `ext/request_options.rs`
   should remain the public extension-trait shell.
 - Prefer focused no-network tests and source guards over broad rewrites.
+- Do not split OpenAI-compatible modules solely because a file is large; require a clear ownership,
+  coupling, or test-locality improvement.
+
+## Residual Risks
+
+- Provider-family catalog tables and built-in registry data will still grow as vendors are added;
+  split only when a provider family gains independent ownership, not by row count.
+- Capability executors remain provider-specific by nature. Treat their size as acceptable while the
+  module owns one request/response protocol boundary and has focused no-network coverage.
+- Future public-path bugs should be fixed through the same config-first / family-model contract
+  path, not by adding another builder-only adapter branch.
 
 ## Validation Commands
 

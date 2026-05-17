@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - Design
 
-Last updated: 2026-03-06
+Last updated: 2026-05-17
 
 ## Context
 
@@ -400,6 +400,14 @@ The refactor is successful when all of the following are true:
 3. Builders remain convenient but no longer define architecture.
 4. Provider complexity is isolated in provider/protocol crates.
 5. Naming remains idiomatic for Rust rather than cloned from TypeScript.
+
+## Status note - 2026-05-17
+
+The OpenAI-compatible internal boundary cleanup pass is closed. The pass validated the intended V4
+rule that provider complexity should live below provider/protocol module boundaries, while public
+paths and behavior remain compatible. The remaining large OpenAI-compatible modules are not a
+refactor target by size alone: future work needs a concrete ownership, coupling, behavior, or public
+API trigger.
 
 ## Final recommendation
 

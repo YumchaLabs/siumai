@@ -1143,3 +1143,11 @@ Status legend:
 - [x] Isolate OpenAI-compatible request-option extension tests.
   - `ext/request_options.rs` now stays focused on public extension traits and provider-options map merging, while request-option contract tests live in `ext/request_options/tests.rs`.
   - A source guard keeps representative request-option contract tests out of the production extension shell so provider-specific public helper coverage does not bury the interface definitions again.
+
+- [x] Isolate OpenAI-compatible settings tests.
+  - `settings.rs` now stays focused on settings construction code, the simple-settings macro, and the genuinely custom settings carriers, while settings contract tests live in `settings/tests.rs`.
+  - The provider settings test module keeps construction/parity coverage local without burying the public settings surface again.
+
+- [x] Close Track J after the final OpenAI-compatible ownership audit.
+  - Audit result: the remaining large OpenAI-compatible files are intentional capability-local implementations, static provider data, or public facades.
+  - Further cleanup should not continue by file size. A follow-on should start only from a concrete behavior bug, API drift, or real ownership/coupling problem.

@@ -30,6 +30,13 @@ Last updated: 2026-05-17
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/ext/request_options/tests.rs`
   - `siumai-provider-openai-compatible/src/providers/openai_compatible/providers/models/mod.rs`
 
+## Closeout Decision
+
+Track J - OpenAI-compatible internal boundary cleanup is closed as of 2026-05-17. The remaining
+large files are intentional capability-local implementations, static provider data, or public
+facades. Future work should start only from a concrete behavior bug, API drift, or real
+ownership/coupling problem; do not continue the lane by mechanically splitting files.
+
 ## Required Gates
 
 - `cargo fmt -p siumai-provider-openai-compatible`
@@ -111,3 +118,11 @@ Last updated: 2026-05-17
     - Result: 16 tests passed, 217 skipped.
   - `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
     - Result: 233 tests passed, 0 skipped.
+- OpenAI-compatible internal boundary cleanup closeout:
+  - Closeout audit result: no further OpenAI-compatible split is justified without a concrete
+    behavior/API/coupling trigger.
+  - Latest code gate before closeout:
+    `cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast`
+    - Result: 233 tests passed, 0 skipped.
+  - Docs-only closeout gate:
+    `git diff --check`

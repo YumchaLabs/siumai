@@ -805,6 +805,12 @@ Acceptance criteria:
 - The focused-wrapper negative contract is now also less ad hoc in the test suite itself: shared helper assertions now encode the common “deferred capability absent / no request emitted” rules for DeepSeek, Groq, and xAI, so adding the next focused wrapper should no longer require copying three separate negative-check patterns by hand.
 - Top-level compat vendor-view guards now also lock the shared-registry construction path for `Provider::openai().{openrouter,perplexity}()`, together with the intended capability split: `openrouter` remains a tools/embedding/reasoning typed vendor view without audio, while `perplexity` remains a tools-led typed vendor view without separate embedding or audio promotion. The built public-client surface now also carries that same split through `capabilities()` / `as_*_capability()` checks, closing the drift where preset metadata had advertised `reasoning` but the final OpenRouter compat client had not surfaced it.
 - Top-level focused-provider guards now also lock that `provider_ext::google_vertex` remains options-led on the stable `providerOptions.vertex` key, while `provider_ext::bedrock` remains request-helper-led on `providerOptions.bedrock`; this gives the documented “stay focused, do not invent metadata/resources symmetry” rule a direct no-network test anchor.
+- OpenAI-compatible internal boundary cleanup is now closed as a distinct lane. The shared compat
+  runtime has focused owners for provider catalogs, client shell wiring, completion streaming,
+  provider settings, config defaults/registry data, builder reasoning mapping, and the major
+  contract test suites. Remaining large files are treated as intentional capability-local
+  implementations, static provider data, or public facades unless a concrete behavior/API/coupling
+  problem proves otherwise.
 
 - Legacy audio migration shims are now also locked by direct core regression tests: the compatibility-only `AudioCapability` bridge continues to adapt into the narrower `SpeechCapability` and `TranscriptionCapability` families while recommended public code paths move away from the broad audio trait.
 - Provider-specific extras remain available through extension traits.
