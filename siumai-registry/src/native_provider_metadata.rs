@@ -232,7 +232,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
     out.push(NativeProviderMetadata {
         id: "groq",
         name: "Groq",
-        description: "Groq models with ultra-fast inference",
+        description: "Groq AI SDK-aligned chat/transcription plus provider-owned Rust speech extension",
         default_base_url: Some("https://api.groq.com/openai/v1"),
         default_model_policy: NativeProviderDefaultModelPolicy::Default(
             siumai_provider_openai_compatible::providers::openai_compatible::providers::models::groq::LLAMA_3_1_70B,

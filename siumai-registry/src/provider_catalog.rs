@@ -929,6 +929,59 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "groq")]
+    fn provider_catalog_uses_native_metadata_for_groq() {
+        use siumai_provider_groq::providers::groq::models;
+
+        let info = super::get_provider_info_by_id("groq").expect("groq should exist");
+        assert_eq!(info.provider_type, super::ProviderType::Groq);
+        assert_eq!(info.name.as_ref(), "Groq");
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.description.as_ref().contains("AI SDK-aligned")
+                && info
+                    .description
+                    .as_ref()
+                    .contains("provider-owned Rust speech extension"),
+            "expected Groq metadata to document the AI SDK package surface versus Rust extension boundary"
+        );
+        assert!(
+            info.capabilities.chat
+                && info.capabilities.streaming
+                && info.capabilities.tools
+                && info.capabilities.audio
+                && info.capabilities.speech
+                && info.capabilities.transcription,
+            "expected Groq to expose chat/transcription plus provider-owned speech"
+        );
+        assert!(
+            !info.capabilities.completion
+                && !info.capabilities.embedding
+                && !info.capabilities.image_generation
+                && !info.capabilities.rerank,
+            "expected Groq non-package families to remain deferred"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::production::LLAMA_3_3_70B_VERSATILE),
+            "expected Groq AI SDK-aligned chat models to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::transcription::WHISPER_LARGE_V3),
+            "expected Groq AI SDK-aligned transcription models to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::speech::PLAYAI_TTS),
+            "expected Groq provider-owned speech models to remain listed as Rust extensions"
+        );
+    }
+
+    #[test]
     #[cfg(feature = "minimaxi")]
     fn provider_catalog_uses_native_metadata_for_minimaxi() {
         let info = super::get_provider_info_by_id("minimaxi").expect("minimaxi should exist");

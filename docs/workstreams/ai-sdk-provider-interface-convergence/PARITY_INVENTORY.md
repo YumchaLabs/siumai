@@ -41,7 +41,7 @@ Status legend:
 | `amazon-bedrock` | `siumai-provider-amazon-bedrock` | Native Bedrock runtime | Amber | Keep Bedrock-specific request/stream semantics provider-owned; review wider fixture coverage. |
 | `cohere` | `siumai-provider-cohere` | Native Cohere v2 chat/embedding/rerank | Amber | Recheck package settings and embedding/rerank middleware parity after core guard slice. |
 | `deepseek` | `siumai-provider-deepseek` | Native DeepSeek chat-only provider-owned path | Amber | Keep custom provider-root metadata and include-usage stream behavior locked. |
-| `groq` | `siumai-provider-groq`, OpenAI-compatible runtime | Promoted OpenAI-compatible provider surface | Green | OpenAI-compatible preset no longer inherits completion; native Groq package surface remains chat/transcription-oriented. |
+| `groq` | `siumai-provider-groq`, OpenAI-compatible runtime | AI SDK-aligned chat/transcription plus provider-owned Rust speech extension | Green | OpenAI-compatible preset no longer inherits completion; Groq speech/TTS remains a documented provider-owned Rust extension outside the audited AI SDK chat/transcription catalog. |
 | `xai` | `siumai-provider-xai` | Native xAI chat/responses/image/video/tools | Amber | Review provider-tool and stream custom-tool coverage beyond audited lanes. |
 | `togetherai` | `siumai-provider-togetherai`, OpenAI-compatible runtime | Hybrid shared text/audio plus provider-owned image/rerank | Amber | Keep provider-owned image/rerank off generic compat image execution. |
 | `mistral` | OpenAI-compatible promoted wrapper | Chat + embedding boundary | Green | Completion remains unsupported unless upstream package policy changes. |

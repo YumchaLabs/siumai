@@ -79,6 +79,10 @@ vertical slices instead of becoming one cross-provider mega patch.
 - Vertex MaaS remains completion-capable, but it is a dedicated Google Vertex MaaS factory/package
   decision rather than evidence that ordinary OpenAI-compatible promoted presets should inherit
   completion.
+- AIPC-080 started with Groq. The upstream `@ai-sdk/groq` package surface is chat/transcription
+  plus tools; Siumai keeps Groq speech/TTS as a provider-owned Rust extension. New registry catalog
+  and factory tests lock that boundary so speech models stay out of the AI SDK-aligned
+  chat/transcription catalog while remaining listed on the Rust provider surface.
 
 ## Blockers
 

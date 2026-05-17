@@ -10752,6 +10752,29 @@ mod groq_contract {
         assert_embedding_image_rerank_capabilities_absent(&caps);
     }
 
+    #[test]
+    fn groq_ai_sdk_aligned_catalog_excludes_provider_owned_speech_models() {
+        use siumai_provider_groq::providers::groq::models;
+
+        for speech_model in models::ALL_SPEECH {
+            assert!(
+                !models::ALL_CHAT.contains(speech_model),
+                "Groq provider-owned speech model must not enter the AI SDK-aligned chat catalog: {speech_model}"
+            );
+            assert!(
+                !models::ALL_TRANSCRIPTION.contains(speech_model),
+                "Groq provider-owned speech model must not enter the AI SDK-aligned transcription catalog: {speech_model}"
+            );
+        }
+
+        assert!(
+            models::all_models()
+                .iter()
+                .any(|model| models::ALL_SPEECH.contains(model)),
+            "Groq provider-owned speech models should remain available on the Rust provider surface"
+        );
+    }
+
     #[tokio::test]
     async fn groq_factory_supports_native_speech_family_path() {
         let _lock = lock_env();
