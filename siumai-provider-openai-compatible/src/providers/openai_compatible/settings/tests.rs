@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::execution::http::transport::{
     HttpTransportGetRequest, HttpTransportRequest, HttpTransportResponse,
