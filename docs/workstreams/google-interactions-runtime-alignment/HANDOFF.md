@@ -9,24 +9,24 @@ The workstream is open. Siumai exposes `google.interactions(...)` through the Ge
 surface, including model ids, agent names, typed provider options, metadata, builder construction,
 and a fail-fast `GoogleInteractionsLanguageModel` handle.
 
-GIR-020 is implemented: stable `ChatRequest` values can now be prepared into model-mode
-`/v1beta/interactions` request bodies through provider-owned conversion code, including
-model-mode tools/tool choice. Runtime execution still fail-fasts by design until response parsing
-and non-stream execution land.
+GIR-020 and GIR-030 are implemented: stable `ChatRequest` values can now be prepared into
+model-mode and agent-mode `/v1beta/interactions` request bodies through provider-owned conversion
+code. Runtime execution still fail-fasts by design until response parsing and non-stream execution
+land.
 
 ## Active Task
 
-- Task ID: GIR-030
+- Task ID: GIR-040
 - Owner: unassigned
 - Files:
   - `siumai-provider-gemini/src/providers/gemini/interactions.rs`
-  - `siumai-provider-gemini/src/providers/gemini/interactions/request.rs`
+  - `siumai-provider-gemini/src/providers/gemini/interactions/response.rs`
   - provider-local fixtures/tests
 - Validation:
-  - `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_agent`
+  - `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_response`
 - Status: READY
 - Review: `review-workstream` before accepting implementation.
-- Evidence: agent-mode request body assertions and warning decisions.
+- Evidence: response fixture tests for completed Interactions responses.
 
 ## Decisions Since Last Update
 
@@ -37,17 +37,18 @@ and non-stream execution land.
 - Interactions code must stay provider-owned in `siumai-provider-gemini`.
 - Model-mode request conversion lives in `providers/gemini/interactions/request.rs` so later
   response, polling, and streaming runtime slices do not turn `interactions.rs` into a monolith.
+- Agent-mode request conversion follows the AI SDK semantics: send `agent` with `background: true`;
+  warn/drop model-only `generation_config`, `tools`, structured output, and `imageConfig`.
 
 ## Blockers
 
-- No external blocker. GIR-030 needs AI SDK agent request semantics checked before widening
-  supported agent options.
+- No external blocker. GIR-040 needs response fixtures and output parsing against the AI SDK
+  `parse-google-interactions-outputs.ts` reference.
 
 ## Next Recommended Action
 
-Start GIR-030 with an agent-mode request-conversion tracer bullet:
+Start GIR-040 with a response-parsing tracer bullet:
 
-- one agent request with user text and `agent` set instead of `model`;
-- warning or rejection coverage for unsupported generation config and tools;
-- provider-option handling for `store`, `previousInteractionId`, and `responseFormat` where the AI
-  SDK reference permits it.
+- one completed response with text output, usage, finish reason, service tier, and interaction id;
+- one response with reasoning signature and function call;
+- one response with function result / media block coverage.

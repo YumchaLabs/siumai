@@ -36,13 +36,15 @@ Status legend:
   `store`, `mediaResolution`, model-mode tools/tool choice, and deprecated `imageConfig`
   fallback. Agent conversion remains deferred to GIR-030.
 
-- [ ] GIR-030 [owner=unassigned] [deps=GIR-020] [scope=siumai-provider-gemini,fixtures]
+- [x] GIR-030 [owner=codex] [deps=GIR-020] [scope=siumai-provider-gemini,fixtures]
   Goal: Add agent-mode request conversion and warning behavior.
   Validation: `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_agent`
   Review: `review-workstream` before accepting completion.
-  Evidence: provider-local tests for agent request bodies and warning decisions.
-  Handoff: Agent calls must reject or warn for unsupported tools/generation config without silently
-  sending an invalid body.
+  Evidence: provider-local tests for agent request bodies and warning decisions passed on
+  2026-05-18.
+  Handoff: Agent requests send `agent` and `background: true`, omit `model` and `stream`, preserve
+  `agent_config`, and warn/drop unsupported tools, generation config, structured output, and
+  `imageConfig`.
 
 ## M2 - Response And Polling Runtime
 

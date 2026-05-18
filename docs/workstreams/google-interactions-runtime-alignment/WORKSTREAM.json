@@ -37,8 +37,8 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "GIR-030",
-    "title": "Add agent-mode request conversion and warning behavior",
+    "id": "GIR-040",
+    "title": "Parse completed Interactions responses",
     "scope": [
       "siumai-provider-gemini/src/providers/gemini",
       "fixtures"

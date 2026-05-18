@@ -4,7 +4,8 @@ use std::collections::HashSet;
 
 use crate::LlmError;
 use crate::provider_options::gemini::{
-    GoogleInteractionsResponseFormatEntry, GoogleLanguageModelInteractionsOptions,
+    GoogleInteractionsAgentConfig, GoogleInteractionsResponseFormatEntry,
+    GoogleLanguageModelInteractionsOptions,
 };
 use crate::types::{
     ChatMessage, ChatRequest, ContentPart, MediaSource, MessageContent, MessageRole,
@@ -38,6 +39,8 @@ pub(crate) struct GoogleInteractionsRequestBody {
     response_modalities: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "generation_config")]
     generation_config: Option<GoogleInteractionsGenerationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "agent_config")]
+    agent_config: Option<GoogleInteractionsAgentConfigWire>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<GoogleInteractionsTool>>,
     #[serde(
@@ -265,6 +268,23 @@ struct GoogleInteractionsAllowedToolsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+enum GoogleInteractionsAgentConfigWire {
+    Dynamic,
+    DeepResearch {
+        #[serde(skip_serializing_if = "Option::is_none", rename = "thinking_summaries")]
+        thinking_summaries: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        visualization: Option<String>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "collaborative_planning"
+        )]
+        collaborative_planning: Option<bool>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum GoogleInteractionsResponseFormatWireEntry {
     Text {
@@ -308,14 +328,9 @@ pub(crate) fn build_interactions_request_body(
     request: &ChatRequest,
     stream: bool,
 ) -> Result<GoogleInteractionsPreparedRequest, LlmError> {
-    if model_input.is_agent() {
-        return Err(LlmError::UnsupportedOperation(
-            "google.interactions agent request conversion is tracked by GIR-030".to_string(),
-        ));
-    }
-
     let options = parse_interactions_options(request)?;
     let mut warnings = Vec::new();
+    let is_agent = model_input.is_agent();
 
     let mut input = Vec::new();
     let mut system_texts = Vec::new();
@@ -393,35 +408,143 @@ pub(crate) fn build_interactions_request_body(
         (None, None) => None,
     };
 
-    let response_format = build_response_format(request, &options, &mut warnings)?;
-    let prepared_tools = prepare_interactions_tools(
-        request.tools.as_deref(),
-        request.tool_choice.as_ref(),
-        &mut warnings,
-    );
-    let generation_config = GoogleInteractionsGenerationConfig::from_request(
-        request,
-        &options,
-        prepared_tools.tool_choice,
-    );
+    let response_format = if is_agent {
+        warn_and_drop_agent_response_format(request, &options, &mut warnings);
+        None
+    } else {
+        build_response_format(request, &options, &mut warnings)?
+    };
+    let prepared_tools = if is_agent {
+        warn_and_drop_agent_tools(request, &mut warnings);
+        PreparedInteractionsTools::default()
+    } else {
+        prepare_interactions_tools(
+            request.tools.as_deref(),
+            request.tool_choice.as_ref(),
+            &mut warnings,
+        )
+    };
+    let generation_config = if is_agent {
+        warn_and_drop_agent_generation_config(request, &options, &mut warnings);
+        None
+    } else {
+        GoogleInteractionsGenerationConfig::from_request(
+            request,
+            &options,
+            prepared_tools.tool_choice,
+        )
+    };
+    let agent_config = is_agent
+        .then(|| options.agent_config.as_ref().map(agent_config_to_wire))
+        .flatten();
 
     let body = GoogleInteractionsRequestBody {
-        model: Some(model_input.id().to_string()),
-        agent: None,
+        model: (!is_agent).then(|| model_input.id().to_string()),
+        agent: is_agent.then(|| model_input.id().to_string()),
         input,
         system_instruction,
         response_format,
         response_modalities: options.response_modalities.clone(),
         generation_config,
+        agent_config,
         tools: prepared_tools.tools,
         previous_interaction_id: options.previous_interaction_id.clone(),
         service_tier: options.service_tier.clone(),
         store: options.store,
-        stream: stream.then_some(true),
-        background: None,
+        stream: (!is_agent && stream).then_some(true),
+        background: is_agent.then_some(true),
     };
 
     Ok(GoogleInteractionsPreparedRequest { body, warnings })
+}
+
+fn warn_and_drop_agent_response_format(
+    request: &ChatRequest,
+    options: &GoogleLanguageModelInteractionsOptions,
+    warnings: &mut Vec<Warning>,
+) {
+    if request.response_format.is_some() || options.response_format.is_some() {
+        warnings.push(Warning::other(
+            "google.interactions: structured output (responseFormat) is not supported when an agent is set; responseFormat will be ignored.",
+        ));
+    }
+    if options.image_config.is_some() {
+        warnings.push(Warning::other(
+            "google.interactions: providerOptions.google.imageConfig is not supported when an agent is set; use providerOptions.google.agentConfig instead. Dropped from the request body.",
+        ));
+    }
+}
+
+fn warn_and_drop_agent_tools(request: &ChatRequest, warnings: &mut Vec<Warning>) {
+    if request
+        .tools
+        .as_ref()
+        .is_some_and(|tools| !tools.is_empty())
+    {
+        warnings.push(Warning::other(
+            "google.interactions: tools are not supported when an agent is set; tools will be omitted from the request body.",
+        ));
+    }
+}
+
+fn warn_and_drop_agent_generation_config(
+    request: &ChatRequest,
+    options: &GoogleLanguageModelInteractionsOptions,
+    warnings: &mut Vec<Warning>,
+) {
+    let mut dropped_fields = Vec::new();
+    if request.common_params.temperature.is_some() {
+        dropped_fields.push("temperature");
+    }
+    if request.common_params.top_p.is_some() {
+        dropped_fields.push("topP");
+    }
+    if request.common_params.seed.is_some() {
+        dropped_fields.push("seed");
+    }
+    if request
+        .common_params
+        .stop_sequences
+        .as_ref()
+        .is_some_and(|values| !values.is_empty())
+    {
+        dropped_fields.push("stopSequences");
+    }
+    if request.common_params.max_completion_tokens.is_some()
+        || request.common_params.max_tokens.is_some()
+    {
+        dropped_fields.push("maxOutputTokens");
+    }
+    if options.thinking_level.is_some() {
+        dropped_fields.push("thinkingLevel");
+    }
+    if options.thinking_summaries.is_some() {
+        dropped_fields.push("thinkingSummaries");
+    }
+    if request.tool_choice.is_some() {
+        dropped_fields.push("toolChoice");
+    }
+
+    if !dropped_fields.is_empty() {
+        warnings.push(Warning::other(format!(
+            "google.interactions: {} {} not supported when an agent is set; use providerOptions.google.agentConfig instead. Dropped from the request body.",
+            dropped_fields.join(", "),
+            if dropped_fields.len() == 1 { "is" } else { "are" }
+        )));
+    }
+}
+
+fn agent_config_to_wire(
+    config: &GoogleInteractionsAgentConfig,
+) -> GoogleInteractionsAgentConfigWire {
+    match config.kind.as_str() {
+        "deep-research" => GoogleInteractionsAgentConfigWire::DeepResearch {
+            thinking_summaries: config.thinking_summaries.clone(),
+            visualization: config.visualization.clone(),
+            collaborative_planning: config.collaborative_planning,
+        },
+        _ => GoogleInteractionsAgentConfigWire::Dynamic,
+    }
 }
 
 #[derive(Default)]

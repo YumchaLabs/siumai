@@ -761,23 +761,94 @@ mod tests {
     }
 
     #[test]
-    fn google_interactions_request_rejects_agent_mode_until_gir_030() {
+    fn google_interactions_agent_sets_agent_background_and_agent_config() {
         let model = GoogleInteractionsLanguageModel::new(
             GeminiConfig::new("test-key"),
             GoogleInteractionsModelInput::agent(agents::DEEP_RESEARCH_PREVIEW_04_2026),
         );
-        let err = model
-            .prepare_request_body(
-                &ChatRequest::new(vec![ChatMessage::user("research").build()]),
-                false,
-            )
-            .expect_err("agent conversion deferred");
+        let request = ChatRequest::new(vec![ChatMessage::user("research").build()])
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new().with_agent_config(
+                    crate::provider_options::gemini::GoogleInteractionsAgentConfig::deep_research()
+                        .with_thinking_summaries("auto")
+                        .with_visualization("auto")
+                        .with_collaborative_planning(true),
+                ),
+            );
 
-        match err {
-            LlmError::UnsupportedOperation(message) => {
-                assert!(message.contains("GIR-030"));
-            }
-            other => panic!("expected UnsupportedOperation, got {other:?}"),
-        }
+        let prepared = model
+            .prepare_request_body(&request, false)
+            .expect("prepare agent request");
+        assert!(prepared.warnings.is_empty());
+        let body = serde_json::to_value(prepared.body).expect("serialize body");
+
+        assert!(body.get("model").is_none());
+        assert_eq!(
+            body["agent"],
+            serde_json::json!(agents::DEEP_RESEARCH_PREVIEW_04_2026)
+        );
+        assert_eq!(body["background"], serde_json::json!(true));
+        assert!(body.get("stream").is_none());
+        assert!(body.get("generation_config").is_none());
+        assert_eq!(
+            body["agent_config"],
+            serde_json::json!({
+                "type": "deep-research",
+                "thinking_summaries": "auto",
+                "visualization": "auto",
+                "collaborative_planning": true
+            })
+        );
+    }
+
+    #[test]
+    fn google_interactions_agent_warns_and_drops_model_only_fields() {
+        let model = GoogleInteractionsLanguageModel::new(
+            GeminiConfig::new("test-key"),
+            GoogleInteractionsModelInput::agent(agents::DEEP_RESEARCH_PREVIEW_04_2026),
+        );
+        let request = ChatRequest::builder()
+            .message(ChatMessage::user("research").build())
+            .temperature(0.7)
+            .top_p(0.8)
+            .seed(7)
+            .max_tokens(256)
+            .stop_sequences(vec!["STOP".to_string()])
+            .response_format(ResponseFormat::json_schema(serde_json::json!({
+                "type": "object"
+            })))
+            .tools(vec![Tool::function(
+                "lookup",
+                "Lookup data",
+                serde_json::json!({ "type": "object" }),
+            )])
+            .build()
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new()
+                    .with_thinking_level("high")
+                    .with_thinking_summaries("auto")
+                    .with_response_format(vec![GoogleInteractionsResponseFormatEntry::image()])
+                    .with_image_config(
+                        crate::provider_options::gemini::GoogleInteractionsImageConfig::new()
+                            .with_aspect_ratio("1:1"),
+                    ),
+            )
+            .with_tool_choice(ToolChoice::Required);
+
+        let prepared = model
+            .prepare_request_body(&request, true)
+            .expect("prepare agent request");
+        assert_eq!(prepared.warnings.len(), 4);
+        let body = serde_json::to_value(prepared.body).expect("serialize body");
+
+        assert_eq!(
+            body["agent"],
+            serde_json::json!(agents::DEEP_RESEARCH_PREVIEW_04_2026)
+        );
+        assert_eq!(body["background"], serde_json::json!(true));
+        assert!(body.get("generation_config").is_none());
+        assert!(body.get("response_format").is_none());
+        assert!(body.get("tools").is_none());
+        assert!(body.get("stream").is_none());
     }
 }

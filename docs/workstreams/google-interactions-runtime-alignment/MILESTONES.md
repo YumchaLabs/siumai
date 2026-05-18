@@ -33,12 +33,12 @@ cargo nextest run -p siumai-provider-gemini --all-features google_interactions_r
 cargo nextest run -p siumai-provider-gemini --all-features google_interactions_agent
 ```
 
-Status: in progress
+Status: completed
 
 Progress:
 
 - GIR-020 completed on 2026-05-18 for model-mode request conversion.
-- GIR-030 remains open for agent-mode request conversion and warning behavior.
+- GIR-030 completed on 2026-05-18 for agent-mode request conversion and warning behavior.
 
 ## M2 - Response And Polling Runtime
 
