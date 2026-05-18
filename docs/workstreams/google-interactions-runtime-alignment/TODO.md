@@ -82,16 +82,20 @@ Status legend:
   Handoff: Implemented in provider-owned `providers/gemini/interactions/stream.rs`; ordinary Gemini
   `:generateContent` streaming remains separate. Agent stream reconnect/cancel remains GIR-070.
 
-- [~] GIR-070 [owner=unassigned] [deps=GIR-060] [scope=siumai-provider-gemini]
+- [x] GIR-070 [owner=codex] [deps=GIR-060] [scope=siumai-provider-gemini]
   Goal: Add stream reconnect and cancel-on-abort behavior.
   Validation: `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream_reconnect`
   Review: `review-workstream` before accepting completion.
-  Evidence: no-network tests for `last_event_id`, retry budget, and `POST /cancel`.
-  Handoff: This is required before claiming production-ready streaming.
+  Evidence: no-network tests for background agent stream POST, GET SSE reconnect with
+  `last_event_id`, empty stream retry budget, best-effort `POST /cancel`, and missing
+  interaction-id errors passed on 2026-05-18.
+  Handoff: Agent streaming now follows AI SDK semantics: create background interaction, stream via
+  `GET /interactions/{id}?stream=true`, resume with JSON `event_id`, and cancel unfinished
+  streams through `/cancel` when using the cancel handle.
 
 ## M4 - Public Path And Closeout
 
-- [ ] GIR-080 [owner=unassigned] [deps=GIR-050,GIR-060] [scope=siumai,siumai-provider-gemini]
+- [~] GIR-080 [owner=unassigned] [deps=GIR-050,GIR-060,GIR-070] [scope=siumai,siumai-provider-gemini]
   Goal: Replace the current fail-fast public-path guard with request/response/stream parity tests
   for implemented Interactions paths.
   Validation: `cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast`

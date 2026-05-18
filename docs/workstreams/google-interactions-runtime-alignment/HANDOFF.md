@@ -9,29 +9,31 @@ The workstream is open. Siumai exposes `google.interactions(...)` through the Ge
 surface, including model ids, agent names, typed provider options, metadata, builder construction,
 and a provider-owned `GoogleInteractionsLanguageModel` handle.
 
-GIR-020, GIR-030, GIR-040, GIR-050, and GIR-060 are implemented: stable `ChatRequest` values can now
+GIR-020, GIR-030, GIR-040, GIR-050, GIR-060, and GIR-070 are implemented: stable `ChatRequest` values can now
 be prepared into model-mode and agent-mode `/v1beta/interactions` request bodies, completed
 Interactions responses parse back into stable `ChatResponse` values through provider-owned
 conversion code, non-stream execution posts to `/interactions`, and background agent responses poll
 through `GET /interactions/{id}` until a terminal status. Model-mode streaming now posts
 `stream: true` to `/interactions` and converts Interactions SSE events into stable stream parts.
+Agent-mode streaming now creates a background interaction, opens `GET /interactions/{id}?stream=true`,
+reconnects with `last_event_id`, and sends best-effort `POST /interactions/{id}/cancel` when a
+cancellable stream is aborted before completion.
 
 ## Active Task
 
-- Task ID: GIR-070
+- Task ID: GIR-080
 - Owner: unassigned
 - Files:
+  - `siumai/tests/provider_public_path_parity_test.rs`
   - `siumai-provider-gemini/src/providers/gemini/interactions.rs`
-  - `siumai-provider-gemini/src/providers/gemini/interactions/runtime.rs`
-  - `siumai-provider-gemini/src/providers/gemini/interactions/stream.rs`
-  - provider-local fixtures/tests
+  - public facade/builder path tests
 - Validation:
-  - `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream_reconnect`
+  - `cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast`
 - Status: READY
 - Review: `review-workstream` before accepting implementation.
 - Evidence: request conversion, completed-response parsing, non-stream POST, agent polling,
-  model-mode stream POST, stream event conversion, package tests, fmt, and clippy are already
-  covered.
+  model-mode stream POST, stream event conversion, agent stream reconnect/cancel, package tests,
+  fmt, and clippy are already covered.
 
 ## Decisions Since Last Update
 
@@ -56,19 +58,22 @@ through `GET /interactions/{id}` until a terminal status. Model-mode streaming n
   `/interactions` with `stream: true`, emits stable typed stream parts for text, reasoning,
   function calls, built-in tool results, sources, images, usage, finish metadata, and preserves
   request/response envelopes.
-- Agent-mode streaming still fails fast by design until reconnect and cancel-on-abort behavior are
-  implemented in GIR-070.
+- Agent-mode streaming now follows the AI SDK runtime shape: `POST /interactions` with
+  `background: true`, then `GET /interactions/{id}?stream=true`, using the JSON `event_id` as
+  `last_event_id` on reconnect. Cancel handles issue best-effort `POST /interactions/{id}/cancel`.
+- The core custom transport seam now includes `execute_get_stream` so provider-owned GET SSE
+  endpoints can be tested without network access.
 
 ## Blockers
 
-- No external blocker. GIR-070 needs reconnect/cancel behavior against the AI SDK
-  `stream-google-interactions.ts` and `cancel-google-interaction.ts` references.
+- No external blocker. GIR-080 needs public-path parity assertions updated now that agent streaming
+  is implemented instead of deferred.
 
 ## Next Recommended Action
 
-Start GIR-070 with a reconnect/cancel tracer bullet:
+Start GIR-080 with public facade parity:
 
-- reconnect `GET /interactions/{id}?stream=true` with `last_event_id` after unexpected disconnect;
-- keep model-mode POST streaming behavior intact;
-- add cancel-on-abort through `POST /interactions/{id}/cancel` for unfinished agent streams;
-- keep unsupported agent streaming explicit until the reconnect/cancel slice has no-network tests.
+- remove/narrow obsolete fail-fast Interactions public-path expectations;
+- prove `Provider::google()`, `provider_ext::google`, and direct handle paths reach the implemented
+  request/response/stream runtime;
+- keep any truly unsupported subfeatures explicit with focused assertions.

@@ -2,20 +2,27 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use eventsource_stream::Event;
+use futures_util::Stream;
 use serde_json::{Map, Value};
+use std::pin::Pin;
 
 use crate::LlmError;
+use crate::execution::executors::common::{HttpBody, HttpExecutionConfig, execute_json_request};
 use crate::execution::executors::stream_sse::execute_sse_stream_request_with_headers;
-use crate::execution::http::interceptor::generate_request_id;
+use crate::execution::http::interceptor::{HttpRequestContext, generate_request_id};
+use crate::execution::http::transport::HttpTransportGetRequest;
 use crate::streaming::{
-    ChatStream, ChatStreamEvent, SseEventConverter, SseEventFuture, StreamStateTracker,
+    ChatStream, ChatStreamEvent, ChatStreamHandle, SseEventConverter, SseEventFuture, SseStreamExt,
+    StreamStateTracker,
 };
 use crate::types::{
-    ChatRequest, ChatResponse, ChatStreamFileData, ChatStreamFilePart, ChatStreamFinishInfo,
-    ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult, ContentPart, HttpRequestInfo,
-    HttpResponseInfo, MessageContent, ResponseMetadata, SourcePart, StreamProviderMetadata, Usage,
+    CancelHandle, ChatRequest, ChatResponse, ChatStreamFileData, ChatStreamFilePart,
+    ChatStreamFinishInfo, ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult, ContentPart,
+    HttpRequestInfo, HttpResponseInfo, MessageContent, ResponseMetadata, SourcePart,
+    StreamProviderMetadata, Usage,
 };
-use futures_util::StreamExt;
+use futures_util::{StreamExt, TryStreamExt};
+use reqwest::header::{ACCEPT, CACHE_CONTROL, CONNECTION, HeaderMap};
 
 use super::GoogleInteractionsLanguageModel;
 use super::response::{
@@ -23,7 +30,20 @@ use super::response::{
     builtin_tool_result_to_sources, convert_usage, map_finish_reason, part_provider_metadata,
     response_provider_metadata, source_dedupe_key, string_field,
 };
-use super::runtime::{build_execution_config, interactions_http_config, interactions_url};
+use super::runtime::{
+    build_execution_config, interaction_cancel_url, interaction_id, interaction_stream_url,
+    interactions_http_config, interactions_url, is_terminal_response,
+};
+
+const AGENT_STREAM_MAX_RETRIES: u32 = 3;
+const AGENT_STREAM_RETRY_DELAY_MS: u64 = 500;
+
+type AgentStreamBody = Pin<Box<dyn Stream<Item = Result<Vec<u8>, LlmError>> + Send + 'static>>;
+
+struct AgentStreamResponse {
+    headers: HeaderMap,
+    body: AgentStreamBody,
+}
 
 pub(super) async fn execute_interactions_stream(
     model: &GoogleInteractionsLanguageModel,
@@ -80,6 +100,429 @@ pub(super) async fn execute_interactions_stream(
         stream,
         request_info,
     ))
+}
+
+pub(super) async fn execute_interactions_agent_stream(
+    model: &GoogleInteractionsLanguageModel,
+    request: ChatRequest,
+    http_client: reqwest::Client,
+    retry_options: Option<crate::retry_api::RetryOptions>,
+    cancel: Option<CancelHandle>,
+) -> Result<ChatStream, LlmError> {
+    let prepared = model.prepare_request_body(&request, false)?;
+    let request_body = serde_json::to_value(prepared.body).map_err(|error| {
+        LlmError::ParseError(format!(
+            "Failed to serialize google.interactions agent streaming request body: {error}"
+        ))
+    })?;
+    let request_info = serde_json::to_string(&request_body)
+        .ok()
+        .map(|body| HttpRequestInfo { body: Some(body) });
+
+    let http_config =
+        interactions_http_config(&model.config().http_config, request.http_config.as_ref());
+    let execution_config = build_execution_config(model, http_client, retry_options.clone()).await;
+    let post_result = execute_json_request(
+        &execution_config,
+        &interactions_url(model.base_url()),
+        HttpBody::Json(request_body.clone()),
+        Some(&http_config),
+        false,
+    )
+    .await?;
+
+    let interaction_id = interaction_id(&post_result.json).ok_or_else(|| {
+        LlmError::ParseError(
+            "google.interactions: background POST response did not include an interaction id; cannot stream the result."
+                .to_string(),
+        )
+    })?;
+
+    let converter = GoogleInteractionsEventConverter::new(
+        model.provider(),
+        model.model_id().to_string(),
+        model.config().generate_id.clone(),
+        prepared.warnings,
+    );
+    converter.seed_from_interaction_response(&post_result.json);
+
+    let headers_base = execution_config
+        .provider_spec
+        .build_headers(&execution_config.provider_context)?;
+    let stream = if is_terminal_response(&post_result.json)? {
+        converter
+            .stream_from_terminal_response(post_result.json.clone(), post_result.headers.clone())
+    } else {
+        stream_agent_interaction_events(
+            execution_config,
+            model.base_url().to_string(),
+            interaction_id.to_string(),
+            headers_base,
+            http_config.clone(),
+            converter,
+            cancel,
+            model.config().http_config.stream_disable_compression
+                || request
+                    .http_config
+                    .as_ref()
+                    .map(|config| config.stream_disable_compression)
+                    .unwrap_or(false),
+        )
+    };
+
+    Ok(attach_interactions_stream_request_metadata(
+        stream,
+        request_info,
+    ))
+}
+
+pub(super) async fn execute_interactions_agent_stream_handle(
+    model: &GoogleInteractionsLanguageModel,
+    request: ChatRequest,
+    http_client: reqwest::Client,
+    retry_options: Option<crate::retry_api::RetryOptions>,
+) -> Result<ChatStreamHandle, LlmError> {
+    let cancel = CancelHandle::new();
+    let stream = execute_interactions_agent_stream(
+        model,
+        request,
+        http_client,
+        retry_options,
+        Some(cancel.clone()),
+    )
+    .await?;
+    Ok(ChatStreamHandle { stream, cancel })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_agent_interaction_events(
+    execution_config: HttpExecutionConfig,
+    base_url: String,
+    interaction_id: String,
+    headers_base: HeaderMap,
+    http_config: crate::types::HttpConfig,
+    converter: GoogleInteractionsEventConverter,
+    cancel: Option<CancelHandle>,
+    disable_compression: bool,
+) -> ChatStream {
+    let stream = async_stream::try_stream! {
+        let mut last_event_id: Option<String> = None;
+        let mut attempts = 0_u32;
+        let mut completed = false;
+        let mut cancelled = false;
+
+        while !completed {
+            if cancel.as_ref().is_some_and(CancelHandle::is_cancelled) {
+                cancelled = true;
+                break;
+            }
+
+            let url = interaction_stream_url(&base_url, &interaction_id, last_event_id.as_deref());
+            let response = match open_agent_stream_response(
+                &execution_config,
+                &url,
+                &headers_base,
+                &http_config,
+                disable_compression,
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    if cancel.as_ref().is_some_and(CancelHandle::is_cancelled) {
+                        cancelled = true;
+                        break;
+                    }
+                    attempts += 1;
+                    if attempts >= AGENT_STREAM_MAX_RETRIES {
+                        Err(error)?;
+                    }
+                    cancel_aware_retry_delay(attempts, cancel.as_ref()).await?;
+                    continue;
+                }
+            };
+
+            let response_headers = response.headers.clone();
+            let mut received_any_event = false;
+            let mut body = response.body.into_sse_stream();
+
+            while let Some(next) = next_agent_sse_event(&mut body, cancel.as_ref()).await {
+                let event = next?;
+                if converter.is_stream_end_event(&event) {
+                    completed = true;
+                    for item in converter.handle_stream_end_events() {
+                        yield attach_response_headers_to_result(item, &response_headers)?;
+                    }
+                    break;
+                }
+                if event.data.trim().is_empty() {
+                    continue;
+                }
+
+                received_any_event = true;
+                if let Some(event_id) =
+                    event_id_from_sse_data(&event.data).or_else(|| {
+                        (!event.id.is_empty()).then(|| event.id.clone())
+                    })
+                {
+                    last_event_id = Some(event_id);
+                }
+
+                for item in converter.convert_event(event).await {
+                    yield item?;
+                }
+
+                if converter.is_complete() {
+                    completed = true;
+                    for item in converter.handle_stream_end_events() {
+                        yield attach_response_headers_to_result(item, &response_headers)?;
+                    }
+                    break;
+                }
+
+                if cancel.as_ref().is_some_and(CancelHandle::is_cancelled) {
+                    cancelled = true;
+                    break;
+                }
+            }
+
+            if completed || cancelled {
+                break;
+            }
+
+            if received_any_event {
+                attempts = 0;
+            } else {
+                attempts += 1;
+                if attempts >= AGENT_STREAM_MAX_RETRIES {
+                    Err(LlmError::StreamError(
+                        "google.interactions: SSE stream closed without producing any events."
+                            .to_string(),
+                    ))?;
+                }
+                cancel_aware_retry_delay(attempts, cancel.as_ref()).await?;
+            }
+        }
+
+        if cancelled {
+            best_effort_cancel_interaction(&execution_config, &base_url, &interaction_id, &http_config).await;
+        }
+    };
+
+    Box::pin(stream)
+}
+
+async fn next_agent_sse_event<S>(
+    stream: &mut crate::streaming::SseStream<S>,
+    cancel: Option<&CancelHandle>,
+) -> Option<Result<Event, LlmError>>
+where
+    S: futures_util::Stream<Item = Result<Vec<u8>, LlmError>> + Unpin,
+{
+    if let Some(cancel) = cancel {
+        tokio::select! {
+            _ = cancel.cancelled() => None,
+            item = stream.next() => item.map(|result| {
+                result.map_err(|error| LlmError::StreamError(format!("SSE parsing error: {error}")))
+            }),
+        }
+    } else {
+        stream.next().await.map(|result| {
+            result.map_err(|error| LlmError::StreamError(format!("SSE parsing error: {error}")))
+        })
+    }
+}
+
+async fn cancel_aware_retry_delay(
+    attempt: u32,
+    cancel: Option<&CancelHandle>,
+) -> Result<(), LlmError> {
+    crate::utils::cancel::delay(
+        Some(AGENT_STREAM_RETRY_DELAY_MS * u64::from(attempt)),
+        cancel,
+    )
+    .await
+}
+
+fn event_id_from_sse_data(data: &str) -> Option<String> {
+    serde_json::from_str::<Value>(data).ok().and_then(|raw| {
+        raw.get("event_id")
+            .and_then(Value::as_str)
+            .filter(|event_id| !event_id.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
+async fn open_agent_stream_response(
+    execution_config: &HttpExecutionConfig,
+    url: &str,
+    headers_base: &HeaderMap,
+    http_config: &crate::types::HttpConfig,
+    disable_compression: bool,
+) -> Result<AgentStreamResponse, LlmError> {
+    let effective_headers = execution_config
+        .provider_spec
+        .merge_request_headers(headers_base.clone(), &http_config.headers);
+    let mut headers = effective_headers.clone();
+    headers.insert(ACCEPT, "text/event-stream".parse().expect("valid accept"));
+    headers.insert(
+        CACHE_CONTROL,
+        "no-cache".parse().expect("valid cache-control"),
+    );
+    headers.insert(CONNECTION, "keep-alive".parse().expect("valid connection"));
+    if disable_compression {
+        headers.insert(
+            reqwest::header::ACCEPT_ENCODING,
+            "identity".parse().expect("valid accept-encoding"),
+        );
+    }
+
+    let ctx = HttpRequestContext {
+        request_id: generate_request_id(),
+        provider_id: execution_config.provider_id.clone(),
+        url: url.to_string(),
+        stream: true,
+    };
+    let empty_body = serde_json::json!({});
+
+    if let Some(transport) = &execution_config.transport {
+        let response = transport
+            .execute_get_stream(HttpTransportGetRequest {
+                ctx: ctx.clone(),
+                url: url.to_string(),
+                headers,
+            })
+            .await?;
+        if !(200..300).contains(&response.status) {
+            let bytes = response.body.into_stream().try_concat().await?;
+            let text = String::from_utf8_lossy(&bytes);
+            let fallback_message = reqwest::StatusCode::from_u16(response.status)
+                .ok()
+                .and_then(|status| status.canonical_reason());
+            let error = crate::execution::executors::errors::classify_http_error(
+                &execution_config.provider_id,
+                Some(execution_config.provider_spec.as_ref()),
+                response.status,
+                &text,
+                &response.headers,
+                fallback_message,
+            );
+            for interceptor in &execution_config.interceptors {
+                interceptor.on_error(&ctx, &error);
+            }
+            return Err(error);
+        }
+        return Ok(AgentStreamResponse {
+            headers: response.headers,
+            body: Box::pin(response.body.into_stream()),
+        });
+    }
+
+    let mut rb = execution_config
+        .http_client
+        .get(url)
+        .headers(headers.clone());
+    if let Some(timeout) = http_config.timeout {
+        rb = rb.timeout(timeout);
+    }
+    rb = rb
+        .header(ACCEPT, "text/event-stream")
+        .header(CACHE_CONTROL, "no-cache")
+        .header(CONNECTION, "keep-alive");
+    if disable_compression {
+        rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
+    }
+    for interceptor in &execution_config.interceptors {
+        rb = interceptor.on_before_send(&ctx, rb, &empty_body, &headers)?;
+    }
+    let response = rb
+        .send()
+        .await
+        .map_err(|error| LlmError::HttpError(format!("Failed to send request: {error}")))?;
+    if !response.status().is_success() {
+        return Err(
+            crate::execution::executors::errors::classify_error_with_text(
+                &execution_config.provider_id,
+                Some(execution_config.provider_spec.as_ref()),
+                response,
+                &ctx,
+                &execution_config.interceptors,
+            )
+            .await,
+        );
+    }
+    for interceptor in &execution_config.interceptors {
+        interceptor.on_response(&ctx, &response)?;
+    }
+    let headers = response.headers().clone();
+    Ok(AgentStreamResponse {
+        headers,
+        body: Box::pin(response.bytes_stream().map(|chunk| {
+            chunk
+                .map(|bytes| bytes.to_vec())
+                .map_err(|error| LlmError::HttpError(format!("Stream error: {error}")))
+        })),
+    })
+}
+
+async fn best_effort_cancel_interaction(
+    execution_config: &HttpExecutionConfig,
+    base_url: &str,
+    interaction_id: &str,
+    http_config: &crate::types::HttpConfig,
+) {
+    let url = interaction_cancel_url(base_url, interaction_id);
+    let _ = execute_json_request(
+        execution_config,
+        &url,
+        HttpBody::Json(serde_json::json!({})),
+        Some(http_config),
+        false,
+    )
+    .await;
+}
+
+fn attach_response_headers_to_result(
+    result: Result<ChatStreamEvent, LlmError>,
+    headers: &HeaderMap,
+) -> Result<ChatStreamEvent, LlmError> {
+    result.map(|event| attach_response_headers_to_event(event, headers))
+}
+
+fn attach_response_headers_to_stream(stream: ChatStream, headers: HeaderMap) -> ChatStream {
+    if headers.is_empty() {
+        return stream;
+    }
+
+    Box::pin(stream.map(move |event| {
+        let headers = headers.clone();
+        event.map(|event| attach_response_headers_to_event(event, &headers))
+    }))
+}
+
+fn attach_response_headers_to_event(
+    event: ChatStreamEvent,
+    headers: &HeaderMap,
+) -> ChatStreamEvent {
+    let headers = crate::execution::http::headers::headermap_to_hashmap(headers);
+    match event {
+        ChatStreamEvent::StreamEnd { mut response } => {
+            if let Some(info) = response.response.as_mut() {
+                if info.headers.is_empty() {
+                    info.headers = headers;
+                }
+            } else {
+                response.response = Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: response.model.clone(),
+                    headers,
+                    body: None,
+                });
+            }
+            ChatStreamEvent::StreamEnd { response }
+        }
+        other => other,
+    }
 }
 
 fn attach_interactions_stream_request_metadata(
@@ -199,6 +642,230 @@ impl GoogleInteractionsEventConverter {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         f(&mut state)
+    }
+
+    fn seed_from_interaction_response(&self, raw: &Value) {
+        if let Some(object) = raw.as_object() {
+            self.with_state(|state| {
+                if let Some(id) = string_field(object, "id").filter(|id| !id.is_empty()) {
+                    state.interaction_id = Some(id.to_string());
+                }
+                if let Some(model) = string_field(object, "model")
+                    .or_else(|| string_field(object, "agent"))
+                    .filter(|id| !id.is_empty())
+                {
+                    state.model_id = Some(model.to_string());
+                }
+                if let Some(status) = string_field(object, "status") {
+                    state.finish_status = Some(status.to_string());
+                }
+                if let Some(service_tier) =
+                    string_field(object, "service_tier").filter(|id| !id.is_empty())
+                {
+                    state.service_tier = Some(service_tier.to_string());
+                }
+                if let Some(usage) = object.get("usage").and_then(convert_usage) {
+                    state.usage = Some(usage);
+                }
+            });
+        }
+    }
+
+    fn stream_from_terminal_response(&self, raw: Value, headers: HeaderMap) -> ChatStream {
+        self.seed_from_interaction_response(&raw);
+        let mut out = self.start_events();
+        if let Some(steps) = raw
+            .as_object()
+            .and_then(|object| object.get("steps"))
+            .and_then(Value::as_array)
+        {
+            out.extend(self.events_from_completed_steps(steps));
+        }
+        out.extend(self.final_events().into_iter().filter_map(Result::ok));
+        attach_response_headers_to_stream(
+            Box::pin(futures_util::stream::iter(out.into_iter().map(Ok))),
+            headers,
+        )
+    }
+
+    fn events_from_completed_steps(&self, steps: &[Value]) -> Vec<ChatStreamEvent> {
+        let mut out = Vec::new();
+        let mut block_index = 0_i64;
+
+        for step in steps {
+            let Some(step_obj) = step.as_object() else {
+                continue;
+            };
+            let Some(step_type) = string_field(step_obj, "type") else {
+                continue;
+            };
+
+            match step_type {
+                "model_output" => {
+                    if let Some(blocks) = step_obj.get("content").and_then(Value::as_array) {
+                        for block in blocks {
+                            let Some(block_obj) = block.as_object() else {
+                                continue;
+                            };
+                            match string_field(block_obj, "type") {
+                                Some("text") => {
+                                    let id = self.block_id(block_index);
+                                    out.push(part(ChatStreamPart::TextStart {
+                                        id: id.clone(),
+                                        provider_metadata: None,
+                                    }));
+                                    if let Some(text) = string_field(block_obj, "text")
+                                        .filter(|text| !text.is_empty())
+                                    {
+                                        out.push(part(ChatStreamPart::TextDelta {
+                                            id: id.clone(),
+                                            delta: text.to_string(),
+                                            provider_metadata: None,
+                                        }));
+                                    }
+                                    if let Some(sources) =
+                                        block_obj.get("annotations").and_then(Value::as_array)
+                                    {
+                                        out.extend(self.annotation_source_events(sources));
+                                    }
+                                    out.push(part(ChatStreamPart::TextEnd {
+                                        id,
+                                        provider_metadata: self.interaction_provider_metadata(),
+                                    }));
+                                    block_index += 1;
+                                }
+                                Some("image") => {
+                                    if let Some(event) = self.image_event(
+                                        string_field(block_obj, "data"),
+                                        string_field(block_obj, "mime_type"),
+                                        string_field(block_obj, "uri"),
+                                    ) {
+                                        out.push(event);
+                                    }
+                                    block_index += 1;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                "thought" => {
+                    let id = self.block_id(block_index);
+                    out.push(part(ChatStreamPart::ReasoningStart {
+                        id: id.clone(),
+                        provider_metadata: None,
+                    }));
+                    if let Some(summary) = step_obj.get("summary").and_then(Value::as_array) {
+                        let text = summary
+                            .iter()
+                            .filter_map(Value::as_object)
+                            .filter(|item| string_field(item, "type") == Some("text"))
+                            .filter_map(|item| string_field(item, "text"))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if !text.is_empty() {
+                            out.push(part(ChatStreamPart::ReasoningDelta {
+                                id: id.clone(),
+                                delta: text,
+                                provider_metadata: None,
+                            }));
+                        }
+                    }
+                    out.push(part(ChatStreamPart::ReasoningEnd {
+                        id,
+                        provider_metadata: self
+                            .part_provider_metadata(string_field(step_obj, "signature")),
+                    }));
+                    block_index += 1;
+                }
+                "function_call" => {
+                    let tool_call_id = string_field(step_obj, "id")
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| self.block_id(block_index));
+                    let tool_name = string_field(step_obj, "name")
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let input = serde_json::to_string(&arguments_value(step_obj.get("arguments")))
+                        .unwrap_or_else(|_| "{}".to_string());
+                    self.with_state(|state| {
+                        state.has_function_call = true;
+                    });
+                    out.push(part(ChatStreamPart::ToolInputStart {
+                        id: tool_call_id.clone(),
+                        tool_name: tool_name.clone(),
+                        provider_metadata: None,
+                        provider_executed: None,
+                        dynamic: None,
+                        title: None,
+                    }));
+                    out.push(part(ChatStreamPart::ToolInputDelta {
+                        id: tool_call_id.clone(),
+                        delta: input.clone(),
+                        provider_metadata: None,
+                    }));
+                    out.push(part(ChatStreamPart::ToolInputEnd {
+                        id: tool_call_id.clone(),
+                        provider_metadata: None,
+                    }));
+                    out.push(part(ChatStreamPart::ToolCall(ChatStreamToolCall {
+                        tool_call_id,
+                        tool_name,
+                        input,
+                        provider_executed: None,
+                        dynamic: None,
+                        provider_metadata: self
+                            .part_provider_metadata(string_field(step_obj, "signature")),
+                    })));
+                    block_index += 1;
+                }
+                other if BUILTIN_TOOL_CALL_TYPES.contains(&other) => {
+                    let tool_call_id = string_field(step_obj, "id")
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| self.block_id(block_index));
+                    out.push(part(ChatStreamPart::ToolCall(ChatStreamToolCall {
+                        tool_call_id,
+                        tool_name: builtin_tool_call_name(other, step_obj),
+                        input: serde_json::to_string(&arguments_value(step_obj.get("arguments")))
+                            .unwrap_or_else(|_| "{}".to_string()),
+                        provider_executed: Some(true),
+                        dynamic: None,
+                        provider_metadata: None,
+                    })));
+                    block_index += 1;
+                }
+                other if BUILTIN_TOOL_RESULT_TYPES.contains(&other) => {
+                    let call_id = string_field(step_obj, "call_id")
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| self.block_id(block_index));
+                    let result = step_obj.get("result").cloned().unwrap_or(Value::Null);
+                    let is_error = step_obj.get("is_error").and_then(Value::as_bool);
+                    out.push(part(ChatStreamPart::ToolResult(ChatStreamToolResult {
+                        tool_call_id: call_id.clone(),
+                        tool_name: builtin_tool_result_name(other, step_obj),
+                        result: non_null_json(result.clone()),
+                        is_error,
+                        preliminary: None,
+                        dynamic: None,
+                        provider_metadata: None,
+                    })));
+                    out.extend(
+                        self.builtin_result_source_events(other, &call_id, result, is_error),
+                    );
+                    block_index += 1;
+                }
+                _ => {}
+            }
+        }
+
+        out
+    }
+
+    fn is_complete(&self) -> bool {
+        self.with_state(|state| {
+            state.finish_status.as_deref().is_some_and(|status| {
+                matches!(status, "completed" | "failed" | "cancelled" | "incomplete")
+            })
+        })
     }
 
     fn start_events(&self) -> Vec<ChatStreamEvent> {

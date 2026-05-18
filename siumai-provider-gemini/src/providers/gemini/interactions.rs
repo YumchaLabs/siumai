@@ -2,14 +2,17 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::LlmError;
-use crate::streaming::ChatStream;
+use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool};
 
 use super::{GeminiConfig, SharedIdGenerator};
 use request::{GoogleInteractionsPreparedRequest, build_interactions_request_body};
 use runtime::execute_interactions_non_stream;
-use stream::execute_interactions_stream;
+use stream::{
+    execute_interactions_agent_stream, execute_interactions_agent_stream_handle,
+    execute_interactions_stream,
+};
 
 mod request;
 mod response;
@@ -137,13 +140,6 @@ impl GoogleInteractionsLanguageModel {
     ) -> Result<GoogleInteractionsPreparedRequest, LlmError> {
         build_interactions_request_body(&self.model_input, request, stream)
     }
-
-    fn unsupported_agent_streaming_runtime_error(&self) -> LlmError {
-        LlmError::UnsupportedOperation(
-            "google.interactions agent streaming reconnect/cancel runtime is deferred to GIR-070; use chat_request for background agent polling"
-                .to_string(),
-        )
-    }
 }
 
 #[async_trait]
@@ -184,7 +180,14 @@ impl ChatCapability for GoogleInteractionsLanguageModel {
 
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
         if self.model_input().is_agent() {
-            return Err(self.unsupported_agent_streaming_runtime_error());
+            return execute_interactions_agent_stream(
+                self,
+                request,
+                self.http_client.clone(),
+                self.retry_options.clone(),
+                None,
+            )
+            .await;
         }
 
         execute_interactions_stream(
@@ -194,6 +197,40 @@ impl ChatCapability for GoogleInteractionsLanguageModel {
             self.retry_options.clone(),
         )
         .await
+    }
+
+    async fn chat_stream_with_cancel(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let mut request = ChatRequest::new(messages);
+        if let Some(tools) = tools {
+            request.tools = Some(tools);
+        }
+        self.chat_stream_request_with_cancel(request).await
+    }
+
+    async fn chat_stream_request_with_cancel(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        if self.model_input().is_agent() {
+            return execute_interactions_agent_stream_handle(
+                self,
+                request,
+                self.http_client.clone(),
+                self.retry_options.clone(),
+            )
+            .await;
+        }
+
+        let stream = self.chat_stream_request(request).await?;
+        let (cancellable, cancel) = crate::utils::cancel::make_cancellable_stream(stream);
+        Ok(ChatStreamHandle {
+            stream: cancellable,
+            cancel,
+        })
     }
 }
 
@@ -295,6 +332,7 @@ mod tests {
         ProviderOptionsMap, ResponseFormat, Tool, ToolChoice, ToolResultContentPart, Warning,
     };
     use async_trait::async_trait;
+    use futures_util::StreamExt;
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
@@ -303,10 +341,12 @@ mod tests {
     struct InteractionsCaptureTransport {
         post_responses: Arc<Mutex<VecDeque<serde_json::Value>>>,
         stream_responses: Arc<Mutex<VecDeque<String>>>,
+        get_stream_responses: Arc<Mutex<VecDeque<String>>>,
         get_responses: Arc<Mutex<VecDeque<serde_json::Value>>>,
         posts: Arc<Mutex<Vec<HttpTransportRequest>>>,
         streams: Arc<Mutex<Vec<HttpTransportRequest>>>,
         gets: Arc<Mutex<Vec<HttpTransportGetRequest>>>,
+        get_streams: Arc<Mutex<Vec<HttpTransportGetRequest>>>,
     }
 
     impl InteractionsCaptureTransport {
@@ -314,10 +354,12 @@ mod tests {
             Self {
                 post_responses: Arc::new(Mutex::new(post_responses.into())),
                 stream_responses: Arc::new(Mutex::new(VecDeque::new())),
+                get_stream_responses: Arc::new(Mutex::new(VecDeque::new())),
                 get_responses: Arc::new(Mutex::new(VecDeque::new())),
                 posts: Arc::new(Mutex::new(Vec::new())),
                 streams: Arc::new(Mutex::new(Vec::new())),
                 gets: Arc::new(Mutex::new(Vec::new())),
+                get_streams: Arc::new(Mutex::new(Vec::new())),
             }
         }
 
@@ -334,6 +376,14 @@ mod tests {
             self
         }
 
+        fn with_get_stream_response(self, stream_response: String) -> Self {
+            self.get_stream_responses
+                .lock()
+                .expect("lock get stream responses")
+                .push_back(stream_response);
+            self
+        }
+
         fn take_posts(&self) -> Vec<HttpTransportRequest> {
             std::mem::take(&mut *self.posts.lock().expect("lock posts"))
         }
@@ -344,6 +394,10 @@ mod tests {
 
         fn take_gets(&self) -> Vec<HttpTransportGetRequest> {
             std::mem::take(&mut *self.gets.lock().expect("lock gets"))
+        }
+
+        fn take_get_streams(&self) -> Vec<HttpTransportGetRequest> {
+            std::mem::take(&mut *self.get_streams.lock().expect("lock get streams"))
         }
 
         fn json_response(value: serde_json::Value) -> HttpTransportResponse {
@@ -401,6 +455,30 @@ mod tests {
                     })
                 });
             Ok(Self::json_response(response))
+        }
+
+        async fn execute_get_stream(
+            &self,
+            request: HttpTransportGetRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            self.get_streams
+                .lock()
+                .expect("lock get streams")
+                .push(request);
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            headers.insert("x-test-stream", HeaderValue::from_static("captured"));
+            let body = self
+                .get_stream_responses
+                .lock()
+                .expect("lock get stream responses")
+                .pop_front()
+                .unwrap_or_else(|| "data: [DONE]\n\n".to_string());
+            Ok(HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(body.into_bytes()),
+            })
         }
 
         async fn execute_stream(
@@ -470,28 +548,70 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn interactions_streaming_runtime_is_explicitly_deferred() {
-        let model = GoogleInteractionsLanguageModel::new(
-            GeminiConfig::new("test-key").with_provider_name("google.generative-ai"),
-            GoogleInteractionsModelInput::agent(agents::DEEP_RESEARCH_PREVIEW_04_2026),
-        );
-
-        assert_eq!(model.provider(), "google.generative-ai.interactions");
-        assert_eq!(model.agent(), Some(agents::DEEP_RESEARCH_PREVIEW_04_2026));
-
-        let result = model
-            .chat_stream_request(ChatRequest::new(vec![ChatMessage::user("hi").build()]))
-            .await;
-        let Err(err) = result else {
-            panic!("streaming runtime should be deferred");
-        };
-
-        match err {
-            LlmError::UnsupportedOperation(message) => {
-                assert!(message.contains("agent streaming"));
+    async fn google_interactions_stream_agent_posts_background_and_streams() {
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_agent_direct",
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })])
+        .with_get_stream_response(sse_event(serde_json::json!({
+            "event_type": "interaction.created",
+            "event_id": "evt_1",
+            "interaction": {
+                "id": "iact_agent_direct",
+                "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026
             }
-            other => panic!("expected UnsupportedOperation, got {other:?}"),
-        }
+        })))
+        .with_get_stream_response(format!(
+            "{}{}{}",
+            sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "event_id": "evt_2",
+                "index": 0,
+                "step": { "type": "model_output" }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "event_id": "evt_3",
+                "index": 0,
+                "delta": { "type": "text", "text": "hello agent" }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "interaction.completed",
+                "event_id": "evt_4",
+                "interaction": {
+                    "id": "iact_agent_direct",
+                    "status": "completed"
+                }
+            })),
+        ));
+        let model = agent_handle_with_transport(transport.clone());
+
+        let events = collect_stream_events(
+            model
+                .chat_stream_request(ChatRequest::new(vec![ChatMessage::user("hi").build()]))
+                .await
+                .expect("execute agent interactions stream"),
+        )
+        .await;
+
+        assert_eq!(
+            events
+                .iter()
+                .filter_map(|event| event.text_delta())
+                .collect::<Vec<_>>(),
+            vec!["hello agent"]
+        );
+        let posts = transport.take_posts();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(
+            posts[0].body["agent"],
+            agents::DEEP_RESEARCH_PREVIEW_04_2026
+        );
+        assert_eq!(posts[0].body["background"], serde_json::json!(true));
+        assert!(posts[0].body.get("stream").is_none());
+        assert_eq!(transport.take_get_streams().len(), 2);
     }
 
     async fn collect_stream_events(mut stream: ChatStream) -> Vec<crate::types::ChatStreamEvent> {
@@ -858,6 +978,202 @@ mod tests {
                     if finish_reason.unified == crate::types::FinishReason::ToolCalls
             )
         }));
+    }
+
+    #[tokio::test]
+    async fn google_interactions_stream_reconnects_agent_with_last_event_id() {
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_agent_stream",
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })])
+        .with_get_stream_response(sse_event(serde_json::json!({
+            "event_type": "interaction.created",
+            "event_id": "evt_1",
+            "interaction": {
+                "id": "iact_agent_stream",
+                "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026
+            }
+        })))
+        .with_get_stream_response(format!(
+            "{}{}{}{}",
+            sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "event_id": "evt_2",
+                "index": 0,
+                "step": { "type": "model_output" }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "event_id": "evt_3",
+                "index": 0,
+                "delta": { "type": "text", "text": "done" }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.stop",
+                "event_id": "evt_4",
+                "index": 0
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "interaction.completed",
+                "event_id": "evt_5",
+                "interaction": {
+                    "id": "iact_agent_stream",
+                    "status": "completed"
+                }
+            })),
+        ));
+        let model = agent_handle_with_transport(transport.clone());
+
+        let events = collect_stream_events(
+            model
+                .chat_stream_request(ChatRequest::new(vec![
+                    ChatMessage::user("research").build(),
+                ]))
+                .await
+                .expect("execute agent interactions stream"),
+        )
+        .await;
+
+        assert_eq!(
+            events
+                .iter()
+                .filter_map(|event| event.text_delta())
+                .collect::<Vec<_>>(),
+            vec!["done"]
+        );
+        let posts = transport.take_posts();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(
+            posts[0].body["agent"],
+            agents::DEEP_RESEARCH_PREVIEW_04_2026
+        );
+        assert_eq!(posts[0].body["background"], serde_json::json!(true));
+        assert!(posts[0].body.get("stream").is_none());
+
+        let get_streams = transport.take_get_streams();
+        assert_eq!(get_streams.len(), 2);
+        assert_eq!(
+            get_streams[0].url,
+            "https://example.com/v1beta/interactions/iact_agent_stream?stream=true"
+        );
+        assert_eq!(
+            get_streams[1].url,
+            "https://example.com/v1beta/interactions/iact_agent_stream?stream=true&last_event_id=evt_1"
+        );
+        assert_eq!(
+            get_streams[1]
+                .headers
+                .get("api-revision")
+                .and_then(|value| value.to_str().ok()),
+            Some("2026-05-20")
+        );
+    }
+
+    #[tokio::test]
+    async fn google_interactions_stream_empty_agent_get_obeys_retry_budget() {
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_empty",
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })])
+        .with_get_stream_response(String::new())
+        .with_get_stream_response(String::new())
+        .with_get_stream_response(String::new());
+        let model = agent_handle_with_transport(transport.clone());
+
+        let mut stream = model
+            .chat_stream_request(ChatRequest::new(vec![
+                ChatMessage::user("research").build(),
+            ]))
+            .await
+            .expect("open agent interactions stream");
+
+        let mut last_error = None;
+        while let Some(item) = stream.next().await {
+            if let Err(err) = item {
+                last_error = Some(err);
+                break;
+            }
+        }
+
+        let err = last_error.expect("empty stream should error after retry budget");
+        match err {
+            LlmError::StreamError(message) => {
+                assert!(message.contains("closed without producing any events"));
+            }
+            other => panic!("expected StreamError, got {other:?}"),
+        }
+        assert_eq!(transport.take_get_streams().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn google_interactions_stream_cancel_posts_best_effort_cancel() {
+        let pending_stream = futures_util::stream::pending::<Result<Vec<u8>, LlmError>>();
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_cancel",
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })]);
+        transport
+            .get_stream_responses
+            .lock()
+            .expect("lock get stream responses")
+            .push_back(String::new());
+        let model = agent_handle_with_transport(transport.clone());
+
+        let mut handle = model
+            .chat_stream_request_with_cancel(ChatRequest::new(vec![
+                ChatMessage::user("research").build(),
+            ]))
+            .await
+            .expect("open cancellable agent stream");
+
+        handle.cancel.cancel();
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(200), handle.stream.next())
+            .await
+            .expect("cancel should wake stream");
+
+        drop(pending_stream);
+        let posts = transport.take_posts();
+        assert_eq!(posts.len(), 2);
+        assert_eq!(
+            posts[1].url,
+            "https://example.com/v1beta/interactions/iact_cancel/cancel"
+        );
+        assert_eq!(posts[1].body, serde_json::json!({}));
+    }
+
+    #[tokio::test]
+    async fn google_interactions_stream_errors_when_agent_post_lacks_id() {
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })]);
+        let model = agent_handle_with_transport(transport.clone());
+
+        let result = model
+            .chat_stream_request(ChatRequest::new(vec![
+                ChatMessage::user("research").build(),
+            ]))
+            .await;
+        let Err(err) = result else {
+            panic!("missing interaction id should fail");
+        };
+
+        match err {
+            LlmError::ParseError(message) => {
+                assert!(
+                    message.contains("background POST response did not include an interaction id")
+                );
+            }
+            other => panic!("expected ParseError, got {other:?}"),
+        }
+        assert!(transport.take_get_streams().is_empty());
     }
 
     #[tokio::test]

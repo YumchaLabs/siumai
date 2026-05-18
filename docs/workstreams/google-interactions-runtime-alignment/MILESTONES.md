@@ -79,14 +79,15 @@ cargo nextest run -p siumai-provider-gemini --all-features google_interactions_s
 cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream_reconnect
 ```
 
-Status: in progress
+Status: completed
 
 Progress:
 
 - GIR-060 completed on 2026-05-18 for model-mode Interactions SSE conversion, typed stream parts,
   provider metadata, usage/finish metadata, and model-mode streaming POST wiring.
-- GIR-070 remains open for resumable agent/model stream reconnect with `last_event_id` and
-  cancel-on-abort behavior.
+- GIR-070 completed on 2026-05-18 for agent-mode background stream creation, resumable GET SSE
+  with JSON `event_id` as `last_event_id`, empty stream retry budget, and best-effort remote
+  cancel on abort handles.
 
 ## M4 - Public Path And Closeout
 

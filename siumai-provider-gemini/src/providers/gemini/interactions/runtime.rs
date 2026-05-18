@@ -152,10 +152,36 @@ pub(super) fn interactions_url(base_url: &str) -> String {
     crate::utils::url::join_url(base_url.trim_end_matches('/'), "interactions")
 }
 
-fn interaction_get_url(base_url: &str, interaction_id: &str) -> String {
+pub(super) fn interaction_get_url(base_url: &str, interaction_id: &str) -> String {
     crate::utils::url::join_url(
         base_url.trim_end_matches('/'),
         &format!("interactions/{}", urlencoding::encode(interaction_id)),
+    )
+}
+
+pub(super) fn interaction_stream_url(
+    base_url: &str,
+    interaction_id: &str,
+    last_event_id: Option<&str>,
+) -> String {
+    let mut url = format!(
+        "{}?stream=true",
+        interaction_get_url(base_url, interaction_id)
+    );
+    if let Some(last_event_id) = last_event_id.filter(|value| !value.is_empty()) {
+        url.push_str("&last_event_id=");
+        url.push_str(&urlencoding::encode(last_event_id));
+    }
+    url
+}
+
+pub(super) fn interaction_cancel_url(base_url: &str, interaction_id: &str) -> String {
+    crate::utils::url::join_url(
+        base_url.trim_end_matches('/'),
+        &format!(
+            "interactions/{}/cancel",
+            urlencoding::encode(interaction_id)
+        ),
     )
 }
 
@@ -195,13 +221,13 @@ fn has_header(headers: &std::collections::HashMap<String, String>, name: &str) -
     headers.keys().any(|key| key.eq_ignore_ascii_case(name))
 }
 
-fn interaction_id(raw: &serde_json::Value) -> Option<&str> {
+pub(super) fn interaction_id(raw: &serde_json::Value) -> Option<&str> {
     raw.get("id")
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.is_empty())
 }
 
-fn is_terminal_response(raw: &serde_json::Value) -> Result<bool, LlmError> {
+pub(super) fn is_terminal_response(raw: &serde_json::Value) -> Result<bool, LlmError> {
     let status = raw
         .get("status")
         .and_then(serde_json::Value::as_str)

@@ -37,11 +37,11 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "GIR-070",
-    "title": "Add stream reconnect and cancel-on-abort behavior",
+    "id": "GIR-080",
+    "title": "Replace fail-fast public-path guard with implemented Interactions parity tests",
     "scope": [
-      "siumai-provider-gemini/src/providers/gemini",
-      "fixtures"
+      "siumai",
+      "siumai-provider-gemini"
     ]
   },
   "continue_policy": {

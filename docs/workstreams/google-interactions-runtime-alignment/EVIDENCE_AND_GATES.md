@@ -5,12 +5,12 @@ Last updated: 2026-05-18
 
 ## Smallest Current Repro
 
-The Interactions handle now executes non-stream `/interactions` calls and model-mode streaming
-`POST /interactions` calls. Agent streaming reconnect/cancel behavior remains the current explicit
-deferred boundary:
+The Interactions handle now executes non-stream `/interactions` calls, model-mode streaming
+`POST /interactions` calls, and agent-mode streaming through background `POST` plus resumable
+`GET /interactions/{id}?stream=true`:
 
 ```bash
-cargo nextest run -p siumai-provider-gemini --all-features interactions_streaming_runtime_is_explicitly_deferred --no-fail-fast
+cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream_reconnect --no-fail-fast
 cargo nextest run -p siumai --features google google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime --test provider_public_path_parity_test --no-fail-fast
 ```
 
@@ -97,3 +97,10 @@ Proves ordinary Gemini package behavior remains intact.
 | 2026-05-18 | `cargo fmt -p siumai-provider-gemini -- --check` | Passed | Formatting gate passed after adding provider-owned Interactions stream conversion. |
 | 2026-05-18 | `cargo clippy -p siumai-provider-gemini --all-features --all-targets -- -D warnings` | Passed | Clippy passed for the Gemini provider after GIR-060 stream conversion. |
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 98 tests after GIR-060, proving ordinary Gemini provider behavior remains intact alongside model-mode Interactions streaming. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream_reconnect --no-fail-fast` | Passed | GIR-070 reconnect tracer passed: agent stream resumes GET SSE with `last_event_id` from JSON `event_id`. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream --no-fail-fast` | Passed | GIR-070 streaming gate passed: 6 tests cover model streaming, agent background streaming, reconnect, empty stream retry budget, missing interaction id, and cancel POST. |
+| 2026-05-18 | `cargo fmt -p siumai-provider-gemini -- --check` | Passed | Formatting gate passed after GIR-070 implementation. |
+| 2026-05-18 | `cargo fmt -p siumai-core -- --check` | Passed | Formatting gate passed for the `HttpTransport::execute_get_stream` seam. |
+| 2026-05-18 | `cargo clippy -p siumai-provider-gemini --all-features --all-targets -- -D warnings` | Passed | Clippy passed after GIR-070 reconnect/cancel runtime wiring. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 102 tests after GIR-070, proving ordinary Gemini provider behavior remains intact alongside agent Interactions streaming. |
+| 2026-05-18 | `git diff --check` | Passed | Whitespace gate passed for GIR-070 code and documentation updates. |

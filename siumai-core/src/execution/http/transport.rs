@@ -133,6 +133,20 @@ pub trait HttpTransport: Send + Sync {
         ))
     }
 
+    /// Execute a streaming GET request.
+    ///
+    /// Providers use this for SSE endpoints where the stream is opened with
+    /// `GET` instead of a JSON `POST`, for example resumable background
+    /// operation streams.
+    async fn execute_get_stream(
+        &self,
+        _request: HttpTransportGetRequest,
+    ) -> Result<HttpTransportStreamResponse, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Custom transport does not support streaming GET requests".to_string(),
+        ))
+    }
+
     /// Execute a streaming JSON POST request.
     ///
     /// Providers typically use this for SSE streaming endpoints. The default
