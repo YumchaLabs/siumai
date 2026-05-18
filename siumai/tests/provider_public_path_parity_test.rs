@@ -12343,7 +12343,7 @@ mod google_vertex_xai_public_path {
 
         let mut request = make_chat_request_with_model(model);
         request.provider_options_map.insert(
-            "googleVertexXai".to_string(),
+            "googleVertexXai",
             serde_json::json!({ "reasoning_effort": "high" }),
         );
         request.response_format = Some(ResponseFormat::json_schema(serde_json::json!({
