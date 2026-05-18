@@ -3293,8 +3293,9 @@ fn public_surface_google_vertex_provider_ext_compiles() {
     use siumai::prelude::unified::{ChatResponse, ContentPart, EmbeddingTaskType, MessageContent};
     use siumai::provider_ext::google_vertex::{
         GoogleVertexBuilder, GoogleVertexClient, GoogleVertexConfig, GoogleVertexProviderSettings,
-        SharedIdGenerator, VERSION, chat, create_vertex, embedding, image, metadata::*, model_sets,
-        options::*, vertex as vertex_builder, video,
+        SharedIdGenerator, VERSION, chat, create_google_vertex, create_vertex, embedding,
+        google_vertex as google_vertex_builder, image, metadata::*, model_sets, options::*,
+        vertex as vertex_builder, video,
     };
 
     let _ = size_of::<GoogleVertexBuilder>();
@@ -3334,6 +3335,8 @@ fn public_surface_google_vertex_provider_ext_compiles() {
     let _ = model_sets::ALL_EMBEDDING;
     let _ = model_sets::ALL_IMAGE;
     let _ = model_sets::ALL_VIDEO;
+    let _ = google_vertex_builder();
+    let _ = create_google_vertex();
     let _ = vertex_builder();
     let _ = create_vertex();
     let _ = GoogleVertexProviderSettings::new();
@@ -3354,7 +3357,7 @@ fn public_surface_google_vertex_provider_ext_compiles() {
         .with_task_type(EmbeddingTaskType::RetrievalDocument)
         .with_title("vertex-doc")
         .with_auto_truncate(true);
-    let _ = vertex_builder().language_model(chat::GEMINI_2_5_FLASH);
+    let _ = google_vertex_builder().language_model(chat::GEMINI_2_5_FLASH);
     let _ = vertex_builder().embedding_model(embedding::TEXT_EMBEDDING_005);
     let _ = vertex_builder().with_generate_id(|| "vertex-builder-id".to_string());
     let shared_generate_id: SharedIdGenerator =
@@ -3442,8 +3445,10 @@ fn public_surface_google_vertex_provider_ext_compiles() {
                 GoogleVertexReferenceImage::new().with_gcs_uri("gs://bucket/reference.png"),
             ]),
     );
+    let _ = siumai::compat::Provider::google_vertex();
     let _ = siumai::compat::Provider::vertex();
     let _ = siumai::compat::Provider::vertex_maas();
+    let _ = Siumai::builder().google_vertex();
     let _ = Siumai::builder().vertex();
     let _ = Siumai::builder().vertex_maas();
 }

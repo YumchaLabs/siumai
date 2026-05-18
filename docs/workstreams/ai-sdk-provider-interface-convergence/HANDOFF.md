@@ -128,6 +128,14 @@ vertical slices instead of becoming one cross-provider mega patch.
   conversion, polling, cancellation, signatures, interaction-id compaction, and stream transforms
   must land in a dedicated runtime lane rather than being routed through ordinary Gemini
   `:generateContent`.
+- AIPC-080 then re-audited the Google Vertex package root. The current upstream root uses
+  `googleVertex` / `createGoogleVertex` as the primary names and keeps `vertex` / `createVertex` as
+  deprecated aliases. Siumai now exposes the Rust snake_case primary names
+  `provider_ext::google_vertex::{google_vertex, create_google_vertex}` and
+  `Provider::google_vertex()` while keeping the existing `vertex` / `create_vertex` compatibility
+  aliases. The same re-audit found a larger remaining package boundary:
+  `@ai-sdk/google-vertex/xai` exists upstream and should become its own AIPC-080 slice rather than
+  being hidden under native `xai` or generic Vertex MaaS.
 
 ## Blockers
 

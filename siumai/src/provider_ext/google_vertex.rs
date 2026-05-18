@@ -4,15 +4,29 @@ pub use siumai_provider_google_vertex::providers::vertex::{
 };
 
 /// Create the Google Vertex provider builder.
-pub fn vertex() -> GoogleVertexBuilder {
-    crate::compat::Provider::vertex()
+pub fn google_vertex() -> GoogleVertexBuilder {
+    crate::compat::Provider::google_vertex()
 }
 
 /// Create the Google Vertex provider builder.
 ///
-/// This is the Rust package-surface analogue of AI SDK `createVertex()`.
+/// This is the Rust package-surface analogue of AI SDK `createGoogleVertex()`.
+pub fn create_google_vertex() -> GoogleVertexBuilder {
+    google_vertex()
+}
+
+/// Create the Google Vertex provider builder.
+///
+/// Deprecated package alias of `google_vertex()`, mirroring AI SDK `vertex`.
+pub fn vertex() -> GoogleVertexBuilder {
+    google_vertex()
+}
+
+/// Create the Google Vertex provider builder.
+///
+/// Deprecated package alias of `create_google_vertex()`, mirroring AI SDK `createVertex`.
 pub fn create_vertex() -> GoogleVertexBuilder {
-    vertex()
+    create_google_vertex()
 }
 
 /// Curated Google Vertex model constants aligned with the audited public subset.

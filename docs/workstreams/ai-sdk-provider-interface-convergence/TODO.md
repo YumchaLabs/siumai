@@ -89,7 +89,8 @@ Status legend:
   Google Vertex, Bedrock, Cohere, Groq, xAI, DeepSeek, TogetherAI, MiniMaxi, Ollama.
   Handoff: Provider package names should not be copied mechanically; semantic parity wins. Google
   Interactions is now package-visible as an explicit deferred handle; runtime support needs its own
-  `/interactions` execution lane.
+  `/interactions` execution lane. Google Vertex root aliases are aligned, but the upstream
+  `@ai-sdk/google-vertex/xai` sub-entry remains a separate package-boundary candidate.
 
 ## M4 - Workstream Hygiene And Closeout
 

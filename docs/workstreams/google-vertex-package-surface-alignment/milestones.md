@@ -1,6 +1,6 @@
 # Google Vertex Package Surface Alignment - Milestones
 
-Last updated: 2026-04-22
+Last updated: 2026-05-18
 
 ## Milestone 1 - Audit the package boundary
 
@@ -18,6 +18,9 @@ Status: complete
 
 - Exposed `VERSION` and a dedicated `GoogleVertexProviderSettings` input struct on the
   provider-owned/public Vertex surface.
+- Exposed the upstream primary `googleVertex` / `createGoogleVertex` aliases on the Rust
+  provider-owned/public Vertex surface while keeping `vertex` / `createVertex` as backward-compatible
+  aliases.
 - Mirrored `image` / `imageModel` / `video` / `videoModel` on `GoogleVertexBuilder`.
 - Kept the Rust story honest by continuing to defer the callable `GoogleVertexProvider` object.
 

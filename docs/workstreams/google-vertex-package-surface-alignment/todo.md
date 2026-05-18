@@ -1,6 +1,6 @@
 # Google Vertex Package Surface Alignment - TODO
 
-Last updated: 2026-04-22
+Last updated: 2026-05-18
 
 Status legend:
 
@@ -13,6 +13,8 @@ Status legend:
 
 - [x] Audit `repo-ref/ai/packages/google-vertex/src/index.ts`.
 - [x] Expose `VERSION` on the provider-owned/public Vertex surface.
+- [x] Expose the upstream primary `googleVertex` / `createGoogleVertex` aliases on the
+  provider-owned/public Vertex surface.
 - [x] Expose a dedicated `GoogleVertexProviderSettings` input struct on the
   provider-owned/public Vertex surface.
 
@@ -23,6 +25,7 @@ Status legend:
 - [x] Mirror `embeddingModel` and deprecated `textEmbeddingModel` on `GoogleVertexBuilder`.
 - [x] Mirror `image` / `imageModel` on `GoogleVertexBuilder`.
 - [x] Mirror `video` / `videoModel` on `GoogleVertexBuilder`.
+- [x] Keep the deprecated `vertex` / `createVertex` aliases available for backwards compatibility.
 - [x] Lock the builder helpers through `siumai/tests/public_surface_imports_test.rs`.
 
 ## Track C - Model-id parity

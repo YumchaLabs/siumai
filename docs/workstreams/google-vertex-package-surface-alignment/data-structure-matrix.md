@@ -1,6 +1,6 @@
 # Google Vertex Package Surface Alignment - Data Structure Matrix
 
-Last updated: 2026-04-22
+Last updated: 2026-05-18
 
 ## Audited upstream sources
 
@@ -15,8 +15,10 @@ Last updated: 2026-04-22
 
 | Upstream export | Rust mapping | Status | Notes |
 | --- | --- | --- | --- |
-| `createVertex` | `provider_ext::google_vertex::create_vertex()` | aligned | Honest snake_case builder entry. |
-| `vertex` | `provider_ext::google_vertex::vertex()` | aligned | Honest builder entry alias. |
+| `createGoogleVertex` | `provider_ext::google_vertex::create_google_vertex()` | aligned | Honest snake_case builder entry. |
+| `googleVertex` | `provider_ext::google_vertex::google_vertex()` | aligned | Honest builder entry alias. |
+| `createVertex` | `provider_ext::google_vertex::create_vertex()` | aligned | Deprecated builder entry alias preserved. |
+| `vertex` | `provider_ext::google_vertex::vertex()` | aligned | Deprecated builder entry alias preserved. |
 | `GoogleVertexProviderSettings` | `provider_ext::google_vertex::GoogleVertexProviderSettings` | aligned | Dedicated provider-settings struct with `into_builder()` / `into_builder_for_model(...)`; `generateId` now also has an honest Rust analogue, while Node-only `googleAuthOptions` still does not. |
 | `VERSION` | `provider_ext::google_vertex::VERSION` | aligned | Provider crate package version. |
 | `GoogleVertexProvider` | none | intentionally deferred | Rust does not expose a callable provider object. |
@@ -26,13 +28,13 @@ Last updated: 2026-04-22
 | Upstream member | Rust mapping | Status | Notes |
 | --- | --- | --- | --- |
 | call signature `vertex(modelId)` | none | intentionally deferred | No callable provider object in Rust. |
-| `languageModel(modelId)` | `Provider::vertex().language_model(modelId)` | aligned | Honest builder analogue. |
-| `embeddingModel(modelId)` | `Provider::vertex().embedding_model(modelId)` | aligned | Honest builder analogue. |
-| `textEmbeddingModel(modelId)` | `Provider::vertex().text_embedding_model(modelId)` | aligned | Deprecated builder alias preserved. |
-| `image(modelId)` | `Provider::vertex().image(modelId)` | aligned | Builder mirrors model selection; request settings remain request-owned. |
-| `imageModel(modelId)` | `Provider::vertex().image_model(modelId)` | aligned | Same as `image(...)`. |
-| `video(modelId)` | `Provider::vertex().video(modelId)` | aligned | Builder selects the default task-based video model id. |
-| `videoModel(modelId)` | `Provider::vertex().video_model(modelId)` | aligned | Honest builder analogue. |
+| `languageModel(modelId)` | `Provider::google_vertex().language_model(modelId)` | aligned | Honest builder analogue. |
+| `embeddingModel(modelId)` | `Provider::google_vertex().embedding_model(modelId)` | aligned | Honest builder analogue. |
+| `textEmbeddingModel(modelId)` | `Provider::google_vertex().text_embedding_model(modelId)` | aligned | Deprecated builder alias preserved. |
+| `image(modelId)` | `Provider::google_vertex().image(modelId)` | aligned | Builder mirrors model selection; request settings remain request-owned. |
+| `imageModel(modelId)` | `Provider::google_vertex().image_model(modelId)` | aligned | Same as `image(...)`. |
+| `video(modelId)` | `Provider::google_vertex().video(modelId)` | aligned | Builder selects the default task-based video model id. |
+| `videoModel(modelId)` | `Provider::google_vertex().video_model(modelId)` | aligned | Honest builder analogue. |
 | `tools` | `provider_ext::google_vertex::tools::*` | aligned | Provider-defined tool factories are already exposed separately. |
 
 ## Grouped model-id matrix
@@ -90,7 +92,8 @@ Last updated: 2026-04-22
 ## Structural notes
 
 - `GoogleVertexProviderSettings` is now a dedicated builder-input struct again, which is a closer
-  semantic match for upstream `createVertex(options)` than the earlier `GoogleVertexConfig` alias.
+  semantic match for upstream `createGoogleVertex(options)` than the earlier `GoogleVertexConfig`
+  alias.
 - The struct intentionally does not convert to `GoogleVertexConfig` without a model id. Instead it
   exposes `into_builder_for_model(...)` / `into_config_for_model(...)` so model selection stays
   explicit where Rust still differs from the callable TypeScript provider object.
@@ -103,3 +106,6 @@ Last updated: 2026-04-22
   explicit token-provider / ADC story instead of mirroring a TypeScript auth-library wrapper.
 - Vertex image/video do not currently mint extra local IDs from `generateId`; those paths still
   primarily expose provider/service-owned operation or asset identifiers.
+- The newer `@ai-sdk/google-vertex/xai` sub-entry is not part of this root Vertex package slice.
+  It needs its own package-boundary audit because it is an OpenAI-compatible Vertex partner surface,
+  not the same contract as native `xai` or generic Vertex MaaS.

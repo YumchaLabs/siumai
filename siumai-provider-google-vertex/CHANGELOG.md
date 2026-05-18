@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The provider-owned/public Google Vertex surface now exposes the audited upstream primary
+  `googleVertex` / `createGoogleVertex` aliases alongside the existing backward-compatible
+  `vertex` / `createVertex` names, so the Rust package root mirrors the current AI SDK package
+  entry points more closely without breaking existing callers.
 - Curated `google_vertex::{chat, embedding, image}` and `anthropic_vertex::chat` model constants
   are now exported from the provider package, so the public facade and registry catalog can reuse
   one audited curated subset instead of duplicating handwritten model lists.

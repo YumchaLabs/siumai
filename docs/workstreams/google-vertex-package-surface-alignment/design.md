@@ -1,6 +1,6 @@
 # Google Vertex Package Surface Alignment - Design
 
-Last updated: 2026-04-22
+Last updated: 2026-05-18
 
 ## Problem
 
@@ -8,7 +8,8 @@ Compared with `repo-ref/ai/packages/google-vertex/src/index.ts` and
 `repo-ref/ai/packages/google-vertex/src/google-vertex-provider.ts`, Siumai still had a few
 package-surface and data-source drifts on the Vertex path:
 
-- `provider_ext::google_vertex` did not expose the audited package-root `VERSION` constant
+- `provider_ext::google_vertex` did not expose the audited package-root `VERSION` constant or the
+  upstream primary `googleVertex` / `createGoogleVertex` aliases
 - the public/provider-owned Vertex surface did not expose a dedicated
   `GoogleVertexProviderSettings` input struct
 - `GoogleVertexBuilder` mirrored `languageModel` / `embeddingModel` only partially, but still
@@ -17,8 +18,9 @@ package-surface and data-source drifts on the Vertex path:
   embedding and image ids
 - `GoogleVertexClient::supported_models()` used the single configured model id instead of the same
   curated model source already used by the registry catalog
-- upstream `generateId` existed on `createVertex(options)`, but the Rust Vertex path did not have a
-  truthful equivalent wired into the Gemini chat/stream transformer runtime
+- upstream `generateId` existed on `createGoogleVertex(options)` / `createVertex(options)`, but the
+  Rust Vertex path did not have a truthful equivalent wired into the Gemini chat/stream transformer
+  runtime
 - `gemini-*` Vertex image models still routed through the Imagen `:predict` runtime instead of the
   upstream `:generateContent` Gemini image path
 - the Vertex video path still duplicated inline/base64 video payloads into public metadata, while
@@ -60,6 +62,7 @@ through different Rust entry points.
 The provider-owned/public Vertex facade now exposes:
 
 - `VERSION`
+- `google_vertex()` / `create_google_vertex()`
 - `GoogleVertexProviderSettings`
 
 `GoogleVertexProviderSettings` is now a dedicated package-level input struct again, instead of a
@@ -89,8 +92,10 @@ and converts into the provider-owned runtime through:
 ### 2. Mirror the upstream non-callable family helpers on the builder
 
 `GoogleVertexBuilder` now mirrors the audited provider member names that have direct Rust builder
-equivalents:
+equivalents, and the public facade keeps both the primary and deprecated package aliases:
 
+- `google_vertex`
+- `create_google_vertex`
 - `language_model`
 - `embedding_model`
 - deprecated `text_embedding_model`
@@ -98,6 +103,8 @@ equivalents:
 - `image_model`
 - `video`
 - `video_model`
+- deprecated `vertex`
+- deprecated `create_vertex`
 
 This still does not imply a callable provider object. It only keeps the builder surface close to
 the AI SDK provider-member shape where that mapping is structurally honest.
@@ -294,6 +301,9 @@ Locked by:
 
 ## Remaining follow-up
 
+- Track the newer `@ai-sdk/google-vertex/xai` sub-entry under a separate package-boundary slice.
+  It uses an OpenAI-compatible Vertex partner endpoint and should not be folded silently into native
+  `xai` or generic Vertex MaaS.
 - Re-audit `repo-ref/ai/packages/google-vertex/src/*` when the upstream package adds more
   root exports or provider members.
 - Decide later whether the public Rust Vertex image surface should grow a more explicit typed

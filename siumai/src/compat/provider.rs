@@ -176,10 +176,17 @@ impl Provider {
 
     /// Create a Google Vertex client builder
     #[cfg(feature = "google-vertex")]
-    pub fn vertex() -> siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder {
+    pub fn google_vertex() -> siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder
+    {
         siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
             BuilderBase::default(),
         )
+    }
+
+    /// Create a Google Vertex client builder
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex() -> siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder {
+        Self::google_vertex()
     }
 
     /// Create a Google Vertex MaaS unified builder.
