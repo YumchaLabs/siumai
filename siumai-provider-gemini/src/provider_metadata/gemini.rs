@@ -79,6 +79,41 @@ pub type GoogleProviderMetadata = GeminiMetadata;
 #[deprecated(note = "Use `GoogleProviderMetadata` instead.")]
 pub type GoogleGenerativeAIProviderMetadata = GoogleProviderMetadata;
 
+/// Provider metadata written by the Google Interactions API.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct GoogleInteractionsProviderMetadata {
+    /// Gemini server-side interaction id.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "interactionId")]
+    pub interaction_id: Option<String>,
+    /// Applied service tier for the interaction.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "serviceTier")]
+    pub service_tier: Option<String>,
+    /// Per-block signature used for backend validation on later turns.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+}
+
+impl GoogleInteractionsProviderMetadata {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_interaction_id(mut self, value: impl Into<String>) -> Self {
+        self.interaction_id = Some(value.into());
+        self
+    }
+
+    pub fn with_service_tier(mut self, value: impl Into<String>) -> Self {
+        self.service_tier = Some(value.into());
+        self
+    }
+
+    pub fn with_signature(mut self, value: impl Into<String>) -> Self {
+        self.signature = Some(value.into());
+        self
+    }
+}
+
 /// Top logprob candidates for a single decoding step.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiTopCandidates {
@@ -424,6 +459,26 @@ mod tests {
         let chosen = meta.logprobs_result.unwrap().chosen_candidates;
         assert_eq!(chosen.len(), 1);
         assert_eq!(chosen[0].token.as_deref(), Some("h"));
+    }
+
+    #[test]
+    fn google_interactions_provider_metadata_serializes_package_shape() {
+        let value = serde_json::to_value(
+            GoogleInteractionsProviderMetadata::new()
+                .with_interaction_id("iact_123")
+                .with_service_tier("priority")
+                .with_signature("sig_123"),
+        )
+        .expect("serialize GoogleInteractionsProviderMetadata");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "interactionId": "iact_123",
+                "serviceTier": "priority",
+                "signature": "sig_123"
+            })
+        );
     }
 
     #[test]

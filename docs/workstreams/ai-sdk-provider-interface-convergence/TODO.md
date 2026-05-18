@@ -87,7 +87,9 @@ Status legend:
   Validation: package-specific no-network tests and public import tests.
   Evidence: child workstreams or inventory rows for OpenAI, Azure, Anthropic, Google/Gemini,
   Google Vertex, Bedrock, Cohere, Groq, xAI, DeepSeek, TogetherAI, MiniMaxi, Ollama.
-  Handoff: Provider package names should not be copied mechanically; semantic parity wins.
+  Handoff: Provider package names should not be copied mechanically; semantic parity wins. Google
+  Interactions is now package-visible as an explicit deferred handle; runtime support needs its own
+  `/interactions` execution lane.
 
 ## M4 - Workstream Hygiene And Closeout
 

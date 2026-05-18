@@ -20,7 +20,8 @@ The resulting drift was not a single runtime bug. It was a package-shape and dat
 - public review against `repo-ref/ai/packages/google/src/*` required too much manual alias
   translation
 - upstream `GoogleProvider` member names such as `languageModel`, `embeddingModel`, `imageModel`,
-  and `videoModel` did not have a clear Rust-side analogue on `Provider::google()`
+  `videoModel`, and later `interactions` did not have a clear Rust-side analogue on
+  `Provider::google()`
 - the public facade still lacked a Google-first grouped model-id surface that could be compared
   directly against the upstream `GoogleModelId` / `GoogleEmbeddingModelId` /
   `GoogleImageModelId` / `GoogleVideoModelId` contracts
@@ -44,6 +45,8 @@ The resulting drift was not a single runtime bug. It was a package-shape and dat
 - Expose a Google-first grouped model-id surface on `provider_ext::google::{chat, embedding, image,
   video, model_sets}` so public diffing against the audited package no longer depends on internal
   Gemini-only module names.
+- Expose the package-visible `google.interactions(...)` boundary without pretending it is ordinary
+  Gemini chat, because upstream routes it through `/v1beta/interactions`.
 - Make the Google-branded request/helper lane work end to end instead of stopping at compile-time
   aliases.
 - Keep the Rust package story honest about the parts that still differ from the TypeScript package.
@@ -53,6 +56,9 @@ The resulting drift was not a single runtime bug. It was a package-shape and dat
 - Do not fabricate a JavaScript-style callable `GoogleProvider` interface on the Rust facade.
 - Do not widen the current task-based Rust video helper into a fake AI SDK-style auto-polling model
   surface unless the provider-owned runtime actually owns that lifecycle.
+- Do not route `google.interactions(...)` through the normal Gemini `:generateContent` runtime. The
+  Interactions API has distinct request conversion, server-side interaction ids, background polling,
+  cancellation, signatures, and agent output semantics.
 - Do not replace the existing Gemini-native names; the Google surface should layer on top of the
   provider-owned Gemini implementation rather than rename the whole crate.
 
@@ -127,6 +133,33 @@ of that shape in two places:
 
 This keeps the Rust facade close to the audited package without pretending a builder is the same
 thing as a callable TypeScript provider object.
+
+### 1d. Mirror the Interactions package boundary as an explicit deferred runtime
+
+A later AIPC-080 audit found that upstream `@ai-sdk/google` now exports an `interactions(...)`
+provider member plus typed Interactions options, metadata, model ids, and agent names. That surface
+is not just a variant of normal Gemini chat. It targets `POST /v1beta/interactions` and has
+background agent polling, `interactionId`, signatures, and separate input/output conversion.
+
+Siumai now mirrors the package-visible boundary without silently mapping it onto `:generateContent`:
+
+- `GeminiBuilder::interactions(...)`
+- `GoogleInteractionsLanguageModel`
+- `GoogleInteractionsModelInput::{model, agent}`
+- `GoogleLanguageModelInteractionsOptions`
+- `GoogleInteractionsModelId`
+- `GoogleInteractionsAgentName`
+- `GoogleInteractionsAgentConfig`
+- `GoogleInteractionsImageConfig`
+- `GoogleInteractionsResponseFormatEntry`
+- `GoogleInteractionsProviderMetadata`
+- `GoogleChatRequestExt::with_google_interactions_options(...)`
+- `provider_ext::google::{interactions, agents}` grouped constants
+
+The returned model handle intentionally fails fast with `UnsupportedOperation` for chat execution.
+This keeps the Rust public surface auditable against the upstream package while leaving the real
+`/interactions` HTTP, polling, cancellation, and stream-transform runtime to a dedicated follow-on
+lane.
 
 ### 2. Carry Google-branded request helpers through the real provider-owned runtime
 
@@ -238,6 +271,9 @@ This workstream currently closes the following Google package-surface gaps:
   the provider-owned `GeminiFiles` capability builder
 - `provider_ext::google` / `provider_ext::gemini` now expose grouped model ids as
   `chat`, `embedding`, `image`, `video`, and `model_sets`
+- `provider_ext::google` / `provider_ext::gemini` now expose the audited Interactions package
+  boundary as `interactions`, `agents`, typed options, typed metadata, and a deferred
+  `GoogleInteractionsLanguageModel` handle
 - `GoogleProviderSettings` / `GeminiBuilder` now support `generateId` through
   `with_generate_id(...)`, with a shared public `SharedIdGenerator`
 - `GoogleProviderSettings` / `Provider::google()` now also support the audited `name` hook as a
@@ -265,12 +301,19 @@ The current slice is locked by:
 - protocol-level Gemini transformer tests in
   `siumai-protocol-gemini/src/standards/gemini/transformers/tests.rs`
 - public surface compile guards in `siumai/tests/public_surface_imports_test.rs`, including the
-  grouped model ids, builder family helpers, and the direct `files()` member
+  grouped model ids, builder family helpers, the direct `files()` member, and the Interactions
+  package boundary
 - top-level public-path parity coverage in `siumai/tests/provider_public_path_parity_test.rs`,
-  including the direct `Provider::google().files()` list-files path
+  including the direct `Provider::google().files()` list-files path and the explicitly deferred
+  `google.interactions(...)` chat-runtime guard
+- provider-local Interactions tests in `siumai-provider-gemini` for options, metadata, request
+  extension serialization, builder construction, and runtime deferral
 
 ## Remaining follow-up
 
+- Implement a dedicated Google Interactions runtime lane before claiming `google.interactions(...)`
+  execution support. That lane should own `/interactions` request conversion, polling, cancellation,
+  SSE stream transformation, interaction-id propagation, signatures, and agent result parsing.
 - Re-audit whether the upstream Google package adds more public names that deserve direct Rust
   mirrors.
 - Keep the Rust package story honest: `GoogleProviderSettings` is now a provider-level settings

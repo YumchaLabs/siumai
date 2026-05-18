@@ -28,6 +28,10 @@ Status: complete
   built-client/resource paths.
 - Added grouped Google model-id exports on the public facade:
   `provider_ext::google::{chat, embedding, image, video, model_sets}`.
+- Added the `google.interactions(...)` package boundary on the Rust facade without routing it
+  through ordinary Gemini chat. `GeminiBuilder::interactions(...)` now returns an explicit deferred
+  `GoogleInteractionsLanguageModel` handle, and the public facade exposes Interactions model ids,
+  agent names, typed options, typed metadata, and request-option helpers.
 - Added honest `generateId` support by threading a shared generator through
   `GoogleProviderSettings` / `GeminiBuilder` / `GeminiConfig` and consuming it for provider-owned
   tool-call, tool-result, and source ids in Gemini response/streaming transformers.
@@ -45,6 +49,10 @@ Status: in progress
   not expose a TypeScript-style callable provider object.
 - Task-based Google video polling remains explicitly deferred from full AI SDK-style provider-owned
   model polling semantics.
+- `google.interactions(...)` execution remains explicitly deferred from ordinary Gemini chat
+  execution. A dedicated `/interactions` runtime lane is required before Siumai can support actual
+  Interactions HTTP calls, polling, cancellation, stream transformation, signatures, and
+  interaction-id state.
 
 ## Exit criteria for this workstream
 

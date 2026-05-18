@@ -120,6 +120,14 @@ vertical slices instead of becoming one cross-provider mega patch.
   The provider metadata/client capability drift is now fixed and guarded while embedding, image,
   rerank, speech, transcription, and audio remain unsupported family paths. The AIPC inventory row
   is now Green.
+- AIPC-080 then re-audited Google/Gemini against the current `@ai-sdk/google` package surface. The
+  upstream package now exposes `google.interactions(...)` targeting `POST /v1beta/interactions`,
+  plus Interactions model ids, agent names, provider options, and metadata. Siumai now mirrors that
+  package-visible boundary with typed Rust handles/options/metadata/constants and public facade
+  guards, but the handle intentionally fails fast for chat execution. Real `/interactions` request
+  conversion, polling, cancellation, signatures, interaction-id compaction, and stream transforms
+  must land in a dedicated runtime lane rather than being routed through ordinary Gemini
+  `:generateContent`.
 
 ## Blockers
 

@@ -200,6 +200,28 @@ impl GeminiBuilder {
         self.video_model(model)
     }
 
+    /// Build a Google Interactions model handle.
+    ///
+    /// This mirrors the package-visible `google.interactions(...)` member while
+    /// keeping execution separate from ordinary Gemini chat. The returned handle
+    /// currently fails fast until the dedicated `/interactions` runtime is
+    /// implemented.
+    pub fn interactions<M: Into<crate::providers::gemini::GoogleInteractionsModelInput>>(
+        self,
+        model_input: M,
+    ) -> Result<crate::providers::gemini::GoogleInteractionsLanguageModel, LlmError> {
+        let generate_id =
+            crate::providers::gemini::interactions::clone_shared_id_generator(&self.generate_id);
+        let config = self.into_config()?;
+        Ok(
+            crate::providers::gemini::interactions::interactions_config_from_builder_parts(
+                config,
+                model_input.into(),
+                generate_id,
+            ),
+        )
+    }
+
     /// Set temperature (0.0 to 2.0)
     pub const fn temperature(mut self, temperature: f64) -> Self {
         self.common_params.temperature = Some(temperature);
@@ -945,5 +967,24 @@ mod tests {
         assert!(debug.contains("https://example.com/v1beta"));
         assert!(debug.contains("has_retry: true"));
         assert_eq!(files.provider_name(), "my-gemini-proxy");
+    }
+
+    #[test]
+    fn gemini_builder_interactions_builds_deferred_package_handle() {
+        let handle = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com/v1beta")
+            .name("google.generative-ai")
+            .with_generate_id(|| "custom-id".to_string())
+            .interactions(
+                crate::providers::gemini::GoogleInteractionsModelInput::model("gemini-2.5-flash"),
+            )
+            .expect("build interactions handle");
+
+        assert_eq!(handle.provider(), "google.generative-ai.interactions");
+        assert_eq!(handle.base_url(), "https://example.com/v1beta");
+        assert_eq!(handle.model_id(), "gemini-2.5-flash");
+        assert_eq!(handle.agent(), None);
+        assert_eq!(handle.generate_id(), "custom-id");
     }
 }

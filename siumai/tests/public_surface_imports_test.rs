@@ -2485,10 +2485,12 @@ fn public_surface_google_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::google::GoogleGenerativeAIProviderSettings;
     use siumai::provider_ext::google::{
-        GeminiBuilder, GeminiClient, GeminiConfig, GoogleErrorData, GoogleProviderSettings,
-        SharedIdGenerator, VERSION, chat, create_google, create_google_generative_ai, embedding,
+        GeminiBuilder, GeminiClient, GeminiConfig, GoogleErrorData,
+        GoogleInteractionsLanguageModel, GoogleInteractionsModelInput, GoogleProviderSettings,
+        SharedIdGenerator, VERSION, agents, chat, create_google, create_google_generative_ai,
+        embedding,
         ext::{code_execution, file_search_stores, tools},
-        google as google_builder, image,
+        google as google_builder, image, interactions,
         metadata::*,
         model_sets,
         options::*,
@@ -2504,11 +2506,17 @@ fn public_surface_google_provider_ext_compiles() {
     let _ = size_of::<GeminiConfig>();
     let _ = size_of::<SharedIdGenerator>();
     let _ = size_of::<GoogleProviderSettings>();
+    let _ = size_of::<GoogleInteractionsLanguageModel>();
+    let _ = size_of::<GoogleInteractionsModelInput>();
     #[allow(deprecated)]
     let _ = size_of::<GoogleGenerativeAIProviderSettings>();
     let _ = size_of::<GeminiImageOptions>();
     let _ = size_of::<GoogleImageModelOptions>();
     let _ = size_of::<GoogleLanguageModelOptions>();
+    let _ = size_of::<GoogleLanguageModelInteractionsOptions>();
+    let _ = size_of::<GoogleInteractionsAgentConfig>();
+    let _ = size_of::<GoogleInteractionsImageConfig>();
+    let _ = size_of::<GoogleInteractionsResponseFormatEntry>();
     let _ = size_of::<GoogleEmbeddingModelOptions>();
     let _ = size_of::<GoogleVideoModelOptions>();
     let _ = size_of::<GoogleFilesUploadOptions>();
@@ -2521,8 +2529,11 @@ fn public_surface_google_provider_ext_compiles() {
     #[allow(deprecated)]
     let _ = size_of::<GoogleGenerativeAIVideoProviderOptions>();
     let _ = size_of::<GoogleProviderMetadata>();
+    let _ = size_of::<GoogleInteractionsProviderMetadata>();
     #[allow(deprecated)]
     let _ = size_of::<GoogleGenerativeAIProviderMetadata>();
+    let _: GoogleInteractionsModelId = interactions::GEMINI_2_5_FLASH.to_string();
+    let _: GoogleInteractionsAgentName = agents::DEEP_RESEARCH_PREVIEW_04_2026.to_string();
     let _: GoogleVideoModelId = "veo-3.1-generate-preview".to_string();
     #[allow(deprecated)]
     let _: GoogleGenerativeAIVideoModelId = "veo-3.1-generate-preview".to_string();
@@ -2545,10 +2556,14 @@ fn public_surface_google_provider_ext_compiles() {
     let _ = embedding::GEMINI_EMBEDDING_001;
     let _ = image::IMAGEN_4_0_GENERATE_001;
     let _ = video::VEO_3_1_GENERATE_PREVIEW;
+    let _ = interactions::GEMINI_2_5_FLASH;
+    let _ = agents::DEEP_RESEARCH_PREVIEW_04_2026;
     let _ = model_sets::ALL_CHAT;
     let _ = model_sets::ALL_EMBEDDING;
     let _ = model_sets::ALL_IMAGE;
     let _ = model_sets::ALL_VIDEO;
+    let _ = model_sets::ALL_INTERACTIONS;
+    let _ = model_sets::ALL_INTERACTIONS_AGENTS;
     assert!(!VERSION.is_empty());
     let _ = GeminiClient::base_url;
     let _ = GeminiClient::files;
@@ -2580,6 +2595,18 @@ fn public_surface_google_provider_ext_compiles() {
         .with_api_key("test-key")
         .into_builder()
         .files();
+    let _ = GoogleProviderSettings::new()
+        .with_api_key("test-key")
+        .into_builder()
+        .interactions(GoogleInteractionsModelInput::model(
+            interactions::GEMINI_2_5_FLASH,
+        ));
+    let _ = GoogleProviderSettings::new()
+        .with_api_key("test-key")
+        .into_builder()
+        .interactions(GoogleInteractionsModelInput::agent(
+            agents::DEEP_RESEARCH_PREVIEW_04_2026,
+        ));
 
     fn _assert_req_ext<T: GeminiChatRequestExt>() {}
     fn _assert_image_req_ext<T: GeminiImageRequestExt>() {}
@@ -2607,6 +2634,34 @@ fn public_surface_google_provider_ext_compiles() {
             .with_service_tier("flex")
             .with_stream_function_call_arguments(true),
     );
+    let _ = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+        .with_google_interactions_options(
+            GoogleLanguageModelInteractionsOptions::new()
+                .with_previous_interaction_id("iact_123")
+                .with_agent(agents::DEEP_RESEARCH_PREVIEW_04_2026)
+                .with_agent_config(
+                    GoogleInteractionsAgentConfig::deep_research()
+                        .with_thinking_summaries("auto")
+                        .with_visualization("auto")
+                        .with_collaborative_planning(true),
+                )
+                .with_response_format(vec![
+                    GoogleInteractionsResponseFormatEntry::json_schema(serde_json::json!({
+                        "type": "object"
+                    })),
+                    GoogleInteractionsResponseFormatEntry::image()
+                        .with_mime_type("image/png")
+                        .with_aspect_ratio("16:9")
+                        .with_image_size("1K"),
+                ])
+                .with_media_resolution("high")
+                .with_response_modalities(["text", "image"])
+                .with_service_tier("priority")
+                .with_system_instruction("be concise")
+                .with_signature("sig_123")
+                .with_interaction_id("iact_456")
+                .with_polling_timeout_ms(30_000),
+        );
     let _ = EmbeddingRequest::single("hello").with_google_embedding_options(
         GoogleEmbeddingModelOptions::new()
             .with_output_dimensionality(128)
@@ -2655,6 +2710,11 @@ fn public_surface_google_provider_ext_compiles() {
     let _ = siumai::compat::Provider::google().image(image::IMAGEN_4_0_GENERATE_001);
     let _ = siumai::compat::Provider::google().video_model(video::VEO_3_1_GENERATE_PREVIEW);
     let _ = siumai::compat::Provider::google().video(video::VEO_3_1_FAST_GENERATE_PREVIEW);
+    let _ = siumai::compat::Provider::google()
+        .api_key("test-key")
+        .interactions(GoogleInteractionsModelInput::model(
+            interactions::GEMINI_2_5_FLASH,
+        ));
     let _ = siumai::compat::Provider::google().name("my-gemini-proxy");
     let _ = siumai::compat::Provider::google()
         .api_key("test-key")

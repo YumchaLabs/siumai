@@ -45,6 +45,7 @@ pub mod convert;
 pub mod ext;
 pub mod file_search_stores;
 pub mod files;
+pub mod interactions;
 pub mod middleware;
 pub mod model_constants;
 pub mod models;
@@ -64,15 +65,19 @@ pub mod video;
 // Re-export main types for convenience
 #[allow(deprecated)]
 pub use crate::provider_metadata::gemini::GoogleGenerativeAIProviderMetadata;
-pub use crate::provider_metadata::gemini::GoogleProviderMetadata;
+pub use crate::provider_metadata::gemini::{
+    GoogleInteractionsProviderMetadata, GoogleProviderMetadata,
+};
 pub use crate::provider_options::gemini::GeminiImageOptions;
 #[allow(deprecated)]
 pub use crate::provider_options::gemini::{
     GoogleEmbeddingModelOptions, GoogleFilesUploadOptions,
     GoogleGenerativeAIEmbeddingProviderOptions, GoogleGenerativeAIImageProviderOptions,
     GoogleGenerativeAIProviderOptions, GoogleGenerativeAIVideoModelId,
-    GoogleGenerativeAIVideoProviderOptions, GoogleImageModelOptions, GoogleLanguageModelOptions,
-    GoogleVideoModelId, GoogleVideoModelOptions,
+    GoogleGenerativeAIVideoProviderOptions, GoogleImageModelOptions, GoogleInteractionsAgentConfig,
+    GoogleInteractionsAgentName, GoogleInteractionsImageConfig, GoogleInteractionsModelId,
+    GoogleInteractionsResponseFormatEntry, GoogleLanguageModelInteractionsOptions,
+    GoogleLanguageModelOptions, GoogleVideoModelId, GoogleVideoModelOptions,
 };
 pub use builder::GeminiBuilder;
 pub use cached_contents::GeminiCachedContents;
@@ -84,6 +89,7 @@ pub use ext::{
 };
 pub use file_search_stores::GeminiFileSearchStores;
 pub use files::GeminiFiles;
+pub use interactions::{GoogleInteractionsLanguageModel, GoogleInteractionsModelInput};
 pub use middleware::GeminiToolWarningsMiddleware;
 pub use models::GeminiModels;
 #[allow(deprecated)]

@@ -227,6 +227,386 @@ pub type GoogleLanguageModelOptions = GeminiOptions;
 #[deprecated(note = "Use `GoogleLanguageModelOptions` instead.")]
 pub type GoogleGenerativeAIProviderOptions = GoogleLanguageModelOptions;
 
+/// AI SDK-style alias for Google Interactions model ids.
+///
+/// Kept separate from ordinary Google language model ids because the Gemini
+/// Interactions API is a distinct `/interactions` surface and can diverge from
+/// `:generateContent` over time.
+pub type GoogleInteractionsModelId = String;
+
+/// AI SDK-style alias for Google Interactions agent names.
+pub type GoogleInteractionsAgentName = String;
+
+/// Provider-owned options for `google.interactions(...)`.
+///
+/// These options intentionally model the package-visible data surface only.
+/// The Interactions runtime is tracked as a separate provider-owned execution
+/// lane because it uses `/interactions`, background agent polling, signatures,
+/// and `interactionId` state rather than the normal Gemini `:generateContent`
+/// path.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct GoogleLanguageModelInteractionsOptions {
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "previousInteractionId",
+        alias = "previous_interaction_id"
+    )]
+    pub previous_interaction_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "agentConfig",
+        alias = "agent_config"
+    )]
+    pub agent_config: Option<GoogleInteractionsAgentConfig>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingLevel",
+        alias = "thinking_level"
+    )]
+    pub thinking_level: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingSummaries",
+        alias = "thinking_summaries"
+    )]
+    pub thinking_summaries: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "responseFormat",
+        alias = "response_format"
+    )]
+    pub response_format: Option<Vec<GoogleInteractionsResponseFormatEntry>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "imageConfig",
+        alias = "image_config"
+    )]
+    pub image_config: Option<GoogleInteractionsImageConfig>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "mediaResolution",
+        alias = "media_resolution"
+    )]
+    pub media_resolution: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "responseModalities",
+        alias = "response_modalities"
+    )]
+    pub response_modalities: Option<Vec<String>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "serviceTier",
+        alias = "service_tier"
+    )]
+    pub service_tier: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "systemInstruction",
+        alias = "system_instruction"
+    )]
+    pub system_instruction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "interactionId",
+        alias = "interaction_id"
+    )]
+    pub interaction_id: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "pollingTimeoutMs",
+        alias = "polling_timeout_ms"
+    )]
+    pub polling_timeout_ms: Option<u64>,
+}
+
+impl GoogleLanguageModelInteractionsOptions {
+    /// Create empty Google Interactions options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_previous_interaction_id(mut self, value: impl Into<String>) -> Self {
+        self.previous_interaction_id = Some(value.into());
+        self
+    }
+
+    pub const fn with_store(mut self, value: bool) -> Self {
+        self.store = Some(value);
+        self
+    }
+
+    pub fn with_agent(mut self, value: impl Into<String>) -> Self {
+        self.agent = Some(value.into());
+        self
+    }
+
+    pub fn with_agent_config(mut self, value: GoogleInteractionsAgentConfig) -> Self {
+        self.agent_config = Some(value);
+        self
+    }
+
+    pub fn with_thinking_level(mut self, value: impl Into<String>) -> Self {
+        self.thinking_level = Some(value.into());
+        self
+    }
+
+    pub fn with_thinking_summaries(mut self, value: impl Into<String>) -> Self {
+        self.thinking_summaries = Some(value.into());
+        self
+    }
+
+    pub fn with_response_format(
+        mut self,
+        value: Vec<GoogleInteractionsResponseFormatEntry>,
+    ) -> Self {
+        self.response_format = Some(value);
+        self
+    }
+
+    pub fn with_image_config(mut self, value: GoogleInteractionsImageConfig) -> Self {
+        self.image_config = Some(value);
+        self
+    }
+
+    pub fn with_media_resolution(mut self, value: impl Into<String>) -> Self {
+        self.media_resolution = Some(value.into());
+        self
+    }
+
+    pub fn with_response_modalities<I, S>(mut self, values: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.response_modalities = Some(values.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub fn with_service_tier(mut self, value: impl Into<String>) -> Self {
+        self.service_tier = Some(value.into());
+        self
+    }
+
+    pub fn with_system_instruction(mut self, value: impl Into<String>) -> Self {
+        self.system_instruction = Some(value.into());
+        self
+    }
+
+    pub fn with_signature(mut self, value: impl Into<String>) -> Self {
+        self.signature = Some(value.into());
+        self
+    }
+
+    pub fn with_interaction_id(mut self, value: impl Into<String>) -> Self {
+        self.interaction_id = Some(value.into());
+        self
+    }
+
+    pub const fn with_polling_timeout_ms(mut self, value: u64) -> Self {
+        self.polling_timeout_ms = Some(value);
+        self
+    }
+}
+
+/// Agent configuration for Google Interactions agent calls.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GoogleInteractionsAgentConfig {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingSummaries",
+        alias = "thinking_summaries"
+    )]
+    pub thinking_summaries: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visualization: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "collaborativePlanning",
+        alias = "collaborative_planning"
+    )]
+    pub collaborative_planning: Option<bool>,
+}
+
+impl GoogleInteractionsAgentConfig {
+    pub fn dynamic() -> Self {
+        Self {
+            kind: "dynamic".to_string(),
+            thinking_summaries: None,
+            visualization: None,
+            collaborative_planning: None,
+        }
+    }
+
+    pub fn deep_research() -> Self {
+        Self {
+            kind: "deep-research".to_string(),
+            thinking_summaries: None,
+            visualization: None,
+            collaborative_planning: None,
+        }
+    }
+
+    pub fn with_thinking_summaries(mut self, value: impl Into<String>) -> Self {
+        self.thinking_summaries = Some(value.into());
+        self
+    }
+
+    pub fn with_visualization(mut self, value: impl Into<String>) -> Self {
+        self.visualization = Some(value.into());
+        self
+    }
+
+    pub const fn with_collaborative_planning(mut self, value: bool) -> Self {
+        self.collaborative_planning = Some(value);
+        self
+    }
+}
+
+/// Deprecated image-only Interactions response-format helper.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GoogleInteractionsImageConfig {
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "aspectRatio",
+        alias = "aspect_ratio"
+    )]
+    pub aspect_ratio: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "imageSize",
+        alias = "image_size"
+    )]
+    pub image_size: Option<String>,
+}
+
+impl GoogleInteractionsImageConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_aspect_ratio(mut self, value: impl Into<String>) -> Self {
+        self.aspect_ratio = Some(value.into());
+        self
+    }
+
+    pub fn with_image_size(mut self, value: impl Into<String>) -> Self {
+        self.image_size = Some(value.into());
+        self
+    }
+}
+
+/// Interactions `responseFormat` entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum GoogleInteractionsResponseFormatEntry {
+    Text {
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "mimeType",
+            alias = "mime_type"
+        )]
+        mime_type: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        schema: Option<serde_json::Value>,
+    },
+    Image {
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "mimeType",
+            alias = "mime_type"
+        )]
+        mime_type: Option<String>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "aspectRatio",
+            alias = "aspect_ratio"
+        )]
+        aspect_ratio: Option<String>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "imageSize",
+            alias = "image_size"
+        )]
+        image_size: Option<String>,
+    },
+    Audio {
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "mimeType",
+            alias = "mime_type"
+        )]
+        mime_type: Option<String>,
+    },
+}
+
+impl GoogleInteractionsResponseFormatEntry {
+    pub fn text() -> Self {
+        Self::Text {
+            mime_type: None,
+            schema: None,
+        }
+    }
+
+    pub fn json_schema(schema: serde_json::Value) -> Self {
+        Self::Text {
+            mime_type: Some("application/json".to_string()),
+            schema: Some(schema),
+        }
+    }
+
+    pub fn image() -> Self {
+        Self::Image {
+            mime_type: None,
+            aspect_ratio: None,
+            image_size: None,
+        }
+    }
+
+    pub fn audio() -> Self {
+        Self::Audio { mime_type: None }
+    }
+
+    pub fn with_mime_type(mut self, value: impl Into<String>) -> Self {
+        let value = Some(value.into());
+        match &mut self {
+            Self::Text { mime_type, .. }
+            | Self::Image { mime_type, .. }
+            | Self::Audio { mime_type } => *mime_type = value,
+        }
+        self
+    }
+
+    pub fn with_schema(mut self, value: serde_json::Value) -> Self {
+        if let Self::Text { schema, .. } = &mut self {
+            *schema = Some(value);
+        }
+        self
+    }
+
+    pub fn with_aspect_ratio(mut self, value: impl Into<String>) -> Self {
+        if let Self::Image { aspect_ratio, .. } = &mut self {
+            *aspect_ratio = Some(value.into());
+        }
+        self
+    }
+
+    pub fn with_image_size(mut self, value: impl Into<String>) -> Self {
+        if let Self::Image { image_size, .. } = &mut self {
+            *image_size = Some(value.into());
+        }
+        self
+    }
+}
+
 /// Image config for Gemini image generation models.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GeminiImageConfig {
@@ -835,6 +1215,94 @@ mod tests {
                         "text": "caption"
                     }
                 ]]
+            })
+        );
+    }
+
+    #[test]
+    fn google_interactions_options_serialize_to_package_shape() {
+        let value = serde_json::to_value(
+            GoogleLanguageModelInteractionsOptions::new()
+                .with_previous_interaction_id("iact_123")
+                .with_store(true)
+                .with_agent("deep-research-preview-04-2026")
+                .with_agent_config(
+                    GoogleInteractionsAgentConfig::deep_research()
+                        .with_thinking_summaries("auto")
+                        .with_visualization("auto")
+                        .with_collaborative_planning(true),
+                )
+                .with_thinking_level("high")
+                .with_thinking_summaries("auto")
+                .with_response_format(vec![
+                    GoogleInteractionsResponseFormatEntry::json_schema(serde_json::json!({
+                        "type": "object"
+                    })),
+                    GoogleInteractionsResponseFormatEntry::image()
+                        .with_mime_type("image/png")
+                        .with_aspect_ratio("16:9")
+                        .with_image_size("1K"),
+                    GoogleInteractionsResponseFormatEntry::audio().with_mime_type("audio/wav"),
+                ])
+                .with_image_config(
+                    GoogleInteractionsImageConfig::new()
+                        .with_aspect_ratio("1:1")
+                        .with_image_size("512"),
+                )
+                .with_media_resolution("high")
+                .with_response_modalities(["text", "image"])
+                .with_service_tier("priority")
+                .with_system_instruction("be concise")
+                .with_signature("sig_123")
+                .with_interaction_id("iact_456")
+                .with_polling_timeout_ms(30_000),
+        )
+        .expect("serialize GoogleLanguageModelInteractionsOptions");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "previousInteractionId": "iact_123",
+                "store": true,
+                "agent": "deep-research-preview-04-2026",
+                "agentConfig": {
+                    "type": "deep-research",
+                    "thinkingSummaries": "auto",
+                    "visualization": "auto",
+                    "collaborativePlanning": true
+                },
+                "thinkingLevel": "high",
+                "thinkingSummaries": "auto",
+                "responseFormat": [
+                    {
+                        "type": "text",
+                        "mimeType": "application/json",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    {
+                        "type": "image",
+                        "mimeType": "image/png",
+                        "aspectRatio": "16:9",
+                        "imageSize": "1K"
+                    },
+                    {
+                        "type": "audio",
+                        "mimeType": "audio/wav"
+                    }
+                ],
+                "imageConfig": {
+                    "aspectRatio": "1:1",
+                    "imageSize": "512"
+                },
+                "mediaResolution": "high",
+                "responseModalities": ["text", "image"],
+                "serviceTier": "priority",
+                "systemInstruction": "be concise",
+                "signature": "sig_123",
+                "interactionId": "iact_456",
+                "pollingTimeoutMs": 30000
             })
         );
     }

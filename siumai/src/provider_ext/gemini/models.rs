@@ -126,15 +126,29 @@ pub mod video {
     ];
 }
 
+/// Google Interactions model ids exported by the audited AI SDK package.
+pub mod interactions {
+    pub use siumai_provider_gemini::providers::gemini::interactions::interactions::*;
+}
+
+/// Google Interactions agent names exported by the audited AI SDK package.
+pub mod agents {
+    pub use siumai_provider_gemini::providers::gemini::interactions::agents::*;
+}
+
 /// Group aliases that mirror the common public provider-facade convention.
 pub mod model_sets {
     pub const ALL_CHAT: &[&str] = super::chat::ALL;
     pub const ALL_EMBEDDING: &[&str] = super::embedding::ALL;
     pub const ALL_IMAGE: &[&str] = super::image::ALL;
     pub const ALL_VIDEO: &[&str] = super::video::ALL;
+    pub const ALL_INTERACTIONS: &[&str] = super::interactions::ALL;
+    pub const ALL_INTERACTIONS_AGENTS: &[&str] = super::agents::ALL;
 
     pub const CHAT: &[&str] = ALL_CHAT;
     pub const EMBEDDING: &[&str] = ALL_EMBEDDING;
     pub const IMAGE: &[&str] = ALL_IMAGE;
     pub const VIDEO: &[&str] = ALL_VIDEO;
+    pub const INTERACTIONS: &[&str] = ALL_INTERACTIONS;
+    pub const INTERACTIONS_AGENTS: &[&str] = ALL_INTERACTIONS_AGENTS;
 }

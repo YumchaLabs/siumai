@@ -29,6 +29,14 @@ Status legend:
   `GeminiFiles` capability.
 - [x] Expose grouped Google model-id constants on the public facade as `chat`, `embedding`,
   `image`, `video`, and `model_sets`.
+- [x] Mirror the audited `interactions(...)` provider member as an explicit package-boundary handle
+  instead of routing it through ordinary Gemini chat.
+- [x] Expose Interactions model ids and agent names on the public facade as `interactions`,
+  `agents`, and grouped `model_sets` aliases.
+- [x] Add the missing public Interactions typed surface:
+  `GoogleLanguageModelInteractionsOptions`, `GoogleInteractionsModelId`,
+  `GoogleInteractionsAgentName`, `GoogleInteractionsAgentConfig`, `GoogleInteractionsImageConfig`,
+  `GoogleInteractionsResponseFormatEntry`, and `GoogleInteractionsProviderMetadata`.
 - [x] Preserve the upstream deprecated Google Generative AI alias names where the audited package
   still exports them.
 - [x] Replace the old `GeminiConfig`-shaped `GoogleProviderSettings` alias with builder-oriented
@@ -41,6 +49,8 @@ Status legend:
 ## Track B - Runtime lowering parity
 
 - [x] Add Google-branded request helpers for chat, embedding, image, and video requests.
+- [x] Add `GoogleChatRequestExt::with_google_interactions_options(...)` for Interactions
+  provider-option package-shape parity.
 - [x] Add the Google-branded upload helper lane on `UploadFileOptions`.
 - [x] Lower `GoogleLanguageModelOptions.serviceTier` onto the provider-owned chat runtime.
 - [x] Lower `GoogleLanguageModelOptions.streamFunctionCallArguments` onto the provider-owned chat
@@ -59,12 +69,17 @@ Status legend:
   text, while keeping `provider_id` / `providerReference` / `providerMetadata` canonical.
 - [x] Keep `pollIntervalMs` / `pollTimeoutMs` public but deferred honestly on the current
   task-based video helper path.
+- [-] Keep `google.interactions(...)` execution deferred until a dedicated `/interactions` runtime
+  owns request conversion, polling, cancellation, stream transformation, signatures, and
+  interaction-id state.
 
 ## Track C - Metadata parity
 
 - [x] Surface `usageMetadata`, `finishMessage`, and `serviceTier` on the provider-owned/public
   Google metadata contract.
 - [x] Tighten `GoogleProviderMetadata.promptFeedback` from raw JSON to typed `PromptFeedback`.
+- [x] Surface `GoogleInteractionsProviderMetadata` for Interactions `interactionId`,
+  `serviceTier`, and signature metadata.
 
 ## Track D - Docs and changelog
 
@@ -72,7 +87,7 @@ Status legend:
 - [x] Add a dedicated root-export/data-structure matrix for the audited package boundary.
 - [x] Add milestone tracking so intentional Google package-surface deferrals remain explicit.
 - [x] Record the Google package-surface alignment slice in `CHANGELOG.md` `Unreleased`.
-- [ ] Fold future Google package-surface audits into this workstream instead of scattering them
+- [x] Fold future Google package-surface audits into this workstream instead of scattering them
   across generic refactor notes.
 
 ## Track E - Intentional deferrals
@@ -83,3 +98,6 @@ Status legend:
   `GeminiBuilder` / `GeminiConfig`, not as evidence of a callable provider object.
 - [-] Do not pretend `pollIntervalMs` / `pollTimeoutMs` are runtime-complete on the current
   task-based video helper before the provider-owned video story actually owns polling.
+- [-] Do not pretend `google.interactions(...)` is runtime-complete on the current Gemini
+  `:generateContent` path. The package boundary is explicit, and execution is a dedicated
+  follow-on lane.

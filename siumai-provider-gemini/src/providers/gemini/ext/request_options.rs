@@ -1,4 +1,6 @@
-use crate::provider_options::gemini::GoogleLanguageModelOptions;
+use crate::provider_options::gemini::{
+    GoogleLanguageModelInteractionsOptions, GoogleLanguageModelOptions,
+};
 use crate::types::ChatRequest;
 
 /// Gemini request option helpers for `ChatRequest`.
@@ -13,6 +15,15 @@ pub trait GeminiChatRequestExt {
 pub trait GoogleChatRequestExt {
     /// Convenience: attach Google-specific options to `provider_options_map["google"]`.
     fn with_google_options(self, options: GoogleLanguageModelOptions) -> Self;
+
+    /// Convenience: attach Google Interactions options to `provider_options_map["google"]`.
+    ///
+    /// This is request-shape parity only. The Interactions runtime is a distinct
+    /// provider-owned execution lane and is not routed through ordinary Gemini chat.
+    fn with_google_interactions_options(
+        self,
+        options: GoogleLanguageModelInteractionsOptions,
+    ) -> Self;
 }
 
 fn denormalize_gemini_option_key(key: &str) -> Option<&'static str> {
@@ -34,6 +45,15 @@ fn denormalize_gemini_option_key(key: &str) -> Option<&'static str> {
         "search_grounding" => "searchGrounding",
         "file_search" => "fileSearch",
         "service_tier" => "serviceTier",
+        "previous_interaction_id" => "previousInteractionId",
+        "agent_config" => "agentConfig",
+        "thinking_level" => "thinkingLevel",
+        "thinking_summaries" => "thinkingSummaries",
+        "response_format" => "responseFormat",
+        "system_instruction" => "systemInstruction",
+        "interaction_id" => "interactionId",
+        "polling_timeout_ms" => "pollingTimeoutMs",
+        "collaborative_planning" => "collaborativePlanning",
         "dynamic_retrieval_config" => "dynamicRetrievalConfig",
         "dynamic_threshold" => "dynamicThreshold",
         "lat_lng" => "latLng",
@@ -127,6 +147,16 @@ impl GoogleChatRequestExt for ChatRequest {
         merge_provider_option_object_for("google", &mut self.provider_options_map, value);
         self
     }
+
+    fn with_google_interactions_options(
+        mut self,
+        options: GoogleLanguageModelInteractionsOptions,
+    ) -> Self {
+        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
+        let value = denormalize_gemini_options_json(&value);
+        merge_provider_option_object_for("google", &mut self.provider_options_map, value);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -134,7 +164,8 @@ mod tests {
     use super::*;
     use crate::provider_options::gemini::{
         GeminiImageConfig, GeminiLatLng, GeminiOptions, GeminiRetrievalConfig,
-        GeminiThinkingConfig, GoogleLanguageModelOptions,
+        GeminiThinkingConfig, GoogleInteractionsAgentConfig, GoogleInteractionsResponseFormatEntry,
+        GoogleLanguageModelInteractionsOptions, GoogleLanguageModelOptions,
     };
     use crate::types::{ChatMessage, ChatRequest};
 
@@ -281,6 +312,84 @@ mod tests {
             options["streamFunctionCallArguments"],
             serde_json::json!(true)
         );
+    }
+
+    #[test]
+    fn with_google_interactions_options_serializes_package_fields() {
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new()
+                    .with_previous_interaction_id("iact_123")
+                    .with_store(true)
+                    .with_agent("deep-research-preview-04-2026")
+                    .with_agent_config(
+                        GoogleInteractionsAgentConfig::deep_research()
+                            .with_thinking_summaries("auto")
+                            .with_visualization("auto")
+                            .with_collaborative_planning(true),
+                    )
+                    .with_thinking_level("high")
+                    .with_response_format(vec![
+                        GoogleInteractionsResponseFormatEntry::json_schema(serde_json::json!({
+                            "type": "object"
+                        })),
+                        GoogleInteractionsResponseFormatEntry::image()
+                            .with_mime_type("image/png")
+                            .with_aspect_ratio("16:9")
+                            .with_image_size("1K"),
+                    ])
+                    .with_media_resolution("high")
+                    .with_response_modalities(["text", "image"])
+                    .with_service_tier("priority")
+                    .with_system_instruction("be concise")
+                    .with_signature("sig_123")
+                    .with_interaction_id("iact_456")
+                    .with_polling_timeout_ms(30_000),
+            );
+
+        let options = req
+            .provider_option("google")
+            .expect("google provider options");
+
+        assert_eq!(
+            options["previousInteractionId"],
+            serde_json::json!("iact_123")
+        );
+        assert_eq!(options["store"], serde_json::json!(true));
+        assert_eq!(
+            options["agent"],
+            serde_json::json!("deep-research-preview-04-2026")
+        );
+        assert_eq!(
+            options["agentConfig"]["type"],
+            serde_json::json!("deep-research")
+        );
+        assert_eq!(
+            options["agentConfig"]["collaborativePlanning"],
+            serde_json::json!(true)
+        );
+        assert_eq!(options["thinkingLevel"], serde_json::json!("high"));
+        assert_eq!(
+            options["responseFormat"][0]["mimeType"],
+            serde_json::json!("application/json")
+        );
+        assert_eq!(
+            options["responseFormat"][1]["aspectRatio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(options["mediaResolution"], serde_json::json!("high"));
+        assert_eq!(
+            options["responseModalities"],
+            serde_json::json!(["text", "image"])
+        );
+        assert_eq!(options["serviceTier"], serde_json::json!("priority"));
+        assert_eq!(
+            options["systemInstruction"],
+            serde_json::json!("be concise")
+        );
+        assert_eq!(options["signature"], serde_json::json!("sig_123"));
+        assert_eq!(options["interactionId"], serde_json::json!("iact_456"));
+        assert_eq!(options["pollingTimeoutMs"], serde_json::json!(30_000));
     }
 
     #[test]

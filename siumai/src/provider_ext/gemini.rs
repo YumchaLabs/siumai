@@ -2,13 +2,14 @@
 pub use siumai_provider_gemini::providers::gemini::GoogleGenerativeAIProviderSettings;
 pub use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
 pub use siumai_provider_gemini::providers::gemini::{
-    GeminiBuilder, GeminiClient, GoogleProviderSettings, SharedIdGenerator, VERSION,
+    GeminiBuilder, GeminiClient, GoogleInteractionsLanguageModel, GoogleInteractionsModelInput,
+    GoogleProviderSettings, SharedIdGenerator, VERSION,
 };
 
 /// Curated model-id groups aligned with the audited `@ai-sdk/google` package surface.
 pub mod models;
 
-pub use models::{chat, embedding, image, model_sets, video};
+pub use models::{agents, chat, embedding, image, interactions, model_sets, video};
 
 /// Provider tool factories that return `Tool` directly (Vercel-aligned).
 pub mod tools {
@@ -31,8 +32,10 @@ pub mod options {
         GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiImageOptions, GeminiOptions,
         GeminiResponseModality, GeminiSafetySetting, GeminiThinkingConfig, GeminiThinkingLevel,
         GoogleEmbeddingContentPart, GoogleEmbeddingInlineData, GoogleEmbeddingModelOptions,
-        GoogleFilesUploadOptions, GoogleImageModelOptions, GoogleLanguageModelOptions,
-        GoogleVideoModelId, GoogleVideoModelOptions,
+        GoogleFilesUploadOptions, GoogleImageModelOptions, GoogleInteractionsAgentConfig,
+        GoogleInteractionsAgentName, GoogleInteractionsImageConfig, GoogleInteractionsModelId,
+        GoogleInteractionsResponseFormatEntry, GoogleLanguageModelInteractionsOptions,
+        GoogleLanguageModelOptions, GoogleVideoModelId, GoogleVideoModelOptions,
     };
     #[allow(deprecated)]
     pub use siumai_provider_gemini::provider_options::gemini::{
@@ -57,7 +60,10 @@ pub use options::{
     GeminiThinkingLevel, GoogleChatRequestExt, GoogleEmbeddingContentPart,
     GoogleEmbeddingInlineData, GoogleEmbeddingModelOptions, GoogleEmbeddingRequestExt,
     GoogleFilesUploadOptions, GoogleImageModelOptions, GoogleImageRequestExt,
-    GoogleLanguageModelOptions, GoogleVideoModelId, GoogleVideoModelOptions, GoogleVideoRequestExt,
+    GoogleInteractionsAgentConfig, GoogleInteractionsAgentName, GoogleInteractionsImageConfig,
+    GoogleInteractionsModelId, GoogleInteractionsResponseFormatEntry,
+    GoogleLanguageModelInteractionsOptions, GoogleLanguageModelOptions, GoogleVideoModelId,
+    GoogleVideoModelOptions, GoogleVideoRequestExt,
 };
 #[allow(deprecated)]
 pub use options::{
@@ -71,13 +77,14 @@ pub mod metadata {
     #[allow(deprecated)]
     pub use siumai_provider_gemini::provider_metadata::gemini::{
         GeminiChatResponseExt, GeminiContentPartExt, GeminiMetadata, GeminiSource,
-        GoogleGenerativeAIProviderMetadata, GoogleProviderMetadata,
+        GoogleGenerativeAIProviderMetadata, GoogleInteractionsProviderMetadata,
+        GoogleProviderMetadata,
     };
 }
 #[allow(deprecated)]
 pub use metadata::{
     GeminiChatResponseExt, GeminiContentPartExt, GeminiMetadata, GeminiSource,
-    GoogleGenerativeAIProviderMetadata, GoogleProviderMetadata,
+    GoogleGenerativeAIProviderMetadata, GoogleInteractionsProviderMetadata, GoogleProviderMetadata,
 };
 pub use siumai_provider_gemini::providers::gemini::{GoogleErrorBody, GoogleErrorData};
 
@@ -92,7 +99,8 @@ pub mod ext {
 pub mod resources {
     pub use siumai_provider_gemini::providers::gemini::{
         GeminiCachedContents, GeminiFileSearchStores, GeminiFiles, GeminiModels, GeminiTokens,
-        GeminiVideo, GoogleErrorBody, GoogleErrorData,
+        GeminiVideo, GoogleErrorBody, GoogleErrorData, GoogleInteractionsLanguageModel,
+        GoogleInteractionsModelInput,
     };
 }
 

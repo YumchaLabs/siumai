@@ -7490,6 +7490,8 @@ mod gemini_public_path {
         GeminiChatRequestExt, GeminiChatResponseExt, GeminiContentPartExt, GeminiOptions,
         GeminiThinkingConfig, GoogleChatRequestExt, GoogleEmbeddingContentPart,
         GoogleEmbeddingInlineData, GoogleEmbeddingModelOptions, GoogleEmbeddingRequestExt,
+        GoogleInteractionsAgentConfig, GoogleInteractionsModelInput,
+        GoogleInteractionsResponseFormatEntry, GoogleLanguageModelInteractionsOptions,
         GoogleLanguageModelOptions,
     };
     use siumai_core::types::EmbeddingTaskType;
@@ -8086,6 +8088,94 @@ mod gemini_public_path {
         assert_requests_equivalent(&siumai_req, &config_req);
         assert_requests_equivalent(&siumai_req, &registry_req);
         assert_eq!(siumai_req.body["serviceTier"], serde_json::json!("flex"));
+    }
+
+    #[tokio::test]
+    async fn google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime() {
+        let request = ChatRequest::builder()
+            .model(siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new()
+                    .with_previous_interaction_id("iact_123")
+                    .with_store(true)
+                    .with_agent(siumai::provider_ext::google::agents::DEEP_RESEARCH_PREVIEW_04_2026)
+                    .with_agent_config(
+                        GoogleInteractionsAgentConfig::deep_research()
+                            .with_thinking_summaries("auto")
+                            .with_visualization("auto")
+                            .with_collaborative_planning(true),
+                    )
+                    .with_response_format(vec![
+                        GoogleInteractionsResponseFormatEntry::json_schema(serde_json::json!({
+                            "type": "object"
+                        })),
+                        GoogleInteractionsResponseFormatEntry::image()
+                            .with_mime_type("image/png")
+                            .with_aspect_ratio("16:9")
+                            .with_image_size("1K"),
+                    ])
+                    .with_media_resolution("high")
+                    .with_response_modalities(["text", "image"])
+                    .with_service_tier("priority")
+                    .with_system_instruction("be concise")
+                    .with_signature("sig_123")
+                    .with_interaction_id("iact_456")
+                    .with_polling_timeout_ms(30_000),
+            );
+
+        let options = request
+            .provider_option("google")
+            .expect("google provider options");
+        assert_eq!(
+            options["previousInteractionId"],
+            serde_json::json!("iact_123")
+        );
+        assert_eq!(
+            options["agent"],
+            serde_json::json!("deep-research-preview-04-2026")
+        );
+        assert_eq!(
+            options["agentConfig"]["type"],
+            serde_json::json!("deep-research")
+        );
+        assert_eq!(
+            options["responseFormat"][1]["aspectRatio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(options["serviceTier"], serde_json::json!("priority"));
+        assert_eq!(options["pollingTimeoutMs"], serde_json::json!(30_000));
+
+        let model = siumai::provider_ext::google::GoogleProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/v1beta")
+            .with_name("google.generative-ai")
+            .with_generate_id(|| "interactions-id".to_string())
+            .into_builder()
+            .interactions(GoogleInteractionsModelInput::agent(
+                siumai::provider_ext::google::agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            ))
+            .expect("build interactions handle");
+
+        assert_eq!(model.provider(), "google.generative-ai.interactions");
+        assert_eq!(model.base_url(), "https://example.com/v1beta");
+        assert_eq!(
+            model.agent(),
+            Some(siumai::provider_ext::google::agents::DEEP_RESEARCH_PREVIEW_04_2026)
+        );
+        assert_eq!(model.generate_id(), "interactions-id");
+
+        let err = model
+            .chat_request(request)
+            .await
+            .expect_err("interactions runtime is deferred");
+        match err {
+            LlmError::UnsupportedOperation(message) => {
+                assert!(message.contains("google.interactions runtime is not implemented yet"));
+            }
+            other => panic!("expected UnsupportedOperation, got {other:?}"),
+        }
     }
 
     #[tokio::test]
