@@ -9,7 +9,10 @@ use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool};
 use super::{GeminiConfig, SharedIdGenerator};
 use request::{GoogleInteractionsPreparedRequest, build_interactions_request_body};
 
+#[allow(dead_code)]
 mod request;
+#[allow(dead_code)]
+mod response;
 
 /// Model selector for the Google Interactions API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +114,7 @@ impl GoogleInteractionsLanguageModel {
         self.config.generate_id()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn prepare_request_body(
         &self,
         request: &ChatRequest,
@@ -155,6 +159,7 @@ impl ChatCapability for GoogleInteractionsLanguageModel {
 }
 
 /// Curated model-id constants for the audited Google Interactions package surface.
+#[allow(clippy::module_inception)]
 pub mod interactions {
     pub const GEMINI_2_5_COMPUTER_USE_PREVIEW_10_2025: &str =
         "gemini-2.5-computer-use-preview-10-2025";

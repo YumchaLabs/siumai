@@ -48,14 +48,17 @@ Status legend:
 
 ## M2 - Response And Polling Runtime
 
-- [ ] GIR-040 [owner=unassigned] [deps=GIR-020] [scope=siumai-provider-gemini]
+- [x] GIR-040 [owner=codex] [deps=GIR-020] [scope=siumai-provider-gemini]
   Goal: Parse completed Interactions responses into stable `ChatResponse` content, usage, finish
   reason, and `provider_metadata.google`.
   Validation: `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_response`
   Review: `review-workstream` before accepting completion.
-  Evidence: response fixture tests, including sources, reasoning, tool calls/results, images, and
-  signatures.
-  Handoff: Preserve `interactionId` on output parts so later compaction can work.
+  Evidence: provider-owned response fixture tests passed for completed text, usage, finish reason,
+  reasoning signatures, function calls, images, built-in tool calls/results, and source
+  extraction.
+  Handoff: `providers/gemini/interactions/response.rs` now parses completed Interactions payloads
+  into stable `ChatResponse` values and stamps `interactionId` on output parts that participate in
+  later compaction.
 
 - [ ] GIR-050 [owner=unassigned] [deps=GIR-040] [scope=siumai-provider-gemini]
   Goal: Implement non-stream model-mode execution and background polling for terminal interactions.

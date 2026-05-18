@@ -82,3 +82,8 @@ Proves ordinary Gemini package behavior remains intact.
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_request --no-fail-fast` | Passed | GIR-020 model request gate still passed after adding agent-mode request conversion: 10 model-mode request tests passed. |
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 89 tests after GIR-030. |
 | 2026-05-18 | `git diff --check` | Passed | Whitespace gate passed for GIR-030 code and workstream documentation updates. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_response --no-fail-fast` | Passed | GIR-040 response parsing gate passed: completed Interactions responses now map to stable `ChatResponse` content, usage, finish reason, provider metadata, sources, images, and tool calls/results. |
+| 2026-05-18 | `cargo fmt -p siumai-provider-gemini -- --check` | Passed | Formatting gate passed after adding the provider-owned Interactions response parser module. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 92 tests after GIR-040, proving ordinary Gemini provider behavior still passes alongside the new response parser. |
+| 2026-05-18 | `cargo clippy -p siumai-provider-gemini --all-features --all-targets -- -D warnings` | Passed | Clippy passed after narrowing dead-code allowances to the deferred Interactions runtime boundary and silencing module inception for `interactions.rs`. |
+| 2026-05-18 | `git diff --check` | Passed | Whitespace gate passed for GIR-040 code and workstream documentation updates. |

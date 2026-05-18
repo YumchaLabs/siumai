@@ -37,8 +37,8 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "GIR-040",
-    "title": "Parse completed Interactions responses",
+    "id": "GIR-050",
+    "title": "Implement non-stream model-mode execution and background polling",
     "scope": [
       "siumai-provider-gemini/src/providers/gemini",
       "fixtures"

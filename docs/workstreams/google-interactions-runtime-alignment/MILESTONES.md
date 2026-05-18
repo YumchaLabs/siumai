@@ -55,7 +55,12 @@ cargo nextest run -p siumai-provider-gemini --all-features google_interactions_r
 cargo nextest run -p siumai-provider-gemini --all-features google_interactions_non_stream
 ```
 
-Status: not started
+Status: in progress
+
+Progress:
+
+- GIR-040 completed on 2026-05-18 for completed-response parsing, usage mapping, finish reasons,
+  provider metadata, images, and source extraction.
 
 ## M3 - Streaming Runtime
 
