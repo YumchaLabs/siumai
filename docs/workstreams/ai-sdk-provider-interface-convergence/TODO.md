@@ -91,7 +91,9 @@ Status legend:
   Interactions is now package-visible as an explicit deferred handle; runtime support needs its own
   `/interactions` execution lane. Google Vertex root aliases are aligned, and the upstream
   `@ai-sdk/google-vertex/xai` sub-entry now has a dedicated Siumai provider boundary with aliases,
-  capability guards, and request-body normalization.
+  capability guards, and request-body normalization. Azure's package metadata surface now exports
+  AI SDK-style Responses metadata envelope names rooted at `provider_metadata.azure`, with runtime
+  namespace guards proving generic OpenAI metadata does not leak into default Azure paths.
 
 ## M4 - Workstream Hygiene And Closeout
 

@@ -9,6 +9,30 @@ pub use siumai_protocol_openai::provider_metadata::openai::OpenAiSource as Azure
 /// Azure-specific typed source metadata currently reuses the OpenAI-compatible stable shape.
 pub use siumai_protocol_openai::provider_metadata::openai::OpenAiSourceMetadata as AzureSourceMetadata;
 
+/// AI SDK-style Azure Responses provider metadata envelope (`provider_metadata["azure"]`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct AzureResponsesProviderMetadata {
+    pub azure: AzureMetadata,
+}
+
+/// AI SDK-style Azure Responses reasoning-part provider metadata envelope.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct AzureResponsesReasoningProviderMetadata {
+    pub azure: AzureContentPartMetadata,
+}
+
+/// AI SDK-style Azure Responses text-part provider metadata envelope.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct AzureResponsesTextProviderMetadata {
+    pub azure: AzureContentPartMetadata,
+}
+
+/// AI SDK-style Azure Responses source-document provider metadata envelope.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct AzureResponsesSourceDocumentProviderMetadata {
+    pub azure: AzureSourceMetadata,
+}
+
 /// Typed helper for Azure metadata extraction from `ChatResponse`.
 pub trait AzureChatResponseExt {
     /// Read Azure metadata from the default `provider_metadata["azure"]` root.
@@ -224,5 +248,54 @@ mod tests {
             .expect("azure content-part metadata");
         assert_eq!(meta.item_id.as_deref(), Some("rs_1"));
         assert_eq!(meta.reasoning_encrypted_content.as_deref(), Some("enc_123"));
+    }
+
+    #[test]
+    fn azure_responses_metadata_envelopes_use_azure_namespace() {
+        let response_metadata = AzureResponsesProviderMetadata {
+            azure: AzureMetadata {
+                response_id: Some("resp_123".to_string()),
+                service_tier: Some("default".to_string()),
+                ..Default::default()
+            },
+        };
+        let reasoning_metadata = AzureResponsesReasoningProviderMetadata {
+            azure: AzureContentPartMetadata {
+                item_id: Some("rs_1".to_string()),
+                reasoning_encrypted_content: Some("enc_123".to_string()),
+                ..Default::default()
+            },
+        };
+        let text_metadata = AzureResponsesTextProviderMetadata {
+            azure: AzureContentPartMetadata {
+                item_id: Some("msg_1".to_string()),
+                phase: Some("final_answer".to_string()),
+                ..Default::default()
+            },
+        };
+        let source_metadata = AzureResponsesSourceDocumentProviderMetadata {
+            azure: AzureSourceMetadata {
+                metadata_type: Some("file_citation".to_string()),
+                file_id: Some("file_123".to_string()),
+                index: Some(7),
+                ..Default::default()
+            },
+        };
+
+        for value in [
+            serde_json::to_value(response_metadata).expect("response metadata"),
+            serde_json::to_value(reasoning_metadata).expect("reasoning metadata"),
+            serde_json::to_value(text_metadata).expect("text metadata"),
+            serde_json::to_value(source_metadata).expect("source metadata"),
+        ] {
+            assert!(
+                value.get("azure").is_some(),
+                "Azure package metadata envelopes must use providerMetadata.azure"
+            );
+            assert!(
+                value.get("openai").is_none(),
+                "Azure package metadata envelopes must not leak providerMetadata.openai"
+            );
+        }
     }
 }

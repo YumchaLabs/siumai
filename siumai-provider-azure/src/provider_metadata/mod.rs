@@ -4,5 +4,7 @@ pub mod azure;
 
 pub use azure::{
     AzureChatResponseExt, AzureContentPartExt, AzureContentPartMetadata, AzureMetadata,
-    AzureSource, AzureSourceExt, AzureSourceMetadata,
+    AzureResponsesProviderMetadata, AzureResponsesReasoningProviderMetadata,
+    AzureResponsesSourceDocumentProviderMetadata, AzureResponsesTextProviderMetadata, AzureSource,
+    AzureSourceExt, AzureSourceMetadata,
 };

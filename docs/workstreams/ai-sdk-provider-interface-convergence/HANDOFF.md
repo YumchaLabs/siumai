@@ -137,6 +137,12 @@ vertical slices instead of becoming one cross-provider mega patch.
   `@ai-sdk/google-vertex/xai` exists upstream and is now modeled as its own AIPC-080 slice with
   dedicated `google_vertex_xai` / `vertex_xai` aliases, registry metadata, capability guards, and
   request-body normalization instead of being hidden under native `xai` or generic Vertex MaaS.
+- AIPC-080 then re-audited Azure. The upstream `@ai-sdk/azure` package exports OpenAI option aliases
+  plus Azure-owned Responses metadata envelope names rooted at `providerMetadata.azure`. Siumai now
+  exports the matching Azure Responses metadata envelope types through `siumai-provider-azure` and
+  `provider_ext::azure`, while the existing registry/public-path tests continue to prove default
+  Azure runtime metadata uses `azure` and only switches to `openai` when the caller explicitly
+  overrides the provider metadata key.
 
 ## Blockers
 

@@ -4087,6 +4087,10 @@ fn public_surface_azure_provider_ext_compiles() {
     let _ = size_of::<AzureSource>();
     let _ = size_of::<AzureSourceMetadata>();
     let _ = size_of::<AzureContentPartMetadata>();
+    let _ = size_of::<AzureResponsesProviderMetadata>();
+    let _ = size_of::<AzureResponsesReasoningProviderMetadata>();
+    let _ = size_of::<AzureResponsesTextProviderMetadata>();
+    let _ = size_of::<AzureResponsesSourceDocumentProviderMetadata>();
     let _ = azure_builder();
     let _ = create_azure();
     let _ = VERSION;
@@ -4139,6 +4143,11 @@ fn public_surface_azure_provider_ext_compiles() {
     resp.provider_metadata = Some(outer);
     let typed = resp.azure_metadata().expect("azure metadata");
     assert_eq!(typed.service_tier.as_deref(), Some("default"));
+
+    let envelope = AzureResponsesProviderMetadata { azure: typed };
+    let serialized = serde_json::to_value(&envelope).expect("serialize azure metadata envelope");
+    assert!(serialized.get("azure").is_some());
+    assert!(serialized.get("openai").is_none());
 
     let _ = siumai::compat::Provider::azure();
     let _ = siumai::compat::Provider::azure_chat();

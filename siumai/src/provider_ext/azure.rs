@@ -43,10 +43,14 @@ pub use options::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions
 pub mod metadata {
     pub use siumai_provider_azure::provider_metadata::azure::{
         AzureChatResponseExt, AzureContentPartExt, AzureContentPartMetadata, AzureMetadata,
+        AzureResponsesProviderMetadata, AzureResponsesReasoningProviderMetadata,
+        AzureResponsesSourceDocumentProviderMetadata, AzureResponsesTextProviderMetadata,
         AzureSource, AzureSourceExt, AzureSourceMetadata,
     };
 }
 pub use metadata::{
     AzureChatResponseExt, AzureContentPartExt, AzureContentPartMetadata, AzureMetadata,
-    AzureSource, AzureSourceExt, AzureSourceMetadata,
+    AzureResponsesProviderMetadata, AzureResponsesReasoningProviderMetadata,
+    AzureResponsesSourceDocumentProviderMetadata, AzureResponsesTextProviderMetadata, AzureSource,
+    AzureSourceExt, AzureSourceMetadata,
 };
