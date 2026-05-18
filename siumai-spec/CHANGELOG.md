@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
+
+### Added
+
+- add google vertex xai provider boundary
+
+### Other
+
+- *(clippy)* derive default for http config
+- *(release)* prepare v0.11.0-beta.8
+- harden spec core architecture guards
+- remove dedicated vision compatibility surface
+- converge provider boundary architecture
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+
 ### Added
 
 - Add shared `ProviderMetadataMap` helpers aligned with AI SDK `ProviderMetadata`:
