@@ -21,8 +21,8 @@ use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use siumai::compat::Provider;
 use siumai::experimental::execution::http::transport::{
-    HttpTransport, HttpTransportGetRequest, HttpTransportMultipartRequest, HttpTransportRequest,
-    HttpTransportResponse, HttpTransportStreamBody, HttpTransportStreamResponse,
+    HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
+    HttpTransportStreamBody, HttpTransportStreamResponse,
 };
 #[allow(unused_imports)]
 use siumai::extensions::{AudioCapability, ImageExtras};
@@ -7481,6 +7481,7 @@ mod azure_public_path {
 mod gemini_public_path {
     use super::*;
     use siumai::experimental::client::LlmClient;
+    use siumai::experimental::execution::http::transport::HttpTransportGetRequest;
     use siumai::extensions::types::FileListQuery;
     use siumai::extensions::{FileManagementCapability, VideoGenerationCapability};
     use siumai::prelude::unified::{
