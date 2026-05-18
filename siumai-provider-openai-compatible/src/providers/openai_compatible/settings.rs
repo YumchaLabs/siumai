@@ -8,17 +8,48 @@ use std::sync::Arc;
 use super::alibaba_video::{ALIBABA_VIDEO_DEFAULT_BASE_URL, AlibabaVideoModel};
 use super::{
     AlibabaConfig, DeepInfraConfig, DeepSeekConfig, FireworksConfig, GoogleVertexMaasConfig,
-    GroqConfig, MistralConfig, MoonshotAIConfig, OpenAiCompatibleBuilder, OpenAiCompatibleConfig,
-    PerplexityConfig, RequestBodyTransformer, ResponseMetadataExtractor, TogetherAIConfig,
-    XaiConfig,
+    GoogleVertexXaiConfig, GroqConfig, MistralConfig, MoonshotAIConfig, OpenAiCompatibleBuilder,
+    OpenAiCompatibleConfig, PerplexityConfig, RequestBodyTransformer, ResponseMetadataExtractor,
+    TogetherAIConfig, XaiConfig,
 };
 
 const GOOGLE_VERTEX_MAAS_DEFAULT_LOCATION: &str = "global";
+const GOOGLE_VERTEX_XAI_DEFAULT_LOCATION: &str = "global";
 
 fn google_vertex_maas_base_url(project: &str, location: &str) -> String {
     format!(
         "https://aiplatform.googleapis.com/v1/projects/{}/locations/{}/endpoints/openapi",
         project, location
+    )
+}
+
+fn google_vertex_xai_base_url(project: &str, location: &str) -> String {
+    format!(
+        "https://aiplatform.googleapis.com/v1/projects/{}/locations/{}/endpoints/openapi",
+        project, location
+    )
+}
+
+#[doc(hidden)]
+pub fn google_vertex_xai_request_body_transformer() -> Arc<dyn RequestBodyTransformer> {
+    Arc::new(
+        |body: &mut serde_json::Value, _model: &str, request_type: super::RequestType| {
+            if matches!(request_type, super::RequestType::Chat)
+                && let Some(obj) = body.as_object_mut()
+            {
+                obj.remove("reasoning_effort");
+                obj.remove("reasoningEffort");
+                obj.remove("enable_reasoning");
+                obj.remove("enableReasoning");
+                obj.remove("reasoning_budget");
+                obj.remove("reasoningBudget");
+                obj.remove("enable_thinking");
+                obj.remove("enableThinking");
+                obj.remove("thinking_budget");
+                obj.remove("thinkingBudget");
+            }
+            Ok(())
+        },
     )
 }
 
@@ -335,6 +366,126 @@ simple_compat_provider_settings! {
     /// This carrier is model-agnostic. Model selection happens later through
     /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
     pub struct DeepInfraProviderSettings => DeepInfraConfig, "deepinfra";
+}
+
+/// Package-level Google Vertex xAI provider settings aligned with
+/// `repo-ref/ai/packages/google-vertex/src/xai/google-vertex-xai-provider-node.ts`.
+///
+/// This is a separate package boundary from native `xai`, generic `vertex-maas`, and the
+/// Google Vertex root provider. It reuses the OpenAI-compatible runtime on Vertex's
+/// `/endpoints/openapi` base URL while preserving Google-style auth inputs.
+#[derive(Clone, Default)]
+pub struct GoogleVertexXaiProviderSettings {
+    /// Google Cloud project id. Defaults to `GOOGLE_VERTEX_PROJECT` when omitted.
+    pub project: Option<String>,
+    /// Google Cloud location / region. Defaults to `GOOGLE_VERTEX_LOCATION`, then `global`.
+    pub location: Option<String>,
+    /// Optional base URL override. If omitted, project/location derive the OpenAPI base URL.
+    pub base_url: Option<String>,
+    /// Default headers applied to requests built from this settings object.
+    pub headers: HashMap<String, String>,
+    /// Optional custom HTTP transport, mirroring AI SDK `fetch`.
+    pub fetch: Option<Arc<dyn HttpTransport>>,
+    /// Rust-side auth analogue for the Node-only Google auth wrapper.
+    pub token_provider: Option<Arc<dyn TokenProvider>>,
+}
+
+impl GoogleVertexXaiProviderSettings {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_project<S: Into<String>>(mut self, project: S) -> Self {
+        self.project = Some(project.into());
+        self
+    }
+
+    pub fn with_location<S: Into<String>>(mut self, location: S) -> Self {
+        self.location = Some(location.into());
+        self
+    }
+
+    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+        self.base_url = Some(base_url.into());
+        self
+    }
+
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers.extend(headers);
+        self
+    }
+
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.headers.insert(name.into(), value.into());
+        self
+    }
+
+    pub fn with_fetch(mut self, fetch: Arc<dyn HttpTransport>) -> Self {
+        self.fetch = Some(fetch);
+        self
+    }
+
+    pub fn with_token_provider(mut self, token_provider: Arc<dyn TokenProvider>) -> Self {
+        self.token_provider = Some(token_provider);
+        self
+    }
+
+    fn resolved_base_url(&self) -> Result<String, LlmError> {
+        if let Some(base_url) = non_empty(self.base_url.clone()) {
+            return Ok(base_url);
+        }
+
+        let project = non_empty(self.project.clone())
+            .or_else(|| env_non_empty("GOOGLE_VERTEX_PROJECT"))
+            .ok_or_else(|| {
+                LlmError::ConfigurationError(
+                    "Google Vertex xAI requires `project`, `base_url`, or GOOGLE_VERTEX_PROJECT"
+                        .to_string(),
+                )
+            })?;
+        let location = non_empty(self.location.clone())
+            .or_else(|| env_non_empty("GOOGLE_VERTEX_LOCATION"))
+            .unwrap_or_else(|| GOOGLE_VERTEX_XAI_DEFAULT_LOCATION.to_string());
+
+        Ok(google_vertex_xai_base_url(&project, &location))
+    }
+
+    pub fn into_builder(self) -> OpenAiCompatibleBuilder {
+        let base_url = self.resolved_base_url().ok();
+        let mut builder = OpenAiCompatibleBuilder::new(BuilderBase::default(), "google-vertex-xai")
+            .with_include_usage(true)
+            .with_supports_structured_outputs(true)
+            .with_request_body_transformer(google_vertex_xai_request_body_transformer());
+
+        if let Some(base_url) = base_url {
+            builder = builder.base_url(base_url);
+        }
+        if !self.headers.is_empty() {
+            builder = builder.custom_headers(self.headers);
+        }
+        if let Some(fetch) = self.fetch {
+            builder = builder.fetch(fetch);
+        }
+        if let Some(token_provider) = self.token_provider {
+            builder = builder.with_token_provider(token_provider);
+        }
+
+        builder
+    }
+
+    pub fn into_builder_for_model<S: Into<String>>(self, model: S) -> OpenAiCompatibleBuilder {
+        self.into_builder().model(model)
+    }
+
+    pub fn into_config_for_model<S: Into<String>>(
+        self,
+        model: S,
+    ) -> Result<GoogleVertexXaiConfig, LlmError> {
+        let base_url = self.resolved_base_url()?;
+        let mut builder = self.into_builder_for_model(model);
+        builder = builder.base_url(base_url);
+        builder.into_config()
+    }
 }
 /// Package-level Google Vertex MaaS provider settings aligned with
 /// `repo-ref/ai/packages/google-vertex/src/maas/google-vertex-maas-provider-node.ts`.

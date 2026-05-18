@@ -240,6 +240,14 @@ pub async fn build_openai_compatible_typed_client(
     if let Some(transport) = http_transport {
         config = config.with_http_transport(transport);
     }
+    if resolved_id == crate::provider::ids::GOOGLE_VERTEX_XAI {
+        config = config
+            .with_include_usage(true)
+            .with_supports_structured_outputs(true)
+            .with_request_body_transformer(
+                siumai_provider_openai_compatible::providers::openai_compatible::settings::google_vertex_xai_request_body_transformer(),
+            );
+    }
 
     // Apply common params we support directly
     if let Some(temp) = common_params.temperature {

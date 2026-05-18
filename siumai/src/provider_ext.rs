@@ -26,6 +26,9 @@ pub mod deepinfra;
 #[cfg(feature = "google-vertex")]
 pub mod vertex_maas;
 
+#[cfg(feature = "google-vertex")]
+pub mod google_vertex_xai;
+
 #[cfg(feature = "bedrock")]
 pub mod bedrock;
 

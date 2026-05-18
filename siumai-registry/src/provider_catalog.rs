@@ -317,6 +317,30 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     supported_models: models,
                 });
             }
+            #[cfg(feature = "google-vertex")]
+            ProviderType::GoogleVertexXai => {
+                use siumai_provider_openai_compatible::providers::openai_compatible::google_vertex_xai as google_vertex_xai_models;
+
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == crate::provider::ids::GOOGLE_VERTEX_XAI)
+                    .expect("Google Vertex xAI metadata should be registered");
+                let mut models: Vec<Cow<'static, str>> = Vec::new();
+                if let Some(model) = rec.default_model.clone() {
+                    push_unique_model(&mut models, Cow::Owned(model));
+                }
+                for model in google_vertex_xai_models::ALL_CHAT.iter() {
+                    push_unique_model(&mut models, Cow::Borrowed(*model));
+                }
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: Cow::Borrowed(meta.name),
+                    description: Cow::Borrowed(meta.description),
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
+                    supported_models: models,
+                });
+            }
             #[cfg(feature = "ollama")]
             ProviderType::Ollama => {
                 let meta = native_metas
@@ -1406,6 +1430,44 @@ mod tests {
                 .iter()
                 .any(|m| m.as_ref() == "qwen/qwen3-next-80b-a3b-thinking-maas"),
             "expected vertex-maas curated model ids to include the audited thinking variant"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "google-vertex")]
+    fn provider_catalog_uses_native_metadata_for_google_vertex_xai() {
+        let info = super::get_provider_info_by_id("googleVertex.xai")
+            .expect("googleVertex.xai should exist");
+        assert_eq!(info.provider_type, super::ProviderType::GoogleVertexXai);
+        assert_eq!(info.name.as_ref(), "Google Vertex xAI");
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.capabilities.chat
+                && info.capabilities.streaming
+                && info.capabilities.tools
+                && info.capabilities.vision,
+            "expected google-vertex-xai to expose the chat/language surface"
+        );
+        assert!(
+            !info.capabilities.completion
+                && !info.capabilities.embedding
+                && !info.capabilities.image_generation
+                && !info.capabilities.rerank
+                && !info.capabilities.speech
+                && !info.capabilities.transcription,
+            "expected google-vertex-xai non-chat families to remain unsupported"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "xai/grok-4.20-reasoning"),
+            "expected google-vertex-xai curated Grok model ids to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "xai/grok-4.1-fast-non-reasoning"),
+            "expected google-vertex-xai fast model ids to be listed"
         );
     }
 

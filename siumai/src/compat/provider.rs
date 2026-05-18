@@ -199,6 +199,22 @@ impl Provider {
         siumai_registry::provider::SiumaiBuilder::new().vertex_maas()
     }
 
+    /// Create a Google Vertex xAI unified builder.
+    ///
+    /// This aligns with the AI SDK `@ai-sdk/google-vertex/xai` surface:
+    /// chat/language models route through Vertex's OpenAI-compatible `/endpoints/openapi`
+    /// endpoint, authenticated with Google-style Bearer tokens.
+    #[cfg(feature = "google-vertex")]
+    pub fn google_vertex_xai() -> siumai_registry::provider::SiumaiBuilder {
+        siumai_registry::provider::SiumaiBuilder::new().google_vertex_xai()
+    }
+
+    /// Alias for `google_vertex_xai()`.
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex_xai() -> siumai_registry::provider::SiumaiBuilder {
+        Self::google_vertex_xai()
+    }
+
     /// Create an Anthropic on Vertex client builder
     #[cfg(feature = "google-vertex")]
     pub fn anthropic_vertex()

@@ -138,6 +138,8 @@ mod fireworks;
 mod gemini;
 #[cfg(feature = "google-vertex")]
 mod google_vertex;
+#[cfg(feature = "google-vertex")]
+mod google_vertex_xai;
 #[cfg(feature = "groq")]
 mod groq;
 #[cfg(feature = "minimaxi")]
@@ -177,6 +179,8 @@ pub use fireworks::FireworksProviderFactory;
 pub use gemini::GeminiProviderFactory;
 #[cfg(feature = "google-vertex")]
 pub use google_vertex::GoogleVertexProviderFactory;
+#[cfg(feature = "google-vertex")]
+pub use google_vertex_xai::GoogleVertexXaiProviderFactory;
 #[cfg(feature = "groq")]
 pub use groq::GroqProviderFactory;
 #[cfg(feature = "minimaxi")]

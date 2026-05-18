@@ -226,6 +226,23 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
                 .with_vision()
                 .with_embedding(),
         });
+
+        out.push(NativeProviderMetadata {
+            id: ids::GOOGLE_VERTEX_XAI,
+            name: "Google Vertex xAI",
+            description:
+                "xAI Grok partner models served through Google Vertex AI's OpenAI-compatible /endpoints/openapi surface",
+            // Requires project/location or an explicit OpenAPI base URL.
+            default_base_url: None,
+            default_model_policy: NativeProviderDefaultModelPolicy::ExplicitRequired(
+                "Google Vertex xAI requires an explicit model id",
+            ),
+            capabilities: ProviderCapabilities::new()
+                .with_chat()
+                .with_streaming()
+                .with_tools()
+                .with_vision(),
+        });
     }
 
     // Groq

@@ -131,6 +131,18 @@ impl SiumaiBuilder {
         self.provider_id(ids::VERTEX_MAAS)
     }
 
+    /// Create a Google Vertex xAI provider (AI SDK `@ai-sdk/google-vertex/xai` surface).
+    #[cfg(feature = "google-vertex")]
+    pub fn google_vertex_xai(self) -> Self {
+        self.provider_id(ids::GOOGLE_VERTEX_XAI)
+    }
+
+    /// Alias for `google_vertex_xai`.
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex_xai(self) -> Self {
+        self.google_vertex_xai()
+    }
+
     /// Create a TogetherAI provider (convenience method)
     #[cfg(feature = "togetherai")]
     pub fn togetherai(self) -> Self {
@@ -240,5 +252,15 @@ mod tests {
     fn vertex_maas_builder_method_sets_provider_id() {
         let builder = SiumaiBuilder::new().vertex_maas();
         assert_eq!(builder.provider_id, Some(ids::VERTEX_MAAS.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "google-vertex")]
+    fn google_vertex_xai_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().google_vertex_xai();
+        assert_eq!(
+            builder.provider_id,
+            Some(ids::GOOGLE_VERTEX_XAI.to_string())
+        );
     }
 }

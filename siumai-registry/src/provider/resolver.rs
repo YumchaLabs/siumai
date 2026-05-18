@@ -8,6 +8,9 @@ pub fn normalize_provider_id(raw: &str) -> String {
         ids::GOOGLE_VERTEX_MAAS_ALIAS | ids::GOOGLE_VERTEX_MAAS_DOTTED_ALIAS | "vertexMaas" => {
             ids::VERTEX_MAAS.to_string()
         }
+        ids::GOOGLE_VERTEX_XAI_DOTTED_ALIAS | ids::GOOGLE_VERTEX_XAI_SHORT_ALIAS => {
+            ids::GOOGLE_VERTEX_XAI.to_string()
+        }
         "google-vertex-anthropic" => ids::ANTHROPIC_VERTEX.to_string(),
         other => other.to_string(),
     }
@@ -122,6 +125,11 @@ mod tests {
         assert_eq!(normalize_provider_id("google-vertex-maas"), "vertex-maas");
         assert_eq!(normalize_provider_id("vertex.maas"), "vertex-maas");
         assert_eq!(normalize_provider_id("vertexMaas"), "vertex-maas");
+        assert_eq!(
+            normalize_provider_id("googleVertex.xai"),
+            "google-vertex-xai"
+        );
+        assert_eq!(normalize_provider_id("vertex-xai"), "google-vertex-xai");
         assert_eq!(
             normalize_provider_id("google-vertex-anthropic"),
             "anthropic-vertex"

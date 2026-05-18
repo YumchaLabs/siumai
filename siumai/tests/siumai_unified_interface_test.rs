@@ -1,5 +1,6 @@
 #![cfg(all(
     feature = "openai",
+    feature = "azure",
     feature = "anthropic",
     feature = "google",
     feature = "xai",
@@ -207,6 +208,7 @@ async fn test_provider_id_mapping() {
         ("vertex", ProviderType::Vertex),
         ("anthropic-vertex", ProviderType::AnthropicVertex),
         ("vertex-maas", ProviderType::VertexMaas),
+        ("google-vertex-xai", ProviderType::GoogleVertexXai),
         ("ollama", ProviderType::Ollama),
         ("xai", ProviderType::XAI),
         ("groq", ProviderType::Groq),
@@ -479,6 +481,7 @@ fn test_provider_type_consistency() {
         ProviderType::Vertex,
         ProviderType::AnthropicVertex,
         ProviderType::VertexMaas,
+        ProviderType::GoogleVertexXai,
         ProviderType::Ollama,
         ProviderType::XAI,
         ProviderType::Groq,
@@ -510,6 +513,14 @@ fn test_provider_type_consistency() {
     assert_eq!(
         ProviderType::from_name("vertex-maas"),
         ProviderType::VertexMaas
+    );
+    assert_eq!(
+        ProviderType::from_name("google-vertex-xai"),
+        ProviderType::GoogleVertexXai
+    );
+    assert_eq!(
+        ProviderType::from_name("googleVertex.xai"),
+        ProviderType::GoogleVertexXai
     );
     assert_eq!(
         ProviderType::from_name("deepinfra"),

@@ -222,6 +222,22 @@ pub fn builtin_provider_factory(provider_id: &str) -> Result<Arc<dyn ProviderFac
                 ))
             }
         }
+        Some(ids::BuiltinProviderId::GoogleVertexXai) => {
+            #[cfg(feature = "google-vertex")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::GoogleVertexXaiProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "google-vertex"))]
+            {
+                Err(unsupported_provider_feature(
+                    "Google Vertex xAI",
+                    "google-vertex",
+                ))
+            }
+        }
         Some(ids::BuiltinProviderId::Ollama) => {
             #[cfg(feature = "ollama")]
             {
@@ -473,6 +489,9 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         );
         insert_builtin_provider_factory(&mut providers, ids::VERTEX)
             .expect("Vertex factory should be available when the google-vertex feature is enabled");
+        insert_builtin_provider_factory(&mut providers, ids::GOOGLE_VERTEX_XAI).expect(
+            "Google Vertex xAI factory should be available when the google-vertex feature is enabled",
+        );
         // Alias for package naming consistency (Vercel-style `@ai-sdk/google-vertex`).
         insert_builtin_provider_factory(&mut providers, ids::GOOGLE_VERTEX_ALIAS).expect(
             "Vertex alias factory should be available when the google-vertex feature is enabled",

@@ -467,8 +467,12 @@ impl OpenAiCompatibleBuilder {
         let has_external_auth = self.token_provider.is_some()
             || headers_have_authorization(&self.http_config.headers)
             || headers_have_authorization(&self.base.default_headers);
-        let allow_empty_api_key =
-            has_external_auth || provider_config.id == "vertex-maas" || !auth_required;
+        let allow_empty_api_key = has_external_auth
+            || matches!(
+                provider_config.id.as_str(),
+                "vertex-maas" | "google-vertex-xai"
+            )
+            || !auth_required;
         let api_key = if allow_empty_api_key {
             self.api_key.unwrap_or_default()
         } else {
@@ -496,10 +500,19 @@ impl OpenAiCompatibleBuilder {
         let adapter: Arc<dyn crate::providers::openai_compatible::ProviderAdapter> =
             Arc::from(adapter);
 
-        if canonical_provider_id == "vertex-maas" && self.base_url.is_none() {
-            return Err(LlmError::ConfigurationError(
-                "Google Vertex MaaS requires `base_url` on the OpenAI-compatible builder; use GoogleVertexMaasProviderSettings with project/location or the unified Provider::vertex_maas() builder for project/location construction".to_string(),
-            ));
+        if matches!(
+            canonical_provider_id.as_str(),
+            "vertex-maas" | "google-vertex-xai"
+        ) && self.base_url.is_none()
+        {
+            return Err(LlmError::ConfigurationError(format!(
+                "{} requires `base_url` on the OpenAI-compatible builder; use provider settings with project/location or the unified provider builder for project/location construction",
+                if canonical_provider_id == "vertex-maas" {
+                    "Google Vertex MaaS"
+                } else {
+                    "Google Vertex xAI"
+                }
+            )));
         }
 
         let base_url = crate::utils::builder_helpers::resolve_base_url(
@@ -537,7 +550,7 @@ impl OpenAiCompatibleBuilder {
         let include_usage = self.include_usage.or_else(|| {
             matches!(
                 canonical_provider_id.as_str(),
-                "alibaba" | "deepseek" | "moonshotai" | "qwen" | "xai"
+                "alibaba" | "deepseek" | "google-vertex-xai" | "moonshotai" | "qwen" | "xai"
             )
             .then_some(true)
         });
@@ -546,9 +559,15 @@ impl OpenAiCompatibleBuilder {
         }
         if let Some(supports) = self.supports_structured_outputs {
             config = config.with_supports_structured_outputs(supports);
+        } else if canonical_provider_id == "google-vertex-xai" {
+            config = config.with_supports_structured_outputs(true);
         }
         if let Some(transformer) = self.request_body_transformer.clone() {
             config = config.with_request_body_transformer(transformer);
+        } else if canonical_provider_id == "google-vertex-xai" {
+            config = config.with_request_body_transformer(
+                crate::providers::openai_compatible::settings::google_vertex_xai_request_body_transformer(),
+            );
         }
         config = config.with_auth_required(auth_required);
 

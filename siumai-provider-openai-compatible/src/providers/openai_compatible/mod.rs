@@ -65,8 +65,8 @@ pub mod registry {
 
 // Re-export model constants for easy access
 pub use providers::models::{
-    alibaba, deepinfra, deepseek, fireworks, groq, mistral, moonshot, moonshotai, openrouter,
-    perplexity, qwen, siliconflow, together, togetherai, vertex_maas, xai,
+    alibaba, deepinfra, deepseek, fireworks, google_vertex_xai, groq, mistral, moonshot,
+    moonshotai, openrouter, perplexity, qwen, siliconflow, together, togetherai, vertex_maas, xai,
 };
 
 // Re-export new adapter system
@@ -135,9 +135,10 @@ pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use settings::{
     AlibabaProviderSettings, DeepInfraProviderSettings, DeepSeekProviderSettings,
-    FireworksProviderSettings, GoogleVertexMaasProviderSettings, GroqProviderSettings,
-    MistralProviderSettings, MoonshotAIProviderSettings, OpenAICompatibleProviderSettings,
-    PerplexityProviderSettings, TogetherAIProviderSettings, XaiProviderSettings,
+    FireworksProviderSettings, GoogleVertexMaasProviderSettings, GoogleVertexXaiProviderSettings,
+    GroqProviderSettings, MistralProviderSettings, MoonshotAIProviderSettings,
+    OpenAICompatibleProviderSettings, PerplexityProviderSettings, TogetherAIProviderSettings,
+    XaiProviderSettings,
 };
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
@@ -462,6 +463,17 @@ pub const GOOGLE_VERTEX_MAAS_VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type GoogleVertexMaasModelId = String;
+
+/// AI SDK-style provider-scoped alias for Google Vertex xAI compat text-family clients.
+pub type GoogleVertexXaiClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for Google Vertex xAI compat text-family configs.
+pub type GoogleVertexXaiConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the Google Vertex xAI package-surface facade.
+pub const GOOGLE_VERTEX_XAI_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// AI SDK-style Google Vertex xAI model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type GoogleVertexXaiModelId = String;
 
 // Test modules
 #[cfg(test)]

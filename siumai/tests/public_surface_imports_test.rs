@@ -3494,6 +3494,47 @@ fn public_surface_vertex_maas_provider_ext_compiles() {
 
 #[cfg(feature = "google-vertex")]
 #[test]
+fn public_surface_google_vertex_xai_provider_ext_compiles() {
+    use siumai::prelude::compat::{Provider, Siumai};
+    use siumai::provider_ext::google_vertex_xai::{
+        GoogleVertexXaiClient, GoogleVertexXaiConfig, GoogleVertexXaiModelId,
+        GoogleVertexXaiProviderSettings, VERSION, chat, create_google_vertex_xai,
+        google_vertex_xai as google_vertex_xai_builder, model_sets,
+        vertex_xai as vertex_xai_builder,
+    };
+
+    let _ = size_of::<GoogleVertexXaiClient>();
+    let _ = size_of::<GoogleVertexXaiConfig>();
+    let _ = size_of::<GoogleVertexXaiModelId>();
+    let _ = size_of::<GoogleVertexXaiProviderSettings>();
+    let _ = VERSION;
+    let _ = chat::GROK_4_20_REASONING;
+    let _ = chat::GROK_4_20_NON_REASONING;
+    let _ = chat::GROK_4_1_FAST_REASONING;
+    let _ = chat::GROK_4_1_FAST_NON_REASONING;
+    let _ = model_sets::ALL_CHAT;
+    let _ = google_vertex_xai_builder();
+    let _ = create_google_vertex_xai();
+    let _ = vertex_xai_builder();
+    let _ = GoogleVertexXaiProviderSettings::new()
+        .with_project("test-project")
+        .with_location("global")
+        .with_header("Authorization", "Bearer test-token")
+        .into_builder_for_model(chat::GROK_4_1_FAST_REASONING);
+    let _ = GoogleVertexXaiProviderSettings::new()
+        .with_project("test-project")
+        .with_location("global")
+        .with_header("Authorization", "Bearer test-token")
+        .into_config_for_model(chat::GROK_4_1_FAST_REASONING);
+    let _ = Provider::google_vertex_xai();
+    let _ = Provider::vertex_xai();
+    let _ = Siumai::builder().google_vertex_xai();
+    let _ = Siumai::builder().vertex_xai();
+    let _ = Provider::google_vertex_xai().model(chat::GROK_4_1_FAST_REASONING);
+}
+
+#[cfg(feature = "google-vertex")]
+#[test]
 #[allow(deprecated)]
 fn public_surface_anthropic_vertex_provider_ext_compiles() {
     use siumai::prelude::compat::Siumai;

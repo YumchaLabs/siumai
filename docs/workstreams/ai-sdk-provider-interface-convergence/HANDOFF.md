@@ -134,8 +134,9 @@ vertical slices instead of becoming one cross-provider mega patch.
   `provider_ext::google_vertex::{google_vertex, create_google_vertex}` and
   `Provider::google_vertex()` while keeping the existing `vertex` / `create_vertex` compatibility
   aliases. The same re-audit found a larger remaining package boundary:
-  `@ai-sdk/google-vertex/xai` exists upstream and should become its own AIPC-080 slice rather than
-  being hidden under native `xai` or generic Vertex MaaS.
+  `@ai-sdk/google-vertex/xai` exists upstream and is now modeled as its own AIPC-080 slice with
+  dedicated `google_vertex_xai` / `vertex_xai` aliases, registry metadata, capability guards, and
+  request-body normalization instead of being hidden under native `xai` or generic Vertex MaaS.
 
 ## Blockers
 

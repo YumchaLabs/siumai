@@ -6,6 +6,7 @@ pub mod alibaba;
 pub mod deepinfra;
 pub mod deepseek;
 pub mod fireworks;
+pub mod google_vertex_xai;
 pub mod groq;
 pub mod mistral;
 pub mod moonshot;
@@ -25,6 +26,7 @@ pub fn get_models_for_provider(provider: &str) -> Vec<String> {
         "deepseek" => deepseek::all_models(),
         "deepinfra" => deepinfra::all_models(),
         "fireworks" => fireworks::all_models(),
+        "google-vertex-xai" | "googlevertex.xai" | "vertex-xai" => google_vertex_xai::all_models(),
         "openrouter" => openrouter::all_models(),
         "vertex-maas" => vertex_maas::all_models(),
         "xai" => xai::all_models(),
@@ -91,6 +93,7 @@ mod tests {
             "pub mod openrouter;",
             "pub mod deepinfra;",
             "pub mod vertex_maas;",
+            "pub mod google_vertex_xai;",
             "pub mod fireworks;",
             "pub mod xai;",
             "pub mod siliconflow;",
@@ -166,6 +169,13 @@ mod tests {
     }
 
     #[test]
+    fn test_google_vertex_xai_models() {
+        let models = google_vertex_xai::all_models();
+        assert_eq!(models.len(), google_vertex_xai::ALL_CHAT.len());
+        assert!(models.contains(&google_vertex_xai::chat::GROK_4_1_FAST_REASONING.to_string()));
+    }
+
+    #[test]
     fn test_xai_models() {
         let models = xai::all_models();
         assert!(!models.is_empty());
@@ -211,6 +221,12 @@ mod tests {
         let fireworks_models = get_models_for_provider("fireworks");
         assert!(fireworks_models.contains(&fireworks::chat::DEEPSEEK_V3.to_string()));
 
+        let google_vertex_xai_models = get_models_for_provider("google-vertex-xai");
+        assert!(
+            google_vertex_xai_models
+                .contains(&google_vertex_xai::chat::GROK_4_1_FAST_REASONING.to_string())
+        );
+
         let moonshotai_models = get_models_for_provider("moonshotai");
         assert!(moonshotai_models.contains(&moonshotai::KIMI_K2_0905.to_string()));
 
@@ -241,6 +257,10 @@ mod tests {
         assert!(is_model_supported(
             "fireworks",
             fireworks::image::FLUX_KONTEXT_PRO
+        ));
+        assert!(is_model_supported(
+            "google-vertex-xai",
+            google_vertex_xai::chat::GROK_4_20_REASONING
         ));
         assert!(is_model_supported("moonshotai", moonshotai::KIMI_K2P5));
         assert!(is_model_supported("xai", xai::grok_4::GROK_4_LATEST));

@@ -1,4 +1,5 @@
 use crate::providers::openai_compatible::fireworks as fireworks_models;
+use crate::providers::openai_compatible::google_vertex_xai as google_vertex_xai_models;
 use crate::providers::openai_compatible::mistral as mistral_models;
 use crate::providers::openai_compatible::perplexity as perplexity_models;
 use crate::standards::openai::compat::provider_registry::{ProviderConfig, ProviderFieldMappings};
@@ -584,6 +585,25 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
                 "embedding".to_string(),
             ],
             default_model: Some("deepseek-ai/deepseek-v3.2-maas".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        },
+    );
+
+    // Google Vertex xAI - Grok partner models via Vertex OpenAI-compatible endpoint.
+    providers.insert(
+        "google-vertex-xai".to_string(),
+        ProviderConfig {
+            id: "google-vertex-xai".to_string(),
+            name: "Google Vertex xAI".to_string(),
+            // Real builds should override this with project/location derived URLs.
+            base_url:
+                "https://aiplatform.googleapis.com/v1/projects/PROJECT/locations/global/endpoints/openapi"
+                    .to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["tools".to_string(), "vision".to_string()],
+            default_model: Some(google_vertex_xai_models::CHAT.to_string()),
             supports_reasoning: false,
             api_key_env: None,
             api_key_env_aliases: Vec::new(),

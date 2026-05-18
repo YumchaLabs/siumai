@@ -22,6 +22,7 @@ pub(crate) const ANTHROPIC_VERTEX: &str = "anthropic-vertex";
 pub(crate) const GEMINI: &str = "gemini";
 pub(crate) const VERTEX: &str = "vertex";
 pub(crate) const VERTEX_MAAS: &str = "vertex-maas";
+pub(crate) const GOOGLE_VERTEX_XAI: &str = "google-vertex-xai";
 
 pub(crate) const OLLAMA: &str = "ollama";
 pub(crate) const DEEPSEEK: &str = "deepseek";
@@ -42,6 +43,8 @@ pub(crate) const GOOGLE_VERTEX_ALIAS: &str = "google-vertex";
 /// Alias ids for the Vertex MaaS surface.
 pub(crate) const GOOGLE_VERTEX_MAAS_ALIAS: &str = "google-vertex-maas";
 pub(crate) const GOOGLE_VERTEX_MAAS_DOTTED_ALIAS: &str = "vertex.maas";
+pub(crate) const GOOGLE_VERTEX_XAI_DOTTED_ALIAS: &str = "googleVertex.xai";
+pub(crate) const GOOGLE_VERTEX_XAI_SHORT_ALIAS: &str = "vertex-xai";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinProviderId {
@@ -55,6 +58,7 @@ pub(crate) enum BuiltinProviderId {
     Gemini,
     Vertex,
     VertexMaas,
+    GoogleVertexXai,
     Ollama,
     DeepSeek,
     DeepInfra,
@@ -80,6 +84,7 @@ impl BuiltinProviderId {
             GEMINI => Some(Self::Gemini),
             VERTEX => Some(Self::Vertex),
             VERTEX_MAAS => Some(Self::VertexMaas),
+            GOOGLE_VERTEX_XAI => Some(Self::GoogleVertexXai),
             OLLAMA => Some(Self::Ollama),
             DEEPSEEK => Some(Self::DeepSeek),
             DEEPINFRA => Some(Self::DeepInfra),

@@ -32,7 +32,8 @@ pub fn backoff_executor_for_provider(provider: &ProviderType) -> BackoffRetryExe
         ProviderType::Gemini
         | ProviderType::Vertex
         | ProviderType::AnthropicVertex
-        | ProviderType::VertexMaas => google_backoff(),
+        | ProviderType::VertexMaas
+        | ProviderType::GoogleVertexXai => google_backoff(),
         ProviderType::Ollama => ollama_backoff(),
         ProviderType::Bedrock | ProviderType::Custom(_) => {
             return BackoffRetryExecutor::new();

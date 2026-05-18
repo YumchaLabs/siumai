@@ -416,3 +416,57 @@ fn google_vertex_maas_provider_settings_support_token_provider_auth() {
     assert!(config.api_key.is_empty());
     assert!(config.token_provider.is_some());
 }
+
+#[test]
+fn google_vertex_xai_request_transformer_strips_reasoning_knobs() {
+    let transformer = google_vertex_xai_request_body_transformer();
+    let mut body = serde_json::json!({
+        "model": "xai/grok-4.1-fast-reasoning",
+        "messages": [{ "role": "user", "content": "hi" }],
+        "reasoning_effort": "high",
+        "reasoningEffort": "high",
+        "enable_reasoning": true,
+        "enableReasoning": true,
+        "reasoning_budget": 8192,
+        "reasoningBudget": 8192,
+        "enable_thinking": true,
+        "enableThinking": true,
+        "thinking_budget": 8192,
+        "thinkingBudget": 8192
+    });
+
+    transformer
+        .transform_request_body(
+            &mut body,
+            "xai/grok-4.1-fast-reasoning",
+            super::super::RequestType::Chat,
+        )
+        .expect("transform google vertex xai body");
+
+    let obj = body.as_object().expect("object body");
+    for stripped in [
+        "reasoning_effort",
+        "reasoningEffort",
+        "enable_reasoning",
+        "enableReasoning",
+        "reasoning_budget",
+        "reasoningBudget",
+        "enable_thinking",
+        "enableThinking",
+        "thinking_budget",
+        "thinkingBudget",
+    ] {
+        assert!(
+            !obj.contains_key(stripped),
+            "google-vertex-xai should strip {stripped}; reasoning mode is model-id owned"
+        );
+    }
+    assert_eq!(
+        body["model"],
+        serde_json::json!("xai/grok-4.1-fast-reasoning")
+    );
+    assert_eq!(
+        body["messages"],
+        serde_json::json!([{ "role": "user", "content": "hi" }])
+    );
+}

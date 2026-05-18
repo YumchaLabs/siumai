@@ -139,6 +139,7 @@ pub enum ProviderType {
     Vertex,
     AnthropicVertex,
     VertexMaas,
+    GoogleVertexXai,
     Ollama,
     DeepSeek,
     DeepInfra,
@@ -164,6 +165,7 @@ impl std::fmt::Display for ProviderType {
             Self::Vertex => write!(f, "vertex"),
             Self::AnthropicVertex => write!(f, "anthropic-vertex"),
             Self::VertexMaas => write!(f, "vertex-maas"),
+            Self::GoogleVertexXai => write!(f, "google-vertex-xai"),
             Self::Ollama => write!(f, "ollama"),
             Self::DeepSeek => write!(f, "deepseek"),
             Self::DeepInfra => write!(f, "deepinfra"),
@@ -193,6 +195,7 @@ impl ProviderType {
             "vertex" | "google-vertex" => Self::Vertex,
             "anthropic-vertex" | "google-vertex-anthropic" => Self::AnthropicVertex,
             "vertex-maas" | "google-vertex-maas" | "vertex.maas" | "vertexMaas" => Self::VertexMaas,
+            "google-vertex-xai" | "googleVertex.xai" | "vertex-xai" => Self::GoogleVertexXai,
             "ollama" => Self::Ollama,
             "deepseek" => Self::DeepSeek,
             "deepinfra" => Self::DeepInfra,
@@ -530,6 +533,26 @@ mod tests {
             ProviderType::VertexMaas
         );
         assert_eq!(ProviderType::VertexMaas.to_string(), "vertex-maas");
+    }
+
+    #[test]
+    fn provider_type_maps_google_vertex_xai_name() {
+        assert_eq!(
+            ProviderType::from_name("google-vertex-xai"),
+            ProviderType::GoogleVertexXai
+        );
+        assert_eq!(
+            ProviderType::from_name("googleVertex.xai"),
+            ProviderType::GoogleVertexXai
+        );
+        assert_eq!(
+            ProviderType::from_name("vertex-xai"),
+            ProviderType::GoogleVertexXai
+        );
+        assert_eq!(
+            ProviderType::GoogleVertexXai.to_string(),
+            "google-vertex-xai"
+        );
     }
 
     #[test]
