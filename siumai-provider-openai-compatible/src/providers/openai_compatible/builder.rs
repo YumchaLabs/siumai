@@ -548,11 +548,9 @@ impl OpenAiCompatibleBuilder {
             config = config.with_query_params(self.query_params);
         }
         let include_usage = self.include_usage.or_else(|| {
-            matches!(
-                canonical_provider_id.as_str(),
-                "alibaba" | "deepseek" | "google-vertex-xai" | "moonshotai" | "qwen" | "xai"
+            crate::providers::openai_compatible::config::default_include_usage(
+                &canonical_provider_id,
             )
-            .then_some(true)
         });
         if let Some(include_usage) = include_usage {
             config = config.with_include_usage(include_usage);

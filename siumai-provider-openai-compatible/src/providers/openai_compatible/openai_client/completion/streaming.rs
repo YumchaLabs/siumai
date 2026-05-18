@@ -1,12 +1,11 @@
 use crate::error::LlmError;
+use crate::standards::openai::compat::usage::OpenAiCompatibleUsagePolicy;
 use crate::standards::openai::completion_metadata::{
     completion_created_at, completion_stream_response_metadata,
     extract_completion_provider_metadata, flatten_completion_stream_provider_metadata,
     merge_completion_provider_metadata,
 };
-use crate::standards::openai::utils::{
-    parse_provider_openai_finish_reason, parse_provider_openai_usage_value,
-};
+use crate::standards::openai::utils::parse_provider_openai_finish_reason;
 use crate::streaming::{ChatStreamEvent, ChatStreamPart};
 use crate::types::{
     ChatResponse, ChatStreamFinishInfo, FinishReason, MessageContent, ProviderMetadataMap,
@@ -158,9 +157,10 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
             let finish_reason = finish_reason_raw.as_deref().and_then(|value| {
                 parse_provider_openai_finish_reason(provider_id.as_str(), Some(value))
             });
-            let usage = raw
-                .get("usage")
-                .and_then(|usage| parse_provider_openai_usage_value(provider_id.as_str(), usage));
+            let usage = raw.get("usage").and_then(|usage| {
+                OpenAiCompatibleUsagePolicy::for_provider(provider_id.as_str())
+                    .convert_usage_value(usage)
+            });
             let provider_metadata =
                 extract_completion_provider_metadata(&provider_metadata_key, &raw);
             let created = completion_created_at(&raw);

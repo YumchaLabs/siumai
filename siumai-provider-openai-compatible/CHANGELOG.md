@@ -58,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Built-in SiliconFlow chat streaming now requests provider usage chunks by default, so final
+  stream usage is preserved when SiliconFlow emits its usage-only SSE chunk.
 - Built-in DeepSeek, Fireworks, Mistral, Perplexity, and xAI compat presets now declare their
   canonical AI SDK API-key environment variables so settings/builders can omit explicit keys when
   the matching environment variable is present.

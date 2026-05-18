@@ -2,13 +2,12 @@ use super::{DEPRECATED_OPENAI_COMPATIBLE_KEY_WARNING, OpenAiCompatibleClient};
 use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::execution::executors::common::{HttpBody, HttpExecutionConfig};
+use crate::standards::openai::compat::usage::OpenAiCompatibleUsagePolicy;
 use crate::standards::openai::completion_metadata::{
     completion_response_metadata, extract_completion_provider_metadata,
 };
 use crate::standards::openai::completion_request::{self, CompletionBodyOptions};
-use crate::standards::openai::utils::{
-    parse_provider_openai_finish_reason, parse_provider_openai_usage_value,
-};
+use crate::standards::openai::utils::parse_provider_openai_finish_reason;
 use crate::streaming::ChatStream;
 use crate::traits::CompletionCapability;
 use crate::types::{CompletionRequest, CompletionResponse, Warning};
@@ -160,7 +159,8 @@ impl OpenAiCompatibleClient {
             finish_reason,
             raw_finish_reason,
             usage: raw.get("usage").and_then(|usage| {
-                parse_provider_openai_usage_value(self.config.provider_id.as_str(), usage)
+                OpenAiCompatibleUsagePolicy::for_provider(self.config.provider_id.as_str())
+                    .convert_usage_value(usage)
             }),
             response_metadata: Some(completion_response_metadata(
                 self.config.provider_id.clone(),

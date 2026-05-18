@@ -1,9 +1,10 @@
 use crate::error::LlmError;
 use crate::execution::transformers::response::ResponseTransformer;
-use crate::standards::openai::utils::{
-    parse_openai_usage_value, parse_xai_responses_usage_value,
-    xai_responses_usage_provider_metadata_value, xai_responses_zero_usage,
+use crate::standards::openai::compat::usage::{
+    parse_xai_responses_usage_value, xai_responses_usage_provider_metadata_value,
+    xai_responses_zero_usage,
 };
+use crate::standards::openai::utils::parse_openai_usage_value;
 use crate::types::ChatResponse;
 
 #[cfg(feature = "openai-responses")]

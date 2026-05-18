@@ -14,8 +14,9 @@ mod family_defaults;
 pub(crate) use builtin_providers::get_builtin_provider_map;
 pub use builtin_providers::get_builtin_providers;
 pub(crate) use family_defaults::{
-    get_builtin_provider_family_defaults_map, get_default_embedding_model, get_default_image_model,
-    get_default_rerank_model, get_default_speech_model, get_default_transcription_model,
+    default_include_usage, get_builtin_provider_family_defaults_map, get_default_embedding_model,
+    get_default_image_model, get_default_rerank_model, get_default_speech_model,
+    get_default_transcription_model,
 };
 
 #[cfg(test)]
@@ -389,6 +390,7 @@ mod tests {
             siliconflow.transcription_model,
             Some("FunAudioLLM/SenseVoiceSmall")
         );
+        assert_eq!(siliconflow.include_usage, Some(true));
 
         let togetherai =
             get_provider_family_defaults_ref("togetherai").expect("togetherai defaults");
@@ -408,6 +410,16 @@ mod tests {
 
         let groq = get_provider_family_defaults_ref("groq").expect("groq defaults");
         assert_eq!(groq.transcription_model, Some(groq_models::TRANSCRIPTION));
+        assert_eq!(default_include_usage("groq"), None);
+
+        assert_eq!(default_include_usage("deepseek"), Some(true));
+        assert_eq!(default_include_usage("siliconflow"), Some(true));
+        assert_eq!(default_include_usage("moonshotai"), Some(true));
+        assert_eq!(default_include_usage("alibaba"), Some(true));
+        assert_eq!(default_include_usage("qwen"), Some(true));
+        assert_eq!(default_include_usage("xai"), Some(true));
+        assert_eq!(default_include_usage("google-vertex-xai"), Some(true));
+        assert_eq!(default_include_usage("openrouter"), None);
 
         let deepinfra = get_provider_family_defaults_ref("deepinfra").expect("deepinfra defaults");
         assert_eq!(deepinfra.embedding_model, Some("BAAI/bge-base-en-v1.5"));

@@ -241,7 +241,7 @@ impl OpenAiResponsesEventConverter {
                 crate::standards::openai::utils::parse_openai_usage_value(value)
             }
             super::super::transformers::ResponsesTransformStyle::Xai => {
-                crate::standards::openai::utils::parse_xai_responses_usage_value(value)
+                crate::standards::openai::compat::usage::parse_xai_responses_usage_value(value)
             }
         }
     }

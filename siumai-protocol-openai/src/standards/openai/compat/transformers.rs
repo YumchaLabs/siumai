@@ -461,10 +461,11 @@ impl ResponseTransformer for CompatResponseTransformer {
             MessageContent::Text(String::new())
         };
 
-        let usage = crate::standards::openai::utils::extract_provider_openai_usage_value(
-            self.adapter.provider_id().as_ref(),
-            raw,
-        );
+        let usage =
+            crate::standards::openai::compat::usage::OpenAiCompatibleUsagePolicy::for_provider(
+                self.adapter.provider_id().as_ref(),
+            )
+            .extract_usage(raw);
 
         let raw_finish_reason = choice.finish_reason.clone();
         let finish_reason = raw_finish_reason.as_deref().and_then(|reason| {

@@ -15,6 +15,9 @@ only.
 
 - Fixed OpenAI-compatible streaming dropping whitespace and line breaks in streamed text deltas.
   This fixes [#19](https://github.com/YumchaLabs/siumai/issues/19); thanks @longzou for the report.
+- Fixed SiliconFlow streaming usage reporting by requesting provider usage chunks by default for
+  the built-in preset. This fixes [#20](https://github.com/YumchaLabs/siumai/issues/20); thanks
+  @longzou for the report.
 - Improved lossless streaming behavior for OpenAI and OpenAI-compatible providers.
 - Improved OpenAI response metadata consistency across streaming and non-streaming paths.
 

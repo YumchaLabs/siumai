@@ -10,6 +10,7 @@ pub mod spec;
 pub mod streaming;
 pub mod transformers;
 pub mod types;
+pub mod usage;
 
 #[cfg(test)]
 mod streaming_tests;

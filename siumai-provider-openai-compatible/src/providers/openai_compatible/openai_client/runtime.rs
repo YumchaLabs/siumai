@@ -305,8 +305,14 @@ impl OpenAiCompatibleClient {
         })?;
 
         let adapter = std::sync::Arc::new(ConfigurableAdapter::new(provider.clone()));
-        let cfg = OpenAiCompatibleConfig::new(&provider.id, api_key, &provider.base_url, adapter)
-            .with_model(model);
+        let mut cfg =
+            OpenAiCompatibleConfig::new(&provider.id, api_key, &provider.base_url, adapter)
+                .with_model(model);
+        if let Some(include_usage) =
+            super::super::config::default_include_usage(provider.id.as_str())
+        {
+            cfg = cfg.with_include_usage(include_usage);
+        }
 
         Self::from_config(cfg).await
     }

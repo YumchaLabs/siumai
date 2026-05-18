@@ -2137,6 +2137,71 @@ async fn chat_stream_request_runtime_include_usage_restores_stream_options() {
 }
 
 #[tokio::test]
+async fn chat_stream_request_runtime_siliconflow_builtin_requests_and_preserves_usage() {
+    let transport = SseResponseTransport::new(
+        br#"data: {"id":"1","model":"deepseek-ai/DeepSeek-V3","created":1,"choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}
+
+data: {"id":"1","model":"deepseek-ai/DeepSeek-V3","created":1,"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":3,"total_tokens":14}}
+
+data: [DONE]
+
+"#
+        .to_vec(),
+    );
+    let mut cfg = crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
+        crate::builder::BuilderBase::default(),
+        "siliconflow",
+    )
+    .api_key("test-key")
+    .model("deepseek-ai/DeepSeek-V3")
+    .into_config()
+    .expect("siliconflow config");
+    cfg = cfg.with_http_transport(Arc::new(transport.clone()));
+
+    let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+        .await
+        .expect("client ok");
+
+    let request = ChatRequest::builder()
+        .model("deepseek-ai/DeepSeek-V3")
+        .messages(vec![ChatMessage::user("hi").build()])
+        .build();
+
+    let stream = crate::traits::ChatCapability::chat_stream_request(&client, request)
+        .await
+        .expect("stream ok");
+    let events = stream.collect::<Vec<_>>().await;
+    let captured = transport.take_stream().expect("captured stream request");
+
+    assert_eq!(
+        captured.body.get("stream_options"),
+        Some(&serde_json::json!({ "include_usage": true }))
+    );
+
+    let end = events
+        .iter()
+        .find_map(|event| match event {
+            Ok(crate::types::ChatStreamEvent::StreamEnd { response }) => Some(response),
+            _ => None,
+        })
+        .expect("stream end event");
+    let usage = end.usage.as_ref().expect("final usage");
+    assert_eq!(usage.prompt_tokens(), Some(11));
+    assert_eq!(usage.completion_tokens(), Some(3));
+    assert_eq!(usage.total_tokens(), Some(14));
+}
+
+#[tokio::test]
+async fn from_builtin_siliconflow_preserves_default_include_usage_policy() {
+    let client =
+        OpenAiCompatibleClient::from_builtin("siliconflow", "test-key", Some("test-model"))
+            .await
+            .expect("client ok");
+
+    assert_eq!(client.request_settings().include_usage, Some(true));
+}
+
+#[tokio::test]
 async fn chat_stream_request_runtime_applies_request_body_transformer() {
     let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
         id: "deepseek".to_string(),

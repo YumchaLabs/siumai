@@ -298,7 +298,14 @@ fn openai_compatible_builder_records_include_usage_setting() {
 
 #[test]
 fn openai_compatible_builder_defaults_ai_sdk_usage_streaming_providers() {
-    for provider_id in ["alibaba", "deepseek", "moonshotai", "qwen", "xai"] {
+    for provider_id in [
+        "alibaba",
+        "deepseek",
+        "moonshotai",
+        "qwen",
+        "siliconflow",
+        "xai",
+    ] {
         let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), provider_id)
             .api_key("test-key")
             .model("test-model")
@@ -311,7 +318,14 @@ fn openai_compatible_builder_defaults_ai_sdk_usage_streaming_providers() {
 
 #[test]
 fn openai_compatible_builder_respects_explicit_defaulted_include_usage() {
-    for provider_id in ["alibaba", "deepseek", "moonshotai", "qwen", "xai"] {
+    for provider_id in [
+        "alibaba",
+        "deepseek",
+        "moonshotai",
+        "qwen",
+        "siliconflow",
+        "xai",
+    ] {
         let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), provider_id)
             .api_key("test-key")
             .model("test-model")

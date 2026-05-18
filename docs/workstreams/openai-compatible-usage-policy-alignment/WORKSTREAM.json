@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "slug": "openai-compatible-usage-policy-alignment",
+  "title": "OpenAI-Compatible Usage Policy Alignment",
+  "status": "completed",
+  "updated": "2026-05-18",
+  "scope_kind": "execution",
+  "problem": "OpenAI-compatible usage request, extraction, and conversion behavior is split between provider defaults and protocol helper matches instead of one provider runtime policy.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/openai-compatible-usage-policy-alignment/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/openai-compatible-usage-policy-alignment/TODO.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/openai-compatible-usage-policy-alignment/EVIDENCE_AND_GATES.md"
+    }
+  ],
+  "gates": [
+    "cargo fmt -p siumai-protocol-openai -p siumai-provider-openai-compatible -- --check",
+    "cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast",
+    "cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast",
+    "git diff --check"
+  ],
+  "evidence": [
+    "docs/workstreams/openai-compatible-usage-policy-alignment/DESIGN.md",
+    "siumai-protocol-openai/src/standards/openai/compat/usage.rs",
+    "cargo fmt -p siumai-protocol-openai -p siumai-provider-openai-compatible -- --check",
+    "cargo nextest run -p siumai-protocol-openai --all-features --no-fail-fast",
+    "cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast",
+    "git diff --check"
+  ],
+  "adr_refs": [],
+  "continue_policy": {
+    "default_action": "closed",
+    "notes": "Usage policy alignment is complete. Split reasoning/message dispatch cleanup into follow-on lanes only with concrete behavior targets."
+  }
+}

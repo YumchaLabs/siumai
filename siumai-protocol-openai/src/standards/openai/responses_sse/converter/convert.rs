@@ -519,7 +519,7 @@ impl OpenAiResponsesEventConverter {
             if self.responses_transform_style
                 == crate::standards::openai::transformers::ResponsesTransformStyle::Xai
             {
-                crate::standards::openai::utils::xai_responses_zero_usage()
+                crate::standards::openai::compat::usage::xai_responses_zero_usage()
             } else {
                 crate::types::Usage::builder()
                     .with_raw_usage_value(raw_usage_value.clone())
@@ -539,7 +539,7 @@ impl OpenAiResponsesEventConverter {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             let provider_metadata =
-                crate::standards::openai::utils::xai_responses_usage_provider_metadata_value(
+                crate::standards::openai::compat::usage::xai_responses_usage_provider_metadata_value(
                     &raw_usage,
                 )
                 .and_then(|metadata| self.part_provider_metadata(metadata));

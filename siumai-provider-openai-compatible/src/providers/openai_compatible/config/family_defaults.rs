@@ -12,6 +12,7 @@ pub(crate) struct ProviderFamilyDefaults {
     pub rerank_model: Option<&'static str>,
     pub speech_model: Option<&'static str>,
     pub transcription_model: Option<&'static str>,
+    pub include_usage: Option<bool>,
 }
 
 impl ProviderFamilyDefaults {
@@ -23,6 +24,7 @@ impl ProviderFamilyDefaults {
             rerank_model: None,
             speech_model: None,
             transcription_model: None,
+            include_usage: None,
         }
     }
 
@@ -55,6 +57,11 @@ impl ProviderFamilyDefaults {
         self.transcription_model = Some(model);
         self
     }
+
+    pub const fn with_include_usage(mut self, include_usage: bool) -> Self {
+        self.include_usage = Some(include_usage);
+        self
+    }
 }
 
 fn build_builtin_provider_family_defaults() -> HashMap<&'static str, ProviderFamilyDefaults> {
@@ -68,7 +75,9 @@ fn build_builtin_provider_family_defaults() -> HashMap<&'static str, ProviderFam
     );
     defaults.insert(
         "deepseek",
-        ProviderFamilyDefaults::new().with_embedding("deepseek-embedding"),
+        ProviderFamilyDefaults::new()
+            .with_embedding("deepseek-embedding")
+            .with_include_usage(true),
     );
     defaults.insert(
         "siliconflow",
@@ -77,7 +86,12 @@ fn build_builtin_provider_family_defaults() -> HashMap<&'static str, ProviderFam
             .with_image("stabilityai/stable-diffusion-3.5-large")
             .with_rerank("BAAI/bge-reranker-v2-m3")
             .with_speech("FunAudioLLM/CosyVoice2-0.5B")
-            .with_transcription("FunAudioLLM/SenseVoiceSmall"),
+            .with_transcription("FunAudioLLM/SenseVoiceSmall")
+            .with_include_usage(true),
+    );
+    defaults.insert(
+        "xai",
+        ProviderFamilyDefaults::new().with_include_usage(true),
     );
     defaults.insert(
         "together",
@@ -132,6 +146,22 @@ fn build_builtin_provider_family_defaults() -> HashMap<&'static str, ProviderFam
         "infini",
         ProviderFamilyDefaults::new().with_embedding("text-embedding-3-small"),
     );
+    defaults.insert(
+        "moonshotai",
+        ProviderFamilyDefaults::new().with_include_usage(true),
+    );
+    defaults.insert(
+        "alibaba",
+        ProviderFamilyDefaults::new().with_include_usage(true),
+    );
+    defaults.insert(
+        "qwen",
+        ProviderFamilyDefaults::new().with_include_usage(true),
+    );
+    defaults.insert(
+        "google-vertex-xai",
+        ProviderFamilyDefaults::new().with_include_usage(true),
+    );
 
     defaults
 }
@@ -168,4 +198,8 @@ pub(crate) fn get_default_speech_model(provider_id: &str) -> Option<&'static str
 
 pub(crate) fn get_default_transcription_model(provider_id: &str) -> Option<&'static str> {
     get_provider_family_defaults_ref(provider_id).and_then(|defaults| defaults.transcription_model)
+}
+
+pub(crate) fn default_include_usage(provider_id: &str) -> Option<bool> {
+    get_provider_family_defaults_ref(provider_id).and_then(|defaults| defaults.include_usage)
 }

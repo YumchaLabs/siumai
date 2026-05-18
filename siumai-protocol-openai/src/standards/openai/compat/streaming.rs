@@ -1409,19 +1409,19 @@ impl OpenAiCompatibleEventConverter {
     fn extract_usage(&self, event: &OpenAiCompatibleStreamEvent) -> Option<Usage> {
         event.usage.as_ref().and_then(|usage| {
             serde_json::to_value(usage).ok().and_then(|value| {
-                crate::standards::openai::utils::parse_provider_openai_usage_value(
+                crate::standards::openai::compat::usage::OpenAiCompatibleUsagePolicy::for_provider(
                     self.adapter.provider_id().as_ref(),
-                    &value,
                 )
+                .convert_usage_value(&value)
             })
         })
     }
 
     fn extract_usage_from_json(&self, json: &serde_json::Value) -> Option<Usage> {
-        crate::standards::openai::utils::extract_provider_openai_usage_value(
+        crate::standards::openai::compat::usage::OpenAiCompatibleUsagePolicy::for_provider(
             self.adapter.provider_id().as_ref(),
-            json,
         )
+        .extract_usage(json)
     }
 }
 
