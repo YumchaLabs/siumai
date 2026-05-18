@@ -1,0 +1,13 @@
+{
+  "slug": "google-vertex-package-surface-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align Google Vertex package root, provider members, model ids, options, and image/video behavior with the audited AI SDK package boundary.",
+  "current_task": "closed",
+  "next_task": "Use AIPC or a narrower child lane for future Google Vertex package drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "AIPC-080 Google Vertex package row is Green"
+  ]
+}

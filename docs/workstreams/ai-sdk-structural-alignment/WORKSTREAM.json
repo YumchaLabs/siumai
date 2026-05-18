@@ -1,0 +1,16 @@
+{
+  "slug": "ai-sdk-structural-alignment",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical AI SDK structural alignment program covering stable V4 data, stream, usage, helper, and provider surface convergence.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Use the AI SDK provider-interface convergence program or a narrower child workstream for new provider, stream, registry, or runtime gaps.",
+  "blocked": false,
+  "validation_focus": [
+    "historical structural alignment TODO has no open task markers",
+    "AIPC evidence records current provider/interface convergence gates"
+  ]
+}

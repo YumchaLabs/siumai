@@ -1,0 +1,13 @@
+{
+  "slug": "provider-option-alias-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align provider-option alias surfaces where Rust has honest provider-owned equivalents.",
+  "current_task": "closed",
+  "next_task": "Use provider-specific package lanes for future option alias drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks",
+    "AIPC provider-option seam is Green"
+  ]
+}

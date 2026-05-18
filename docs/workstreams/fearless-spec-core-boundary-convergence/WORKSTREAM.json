@@ -1,0 +1,13 @@
+{
+  "slug": "fearless-spec-core-boundary-convergence",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Historical spec/core boundary convergence program.",
+  "current_task": "closed",
+  "next_task": "Use newer focused follow-ons or AIPC for future spec/core drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO is fully complete",
+    "spec/core boundary history is preserved"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "slug": "groq-browser-search-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align Groq browser-search behavior and boundary handling with the audited package surface.",
+  "current_task": "closed",
+  "next_task": "Use a narrower follow-on only if upstream Groq browser-search semantics change again.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "browser-search-specific drift remains documented and bounded"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "slug": "protocol-bridge-gateway",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical protocol bridge and gateway runtime workstream for explicit request, response, stream, customization, and Axum gateway behavior.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a concrete bridge or gateway child lane for any remaining fixture, route, or protocol-pair gap instead of resuming this broad historical lane.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC-050/AIPC-060 bridge and gateway stable-part evidence is recorded",
+    "remaining fixture-expansion ideas should become bounded follow-ons"
+  ]
+}

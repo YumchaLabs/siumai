@@ -1,0 +1,13 @@
+{
+  "slug": "upload-file-call-boundary-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align upload-file call boundaries with the audited AI SDK helper surface.",
+  "current_task": "closed",
+  "next_task": "Use a narrower follow-on only if upstream upload-file call semantics change again.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "upload-file call boundary remains aligned"
+  ]
+}

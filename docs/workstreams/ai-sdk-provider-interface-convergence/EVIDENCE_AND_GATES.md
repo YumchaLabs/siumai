@@ -10,8 +10,7 @@ provider-package parity slices completed.
 
 ```bash
 git status --short
-cargo nextest run -p siumai-provider-gemini --all-features interactions_handle_is_explicitly_deferred_at_runtime --no-fail-fast
-cargo nextest run -p siumai --features google google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime --test provider_public_path_parity_test --no-fail-fast
+git diff --check
 ```
 
 ## Gate Set
@@ -179,3 +178,4 @@ should still run the full formatting gate.
 | 2026-05-18 | `$env:CARGO_BUILD_JOBS='1'; cargo nextest run -p siumai --features openai --test public_surface_imports_test public_surface_openai_provider_ext_compiles --no-fail-fast` | Passed | Low-concurrency public-surface rerun passed after the broader compile OOM. |
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features interactions_handle_is_explicitly_deferred_at_runtime --no-fail-fast` | Passed | Focused Gemini provider gate passed, proving the Interactions handle remains explicitly deferred at runtime. |
 | 2026-05-18 | `cargo nextest run -p siumai --features google google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime --test provider_public_path_parity_test --no-fail-fast` | Passed | Public-path parity gate passed, proving the package-visible `google.interactions(...)` facade still fail-fasts until the dedicated runtime lane lands; existing Gemini unreachable-pattern warning is unrelated. |
+| 2026-05-18 | `git diff --check` | Passed | Documentation hygiene gate passed after adding machine-readable status files for historical workstreams and regenerating `docs/workstreams/INDEX.md`. |

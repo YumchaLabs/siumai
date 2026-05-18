@@ -1,0 +1,16 @@
+{
+  "slug": "cohere-unified-provider-surface",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical Cohere native unified provider surface alignment.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a fresh Cohere child lane if the audited model list or package exports change.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC-080 Cohere package row is Green",
+    "curated model-list revisit is a future upstream-change trigger"
+  ]
+}

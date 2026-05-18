@@ -1,0 +1,16 @@
+{
+  "slug": "anthropic-package-surface-alignment",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical Anthropic package-surface alignment against the AI SDK provider package index.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a fresh Anthropic child lane only when the upstream package index changes or a concrete runtime gap appears.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC-080 Anthropic package row is Green",
+    "future upstream re-audit remains a trigger, not active work"
+  ]
+}

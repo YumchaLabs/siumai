@@ -1,0 +1,16 @@
+{
+  "slug": "vertex-maas-unified-provider-surface",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical Vertex MaaS unified provider surface alignment.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a fresh Vertex MaaS child lane only if the AI SDK reference documents new provider capabilities such as image support.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC-070 keeps Vertex MaaS explicit completion/embedding support documented",
+    "future image-family support is an upstream-change trigger"
+  ]
+}

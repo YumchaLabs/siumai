@@ -1,0 +1,16 @@
+{
+  "slug": "fireworks-unified-provider-surface",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical Fireworks unified provider surface alignment.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a fresh Fireworks child lane for concrete typed-option or model-list drift.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC provider inventory keeps Fireworks Green",
+    "curated model-list drift is a future upstream-change trigger"
+  ]
+}

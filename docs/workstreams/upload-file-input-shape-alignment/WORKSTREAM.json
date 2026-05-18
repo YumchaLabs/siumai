@@ -1,0 +1,13 @@
+{
+  "slug": "upload-file-input-shape-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align upload-file input shapes with the audited AI SDK helper surface.",
+  "current_task": "closed",
+  "next_task": "Use a narrower follow-on only if upstream upload-file input semantics change again.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "upload-file input shape remains aligned"
+  ]
+}

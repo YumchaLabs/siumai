@@ -1,0 +1,13 @@
+{
+  "slug": "video-model-family-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align video model family behavior with the audited AI SDK provider surface.",
+  "current_task": "closed",
+  "next_task": "Use a narrower follow-on only if upstream video family behavior changes again.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "video family behavior remains aligned"
+  ]
+}

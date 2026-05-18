@@ -1,0 +1,16 @@
+{
+  "slug": "mistral-package-surface-alignment",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical Mistral package-surface alignment for chat, embedding, typed options, and catalog behavior.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a fresh Mistral child lane only when upstream changes its package boundary.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC-070 non-completion compat preset contract is explicit",
+    "AIPC provider inventory keeps Mistral Green"
+  ]
+}

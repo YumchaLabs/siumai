@@ -1,0 +1,13 @@
+{
+  "slug": "xai-package-surface-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align xAI package-surface types, files/upload runtime, video options, and provider boundary decisions.",
+  "current_task": "closed",
+  "next_task": "Use AIPC or a narrower xAI child lane for future package-surface drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "AIPC-080 xAI package row is Green"
+  ]
+}

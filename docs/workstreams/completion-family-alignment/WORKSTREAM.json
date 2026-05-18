@@ -1,0 +1,13 @@
+{
+  "slug": "completion-family-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Introduce and validate the stable completion family across spec, core, registry, and OpenAI-family providers.",
+  "current_task": "closed",
+  "next_task": "Use provider-specific package or metadata workstreams for future completion drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus one intentional stream-event deferral",
+    "AIPC-070 completion capability inheritance is explicit for promoted compat vendors"
+  ]
+}

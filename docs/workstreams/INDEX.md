@@ -9,86 +9,90 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 - Prefer `WORKSTREAM.json` or `workstream.json` when present.
 - Fall back to a top-level `Status:` line in `TODO.md`, `todo.md`, `DESIGN.md`, or `design.md`.
 - `unknown` means the lane has no recognized status source. It is not automatically active.
+- `superseded` means the lane is historical context; resume through its listed successor or a new
+  narrow workstream, not by reopening the legacy TODO list.
+- Closed-like counts include `closed` and `superseded`; deferred lanes are tracked separately.
 - Before resuming an `unknown` lane, normalize it by reading its docs and adding a machine-readable `WORKSTREAM.json` or opening a new follow-on workstream.
 - Do not reopen a closed lane for mechanical cleanup; start from a concrete behavior, provider, public contract, or documentation gap.
 
 ## Summary
 
 - Total workstream directories: 68
-- Machine-readable status files: 11
-- Closed or closed-like lanes: 11
+- Machine-readable status files: 64
+- Closed or closed-like lanes: 60
 - Active-like lanes: 2
-- Unknown legacy lanes: 55
+- Deferred lanes: 2
+- Unknown legacy lanes: 4
 
 ## Inventory
 
 | Workstream | Status | Source | Machine-readable |
 | --- | --- | --- | --- |
 | `docs/workstreams/ai-sdk-provider-interface-convergence` | active | `WORKSTREAM.json` | yes |
-| `docs/workstreams/ai-sdk-structural-alignment` | unknown | `none` | no |
-| `docs/workstreams/anthropic-files-shared-contract-alignment` | unknown | `none` | no |
-| `docs/workstreams/anthropic-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/anthropic-vertex-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/anthropic-vertex-stream-compat-alignment` | unknown | `none` | no |
-| `docs/workstreams/bedrock-embedding-alignment` | unknown | `none` | no |
-| `docs/workstreams/bedrock-image-alignment` | unknown | `none` | no |
+| `docs/workstreams/ai-sdk-structural-alignment` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/anthropic-files-shared-contract-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/anthropic-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/anthropic-vertex-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/anthropic-vertex-stream-compat-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/bedrock-embedding-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/bedrock-image-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/bedrock-protocol-boundary-cleanup` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/cohere-unified-provider-surface` | unknown | `none` | no |
-| `docs/workstreams/completion-family-alignment` | unknown | `none` | no |
+| `docs/workstreams/cohere-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/completion-family-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/completion-metadata-boundary-convergence` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/data-content-error-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/deepinfra-unified-provider-surface` | unknown | `none` | no |
-| `docs/workstreams/deepseek-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/fearless-architecture-convergence` | unknown | `none` | no |
-| `docs/workstreams/fearless-boundary-hardening` | unknown | `none` | no |
+| `docs/workstreams/data-content-error-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/deepinfra-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/deepseek-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-architecture-convergence` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-boundary-hardening` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-content-part-boundary-split` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/fearless-core-provider-alias-extraction` | unknown | `none` | no |
+| `docs/workstreams/fearless-core-provider-alias-extraction` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-language-extension-handle-isolation` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-provider-composite-client-isolation` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-refactor` | unknown | `none` | no |
 | `docs/workstreams/fearless-refactor-v3` | unknown | `none` | no |
 | `docs/workstreams/fearless-refactor-v4` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/fearless-registry-facade-construction-boundary` | Closed. All planned registry/facade construction-boundary tasks are complete; remaining | `TODO.md` | no |
-| `docs/workstreams/fearless-spec-core-boundary-convergence` | Closed. Remaining broader `ContentPart` replacement work is deferred to a future | `TODO.md` | no |
+| `docs/workstreams/fearless-registry-facade-construction-boundary` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-spec-core-boundary-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-vision-compat-removal` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/fireworks-unified-provider-surface` | unknown | `none` | no |
-| `docs/workstreams/generate-object-structured-output-alignment` | unknown | `none` | no |
-| `docs/workstreams/generate-text-output-alignment` | unknown | `none` | no |
+| `docs/workstreams/fireworks-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/generate-object-structured-output-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/generate-text-output-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/google-interactions-runtime-alignment` | active | `WORKSTREAM.json` | yes |
-| `docs/workstreams/google-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/google-vertex-package-surface-alignment` | unknown | `none` | no |
+| `docs/workstreams/google-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/google-vertex-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/google-vertex-typed-option-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/groq-browser-search-alignment` | unknown | `none` | no |
-| `docs/workstreams/groq-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/language-model-call-options-alignment` | unknown | `none` | no |
-| `docs/workstreams/minimaxi-unified-provider-surface` | unknown | `none` | no |
-| `docs/workstreams/mistral-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/moonshotai-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/ollama-unified-provider-surface` | unknown | `none` | no |
-| `docs/workstreams/openai-compatible-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/openai-typed-option-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/perplexity-package-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/prompt-call-settings-alignment` | unknown | `none` | no |
-| `docs/workstreams/prompt-model-message-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/protocol-bridge-gateway` | unknown | `none` | no |
-| `docs/workstreams/provider-option-alias-alignment` | unknown | `none` | no |
-| `docs/workstreams/provider-settings-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/provider-utils-tooling-runtime-alignment` | unknown | `none` | no |
-| `docs/workstreams/request-options-alignment` | unknown | `none` | no |
-| `docs/workstreams/shared-data-content-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/shared-type-surface-alignment` | unknown | `none` | no |
+| `docs/workstreams/groq-browser-search-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/groq-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/language-model-call-options-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/minimaxi-unified-provider-surface` | deferred | `WORKSTREAM.json` | yes |
+| `docs/workstreams/mistral-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/moonshotai-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/ollama-unified-provider-surface` | deferred | `WORKSTREAM.json` | yes |
+| `docs/workstreams/openai-compatible-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/openai-typed-option-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/perplexity-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/prompt-call-settings-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/prompt-model-message-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/protocol-bridge-gateway` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/provider-option-alias-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/provider-settings-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/provider-utils-tooling-runtime-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/request-options-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/shared-data-content-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/shared-type-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/stream-delta-lossless-boundary` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/stream-metadata-parity-hardening` | unknown | `none` | no |
-| `docs/workstreams/togetherai-unified-provider-surface` | unknown | `none` | no |
-| `docs/workstreams/typed-stream-only` | unknown | `none` | no |
-| `docs/workstreams/upload-file-call-boundary-alignment` | unknown | `none` | no |
-| `docs/workstreams/upload-file-input-shape-alignment` | unknown | `none` | no |
-| `docs/workstreams/upload-file-result-surface-alignment` | unknown | `none` | no |
-| `docs/workstreams/upload-file-wrapper-removal-alignment` | unknown | `none` | no |
-| `docs/workstreams/upload-skill-provider-wrapper-removal-alignment` | unknown | `none` | no |
-| `docs/workstreams/vertex-maas-unified-provider-surface` | unknown | `none` | no |
-| `docs/workstreams/video-generate-result-materialization-alignment` | unknown | `none` | no |
-| `docs/workstreams/video-model-family-alignment` | unknown | `none` | no |
-| `docs/workstreams/video-provider-reference-materialization-alignment` | unknown | `none` | no |
+| `docs/workstreams/togetherai-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/typed-stream-only` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/upload-file-call-boundary-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/upload-file-input-shape-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/upload-file-result-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/upload-file-wrapper-removal-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/upload-skill-provider-wrapper-removal-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/vertex-maas-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/video-generate-result-materialization-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/video-model-family-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/video-provider-reference-materialization-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/workstream-status-hygiene` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/xai-package-surface-alignment` | unknown | `none` | no |
+| `docs/workstreams/xai-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |

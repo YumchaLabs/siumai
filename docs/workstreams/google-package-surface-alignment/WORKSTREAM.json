@@ -1,0 +1,16 @@
+{
+  "slug": "google-package-surface-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align the Google/Gemini package-visible Rust surface with the audited AI SDK Google package boundary.",
+  "current_task": "closed",
+  "follow_on": [
+    "docs/workstreams/google-interactions-runtime-alignment"
+  ],
+  "next_task": "Use the Google Interactions runtime lane for real /interactions execution; use AIPC for future package-surface drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "AIPC-080 Google package row is Green with Interactions runtime split"
+  ]
+}

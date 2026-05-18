@@ -1,0 +1,13 @@
+{
+  "slug": "upload-skill-provider-wrapper-removal-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Remove or align upload-skill provider wrapper layers with the audited AI SDK helper surface.",
+  "current_task": "closed",
+  "next_task": "Use a narrower follow-on only if upstream wrapper semantics change again.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "upload-skill wrapper removal remains aligned"
+  ]
+}

@@ -102,11 +102,14 @@ Status legend:
 
 ## M4 - Workstream Hygiene And Closeout
 
-- [ ] AIPC-090 [owner=planner] [deps=AIPC-030] [scope=docs/workstreams]
+- [x] AIPC-090 [owner=planner] [deps=AIPC-030] [scope=docs/workstreams]
   Goal: Normalize or explicitly defer legacy unknown lanes that this program supersedes.
   Validation: `docs/workstreams/INDEX.md` and child lane `WORKSTREAM.json` files agree.
   Evidence: updated workstream index and affected handoff docs.
-  Handoff: Do not rewrite historical status by assumption; mark inferred state clearly.
+  Handoff: Added machine-readable status to historical lanes whose TODOs were complete or whose
+  current entry point is now AIPC/a narrower follow-on. The index now has 64 machine-readable lanes,
+  2 active lanes, 2 deferred lanes, and 4 intentional unknown legacy directories. The remaining
+  unknowns are either empty historical directories or lanes with explicit open follow-up items.
 
 - [ ] AIPC-100 [owner=planner] [deps=AIPC-040,AIPC-050,AIPC-070,AIPC-080,AIPC-090]
   [scope=docs/workstreams/ai-sdk-provider-interface-convergence]

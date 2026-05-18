@@ -1,0 +1,13 @@
+{
+  "slug": "typed-stream-only",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Migrate public consumption, core producers, consumers, and serializers toward typed stream parts.",
+  "current_task": "closed",
+  "next_task": "Use AIPC stream convergence or a narrow stream child lane for future stream-part drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks",
+    "AIPC-050/AIPC-060 record the current stable-part-first evidence"
+  ]
+}

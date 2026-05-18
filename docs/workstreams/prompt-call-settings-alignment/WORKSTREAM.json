@@ -1,0 +1,13 @@
+{
+  "slug": "prompt-call-settings-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align prompt call settings with the audited AI SDK provider surface.",
+  "current_task": "closed",
+  "next_task": "Use a narrower follow-on only if upstream prompt call settings change again.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "prompt call settings remain aligned"
+  ]
+}

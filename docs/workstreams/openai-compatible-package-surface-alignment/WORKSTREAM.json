@@ -1,0 +1,13 @@
+{
+  "slug": "openai-compatible-package-surface-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align the shared OpenAI-compatible package facade, typed options, model ids, and error helpers with the audited AI SDK package surface.",
+  "current_task": "closed",
+  "next_task": "Use AIPC or a narrower OpenAI-compatible child lane for future package-surface drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "AIPC-070/AIPC-080 keep OpenAI-compatible capability and package-surface rows Green"
+  ]
+}

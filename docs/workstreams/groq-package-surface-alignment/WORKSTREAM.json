@@ -1,0 +1,16 @@
+{
+  "slug": "groq-package-surface-alignment",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical Groq package-surface alignment for typed options, catalog, runtime metadata, and provider settings.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Use AIPC for future Groq package-surface drift; use a separate lane for browser-search-specific work.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC-080 Groq package row is Green",
+    "provider-owned speech extension remains documented outside the AI SDK package surface"
+  ]
+}

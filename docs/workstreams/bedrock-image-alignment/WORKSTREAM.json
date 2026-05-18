@@ -1,0 +1,13 @@
+{
+  "slug": "bedrock-image-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align Amazon Bedrock image public/runtime behavior with the audited package surface.",
+  "current_task": "closed",
+  "next_task": "Use the AI SDK provider-interface convergence program for any new Bedrock package drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "AIPC-080 Bedrock package row is Green"
+  ]
+}

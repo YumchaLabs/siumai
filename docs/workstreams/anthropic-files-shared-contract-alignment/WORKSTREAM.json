@@ -1,0 +1,13 @@
+{
+  "slug": "anthropic-files-shared-contract-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align shared Anthropic file contract behavior and keep the provider-owned surface honest.",
+  "current_task": "closed",
+  "next_task": "Use a narrower Anthropic follow-on only if the upstream file contract changes again.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks and no active follow-up marker",
+    "provider-owned Anthropic file contract remains aligned"
+  ]
+}

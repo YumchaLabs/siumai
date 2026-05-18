@@ -42,10 +42,10 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "AIPC-090",
-    "title": "Normalize or explicitly defer legacy unknown lanes that this program supersedes",
+    "id": "AIPC-100",
+    "title": "Close this program lane or split remaining work into narrower follow-ons",
     "scope": [
-      "docs/workstreams"
+      "docs/workstreams/ai-sdk-provider-interface-convergence"
     ]
   },
   "continue_policy": {

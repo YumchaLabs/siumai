@@ -1,0 +1,16 @@
+{
+  "slug": "togetherai-unified-provider-surface",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical TogetherAI unified provider surface alignment.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a fresh TogetherAI child lane for planned legacy alias deletion or provider-owned package relocation.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC-080 TogetherAI package row is Green",
+    "remaining low-level alias and package-location questions are follow-on cleanup, not current provider parity"
+  ]
+}

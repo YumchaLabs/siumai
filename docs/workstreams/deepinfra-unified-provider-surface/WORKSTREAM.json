@@ -1,0 +1,16 @@
+{
+  "slug": "deepinfra-unified-provider-surface",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical DeepInfra unified provider surface alignment.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a fresh DeepInfra child lane for concrete package drift; the old broader provider audit is no longer the active entry point.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC provider inventory keeps DeepInfra Green",
+    "remaining broad provider-audit note was superseded by AIPC provider-by-provider inventory"
+  ]
+}

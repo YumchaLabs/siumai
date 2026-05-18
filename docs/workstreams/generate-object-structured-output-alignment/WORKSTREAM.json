@@ -1,0 +1,13 @@
+{
+  "slug": "generate-object-structured-output-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align generate-object structured-output helpers and result metadata with the audited AI SDK behavior.",
+  "current_task": "closed",
+  "next_task": "Use a narrower follow-on only if upstream structured-output object helpers change again.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "structured object helper coverage remains aligned"
+  ]
+}

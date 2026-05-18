@@ -1,0 +1,13 @@
+{
+  "slug": "fearless-core-provider-alias-extraction",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Historical core provider alias extraction program.",
+  "current_task": "closed",
+  "next_task": "Use newer focused follow-ons or AIPC for future alias drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO is fully complete",
+    "alias extraction history is preserved"
+  ]
+}

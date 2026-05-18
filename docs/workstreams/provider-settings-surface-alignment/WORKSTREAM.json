@@ -1,0 +1,13 @@
+{
+  "slug": "provider-settings-surface-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align provider settings carriers, builder surfaces, and intentional TypeScript-only deferrals across provider packages.",
+  "current_task": "closed",
+  "next_task": "Use provider-specific package lanes for future provider settings drift.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "AIPC provider package rows record the current settings boundaries"
+  ]
+}

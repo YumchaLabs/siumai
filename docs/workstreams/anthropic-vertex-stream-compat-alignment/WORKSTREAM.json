@@ -1,0 +1,13 @@
+{
+  "slug": "anthropic-vertex-stream-compat-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align Anthropic Vertex stream compatibility and preserve the audited boundary.",
+  "current_task": "closed",
+  "next_task": "Use a narrower Anthropic Vertex follow-on only if upstream stream compatibility changes.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "stream compatibility remains locked to the audited boundary"
+  ]
+}

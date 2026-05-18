@@ -1,0 +1,13 @@
+{
+  "slug": "anthropic-vertex-package-surface-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align the Anthropic-on-Vertex package surface with the audited AI SDK boundary.",
+  "current_task": "closed",
+  "next_task": "Use a narrower Anthropic Vertex follow-on only if upstream changes the package boundary.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus intentional deferrals only",
+    "provider/catalog/public-path parity remains aligned"
+  ]
+}

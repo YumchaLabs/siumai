@@ -6,9 +6,9 @@ Last updated: 2026-05-18
 ## Current State
 
 The program workstream is open. The target seams, initial parity inventory, milestones, gates, and
-task ledger are recorded. AIPC-030, AIPC-040, AIPC-050, AIPC-060, and AIPC-070 are complete.
-AIPC-080 is also complete: provider package rows now either have green evidence, intentional Rust
-boundaries, deferred non-official package status, or a child workstream.
+task ledger are recorded. AIPC-030, AIPC-040, AIPC-050, AIPC-060, AIPC-070, AIPC-080, and AIPC-090
+are complete. Provider package rows now either have green evidence, intentional Rust boundaries,
+deferred non-official package status, or a child workstream.
 AIPC-050 closed after three stream-part slices: OpenAI Responses public feature-surface tests now exercise stable
 `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event inputs; extras
 gateway smoke tests now require stable downstream tool stream parts for the Anthropic-to-OpenAI
@@ -35,15 +35,14 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Active Task
 
-- Task ID: AIPC-080
+- Task ID: AIPC-100
 - Owner: codex
 - Files:
-  - `siumai-provider-*`
-  - `siumai-protocol-*`
   - `docs/workstreams/ai-sdk-provider-interface-convergence/*`
+  - `docs/workstreams/INDEX.md`
 - Validation:
-  - package-specific no-network tests
-  - focused public import tests for touched providers
+  - `git diff --check`
+  - focused docs/status consistency checks
 
 ## Decisions Since Last Update
 
@@ -155,6 +154,13 @@ vertical slices instead of becoming one cross-provider mega patch.
   focused coverage. `google.interactions(...)` remains package-visible and fail-fast by design until
   the new `docs/workstreams/google-interactions-runtime-alignment` lane implements the dedicated
   `/interactions` runtime.
+- AIPC-090 normalized historical workstream status for lanes whose own TODOs were complete or whose
+  current entry point is now AIPC / a narrower follow-on. `docs/workstreams/INDEX.md` now records 68
+  workstream directories, 64 machine-readable status files, 60 closed-or-superseded lanes, 2 active
+  lanes, 2 deferred lanes, and 4 unknown legacy directories. The remaining unknowns are intentionally
+  left unclassified: `fearless-refactor` and `fearless-refactor-v3` are empty historical directories,
+  while `google-vertex-typed-option-surface-alignment` and `stream-metadata-parity-hardening` still
+  have explicit open follow-up items.
 
 ## Blockers
 
@@ -162,6 +168,6 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Execute AIPC-090 next. Normalize or explicitly defer legacy unknown lanes that this program
-supersedes, starting from `docs/workstreams/INDEX.md` and only updating lanes whose status can be
-inferred from their own docs or this program's explicit follow-on split.
+Execute AIPC-100 next. Decide whether to close this program lane now or keep it active only as a
+coordination parent while `docs/workstreams/google-interactions-runtime-alignment` executes the
+remaining Google Interactions runtime work.

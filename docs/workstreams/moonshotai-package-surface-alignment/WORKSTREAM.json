@@ -1,0 +1,16 @@
+{
+  "slug": "moonshotai-package-surface-alignment",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical MoonshotAI package-surface alignment for canonical identity, typed options, and chat-only boundary.",
+  "current_task": "superseded",
+  "superseded_by": [
+    "docs/workstreams/ai-sdk-provider-interface-convergence"
+  ],
+  "next_task": "Open a fresh MoonshotAI child lane for upstream package expansion or a planned hidden-alias removal.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC-070 non-completion compat preset contract is explicit",
+    "remaining hidden-alias deletion is migration cleanup, not current provider-interface work"
+  ]
+}

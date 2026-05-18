@@ -1,0 +1,13 @@
+{
+  "slug": "ollama-unified-provider-surface",
+  "status": "deferred",
+  "updated": "2026-05-18",
+  "objective": "Siumai-native Ollama curated model and provider facade alignment.",
+  "current_task": "deferred",
+  "next_task": "Revisit only when the public Ollama default list changes intentionally or legacy constants become safe to remove.",
+  "blocked": false,
+  "validation_focus": [
+    "AIPC inventory marks Ollama as Deferred because there is no official AI SDK package parity target",
+    "TODO follow-up is future model-list maintenance"
+  ]
+}
