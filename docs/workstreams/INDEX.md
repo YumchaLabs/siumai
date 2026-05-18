@@ -18,9 +18,9 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 ## Summary
 
-- Total workstream directories: 70
-- Machine-readable status files: 70
-- Closed or closed-like lanes: 68
+- Total workstream directories: 71
+- Machine-readable status files: 71
+- Closed or closed-like lanes: 69
 - Active-like lanes: 0
 - Deferred lanes: 2
 - Unknown legacy lanes: 0
@@ -71,6 +71,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/moonshotai-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/ollama-unified-provider-surface` | deferred | `WORKSTREAM.json` | yes |
 | `docs/workstreams/openai-compatible-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/openai-compatible-reasoning-policy-alignment` | completed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/openai-compatible-usage-policy-alignment` | completed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/openai-typed-option-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/perplexity-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |

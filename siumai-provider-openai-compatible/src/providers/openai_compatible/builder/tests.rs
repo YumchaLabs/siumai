@@ -26,7 +26,6 @@ fn builder_shell_keeps_provider_reasoning_mapping_split() {
     );
 
     for marker in [
-        "fn provider_thinking_value",
         "pub fn with_thinking(",
         "pub fn with_thinking_budget(",
         "pub fn reasoning(",
@@ -41,6 +40,15 @@ fn builder_shell_keeps_provider_reasoning_mapping_split() {
             "builder reasoning module should own `{marker}`"
         );
     }
+
+    assert!(
+        reasoning.contains("OpenAiCompatibleReasoningPolicy::for_provider"),
+        "builder reasoning module should route through the shared protocol reasoning policy"
+    );
+    assert!(
+        !reasoning.contains("match self.provider_id.as_str()"),
+        "builder reasoning module should not duplicate provider-id reasoning switches"
+    );
 }
 
 #[test]

@@ -14,21 +14,6 @@ use crate::types::{CommonParams, HttpConfig};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-fn thinking_option(enable: bool, budget_tokens: Option<u32>) -> serde_json::Value {
-    let mut thinking = serde_json::Map::new();
-    thinking.insert(
-        "type".to_string(),
-        serde_json::Value::String(if enable { "enabled" } else { "disabled" }.to_string()),
-    );
-    if let Some(budget_tokens) = budget_tokens {
-        thinking.insert(
-            "budget_tokens".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(budget_tokens)),
-        );
-    }
-    serde_json::Value::Object(thinking)
-}
-
 /// Configuration for OpenAI-compatible providers
 #[derive(Clone)]
 pub struct OpenAiCompatibleConfig {
@@ -319,6 +304,19 @@ impl OpenAiCompatibleConfig {
         self
     }
 
+    fn with_reasoning_patch(
+        mut self,
+        patch: super::reasoning::OpenAiCompatibleReasoningPatch,
+    ) -> Self {
+        if patch.is_empty() {
+            return self;
+        }
+
+        let adapter = self.adapter.clone_adapter();
+        self.adapter = Arc::from(patch.wrap_adapter(adapter) as Box<dyn ProviderAdapter>);
+        self
+    }
+
     /// Install a public response-metadata extractor on top of the current provider adapter.
     ///
     /// This mirrors AI SDK's OpenAI-compatible `metadataExtractor` hook without requiring callers
@@ -431,137 +429,37 @@ impl OpenAiCompatibleConfig {
 
     /// Enable provider-native thinking mode when supported.
     pub fn with_thinking(mut self, enable: bool) -> Self {
-        match self.provider_id.as_str() {
-            "siliconflow" | "qwen" | "alibaba" => {
-                self = self.with_provider_specific_param(
-                    "enable_thinking",
-                    serde_json::Value::Bool(enable),
-                );
-            }
-            "deepseek" | "moonshot" | "moonshotai" => {
-                self = self.with_provider_specific_param("thinking", thinking_option(enable, None));
-            }
-            "xai" => {
-                if enable {
-                    self = self
-                        .with_provider_specific_param("reasoning_effort", serde_json::json!("low"));
-                }
-            }
-            _ => {
-                self = self.with_provider_specific_param(
-                    "enable_reasoning",
-                    serde_json::Value::Bool(enable),
-                );
-            }
-        }
+        let patch =
+            super::reasoning::OpenAiCompatibleReasoningPolicy::for_provider(&self.provider_id)
+                .thinking(enable);
+        self = self.with_reasoning_patch(patch);
         self
     }
 
     /// Set thinking budget for providers that expose it.
     pub fn with_thinking_budget(mut self, budget: u32) -> Self {
-        let clamped_budget = budget.clamp(128, 32768);
-        match self.provider_id.as_str() {
-            "siliconflow" | "qwen" | "alibaba" => {
-                self = self
-                    .with_provider_specific_param(
-                        "thinking_budget",
-                        serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                    )
-                    .with_provider_specific_param("enable_thinking", serde_json::Value::Bool(true));
-            }
-            "deepseek" => {
-                self = self.with_provider_specific_param("thinking", thinking_option(true, None));
-            }
-            "moonshot" | "moonshotai" => {
-                self = self.with_provider_specific_param(
-                    "thinking",
-                    thinking_option(true, Some(clamped_budget)),
-                );
-            }
-            "xai" => {
-                self = self
-                    .with_provider_specific_param("reasoning_effort", serde_json::json!("high"));
-            }
-            _ => {
-                self = self
-                    .with_provider_specific_param(
-                        "reasoning_budget",
-                        serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                    )
-                    .with_provider_specific_param(
-                        "enable_reasoning",
-                        serde_json::Value::Bool(true),
-                    );
-            }
-        }
+        let patch =
+            super::reasoning::OpenAiCompatibleReasoningPolicy::for_provider(&self.provider_id)
+                .thinking_budget(budget);
+        self = self.with_reasoning_patch(patch);
         self
     }
 
     /// Unified reasoning toggle.
     pub fn with_reasoning(mut self, enable: bool) -> Self {
-        match self.provider_id.as_str() {
-            "siliconflow" | "qwen" | "alibaba" => {
-                self = self.with_provider_specific_param(
-                    "enable_thinking",
-                    serde_json::Value::Bool(enable),
-                );
-            }
-            "deepseek" | "moonshot" | "moonshotai" => {
-                self = self.with_provider_specific_param("thinking", thinking_option(enable, None));
-            }
-            "xai" => {
-                if enable {
-                    self = self
-                        .with_provider_specific_param("reasoning_effort", serde_json::json!("low"));
-                }
-            }
-            _ => {
-                self = self.with_provider_specific_param(
-                    "enable_reasoning",
-                    serde_json::Value::Bool(enable),
-                );
-            }
-        }
+        let patch =
+            super::reasoning::OpenAiCompatibleReasoningPolicy::for_provider(&self.provider_id)
+                .reasoning(enable);
+        self = self.with_reasoning_patch(patch);
         self
     }
 
     /// Unified reasoning budget.
     pub fn with_reasoning_budget(mut self, budget: i32) -> Self {
-        let clamped_budget = budget.clamp(128, 32768) as u32;
-        match self.provider_id.as_str() {
-            "siliconflow" | "qwen" | "alibaba" => {
-                self = self
-                    .with_provider_specific_param(
-                        "thinking_budget",
-                        serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                    )
-                    .with_provider_specific_param("enable_thinking", serde_json::Value::Bool(true));
-            }
-            "deepseek" => {
-                self = self.with_provider_specific_param("thinking", thinking_option(true, None));
-            }
-            "moonshot" | "moonshotai" => {
-                self = self.with_provider_specific_param(
-                    "thinking",
-                    thinking_option(true, Some(clamped_budget)),
-                );
-            }
-            "xai" => {
-                self = self
-                    .with_provider_specific_param("reasoning_effort", serde_json::json!("high"));
-            }
-            _ => {
-                self = self
-                    .with_provider_specific_param(
-                        "reasoning_budget",
-                        serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                    )
-                    .with_provider_specific_param(
-                        "enable_reasoning",
-                        serde_json::Value::Bool(true),
-                    );
-            }
-        }
+        let patch =
+            super::reasoning::OpenAiCompatibleReasoningPolicy::for_provider(&self.provider_id)
+                .reasoning_budget(budget);
+        self = self.with_reasoning_patch(patch);
         self
     }
 
@@ -1144,6 +1042,123 @@ mod tests {
             .expect("transform request params");
         assert_eq!(params["enable_reasoning"], serde_json::json!(true));
         assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
+    }
+
+    #[test]
+    fn test_config_reasoning_budget_maps_for_moonshotai_and_preserves_budget_on_toggle() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.moonshot.ai/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "moonshotai",
+            "test-key",
+            "https://api.moonshot.ai/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_model("kimi-k2-thinking")
+        .with_reasoning_budget(4096)
+        .with_reasoning(false);
+
+        let mut params = serde_json::json!({});
+        config
+            .adapter
+            .transform_request_params(
+                &mut params,
+                &config.model,
+                super::super::types::RequestType::Chat,
+            )
+            .expect("transform request params");
+        assert_eq!(
+            params["thinking"],
+            serde_json::json!({
+                "type": "disabled",
+                "budget_tokens": 4096
+            })
+        );
+    }
+
+    #[test]
+    fn test_config_xai_reasoning_false_removes_existing_effort_default() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.x.ai/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "xai",
+            "test-key",
+            "https://api.x.ai/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_model("grok-4")
+        .with_reasoning_budget(2048)
+        .with_reasoning(false);
+
+        let mut params = serde_json::json!({});
+        config
+            .adapter
+            .transform_request_params(
+                &mut params,
+                &config.model,
+                super::super::types::RequestType::Chat,
+            )
+            .expect("transform request params");
+        assert!(params.get("reasoning_effort").is_none());
+        assert!(params.get("reasoningEffort").is_none());
     }
 
     #[test]

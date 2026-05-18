@@ -1,21 +1,14 @@
 use super::OpenAiCompatibleBuilder;
 
-fn provider_thinking_value(enable: bool, budget_tokens: Option<u32>) -> serde_json::Value {
-    let mut thinking = serde_json::Map::new();
-    thinking.insert(
-        "type".to_string(),
-        serde_json::Value::String(if enable { "enabled" } else { "disabled" }.to_string()),
-    );
-    if let Some(budget_tokens) = budget_tokens {
-        thinking.insert(
-            "budget_tokens".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(budget_tokens)),
-        );
-    }
-    serde_json::Value::Object(thinking)
-}
-
 impl OpenAiCompatibleBuilder {
+    fn apply_reasoning_patch(
+        mut self,
+        patch: crate::standards::openai::compat::reasoning::OpenAiCompatibleReasoningPatch,
+    ) -> Self {
+        patch.apply_to_hash_map(&mut self.provider_specific_config);
+        self
+    }
+
     /// Enable thinking mode for supported models.
     ///
     /// When enabled, models that support thinking (like DeepSeek V3.1, Qwen 3, etc.)
@@ -40,29 +33,12 @@ impl OpenAiCompatibleBuilder {
     /// # }
     /// ```
     pub fn with_thinking(mut self, enable: bool) -> Self {
-        match self.provider_id.as_str() {
-            "deepseek" | "moonshot" | "moonshotai" => {
-                self.provider_specific_config.insert(
-                    "thinking".to_string(),
-                    provider_thinking_value(enable, None),
-                );
-            }
-            "xai" => {
-                if enable {
-                    self.provider_specific_config
-                        .insert("reasoning_effort".to_string(), serde_json::json!("low"));
-                } else {
-                    self.provider_specific_config.remove("reasoning_effort");
-                    self.provider_specific_config.remove("reasoningEffort");
-                }
-            }
-            _ => {
-                self.provider_specific_config.insert(
-                    "enable_thinking".to_string(),
-                    serde_json::Value::Bool(enable),
-                );
-            }
-        }
+        let patch =
+            crate::standards::openai::compat::reasoning::OpenAiCompatibleReasoningPolicy::for_provider(
+                &self.provider_id,
+            )
+            .thinking(enable);
+        self = self.apply_reasoning_patch(patch);
         self
     }
 
@@ -90,29 +66,12 @@ impl OpenAiCompatibleBuilder {
     /// # }
     /// ```
     pub fn with_thinking_budget(mut self, budget: u32) -> Self {
-        let clamped_budget = budget.clamp(128, 32768);
-        match self.provider_id.as_str() {
-            "deepseek" => {
-                self.provider_specific_config
-                    .insert("thinking".to_string(), provider_thinking_value(true, None));
-            }
-            "moonshot" | "moonshotai" => {
-                self.provider_specific_config.insert(
-                    "thinking".to_string(),
-                    provider_thinking_value(true, Some(clamped_budget)),
-                );
-            }
-            "xai" => {
-                self.provider_specific_config
-                    .insert("reasoning_effort".to_string(), serde_json::json!("high"));
-            }
-            _ => {
-                self.provider_specific_config.insert(
-                    "thinking_budget".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                );
-            }
-        }
+        let patch =
+            crate::standards::openai::compat::reasoning::OpenAiCompatibleReasoningPolicy::for_provider(
+                &self.provider_id,
+            )
+            .thinking_budget(budget);
+        self = self.apply_reasoning_patch(patch);
         self
     }
 
@@ -145,54 +104,12 @@ impl OpenAiCompatibleBuilder {
     /// # }
     /// ```
     pub fn reasoning(mut self, enable: bool) -> Self {
-        match self.provider_id.as_str() {
-            "siliconflow" | "qwen" | "alibaba" => {
-                self.provider_specific_config.insert(
-                    "enable_thinking".to_string(),
-                    serde_json::Value::Bool(enable),
-                );
-            }
-            "moonshot" | "moonshotai" => {
-                let mut thinking = self
-                    .provider_specific_config
-                    .remove("thinking")
-                    .and_then(|value| value.as_object().cloned())
-                    .unwrap_or_default();
-                thinking.insert(
-                    "type".to_string(),
-                    serde_json::Value::String(if enable { "enabled" } else { "disabled" }.into()),
-                );
-                self.provider_specific_config
-                    .insert("thinking".to_string(), serde_json::Value::Object(thinking));
-            }
-            "deepseek" => {
-                self.provider_specific_config.insert(
-                    "thinking".to_string(),
-                    provider_thinking_value(enable, None),
-                );
-            }
-            "xai" => {
-                if enable {
-                    self.provider_specific_config
-                        .insert("reasoning_effort".to_string(), serde_json::json!("low"));
-                } else {
-                    self.provider_specific_config.remove("reasoning_effort");
-                    self.provider_specific_config.remove("reasoningEffort");
-                }
-            }
-            "openrouter" => {
-                self.provider_specific_config.insert(
-                    "enable_reasoning".to_string(),
-                    serde_json::Value::Bool(enable),
-                );
-            }
-            _ => {
-                self.provider_specific_config.insert(
-                    "enable_reasoning".to_string(),
-                    serde_json::Value::Bool(enable),
-                );
-            }
-        }
+        let patch =
+            crate::standards::openai::compat::reasoning::OpenAiCompatibleReasoningPolicy::for_provider(
+                &self.provider_id,
+            )
+            .reasoning(enable);
+        self = self.apply_reasoning_patch(patch);
         self
     }
 
@@ -225,59 +142,12 @@ impl OpenAiCompatibleBuilder {
     /// # }
     /// ```
     pub fn reasoning_budget(mut self, budget: i32) -> Self {
-        let clamped_budget = budget.clamp(128, 32768) as u32;
-
-        match self.provider_id.as_str() {
-            "siliconflow" | "qwen" | "alibaba" => {
-                self.provider_specific_config.insert(
-                    "thinking_budget".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                );
-                self.provider_specific_config
-                    .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
-            }
-            "moonshot" | "moonshotai" => {
-                let mut thinking = self
-                    .provider_specific_config
-                    .remove("thinking")
-                    .and_then(|value| value.as_object().cloned())
-                    .unwrap_or_default();
-                thinking.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("enabled".to_string()),
-                );
-                thinking.insert(
-                    "budget_tokens".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                );
-                self.provider_specific_config
-                    .insert("thinking".to_string(), serde_json::Value::Object(thinking));
-            }
-            "deepseek" => {
-                self.provider_specific_config
-                    .insert("thinking".to_string(), provider_thinking_value(true, None));
-            }
-            "xai" => {
-                self.provider_specific_config
-                    .insert("reasoning_effort".to_string(), serde_json::json!("high"));
-            }
-            "openrouter" => {
-                self.provider_specific_config.insert(
-                    "reasoning_budget".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                );
-                self.provider_specific_config.insert(
-                    "enable_reasoning".to_string(),
-                    serde_json::Value::Bool(true),
-                );
-            }
-            _ => {
-                self.provider_specific_config.insert(
-                    "reasoning_budget".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-                );
-            }
-        }
+        let patch =
+            crate::standards::openai::compat::reasoning::OpenAiCompatibleReasoningPolicy::for_provider(
+                &self.provider_id,
+            )
+            .reasoning_budget(budget);
+        self = self.apply_reasoning_patch(patch);
         self
     }
 }

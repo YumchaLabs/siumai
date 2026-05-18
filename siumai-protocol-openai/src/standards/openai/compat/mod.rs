@@ -6,6 +6,7 @@ pub mod base_url;
 pub mod metadata;
 pub mod openai_config;
 pub mod provider_registry;
+pub mod reasoning;
 pub mod spec;
 pub mod streaming;
 pub mod transformers;
