@@ -5,10 +5,11 @@ Last updated: 2026-05-18
 
 ## Smallest Current Repro
 
-The currently shipped Interactions handle is package-visible but fail-fast:
+The Interactions handle now executes the non-stream `/interactions` path. Streaming remains the
+current explicit fail-fast boundary:
 
 ```bash
-cargo nextest run -p siumai-provider-gemini --all-features interactions_handle_is_explicitly_deferred_at_runtime --no-fail-fast
+cargo nextest run -p siumai-provider-gemini --all-features interactions_streaming_runtime_is_explicitly_deferred --no-fail-fast
 cargo nextest run -p siumai --features google google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime --test provider_public_path_parity_test --no-fail-fast
 ```
 
@@ -87,3 +88,7 @@ Proves ordinary Gemini package behavior remains intact.
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 92 tests after GIR-040, proving ordinary Gemini provider behavior still passes alongside the new response parser. |
 | 2026-05-18 | `cargo clippy -p siumai-provider-gemini --all-features --all-targets -- -D warnings` | Passed | Clippy passed after narrowing dead-code allowances to the deferred Interactions runtime boundary and silencing module inception for `interactions.rs`. |
 | 2026-05-18 | `git diff --check` | Passed | Whitespace gate passed for GIR-040 code and workstream documentation updates. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_non_stream --no-fail-fast` | Passed | GIR-050 non-stream runtime gate passed: 4 capture-transport tests cover model POST, agent polling, missing interaction id errors, and timeout behavior. |
+| 2026-05-18 | `cargo fmt -p siumai-provider-gemini -- --check` | Passed | Formatting gate passed after wiring the provider-owned Interactions non-stream runtime. |
+| 2026-05-18 | `cargo clippy -p siumai-provider-gemini --all-features --all-targets -- -D warnings` | Passed | Clippy passed for the Gemini provider after GIR-050 runtime wiring. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 96 tests after GIR-050, proving ordinary Gemini provider behavior still passes alongside non-stream Interactions runtime. |

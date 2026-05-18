@@ -60,12 +60,14 @@ Status legend:
   into stable `ChatResponse` values and stamps `interactionId` on output parts that participate in
   later compaction.
 
-- [ ] GIR-050 [owner=unassigned] [deps=GIR-040] [scope=siumai-provider-gemini]
+- [x] GIR-050 [owner=codex] [deps=GIR-040] [scope=siumai-provider-gemini]
   Goal: Implement non-stream model-mode execution and background polling for terminal interactions.
   Validation: `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_non_stream`
   Review: `review-workstream` before accepting completion.
-  Evidence: capture-transport tests for POST, optional GET polling, timeout, and error behavior.
-  Handoff: Keep polling/cancel helpers provider-owned and configurable through typed options.
+  Evidence: capture-transport tests passed for model POST, agent background polling, missing-id
+  error behavior, and `pollingTimeoutMs` timeout behavior on 2026-05-18.
+  Handoff: Non-stream Interactions now executes through provider-owned runtime helpers and the
+  shared HTTP execution layer. Streaming remains deferred to GIR-060/GIR-070.
 
 ## M3 - Streaming Runtime
 

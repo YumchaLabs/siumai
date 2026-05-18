@@ -8,11 +8,11 @@ use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool};
 
 use super::{GeminiConfig, SharedIdGenerator};
 use request::{GoogleInteractionsPreparedRequest, build_interactions_request_body};
+use runtime::execute_interactions_non_stream;
 
-#[allow(dead_code)]
 mod request;
-#[allow(dead_code)]
 mod response;
+mod runtime;
 
 /// Model selector for the Google Interactions API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,12 +57,14 @@ impl From<&str> for GoogleInteractionsModelInput {
 ///
 /// This type is intentionally not wired into ordinary Gemini chat execution.
 /// The Interactions API uses `/v1beta/interactions`, background agent polling,
-/// per-block signatures, and interaction ids, so it needs a dedicated runtime
-/// slice before it can honestly execute requests.
+/// per-block signatures, and interaction ids, so it owns its request/response
+/// runtime instead of reusing `:generateContent`.
 #[derive(Clone)]
 pub struct GoogleInteractionsLanguageModel {
     config: GeminiConfig,
     model_input: GoogleInteractionsModelInput,
+    http_client: reqwest::Client,
+    retry_options: Option<crate::retry_api::RetryOptions>,
 }
 
 impl std::fmt::Debug for GoogleInteractionsLanguageModel {
@@ -80,7 +82,19 @@ impl GoogleInteractionsLanguageModel {
         Self {
             config,
             model_input: model_input.into(),
+            http_client: reqwest::Client::new(),
+            retry_options: None,
         }
+    }
+
+    pub(crate) fn with_runtime(
+        mut self,
+        http_client: reqwest::Client,
+        retry_options: Option<crate::retry_api::RetryOptions>,
+    ) -> Self {
+        self.http_client = http_client;
+        self.retry_options = retry_options;
+        self
     }
 
     pub fn config(&self) -> &GeminiConfig {
@@ -114,7 +128,6 @@ impl GoogleInteractionsLanguageModel {
         self.config.generate_id()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn prepare_request_body(
         &self,
         request: &ChatRequest,
@@ -123,9 +136,9 @@ impl GoogleInteractionsLanguageModel {
         build_interactions_request_body(&self.model_input, request, stream)
     }
 
-    fn unsupported_runtime_error(&self) -> LlmError {
+    fn unsupported_streaming_runtime_error(&self) -> LlmError {
         LlmError::UnsupportedOperation(
-            "google.interactions runtime is not implemented yet; this handle only locks the package surface while the dedicated /interactions execution lane is tracked"
+            "google.interactions streaming runtime is not implemented yet; use chat_request for the non-streaming /interactions path"
                 .to_string(),
         )
     }
@@ -135,10 +148,14 @@ impl GoogleInteractionsLanguageModel {
 impl ChatCapability for GoogleInteractionsLanguageModel {
     async fn chat_with_tools(
         &self,
-        _messages: Vec<ChatMessage>,
-        _tools: Option<Vec<Tool>>,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        Err(self.unsupported_runtime_error())
+        let mut request = ChatRequest::new(messages);
+        if let Some(tools) = tools {
+            request.tools = Some(tools);
+        }
+        self.chat_request(request).await
     }
 
     async fn chat_stream(
@@ -146,15 +163,21 @@ impl ChatCapability for GoogleInteractionsLanguageModel {
         _messages: Vec<ChatMessage>,
         _tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        Err(self.unsupported_runtime_error())
+        Err(self.unsupported_streaming_runtime_error())
     }
 
-    async fn chat_request(&self, _request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        Err(self.unsupported_runtime_error())
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        execute_interactions_non_stream(
+            self,
+            request,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+        )
+        .await
     }
 
     async fn chat_stream_request(&self, _request: ChatRequest) -> Result<ChatStream, LlmError> {
-        Err(self.unsupported_runtime_error())
+        Err(self.unsupported_streaming_runtime_error())
     }
 }
 
@@ -223,11 +246,14 @@ pub(super) fn interactions_config_from_builder_parts(
     mut config: GeminiConfig,
     model_input: GoogleInteractionsModelInput,
     generate_id: Option<SharedIdGenerator>,
+    http_client: reqwest::Client,
+    retry_options: Option<crate::retry_api::RetryOptions>,
 ) -> GoogleInteractionsLanguageModel {
     if let Some(generate_id) = generate_id {
         config = config.with_shared_generate_id(generate_id);
     }
     GoogleInteractionsLanguageModel::new(config, model_input)
+        .with_runtime(http_client, retry_options)
 }
 
 pub(super) fn clone_shared_id_generator(
@@ -239,6 +265,10 @@ pub(super) fn clone_shared_id_generator(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportGetRequest, HttpTransportRequest, HttpTransportResponse,
+        HttpTransportStreamBody, HttpTransportStreamResponse,
+    };
     use crate::provider_options::gemini::{
         GoogleInteractionsResponseFormatEntry, GoogleLanguageModelInteractionsOptions,
     };
@@ -248,11 +278,141 @@ mod tests {
         ContentPart, MessageContent, MessageMetadata, MessageRole, ProviderMetadataMap,
         ProviderOptionsMap, ResponseFormat, Tool, ToolChoice, ToolResultContentPart, Warning,
     };
+    use async_trait::async_trait;
+    use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct InteractionsCaptureTransport {
+        post_responses: Arc<Mutex<VecDeque<serde_json::Value>>>,
+        get_responses: Arc<Mutex<VecDeque<serde_json::Value>>>,
+        posts: Arc<Mutex<Vec<HttpTransportRequest>>>,
+        gets: Arc<Mutex<Vec<HttpTransportGetRequest>>>,
+    }
+
+    impl InteractionsCaptureTransport {
+        fn new(post_responses: Vec<serde_json::Value>) -> Self {
+            Self {
+                post_responses: Arc::new(Mutex::new(post_responses.into())),
+                get_responses: Arc::new(Mutex::new(VecDeque::new())),
+                posts: Arc::new(Mutex::new(Vec::new())),
+                gets: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn with_get_responses(self, get_responses: Vec<serde_json::Value>) -> Self {
+            *self.get_responses.lock().expect("lock get responses") = get_responses.into();
+            self
+        }
+
+        fn take_posts(&self) -> Vec<HttpTransportRequest> {
+            std::mem::take(&mut *self.posts.lock().expect("lock posts"))
+        }
+
+        fn take_gets(&self) -> Vec<HttpTransportGetRequest> {
+            std::mem::take(&mut *self.gets.lock().expect("lock gets"))
+        }
+
+        fn json_response(value: serde_json::Value) -> HttpTransportResponse {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert("x-test-response", HeaderValue::from_static("captured"));
+
+            HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&value).expect("serialize transport response"),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for InteractionsCaptureTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            self.posts.lock().expect("lock posts").push(request);
+            let response = self
+                .post_responses
+                .lock()
+                .expect("lock post responses")
+                .pop_front()
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "id": "iact_default",
+                        "status": "completed",
+                        "model": interactions::GEMINI_2_5_FLASH,
+                        "steps": []
+                    })
+                });
+            Ok(Self::json_response(response))
+        }
+
+        async fn execute_get(
+            &self,
+            request: HttpTransportGetRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            self.gets.lock().expect("lock gets").push(request);
+            let response = self
+                .get_responses
+                .lock()
+                .expect("lock get responses")
+                .pop_front()
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "id": "iact_default",
+                        "status": "completed",
+                        "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+                        "steps": []
+                    })
+                });
+            Ok(Self::json_response(response))
+        }
+
+        async fn execute_stream(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(b"data: [DONE]\n\n".to_vec()),
+            })
+        }
+    }
 
     fn model_handle() -> GoogleInteractionsLanguageModel {
         GoogleInteractionsLanguageModel::new(
             GeminiConfig::new("test-key").with_provider_name("google.generative-ai"),
             GoogleInteractionsModelInput::model(interactions::GEMINI_2_5_FLASH),
+        )
+    }
+
+    fn model_handle_with_transport(
+        transport: InteractionsCaptureTransport,
+    ) -> GoogleInteractionsLanguageModel {
+        GoogleInteractionsLanguageModel::new(
+            GeminiConfig::new("test-key")
+                .with_provider_name("google.generative-ai")
+                .with_base_url("https://example.com/v1beta".to_string())
+                .with_http_transport(Arc::new(transport)),
+            GoogleInteractionsModelInput::model(interactions::GEMINI_2_5_FLASH),
+        )
+    }
+
+    fn agent_handle_with_transport(
+        transport: InteractionsCaptureTransport,
+    ) -> GoogleInteractionsLanguageModel {
+        GoogleInteractionsLanguageModel::new(
+            GeminiConfig::new("test-key")
+                .with_provider_name("google.generative-ai")
+                .with_base_url("https://example.com/v1beta".to_string())
+                .with_http_transport(Arc::new(transport)),
+            GoogleInteractionsModelInput::agent(agents::DEEP_RESEARCH_PREVIEW_04_2026),
         )
     }
 
@@ -270,7 +430,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn interactions_handle_is_explicitly_deferred_at_runtime() {
+    async fn interactions_streaming_runtime_is_explicitly_deferred() {
         let model = GoogleInteractionsLanguageModel::new(
             GeminiConfig::new("test-key").with_provider_name("google.generative-ai"),
             GoogleInteractionsModelInput::agent(agents::DEEP_RESEARCH_PREVIEW_04_2026),
@@ -279,17 +439,207 @@ mod tests {
         assert_eq!(model.provider(), "google.generative-ai.interactions");
         assert_eq!(model.agent(), Some(agents::DEEP_RESEARCH_PREVIEW_04_2026));
 
-        let err = model
-            .chat_request(ChatRequest::new(vec![ChatMessage::user("hi").build()]))
-            .await
-            .expect_err("runtime is deferred");
+        let result = model
+            .chat_stream_request(ChatRequest::new(vec![ChatMessage::user("hi").build()]))
+            .await;
+        let Err(err) = result else {
+            panic!("streaming runtime should be deferred");
+        };
 
         match err {
             LlmError::UnsupportedOperation(message) => {
-                assert!(message.contains("google.interactions runtime is not implemented yet"));
+                assert!(message.contains("google.interactions streaming runtime"));
             }
             other => panic!("expected UnsupportedOperation, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn google_interactions_non_stream_posts_model_request_and_parses_response() {
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_model",
+            "status": "completed",
+            "model": interactions::GEMINI_2_5_FLASH,
+            "service_tier": "priority",
+            "steps": [
+                {
+                    "type": "model_output",
+                    "content": [{ "type": "text", "text": "hello" }]
+                }
+            ],
+            "usage": {
+                "total_input_tokens": 3,
+                "total_output_tokens": 2,
+                "total_tokens": 5
+            }
+        })]);
+        let model = model_handle_with_transport(transport.clone());
+
+        let response = model
+            .chat_request(ChatRequest::new(vec![ChatMessage::user("hi").build()]))
+            .await
+            .expect("execute model interactions request");
+
+        assert_eq!(response.id.as_deref(), Some("iact_model"));
+        assert_eq!(response.text().as_deref(), Some("hello"));
+        assert_eq!(response.service_tier.as_deref(), Some("priority"));
+        assert_eq!(
+            response.get_metadata("google", "interactionId"),
+            Some(&serde_json::json!("iact_model"))
+        );
+        assert_eq!(
+            response
+                .response
+                .as_ref()
+                .and_then(|info| info.headers.get("x-test-response")),
+            Some(&"captured".to_string())
+        );
+        assert!(
+            response
+                .request
+                .as_ref()
+                .and_then(|info| info.body.as_ref())
+                .is_some_and(|body| body.contains("\"model\":\"gemini-2.5-flash\""))
+        );
+
+        let posts = transport.take_posts();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].url, "https://example.com/v1beta/interactions");
+        assert_eq!(
+            posts[0]
+                .headers
+                .get("x-goog-api-key")
+                .and_then(|value| value.to_str().ok()),
+            Some("test-key")
+        );
+        assert_eq!(
+            posts[0]
+                .headers
+                .get("api-revision")
+                .and_then(|value| value.to_str().ok()),
+            Some("2026-05-20")
+        );
+        assert_eq!(posts[0].body["model"], interactions::GEMINI_2_5_FLASH);
+        assert!(posts[0].body.get("background").is_none());
+        assert!(transport.take_gets().is_empty());
+    }
+
+    #[tokio::test]
+    async fn google_interactions_non_stream_polls_agent_until_terminal() {
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_agent",
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })])
+        .with_get_responses(vec![serde_json::json!({
+            "id": "iact_agent",
+            "status": "completed",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": [
+                {
+                    "type": "model_output",
+                    "content": [{ "type": "text", "text": "research done" }]
+                }
+            ]
+        })]);
+        let model = agent_handle_with_transport(transport.clone());
+
+        let response = model
+            .chat_request(
+                ChatRequest::new(vec![ChatMessage::user("research").build()])
+                    .with_google_interactions_options(
+                        GoogleLanguageModelInteractionsOptions::new()
+                            .with_polling_timeout_ms(5_000),
+                    ),
+            )
+            .await
+            .expect("execute agent interactions request");
+
+        assert_eq!(response.id.as_deref(), Some("iact_agent"));
+        assert_eq!(response.text().as_deref(), Some("research done"));
+
+        let posts = transport.take_posts();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(
+            posts[0].body["agent"],
+            agents::DEEP_RESEARCH_PREVIEW_04_2026
+        );
+        assert_eq!(posts[0].body["background"], serde_json::json!(true));
+
+        let gets = transport.take_gets();
+        assert_eq!(gets.len(), 1);
+        assert_eq!(
+            gets[0].url,
+            "https://example.com/v1beta/interactions/iact_agent"
+        );
+        assert_eq!(
+            gets[0]
+                .headers
+                .get("api-revision")
+                .and_then(|value| value.to_str().ok()),
+            Some("2026-05-20")
+        );
+    }
+
+    #[tokio::test]
+    async fn google_interactions_non_stream_errors_when_polling_without_id() {
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })]);
+        let model = agent_handle_with_transport(transport.clone());
+
+        let err = model
+            .chat_request(ChatRequest::new(vec![
+                ChatMessage::user("research").build(),
+            ]))
+            .await
+            .expect_err("polling without id should fail");
+
+        match err {
+            LlmError::ParseError(message) => {
+                assert!(message.contains("cannot poll a background interaction without an id"));
+            }
+            other => panic!("expected ParseError, got {other:?}"),
+        }
+        assert!(transport.take_gets().is_empty());
+    }
+
+    #[tokio::test]
+    async fn google_interactions_non_stream_times_out_polling_non_terminal_agent() {
+        let transport = InteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_slow",
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })])
+        .with_get_responses(vec![serde_json::json!({
+            "id": "iact_slow",
+            "status": "in_progress",
+            "agent": agents::DEEP_RESEARCH_PREVIEW_04_2026,
+            "steps": []
+        })]);
+        let model = agent_handle_with_transport(transport.clone());
+
+        let err = model
+            .chat_request(
+                ChatRequest::new(vec![ChatMessage::user("research").build()])
+                    .with_google_interactions_options(
+                        GoogleLanguageModelInteractionsOptions::new().with_polling_timeout_ms(1),
+                    ),
+            )
+            .await
+            .expect_err("non-terminal polling should time out");
+
+        match err {
+            LlmError::TimeoutError(message) => {
+                assert!(message.contains("timed out polling interaction iact_slow"));
+            }
+            other => panic!("expected TimeoutError, got {other:?}"),
+        }
+        assert_eq!(transport.take_gets().len(), 1);
     }
 
     #[test]

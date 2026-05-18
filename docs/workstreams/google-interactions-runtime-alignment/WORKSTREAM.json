@@ -37,8 +37,8 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "GIR-050",
-    "title": "Implement non-stream model-mode execution and background polling",
+    "id": "GIR-060",
+    "title": "Convert Interactions SSE events into stable stream parts",
     "scope": [
       "siumai-provider-gemini/src/providers/gemini",
       "fixtures"

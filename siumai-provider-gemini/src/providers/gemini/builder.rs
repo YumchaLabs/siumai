@@ -204,12 +204,14 @@ impl GeminiBuilder {
     ///
     /// This mirrors the package-visible `google.interactions(...)` member while
     /// keeping execution separate from ordinary Gemini chat. The returned handle
-    /// currently fails fast until the dedicated `/interactions` runtime is
-    /// implemented.
+    /// executes non-streaming `/interactions` calls and keeps streaming on the
+    /// dedicated runtime lane.
     pub fn interactions<M: Into<crate::providers::gemini::GoogleInteractionsModelInput>>(
         self,
         model_input: M,
     ) -> Result<crate::providers::gemini::GoogleInteractionsLanguageModel, LlmError> {
+        let http_client = self.core.build_http_client()?;
+        let retry_options = self.core.retry_options.clone();
         let generate_id =
             crate::providers::gemini::interactions::clone_shared_id_generator(&self.generate_id);
         let config = self.into_config()?;
@@ -218,6 +220,8 @@ impl GeminiBuilder {
                 config,
                 model_input.into(),
                 generate_id,
+                http_client,
+                retry_options,
             ),
         )
     }
