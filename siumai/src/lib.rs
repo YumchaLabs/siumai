@@ -823,7 +823,9 @@ mod model_catalog;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compat::{Provider, Siumai};
+    #[cfg(any(feature = "openai", feature = "anthropic"))]
+    use crate::compat::Provider;
+    use crate::compat::Siumai;
     use crate::prelude::unified::*;
 
     #[test]

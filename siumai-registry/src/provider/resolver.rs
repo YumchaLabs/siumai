@@ -26,8 +26,6 @@ pub fn normalize_provider_id(raw: &str) -> String {
     feature = "togetherai",
     feature = "deepinfra",
     feature = "deepseek",
-    feature = "xai",
-    feature = "groq",
 ))]
 pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
     {
@@ -155,8 +153,6 @@ mod tests {
         feature = "togetherai",
         feature = "deepinfra",
         feature = "deepseek",
-        feature = "xai",
-        feature = "groq",
     ))]
     fn normalize_model_id_applies_deepseek_aliases() {
         assert_eq!(
@@ -185,8 +181,6 @@ mod tests {
         feature = "togetherai",
         feature = "deepinfra",
         feature = "deepseek",
-        feature = "xai",
-        feature = "groq",
     ))]
     fn normalize_model_id_applies_openrouter_vendor_prefixes() {
         assert_eq!(
@@ -226,8 +220,6 @@ mod tests {
         feature = "togetherai",
         feature = "deepinfra",
         feature = "deepseek",
-        feature = "xai",
-        feature = "groq",
     ))]
     fn normalize_model_id_applies_openai_compatible_vendor_aliases() {
         assert_eq!(

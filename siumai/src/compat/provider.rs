@@ -22,9 +22,22 @@
 ///     Ok(())
 /// }
 /// ```
-pub struct Provider;
-
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "bedrock",
+    feature = "cohere",
+    feature = "google",
+    feature = "ollama",
+    feature = "xai",
+    feature = "groq",
+    feature = "minimaxi",
+    feature = "google-vertex",
+    feature = "deepseek"
+))]
 use siumai_core::builder::BuilderBase;
+
+pub struct Provider;
 
 impl Provider {
     /// Create an `OpenAI` client builder
