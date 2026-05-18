@@ -221,8 +221,9 @@ fn response_content(response: &ChatResponse) -> Result<Content, LlmError> {
                 parts,
             })
         }
-        _ => {
-            let text = response.content.all_text();
+        #[cfg(feature = "structured-messages")]
+        MessageContent::Json(value) => {
+            let text = serde_json::to_string(value).unwrap_or_default();
             if text.trim().is_empty() {
                 Ok(Content {
                     role: Some("model".to_string()),
