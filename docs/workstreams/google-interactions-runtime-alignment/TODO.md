@@ -71,15 +71,18 @@ Status legend:
 
 ## M3 - Streaming Runtime
 
-- [ ] GIR-060 [owner=unassigned] [deps=GIR-040] [scope=siumai-provider-gemini]
+- [x] GIR-060 [owner=codex] [deps=GIR-040] [scope=siumai-provider-gemini]
   Goal: Convert Interactions SSE events into stable stream parts and provider metadata.
   Validation: `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream`
   Review: `review-workstream` before accepting completion.
-  Evidence: stream fixture tests for text, reasoning, sources, tool calls/results, images, and final
-  metadata.
-  Handoff: Do not reuse ordinary Gemini stream parser for Interactions wire events.
+  Evidence: provider-local capture-transport stream tests passed on 2026-05-18 for model-mode POST,
+  typed stream start/metadata, text deltas/end metadata, reasoning signatures, function call
+  argument deltas, built-in tool results, deduped sources, image file parts, usage, finish reason,
+  request/response envelopes, and service tier metadata.
+  Handoff: Implemented in provider-owned `providers/gemini/interactions/stream.rs`; ordinary Gemini
+  `:generateContent` streaming remains separate. Agent stream reconnect/cancel remains GIR-070.
 
-- [ ] GIR-070 [owner=unassigned] [deps=GIR-060] [scope=siumai-provider-gemini]
+- [~] GIR-070 [owner=unassigned] [deps=GIR-060] [scope=siumai-provider-gemini]
   Goal: Add stream reconnect and cancel-on-abort behavior.
   Validation: `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream_reconnect`
   Review: `review-workstream` before accepting completion.

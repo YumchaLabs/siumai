@@ -5,8 +5,9 @@ Last updated: 2026-05-18
 
 ## Smallest Current Repro
 
-The Interactions handle now executes the non-stream `/interactions` path. Streaming remains the
-current explicit fail-fast boundary:
+The Interactions handle now executes non-stream `/interactions` calls and model-mode streaming
+`POST /interactions` calls. Agent streaming reconnect/cancel behavior remains the current explicit
+deferred boundary:
 
 ```bash
 cargo nextest run -p siumai-provider-gemini --all-features interactions_streaming_runtime_is_explicitly_deferred --no-fail-fast
@@ -92,3 +93,7 @@ Proves ordinary Gemini package behavior remains intact.
 | 2026-05-18 | `cargo fmt -p siumai-provider-gemini -- --check` | Passed | Formatting gate passed after wiring the provider-owned Interactions non-stream runtime. |
 | 2026-05-18 | `cargo clippy -p siumai-provider-gemini --all-features --all-targets -- -D warnings` | Passed | Clippy passed for the Gemini provider after GIR-050 runtime wiring. |
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 96 tests after GIR-050, proving ordinary Gemini provider behavior still passes alongside non-stream Interactions runtime. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream --no-fail-fast` | Passed | GIR-060 stream gate passed: 2 capture-transport tests cover model stream POST, text events, reasoning signatures, function-call argument deltas, built-in tool results, sources, image file parts, usage, finish metadata, service tier, and request/response envelopes. |
+| 2026-05-18 | `cargo fmt -p siumai-provider-gemini -- --check` | Passed | Formatting gate passed after adding provider-owned Interactions stream conversion. |
+| 2026-05-18 | `cargo clippy -p siumai-provider-gemini --all-features --all-targets -- -D warnings` | Passed | Clippy passed for the Gemini provider after GIR-060 stream conversion. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 98 tests after GIR-060, proving ordinary Gemini provider behavior remains intact alongside model-mode Interactions streaming. |

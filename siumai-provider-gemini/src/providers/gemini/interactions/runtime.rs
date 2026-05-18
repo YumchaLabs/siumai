@@ -15,7 +15,7 @@ use crate::types::{
 use super::GoogleInteractionsLanguageModel;
 use super::response::parse_interactions_response;
 
-const INTERACTIONS_API_REVISION: &str = "2026-05-20";
+pub(super) const INTERACTIONS_API_REVISION: &str = "2026-05-20";
 const DEFAULT_POLLING_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 const DEFAULT_INITIAL_POLL_DELAY_MS: u64 = 1000;
 const DEFAULT_MAX_POLL_DELAY_MS: u64 = 10_000;
@@ -91,7 +91,7 @@ pub(super) async fn execute_interactions_non_stream(
     Ok(response)
 }
 
-async fn build_execution_config(
+pub(super) async fn build_execution_config(
     model: &GoogleInteractionsLanguageModel,
     http_client: reqwest::Client,
     retry_options: Option<crate::retry_api::RetryOptions>,
@@ -148,7 +148,7 @@ async fn poll_interaction_until_terminal(
     }
 }
 
-fn interactions_url(base_url: &str) -> String {
+pub(super) fn interactions_url(base_url: &str) -> String {
     crate::utils::url::join_url(base_url.trim_end_matches('/'), "interactions")
 }
 
@@ -175,7 +175,7 @@ fn parse_interactions_runtime_options(
     })
 }
 
-fn interactions_http_config(
+pub(super) fn interactions_http_config(
     config_http: &HttpConfig,
     request_http: Option<&HttpConfig>,
 ) -> HttpConfig {

@@ -9,10 +9,12 @@ use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool};
 use super::{GeminiConfig, SharedIdGenerator};
 use request::{GoogleInteractionsPreparedRequest, build_interactions_request_body};
 use runtime::execute_interactions_non_stream;
+use stream::execute_interactions_stream;
 
 mod request;
 mod response;
 mod runtime;
+mod stream;
 
 /// Model selector for the Google Interactions API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,9 +138,9 @@ impl GoogleInteractionsLanguageModel {
         build_interactions_request_body(&self.model_input, request, stream)
     }
 
-    fn unsupported_streaming_runtime_error(&self) -> LlmError {
+    fn unsupported_agent_streaming_runtime_error(&self) -> LlmError {
         LlmError::UnsupportedOperation(
-            "google.interactions streaming runtime is not implemented yet; use chat_request for the non-streaming /interactions path"
+            "google.interactions agent streaming reconnect/cancel runtime is deferred to GIR-070; use chat_request for background agent polling"
                 .to_string(),
         )
     }
@@ -160,10 +162,14 @@ impl ChatCapability for GoogleInteractionsLanguageModel {
 
     async fn chat_stream(
         &self,
-        _messages: Vec<ChatMessage>,
-        _tools: Option<Vec<Tool>>,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        Err(self.unsupported_streaming_runtime_error())
+        let mut request = ChatRequest::new(messages);
+        if let Some(tools) = tools {
+            request.tools = Some(tools);
+        }
+        self.chat_stream_request(request).await
     }
 
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
@@ -176,8 +182,18 @@ impl ChatCapability for GoogleInteractionsLanguageModel {
         .await
     }
 
-    async fn chat_stream_request(&self, _request: ChatRequest) -> Result<ChatStream, LlmError> {
-        Err(self.unsupported_streaming_runtime_error())
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        if self.model_input().is_agent() {
+            return Err(self.unsupported_agent_streaming_runtime_error());
+        }
+
+        execute_interactions_stream(
+            self,
+            request,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+        )
+        .await
     }
 }
 
@@ -286,8 +302,10 @@ mod tests {
     #[derive(Clone)]
     struct InteractionsCaptureTransport {
         post_responses: Arc<Mutex<VecDeque<serde_json::Value>>>,
+        stream_responses: Arc<Mutex<VecDeque<String>>>,
         get_responses: Arc<Mutex<VecDeque<serde_json::Value>>>,
         posts: Arc<Mutex<Vec<HttpTransportRequest>>>,
+        streams: Arc<Mutex<Vec<HttpTransportRequest>>>,
         gets: Arc<Mutex<Vec<HttpTransportGetRequest>>>,
     }
 
@@ -295,8 +313,10 @@ mod tests {
         fn new(post_responses: Vec<serde_json::Value>) -> Self {
             Self {
                 post_responses: Arc::new(Mutex::new(post_responses.into())),
+                stream_responses: Arc::new(Mutex::new(VecDeque::new())),
                 get_responses: Arc::new(Mutex::new(VecDeque::new())),
                 posts: Arc::new(Mutex::new(Vec::new())),
+                streams: Arc::new(Mutex::new(Vec::new())),
                 gets: Arc::new(Mutex::new(Vec::new())),
             }
         }
@@ -306,8 +326,20 @@ mod tests {
             self
         }
 
+        fn with_stream_response(self, stream_response: String) -> Self {
+            self.stream_responses
+                .lock()
+                .expect("lock stream responses")
+                .push_back(stream_response);
+            self
+        }
+
         fn take_posts(&self) -> Vec<HttpTransportRequest> {
             std::mem::take(&mut *self.posts.lock().expect("lock posts"))
+        }
+
+        fn take_streams(&self) -> Vec<HttpTransportRequest> {
+            std::mem::take(&mut *self.streams.lock().expect("lock streams"))
         }
 
         fn take_gets(&self) -> Vec<HttpTransportGetRequest> {
@@ -373,14 +405,22 @@ mod tests {
 
         async fn execute_stream(
             &self,
-            _request: HttpTransportRequest,
+            request: HttpTransportRequest,
         ) -> Result<HttpTransportStreamResponse, LlmError> {
+            self.streams.lock().expect("lock streams").push(request);
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            headers.insert("x-test-stream", HeaderValue::from_static("captured"));
+            let body = self
+                .stream_responses
+                .lock()
+                .expect("lock stream responses")
+                .pop_front()
+                .unwrap_or_else(|| "data: [DONE]\n\n".to_string());
             Ok(HttpTransportStreamResponse {
                 status: 200,
                 headers,
-                body: HttpTransportStreamBody::from_bytes(b"data: [DONE]\n\n".to_vec()),
+                body: HttpTransportStreamBody::from_bytes(body.into_bytes()),
             })
         }
     }
@@ -448,10 +488,376 @@ mod tests {
 
         match err {
             LlmError::UnsupportedOperation(message) => {
-                assert!(message.contains("google.interactions streaming runtime"));
+                assert!(message.contains("agent streaming"));
             }
             other => panic!("expected UnsupportedOperation, got {other:?}"),
         }
+    }
+
+    async fn collect_stream_events(mut stream: ChatStream) -> Vec<crate::types::ChatStreamEvent> {
+        use futures_util::StreamExt;
+
+        let mut events = Vec::new();
+        while let Some(item) = stream.next().await {
+            events.push(item.expect("collect google interactions stream event"));
+        }
+        events
+    }
+
+    fn sse_event(value: serde_json::Value) -> String {
+        format!(
+            "data: {}\n\n",
+            serde_json::to_string(&value).expect("serialize SSE event")
+        )
+    }
+
+    #[tokio::test]
+    async fn google_interactions_stream_posts_model_request_and_converts_text_finish() {
+        let transport = InteractionsCaptureTransport::new(vec![]).with_stream_response(format!(
+            "{}{}{}{}{}",
+            sse_event(serde_json::json!({
+                "event_type": "interaction.created",
+                "event_id": "evt_1",
+                "interaction": {
+                    "id": "iact_stream",
+                    "created": "2026-05-18T00:00:00Z",
+                    "model": interactions::GEMINI_2_5_FLASH
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "event_id": "evt_2",
+                "index": 0,
+                "step": { "type": "model_output" }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "event_id": "evt_3",
+                "index": 0,
+                "delta": { "type": "text", "text": "hello" }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.stop",
+                "event_id": "evt_4",
+                "index": 0
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "interaction.completed",
+                "event_id": "evt_5",
+                "interaction": {
+                    "id": "iact_stream",
+                    "status": "completed",
+                    "usage": {
+                        "total_input_tokens": 3,
+                        "total_output_tokens": 2,
+                        "total_tokens": 5
+                    },
+                    "service_tier": "priority"
+                }
+            })),
+        ));
+        let model = model_handle_with_transport(transport.clone());
+
+        let events = collect_stream_events(
+            model
+                .chat_stream_request(ChatRequest::new(vec![ChatMessage::user("hi").build()]))
+                .await
+                .expect("execute interactions stream"),
+        )
+        .await;
+
+        assert_eq!(
+            events
+                .iter()
+                .filter_map(|event| event.text_delta())
+                .collect::<Vec<_>>(),
+            vec!["hello"]
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.part_ref(),
+                Some(crate::types::ChatStreamPart::TextStart { id, .. })
+                    if id == "iact_stream:0"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.part_ref(),
+                Some(crate::types::ChatStreamPart::TextEnd {
+                    id,
+                    provider_metadata,
+                }) if id == "iact_stream:0"
+                    && provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("google"))
+                        .and_then(|google| google.get("interactionId"))
+                        == Some(&serde_json::json!("iact_stream"))
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.part_ref(),
+                Some(crate::types::ChatStreamPart::Finish {
+                    usage,
+                    finish_reason,
+                    provider_metadata,
+                }) if usage.prompt_tokens() == Some(3)
+                    && usage.completion_tokens() == Some(2)
+                    && finish_reason.unified == crate::types::FinishReason::Stop
+                    && finish_reason.raw.as_deref() == Some("completed")
+                    && provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("google"))
+                        .and_then(|google| google.get("serviceTier"))
+                        == Some(&serde_json::json!("priority"))
+            )
+        }));
+        let end = events
+            .iter()
+            .find_map(|event| match event {
+                crate::types::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("stream end");
+        assert_eq!(end.id.as_deref(), Some("iact_stream"));
+        assert_eq!(end.finish_reason, Some(crate::types::FinishReason::Stop));
+        assert!(end.request.as_ref().is_some_and(|info| {
+            info.body
+                .as_deref()
+                .is_some_and(|body| body.contains("\"stream\":true"))
+        }));
+        assert_eq!(
+            end.response
+                .as_ref()
+                .and_then(|info| info.headers.get("x-test-stream")),
+            Some(&"captured".to_string())
+        );
+
+        let streams = transport.take_streams();
+        assert_eq!(streams.len(), 1);
+        assert_eq!(streams[0].url, "https://example.com/v1beta/interactions");
+        assert_eq!(
+            streams[0]
+                .headers
+                .get("api-revision")
+                .and_then(|value| value.to_str().ok()),
+            Some("2026-05-20")
+        );
+        assert_eq!(streams[0].body["stream"], serde_json::json!(true));
+        assert_eq!(streams[0].body["model"], interactions::GEMINI_2_5_FLASH);
+        assert!(transport.take_posts().is_empty());
+    }
+
+    #[tokio::test]
+    async fn google_interactions_stream_converts_reasoning_tools_sources_and_images() {
+        let transport = InteractionsCaptureTransport::new(vec![]).with_stream_response(format!(
+            "{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            sse_event(serde_json::json!({
+                "event_type": "interaction.created",
+                "interaction": {
+                    "id": "iact_rich",
+                    "model": interactions::GEMINI_2_5_FLASH_IMAGE
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "index": 0,
+                "step": {
+                    "type": "thought",
+                    "signature": "sig_start",
+                    "summary": [{ "type": "text", "text": "plan" }]
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "index": 0,
+                "delta": {
+                    "type": "thought_summary",
+                    "content": { "type": "text", "text": " call weather" }
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "index": 0,
+                "delta": { "type": "thought_signature", "signature": "sig_final" }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.stop",
+                "index": 0
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "index": 1,
+                "step": {
+                    "type": "function_call",
+                    "id": "call_weather",
+                    "name": "weather"
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "index": 1,
+                "delta": {
+                    "type": "arguments_delta",
+                    "arguments": "{\"city\":\"Sh",
+                    "signature": "sig_call"
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "index": 1,
+                "delta": {
+                    "type": "arguments_delta",
+                    "arguments": "anghai\"}"
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.stop",
+                "index": 1
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "index": 2,
+                "step": {
+                    "type": "google_search_result",
+                    "call_id": "search_1",
+                    "result": [
+                        { "url": "https://example.com/a", "title": "A" },
+                        { "url": "https://example.com/a", "title": "A duplicate" }
+                    ]
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.stop",
+                "index": 2
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "index": 3,
+                "step": { "type": "model_output" }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "index": 3,
+                "delta": {
+                    "type": "image",
+                    "mime_type": "image/png",
+                    "data": "aGVsbG8="
+                }
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "step.stop",
+                "index": 3
+            })),
+            sse_event(serde_json::json!({
+                "event_type": "interaction.completed",
+                "interaction": {
+                    "id": "iact_rich",
+                    "status": "completed"
+                }
+            })),
+            "data: [DONE]\n\n"
+        ));
+        let model = model_handle_with_transport(transport);
+
+        let events = collect_stream_events(
+            model
+                .chat_stream_request(ChatRequest::new(vec![
+                    ChatMessage::user("use tools").build(),
+                ]))
+                .await
+                .expect("execute interactions stream"),
+        )
+        .await;
+
+        assert_eq!(
+            events
+                .iter()
+                .filter_map(|event| event.reasoning_delta())
+                .collect::<Vec<_>>(),
+            vec!["plan", " call weather"]
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.part_ref(),
+                Some(crate::types::ChatStreamPart::ReasoningEnd {
+                    provider_metadata,
+                    ..
+                }) if provider_metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("google"))
+                    .and_then(|google| google.get("signature"))
+                    == Some(&serde_json::json!("sig_final"))
+            )
+        }));
+        assert_eq!(
+            events
+                .iter()
+                .filter_map(|event| match event.part_ref() {
+                    Some(crate::types::ChatStreamPart::ToolInputDelta { delta, .. }) => {
+                        Some(delta.as_str())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec!["{\"city\":\"Sh", "anghai\"}"]
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.part_ref(),
+                Some(crate::types::ChatStreamPart::ToolCall(call))
+                    if call.tool_call_id == "call_weather"
+                        && call.tool_name == "weather"
+                        && call.input == "{\"city\":\"Shanghai\"}"
+                        && call.provider_metadata
+                            .as_ref()
+                            .and_then(|metadata| metadata.get("google"))
+                            .and_then(|google| google.get("signature"))
+                            == Some(&serde_json::json!("sig_call"))
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.part_ref(),
+                Some(crate::types::ChatStreamPart::ToolResult(result))
+                    if result.tool_call_id == "search_1"
+                        && result.tool_name == "google_search"
+                        && result.result.is_array()
+            )
+        }));
+        let sources = events
+            .iter()
+            .filter_map(|event| match event.part_ref() {
+                Some(crate::types::ChatStreamPart::Source { id, source, .. }) => {
+                    Some((id.as_str(), source))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(sources.len(), 1);
+        assert!(matches!(
+            sources[0].1,
+            crate::types::SourcePart::Url { url, title }
+                if url == "https://example.com/a" && title.as_deref() == Some("A")
+        ));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.part_ref(),
+                Some(crate::types::ChatStreamPart::File(file))
+                    if file.media_type == "image/png"
+                        && matches!(
+                            &file.data,
+                            crate::types::ChatStreamFileData::Base64(data) if data == "aGVsbG8="
+                        )
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.part_ref(),
+                Some(crate::types::ChatStreamPart::Finish { finish_reason, .. })
+                    if finish_reason.unified == crate::types::FinishReason::ToolCalls
+            )
+        }));
     }
 
     #[tokio::test]

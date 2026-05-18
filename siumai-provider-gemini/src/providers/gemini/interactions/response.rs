@@ -7,7 +7,7 @@ use crate::types::{
     ProviderOptionsMap, SourcePart, ToolResultOutput, Usage, UsageInputTokens, UsageOutputTokens,
 };
 
-const BUILTIN_TOOL_CALL_TYPES: &[&str] = &[
+pub(super) const BUILTIN_TOOL_CALL_TYPES: &[&str] = &[
     "google_search_call",
     "code_execution_call",
     "url_context_call",
@@ -16,7 +16,7 @@ const BUILTIN_TOOL_CALL_TYPES: &[&str] = &[
     "mcp_server_tool_call",
 ];
 
-const BUILTIN_TOOL_RESULT_TYPES: &[&str] = &[
+pub(super) const BUILTIN_TOOL_RESULT_TYPES: &[&str] = &[
     "google_search_result",
     "code_execution_result",
     "url_context_result",
@@ -286,7 +286,7 @@ fn parse_builtin_tool_result_step(
     }
 }
 
-fn arguments_value(value: Option<&Value>) -> Value {
+pub(super) fn arguments_value(value: Option<&Value>) -> Value {
     match value {
         Some(Value::Object(_)) => value.cloned().unwrap_or_else(|| serde_json::json!({})),
         Some(Value::Null) | None => serde_json::json!({}),
@@ -294,7 +294,7 @@ fn arguments_value(value: Option<&Value>) -> Value {
     }
 }
 
-fn map_finish_reason(status: &str, has_function_call: bool) -> FinishReason {
+pub(super) fn map_finish_reason(status: &str, has_function_call: bool) -> FinishReason {
     match status {
         "completed" if has_function_call => FinishReason::ToolCalls,
         "completed" => FinishReason::Stop,
@@ -306,7 +306,7 @@ fn map_finish_reason(status: &str, has_function_call: bool) -> FinishReason {
     }
 }
 
-fn convert_usage(value: &Value) -> Option<Usage> {
+pub(super) fn convert_usage(value: &Value) -> Option<Usage> {
     let usage = value.as_object()?;
     let input_total = u32_field(usage, "total_input_tokens");
     let output_text = u32_field(usage, "total_output_tokens");
@@ -350,7 +350,7 @@ fn convert_usage(value: &Value) -> Option<Usage> {
     Some(builder.build())
 }
 
-fn annotations_to_sources(
+pub(super) fn annotations_to_sources(
     annotations: Option<&Vec<Value>>,
     generate_id: &mut dyn FnMut() -> String,
 ) -> Vec<ContentPart> {
@@ -427,7 +427,7 @@ fn annotation_to_source(
     }
 }
 
-fn builtin_tool_result_to_sources(
+pub(super) fn builtin_tool_result_to_sources(
     step_type: &str,
     step: &Map<String, Value>,
     generate_id: &mut dyn FnMut() -> String,
@@ -570,7 +570,7 @@ fn source_document_part(
     }
 }
 
-fn source_dedupe_key(source: &ContentPart) -> String {
+pub(super) fn source_dedupe_key(source: &ContentPart) -> String {
     match source {
         ContentPart::Source {
             source: SourcePart::Url { url, .. },
@@ -586,7 +586,7 @@ fn source_dedupe_key(source: &ContentPart) -> String {
     }
 }
 
-fn part_provider_metadata(
+pub(super) fn part_provider_metadata(
     signature: Option<&str>,
     interaction_id: Option<&str>,
 ) -> Option<ProviderMetadataMap> {
@@ -606,7 +606,7 @@ fn part_provider_metadata(
     (!google.is_empty()).then(|| ProviderMetadataMap::from([("google".to_string(), google.into())]))
 }
 
-fn response_provider_metadata(
+pub(super) fn response_provider_metadata(
     interaction_id: Option<&str>,
     service_tier: Option<&str>,
 ) -> Option<ProviderMetadataMap> {
@@ -626,7 +626,7 @@ fn response_provider_metadata(
     (!google.is_empty()).then(|| ProviderMetadataMap::from([("google".to_string(), google.into())]))
 }
 
-fn string_field<'a>(object: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+pub(super) fn string_field<'a>(object: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
     object.get(key).and_then(Value::as_str)
 }
 

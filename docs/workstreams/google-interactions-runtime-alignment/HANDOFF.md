@@ -9,29 +9,29 @@ The workstream is open. Siumai exposes `google.interactions(...)` through the Ge
 surface, including model ids, agent names, typed provider options, metadata, builder construction,
 and a provider-owned `GoogleInteractionsLanguageModel` handle.
 
-GIR-020, GIR-030, GIR-040, and GIR-050 are implemented: stable `ChatRequest` values can now be prepared
-into model-mode and agent-mode `/v1beta/interactions` request bodies, and completed Interactions
-responses now parse back into stable `ChatResponse` values through provider-owned conversion code.
-Non-stream runtime execution now posts to `/interactions`, parses terminal model responses, and polls
-background agent responses through `GET /interactions/{id}` until a terminal status. Streaming still
-fail-fasts by design until the SSE runtime lands.
+GIR-020, GIR-030, GIR-040, GIR-050, and GIR-060 are implemented: stable `ChatRequest` values can now
+be prepared into model-mode and agent-mode `/v1beta/interactions` request bodies, completed
+Interactions responses parse back into stable `ChatResponse` values through provider-owned
+conversion code, non-stream execution posts to `/interactions`, and background agent responses poll
+through `GET /interactions/{id}` until a terminal status. Model-mode streaming now posts
+`stream: true` to `/interactions` and converts Interactions SSE events into stable stream parts.
 
 ## Active Task
 
-- Task ID: GIR-060
+- Task ID: GIR-070
 - Owner: unassigned
 - Files:
   - `siumai-provider-gemini/src/providers/gemini/interactions.rs`
-  - `siumai-provider-gemini/src/providers/gemini/interactions/request.rs`
-  - `siumai-provider-gemini/src/providers/gemini/interactions/response.rs`
   - `siumai-provider-gemini/src/providers/gemini/interactions/runtime.rs`
+  - `siumai-provider-gemini/src/providers/gemini/interactions/stream.rs`
   - provider-local fixtures/tests
 - Validation:
-  - `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream`
+  - `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream_reconnect`
 - Status: READY
 - Review: `review-workstream` before accepting implementation.
-- Evidence: request conversion, completed-response parsing, non-stream POST, agent polling, missing
-  id errors, timeout behavior, package tests, fmt, and clippy are already covered.
+- Evidence: request conversion, completed-response parsing, non-stream POST, agent polling,
+  model-mode stream POST, stream event conversion, package tests, fmt, and clippy are already
+  covered.
 
 ## Decisions Since Last Update
 
@@ -52,17 +52,23 @@ fail-fasts by design until the SSE runtime lands.
   request/response envelopes on `ChatResponse`.
 - Agent polling honors `providerOptions.google.pollingTimeoutMs` and returns `TimeoutError` if the
   terminal status is not reached in time.
+- Model-mode streaming now lives in `providers/gemini/interactions/stream.rs`, posts to
+  `/interactions` with `stream: true`, emits stable typed stream parts for text, reasoning,
+  function calls, built-in tool results, sources, images, usage, finish metadata, and preserves
+  request/response envelopes.
+- Agent-mode streaming still fails fast by design until reconnect and cancel-on-abort behavior are
+  implemented in GIR-070.
 
 ## Blockers
 
-- No external blocker. GIR-060 needs stream event conversion against the AI SDK
-  `build-google-interactions-stream-transform.ts` and event schema references.
+- No external blocker. GIR-070 needs reconnect/cancel behavior against the AI SDK
+  `stream-google-interactions.ts` and `cancel-google-interaction.ts` references.
 
 ## Next Recommended Action
 
-Start GIR-060 with a stream conversion tracer bullet:
+Start GIR-070 with a reconnect/cancel tracer bullet:
 
-- POST `/interactions` in model mode with `stream: true`;
-- convert Interactions SSE events into stable stream parts;
-- preserve warnings, `interactionId`, service tier, sources, tool calls/results, and final
-  `StreamEnd` metadata.
+- reconnect `GET /interactions/{id}?stream=true` with `last_event_id` after unexpected disconnect;
+- keep model-mode POST streaming behavior intact;
+- add cancel-on-abort through `POST /interactions/{id}/cancel` for unfinished agent streams;
+- keep unsupported agent streaming explicit until the reconnect/cancel slice has no-network tests.
