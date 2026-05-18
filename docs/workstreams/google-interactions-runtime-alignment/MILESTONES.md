@@ -102,7 +102,15 @@ Primary gates:
 
 ```bash
 cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast
+cargo nextest run -p siumai --features google --test provider_public_path_parity_test --no-fail-fast
 cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast
 ```
 
-Status: not started
+Status: in progress
+
+Progress:
+
+- GIR-080 completed on 2026-05-18 for public facade parity. The old fail-fast guard was replaced
+  with no-network tests proving `Provider::google()`, `provider_ext::google`, and direct
+  `GoogleInteractionsLanguageModel` paths reach implemented model non-stream, model stream, and
+  agent background GET-stream Interactions runtime.

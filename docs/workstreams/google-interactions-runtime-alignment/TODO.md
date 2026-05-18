@@ -95,16 +95,18 @@ Status legend:
 
 ## M4 - Public Path And Closeout
 
-- [~] GIR-080 [owner=unassigned] [deps=GIR-050,GIR-060,GIR-070] [scope=siumai,siumai-provider-gemini]
+- [x] GIR-080 [owner=codex] [deps=GIR-050,GIR-060,GIR-070] [scope=siumai,siumai-provider-gemini]
   Goal: Replace the current fail-fast public-path guard with request/response/stream parity tests
   for implemented Interactions paths.
   Validation: `cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast`
   Review: `review-workstream` before accepting completion.
   Evidence: public-path tests across `Provider::google()`, `provider_ext::google`, and direct handle
-  construction.
-  Handoff: Keep unsupported Interactions subfeatures explicit if not implemented.
+  construction passed on 2026-05-18.
+  Handoff: Replaced the obsolete deferred-runtime guard with facade-level no-network tests proving
+  model non-stream `POST /interactions`, model streaming `POST /interactions` with `stream: true`,
+  and agent streaming via background `POST` plus resumable `GET /interactions/{id}?stream=true`.
 
-- [ ] GIR-090 [owner=planner] [deps=GIR-080] [scope=docs/workstreams/google-interactions-runtime-alignment]
+- [~] GIR-090 [owner=planner] [deps=GIR-080] [scope=docs/workstreams/google-interactions-runtime-alignment]
   Goal: Close the lane or split remaining Interactions runtime gaps into narrower follow-ons.
   Validation: `verify-rust-workstream` records final gate evidence.
   Review: `review-workstream` has no blocking findings.

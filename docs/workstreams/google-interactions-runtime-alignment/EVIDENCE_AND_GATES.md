@@ -11,7 +11,7 @@ The Interactions handle now executes non-stream `/interactions` calls, model-mod
 
 ```bash
 cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream_reconnect --no-fail-fast
-cargo nextest run -p siumai --features google google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime --test provider_public_path_parity_test --no-fail-fast
+cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast
 ```
 
 ## Gate Set
@@ -47,6 +47,7 @@ Proves Interactions SSE conversion, reconnect, and cancel behavior.
 
 ```bash
 cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast
+cargo nextest run -p siumai --features google --test provider_public_path_parity_test --no-fail-fast
 ```
 
 Proves facade-level behavior matches the provider-owned runtime state.
@@ -104,3 +105,9 @@ Proves ordinary Gemini package behavior remains intact.
 | 2026-05-18 | `cargo clippy -p siumai-provider-gemini --all-features --all-targets -- -D warnings` | Passed | Clippy passed after GIR-070 reconnect/cancel runtime wiring. |
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 102 tests after GIR-070, proving ordinary Gemini provider behavior remains intact alongside agent Interactions streaming. |
 | 2026-05-18 | `git diff --check` | Passed | Whitespace gate passed for GIR-070 code and documentation updates. |
+| 2026-05-18 | `cargo nextest run -p siumai --features google --test provider_public_path_parity_test google_interactions --no-fail-fast` | Passed | GIR-080 focused facade gate passed: 3 tests prove `Provider::google()`, `provider_ext::google`, and direct handle paths execute model non-stream, model stream, and agent background GET stream Interactions runtime. |
+| 2026-05-18 | `cargo nextest run -p siumai --features google --test provider_public_path_parity_test --no-fail-fast` | Passed | Full public-path gate passed with 172 tests after GIR-080; existing Gemini unreachable-pattern warning is unrelated. |
+| 2026-05-18 | `cargo fmt -p siumai -- --check` | Passed | Formatting gate passed after GIR-080 public-path tests. |
+| 2026-05-18 | `git diff --check` | Passed | Whitespace gate passed after GIR-080 public-path tests. |
+| 2026-05-18 | `cargo nextest run -p siumai --features google --test provider_public_path_parity_test google_interactions --no-fail-fast` | Passed | Focused facade gate still passed after formatting. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 102 tests after GIR-080, proving ordinary Gemini provider behavior remains intact. |

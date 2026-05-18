@@ -21,8 +21,8 @@ use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use siumai::compat::Provider;
 use siumai::experimental::execution::http::transport::{
-    HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
-    HttpTransportStreamBody, HttpTransportStreamResponse,
+    HttpTransport, HttpTransportGetRequest, HttpTransportMultipartRequest, HttpTransportRequest,
+    HttpTransportResponse, HttpTransportStreamBody, HttpTransportStreamResponse,
 };
 #[allow(unused_imports)]
 use siumai::extensions::{AudioCapability, ImageExtras};
@@ -7495,6 +7495,7 @@ mod gemini_public_path {
         GoogleLanguageModelOptions,
     };
     use siumai_core::types::EmbeddingTaskType;
+    use std::collections::VecDeque;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, Request as WiremockRequest, ResponseTemplate};
 
@@ -7563,6 +7564,260 @@ mod gemini_public_path {
         }
         sse.push_str("data: [DONE]\n\n");
         sse.into_bytes()
+    }
+
+    #[derive(Clone)]
+    struct GoogleInteractionsCaptureTransport {
+        post_responses: Arc<Mutex<VecDeque<serde_json::Value>>>,
+        post_stream_responses: Arc<Mutex<VecDeque<String>>>,
+        get_stream_responses: Arc<Mutex<VecDeque<String>>>,
+        posts: Arc<Mutex<Vec<HttpTransportRequest>>>,
+        post_streams: Arc<Mutex<Vec<HttpTransportRequest>>>,
+        get_streams: Arc<Mutex<Vec<HttpTransportGetRequest>>>,
+    }
+
+    impl GoogleInteractionsCaptureTransport {
+        fn new(post_responses: Vec<serde_json::Value>) -> Self {
+            Self {
+                post_responses: Arc::new(Mutex::new(post_responses.into())),
+                post_stream_responses: Arc::new(Mutex::new(VecDeque::new())),
+                get_stream_responses: Arc::new(Mutex::new(VecDeque::new())),
+                posts: Arc::new(Mutex::new(Vec::new())),
+                post_streams: Arc::new(Mutex::new(Vec::new())),
+                get_streams: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn with_post_stream_response(self, response: String) -> Self {
+            self.post_stream_responses
+                .lock()
+                .expect("lock google interactions post stream responses")
+                .push_back(response);
+            self
+        }
+
+        fn with_get_stream_response(self, response: String) -> Self {
+            self.get_stream_responses
+                .lock()
+                .expect("lock google interactions get stream responses")
+                .push_back(response);
+            self
+        }
+
+        fn take_posts(&self) -> Vec<HttpTransportRequest> {
+            std::mem::take(&mut *self.posts.lock().expect("lock google interactions posts"))
+        }
+
+        fn take_post_streams(&self) -> Vec<HttpTransportRequest> {
+            std::mem::take(
+                &mut *self
+                    .post_streams
+                    .lock()
+                    .expect("lock google interactions post streams"),
+            )
+        }
+
+        fn take_get_streams(&self) -> Vec<HttpTransportGetRequest> {
+            std::mem::take(
+                &mut *self
+                    .get_streams
+                    .lock()
+                    .expect("lock google interactions get streams"),
+            )
+        }
+
+        fn json_response(value: serde_json::Value) -> HttpTransportResponse {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&value).expect("serialize interactions json response"),
+            }
+        }
+
+        fn stream_response(body: String) -> HttpTransportStreamResponse {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+
+            HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(body.into_bytes()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for GoogleInteractionsCaptureTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            self.posts
+                .lock()
+                .expect("lock google interactions posts")
+                .push(request);
+            let response = self
+                .post_responses
+                .lock()
+                .expect("lock google interactions post responses")
+                .pop_front()
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "id": "iact_default",
+                        "status": "completed",
+                        "model": siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+                        "steps": []
+                    })
+                });
+            Ok(Self::json_response(response))
+        }
+
+        async fn execute_stream(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            self.post_streams
+                .lock()
+                .expect("lock google interactions post streams")
+                .push(request);
+            let response = self
+                .post_stream_responses
+                .lock()
+                .expect("lock google interactions post stream responses")
+                .pop_front()
+                .unwrap_or_else(|| "data: [DONE]\n\n".to_string());
+            Ok(Self::stream_response(response))
+        }
+
+        async fn execute_get_stream(
+            &self,
+            request: HttpTransportGetRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            self.get_streams
+                .lock()
+                .expect("lock google interactions get streams")
+                .push(request);
+            let response = self
+                .get_stream_responses
+                .lock()
+                .expect("lock google interactions get stream responses")
+                .pop_front()
+                .unwrap_or_else(|| "data: [DONE]\n\n".to_string());
+            Ok(Self::stream_response(response))
+        }
+    }
+
+    fn google_interactions_completed_response(
+        id: &str,
+        model: &str,
+        text: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "status": "completed",
+            "model": model,
+            "service_tier": "priority",
+            "steps": [{
+                "type": "model_output",
+                "content": [{ "type": "text", "text": text }]
+            }],
+            "usage": {
+                "total_input_tokens": 3,
+                "total_output_tokens": 2,
+                "total_tokens": 5
+            }
+        })
+    }
+
+    fn google_interactions_sse_event(value: serde_json::Value) -> String {
+        format!(
+            "data: {}\n\n",
+            serde_json::to_string(&value).expect("serialize google interactions SSE event")
+        )
+    }
+
+    fn google_interactions_text_stream_body(id: &str, model: &str, text: &str) -> String {
+        format!(
+            "{}{}{}{}{}",
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "interaction.created",
+                "event_id": "evt_1",
+                "interaction": {
+                    "id": id,
+                    "model": model
+                }
+            })),
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "event_id": "evt_2",
+                "index": 0,
+                "step": { "type": "model_output" }
+            })),
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "event_id": "evt_3",
+                "index": 0,
+                "delta": { "type": "text", "text": text }
+            })),
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "step.stop",
+                "event_id": "evt_4",
+                "index": 0
+            })),
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "interaction.completed",
+                "event_id": "evt_5",
+                "interaction": {
+                    "id": id,
+                    "status": "completed"
+                }
+            })),
+        )
+    }
+
+    fn google_interactions_agent_created_stream_body(id: &str, agent: &str) -> String {
+        google_interactions_sse_event(serde_json::json!({
+            "event_type": "interaction.created",
+            "event_id": "evt_1",
+            "interaction": {
+                "id": id,
+                "agent": agent
+            }
+        }))
+    }
+
+    fn google_interactions_agent_completed_stream_body(id: &str, text: &str) -> String {
+        format!(
+            "{}{}{}{}",
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "step.start",
+                "event_id": "evt_2",
+                "index": 0,
+                "step": { "type": "model_output" }
+            })),
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "step.delta",
+                "event_id": "evt_3",
+                "index": 0,
+                "delta": { "type": "text", "text": text }
+            })),
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "step.stop",
+                "event_id": "evt_4",
+                "index": 0
+            })),
+            google_interactions_sse_event(serde_json::json!({
+                "event_type": "interaction.completed",
+                "event_id": "evt_5",
+                "interaction": {
+                    "id": id,
+                    "status": "completed"
+                }
+            })),
+        )
     }
 
     fn custom_events_by_type(
@@ -8091,7 +8346,26 @@ mod gemini_public_path {
     }
 
     #[tokio::test]
-    async fn google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime() {
+    async fn google_interactions_model_public_paths_execute_non_stream_runtime() {
+        let provider_transport =
+            GoogleInteractionsCaptureTransport::new(vec![google_interactions_completed_response(
+                "iact_model_public",
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+                "hello from interactions",
+            )]);
+        let package_transport =
+            GoogleInteractionsCaptureTransport::new(vec![google_interactions_completed_response(
+                "iact_model_public",
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+                "hello from interactions",
+            )]);
+        let direct_transport =
+            GoogleInteractionsCaptureTransport::new(vec![google_interactions_completed_response(
+                "iact_model_public",
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+                "hello from interactions",
+            )]);
+
         let request = ChatRequest::builder()
             .model(siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH)
             .messages(vec![ChatMessage::user("hi").build()])
@@ -8100,13 +8374,6 @@ mod gemini_public_path {
                 GoogleLanguageModelInteractionsOptions::new()
                     .with_previous_interaction_id("iact_123")
                     .with_store(true)
-                    .with_agent(siumai::provider_ext::google::agents::DEEP_RESEARCH_PREVIEW_04_2026)
-                    .with_agent_config(
-                        GoogleInteractionsAgentConfig::deep_research()
-                            .with_thinking_summaries("auto")
-                            .with_visualization("auto")
-                            .with_collaborative_planning(true),
-                    )
                     .with_response_format(vec![
                         GoogleInteractionsResponseFormatEntry::json_schema(serde_json::json!({
                             "type": "object"
@@ -8132,14 +8399,8 @@ mod gemini_public_path {
             options["previousInteractionId"],
             serde_json::json!("iact_123")
         );
-        assert_eq!(
-            options["agent"],
-            serde_json::json!("deep-research-preview-04-2026")
-        );
-        assert_eq!(
-            options["agentConfig"]["type"],
-            serde_json::json!("deep-research")
-        );
+        assert!(options.get("agent").is_none());
+        assert!(options.get("agentConfig").is_none());
         assert_eq!(
             options["responseFormat"][1]["aspectRatio"],
             serde_json::json!("16:9")
@@ -8147,35 +8408,375 @@ mod gemini_public_path {
         assert_eq!(options["serviceTier"], serde_json::json!("priority"));
         assert_eq!(options["pollingTimeoutMs"], serde_json::json!(30_000));
 
-        let model = siumai::provider_ext::google::GoogleProviderSettings::new()
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/v1beta")
-            .with_name("google.generative-ai")
-            .with_generate_id(|| "interactions-id".to_string())
-            .into_builder()
-            .interactions(GoogleInteractionsModelInput::agent(
-                siumai::provider_ext::google::agents::DEEP_RESEARCH_PREVIEW_04_2026,
+        let provider_model = Provider::google()
+            .api_key("test-key")
+            .base_url("https://example.com/v1beta")
+            .fetch(Arc::new(provider_transport.clone()))
+            .interactions(GoogleInteractionsModelInput::model(
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
             ))
-            .expect("build interactions handle");
-
-        assert_eq!(model.provider(), "google.generative-ai.interactions");
-        assert_eq!(model.base_url(), "https://example.com/v1beta");
-        assert_eq!(
-            model.agent(),
-            Some(siumai::provider_ext::google::agents::DEEP_RESEARCH_PREVIEW_04_2026)
+            .expect("build Provider::google interactions model");
+        let package_model = siumai::provider_ext::google::create_google()
+            .api_key("test-key")
+            .base_url("https://example.com/v1beta")
+            .fetch(Arc::new(package_transport.clone()))
+            .interactions(GoogleInteractionsModelInput::model(
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+            ))
+            .expect("build provider_ext::google interactions model");
+        let direct_model = siumai::provider_ext::google::GoogleInteractionsLanguageModel::new(
+            siumai::provider_ext::google::GeminiConfig::new("test-key")
+                .with_provider_name("google.generative-ai")
+                .with_base_url("https://example.com/v1beta".to_string())
+                .with_http_transport(Arc::new(direct_transport.clone())),
+            GoogleInteractionsModelInput::model(
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+            ),
         );
-        assert_eq!(model.generate_id(), "interactions-id");
 
-        let err = model
+        assert_eq!(
+            provider_model.provider(),
+            "google.generative-ai.interactions"
+        );
+        assert_eq!(
+            package_model.provider(),
+            "google.generative-ai.interactions"
+        );
+        assert_eq!(direct_model.provider(), "google.generative-ai.interactions");
+
+        let provider_response = provider_model
+            .chat_request(request.clone())
+            .await
+            .expect("Provider::google interactions non-stream response");
+        let package_response = package_model
+            .chat_request(request.clone())
+            .await
+            .expect("provider_ext::google interactions non-stream response");
+        let direct_response = direct_model
             .chat_request(request)
             .await
-            .expect_err("interactions runtime is deferred");
-        match err {
-            LlmError::UnsupportedOperation(message) => {
-                assert!(message.contains("google.interactions runtime is not implemented yet"));
-            }
-            other => panic!("expected UnsupportedOperation, got {other:?}"),
+            .expect("direct interactions non-stream response");
+
+        for response in [&provider_response, &package_response, &direct_response] {
+            assert_eq!(response.id.as_deref(), Some("iact_model_public"));
+            assert_eq!(response.text().as_deref(), Some("hello from interactions"));
+            assert_eq!(response.service_tier.as_deref(), Some("priority"));
+            assert_eq!(
+                response.get_metadata("google", "interactionId"),
+                Some(&serde_json::json!("iact_model_public"))
+            );
         }
+
+        let provider_req = provider_transport
+            .take_posts()
+            .pop()
+            .expect("provider interactions POST request");
+        let package_req = package_transport
+            .take_posts()
+            .pop()
+            .expect("package interactions POST request");
+        let direct_req = direct_transport
+            .take_posts()
+            .pop()
+            .expect("direct interactions POST request");
+
+        assert_requests_equivalent(&provider_req, &package_req);
+        assert_requests_equivalent(&provider_req, &direct_req);
+        assert_eq!(provider_req.url, "https://example.com/v1beta/interactions");
+        assert_eq!(
+            header_value(&provider_req, "x-goog-api-key"),
+            Some("test-key".to_string())
+        );
+        assert_eq!(
+            header_value(&provider_req, "api-revision"),
+            Some("2026-05-20".to_string())
+        );
+        assert_eq!(
+            provider_req.body["model"],
+            serde_json::json!(siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH)
+        );
+        assert_eq!(
+            provider_req.body["previous_interaction_id"],
+            serde_json::json!("iact_123")
+        );
+        assert_eq!(provider_req.body["store"], serde_json::json!(true));
+        assert_eq!(
+            provider_req.body["response_format"][1]["aspect_ratio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(
+            provider_req.body["service_tier"],
+            serde_json::json!("priority")
+        );
+        assert_eq!(
+            provider_req.body["system_instruction"],
+            serde_json::json!("be concise")
+        );
+        assert!(provider_req.body.get("background").is_none());
+        assert!(provider_req.body.get("stream").is_none());
+        assert!(provider_transport.take_post_streams().is_empty());
+        assert!(package_transport.take_post_streams().is_empty());
+        assert!(direct_transport.take_post_streams().is_empty());
+    }
+
+    #[tokio::test]
+    async fn google_interactions_model_public_paths_execute_stream_runtime() {
+        let provider_transport = GoogleInteractionsCaptureTransport::new(vec![])
+            .with_post_stream_response(google_interactions_text_stream_body(
+                "iact_stream_public",
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+                "stream text",
+            ));
+        let package_transport = GoogleInteractionsCaptureTransport::new(vec![])
+            .with_post_stream_response(google_interactions_text_stream_body(
+                "iact_stream_public",
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+                "stream text",
+            ));
+        let direct_transport = GoogleInteractionsCaptureTransport::new(vec![])
+            .with_post_stream_response(google_interactions_text_stream_body(
+                "iact_stream_public",
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+                "stream text",
+            ));
+
+        let provider_model = Provider::google()
+            .api_key("test-key")
+            .base_url("https://example.com/v1beta")
+            .fetch(Arc::new(provider_transport.clone()))
+            .interactions(GoogleInteractionsModelInput::model(
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+            ))
+            .expect("build Provider::google interactions stream model");
+        let package_model = siumai::provider_ext::google::google()
+            .api_key("test-key")
+            .base_url("https://example.com/v1beta")
+            .fetch(Arc::new(package_transport.clone()))
+            .interactions(GoogleInteractionsModelInput::model(
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+            ))
+            .expect("build provider_ext::google interactions stream model");
+        let direct_model = siumai::provider_ext::google::GoogleInteractionsLanguageModel::new(
+            siumai::provider_ext::google::GeminiConfig::new("test-key")
+                .with_provider_name("google.generative-ai")
+                .with_base_url("https://example.com/v1beta".to_string())
+                .with_http_transport(Arc::new(direct_transport.clone())),
+            GoogleInteractionsModelInput::model(
+                siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH,
+            ),
+        );
+
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        let mut provider_stream = provider_model
+            .chat_stream_request(request.clone())
+            .await
+            .expect("Provider::google interactions stream");
+        let mut package_stream = package_model
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider_ext::google interactions stream");
+        let mut direct_stream = direct_model
+            .chat_stream_request(request)
+            .await
+            .expect("direct interactions stream");
+
+        let provider_events = collect_stream_events(&mut provider_stream).await;
+        let package_events = collect_stream_events(&mut package_stream).await;
+        let direct_events = collect_stream_events(&mut direct_stream).await;
+
+        for events in [&provider_events, &package_events, &direct_events] {
+            assert_eq!(
+                events
+                    .iter()
+                    .filter_map(|event| event.text_delta())
+                    .collect::<Vec<_>>(),
+                vec!["stream text"]
+            );
+            assert!(events.iter().any(|event| matches!(
+                event.part_ref(),
+                Some(siumai::prelude::unified::ChatStreamPart::Finish { finish_reason, .. })
+                    if finish_reason.raw.as_deref() == Some("completed")
+            )));
+        }
+
+        let provider_req = provider_transport
+            .take_post_streams()
+            .pop()
+            .expect("provider interactions stream POST request");
+        let package_req = package_transport
+            .take_post_streams()
+            .pop()
+            .expect("package interactions stream POST request");
+        let direct_req = direct_transport
+            .take_post_streams()
+            .pop()
+            .expect("direct interactions stream POST request");
+
+        assert_requests_equivalent(&provider_req, &package_req);
+        assert_requests_equivalent(&provider_req, &direct_req);
+        assert_eq!(provider_req.url, "https://example.com/v1beta/interactions");
+        assert_eq!(provider_req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            provider_req.body["model"],
+            serde_json::json!(siumai::provider_ext::google::interactions::GEMINI_2_5_FLASH)
+        );
+        assert!(provider_transport.take_posts().is_empty());
+        assert!(provider_transport.take_get_streams().is_empty());
+    }
+
+    #[tokio::test]
+    async fn google_interactions_agent_public_paths_execute_background_get_stream_runtime() {
+        let agent = siumai::provider_ext::google::agents::DEEP_RESEARCH_PREVIEW_04_2026;
+        let provider_transport = GoogleInteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_agent_public",
+            "status": "in_progress",
+            "agent": agent,
+            "steps": []
+        })])
+        .with_get_stream_response(google_interactions_agent_created_stream_body(
+            "iact_agent_public",
+            agent,
+        ))
+        .with_get_stream_response(google_interactions_agent_completed_stream_body(
+            "iact_agent_public",
+            "agent stream text",
+        ));
+        let package_transport = GoogleInteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_agent_public",
+            "status": "in_progress",
+            "agent": agent,
+            "steps": []
+        })])
+        .with_get_stream_response(google_interactions_agent_created_stream_body(
+            "iact_agent_public",
+            agent,
+        ))
+        .with_get_stream_response(google_interactions_agent_completed_stream_body(
+            "iact_agent_public",
+            "agent stream text",
+        ));
+        let direct_transport = GoogleInteractionsCaptureTransport::new(vec![serde_json::json!({
+            "id": "iact_agent_public",
+            "status": "in_progress",
+            "agent": agent,
+            "steps": []
+        })])
+        .with_get_stream_response(google_interactions_agent_created_stream_body(
+            "iact_agent_public",
+            agent,
+        ))
+        .with_get_stream_response(google_interactions_agent_completed_stream_body(
+            "iact_agent_public",
+            "agent stream text",
+        ));
+
+        let provider_model = Provider::google()
+            .api_key("test-key")
+            .base_url("https://example.com/v1beta")
+            .fetch(Arc::new(provider_transport.clone()))
+            .interactions(GoogleInteractionsModelInput::agent(agent))
+            .expect("build Provider::google interactions agent");
+        let package_model = siumai::provider_ext::google::create_google()
+            .api_key("test-key")
+            .base_url("https://example.com/v1beta")
+            .fetch(Arc::new(package_transport.clone()))
+            .interactions(GoogleInteractionsModelInput::agent(agent))
+            .expect("build provider_ext::google interactions agent");
+        let direct_model = siumai::provider_ext::google::GoogleInteractionsLanguageModel::new(
+            siumai::provider_ext::google::GeminiConfig::new("test-key")
+                .with_provider_name("google.generative-ai")
+                .with_base_url("https://example.com/v1beta".to_string())
+                .with_http_transport(Arc::new(direct_transport.clone())),
+            GoogleInteractionsModelInput::agent(agent),
+        );
+
+        let request = ChatRequest::new(vec![ChatMessage::user("research").build()])
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new().with_agent_config(
+                    GoogleInteractionsAgentConfig::deep_research()
+                        .with_thinking_summaries("auto")
+                        .with_visualization("auto")
+                        .with_collaborative_planning(true),
+                ),
+            );
+
+        let mut provider_stream = provider_model
+            .chat_stream_request(request.clone())
+            .await
+            .expect("Provider::google interactions agent stream");
+        let mut package_stream = package_model
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider_ext::google interactions agent stream");
+        let mut direct_stream = direct_model
+            .chat_stream_request(request)
+            .await
+            .expect("direct interactions agent stream");
+
+        let provider_events = collect_stream_events(&mut provider_stream).await;
+        let package_events = collect_stream_events(&mut package_stream).await;
+        let direct_events = collect_stream_events(&mut direct_stream).await;
+
+        for events in [&provider_events, &package_events, &direct_events] {
+            assert_eq!(
+                events
+                    .iter()
+                    .filter_map(|event| event.text_delta())
+                    .collect::<Vec<_>>(),
+                vec!["agent stream text"]
+            );
+        }
+
+        let provider_post = provider_transport
+            .take_posts()
+            .pop()
+            .expect("provider interactions agent POST request");
+        let package_post = package_transport
+            .take_posts()
+            .pop()
+            .expect("package interactions agent POST request");
+        let direct_post = direct_transport
+            .take_posts()
+            .pop()
+            .expect("direct interactions agent POST request");
+
+        assert_requests_equivalent(&provider_post, &package_post);
+        assert_requests_equivalent(&provider_post, &direct_post);
+        assert_eq!(provider_post.body["agent"], serde_json::json!(agent));
+        assert_eq!(provider_post.body["background"], serde_json::json!(true));
+        assert!(provider_post.body.get("model").is_none());
+        assert!(provider_post.body.get("stream").is_none());
+        assert_eq!(
+            provider_post.body["agent_config"]["type"],
+            serde_json::json!("deep-research")
+        );
+
+        let provider_get_streams = provider_transport.take_get_streams();
+        let package_get_streams = package_transport.take_get_streams();
+        let direct_get_streams = direct_transport.take_get_streams();
+
+        assert_eq!(provider_get_streams.len(), 2);
+        assert_eq!(package_get_streams.len(), 2);
+        assert_eq!(direct_get_streams.len(), 2);
+        assert_eq!(
+            provider_get_streams[0].url,
+            "https://example.com/v1beta/interactions/iact_agent_public?stream=true"
+        );
+        assert_eq!(
+            provider_get_streams[1].url,
+            "https://example.com/v1beta/interactions/iact_agent_public?stream=true&last_event_id=evt_1"
+        );
+        assert_eq!(provider_get_streams[0].url, package_get_streams[0].url);
+        assert_eq!(provider_get_streams[1].url, package_get_streams[1].url);
+        assert_eq!(provider_get_streams[0].url, direct_get_streams[0].url);
+        assert_eq!(provider_get_streams[1].url, direct_get_streams[1].url);
+        assert_eq!(
+            provider_get_streams[1]
+                .headers
+                .get("api-revision")
+                .and_then(|value| value.to_str().ok()),
+            Some("2026-05-20")
+        );
     }
 
     #[tokio::test]

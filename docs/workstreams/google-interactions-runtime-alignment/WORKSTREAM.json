@@ -5,7 +5,7 @@
   "status": "active",
   "updated": "2026-05-18",
   "scope_kind": "execution",
-  "problem": "Siumai exposes the AI SDK-aligned google.interactions package surface, but the runtime still fail-fasts instead of executing the dedicated /interactions API.",
+  "problem": "Siumai exposes and executes the AI SDK-aligned google.interactions package surface through provider-owned /interactions runtime paths; the lane now needs closeout or narrowly split follow-ons for any remaining gaps.",
   "authoritative_docs": [
     {
       "role": "design",
@@ -24,7 +24,8 @@
     "cargo nextest run -p siumai-provider-gemini --all-features google_interactions_request",
     "cargo nextest run -p siumai-provider-gemini --all-features google_interactions_response",
     "cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream",
-    "cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast"
+    "cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast",
+    "cargo nextest run -p siumai --features google --test provider_public_path_parity_test --no-fail-fast"
   ],
   "evidence": [
     "docs/workstreams/google-interactions-runtime-alignment/DESIGN.md",
@@ -37,11 +38,10 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "GIR-080",
-    "title": "Replace fail-fast public-path guard with implemented Interactions parity tests",
+    "id": "GIR-090",
+    "title": "Close the lane or split remaining Interactions runtime gaps",
     "scope": [
-      "siumai",
-      "siumai-provider-gemini"
+      "docs/workstreams/google-interactions-runtime-alignment"
     ]
   },
   "continue_policy": {

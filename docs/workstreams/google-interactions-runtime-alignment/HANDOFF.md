@@ -9,31 +9,31 @@ The workstream is open. Siumai exposes `google.interactions(...)` through the Ge
 surface, including model ids, agent names, typed provider options, metadata, builder construction,
 and a provider-owned `GoogleInteractionsLanguageModel` handle.
 
-GIR-020, GIR-030, GIR-040, GIR-050, GIR-060, and GIR-070 are implemented: stable `ChatRequest` values can now
-be prepared into model-mode and agent-mode `/v1beta/interactions` request bodies, completed
-Interactions responses parse back into stable `ChatResponse` values through provider-owned
-conversion code, non-stream execution posts to `/interactions`, and background agent responses poll
-through `GET /interactions/{id}` until a terminal status. Model-mode streaming now posts
-`stream: true` to `/interactions` and converts Interactions SSE events into stable stream parts.
-Agent-mode streaming now creates a background interaction, opens `GET /interactions/{id}?stream=true`,
-reconnects with `last_event_id`, and sends best-effort `POST /interactions/{id}/cancel` when a
-cancellable stream is aborted before completion.
+GIR-020 through GIR-080 are implemented: stable `ChatRequest` values can now be prepared into
+model-mode and agent-mode `/v1beta/interactions` request bodies, completed Interactions responses
+parse back into stable `ChatResponse` values through provider-owned conversion code, non-stream
+execution posts to `/interactions`, and background agent responses poll through
+`GET /interactions/{id}` until a terminal status. Model-mode streaming now posts `stream: true` to
+`/interactions` and converts Interactions SSE events into stable stream parts. Agent-mode streaming
+now creates a background interaction, opens `GET /interactions/{id}?stream=true`, reconnects with
+`last_event_id`, and sends best-effort `POST /interactions/{id}/cancel` when a cancellable stream is
+aborted before completion. Public facade tests now prove `Provider::google()`,
+`provider_ext::google`, and direct handle construction reach the implemented Interactions runtime
+instead of fail-fast behavior.
 
 ## Active Task
 
-- Task ID: GIR-080
-- Owner: unassigned
+- Task ID: GIR-090
+- Owner: planner
 - Files:
-  - `siumai/tests/provider_public_path_parity_test.rs`
-  - `siumai-provider-gemini/src/providers/gemini/interactions.rs`
-  - public facade/builder path tests
+  - `docs/workstreams/google-interactions-runtime-alignment/*`
 - Validation:
-  - `cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast`
+  - `verify-rust-workstream` final gate evidence
 - Status: READY
-- Review: `review-workstream` before accepting implementation.
+- Review: `review-workstream` before closeout.
 - Evidence: request conversion, completed-response parsing, non-stream POST, agent polling,
-  model-mode stream POST, stream event conversion, agent stream reconnect/cancel, package tests,
-  fmt, and clippy are already covered.
+  model-mode stream POST, stream event conversion, agent stream reconnect/cancel, public facade
+  parity, package tests, fmt, and clippy are covered.
 
 ## Decisions Since Last Update
 
@@ -63,17 +63,19 @@ cancellable stream is aborted before completion.
   `last_event_id` on reconnect. Cancel handles issue best-effort `POST /interactions/{id}/cancel`.
 - The core custom transport seam now includes `execute_get_stream` so provider-owned GET SSE
   endpoints can be tested without network access.
+- Public facade parity now covers model non-stream, model stream, and agent background GET stream
+  paths across `Provider::google()`, `provider_ext::google`, and direct
+  `GoogleInteractionsLanguageModel` construction.
 
 ## Blockers
 
-- No external blocker. GIR-080 needs public-path parity assertions updated now that agent streaming
-  is implemented instead of deferred.
+- No external blocker. GIR-090 needs a closeout decision: close this lane or split any remaining
+  Interactions runtime gaps into narrower follow-ons.
 
 ## Next Recommended Action
 
-Start GIR-080 with public facade parity:
+Start GIR-090 closeout:
 
-- remove/narrow obsolete fail-fast Interactions public-path expectations;
-- prove `Provider::google()`, `provider_ext::google`, and direct handle paths reach the implemented
-  request/response/stream runtime;
-- keep any truly unsupported subfeatures explicit with focused assertions.
+- run final verification gates or record why broader gates are intentionally skipped;
+- decide whether remaining Interactions API gaps deserve follow-on workstreams;
+- close the lane if no blocking gaps remain.
