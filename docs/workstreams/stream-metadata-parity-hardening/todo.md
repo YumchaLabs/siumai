@@ -23,9 +23,9 @@ Last updated: 2026-05-17
       duplication; no new duplicate path was found beyond the existing typed-only and tool
       dedupe gates
 
-## Open
+## Future Triggers
 
-- [ ] Audit other bridge serializers for mixed-lane `Part + Custom` duplicate effects as more
+- [-] Audit other bridge serializers for mixed-lane `Part + Custom` duplicate effects as more
       stable runtime parts become first-class
-- [ ] Revisit provider-specific metadata helpers when upstream AI SDK packages add response
+- [-] Revisit provider-specific metadata helpers when upstream AI SDK packages add response
       metadata fields beyond the shared OpenAI-compatible subset

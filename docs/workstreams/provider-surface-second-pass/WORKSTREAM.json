@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "slug": "provider-surface-second-pass",
+  "title": "Provider Surface Second Pass",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "scope_kind": "program",
+  "problem": "Residual provider-surface drift and workstream hygiene after the AI SDK provider-interface convergence closeout are classified and closed.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/provider-surface-second-pass/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/provider-surface-second-pass/TODO.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/provider-surface-second-pass/MILESTONES.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/provider-surface-second-pass/EVIDENCE_AND_GATES.md"
+    }
+  ],
+  "gates": [
+    "git status --short",
+    "git diff --check"
+  ],
+  "evidence": [
+    "docs/workstreams/INDEX.md",
+    "docs/workstreams/stream-metadata-parity-hardening/TODO.md",
+    "docs/workstreams/minimaxi-unified-provider-surface/WORKSTREAM.json",
+    "docs/workstreams/ollama-unified-provider-surface/WORKSTREAM.json"
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0002-provider-crates-by-provider.md",
+    "docs/adr/0003-provider-ext-export-policy.md",
+    "docs/adr/0005-builder-retention-and-convergence-policy.md",
+    "docs/adr/0006-family-model-first-trait-policy.md",
+    "docs/adr/0007-llmclient-demotion-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
+  ],
+  "current_task": "closed",
+  "next_task": "Open a new narrow workstream only when concrete provider behavior, metadata helper, serializer, or public contract drift appears.",
+  "blocked": false,
+  "validation_focus": [
+    "docs/workstreams/INDEX.md matches the actual residual lane set",
+    "deferred provider lanes remain intentional",
+    "concrete drift is split into bounded follow-ons"
+  ]
+}

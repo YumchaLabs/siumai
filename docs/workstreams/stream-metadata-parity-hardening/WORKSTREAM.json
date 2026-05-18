@@ -1,0 +1,13 @@
+{
+  "slug": "stream-metadata-parity-hardening",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Harden stream metadata parity around stable stream parts, provider metadata extraction, and duplicate mixed-lane serializer behavior.",
+  "current_task": "closed",
+  "next_task": "Open a narrower follow-on only when a concrete provider serializer or metadata helper drift appears.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO done items record the completed stream metadata hardening slices",
+    "remaining open items are future triggers, not active tasks"
+  ]
+}

@@ -21,7 +21,7 @@ Last updated: 2026-05-17
   config-driven adapter family, including generic/custom providers
 - Locked alias-safe metadata namespace normalization for legacy `moonshot` -> `moonshotai`
 
-## Next
+## Future Triggers
 
 - Keep checking mixed `Part + Custom` serializer paths for other providers as more stable runtime
   parts are enabled by default

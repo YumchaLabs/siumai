@@ -1,0 +1,13 @@
+{
+  "slug": "google-vertex-typed-option-surface-alignment",
+  "status": "closed",
+  "updated": "2026-05-18",
+  "objective": "Align Google Vertex typed option names and video task surface with the audited AI SDK package boundary.",
+  "current_task": "closed",
+  "next_task": "Open a narrower follow-on only if Vertex gains a real authenticated GCS materialization path or upstream package options change.",
+  "blocked": false,
+  "validation_focus": [
+    "TODO contains completed tasks plus an intentional future GCS materialization deferral",
+    "google-vertex package surface row is Green in AIPC inventory"
+  ]
+}

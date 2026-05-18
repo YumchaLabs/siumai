@@ -1,0 +1,12 @@
+{
+  "slug": "fearless-refactor",
+  "status": "superseded",
+  "updated": "2026-05-18",
+  "objective": "Historical fearless refactor placeholder directory.",
+  "current_task": "superseded",
+  "next_task": "Use docs/workstreams/fearless-refactor-v4 or a newer bounded workstream for concrete architecture work.",
+  "blocked": false,
+  "validation_focus": [
+    "directory is historical context only"
+  ]
+}

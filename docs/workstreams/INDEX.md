@@ -11,18 +11,19 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 - `unknown` means the lane has no recognized status source. It is not automatically active.
 - `superseded` means the lane is historical context; resume through its listed successor or a new
   narrow workstream, not by reopening the legacy TODO list.
-- Closed-like counts include `closed` and `superseded`; deferred lanes are tracked separately.
+- Closed-like counts include `closed`, `completed`, and `superseded`; deferred lanes are tracked
+  separately.
 - Before resuming an `unknown` lane, normalize it by reading its docs and adding a machine-readable `WORKSTREAM.json` or opening a new follow-on workstream.
 - Do not reopen a closed lane for mechanical cleanup; start from a concrete behavior, provider, public contract, or documentation gap.
 
 ## Summary
 
-- Total workstream directories: 68
-- Machine-readable status files: 64
-- Closed or closed-like lanes: 61
-- Active-like lanes: 1
+- Total workstream directories: 69
+- Machine-readable status files: 69
+- Closed or closed-like lanes: 67
+- Active-like lanes: 0
 - Deferred lanes: 2
-- Unknown legacy lanes: 4
+- Unknown legacy lanes: 0
 
 ## Inventory
 
@@ -49,8 +50,8 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/fearless-core-provider-alias-extraction` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-language-extension-handle-isolation` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-provider-composite-client-isolation` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/fearless-refactor` | unknown | `none` | no |
-| `docs/workstreams/fearless-refactor-v3` | unknown | `none` | no |
+| `docs/workstreams/fearless-refactor` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-refactor-v3` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-refactor-v4` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-registry-facade-construction-boundary` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-spec-core-boundary-convergence` | closed | `WORKSTREAM.json` | yes |
@@ -58,10 +59,10 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/fireworks-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/generate-object-structured-output-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/generate-text-output-alignment` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/google-interactions-runtime-alignment` | active | `WORKSTREAM.json` | yes |
+| `docs/workstreams/google-interactions-runtime-alignment` | completed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/google-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/google-vertex-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/google-vertex-typed-option-surface-alignment` | unknown | `none` | no |
+| `docs/workstreams/google-vertex-typed-option-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/groq-browser-search-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/groq-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/language-model-call-options-alignment` | closed | `WORKSTREAM.json` | yes |
@@ -77,12 +78,13 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/protocol-bridge-gateway` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-option-alias-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-settings-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/provider-surface-second-pass` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-utils-tooling-runtime-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/request-options-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/shared-data-content-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/shared-type-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/stream-delta-lossless-boundary` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/stream-metadata-parity-hardening` | unknown | `none` | no |
+| `docs/workstreams/stream-metadata-parity-hardening` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/togetherai-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/typed-stream-only` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/upload-file-call-boundary-alignment` | closed | `WORKSTREAM.json` | yes |
