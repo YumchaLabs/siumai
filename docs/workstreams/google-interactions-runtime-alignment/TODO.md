@@ -23,14 +23,18 @@ Status legend:
 
 ## M1 - Request Conversion Proof
 
-- [ ] GIR-020 [owner=unassigned] [deps=GIR-010] [scope=siumai-provider-gemini,fixtures]
+- [x] GIR-020 [owner=codex] [deps=GIR-010] [scope=siumai-provider-gemini,fixtures]
   Goal: Convert `ChatRequest` plus Google Interactions provider options into the
   `/v1beta/interactions` request shape for model-mode calls.
   Validation: `cargo nextest run -p siumai-provider-gemini --all-features google_interactions_request`
   Review: `review-workstream` before accepting completion.
-  Evidence: provider-local converter tests and captured request body assertions.
-  Handoff: Cover system instruction precedence, response format entries, files, tool calls/results,
-  reasoning signatures, `previousInteractionId`, `store`, and `mediaResolution`.
+  Evidence: provider-local converter tests and captured request body assertions passed on
+  2026-05-18.
+  Handoff: Implemented as provider-owned request conversion under
+  `providers/gemini/interactions/request.rs`. Covered system instruction precedence, response
+  format entries, files, tool calls/results, reasoning signatures, `previousInteractionId`,
+  `store`, `mediaResolution`, model-mode tools/tool choice, and deprecated `imageConfig`
+  fallback. Agent conversion remains deferred to GIR-030.
 
 - [ ] GIR-030 [owner=unassigned] [deps=GIR-020] [scope=siumai-provider-gemini,fixtures]
   Goal: Add agent-mode request conversion and warning behavior.

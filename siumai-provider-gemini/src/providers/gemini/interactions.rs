@@ -7,6 +7,9 @@ use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool};
 
 use super::{GeminiConfig, SharedIdGenerator};
+use request::{GoogleInteractionsPreparedRequest, build_interactions_request_body};
+
+mod request;
 
 /// Model selector for the Google Interactions API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +109,14 @@ impl GoogleInteractionsLanguageModel {
 
     pub fn generate_id(&self) -> String {
         self.config.generate_id()
+    }
+
+    pub(crate) fn prepare_request_body(
+        &self,
+        request: &ChatRequest,
+        stream: bool,
+    ) -> Result<GoogleInteractionsPreparedRequest, LlmError> {
+        build_interactions_request_body(&self.model_input, request, stream)
     }
 
     fn unsupported_runtime_error(&self) -> LlmError {
@@ -223,7 +234,35 @@ pub(super) fn clone_shared_id_generator(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_options::gemini::{
+        GoogleInteractionsResponseFormatEntry, GoogleLanguageModelInteractionsOptions,
+    };
+    use crate::providers::gemini::ext::request_options::GoogleChatRequestExt;
     use crate::traits::ChatCapability;
+    use crate::types::{
+        ContentPart, MessageContent, MessageMetadata, MessageRole, ProviderMetadataMap,
+        ProviderOptionsMap, ResponseFormat, Tool, ToolChoice, ToolResultContentPart, Warning,
+    };
+
+    fn model_handle() -> GoogleInteractionsLanguageModel {
+        GoogleInteractionsLanguageModel::new(
+            GeminiConfig::new("test-key").with_provider_name("google.generative-ai"),
+            GoogleInteractionsModelInput::model(interactions::GEMINI_2_5_FLASH),
+        )
+    }
+
+    fn prepared_body_json(
+        handle: &GoogleInteractionsLanguageModel,
+        request: &ChatRequest,
+    ) -> serde_json::Value {
+        serde_json::to_value(
+            handle
+                .prepare_request_body(request, false)
+                .expect("prepare interactions request")
+                .body,
+        )
+        .expect("serialize interactions request body")
+    }
 
     #[tokio::test]
     async fn interactions_handle_is_explicitly_deferred_at_runtime() {
@@ -243,6 +282,500 @@ mod tests {
         match err {
             LlmError::UnsupportedOperation(message) => {
                 assert!(message.contains("google.interactions runtime is not implemented yet"));
+            }
+            other => panic!("expected UnsupportedOperation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn google_interactions_request_model_mode_converts_system_and_user_text() {
+        let model = model_handle();
+        let request = ChatRequest::new(vec![
+            ChatMessage::system("You are concise.").build(),
+            ChatMessage::user("Summarize this.").build(),
+        ]);
+
+        let body = prepared_body_json(&model, &request);
+
+        assert_eq!(
+            body["model"],
+            serde_json::json!(interactions::GEMINI_2_5_FLASH)
+        );
+        assert_eq!(
+            body["system_instruction"],
+            serde_json::json!("You are concise.")
+        );
+        assert_eq!(
+            body["input"],
+            serde_json::json!([
+                {
+                    "type": "user_input",
+                    "content": [
+                        { "type": "text", "text": "Summarize this." }
+                    ]
+                }
+            ])
+        );
+        assert!(body.get("agent").is_none());
+        assert!(body.get("stream").is_none());
+    }
+
+    #[test]
+    fn google_interactions_request_maps_model_options_and_response_format() {
+        let model = model_handle();
+        let request = ChatRequest::builder()
+            .message(ChatMessage::user("return json and image").build())
+            .temperature(0.2)
+            .top_p(0.7)
+            .seed(42)
+            .max_tokens(128)
+            .stop_sequences(vec!["STOP".to_string()])
+            .response_format(ResponseFormat::json_schema(serde_json::json!({
+                "type": "object",
+                "properties": { "answer": { "type": "string" } }
+            })))
+            .build()
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new()
+                    .with_store(true)
+                    .with_previous_interaction_id("iact_prev")
+                    .with_media_resolution("high")
+                    .with_response_modalities(["text", "image"])
+                    .with_service_tier("priority")
+                    .with_thinking_level("high")
+                    .with_thinking_summaries("auto")
+                    .with_response_format(vec![
+                        GoogleInteractionsResponseFormatEntry::image()
+                            .with_mime_type("image/png")
+                            .with_aspect_ratio("16:9")
+                            .with_image_size("1K"),
+                    ]),
+            );
+
+        let prepared = model
+            .prepare_request_body(&request, true)
+            .expect("prepare interactions request");
+        let body = serde_json::to_value(prepared.body).expect("serialize body");
+
+        assert_eq!(body["store"], serde_json::json!(true));
+        assert_eq!(
+            body["previous_interaction_id"],
+            serde_json::json!("iact_prev")
+        );
+        assert_eq!(body["service_tier"], serde_json::json!("priority"));
+        assert_eq!(
+            body["response_modalities"],
+            serde_json::json!(["text", "image"])
+        );
+        assert_eq!(body["stream"], serde_json::json!(true));
+        assert_eq!(
+            body["generation_config"],
+            serde_json::json!({
+                "temperature": 0.2,
+                "top_p": 0.7,
+                "seed": 42,
+                "stop_sequences": ["STOP"],
+                "max_output_tokens": 128,
+                "thinking_level": "high",
+                "thinking_summaries": "auto"
+            })
+        );
+        assert_eq!(
+            body["response_format"],
+            serde_json::json!([
+                {
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": {
+                        "type": "object",
+                        "properties": { "answer": { "type": "string" } }
+                    }
+                },
+                {
+                    "type": "image",
+                    "mime_type": "image/png",
+                    "aspect_ratio": "16:9",
+                    "image_size": "1K"
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn google_interactions_request_maps_tools_and_tool_choice() {
+        let model = model_handle();
+        let request = ChatRequest::new(vec![ChatMessage::user("use tools").build()])
+            .with_tools(vec![
+                Tool::function(
+                    "weather",
+                    "Get weather",
+                    serde_json::json!({
+                        "type": "object",
+                        "properties": { "city": { "type": "string" } }
+                    }),
+                ),
+                crate::tools::google::google_search().with_args(serde_json::json!({
+                    "searchTypes": { "webSearch": true, "imageSearch": true }
+                })),
+                crate::tools::google::file_search(vec!["stores/main".to_string()]).with_args(
+                    serde_json::json!({
+                        "fileSearchStoreNames": ["stores/main"],
+                        "topK": 5,
+                        "metadataFilter": "lang = 'en'"
+                    }),
+                ),
+            ])
+            .with_tool_choice(ToolChoice::tool("weather"));
+
+        let body = prepared_body_json(&model, &request);
+
+        assert_eq!(
+            body["tools"],
+            serde_json::json!([
+                {
+                    "type": "function",
+                    "name": "weather",
+                    "description": "Get weather",
+                    "parameters": {
+                        "type": "object",
+                        "properties": { "city": { "type": "string" } }
+                    }
+                },
+                {
+                    "type": "google_search",
+                    "search_types": ["web_search", "image_search"]
+                },
+                {
+                    "type": "file_search",
+                    "file_search_store_names": ["stores/main"],
+                    "top_k": 5,
+                    "metadata_filter": "lang = 'en'"
+                }
+            ])
+        );
+        assert_eq!(
+            body["generation_config"]["tool_choice"],
+            serde_json::json!({
+                "allowed_tools": {
+                    "mode": "validated",
+                    "tools": ["weather"]
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn google_interactions_request_warns_for_unsupported_provider_tool() {
+        let model = model_handle();
+        let request = ChatRequest::new(vec![ChatMessage::user("search").build()])
+            .with_tools(vec![crate::tools::openai::web_search()]);
+
+        let prepared = model
+            .prepare_request_body(&request, false)
+            .expect("prepare request");
+        assert_eq!(prepared.warnings.len(), 1);
+        assert!(matches!(prepared.warnings[0], Warning::Unsupported { .. }));
+        let body = serde_json::to_value(prepared.body).expect("serialize body");
+        assert!(body.get("tools").is_none());
+        assert!(body.get("generation_config").is_none());
+    }
+
+    #[test]
+    fn google_interactions_request_maps_deprecated_image_config_fallback() {
+        let model = model_handle();
+        let request = ChatRequest::new(vec![ChatMessage::user("make image").build()])
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new().with_image_config(
+                    crate::provider_options::gemini::GoogleInteractionsImageConfig::new()
+                        .with_aspect_ratio("1:1")
+                        .with_image_size("512"),
+                ),
+            );
+
+        let prepared = model
+            .prepare_request_body(&request, false)
+            .expect("prepare request");
+        assert_eq!(prepared.warnings.len(), 1);
+        assert!(matches!(prepared.warnings[0], Warning::Deprecated { .. }));
+        let body = serde_json::to_value(prepared.body).expect("serialize body");
+        assert_eq!(
+            body["response_format"],
+            serde_json::json!([
+                {
+                    "type": "image",
+                    "mime_type": "image/png",
+                    "aspect_ratio": "1:1",
+                    "image_size": "512"
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn google_interactions_request_converts_files_with_media_resolution() {
+        let model = model_handle();
+        let request = ChatRequest::new(vec![
+            ChatMessage::user("inspect")
+                .with_image("https://example.com/cat.png".to_string(), None)
+                .with_file_base64(
+                    "JVBERi0x",
+                    "application/pdf",
+                    Some("report.pdf".to_string()),
+                )
+                .with_file_url("gs://bucket/movie.mp4", "video/mp4")
+                .build(),
+        ])
+        .with_google_interactions_options(
+            GoogleLanguageModelInteractionsOptions::new().with_media_resolution("high"),
+        );
+
+        let body = prepared_body_json(&model, &request);
+
+        assert_eq!(
+            body["input"][0]["content"],
+            serde_json::json!([
+                { "type": "text", "text": "inspect" },
+                {
+                    "type": "image",
+                    "uri": "https://example.com/cat.png",
+                    "resolution": "high"
+                },
+                {
+                    "type": "document",
+                    "data": "JVBERi0x",
+                    "mime_type": "application/pdf"
+                },
+                {
+                    "type": "video",
+                    "uri": "gs://bucket/movie.mp4",
+                    "mime_type": "video/mp4",
+                    "resolution": "high"
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn google_interactions_request_roundtrips_assistant_tool_and_reasoning_signatures() {
+        let model = model_handle();
+        let google_meta = ProviderMetadataMap::from([(
+            "google".to_string(),
+            serde_json::json!({
+                "signature": "sig_tool",
+                "interactionId": "iact_current"
+            }),
+        )]);
+        let reasoning_meta = ProviderMetadataMap::from([(
+            "google".to_string(),
+            serde_json::json!({
+                "signature": "sig_reasoning"
+            }),
+        )]);
+        let assistant = ChatMessage::assistant_with_content(vec![
+            ContentPart::text("I will call weather."),
+            ContentPart::Reasoning {
+                text: "Need live weather.".to_string(),
+                provider_options: Default::default(),
+                provider_metadata: Some(reasoning_meta),
+            },
+            ContentPart::ToolCall {
+                tool_call_id: "call_weather".to_string(),
+                tool_name: "weather".to_string(),
+                arguments: serde_json::json!({ "city": "Shanghai" }),
+                provider_executed: None,
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
+                provider_options: Default::default(),
+                provider_metadata: Some(google_meta.clone()),
+            },
+        ])
+        .build();
+        let tool = ChatMessage {
+            role: MessageRole::Tool,
+            content: MessageContent::MultiModal(vec![
+                ContentPart::tool_result_content(
+                    "call_weather",
+                    "weather",
+                    vec![
+                        ToolResultContentPart::text("22C"),
+                        ToolResultContentPart::image_url("https://example.com/weather.png"),
+                    ],
+                )
+                .with_provider_option(
+                    "google",
+                    serde_json::json!({
+                        "signature": "sig_result"
+                    }),
+                ),
+            ]),
+            provider_options: ProviderOptionsMap::default(),
+            metadata: MessageMetadata::default(),
+        };
+        let request = ChatRequest::new(vec![assistant, tool]);
+
+        let body = prepared_body_json(&model, &request);
+
+        assert_eq!(
+            body["input"],
+            serde_json::json!([
+                {
+                    "type": "model_output",
+                    "content": [
+                        { "type": "text", "text": "I will call weather." }
+                    ]
+                },
+                {
+                    "type": "thought",
+                    "signature": "sig_reasoning",
+                    "summary": [
+                        { "type": "text", "text": "Need live weather." }
+                    ]
+                },
+                {
+                    "type": "function_call",
+                    "id": "call_weather",
+                    "name": "weather",
+                    "arguments": { "city": "Shanghai" },
+                    "signature": "sig_tool"
+                },
+                {
+                    "type": "user_input",
+                    "content": [
+                        {
+                            "type": "function_result",
+                            "call_id": "call_weather",
+                            "name": "weather",
+                            "result": [
+                                { "type": "text", "text": "22C" },
+                                {
+                                    "type": "image",
+                                    "uri": "https://example.com/weather.png"
+                                }
+                            ],
+                            "signature": "sig_result"
+                        }
+                    ]
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn google_interactions_request_compacts_previous_interaction_history() {
+        let model = model_handle();
+        let linked_meta = ProviderMetadataMap::from([(
+            "google".to_string(),
+            serde_json::json!({ "interactionId": "iact_prev" }),
+        )]);
+        let linked_assistant = ChatMessage::assistant_with_content(vec![ContentPart::ToolCall {
+            tool_call_id: "call_prev".to_string(),
+            tool_name: "search".to_string(),
+            arguments: serde_json::json!({ "q": "old" }),
+            provider_executed: None,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
+            provider_options: Default::default(),
+            provider_metadata: Some(linked_meta),
+        }])
+        .build();
+        let linked_tool =
+            ChatMessage::tool_result_text("call_prev", "search", "old result").build();
+        let new_user = ChatMessage::user("continue").build();
+        let request = ChatRequest::new(vec![linked_assistant, linked_tool, new_user])
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new()
+                    .with_previous_interaction_id("iact_prev")
+                    .with_store(true),
+            );
+
+        let body = prepared_body_json(&model, &request);
+
+        assert_eq!(
+            body["input"],
+            serde_json::json!([
+                {
+                    "type": "user_input",
+                    "content": [
+                        { "type": "text", "text": "continue" }
+                    ]
+                }
+            ])
+        );
+        assert_eq!(
+            body["previous_interaction_id"],
+            serde_json::json!("iact_prev")
+        );
+    }
+
+    #[test]
+    fn google_interactions_request_warns_and_keeps_history_when_store_false_conflicts() {
+        let model = model_handle();
+        let request = ChatRequest::new(vec![ChatMessage::user("continue").build()])
+            .with_google_interactions_options(
+                GoogleLanguageModelInteractionsOptions::new()
+                    .with_previous_interaction_id("iact_prev")
+                    .with_store(false),
+            );
+
+        let prepared = model
+            .prepare_request_body(&request, false)
+            .expect("prepare request");
+        assert_eq!(prepared.warnings.len(), 1);
+        assert!(matches!(prepared.warnings[0], Warning::Other { .. }));
+        let body = serde_json::to_value(prepared.body).expect("serialize body");
+        assert_eq!(body["store"], serde_json::json!(false));
+        assert_eq!(
+            body["previous_interaction_id"],
+            serde_json::json!("iact_prev")
+        );
+        assert_eq!(
+            body["input"][0]["content"][0]["text"],
+            serde_json::json!("continue")
+        );
+    }
+
+    #[test]
+    fn google_interactions_request_prefers_prompt_system_over_option_system_instruction() {
+        let model = model_handle();
+        let request = ChatRequest::new(vec![
+            ChatMessage::system("prompt system").build(),
+            ChatMessage::user("hi").build(),
+        ])
+        .with_google_interactions_options(
+            GoogleLanguageModelInteractionsOptions::new().with_system_instruction("option system"),
+        );
+
+        let prepared = model
+            .prepare_request_body(&request, false)
+            .expect("prepare request");
+        assert_eq!(prepared.warnings.len(), 1);
+        let body = serde_json::to_value(prepared.body).expect("serialize body");
+        assert_eq!(
+            body["system_instruction"],
+            serde_json::json!("prompt system")
+        );
+    }
+
+    #[test]
+    fn google_interactions_request_rejects_agent_mode_until_gir_030() {
+        let model = GoogleInteractionsLanguageModel::new(
+            GeminiConfig::new("test-key"),
+            GoogleInteractionsModelInput::agent(agents::DEEP_RESEARCH_PREVIEW_04_2026),
+        );
+        let err = model
+            .prepare_request_body(
+                &ChatRequest::new(vec![ChatMessage::user("research").build()]),
+                false,
+            )
+            .expect_err("agent conversion deferred");
+
+        match err {
+            LlmError::UnsupportedOperation(message) => {
+                assert!(message.contains("GIR-030"));
             }
             other => panic!("expected UnsupportedOperation, got {other:?}"),
         }

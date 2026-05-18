@@ -37,11 +37,10 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "GIR-020",
-    "title": "Convert stable chat requests into Google Interactions request bodies",
+    "id": "GIR-030",
+    "title": "Add agent-mode request conversion and warning behavior",
     "scope": [
       "siumai-provider-gemini/src/providers/gemini",
-      "siumai-provider-gemini/src/provider_options/gemini",
       "fixtures"
     ]
   },
