@@ -114,7 +114,11 @@ pub use crate::provider_options::openai::{
 };
 
 // Typed provider metadata views (protocol-owned; re-exported via this provider for ergonomics).
-pub use crate::provider_metadata::openai::{OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource};
+pub use crate::provider_metadata::openai::{
+    OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource, OpenaiResponsesCompactionProviderMetadata,
+    OpenaiResponsesProviderMetadata, OpenaiResponsesReasoningProviderMetadata,
+    OpenaiResponsesSourceDocumentProviderMetadata, OpenaiResponsesTextProviderMetadata,
+};
 
 /// OpenAI-compatible vendors (OpenAI-like providers).
 ///

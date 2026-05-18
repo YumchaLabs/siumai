@@ -149,6 +149,36 @@ pub struct OpenAiContentPartMetadata {
     pub encrypted_content: Option<String>,
 }
 
+/// AI SDK-style OpenAI Responses provider metadata envelope (`provider_metadata["openai"]`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenaiResponsesProviderMetadata {
+    pub openai: OpenAiMetadata,
+}
+
+/// AI SDK-style OpenAI Responses reasoning-part provider metadata envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenaiResponsesReasoningProviderMetadata {
+    pub openai: OpenAiContentPartMetadata,
+}
+
+/// AI SDK-style OpenAI Responses text-part provider metadata envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenaiResponsesTextProviderMetadata {
+    pub openai: OpenAiContentPartMetadata,
+}
+
+/// AI SDK-style OpenAI Responses compaction provider metadata envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenaiResponsesCompactionProviderMetadata {
+    pub openai: OpenAiContentPartMetadata,
+}
+
+/// AI SDK-style OpenAI Responses source-document provider metadata envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenaiResponsesSourceDocumentProviderMetadata {
+    pub openai: OpenAiSourceMetadata,
+}
+
 impl crate::types::provider_metadata::FromMetadata for OpenAiMetadata {
     fn from_metadata(
         metadata: &std::collections::HashMap<String, serde_json::Value>,
@@ -505,5 +535,63 @@ mod tests {
             .expect("openai content-part metadata");
         assert_eq!(meta.item_id.as_deref(), Some("rs_1"));
         assert_eq!(meta.reasoning_encrypted_content.as_deref(), Some("enc_123"));
+    }
+
+    #[test]
+    fn openai_responses_metadata_envelopes_use_openai_namespace() {
+        let response_metadata = OpenaiResponsesProviderMetadata {
+            openai: OpenAiMetadata {
+                response_id: Some("resp_123".to_string()),
+                service_tier: Some("default".to_string()),
+                ..Default::default()
+            },
+        };
+        let reasoning_metadata = OpenaiResponsesReasoningProviderMetadata {
+            openai: OpenAiContentPartMetadata {
+                item_id: Some("rs_1".to_string()),
+                reasoning_encrypted_content: Some("enc_123".to_string()),
+                ..Default::default()
+            },
+        };
+        let text_metadata = OpenaiResponsesTextProviderMetadata {
+            openai: OpenAiContentPartMetadata {
+                item_id: Some("msg_1".to_string()),
+                phase: Some("final_answer".to_string()),
+                ..Default::default()
+            },
+        };
+        let compaction_metadata = OpenaiResponsesCompactionProviderMetadata {
+            openai: OpenAiContentPartMetadata {
+                metadata_type: Some("compaction".to_string()),
+                item_id: Some("cmp_1".to_string()),
+                encrypted_content: Some("enc_compaction".to_string()),
+                ..Default::default()
+            },
+        };
+        let source_metadata = OpenaiResponsesSourceDocumentProviderMetadata {
+            openai: OpenAiSourceMetadata {
+                metadata_type: Some("file_citation".to_string()),
+                file_id: Some("file_123".to_string()),
+                index: Some(7),
+                ..Default::default()
+            },
+        };
+
+        for value in [
+            serde_json::to_value(response_metadata).expect("response metadata"),
+            serde_json::to_value(reasoning_metadata).expect("reasoning metadata"),
+            serde_json::to_value(text_metadata).expect("text metadata"),
+            serde_json::to_value(compaction_metadata).expect("compaction metadata"),
+            serde_json::to_value(source_metadata).expect("source metadata"),
+        ] {
+            assert!(
+                value.get("openai").is_some(),
+                "OpenAI package metadata envelopes must use providerMetadata.openai"
+            );
+            assert!(
+                value.get("azure").is_none(),
+                "OpenAI package metadata envelopes must not leak providerMetadata.azure"
+            );
+        }
     }
 }

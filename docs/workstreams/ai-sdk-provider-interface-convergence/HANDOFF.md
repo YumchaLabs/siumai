@@ -143,6 +143,11 @@ vertical slices instead of becoming one cross-provider mega patch.
   `provider_ext::azure`, while the existing registry/public-path tests continue to prove default
   Azure runtime metadata uses `azure` and only switches to `openai` when the caller explicitly
   overrides the provider metadata key.
+- AIPC-080 then re-audited OpenAI's package index. The upstream `@ai-sdk/openai` package exports
+  five `OpenaiResponses*ProviderMetadata` envelope names for response/reasoning/text/compaction/
+  source-document metadata. Siumai now exports matching Rust structs through the OpenAI protocol,
+  provider, and facade metadata modules, while existing Responses stream/replay behavior stays on
+  the protocol/bridge evidence already closed by AIPC-050 and AIPC-060.
 
 ## Blockers
 

@@ -1807,6 +1807,11 @@ fn public_surface_openai_provider_ext_compiles() {
     let _ = size_of::<OpenAiRerank>();
     let _ = size_of::<OpenAiMetadata>();
     let _ = size_of::<OpenAiSource>();
+    let _ = size_of::<OpenaiResponsesProviderMetadata>();
+    let _ = size_of::<OpenaiResponsesReasoningProviderMetadata>();
+    let _ = size_of::<OpenaiResponsesTextProviderMetadata>();
+    let _ = size_of::<OpenaiResponsesCompactionProviderMetadata>();
+    let _ = size_of::<OpenaiResponsesSourceDocumentProviderMetadata>();
     let _ = size_of::<OpenAiResponsesEventConverter>();
     let _ = size_of::<moderation::OpenAiModerationRequest>();
     let _ = size_of::<responses::OpenAiResponsesCompactRequest>();
@@ -1847,6 +1852,17 @@ fn public_surface_openai_provider_ext_compiles() {
     _assert_req_ext::<ChatRequest>();
     _assert_stt_req_ext::<SttRequest>();
     _assert_resp_ext::<ChatResponse>();
+
+    let metadata = OpenaiResponsesProviderMetadata {
+        openai: OpenAiMetadata {
+            response_id: Some("resp_123".to_string()),
+            service_tier: Some("default".to_string()),
+            ..Default::default()
+        },
+    };
+    let serialized = serde_json::to_value(&metadata).expect("serialize openai metadata envelope");
+    assert!(serialized.get("openai").is_some());
+    assert!(serialized.get("azure").is_none());
 
     let _ = siumai::hosted_tools::openai::web_search().build();
     let _ = siumai::provider_ext::openai::hosted_tools::web_search().build();

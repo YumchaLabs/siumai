@@ -93,7 +93,9 @@ Status legend:
   `@ai-sdk/google-vertex/xai` sub-entry now has a dedicated Siumai provider boundary with aliases,
   capability guards, and request-body normalization. Azure's package metadata surface now exports
   AI SDK-style Responses metadata envelope names rooted at `provider_metadata.azure`, with runtime
-  namespace guards proving generic OpenAI metadata does not leak into default Azure paths.
+  namespace guards proving generic OpenAI metadata does not leak into default Azure paths. OpenAI's
+  own Responses metadata envelope exports are now aligned with the package index while keeping
+  custom replay behavior behind the existing compatibility/protocol boundaries.
 
 ## M4 - Workstream Hygiene And Closeout
 

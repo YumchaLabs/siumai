@@ -48,11 +48,16 @@ pub mod metadata {
     pub use siumai_provider_openai::provider_metadata::openai::{
         OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiContentPartMetadata, OpenAiMetadata,
         OpenAiSource, OpenAiSourceExt, OpenAiSourceMetadata,
+        OpenaiResponsesCompactionProviderMetadata, OpenaiResponsesProviderMetadata,
+        OpenaiResponsesReasoningProviderMetadata, OpenaiResponsesSourceDocumentProviderMetadata,
+        OpenaiResponsesTextProviderMetadata,
     };
 }
 pub use metadata::{
     OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiContentPartMetadata, OpenAiMetadata,
-    OpenAiSource, OpenAiSourceExt, OpenAiSourceMetadata,
+    OpenAiSource, OpenAiSourceExt, OpenAiSourceMetadata, OpenaiResponsesCompactionProviderMetadata,
+    OpenaiResponsesProviderMetadata, OpenaiResponsesReasoningProviderMetadata,
+    OpenaiResponsesSourceDocumentProviderMetadata, OpenaiResponsesTextProviderMetadata,
 };
 
 /// Typed provider options (`provider_options_map["openai"]`).
