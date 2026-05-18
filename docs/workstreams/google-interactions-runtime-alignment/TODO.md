@@ -1,6 +1,6 @@
 # Google Interactions Runtime Alignment - TODO
 
-Status: Active
+Status: Completed
 Last updated: 2026-05-18
 
 Status legend:
@@ -106,9 +106,11 @@ Status legend:
   model non-stream `POST /interactions`, model streaming `POST /interactions` with `stream: true`,
   and agent streaming via background `POST` plus resumable `GET /interactions/{id}?stream=true`.
 
-- [~] GIR-090 [owner=planner] [deps=GIR-080] [scope=docs/workstreams/google-interactions-runtime-alignment]
+- [x] GIR-090 [owner=planner] [deps=GIR-080] [scope=docs/workstreams/google-interactions-runtime-alignment]
   Goal: Close the lane or split remaining Interactions runtime gaps into narrower follow-ons.
   Validation: `verify-rust-workstream` records final gate evidence.
   Review: `review-workstream` has no blocking findings.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`
-  Handoff: Summarize any intentionally deferred agent/stream cases.
+  Handoff: Closed on 2026-05-18. No Interactions-specific runtime follow-on was split from this
+  lane; remaining Google provider work should be opened as a new workstream only if a new API
+  capability or bug report appears.

@@ -1,11 +1,11 @@
 # Google Interactions Runtime Alignment - Handoff
 
-Status: Active
+Status: Completed
 Last updated: 2026-05-18
 
 ## Current State
 
-The workstream is open. Siumai exposes `google.interactions(...)` through the Gemini/Google provider
+The workstream is closed. Siumai exposes `google.interactions(...)` through the Gemini/Google provider
 surface, including model ids, agent names, typed provider options, metadata, builder construction,
 and a provider-owned `GoogleInteractionsLanguageModel` handle.
 
@@ -21,26 +21,22 @@ aborted before completion. Public facade tests now prove `Provider::google()`,
 `provider_ext::google`, and direct handle construction reach the implemented Interactions runtime
 instead of fail-fast behavior.
 
-## Active Task
+## Closeout
 
 - Task ID: GIR-090
-- Owner: planner
-- Files:
-  - `docs/workstreams/google-interactions-runtime-alignment/*`
-- Validation:
-  - `verify-rust-workstream` final gate evidence
-- Status: READY
-- Review: `review-workstream` before closeout.
+- Status: DONE
+- Decision: close the lane without splitting an Interactions-specific follow-on.
 - Evidence: request conversion, completed-response parsing, non-stream POST, agent polling,
   model-mode stream POST, stream event conversion, agent stream reconnect/cancel, public facade
-  parity, package tests, fmt, and clippy are covered.
+  parity, package tests, fmt, and clippy are covered in `EVIDENCE_AND_GATES.md`.
 
 ## Decisions Since Last Update
 
 - This runtime lane was split out of `ai-sdk-provider-interface-convergence` because Interactions is
   not ordinary Gemini chat. It needs request conversion, polling, cancellation, stream reconnect,
   signature round-trip, and interaction-id compaction.
-- The fail-fast handle remains the correct current behavior until a runtime slice lands with tests.
+- The temporary fail-fast boundary was removed for implemented chat paths after equivalent runtime
+  and public-path tests landed.
 - Interactions code must stay provider-owned in `siumai-provider-gemini`.
 - Model-mode request conversion lives in `providers/gemini/interactions/request.rs` so later
   response, polling, and streaming runtime slices do not turn `interactions.rs` into a monolith.
@@ -69,13 +65,9 @@ instead of fail-fast behavior.
 
 ## Blockers
 
-- No external blocker. GIR-090 needs a closeout decision: close this lane or split any remaining
-  Interactions runtime gaps into narrower follow-ons.
+- None.
 
 ## Next Recommended Action
 
-Start GIR-090 closeout:
-
-- run final verification gates or record why broader gates are intentionally skipped;
-- decide whether remaining Interactions API gaps deserve follow-on workstreams;
-- close the lane if no blocking gaps remain.
+Return to the parent AI SDK provider-interface convergence program and choose the next provider or
+shared seam by fresh inventory, not by continuing this closed lane.

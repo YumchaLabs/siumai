@@ -1,6 +1,6 @@
 # Google Interactions Runtime Alignment - Evidence And Gates
 
-Status: Active
+Status: Completed
 Last updated: 2026-05-18
 
 ## Smallest Current Repro
@@ -111,3 +111,9 @@ Proves ordinary Gemini package behavior remains intact.
 | 2026-05-18 | `git diff --check` | Passed | Whitespace gate passed after GIR-080 public-path tests. |
 | 2026-05-18 | `cargo nextest run -p siumai --features google --test provider_public_path_parity_test google_interactions --no-fail-fast` | Passed | Focused facade gate still passed after formatting. |
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast` | Passed | Package gate passed with 102 tests after GIR-080, proving ordinary Gemini provider behavior remains intact. |
+
+## Closeout
+
+Closed on 2026-05-18 with no Interactions-specific follow-on split. The lane target state is covered
+by provider-local request/response/runtime/stream tests, public facade parity tests, package gates,
+fmt checks, clippy checks recorded earlier in the command log, and whitespace checks.

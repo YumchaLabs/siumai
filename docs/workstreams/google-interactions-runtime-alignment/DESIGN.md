@@ -1,6 +1,6 @@
 # Google Interactions Runtime Alignment
 
-Status: Active
+Status: Completed
 Last updated: 2026-05-18
 
 ## Why This Lane Exists
@@ -8,8 +8,8 @@ Last updated: 2026-05-18
 `@ai-sdk/google` exposes `google.interactions(...)` as a first-class language-model surface backed
 by `POST /v1beta/interactions`, background interaction polling, resumable SSE streaming,
 interaction cancellation, and provider metadata round-trips. Siumai already exposes the Rust package
-surface and fail-fast handle so imports compile, but it intentionally does not execute that runtime
-path yet.
+surface and now executes the provider-owned Interactions runtime through the dedicated
+`/interactions` API rather than ordinary Gemini `:generateContent`.
 
 This is too large to finish honestly inside the provider-package inventory lane. It needs its own
 durable implementation and verification track.
@@ -34,10 +34,10 @@ durable implementation and verification track.
 
 ## Problem
 
-The visible Rust package surface is aligned enough for imports and construction, but
-`GoogleInteractionsLanguageModel` currently returns `UnsupportedOperation` for every chat path. That
-is the right boundary for the provider-interface convergence program, but not the final product
-state for users who expect `google.interactions(...)` to execute.
+The visible Rust package surface was initially aligned enough for imports and construction, but the
+runtime still returned `UnsupportedOperation` for chat paths. This lane replaced that temporary
+boundary with provider-owned request conversion, response parsing, polling, streaming, reconnect,
+cancel, and public facade parity.
 
 The runtime differs from ordinary Gemini `:generateContent` in several ways:
 
@@ -51,7 +51,7 @@ The runtime differs from ordinary Gemini `:generateContent` in several ways:
 
 ## Target State
 
-When this lane closes:
+This lane closes with:
 
 - `GoogleInteractionsLanguageModel` executes non-stream and stream chat requests through
   `/v1beta/interactions` rather than ordinary Gemini `:generateContent`.
@@ -78,9 +78,9 @@ When this lane closes:
 
 - Replacing ordinary Gemini `:generateContent` behavior.
 - Moving Interactions into `siumai-core`.
-- Implementing browser-only AI SDK workflow serialization hooks.
 - Treating Interactions as a generic gateway provider.
-- Removing the fail-fast boundary before the first runtime slice has equivalent test coverage.
+- Browser-only AI SDK workflow serialization hooks or runtime surfaces outside Siumai's current
+  stable chat abstractions.
 
 ## Starting Assumptions
 
@@ -106,12 +106,12 @@ transformer. They do not share a wire contract even when output concepts overlap
 
 ## Closeout Condition
 
-This lane can close when:
+Satisfied on 2026-05-18:
 
-- model-mode non-stream, model-mode stream, and agent polling paths are implemented or explicitly
-  deferred with evidence;
+- model-mode non-stream, model-mode stream, agent polling, and agent streaming paths are
+  implemented with evidence;
 - request and response converters are covered by no-network tests using AI SDK reference fixtures or
   equivalent local fixtures;
-- abort/cancel and stream reconnect behavior is covered at least at helper level;
+- abort/cancel and stream reconnect behavior is covered by no-network tests;
 - `google.interactions(...)` no longer fail-fasts for the implemented paths;
 - AIPC docs point to this lane as the runtime follow-on.

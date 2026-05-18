@@ -1,6 +1,6 @@
 # Google Interactions Runtime Alignment - Milestones
 
-Status: Active
+Status: Completed
 Last updated: 2026-05-18
 
 ## M0 - Scope And Evidence Freeze
@@ -106,7 +106,7 @@ cargo nextest run -p siumai --features google --test provider_public_path_parity
 cargo nextest run -p siumai-provider-gemini --all-features --no-fail-fast
 ```
 
-Status: in progress
+Status: completed
 
 Progress:
 
@@ -114,3 +114,6 @@ Progress:
   with no-network tests proving `Provider::google()`, `provider_ext::google`, and direct
   `GoogleInteractionsLanguageModel` paths reach implemented model non-stream, model stream, and
   agent background GET-stream Interactions runtime.
+- GIR-090 completed on 2026-05-18. The lane closes without splitting a new Interactions-specific
+  follow-on because the target runtime, stream reconnect/cancel, public facade parity, and package
+  gates are covered.

@@ -2,10 +2,10 @@
   "schema_version": 1,
   "slug": "google-interactions-runtime-alignment",
   "title": "Google Interactions Runtime Alignment",
-  "status": "active",
+  "status": "completed",
   "updated": "2026-05-18",
   "scope_kind": "execution",
-  "problem": "Siumai exposes and executes the AI SDK-aligned google.interactions package surface through provider-owned /interactions runtime paths; the lane now needs closeout or narrowly split follow-ons for any remaining gaps.",
+  "problem": "Siumai exposes and executes the AI SDK-aligned google.interactions package surface through provider-owned /interactions runtime paths; this lane is closed with no Interactions-specific follow-on split.",
   "authoritative_docs": [
     {
       "role": "design",
@@ -37,15 +37,9 @@
     "docs/adr/0007-llmclient-demotion-policy.md",
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
-  "active_task": {
-    "id": "GIR-090",
-    "title": "Close the lane or split remaining Interactions runtime gaps",
-    "scope": [
-      "docs/workstreams/google-interactions-runtime-alignment"
-    ]
-  },
+  "active_task": null,
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue one bounded runtime slice at a time. Keep ordinary Gemini :generateContent behavior separate from the /interactions runtime."
+    "default_action": "return_to_parent_workstream",
+    "notes": "This lane is closed. Continue the broader provider-interface convergence program by fresh inventory; keep ordinary Gemini :generateContent behavior separate from the /interactions runtime."
   }
 }
