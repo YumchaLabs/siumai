@@ -1,12 +1,12 @@
 # AI SDK Provider Interface Convergence - Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-18
 
 ## Smallest Current Repro
 
-The active slice is workstream hygiene after core, registry, protocol stream, bridge/gateway, and
-provider-package parity slices completed.
+The parent program is closed. The smallest closeout check is docs/status consistency plus diff
+hygiene.
 
 ```bash
 git status --short
@@ -179,3 +179,5 @@ should still run the full formatting gate.
 | 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features interactions_handle_is_explicitly_deferred_at_runtime --no-fail-fast` | Passed | Focused Gemini provider gate passed, proving the Interactions handle remains explicitly deferred at runtime. |
 | 2026-05-18 | `cargo nextest run -p siumai --features google google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime --test provider_public_path_parity_test --no-fail-fast` | Passed | Public-path parity gate passed, proving the package-visible `google.interactions(...)` facade still fail-fasts until the dedicated runtime lane lands; existing Gemini unreachable-pattern warning is unrelated. |
 | 2026-05-18 | `git diff --check` | Passed | Documentation hygiene gate passed after adding machine-readable status files for historical workstreams and regenerating `docs/workstreams/INDEX.md`. |
+| 2026-05-18 | `git status --short` | Passed | Closeout worktree check showed only AIPC-100 documentation/index changes plus the new closeout journal. |
+| 2026-05-18 | `git diff --check` | Passed | Closeout diff hygiene check passed; local Git only reported expected Windows line-ending warnings. |

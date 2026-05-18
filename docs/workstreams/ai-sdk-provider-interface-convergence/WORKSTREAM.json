@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "ai-sdk-provider-interface-convergence",
   "title": "AI SDK Provider Interface Convergence",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-18",
   "scope_kind": "program",
   "problem": "Siumai needs one authoritative program lane to keep core, registry, protocol, provider, and OpenAI-compatible package seams converged with the AI SDK reference without reopening one giant V4 refactor lane.",
@@ -41,15 +41,13 @@
     "docs/adr/0007-llmclient-demotion-policy.md",
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
-  "active_task": {
-    "id": "AIPC-100",
-    "title": "Close this program lane or split remaining work into narrower follow-ons",
-    "scope": [
-      "docs/workstreams/ai-sdk-provider-interface-convergence"
-    ]
-  },
+  "current_task": "closed",
+  "next_task": "Resume docs/workstreams/google-interactions-runtime-alignment at GIR-020 for real Google Interactions /v1beta/interactions runtime execution. Open a narrower follow-on only when concrete provider interface, provider utilities, root helper, or legacy content compatibility drift appears.",
+  "follow_on": [
+    "docs/workstreams/google-interactions-runtime-alignment"
+  ],
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue one bounded vertical slice at a time. Split a child workstream when a provider or seam needs separate ownership. Do not turn this program into a single mega implementation patch."
+    "default_action": "closed",
+    "notes": "Do not reopen this parent program for mechanical cleanup. Use the Google Interactions runtime child lane or open a new bounded workstream for concrete future drift."
   }
 }

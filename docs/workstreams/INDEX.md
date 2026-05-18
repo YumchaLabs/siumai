@@ -19,8 +19,8 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 - Total workstream directories: 68
 - Machine-readable status files: 64
-- Closed or closed-like lanes: 60
-- Active-like lanes: 2
+- Closed or closed-like lanes: 61
+- Active-like lanes: 1
 - Deferred lanes: 2
 - Unknown legacy lanes: 4
 
@@ -28,7 +28,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 | Workstream | Status | Source | Machine-readable |
 | --- | --- | --- | --- |
-| `docs/workstreams/ai-sdk-provider-interface-convergence` | active | `WORKSTREAM.json` | yes |
+| `docs/workstreams/ai-sdk-provider-interface-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/ai-sdk-structural-alignment` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/anthropic-files-shared-contract-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/anthropic-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |

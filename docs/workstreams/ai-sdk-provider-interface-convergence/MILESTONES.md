@@ -1,6 +1,6 @@
 # AI SDK Provider Interface Convergence - Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-18
 
 ## M0 - Program Scope And Inventory
@@ -111,9 +111,10 @@ cargo fmt --all -- --check
 cargo nextest run --profile ci --all-features --workspace
 ```
 
-Status: in progress
+Status: completed
 
 Progress note: AIPC-090 is complete. The workstream index now normalizes the historical lanes that
 were safe to classify from their own TODOs or from AIPC decisions, while leaving only four unknown
 legacy directories: two empty historical directories and two lanes with explicit open follow-up
-items. AIPC-100 remains open for final program closeout or follow-on split decisions.
+items. AIPC-100 closed the parent program and moved remaining executable work to narrower follow-on
+lanes.

@@ -1,6 +1,6 @@
 # AI SDK Provider Interface Convergence - TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-18
 
 Status legend:
@@ -111,9 +111,12 @@ Status legend:
   2 active lanes, 2 deferred lanes, and 4 intentional unknown legacy directories. The remaining
   unknowns are either empty historical directories or lanes with explicit open follow-up items.
 
-- [ ] AIPC-100 [owner=planner] [deps=AIPC-040,AIPC-050,AIPC-070,AIPC-080,AIPC-090]
+- [x] AIPC-100 [owner=planner] [deps=AIPC-040,AIPC-050,AIPC-070,AIPC-080,AIPC-090]
   [scope=docs/workstreams/ai-sdk-provider-interface-convergence]
   Goal: Close this program lane or split remaining work into narrower follow-ons.
   Validation: evidence gates are recorded and `WORKSTREAM.json` status is updated.
   Evidence: `EVIDENCE_AND_GATES.md`, `HANDOFF.md`, `WORKSTREAM.json`
-  Handoff: Final closeout must list any compatibility paths that intentionally remain.
+  Handoff: Program lane closed. Remaining Google Interactions runtime execution is split to
+  `docs/workstreams/google-interactions-runtime-alignment`; residual provider interface/utilities,
+  root-helper, and legacy content compatibility rows are future triggers or ADR-0008 deferrals, not
+  active tasks in this lane.

@@ -1,14 +1,14 @@
 # AI SDK Provider Interface Convergence - Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-18
 
 ## Current State
 
-The program workstream is open. The target seams, initial parity inventory, milestones, gates, and
-task ledger are recorded. AIPC-030, AIPC-040, AIPC-050, AIPC-060, AIPC-070, AIPC-080, and AIPC-090
-are complete. Provider package rows now either have green evidence, intentional Rust boundaries,
-deferred non-official package status, or a child workstream.
+The program workstream is closed. The target seams, parity inventory, milestones, gates, and task
+ledger are recorded. AIPC-030 through AIPC-100 are complete. Provider package rows now either have
+green evidence, intentional Rust boundaries, deferred non-official package status, or a child
+workstream.
 AIPC-050 closed after three stream-part slices: OpenAI Responses public feature-surface tests now exercise stable
 `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event inputs; extras
 gateway smoke tests now require stable downstream tool stream parts for the Anthropic-to-OpenAI
@@ -30,19 +30,13 @@ SiliconFlow, Alibaba/Qwen, Mistral, Perplexity, and MoonshotAI are locked as non
 presets. TogetherAI, DeepInfra, Fireworks, generic custom OpenAI-compatible configs, and Vertex MaaS
 retain explicit completion support where Siumai has documented family coverage.
 
-This lane is intentionally a coordination and execution program. It should keep spawning bounded
-vertical slices instead of becoming one cross-provider mega patch.
+This lane is now historical coordination context. Do not reopen it for mechanical cleanup; open a
+new bounded workstream when a concrete behavior, provider, public contract, or documentation gap
+appears.
 
 ## Active Task
 
-- Task ID: AIPC-100
-- Owner: codex
-- Files:
-  - `docs/workstreams/ai-sdk-provider-interface-convergence/*`
-  - `docs/workstreams/INDEX.md`
-- Validation:
-  - `git diff --check`
-  - focused docs/status consistency checks
+None. AIPC-100 closed this parent program lane.
 
 ## Decisions Since Last Update
 
@@ -168,6 +162,7 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Execute AIPC-100 next. Decide whether to close this program lane now or keep it active only as a
-coordination parent while `docs/workstreams/google-interactions-runtime-alignment` executes the
-remaining Google Interactions runtime work.
+Resume `docs/workstreams/google-interactions-runtime-alignment` at GIR-020 for the remaining
+Google Interactions `/v1beta/interactions` runtime work. Treat provider-interface, provider-utils,
+root-helper, and legacy content compatibility rows in the AIPC inventory as future triggers rather
+than active AIPC tasks.

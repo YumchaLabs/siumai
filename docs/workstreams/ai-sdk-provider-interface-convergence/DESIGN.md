@@ -1,6 +1,6 @@
 # AI SDK Provider Interface Convergence - Design
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-18
 
 ## Why This Lane Exists
@@ -76,6 +76,24 @@ When this lane closes:
 - stream semantics prefer `ChatStreamEvent::Part(ChatStreamPart)` for AI SDK-stable semantics.
 - provider-by-provider parity is tracked in a matrix that can spawn child workstreams without
   reopening the whole program.
+
+## Closeout Summary
+
+This program is closed as of 2026-05-18. The highest-risk convergence goals landed in bounded
+vertical slices:
+
+- core/provider residue and registry family-first guard coverage,
+- stable stream-part protocol, bridge, and gateway regression coverage,
+- explicit OpenAI-compatible promoted-vendor capability metadata,
+- provider-by-provider package-surface parity inventory and focused provider fixes,
+- historical workstream status hygiene for lanes superseded by AIPC or narrower follow-ons.
+
+Remaining work is intentionally not kept inside this parent lane. Real Google Interactions
+`/v1beta/interactions` execution is split to
+`docs/workstreams/google-interactions-runtime-alignment`. Future provider-interface, provider-utils,
+or root-helper drift should open a new bounded workstream only when there is a concrete behavior,
+provider, public contract, or documentation gap. Legacy `ContentPart` compatibility remains
+deferred under ADR-0008.
 
 ## In Scope
 
@@ -168,3 +186,6 @@ This lane can close when:
   workstreams,
 - evidence gates are recorded,
 - and `WORKSTREAM.json` plus `HANDOFF.md` reflect the final state.
+
+Closeout result: satisfied. Residual Amber rows in `PARITY_INVENTORY.md` are future trigger points,
+not active tasks for this closed program lane.

@@ -1,6 +1,6 @@
 # AI SDK Provider Interface Convergence - Parity Inventory
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-18
 
 This inventory records the first program-level comparison between AI SDK package seams and Siumai
@@ -12,6 +12,9 @@ Status legend:
 - `Amber`: structurally close, but follow-up review or guard work remains.
 - `Red`: materially misaligned; should drive a child workstream.
 - `Deferred`: intentionally outside the current Rust runtime or package scope.
+
+Program closeout note: residual Amber rows are retained as future trigger points. They do not keep
+the AIPC parent lane active; open a narrower workstream only when concrete drift appears.
 
 ## Seam Inventory
 
