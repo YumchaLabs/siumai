@@ -3510,6 +3510,7 @@ fn public_surface_vertex_maas_provider_ext_compiles() {
 
 #[cfg(feature = "google-vertex")]
 #[test]
+#[allow(deprecated)]
 fn public_surface_google_vertex_xai_provider_ext_compiles() {
     use siumai::prelude::compat::{Provider, Siumai};
     use siumai::provider_ext::google_vertex_xai::{

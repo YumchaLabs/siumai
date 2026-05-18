@@ -6,30 +6,35 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 No changes yet.
 
-## [0.11.0-beta.8] - 2026-05-17
+## [0.11.0-beta.8] - 2026-05-18
 
-Stabilization release after `0.11.0-beta.7`. Most users can upgrade by changing the Cargo version
-only.
+Stabilization release after `0.11.0-beta.7`. Most chat/text users can upgrade by changing the Cargo
+version only. Review the notes below if you use OpenAI-compatible streaming, SiliconFlow, Gemini
+Interactions, MCP HTTP, or deprecated beta-era aliases.
 
 ### Fixed
 
-- Fixed OpenAI-compatible streaming dropping whitespace and line breaks in streamed text deltas.
-  This fixes [#19](https://github.com/YumchaLabs/siumai/issues/19); thanks @longzou for the report.
-- Fixed SiliconFlow streaming usage reporting by requesting provider usage chunks by default for
-  the built-in preset. This fixes [#20](https://github.com/YumchaLabs/siumai/issues/20); thanks
-  @longzou for the report.
-- Improved lossless streaming behavior for OpenAI and OpenAI-compatible providers.
-- Improved OpenAI response metadata consistency across streaming and non-streaming paths.
+- Fixed OpenAI-compatible streaming dropping whitespace and line-break-only text deltas. This fixes
+  [#19](https://github.com/YumchaLabs/siumai/issues/19); thanks @longzou for the report.
+- Fixed SiliconFlow streaming usage reporting for the built-in preset. This fixes
+  [#20](https://github.com/YumchaLabs/siumai/issues/20); thanks @longzou for the report.
+- Improved OpenAI and OpenAI-compatible streaming metadata, including final usage and raw finish
+  reasons.
+
+### Added
+
+- Added Gemini Interactions request, response, streaming, and reconnect support across the public
+  provider paths.
+- Added OpenAI support for `gpt-image-2` image models and Responses allowed-tools options.
 
 ### Changed
 
-- Refreshed MCP HTTP integration and examples in `siumai-extras`.
-- Updated examples to use the current model-family and usage APIs.
-- Added OpenAI support for newer model/option surfaces such as `gpt-image-2` and Responses allowed
-  tools.
-- Added `UsageInputTokens` and `UsageOutputTokens` to the unified prelude.
+- Updated `siumai-extras` MCP integration to the current streamable HTTP transport and refreshed
+  the related examples.
+- Aligned more provider package surfaces with the AI SDK-style construction model, including
+  OpenAI, Azure, Google Vertex, xAI, and OpenAI-compatible vendors.
 
-### Migration Notes
+### Upgrade Notes
 
 - If you used deprecated beta-era root/prelude/provider aliases, move to registry, model-family
   modules, or `provider_ext::*`.

@@ -132,12 +132,23 @@ fn gemini_model_catalog_stays_out_of_provider_reexport_glue() {
         !gemini_rs.contains("pub mod models {"),
         "Gemini model-id catalog should not be inlined in provider_ext/gemini.rs"
     );
-    assert!(
-        gemini_rs.contains("pub use models::{chat, embedding, image, model_sets, video};"),
-        "Gemini model-id group paths should remain available from provider_ext::gemini"
-    );
-
-    for family_module in ["chat", "embedding", "image", "video", "model_sets"] {
+    let model_reexport_line = gemini_rs
+        .lines()
+        .find(|line| line.trim_start().starts_with("pub use models::{"))
+        .expect("Gemini provider extension should re-export model-id groups");
+    for family_module in [
+        "agents",
+        "chat",
+        "embedding",
+        "image",
+        "interactions",
+        "model_sets",
+        "video",
+    ] {
+        assert!(
+            model_reexport_line.contains(family_module),
+            "Gemini model-id group path `{family_module}` should remain available from provider_ext::gemini"
+        );
         let declaration = format!("pub mod {family_module}");
         assert!(
             gemini_models_rs.contains(&declaration),
