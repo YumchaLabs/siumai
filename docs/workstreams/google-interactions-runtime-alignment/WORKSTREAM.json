@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "slug": "google-interactions-runtime-alignment",
+  "title": "Google Interactions Runtime Alignment",
+  "status": "active",
+  "updated": "2026-05-18",
+  "scope_kind": "execution",
+  "problem": "Siumai exposes the AI SDK-aligned google.interactions package surface, but the runtime still fail-fasts instead of executing the dedicated /interactions API.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/google-interactions-runtime-alignment/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/google-interactions-runtime-alignment/TODO.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/google-interactions-runtime-alignment/EVIDENCE_AND_GATES.md"
+    }
+  ],
+  "gates": [
+    "cargo nextest run -p siumai-provider-gemini --all-features google_interactions_request",
+    "cargo nextest run -p siumai-provider-gemini --all-features google_interactions_response",
+    "cargo nextest run -p siumai-provider-gemini --all-features google_interactions_stream",
+    "cargo nextest run -p siumai --features google google_interactions --test provider_public_path_parity_test --no-fail-fast"
+  ],
+  "evidence": [
+    "docs/workstreams/google-interactions-runtime-alignment/DESIGN.md",
+    "repo-ref/ai/packages/google/src/interactions"
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0006-family-model-first-trait-policy.md",
+    "docs/adr/0007-llmclient-demotion-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
+  ],
+  "active_task": {
+    "id": "GIR-020",
+    "title": "Convert stable chat requests into Google Interactions request bodies",
+    "scope": [
+      "siumai-provider-gemini/src/providers/gemini",
+      "siumai-provider-gemini/src/provider_options/gemini",
+      "fixtures"
+    ]
+  },
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue one bounded runtime slice at a time. Keep ordinary Gemini :generateContent behavior separate from the /interactions runtime."
+  }
+}

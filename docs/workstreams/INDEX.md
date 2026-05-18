@@ -14,11 +14,11 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 ## Summary
 
-- Total workstream directories: 66
-- Machine-readable status files: 10
+- Total workstream directories: 68
+- Machine-readable status files: 11
 - Closed or closed-like lanes: 11
-- Active-like lanes: 1
-- Unknown legacy lanes: 54
+- Active-like lanes: 2
+- Unknown legacy lanes: 55
 
 ## Inventory
 
@@ -38,6 +38,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/completion-metadata-boundary-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/data-content-error-surface-alignment` | unknown | `none` | no |
 | `docs/workstreams/deepinfra-unified-provider-surface` | unknown | `none` | no |
+| `docs/workstreams/deepseek-package-surface-alignment` | unknown | `none` | no |
 | `docs/workstreams/fearless-architecture-convergence` | unknown | `none` | no |
 | `docs/workstreams/fearless-boundary-hardening` | unknown | `none` | no |
 | `docs/workstreams/fearless-content-part-boundary-split` | closed | `WORKSTREAM.json` | yes |
@@ -53,6 +54,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/fireworks-unified-provider-surface` | unknown | `none` | no |
 | `docs/workstreams/generate-object-structured-output-alignment` | unknown | `none` | no |
 | `docs/workstreams/generate-text-output-alignment` | unknown | `none` | no |
+| `docs/workstreams/google-interactions-runtime-alignment` | active | `WORKSTREAM.json` | yes |
 | `docs/workstreams/google-package-surface-alignment` | unknown | `none` | no |
 | `docs/workstreams/google-vertex-package-surface-alignment` | unknown | `none` | no |
 | `docs/workstreams/google-vertex-typed-option-surface-alignment` | unknown | `none` | no |

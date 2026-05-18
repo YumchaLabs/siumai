@@ -7,6 +7,8 @@ Last updated: 2026-05-18
 
 The program workstream is open. The target seams, initial parity inventory, milestones, gates, and
 task ledger are recorded. AIPC-030, AIPC-040, AIPC-050, AIPC-060, and AIPC-070 are complete.
+AIPC-080 is also complete: provider package rows now either have green evidence, intentional Rust
+boundaries, deferred non-official package status, or a child workstream.
 AIPC-050 closed after three stream-part slices: OpenAI Responses public feature-surface tests now exercise stable
 `ChatStreamEvent::Part` tool call/result inputs instead of provider custom event inputs; extras
 gateway smoke tests now require stable downstream tool stream parts for the Anthropic-to-OpenAI
@@ -148,6 +150,11 @@ vertical slices instead of becoming one cross-provider mega patch.
   source-document metadata. Siumai now exports matching Rust structs through the OpenAI protocol,
   provider, and facade metadata modules, while existing Responses stream/replay behavior stays on
   the protocol/bridge evidence already closed by AIPC-050 and AIPC-060.
+- AIPC-080 closed the remaining Google/Gemini package row by separating package-surface parity from
+  runtime execution. Ordinary Gemini reasoning/source/provider-metadata public paths already have
+  focused coverage. `google.interactions(...)` remains package-visible and fail-fast by design until
+  the new `docs/workstreams/google-interactions-runtime-alignment` lane implements the dedicated
+  `/interactions` runtime.
 
 ## Blockers
 
@@ -155,7 +162,6 @@ vertical slices instead of becoming one cross-provider mega patch.
 
 ## Next Recommended Action
 
-Execute AIPC-080 one provider family at a time. Start with a native provider whose package surface
-is already first-class in Siumai but still marked Amber in `PARITY_INVENTORY.md`, compare it against
-`repo-ref/ai`, and add a narrow no-network test or source guard for any drift before moving to the
-next provider.
+Execute AIPC-090 next. Normalize or explicitly defer legacy unknown lanes that this program
+supersedes, starting from `docs/workstreams/INDEX.md` and only updating lanes whose status can be
+inferred from their own docs or this program's explicit follow-on split.

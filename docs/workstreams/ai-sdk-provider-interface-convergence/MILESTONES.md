@@ -86,7 +86,13 @@ cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-
 cargo nextest run --profile ci --all-features --workspace
 ```
 
-Status: in progress
+Status: completed
+
+Progress note: AIPC-070 and AIPC-080 are complete. OpenAI-compatible promoted vendor capability
+inheritance is explicit. Native/provider-package parity rows now either have green evidence,
+intentional Rust-specific boundaries, deferred non-official package status, or a child workstream.
+Google Interactions runtime was split to `docs/workstreams/google-interactions-runtime-alignment`
+because `/interactions` execution is a separate runtime lane rather than a package-surface gap.
 
 ## M4 - Workstream Hygiene And Closeout
 

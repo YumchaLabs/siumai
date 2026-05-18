@@ -82,7 +82,7 @@ Status legend:
   DeepInfra, Fireworks, generic OpenAI-compatible configs, and Vertex MaaS keep explicit completion
   capability where Siumai has documented support.
 
-- [~] AIPC-080 [owner=codex] [deps=AIPC-020] [scope=siumai-provider-*,siumai-protocol-*,docs]
+- [x] AIPC-080 [owner=codex] [deps=AIPC-020] [scope=siumai-provider-*,siumai-protocol-*,docs]
   Goal: Run provider-by-provider package parity slices for native providers.
   Validation: package-specific no-network tests and public import tests.
   Evidence: child workstreams or inventory rows for OpenAI, Azure, Anthropic, Google/Gemini,
@@ -95,7 +95,10 @@ Status legend:
   AI SDK-style Responses metadata envelope names rooted at `provider_metadata.azure`, with runtime
   namespace guards proving generic OpenAI metadata does not leak into default Azure paths. OpenAI's
   own Responses metadata envelope exports are now aligned with the package index while keeping
-  custom replay behavior behind the existing compatibility/protocol boundaries.
+  custom replay behavior behind the existing compatibility/protocol boundaries. Google/Gemini is
+  now closed for package-surface parity: ordinary Gemini stream/reasoning/source metadata coverage
+  is already guarded, and real `google.interactions(...)` execution has been split into
+  `docs/workstreams/google-interactions-runtime-alignment`.
 
 ## M4 - Workstream Hygiene And Closeout
 

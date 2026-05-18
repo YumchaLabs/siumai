@@ -5,14 +5,13 @@ Last updated: 2026-05-18
 
 ## Smallest Current Repro
 
-The active implementation slice is OpenAI-compatible promoted vendor package parity after the core,
-registry, protocol stream, and bridge/gateway guard slices completed.
+The active slice is workstream hygiene after core, registry, protocol stream, bridge/gateway, and
+provider-package parity slices completed.
 
 ```bash
-cargo nextest run -p siumai-core --no-fail-fast
-cargo nextest run -p siumai-registry --no-fail-fast
-cargo nextest run -p siumai-provider-openai-compatible --all-features --no-fail-fast
-cargo nextest run -p siumai --test public_surface_imports_test --no-fail-fast
+git status --short
+cargo nextest run -p siumai-provider-gemini --all-features interactions_handle_is_explicitly_deferred_at_runtime --no-fail-fast
+cargo nextest run -p siumai --features google google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime --test provider_public_path_parity_test --no-fail-fast
 ```
 
 ## Gate Set
@@ -178,3 +177,5 @@ should still run the full formatting gate.
 | 2026-05-18 | `cargo nextest run -p siumai-protocol-openai --all-features openai_metadata openai_content_part_metadata openai_responses_metadata --no-fail-fast` | Passed | 6 focused OpenAI protocol metadata tests passed after adding package metadata envelope names. |
 | 2026-05-18 | `$env:CARGO_BUILD_JOBS='1'; cargo nextest run -p siumai --features openai --test openai_responses_response_provider_metadata_key_alignment_test --no-fail-fast` | Passed | Single-binary low-concurrency gate passed, proving configurable Responses provider metadata keys still work. A broader package-filtered OpenAI nextest command hit local Windows compiler OOM before test execution. |
 | 2026-05-18 | `$env:CARGO_BUILD_JOBS='1'; cargo nextest run -p siumai --features openai --test public_surface_imports_test public_surface_openai_provider_ext_compiles --no-fail-fast` | Passed | Low-concurrency public-surface rerun passed after the broader compile OOM. |
+| 2026-05-18 | `cargo nextest run -p siumai-provider-gemini --all-features interactions_handle_is_explicitly_deferred_at_runtime --no-fail-fast` | Passed | Focused Gemini provider gate passed, proving the Interactions handle remains explicitly deferred at runtime. |
+| 2026-05-18 | `cargo nextest run -p siumai --features google google_interactions_package_surface_is_explicitly_deferred_from_chat_runtime --test provider_public_path_parity_test --no-fail-fast` | Passed | Public-path parity gate passed, proving the package-visible `google.interactions(...)` facade still fail-fasts until the dedicated runtime lane lands; existing Gemini unreachable-pattern warning is unrelated. |

@@ -42,12 +42,10 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": {
-    "id": "AIPC-080",
-    "title": "Run provider-by-provider package parity slices for native providers",
+    "id": "AIPC-090",
+    "title": "Normalize or explicitly defer legacy unknown lanes that this program supersedes",
     "scope": [
-      "siumai-provider-*",
-      "siumai-protocol-*",
-      "docs/workstreams/ai-sdk-provider-interface-convergence"
+      "docs/workstreams"
     ]
   },
   "continue_policy": {
