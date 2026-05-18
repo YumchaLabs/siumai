@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-groq-v0.11.0-beta.7...siumai-provider-groq-v0.11.0-beta.8) - 2026-05-18
+
+### Other
+
+- *(release)* prepare v0.11.0-beta.8
+- converge provider boundary architecture
+- harden crate boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+﻿
 ### Added
 
 - Added AI SDK-style `GroqProviderSettings` and `VERSION` exports for the audited package-level

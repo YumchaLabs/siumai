@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-anthropic-v0.11.0-beta.7...siumai-protocol-anthropic-v0.11.0-beta.8) - 2026-05-18
+
+### Other
+
+- guard protocol custom stream inputs
+- *(release)* prepare v0.11.0-beta.8
+- converge provider boundary architecture
+- harden crate boundaries
+- converge fearless architecture boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+
 ### Fixed
 
 - Anthropic header construction now supports the audited alternate-auth path: when callers provide
