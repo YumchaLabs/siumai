@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "protocol-response-generated-output-boundary",
   "title": "Protocol Response Generated-Output Boundary",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-19",
   "scope_kind": "architecture-refactor",
   "problem": "Protocol and provider response parsers still construct legacy ContentPart payloads inline; generated-output projection must be introduced through explicit response adapters without lossy rewrites.",
@@ -42,9 +42,9 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": null,
-  "next_task": "PRG-090",
+  "next_task": null,
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "PRG-020, PRG-030, PRG-040, PRG-050, PRG-060, PRG-070, and PRG-080 are complete. Continue with PRG-090 to close this lane or split remaining parser-wide generated-output migration follow-ons."
+    "default_action": "closed",
+    "notes": "Workstream closed. PRG-020, PRG-030, PRG-040, PRG-050, PRG-060, PRG-070, PRG-080, and PRG-090 are complete. Future parser-wide generated-output migration should open as a separate ADR-backed lane only if a new public model is justified."
   }
 }

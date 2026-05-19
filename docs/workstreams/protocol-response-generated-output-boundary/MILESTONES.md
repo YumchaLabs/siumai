@@ -1,6 +1,6 @@
 # Protocol Response Generated-Output Boundary — Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-19
 
 ## M0 — Scope And Response-Lossiness Baseline
@@ -45,6 +45,8 @@ Exit criteria:
 
 ## M4 — Integration, Docs, And Closeout
 
+Status: Complete.
+
 Exit criteria:
 
 - Architecture/migration docs distinguish protocol-native parsing, legacy `ChatResponse`
@@ -52,3 +54,8 @@ Exit criteria:
 - Final targeted nextest/fmt gates pass for touched crates.
 - Remaining broad parser migration is split or explicitly deferred with lossiness evidence.
 - `WORKSTREAM.json` is updated to `closed`, `deferred`, or another truthful final status.
+
+Current result:
+
+- Complete. PRG-090 closed the lane after the documentation-only closeout; the remaining
+  parser-wide generated-output migration stays split as a future lane.

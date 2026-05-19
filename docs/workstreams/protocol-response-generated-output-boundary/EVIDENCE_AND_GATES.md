@@ -1,6 +1,6 @@
 # Protocol Response Generated-Output Boundary — Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-19
 
 ## Evidence Log
@@ -511,6 +511,39 @@ Broader gates not run:
 
 - Rust crate tests: skipped because PRG-080 changed only documentation and workstream metadata.
 - Workspace-wide nextest/fmt: skipped for the same reason; no Rust source files changed.
+
+### 2026-05-19 — PRG-090 Closeout and lane closure
+
+Changed files:
+
+- `docs/workstreams/protocol-response-generated-output-boundary/DESIGN.md`
+- `docs/workstreams/protocol-response-generated-output-boundary/MILESTONES.md`
+- `docs/workstreams/protocol-response-generated-output-boundary/TODO.md`
+- `docs/workstreams/protocol-response-generated-output-boundary/WORKSTREAM.json`
+- `docs/workstreams/protocol-response-generated-output-boundary/HANDOFF.md`
+- `docs/workstreams/protocol-response-generated-output-boundary/EVIDENCE_AND_GATES.md`
+- `docs/workstreams/protocol-response-generated-output-boundary/JOURNAL/2026-05-19-prg-090.md`
+
+Closeout verification:
+
+```text
+python -c "import json, pathlib; data=json.loads(pathlib.Path('docs/workstreams/protocol-response-generated-output-boundary/WORKSTREAM.json').read_text(encoding='utf-8')); assert data['status']=='closed' and data['active_task'] is None and data['next_task'] is None and data['continue_policy']['default_action']=='closed'"
+```
+
+Result: PASS. Verifies the workstream metadata is closed and has no remaining active or next task.
+
+```text
+python -c "from pathlib import Path; files=['docs/workstreams/protocol-response-generated-output-boundary/DESIGN.md','docs/workstreams/protocol-response-generated-output-boundary/MILESTONES.md','docs/workstreams/protocol-response-generated-output-boundary/TODO.md','docs/workstreams/protocol-response-generated-output-boundary/EVIDENCE_AND_GATES.md','docs/workstreams/protocol-response-generated-output-boundary/HANDOFF.md']; assert all('Status: Closed' in Path(p).read_text(encoding='utf-8') for p in files); todo=Path('docs/workstreams/protocol-response-generated-output-boundary/TODO.md').read_text(encoding='utf-8'); assert '[x] PRG-090' in todo and '[ ] PRG-090' not in todo"
+```
+
+Result: PASS. Verifies the closeout documents now present a closed lane and the final task is
+marked complete.
+
+```text
+git diff --check -- docs/workstreams/protocol-response-generated-output-boundary
+```
+
+Result: PASS. Verifies the closeout documentation changes contain no whitespace errors.
 
 ## Planned Gates
 

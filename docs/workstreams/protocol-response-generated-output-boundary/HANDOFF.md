@@ -1,6 +1,6 @@
 # Protocol Response Generated-Output Boundary — Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-19
 
 ## Current State
@@ -111,26 +111,28 @@ PRG-080 is complete:
 
 ## Last Completed Task
 
-PRG-080:
+PRG-090:
 
 - Status: DONE.
 - Scope:
-  `docs/architecture,docs/migration,docs/workstreams`
-- Result:
-  Updated public architecture and beta.7 migration docs to distinguish parser-local response
-  compatibility adapters, legacy compatibility payloads, and fallible generated-output projection.
-
-## Next Executable Task
-
-PRG-090:
-
-- Scope:
   `docs/workstreams/protocol-response-generated-output-boundary`
-- Goal:
-  Close this lane or split remaining parser-wide generated-output migration into narrower
-  follow-ons.
-- Important constraint:
-  Final status must name retained compatibility paths and their removal/narrowing criteria.
+- Result:
+  Closed the workstream after fresh docs-only verification; metadata, milestones, TODO, and
+  evidence now all agree the lane is closed.
+
+## Final State
+
+- Workstream status: closed.
+- `WORKSTREAM.json`: `status=closed`, `active_task=null`, `next_task=null`.
+- Final gates:
+  - `python -c "import json, pathlib; data=json.loads(pathlib.Path('docs/workstreams/protocol-response-generated-output-boundary/WORKSTREAM.json').read_text(encoding='utf-8')); assert data['status']=='closed' and data['active_task'] is None and data['next_task'] is None and data['continue_policy']['default_action']=='closed'"`
+  - `python -c "from pathlib import Path; files=['docs/workstreams/protocol-response-generated-output-boundary/DESIGN.md','docs/workstreams/protocol-response-generated-output-boundary/MILESTONES.md','docs/workstreams/protocol-response-generated-output-boundary/TODO.md','docs/workstreams/protocol-response-generated-output-boundary/EVIDENCE_AND_GATES.md','docs/workstreams/protocol-response-generated-output-boundary/HANDOFF.md']; assert all('Status: Closed' in Path(p).read_text(encoding='utf-8') for p in files); todo=Path('docs/workstreams/protocol-response-generated-output-boundary/TODO.md').read_text(encoding='utf-8'); assert '[x] PRG-090' in todo and '[ ] PRG-090' not in todo"`
+  - `git diff --check -- docs/workstreams/protocol-response-generated-output-boundary`
+- Target state met:
+  - docs distinguish parser-local response compatibility adapters from spec-owned generated-output
+    projection;
+  - legacy `ContentPart` remains compatibility-only;
+  - no new public response model was introduced.
 
 ## Blockers
 
@@ -138,19 +140,10 @@ None known.
 
 ## Risks
 
-- OpenAI Responses parser is large and feature-rich; extraction should be incremental.
-- Generated-output projection is intentionally fallible; using it too early can drop files, images,
-  audio, tool-approval context, or provider metadata.
-- Bedrock and some gateway/proxy files mix request and response responsibilities; avoid broad edits
-  there until parser-local proofs exist.
-- Bridge stream replay can become a semantic sink if expanded casually; split a follow-on before
-  adding richer provider-specific response JSON/SSE reconstruction.
-- Closeout can accidentally promise removal of compatibility payloads too early. PRG-090 should
-  preserve the current compatibility contract unless it opens an ADR-backed public output model
-  follow-on.
+- No active blockers. The remaining risk is future scope drift if parser-wide generated-output
+  migration is reopened without a separate ADR-backed lane.
 
 ## Next Recommended Action
 
-Run PRG-090 with `close-workstream` or `verify-rust-workstream`. Decide whether this lane is ready
-to close after PRG-080's documentation boundary, or split follow-ons for broader parser-wide
-generated-output migration.
+If future parser-wide generated-output migration becomes necessary, open a new workstream with a
+fresh ADR-backed scope. Otherwise no further action is required in this lane.

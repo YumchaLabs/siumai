@@ -1,6 +1,6 @@
 # Protocol Response Generated-Output Boundary — TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-19
 
 Status legend:
@@ -121,10 +121,13 @@ Status legend:
   Handoff: PRG-090 should close this lane or split any future public generated-output response
   model into an ADR-backed follow-on.
 
-- [ ] PRG-090 [owner=planner] [deps=PRG-080] [scope=docs/workstreams/protocol-response-generated-output-boundary]
+- [x] PRG-090 [owner=planner] [deps=PRG-080] [scope=docs/workstreams/protocol-response-generated-output-boundary]
   Goal: Close this lane or split remaining parser-wide generated-output migration into narrower
   follow-ons.
   Validation: `verify-rust-workstream` records fresh final gate evidence.
-  Review: no blocking findings from `review-workstream`.
-  Evidence: `WORKSTREAM.json`, `HANDOFF.md`, `EVIDENCE_AND_GATES.md`.
-  Handoff: Final status must name retained compatibility paths and their removal/narrowing criteria.
+  Review: completed; fresh closeout checks confirm the workstream is closed and the docs now name
+  the retained compatibility paths plus the follow-on split boundary.
+  Evidence: `WORKSTREAM.json`, `HANDOFF.md`, `EVIDENCE_AND_GATES.md`; fresh closeout verification
+  recorded in the evidence log.
+  Handoff: Workstream closed. Any future parser-wide generated-output migration should open as a
+  separate ADR-backed lane if a new public model becomes justified.

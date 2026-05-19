@@ -1,6 +1,6 @@
 # Protocol Response Generated-Output Boundary — Design
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-19
 
 ## Why This Lane Exists
@@ -149,3 +149,9 @@ This lane can close when:
 - final gates pass for the touched protocol/provider crates;
 - remaining parser-wide generated-output work is either split into precise follow-ons or documented
   as intentionally deferred due to lossiness.
+
+## Closeout Note
+
+PRG-090 completed the documentation closeout. The lane is now closed; any future
+parser-wide generated-output migration should start as a separate ADR-backed workstream only if a
+new public response model or a concrete lossless proof makes that scope worthwhile.
