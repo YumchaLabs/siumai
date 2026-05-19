@@ -1,7 +1,7 @@
 use super::{
     BedrockChatResponseTransformer, BedrockUsageInfo, bedrock_reasoning_part_metadata,
     bedrock_usage_metadata_fragment, build_bedrock_usage_from_info_with_raw, is_mistral_model,
-    merge_bedrock_metadata_root, normalize_tool_call_id,
+    merge_bedrock_metadata_root, normalize_tool_call_id, response_content,
     response_provider_metadata_to_stream_provider_metadata,
 };
 use crate::error::LlmError;
@@ -10,7 +10,7 @@ use crate::streaming::{
 };
 use crate::types::{
     ChatResponse, ChatStreamFinishInfo, ChatStreamToolCall, ContentPart, FinishReason,
-    MessageContent, ResponseMetadata, Usage, Warning,
+    ResponseMetadata, Usage, Warning,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -290,7 +290,7 @@ impl BedrockEventConverter {
         match block {
             BedrockBlockAcc::Text(block) => {
                 if block.started_emitted || !block.text.is_empty() {
-                    acc.final_parts.push(ContentPart::text(block.text));
+                    acc.final_parts.push(response_content::text(block.text));
                 }
             }
             BedrockBlockAcc::Reasoning(block) => {
@@ -298,17 +298,16 @@ impl BedrockEventConverter {
                     || block.provider_metadata.is_some()
                     || !block.text.is_empty()
                 {
-                    acc.final_parts.push(ContentPart::Reasoning {
-                        text: block.text,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
-                        provider_metadata: block.provider_metadata,
-                    });
+                    acc.final_parts.push(response_content::reasoning(
+                        block.text,
+                        block.provider_metadata,
+                    ));
                 }
             }
             BedrockBlockAcc::Tool(tool) => {
                 if tool.is_json {
                     acc.is_json_response_from_tool = true;
-                    acc.final_parts.push(ContentPart::text(tool.json_text));
+                    acc.final_parts.push(response_content::text(tool.json_text));
                 } else {
                     let input = if tool.json_text.is_empty() {
                         "{}"
@@ -318,7 +317,7 @@ impl BedrockEventConverter {
                     let arguments =
                         serde_json::from_str(input).unwrap_or_else(|_| serde_json::json!({}));
                     acc.final_parts
-                        .push(ContentPart::tool_call(tool.id, tool.name, arguments, None));
+                        .push(response_content::tool_call(tool.id, tool.name, arguments));
                 }
             }
         }
@@ -336,7 +335,7 @@ impl BedrockEventConverter {
         let mut provider_metadata = acc.provider_metadata.clone();
         drop(acc);
 
-        let mut resp = ChatResponse::new(MessageContent::MultiModal(parts));
+        let mut resp = ChatResponse::new(response_content::message_content_from_parts(parts));
         resp.model = self.default_model.clone();
         resp.usage = usage;
         resp.finish_reason = BedrockChatResponseTransformer::map_finish_reason(

@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod response_content;
 mod streaming;
 pub use streaming::BedrockEventConverter;
 
@@ -1366,7 +1367,7 @@ impl ResponseTransformer for BedrockChatResponseTransformer {
 
         for item in content_arr {
             if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                parts.push(ContentPart::text(text.to_string()));
+                parts.push(response_content::text(text.to_string()));
             }
 
             if let Some(reasoning_content) = item.get("reasoningContent") {
@@ -1382,24 +1383,19 @@ impl ResponseTransformer for BedrockChatResponseTransformer {
                             .and_then(|value| value.as_str()),
                         None,
                     );
-                    parts.push(ContentPart::Reasoning {
-                        text: reasoning_text.to_string(),
-                        provider_options: crate::types::ProviderOptionsMap::default(),
+                    parts.push(response_content::reasoning(
+                        reasoning_text.to_string(),
                         provider_metadata,
-                    });
+                    ));
                 } else if let Some(redacted_data) = reasoning_content
                     .get("redactedReasoning")
                     .and_then(|value| value.get("data"))
                     .and_then(|value| value.as_str())
                 {
-                    parts.push(ContentPart::Reasoning {
-                        text: String::new(),
-                        provider_options: crate::types::ProviderOptionsMap::default(),
-                        provider_metadata: bedrock_reasoning_part_metadata(
-                            None,
-                            Some(redacted_data),
-                        ),
-                    });
+                    parts.push(response_content::reasoning(
+                        String::new(),
+                        bedrock_reasoning_part_metadata(None, Some(redacted_data)),
+                    ));
                 }
             }
 
@@ -1420,15 +1416,14 @@ impl ResponseTransformer for BedrockChatResponseTransformer {
 
                 if self.uses_json_response_tool && name == "json" {
                     is_json_response_from_tool = true;
-                    parts.push(ContentPart::text(
+                    parts.push(response_content::text(
                         serde_json::to_string(&input).unwrap_or_default(),
                     ));
                 } else {
-                    parts.push(ContentPart::tool_call(
+                    parts.push(response_content::tool_call(
                         normalize_tool_call_id(raw_tool_use_id, is_mistral),
                         name,
                         input,
-                        None,
                     ));
                 }
             }
@@ -1436,7 +1431,7 @@ impl ResponseTransformer for BedrockChatResponseTransformer {
 
         let usage = raw.get("usage").and_then(build_bedrock_usage_from_value);
 
-        let mut resp = ChatResponse::new(MessageContent::MultiModal(parts));
+        let mut resp = ChatResponse::new(response_content::message_content_from_parts(parts));
         resp.model = self.default_model.clone();
         resp.usage = usage;
         if !self.warnings.is_empty() {

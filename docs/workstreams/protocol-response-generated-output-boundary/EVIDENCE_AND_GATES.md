@@ -380,6 +380,87 @@ Broader gates not run:
   guards and workstream evidence; the required response gate plus targeted guard gate passed.
 - Protocol parser gates: skipped because PRG-060 did not change protocol parser code.
 
+### 2026-05-19 — PRG-070 Provider-owned response parser adapters
+
+Changed files:
+
+- `siumai-provider-gemini/src/providers/gemini/interactions/response.rs`
+- `siumai-provider-gemini/src/providers/gemini/interactions/response/response_content.rs`
+- `siumai-provider-amazon-bedrock/src/standards/bedrock/chat.rs`
+- `siumai-provider-amazon-bedrock/src/standards/bedrock/chat/response_content.rs`
+- `siumai-provider-amazon-bedrock/src/standards/bedrock/chat/streaming.rs`
+- `siumai-provider-amazon-bedrock/src/standards/bedrock/chat/tests.rs`
+
+Provider-owned parser audit:
+
+| Target | Classification | Decision |
+| --- | --- | --- |
+| `siumai-provider-gemini/src/providers/gemini/interactions/response.rs` | Provider-owned Interactions response parser, separate from the pure `siumai-protocol-gemini` GenerateContent parser. | Adopt a local `response_content` adapter. This file owns Interactions-specific step parsing, IDs, signatures, built-in tool calls/results, and citation/source compatibility payloads. |
+| `siumai-provider-gemini/src/providers/gemini/interactions/stream.rs` | Streaming Interactions converter that emits stable runtime stream parts and reuses response source helpers for source events/final metadata. | No response `ContentPart` adapter extraction needed in stream production code; it already emits `ChatStreamPart` primitives and only consumes source compatibility parts from the response parser helpers. |
+| `siumai-provider-amazon-bedrock/src/standards/bedrock/chat.rs` response transformer | Mixed request/response file, but response transformer is a narrow section after request conversion. | Adopt a local `response_content` adapter for response-side text/reasoning/tool-call/final content construction while leaving request conversion untouched. |
+| `siumai-provider-amazon-bedrock/src/standards/bedrock/chat/streaming.rs` final response aggregation | Stream converter owns final `ChatResponse` reconstruction from accumulated Bedrock stream blocks. | Reuse the Bedrock local `response_content` adapter only for final-response compatibility construction; stream event emission remains stable `ChatStreamPart` primitives. |
+
+Implementation evidence:
+
+- Added provider-local response compatibility adapter modules:
+  - Google Interactions `response/response_content.rs`;
+  - Bedrock Chat `chat/response_content.rs`.
+- Moved response-side legacy `ContentPart` constructors behind those adapters for:
+  - Google Interactions text, image-as-file, reasoning, function/tool calls, provider-executed
+    tool results, and sources;
+  - Bedrock text, reasoning, tool calls, and final `MessageContent` assembly in both non-stream and
+    stream final-response paths.
+- Added/strengthened source guards:
+  - Google Interactions parser delegates legacy construction to `response_content`;
+  - Google Interactions parser/adapter do not read or emit request provider options beyond empty
+    compatibility defaults;
+  - Google Interactions parser/adapter do not call generated-output projection helpers directly;
+  - Bedrock response/stream source delegates response construction to `response_content`;
+  - Bedrock response/stream/adapter do not read request provider option maps or force
+    generated-output projection.
+
+Fresh verification:
+
+```text
+cargo fmt --check -p siumai-provider-gemini -p siumai-provider-amazon-bedrock
+```
+
+Result: PASS. Formatting is clean for the touched provider packages.
+
+```text
+cargo nextest run -p siumai-provider-gemini --features google google_interactions_response --no-fail-fast
+```
+
+Result: PASS. 6 tests passed. This covers Google Interactions response behavior plus adapter
+source guards.
+
+```text
+cargo nextest run -p siumai-provider-gemini --features google --no-fail-fast
+```
+
+Result: PASS. 105 tests passed. This verifies the full Gemini provider package under the `google`
+feature after the provider-owned response adapter extraction.
+
+```text
+cargo nextest run -p siumai-provider-amazon-bedrock --features bedrock response_and_stream_source --no-fail-fast
+```
+
+Result: PASS. 3 tests passed. This verifies Bedrock response/stream source guards for adapter
+delegation, request-provider-options hygiene, and no direct generated-output projection.
+
+```text
+cargo nextest run -p siumai-provider-amazon-bedrock --features bedrock --no-fail-fast
+```
+
+Result: PASS. 76 tests passed. This verifies the full Bedrock provider package under the `bedrock`
+feature after the response/stream adapter extraction.
+
+Broader gates not run:
+
+- Workspace-wide nextest: skipped because PRG-070 touched only two provider packages, and both full
+  feature gates passed.
+- Protocol parser gates: skipped because protocol parser code was not changed by PRG-070.
+
 ## Planned Gates
 
 ### PRG-010 — Workstream planning

@@ -96,14 +96,16 @@ Status legend:
   Handoff: PRG-070 should audit provider-owned parsers next; split gateway/proxy encoder
   follow-ons if stream replay or response JSON encoding scope grows beyond primitive serialization.
 
-- [ ] PRG-070 [owner=unassigned] [deps=PRG-040,PRG-050] [scope=siumai-provider-gemini,siumai-provider-amazon-bedrock]
+- [x] PRG-070 [owner=codex] [deps=PRG-040,PRG-050] [scope=siumai-provider-gemini,siumai-provider-amazon-bedrock]
   Goal: Audit provider-owned response parsers that are not pure protocol modules and decide whether
   they should adopt local response adapters or remain provider-owned exceptions.
   Validation: provider-specific nextest gates chosen from the touched crate and feature.
-  Review: avoid mixed request/response file rewrites unless the changed function is narrowly
-  isolated.
-  Evidence: provider-owned parser audit table in `EVIDENCE_AND_GATES.md`.
-  Handoff: Bedrock is a mixed file; split before broad edits.
+  Review: completed; Gemini Interactions and Bedrock now use provider-local `response_content`
+  adapters for response-side legacy compatibility construction. Bedrock request conversion remained
+  out of scope, and the stream change is limited to final-response aggregation.
+  Evidence: provider-owned parser audit table and fresh provider gates in `EVIDENCE_AND_GATES.md`.
+  Handoff: PRG-080 should update public architecture/migration docs; any deeper Bedrock request
+  cleanup should be split from this response-boundary lane.
 
 ## M4 — Integration, Docs, And Closeout
 

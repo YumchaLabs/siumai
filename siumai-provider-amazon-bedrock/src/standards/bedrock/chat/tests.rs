@@ -77,6 +77,10 @@ fn response_and_stream_production_source() -> String {
     format!("{response_source}\n{stream_source}")
 }
 
+fn response_content_source() -> &'static str {
+    include_str!("response_content.rs")
+}
+
 #[test]
 fn request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
     let request_source = production_source_between(
@@ -97,17 +101,35 @@ fn request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
 #[test]
 fn response_and_stream_source_do_not_emit_request_provider_options() {
     let response_stream_source = response_and_stream_production_source();
+    let adapter_source = response_content_source();
 
     assert!(
         !response_stream_source.contains("providerOptions"),
         "Bedrock response/stream code must not emit request-side providerOptions"
     );
+    assert!(
+        !adapter_source.contains("providerOptions"),
+        "Bedrock response_content adapter must not emit request-side providerOptions"
+    );
+    assert!(
+        !response_stream_source.contains("provider_options_map")
+            && !adapter_source.contains("provider_options_map"),
+        "Bedrock response/stream code must not read request provider option maps"
+    );
+    assert!(
+        !response_stream_source.contains(".provider_options")
+            && !adapter_source.contains(".provider_options"),
+        "Bedrock response/stream code must not read request provider_options fields"
+    );
 
     let unexpected_provider_options_writes = response_stream_source
         .lines()
+        .chain(adapter_source.lines())
         .filter(|line| line.contains("provider_options"))
+        .filter(|line| !line.trim_start().starts_with("//"))
         .filter(|line| {
-            !line.contains("provider_options: crate::types::ProviderOptionsMap::default()")
+            !line.contains("provider_options: ProviderOptionsMap::default()")
+                && !line.contains("provider_options: crate::types::ProviderOptionsMap::default()")
         })
         .collect::<Vec<_>>();
 
@@ -115,6 +137,63 @@ fn response_and_stream_source_do_not_emit_request_provider_options() {
         unexpected_provider_options_writes.is_empty(),
         "Bedrock response/stream code may only initialize ContentPart::provider_options with the default map; unexpected lines: {unexpected_provider_options_writes:#?}"
     );
+}
+
+#[test]
+fn response_and_stream_source_delegate_legacy_response_construction_to_adapter() {
+    let response_stream_source = response_and_stream_production_source();
+
+    assert!(
+        response_stream_source.contains("response_content::"),
+        "Bedrock response/stream code must delegate legacy response ContentPart construction to response_content"
+    );
+
+    let response_only_source =
+        production_source_between("struct BedrockChatResponseTransformer", "#[cfg(test)]");
+    for forbidden in [
+        "ContentPart::text(",
+        "ContentPart::Reasoning {",
+        "ContentPart::tool_call(",
+        "MessageContent::MultiModal(parts)",
+    ] {
+        assert!(
+            !response_only_source.contains(forbidden),
+            "Bedrock response transformer should not construct legacy response content directly; use response_content adapter instead of {forbidden}"
+        );
+    }
+
+    let stream_source = include_str!("streaming.rs");
+    for forbidden in [
+        "ContentPart::text(",
+        "ContentPart::Reasoning {",
+        "ContentPart::tool_call(",
+        "MessageContent::MultiModal(parts)",
+    ] {
+        assert!(
+            !stream_source.contains(forbidden),
+            "Bedrock stream final-response aggregation should not construct legacy response content directly; use response_content adapter instead of {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn response_and_stream_source_do_not_force_generated_output_projection() {
+    for source in [
+        response_and_stream_production_source(),
+        response_content_source().to_string(),
+    ] {
+        for forbidden in [
+            "GenerateTextContentPart",
+            "project_chat_response_to_generate_text_content_parts",
+            "project_response_content_to_generate_text_content_parts",
+            "project_response_content_part_to_generate_text_content_part",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "Bedrock response/stream code must not call generated-output projection helper `{forbidden}` directly"
+            );
+        }
+    }
 }
 
 #[test]

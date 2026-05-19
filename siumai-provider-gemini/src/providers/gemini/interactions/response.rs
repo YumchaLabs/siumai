@@ -3,9 +3,11 @@ use std::collections::HashSet;
 
 use crate::LlmError;
 use crate::types::{
-    ChatResponse, ContentPart, FilePartSource, FinishReason, MessageContent, ProviderMetadataMap,
-    ProviderOptionsMap, SourcePart, ToolResultOutput, Usage, UsageInputTokens, UsageOutputTokens,
+    ChatResponse, ContentPart, FinishReason, ProviderMetadataMap, SourcePart, ToolResultOutput,
+    Usage, UsageInputTokens, UsageOutputTokens,
 };
+
+mod response_content;
 
 pub(super) const BUILTIN_TOOL_CALL_TYPES: &[&str] = &[
     "google_search_call",
@@ -45,7 +47,8 @@ pub(crate) fn parse_interactions_response(
         interaction_id,
     );
 
-    let mut response = ChatResponse::new(MessageContent::MultiModal(parsed.content));
+    let mut response =
+        ChatResponse::new(response_content::message_content_from_parts(parsed.content));
     response.id = interaction_id.map(ToOwned::to_owned);
     response.model = model.map(ToOwned::to_owned);
     response.usage = object.get("usage").and_then(convert_usage);
@@ -131,11 +134,10 @@ fn parse_model_output_blocks(
         match string_field(block_obj, "type") {
             Some("text") => {
                 let text = string_field(block_obj, "text").unwrap_or_default();
-                content.push(ContentPart::Text {
-                    text: text.to_string(),
-                    provider_options: ProviderOptionsMap::default(),
-                    provider_metadata: part_provider_metadata(None, interaction_id),
-                });
+                content.push(response_content::text(
+                    text.to_string(),
+                    part_provider_metadata(None, interaction_id),
+                ));
                 content.extend(annotations_to_sources(
                     block_obj.get("annotations").and_then(Value::as_array),
                     generate_id,
@@ -160,21 +162,21 @@ fn image_block_to_file_part(
         .unwrap_or("image/png")
         .to_string();
 
-    let source = if let Some(data) = string_field(block, "data").filter(|value| !value.is_empty()) {
-        FilePartSource::base64(data)
+    if let Some(data) = string_field(block, "data").filter(|value| !value.is_empty()) {
+        return Some(response_content::file_base64(
+            data,
+            media_type,
+            part_provider_metadata(None, interaction_id),
+        ));
     } else if let Some(uri) = string_field(block, "uri").filter(|value| !value.is_empty()) {
-        FilePartSource::url(uri)
+        return Some(response_content::file_url(
+            uri,
+            media_type,
+            part_provider_metadata(None, interaction_id),
+        ));
     } else {
         return None;
-    };
-
-    Some(ContentPart::File {
-        source,
-        media_type,
-        filename: None,
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: part_provider_metadata(None, interaction_id),
-    })
+    }
 }
 
 fn parse_thought_step(step: &Map<String, Value>, interaction_id: Option<&str>) -> ContentPart {
@@ -195,11 +197,10 @@ fn parse_thought_step(step: &Map<String, Value>, interaction_id: Option<&str>) -
         })
         .unwrap_or_default();
 
-    ContentPart::Reasoning {
+    response_content::reasoning(
         text,
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: part_provider_metadata(string_field(step, "signature"), interaction_id),
-    }
+        part_provider_metadata(string_field(step, "signature"), interaction_id),
+    )
 }
 
 fn parse_function_call_step(
@@ -208,18 +209,13 @@ fn parse_function_call_step(
 ) -> Option<ContentPart> {
     let id = string_field(step, "id")?;
     let name = string_field(step, "name")?;
-    Some(ContentPart::ToolCall {
-        tool_call_id: id.to_string(),
-        tool_name: name.to_string(),
-        arguments: arguments_value(step.get("arguments")),
-        provider_executed: None,
-        dynamic: None,
-        invalid: None,
-        error: None,
-        title: None,
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: part_provider_metadata(string_field(step, "signature"), interaction_id),
-    })
+    Some(response_content::tool_call(
+        id.to_string(),
+        name.to_string(),
+        arguments_value(step.get("arguments")),
+        None,
+        part_provider_metadata(string_field(step, "signature"), interaction_id),
+    ))
 }
 
 fn parse_builtin_tool_call_step(
@@ -233,20 +229,15 @@ fn parse_builtin_tool_call_step(
         step_type.strip_suffix("_call").unwrap_or(step_type)
     };
 
-    ContentPart::ToolCall {
-        tool_call_id: string_field(step, "id")
+    response_content::tool_call(
+        string_field(step, "id")
             .map(ToOwned::to_owned)
             .unwrap_or_else(generate_id),
-        tool_name: tool_name.to_string(),
-        arguments: arguments_value(step.get("arguments")),
-        provider_executed: Some(true),
-        dynamic: None,
-        invalid: None,
-        error: None,
-        title: None,
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: None,
-    }
+        tool_name.to_string(),
+        arguments_value(step.get("arguments")),
+        Some(true),
+        None,
+    )
 }
 
 fn parse_builtin_tool_result_step(
@@ -270,20 +261,16 @@ fn parse_builtin_tool_result_step(
         ToolResultOutput::json(result)
     };
 
-    ContentPart::ToolResult {
-        tool_call_id: string_field(step, "call_id")
+    response_content::tool_result(
+        string_field(step, "call_id")
             .map(ToOwned::to_owned)
             .unwrap_or_else(generate_id),
-        tool_name: tool_name.to_string(),
+        tool_name.to_string(),
         output,
-        input: None,
-        provider_executed: Some(true),
-        dynamic: None,
-        preliminary: None,
-        title: None,
-        provider_options: ProviderOptionsMap::default(),
-        provider_metadata: None,
-    }
+        None,
+        Some(true),
+        None,
+    )
 }
 
 pub(super) fn arguments_value(value: Option<&Value>) -> Value {
@@ -383,7 +370,7 @@ fn annotation_to_source(
     match string_field(annotation, "type")? {
         "url_citation" => {
             let url = string_field(annotation, "url").filter(|value| !value.is_empty())?;
-            Some(source_url_part(
+            Some(response_content::source_url(
                 generate_id(),
                 url,
                 string_field(annotation, "title").map(ToOwned::to_owned),
@@ -395,7 +382,7 @@ fn annotation_to_source(
                 .or_else(|| string_field(annotation, "file_name"))
                 .filter(|value| !value.is_empty())?;
             if is_http_url(uri) {
-                Some(source_url_part(
+                Some(response_content::source_url(
                     generate_id(),
                     uri,
                     string_field(annotation, "file_name").map(ToOwned::to_owned),
@@ -404,7 +391,7 @@ fn annotation_to_source(
                 let filename = string_field(annotation, "file_name")
                     .map(ToOwned::to_owned)
                     .or_else(|| basename(uri).map(ToOwned::to_owned));
-                Some(source_document_part(
+                Some(response_content::source_document(
                     generate_id(),
                     infer_doc_media_type(uri),
                     string_field(annotation, "file_name")
@@ -417,7 +404,7 @@ fn annotation_to_source(
         }
         "place_citation" => {
             let url = string_field(annotation, "url").filter(|value| !value.is_empty())?;
-            Some(source_url_part(
+            Some(response_content::source_url(
                 generate_id(),
                 url,
                 string_field(annotation, "name").map(ToOwned::to_owned),
@@ -453,7 +440,7 @@ fn url_context_result_to_sources(
             if status.is_some_and(|value| value != "success") {
                 return None;
             }
-            Some(source_url_part(generate_id(), url, None))
+            Some(response_content::source_url(generate_id(), url, None))
         })
         .collect()
 }
@@ -466,7 +453,7 @@ fn google_search_result_to_sources(
         .filter_map(|entry| {
             let entry = entry.as_object()?;
             let url = string_field(entry, "url").filter(|value| !value.is_empty())?;
-            Some(source_url_part(
+            Some(response_content::source_url(
                 generate_id(),
                 url,
                 string_field(entry, "title").map(ToOwned::to_owned),
@@ -491,7 +478,7 @@ fn google_maps_result_to_sources(
         .filter_map(|place| {
             let place = place.as_object()?;
             let url = string_field(place, "url").filter(|value| !value.is_empty())?;
-            Some(source_url_part(
+            Some(response_content::source_url(
                 generate_id(),
                 url,
                 string_field(place, "name").map(ToOwned::to_owned),
@@ -512,7 +499,7 @@ fn file_search_result_to_sources(
                 .or_else(|| string_field(entry, "file_name"))
                 .filter(|value| !value.is_empty())?;
             if is_http_url(uri) {
-                return Some(source_url_part(
+                return Some(response_content::source_url(
                     generate_id(),
                     uri,
                     string_field(entry, "title").map(ToOwned::to_owned),
@@ -521,7 +508,7 @@ fn file_search_result_to_sources(
             let filename = string_field(entry, "file_name")
                 .map(ToOwned::to_owned)
                 .or_else(|| basename(uri).map(ToOwned::to_owned));
-            Some(source_document_part(
+            Some(response_content::source_document(
                 generate_id(),
                 infer_doc_media_type(uri),
                 string_field(entry, "title")
@@ -542,47 +529,13 @@ fn result_entries(step: &Map<String, Value>) -> impl Iterator<Item = &Value> {
         .flatten()
 }
 
-fn source_url_part(id: String, url: &str, title: Option<String>) -> ContentPart {
-    ContentPart::Source {
-        id,
-        source: SourcePart::Url {
-            url: url.to_string(),
-            title,
-        },
-        provider_metadata: None,
-    }
-}
-
-fn source_document_part(
-    id: String,
-    media_type: &'static str,
-    title: String,
-    filename: Option<String>,
-) -> ContentPart {
-    ContentPart::Source {
-        id,
-        source: SourcePart::Document {
-            media_type: media_type.to_string(),
-            title,
-            filename,
-        },
-        provider_metadata: None,
-    }
-}
-
 pub(super) fn source_dedupe_key(source: &ContentPart) -> String {
-    match source {
-        ContentPart::Source {
-            source: SourcePart::Url { url, .. },
-            ..
-        } => format!("url:{url}"),
-        ContentPart::Source {
-            source: SourcePart::Document {
-                filename, title, ..
-            },
-            ..
-        } => format!("doc:{}", filename.as_deref().unwrap_or(title)),
-        _ => String::new(),
+    match source.as_source().map(|(_, source)| source) {
+        Some(SourcePart::Url { url, .. }) => format!("url:{url}"),
+        Some(SourcePart::Document {
+            filename, title, ..
+        }) => format!("doc:{}", filename.as_deref().unwrap_or(title)),
+        None => String::new(),
     }
 }
 
@@ -668,7 +621,7 @@ fn infer_doc_media_type(uri_or_name: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{MediaSource, ToolResultOutput};
+    use crate::types::{MediaSource, MessageContent, ToolResultOutput};
 
     fn id_generator() -> impl FnMut() -> String {
         let mut next = 0;
@@ -681,6 +634,100 @@ mod tests {
     fn parse(value: Value) -> ChatResponse {
         let mut generate_id = id_generator();
         parse_interactions_response(value, &mut generate_id).expect("parse interactions response")
+    }
+
+    fn interactions_response_source() -> &'static str {
+        let source = include_str!("response.rs");
+        let (_, after_mod) = source
+            .split_once("mod response_content;")
+            .expect("response content module marker should exist");
+        let (section, _) = after_mod
+            .split_once("#[cfg(test)]")
+            .expect("test module marker should exist");
+        section
+    }
+
+    fn interactions_response_content_source() -> &'static str {
+        include_str!("response/response_content.rs")
+    }
+
+    #[test]
+    fn google_interactions_response_content_source_does_not_emit_request_provider_options() {
+        let source = interactions_response_source();
+        let adapter_source = interactions_response_content_source();
+
+        for source in [source, adapter_source] {
+            assert!(
+                !source.contains("providerOptions"),
+                "Google Interactions response parsing must not emit request-side providerOptions"
+            );
+            assert!(
+                !source.contains("provider_options_map"),
+                "Google Interactions response parsing must not read request provider option maps"
+            );
+            assert!(
+                !source.contains(".provider_options"),
+                "Google Interactions response parsing must not read request provider_options fields"
+            );
+        }
+
+        for line in source
+            .lines()
+            .chain(adapter_source.lines())
+            .filter(|line| line.contains("provider_options"))
+            .filter(|line| !line.trim_start().starts_with("//"))
+        {
+            let trimmed = line.trim();
+            assert!(
+                trimmed == "provider_options: ProviderOptionsMap::default(),",
+                "Google Interactions response ContentPart provider_options must stay empty defaults: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn google_interactions_response_content_delegates_legacy_construction_to_adapter() {
+        let source = interactions_response_source();
+
+        assert!(
+            source.contains("response_content::"),
+            "Google Interactions response parsing must delegate legacy ContentPart construction to response_content"
+        );
+
+        for forbidden in [
+            "ContentPart::Text {",
+            "ContentPart::File {",
+            "ContentPart::Reasoning {",
+            "ContentPart::ToolCall {",
+            "ContentPart::ToolResult {",
+            "ContentPart::Source {",
+            "MessageContent::MultiModal(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "Google Interactions response parsing should not construct legacy content directly; use response_content adapter instead of {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn google_interactions_response_content_does_not_force_generated_output_projection() {
+        let source = interactions_response_source();
+        let adapter_source = interactions_response_content_source();
+
+        for source in [source, adapter_source] {
+            for forbidden in [
+                "GenerateTextContentPart",
+                "project_chat_response_to_generate_text_content_parts",
+                "project_response_content_to_generate_text_content_parts",
+                "project_response_content_part_to_generate_text_content_part",
+            ] {
+                assert!(
+                    !source.contains(forbidden),
+                    "Google Interactions response parsing must not call generated-output projection helper `{forbidden}` directly"
+                );
+            }
+        }
     }
 
     #[test]

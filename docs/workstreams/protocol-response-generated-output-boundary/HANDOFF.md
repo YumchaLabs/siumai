@@ -73,6 +73,21 @@ PRG-060 is complete:
 - `OpenAiResponsesStreamPartsBridge` remains a narrow stream replay shim for cross-protocol
   gateway/proxy use-cases, not the canonical owner of OpenAI Responses response semantics.
 
+PRG-070 is complete:
+
+- `siumai-provider-gemini/src/providers/gemini/interactions/response/response_content.rs` now owns
+  Google Interactions response-side legacy compatibility constructors.
+- `siumai-provider-gemini/src/providers/gemini/interactions/response.rs` delegates response
+  content construction to the local adapter while preserving interaction ids, signatures,
+  built-in tool calls/results, image outputs, source citations, usage, service tier, and provider
+  metadata.
+- `siumai-provider-amazon-bedrock/src/standards/bedrock/chat/response_content.rs` now owns Bedrock
+  response-side legacy compatibility constructors.
+- Bedrock non-stream response parsing and stream final-response aggregation both use the local
+  adapter, while request conversion remains untouched.
+- Source guards verify provider-owned parsers do not use generated-output projection helpers
+  directly and only initialize request-side `provider_options` as empty compatibility defaults.
+
 ## Active Decision
 
 Do not force protocol response parsers through `GenerateTextContentPart` until lossiness is proven.
@@ -85,26 +100,26 @@ Instead, first extract parser-local response compatibility adapters that:
 
 ## Last Completed Task
 
-PRG-060:
+PRG-070:
 
 - Status: DONE.
 - Scope:
-  `siumai-bridge/src/response,siumai-bridge/src/stream`
+  `siumai-provider-gemini,siumai-provider-amazon-bedrock`
 - Result:
-  Recorded the bridge ownership decision, added source guards, and passed the required bridge
-  response gate.
+  Added provider-local response adapters for Google Interactions and Bedrock response parsing /
+  stream final-response aggregation, with provider feature gates passing.
 
 ## Next Executable Task
 
-PRG-070:
+PRG-080:
 
 - Scope:
-  `siumai-provider-gemini,siumai-provider-amazon-bedrock`
+  `docs/architecture,docs/migration,docs/workstreams`
 - Goal:
-  Audit provider-owned response parsers that are not pure protocol modules and decide whether they
-  should adopt local response adapters or remain provider-owned exceptions.
+  Update public architecture/migration docs so response parser adapters, legacy compatibility
+  payloads, and generated-output projection are clearly distinguished.
 - Important constraint:
-  Bedrock is a mixed request/response file; split before broad edits.
+  Migration docs must not teach legacy `ContentPart` as canonical.
 
 ## Blockers
 
@@ -119,8 +134,11 @@ None known.
   there until parser-local proofs exist.
 - Bridge stream replay can become a semantic sink if expanded casually; split a follow-on before
   adding richer provider-specific response JSON/SSE reconstruction.
+- Public docs can accidentally overstate the new adapters as a new public output model. PRG-080
+  should explain them as compatibility boundaries, not as a replacement for generated-output
+  carriers.
 
 ## Next Recommended Action
 
-Run PRG-070 with `run-workstream-task`. Start with `siumai-provider-gemini` because it is narrower,
-then audit Bedrock separately before touching its mixed request/response chat file.
+Run PRG-080 with `run-workstream-task`. Start with docs that already discuss the public surface and
+migration notes; keep the docs concise and avoid promising removal of legacy `ContentPart`.
