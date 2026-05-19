@@ -4,8 +4,8 @@
 //! - Audio (TTS/STT) uses Groq's OpenAI-like audio endpoints via `GroqSpec`.
 
 use super::middleware::GroqRequestMiddleware;
-use crate::client::LlmClient;
 use crate::core::ProviderContext;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
@@ -1135,11 +1135,11 @@ impl ChatCapability for GroqClient {
 
 impl LlmClient for GroqClient {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        crate::client::LlmClient::provider_id(&self.inner)
+        crate::core_compat::client::LlmClient::provider_id(&self.inner)
     }
 
     fn supported_models(&self) -> Vec<String> {
-        crate::client::LlmClient::supported_models(&self.inner)
+        crate::core_compat::client::LlmClient::supported_models(&self.inner)
     }
 
     fn capabilities(&self) -> crate::traits::ProviderCapabilities {

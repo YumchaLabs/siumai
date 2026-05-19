@@ -553,7 +553,7 @@ impl ModelMetadata for DeepInfraImageClient {
     }
 }
 
-impl crate::client::LlmClient for DeepInfraImageClient {
+impl crate::compat::client::LlmClient for DeepInfraImageClient {
     fn provider_id(&self) -> Cow<'static, str> {
         Cow::Borrowed(ids::DEEPINFRA)
     }
@@ -578,7 +578,7 @@ impl crate::client::LlmClient for DeepInfraImageClient {
         self
     }
 
-    fn clone_box(&self) -> Box<dyn crate::client::LlmClient> {
+    fn clone_box(&self) -> Box<dyn crate::compat::client::LlmClient> {
         Box::new(self.clone())
     }
 }
@@ -774,7 +774,7 @@ impl std::fmt::Debug for DeepInfraCompatCompositeClient {
     }
 }
 
-impl crate::client::LlmClient for DeepInfraCompatCompositeClient {
+impl crate::compat::client::LlmClient for DeepInfraCompatCompositeClient {
     fn provider_id(&self) -> Cow<'static, str> {
         Cow::Borrowed(ids::DEEPINFRA)
     }
@@ -821,7 +821,7 @@ impl crate::client::LlmClient for DeepInfraCompatCompositeClient {
         self
     }
 
-    fn clone_box(&self) -> Box<dyn crate::client::LlmClient> {
+    fn clone_box(&self) -> Box<dyn crate::compat::client::LlmClient> {
         Box::new(self.clone())
     }
 }
@@ -840,7 +840,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
     async fn compat_language_client(
         &self,
         model_id: &str,
-    ) -> Result<Arc<dyn crate::client::LlmClient>, LlmError> {
+    ) -> Result<Arc<dyn crate::compat::client::LlmClient>, LlmError> {
         let ctx = BuildContext::default();
         self.compat_language_client_with_ctx(model_id, &ctx).await
     }
@@ -849,7 +849,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<Arc<dyn crate::client::LlmClient>, LlmError> {
+    ) -> Result<Arc<dyn crate::compat::client::LlmClient>, LlmError> {
         let text_client = build_text_client_with_ctx(model_id, ctx).await?;
         let image_client = DeepInfraImageClient::from_text_client(&text_client);
         Ok(Arc::new(DeepInfraCompatCompositeClient {
@@ -871,7 +871,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<Arc<dyn crate::client::LlmClient>, LlmError> {
+    ) -> Result<Arc<dyn crate::compat::client::LlmClient>, LlmError> {
         let client = build_text_client_with_ctx(model_id, ctx).await?;
         Ok(Arc::new(client))
     }
@@ -889,7 +889,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<Arc<dyn crate::client::LlmClient>, LlmError> {
+    ) -> Result<Arc<dyn crate::compat::client::LlmClient>, LlmError> {
         let client = build_text_client_with_ctx(model_id, ctx).await?;
         Ok(Arc::new(client))
     }
@@ -907,7 +907,7 @@ impl ProviderFactory for DeepInfraProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<Arc<dyn crate::client::LlmClient>, LlmError> {
+    ) -> Result<Arc<dyn crate::compat::client::LlmClient>, LlmError> {
         let text_client = build_text_client_with_ctx(model_id, ctx).await?;
         Ok(Arc::new(DeepInfraImageClient::from_text_client(
             &text_client,

@@ -24,7 +24,7 @@ async fn build_default_client_with_capabilities(
     factory: &std::sync::Arc<dyn crate::registry::entry::ProviderFactory>,
     model_id: &str,
     ctx: &crate::registry::entry::BuildContext,
-) -> Result<std::sync::Arc<dyn crate::client::LlmClient>, LlmError> {
+) -> Result<std::sync::Arc<dyn crate::compat::client::LlmClient>, LlmError> {
     let caps = factory.capabilities();
 
     if caps.supports("chat") {
@@ -76,7 +76,7 @@ async fn build_default_client_with_capabilities(
     feature = "bedrock"
 ))]
 pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
-    use crate::client::LlmClient;
+    use crate::compat::client::LlmClient;
     use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
     use crate::execution::middleware::LanguageModelMiddleware;
     use crate::registry::entry::BuildContext;

@@ -1,6 +1,5 @@
-//! LlmClient Trait
+//! LlmClient compatibility alias.
 //!
-//! This module re-exports the LlmClient trait from the client module.
+//! This module re-exports the generic client trait from the explicit compatibility namespace.
 
-// Re-export LlmClient trait
-pub use crate::client::LlmClient;
+pub use crate::compat::client::LlmClient;

@@ -1,5 +1,5 @@
 use super::OpenAiCompatibleClient;
-use crate::client::LlmClient;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder, HttpAudioExecutor};
 use crate::traits::AudioCapability;

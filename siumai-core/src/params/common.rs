@@ -3,13 +3,7 @@
 //! Contains common utilities and helper functions for parameter processing.
 
 use crate::error::LlmError;
-use crate::types::{CommonParams, ProviderType};
-
-/// Type-safe extensions for provider-specific parameters
-pub trait ProviderParamsExt {
-    /// Gets the provider type
-    fn provider_type(&self) -> ProviderType;
-}
+use crate::types::CommonParams;
 
 /// Common parameter validation utilities
 pub struct ParameterValidator;

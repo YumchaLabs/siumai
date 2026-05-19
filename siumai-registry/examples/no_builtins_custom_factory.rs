@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use futures::{StreamExt, stream};
 
-use siumai_registry::LlmClient;
+use siumai_registry::compat::client::LlmClient;
 use siumai_registry::error::LlmError;
 use siumai_registry::registry::entry::{BuildContext, ProviderFactory, create_provider_registry};
 use siumai_registry::streaming::ChatStream;

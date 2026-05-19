@@ -1,7 +1,7 @@
 use base64::Engine;
 use siumai::files::{self, FileUploadProvider, UploadFileOptions};
 use siumai::prelude::unified::*;
-use siumai_core::client::LlmClient;
+use siumai_core::compat::client::LlmClient;
 use siumai_core::traits::FileManagementCapability;
 use siumai_core::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,

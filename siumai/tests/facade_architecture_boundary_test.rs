@@ -723,7 +723,9 @@ fn stable_unified_prelude_does_not_export_middleware_internals() {
     }
 
     assert!(
-        lib_rs.contains("pub use siumai_core::{client, defaults, execution")
+        lib_rs.contains("pub use siumai_core::{defaults, execution")
+            && lib_rs.contains("pub mod client {")
+            && lib_rs.contains("pub use crate::compat::client::{ClientWrapper, LlmClient};")
             && lib_rs.contains("pub mod experimental {"),
         "siumai::experimental::execution should remain the explicit advanced facade path for middleware internals"
     );
@@ -1333,6 +1335,11 @@ fn hosted_tools_facade_reexports_protocol_owned_constructors() {
         !lib_rs.contains("pub use siumai_core::hosted_tools"),
         "facade hosted_tools should not re-export provider-specific constructors from siumai-core"
     );
+    let tools_rs = read_source("src/tools.rs");
+    assert!(
+        !tools_rs.contains("siumai_core::tools"),
+        "facade tools compatibility surface should delegate to protocol/provider-owned catalogs, not siumai-core"
+    );
 
     for expected in [
         "siumai_protocol_openai::hosted_tools::openai::*",
@@ -1345,9 +1352,56 @@ fn hosted_tools_facade_reexports_protocol_owned_constructors() {
         );
     }
 
+    for expected in [
+        "siumai_protocol_openai::tool_catalog::openai::*",
+        "siumai_protocol_anthropic::tool_catalog::anthropic::*",
+        "siumai_protocol_gemini::tool_catalog::google::*",
+        "siumai_provider_groq::tools::groq::*",
+        "siumai_provider_xai::tools::xai::*",
+    ] {
+        assert!(
+            tools_rs.contains(expected),
+            "facade tools compatibility surface should re-export provider-owned catalog `{expected}`"
+        );
+    }
+
     assert!(
         public_surface_doc.contains("protocol-owned provider-defined tool constructors")
             && public_surface_doc.contains("core only owns the passive `Tool::ProviderDefined`"),
         "public-surface.md should describe hosted tool ownership"
+    );
+}
+
+#[test]
+fn facade_generic_client_paths_are_explicit_compatibility_exports() {
+    let lib_rs = read_source("src/lib.rs");
+    let compat_rs = read_source("src/compat.rs");
+    let public_surface_doc =
+        fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+    let migration_doc =
+        fs::read_to_string(crate_root().join("../docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read migration doc");
+
+    assert!(
+        compat_rs.contains("pub mod client")
+            && compat_rs
+                .contains("pub use siumai_core::compat::client::{ClientWrapper, LlmClient};"),
+        "siumai::compat::client should be the explicit facade migration path for generic clients"
+    );
+    assert!(
+        lib_rs.contains("pub mod client {")
+            && lib_rs.contains("pub use crate::compat::client::{ClientWrapper, LlmClient};"),
+        "siumai::experimental::client should remain as an advanced alias to compat::client"
+    );
+    assert!(
+        !lib_rs.contains("pub use siumai_core::client::{ClientWrapper, LlmClient};")
+            && !lib_rs.contains("pub use siumai_core::client::*;"),
+        "facade root/experimental code should not point directly at siumai_core::client; route through explicit compat::client"
+    );
+    assert!(
+        public_surface_doc.contains("siumai::compat::client::{LlmClient, ClientWrapper}")
+            && migration_doc.contains("siumai::compat::client::{LlmClient, ClientWrapper}"),
+        "public and migration docs should name the explicit generic-client compatibility import path"
     );
 }

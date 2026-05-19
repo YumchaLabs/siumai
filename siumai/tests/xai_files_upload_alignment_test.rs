@@ -2,7 +2,7 @@
 
 use siumai::files::{self, UploadFileOptions};
 use siumai::provider_ext::xai::{XaiConfig, options::XaiFilesOptions};
-use siumai_core::client::LlmClient;
+use siumai_core::compat::client::LlmClient;
 use siumai_core::error::LlmError;
 use siumai_core::execution::http::transport::{
     HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,

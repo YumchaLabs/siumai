@@ -192,6 +192,7 @@ all-providers = [
     "azure",
     "anthropic",
     "google",
+    "google-vertex",
     "ollama",
     "xai",
     "groq",

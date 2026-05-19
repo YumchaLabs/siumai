@@ -142,7 +142,10 @@ impl OpenAiResponsesInputWarningsMiddleware {
         }
 
         let tool_name_mapping = req.tools.as_deref().map(|tools| {
-            create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
+            create_tool_name_mapping(
+                tools,
+                siumai_protocol_openai::tool_catalog::openai::PROVIDER_TOOL_NAMES,
+            )
         });
         let tool_name_mapping = tool_name_mapping.unwrap_or_default();
 

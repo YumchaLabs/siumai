@@ -60,7 +60,7 @@
 //! - `HttpConfig` - HTTP configuration shared across providers
 //! - `Usage` - Token usage information
 //! - `FinishReason` - Completion finish reasons
-//! - `ProviderType` - Provider identifier enum
+//! - `ProviderType` - Legacy compatibility provider classification enum
 //! - `ResponseMetadata` - Shared response metadata
 //!
 //! ### Provider-Specific Types

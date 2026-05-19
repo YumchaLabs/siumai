@@ -2,8 +2,8 @@
 //!
 //! Provider-owned client wrapper around the OpenAI-compatible backend.
 
-use crate::client::LlmClient;
 use crate::core::ProviderContext;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
@@ -1224,11 +1224,11 @@ impl VideoGenerationCapability for XaiClient {
 
 impl LlmClient for XaiClient {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        crate::client::LlmClient::provider_id(&self.inner)
+        crate::core_compat::client::LlmClient::provider_id(&self.inner)
     }
 
     fn supported_models(&self) -> Vec<String> {
-        crate::client::LlmClient::supported_models(&self.inner)
+        crate::core_compat::client::LlmClient::supported_models(&self.inner)
     }
 
     fn capabilities(&self) -> crate::traits::ProviderCapabilities {

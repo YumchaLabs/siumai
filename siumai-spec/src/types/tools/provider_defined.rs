@@ -1,7 +1,5 @@
 //! Provider-defined tool types.
 
-use super::Tool;
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 enum ProviderToolType {
@@ -402,17 +400,6 @@ impl ProviderDefinedTool {
     /// ```
     pub fn tool_type(&self) -> Option<&str> {
         self.id.split('.').nth(1)
-    }
-
-    /// Create a provider-defined tool from a known tool id using a Vercel-aligned default name.
-    ///
-    /// Prefer `siumai::tools::{openai, anthropic, google, xai}::*` when you can; this helper is
-    /// useful for config-driven/dynamic tool selection.
-    pub fn from_id(id: &str) -> Option<Self> {
-        match crate::tools::provider_defined_tool(id)? {
-            Tool::ProviderDefined(pd) => Some(pd),
-            _ => None,
-        }
     }
 }
 

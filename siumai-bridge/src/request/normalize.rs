@@ -4,10 +4,9 @@
 
 use crate::customize::apply_request_remapper;
 use crate::lifecycle::{new_bridge_report, new_request_normalize_context, reject_if_needed};
+use crate::request::legacy_content;
 #[cfg(feature = "anthropic")]
 use base64::Engine;
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-use std::collections::VecDeque;
 use std::collections::{BTreeSet, HashMap};
 #[cfg(feature = "anthropic")]
 use std::time::Duration;
@@ -24,15 +23,9 @@ use siumai_core::types::{
     ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole,
     ProviderOptionsMap, Tool, ToolChoice, ToolFunction, ToolResultContentPart, ToolResultOutput,
 };
+
 #[cfg(any(feature = "google", feature = "google-vertex"))]
-use siumai_protocol_gemini::standards::gemini::types::{
-    CodeExecutionOutcome as GeminiCodeExecutionOutcome, Content as GeminiContent,
-    FunctionCallingMode as GeminiFunctionCallingMode, GeminiTool as GeminiRequestTool,
-    GenerateContentRequest as GeminiGenerateContentRequest,
-    GenerationConfig as GeminiGenerationConfig, Part as GeminiPart, ToolConfig as GeminiToolConfig,
-};
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-use uuid::Uuid;
+mod gemini_generate_content;
 
 #[derive(Debug, Default)]
 struct ResponsesToolRegistry {
@@ -537,7 +530,7 @@ fn parse_openai_chat_completions_json_to_chat_request(
 pub fn bridge_gemini_generate_content_json_to_chat_request(
     value: &Value,
 ) -> Result<ChatRequest, LlmError> {
-    parse_gemini_generate_content_json_to_chat_request(value)
+    gemini_generate_content::parse_json_to_chat_request(value)
 }
 
 #[cfg(any(feature = "google", feature = "google-vertex"))]
@@ -545,731 +538,8 @@ pub fn bridge_gemini_generate_content_json_to_chat_request_with_options(
     value: &Value,
     options: BridgeOptions,
 ) -> Result<BridgeResult<ChatRequest>, LlmError> {
-    let request = parse_gemini_generate_content_json_to_chat_request(value)?;
+    let request = gemini_generate_content::parse_json_to_chat_request(value)?;
     normalize_request_with_options(request, BridgeTarget::GeminiGenerateContent, options)
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_generate_content_json_to_chat_request(
-    value: &Value,
-) -> Result<ChatRequest, LlmError> {
-    let obj = expect_object(value, "Gemini GenerateContent request")?;
-    let typed: GeminiGenerateContentRequest =
-        serde_json::from_value(value.clone()).map_err(|err| {
-            LlmError::ParseError(format!("invalid Gemini GenerateContent request: {err}"))
-        })?;
-
-    let mut request = ChatRequest::new(Vec::new());
-    let mut google_options = Map::new();
-    let mut pending_tool_call_ids = HashMap::new();
-
-    request.common_params.model = required_string(obj, "model", "Gemini GenerateContent request")?;
-
-    if let Some(system_instruction) = typed.system_instruction.as_ref()
-        && let Some(message) = parse_gemini_system_instruction(system_instruction)?
-    {
-        request.messages.push(message);
-    }
-
-    for content in &typed.contents {
-        if let Some(message) = parse_gemini_content(content, &mut pending_tool_call_ids)? {
-            request.messages.push(message);
-        }
-    }
-    request.messages = compact_adjacent_messages(std::mem::take(&mut request.messages));
-
-    if let Some(tools) = typed.tools.as_ref() {
-        let parsed = parse_gemini_tools(tools)?;
-        if !parsed.is_empty() {
-            request.tools = Some(parsed);
-        }
-    }
-
-    if let Some(generation_config) = typed.generation_config.as_ref() {
-        parse_gemini_generation_config(
-            generation_config,
-            obj.get("generationConfig").and_then(Value::as_object),
-            &mut request,
-            &mut google_options,
-        )?;
-    }
-
-    if let Some(tool_config) = typed.tool_config.as_ref() {
-        let parsed = parse_gemini_tool_config(
-            tool_config,
-            obj.get("toolConfig").and_then(Value::as_object),
-            &mut request,
-            &mut google_options,
-        )?;
-        if let Some(allowed_names) = parsed.allowed_function_names
-            && let Some(tools) = &mut request.tools
-        {
-            tools.retain(|tool| match tool {
-                Tool::Function { function } => {
-                    allowed_names.iter().any(|name| name == &function.name)
-                }
-                _ => true,
-            });
-            if tools.is_empty() {
-                request.tools = None;
-            }
-        }
-    }
-
-    if let Some(cached_content) = typed.cached_content.as_ref() {
-        google_options.insert(
-            "cachedContent".to_string(),
-            Value::String(cached_content.clone()),
-        );
-    }
-    if let Some(safety_settings) = obj.get("safetySettings").filter(|value| value.is_array()) {
-        google_options.insert("safetySettings".to_string(), safety_settings.clone());
-    } else if let Some(safety_settings) = typed.safety_settings.as_ref() {
-        google_options.insert(
-            "safetySettings".to_string(),
-            serde_json::to_value(safety_settings).map_err(|err| {
-                LlmError::ParseError(format!("failed to serialize Gemini safetySettings: {err}"))
-            })?,
-        );
-    }
-    if let Some(labels) = obj.get("labels").filter(|value| value.is_object()) {
-        google_options.insert("labels".to_string(), labels.clone());
-    }
-
-    if !google_options.is_empty() {
-        request
-            .provider_options_map
-            .insert("google", Value::Object(google_options));
-    }
-
-    Ok(request)
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-#[derive(Debug, Default)]
-struct GeminiToolConfigParse {
-    allowed_function_names: Option<Vec<String>>,
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_system_instruction(
-    content: &GeminiContent,
-) -> Result<Option<ChatMessage>, LlmError> {
-    let mut pending_tool_call_ids = HashMap::new();
-    let mut parts = Vec::new();
-    for part in &content.parts {
-        if let Some(parsed) = parse_gemini_part(part, &mut pending_tool_call_ids)? {
-            parts.push(parsed);
-        }
-    }
-
-    if parts.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(message_from_parts(MessageRole::System, parts)))
-    }
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_content(
-    content: &GeminiContent,
-    pending_tool_call_ids: &mut HashMap<String, VecDeque<String>>,
-) -> Result<Option<ChatMessage>, LlmError> {
-    let mut parts = Vec::new();
-    for part in &content.parts {
-        if let Some(parsed) = parse_gemini_part(part, pending_tool_call_ids)? {
-            parts.push(parsed);
-        }
-    }
-
-    if parts.is_empty() {
-        return Ok(None);
-    }
-
-    let role = parse_gemini_message_role(content.role.as_deref(), &parts)?;
-    Ok(Some(message_from_parts(role, parts)))
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_message_role(
-    role: Option<&str>,
-    parts: &[ContentPart],
-) -> Result<MessageRole, LlmError> {
-    let has_tool_calls = parts
-        .iter()
-        .any(|part| matches!(part, ContentPart::ToolCall { .. }));
-    let has_reasoning = parts
-        .iter()
-        .any(|part| matches!(part, ContentPart::Reasoning { .. }));
-    let only_tool_results = parts
-        .iter()
-        .all(|part| matches!(part, ContentPart::ToolResult { .. }));
-
-    match role {
-        Some("model") => Ok(MessageRole::Assistant),
-        Some("user") => {
-            if only_tool_results {
-                Ok(MessageRole::Tool)
-            } else {
-                Ok(MessageRole::User)
-            }
-        }
-        None => {
-            if has_tool_calls || has_reasoning {
-                Ok(MessageRole::Assistant)
-            } else if only_tool_results {
-                Ok(MessageRole::Tool)
-            } else {
-                Ok(MessageRole::User)
-            }
-        }
-        Some(other) => Err(LlmError::ParseError(format!(
-            "unsupported Gemini content role `{other}`"
-        ))),
-    }
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_part(
-    part: &GeminiPart,
-    pending_tool_call_ids: &mut HashMap<String, VecDeque<String>>,
-) -> Result<Option<ContentPart>, LlmError> {
-    Ok(match part {
-        GeminiPart::Text {
-            text,
-            thought,
-            thought_signature,
-        } => {
-            let provider_options =
-                gemini_thought_signature_provider_options(thought_signature.as_deref());
-            if thought.unwrap_or(false) {
-                Some(request_reasoning_part(text.clone(), provider_options))
-            } else {
-                Some(request_text_part(text.clone(), provider_options))
-            }
-        }
-        GeminiPart::InlineData {
-            inline_data,
-            thought_signature,
-            ..
-        } => Some(parse_gemini_inline_data_part(
-            &inline_data.mime_type,
-            &inline_data.data,
-            thought_signature.as_deref(),
-        )),
-        GeminiPart::FileData {
-            file_data,
-            thought_signature,
-            ..
-        } => Some(parse_gemini_file_data_part(
-            &file_data.file_uri,
-            file_data.mime_type.as_deref(),
-            thought_signature.as_deref(),
-        )),
-        GeminiPart::FunctionCall {
-            function_call,
-            thought_signature,
-        } => {
-            let tool_call_id =
-                push_pending_gemini_tool_call_id(pending_tool_call_ids, &function_call.name);
-            Some(request_tool_call_part(
-                tool_call_id,
-                function_call.name.clone(),
-                function_call
-                    .args
-                    .clone()
-                    .unwrap_or_else(|| Value::Object(Map::new())),
-                None,
-                None,
-                gemini_thought_signature_provider_options(thought_signature.as_deref()),
-            ))
-        }
-        GeminiPart::FunctionResponse {
-            function_response,
-            thought_signature,
-        } => {
-            let tool_call_id =
-                take_pending_gemini_tool_call_id(pending_tool_call_ids, &function_response.name);
-            Some(request_tool_result_part(
-                tool_call_id,
-                function_response.name.clone(),
-                parse_gemini_function_response_output(&function_response.response),
-                None,
-                None,
-                gemini_thought_signature_provider_options(thought_signature.as_deref()),
-            ))
-        }
-        GeminiPart::ExecutableCode {
-            executable_code,
-            thought_signature,
-        } => {
-            let tool_call_id =
-                push_pending_gemini_tool_call_id(pending_tool_call_ids, "code_execution");
-            let language = match executable_code.language {
-                siumai_protocol_gemini::standards::gemini::types::CodeLanguage::Python => "PYTHON",
-                siumai_protocol_gemini::standards::gemini::types::CodeLanguage::Unspecified => {
-                    "LANGUAGE_UNSPECIFIED"
-                }
-            };
-            Some(request_tool_call_part(
-                tool_call_id,
-                "code_execution",
-                json!({
-                    "language": language,
-                    "code": executable_code.code.clone(),
-                }),
-                Some(true),
-                Some(true),
-                gemini_thought_signature_provider_options(thought_signature.as_deref()),
-            ))
-        }
-        GeminiPart::CodeExecutionResult {
-            code_execution_result,
-            thought_signature,
-        } => {
-            let tool_call_id =
-                take_pending_gemini_tool_call_id(pending_tool_call_ids, "code_execution");
-            let outcome = match code_execution_result.outcome {
-                GeminiCodeExecutionOutcome::Ok => "OUTCOME_OK",
-                GeminiCodeExecutionOutcome::Failed => "OUTCOME_FAILED",
-                GeminiCodeExecutionOutcome::DeadlineExceeded => "OUTCOME_DEADLINE_EXCEEDED",
-                GeminiCodeExecutionOutcome::Unspecified => "OUTCOME_UNSPECIFIED",
-            };
-            Some(request_tool_result_part(
-                tool_call_id,
-                "code_execution",
-                ToolResultOutput::json(json!({
-                    "outcome": outcome,
-                    "output": code_execution_result.output.clone(),
-                })),
-                Some(true),
-                Some(true),
-                gemini_thought_signature_provider_options(thought_signature.as_deref()),
-            ))
-        }
-    })
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_inline_data_part(
-    mime_type: &str,
-    data: &str,
-    thought_signature: Option<&str>,
-) -> ContentPart {
-    let provider_options = gemini_thought_signature_provider_options(thought_signature);
-    if mime_type.starts_with("image/") {
-        request_image_part(
-            FilePartSource::base64(data),
-            Some(mime_type.to_string()),
-            None,
-            provider_options,
-        )
-    } else if mime_type.starts_with("audio/") {
-        request_audio_part(
-            MediaSource::Base64 {
-                data: data.to_string(),
-            },
-            Some(mime_type.to_string()),
-            provider_options,
-        )
-    } else {
-        request_file_part(
-            FilePartSource::base64(data),
-            mime_type.to_string(),
-            None,
-            provider_options,
-        )
-    }
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_file_data_part(
-    file_uri: &str,
-    mime_type: Option<&str>,
-    thought_signature: Option<&str>,
-) -> ContentPart {
-    let provider_options = gemini_thought_signature_provider_options(thought_signature);
-    match mime_type {
-        Some(mime) if mime.starts_with("image/") => request_image_part(
-            FilePartSource::url(file_uri),
-            Some(mime.to_string()),
-            None,
-            provider_options,
-        ),
-        Some(mime) if mime.starts_with("audio/") => request_audio_part(
-            MediaSource::Url {
-                url: file_uri.to_string(),
-            },
-            Some(mime.to_string()),
-            provider_options,
-        ),
-        Some(mime) => request_file_part(
-            FilePartSource::url(file_uri),
-            mime.to_string(),
-            None,
-            provider_options,
-        ),
-        None => request_file_part(
-            FilePartSource::url(file_uri),
-            "application/octet-stream",
-            None,
-            provider_options,
-        ),
-    }
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_function_response_output(value: &Value) -> ToolResultOutput {
-    let payload = value
-        .as_object()
-        .and_then(|obj| obj.get("content"))
-        .cloned()
-        .unwrap_or_else(|| value.clone());
-
-    match payload {
-        Value::String(text) => ToolResultOutput::text(text),
-        other => ToolResultOutput::json(other),
-    }
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn gemini_thought_signature_provider_options(
-    thought_signature: Option<&str>,
-) -> ProviderOptionsMap {
-    let mut provider_options = ProviderOptionsMap::default();
-    let Some(thought_signature) = thought_signature
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return provider_options;
-    };
-    provider_options.insert("google", json!({ "thoughtSignature": thought_signature }));
-    provider_options
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn push_pending_gemini_tool_call_id(
-    pending_tool_call_ids: &mut HashMap<String, VecDeque<String>>,
-    tool_name: &str,
-) -> String {
-    let tool_call_id = format!("call_{}", Uuid::new_v4().simple());
-    pending_tool_call_ids
-        .entry(tool_name.to_string())
-        .or_default()
-        .push_back(tool_call_id.clone());
-    tool_call_id
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn take_pending_gemini_tool_call_id(
-    pending_tool_call_ids: &mut HashMap<String, VecDeque<String>>,
-    tool_name: &str,
-) -> String {
-    let (tool_call_id, remove_entry) = match pending_tool_call_ids.get_mut(tool_name) {
-        Some(ids) => {
-            let value = ids.pop_front();
-            (value, ids.is_empty())
-        }
-        None => (None, false),
-    };
-
-    if remove_entry {
-        pending_tool_call_ids.remove(tool_name);
-    }
-
-    tool_call_id.unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()))
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_tools(tools: &[GeminiRequestTool]) -> Result<Vec<Tool>, LlmError> {
-    let mut parsed = Vec::new();
-
-    for tool in tools {
-        match tool {
-            GeminiRequestTool::FunctionDeclarations {
-                function_declarations,
-            } => {
-                for function in function_declarations {
-                    parsed.push(Tool::function(
-                        function.name.clone(),
-                        function.description.clone(),
-                        function
-                            .parameters
-                            .clone()
-                            .unwrap_or_else(|| Value::Object(Map::new())),
-                    ));
-                }
-            }
-            GeminiRequestTool::CodeExecution { .. } => {
-                parsed.push(parse_gemini_provider_defined_tool(
-                    "google.code_execution",
-                    "code_execution",
-                    Value::Object(Map::new()),
-                ))
-            }
-            GeminiRequestTool::GoogleSearch { .. } => {
-                parsed.push(parse_gemini_provider_defined_tool(
-                    "google.google_search",
-                    "google_search",
-                    Value::Object(Map::new()),
-                ))
-            }
-            GeminiRequestTool::GoogleMaps { .. } => {
-                parsed.push(parse_gemini_provider_defined_tool(
-                    "google.google_maps",
-                    "google_maps",
-                    Value::Object(Map::new()),
-                ))
-            }
-            GeminiRequestTool::GoogleSearchRetrieval {
-                google_search_retrieval,
-            } => {
-                let mut args = Map::new();
-                if let Some(config) = &google_search_retrieval.dynamic_retrieval_config {
-                    let mode = match config.mode {
-                        siumai_protocol_gemini::standards::gemini::types::DynamicRetrievalMode::Dynamic => {
-                            "MODE_DYNAMIC"
-                        }
-                        siumai_protocol_gemini::standards::gemini::types::DynamicRetrievalMode::Unspecified => {
-                            "MODE_UNSPECIFIED"
-                        }
-                    };
-                    args.insert("mode".to_string(), Value::String(mode.to_string()));
-                    if let Some(threshold) = &config.dynamic_threshold {
-                        args.insert(
-                            "dynamicThreshold".to_string(),
-                            Value::Number(threshold.clone()),
-                        );
-                    }
-                }
-                parsed.push(parse_gemini_provider_defined_tool(
-                    "google.google_search",
-                    "google_search",
-                    Value::Object(args),
-                ));
-            }
-            GeminiRequestTool::UrlContext { .. } => {
-                parsed.push(parse_gemini_provider_defined_tool(
-                    "google.url_context",
-                    "url_context",
-                    Value::Object(Map::new()),
-                ))
-            }
-            GeminiRequestTool::FileSearch { file_search } => {
-                let mut args = Map::new();
-                if let Some(names) = &file_search.file_search_store_names {
-                    args.insert("fileSearchStoreNames".to_string(), json!(names));
-                }
-                if let Some(top_k) = file_search.top_k {
-                    args.insert("topK".to_string(), json!(top_k));
-                }
-                if let Some(filter) = &file_search.metadata_filter {
-                    args.insert("metadataFilter".to_string(), json!(filter));
-                }
-                parsed.push(parse_gemini_provider_defined_tool(
-                    "google.file_search",
-                    "file_search",
-                    Value::Object(args),
-                ));
-            }
-            GeminiRequestTool::EnterpriseWebSearch { .. } => {
-                parsed.push(parse_gemini_provider_defined_tool(
-                    "google.enterprise_web_search",
-                    "enterprise_web_search",
-                    Value::Object(Map::new()),
-                ))
-            }
-            GeminiRequestTool::Retrieval { retrieval } => {
-                let mut args = Map::new();
-                args.insert(
-                    "ragCorpus".to_string(),
-                    Value::String(retrieval.vertex_rag_store.rag_resources.rag_corpus.clone()),
-                );
-                if let Some(top_k) = retrieval.vertex_rag_store.similarity_top_k {
-                    args.insert("topK".to_string(), json!(top_k));
-                }
-                parsed.push(parse_gemini_provider_defined_tool(
-                    "google.vertex_rag_store",
-                    "vertex_rag_store",
-                    Value::Object(args),
-                ));
-            }
-        }
-    }
-
-    Ok(parsed)
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_provider_defined_tool(provider_id: &str, default_name: &str, args: Value) -> Tool {
-    let mut tool = default_provider_defined_tool(provider_id).unwrap_or_else(|| {
-        Tool::provider_defined(provider_id.to_string(), default_name.to_string())
-    });
-
-    if let Tool::ProviderDefined(provider_tool) = &mut tool {
-        provider_tool.name = default_name.to_string();
-        provider_tool.args = args;
-    }
-
-    tool
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_tool_config(
-    tool_config: &GeminiToolConfig,
-    raw_tool_config: Option<&Map<String, Value>>,
-    request: &mut ChatRequest,
-    google_options: &mut Map<String, Value>,
-) -> Result<GeminiToolConfigParse, LlmError> {
-    let mut parsed = GeminiToolConfigParse::default();
-
-    let raw_function_calling_config = raw_tool_config
-        .and_then(|obj| obj.get("functionCallingConfig"))
-        .and_then(Value::as_object);
-
-    let allowed_function_names = raw_function_calling_config
-        .and_then(|obj| obj.get("allowedFunctionNames"))
-        .and_then(Value::as_array)
-        .map(|names| {
-            names
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .filter(|names| !names.is_empty())
-        .or_else(|| {
-            tool_config
-                .function_calling_config
-                .as_ref()
-                .and_then(|cfg| cfg.allowed_function_names.clone())
-                .filter(|names| !names.is_empty())
-        });
-
-    let mode = raw_function_calling_config
-        .and_then(|obj| obj.get("mode"))
-        .and_then(Value::as_str)
-        .map(|value| match value {
-            "NONE" => GeminiFunctionCallingMode::None,
-            "ANY" => GeminiFunctionCallingMode::Any,
-            "AUTO" => GeminiFunctionCallingMode::Auto,
-            _ => GeminiFunctionCallingMode::Unspecified,
-        })
-        .or_else(|| {
-            tool_config
-                .function_calling_config
-                .as_ref()
-                .and_then(|cfg| cfg.mode.clone())
-        });
-
-    if raw_function_calling_config.is_some() || tool_config.function_calling_config.is_some() {
-        request.tool_choice = match mode.as_ref() {
-            Some(GeminiFunctionCallingMode::None) => Some(ToolChoice::None),
-            Some(GeminiFunctionCallingMode::Any) => {
-                if allowed_function_names
-                    .as_ref()
-                    .is_some_and(|names| names.len() == 1)
-                {
-                    Some(ToolChoice::tool(
-                        allowed_function_names
-                            .as_ref()
-                            .expect("checked single item")[0]
-                            .clone(),
-                    ))
-                } else {
-                    Some(ToolChoice::Required)
-                }
-            }
-            Some(GeminiFunctionCallingMode::Auto)
-            | Some(GeminiFunctionCallingMode::Unspecified)
-            | None => Some(ToolChoice::Auto),
-        };
-
-        parsed.allowed_function_names = allowed_function_names;
-    }
-
-    if let Some(retrieval_config) = raw_tool_config
-        .and_then(|obj| obj.get("retrievalConfig"))
-        .filter(|value| value.is_object())
-    {
-        google_options.insert("retrievalConfig".to_string(), retrieval_config.clone());
-    } else if let Some(retrieval_config) = &tool_config.retrieval_config {
-        google_options.insert(
-            "retrievalConfig".to_string(),
-            serde_json::to_value(retrieval_config).map_err(|err| {
-                LlmError::ParseError(format!("failed to serialize Gemini retrievalConfig: {err}"))
-            })?,
-        );
-    }
-
-    Ok(parsed)
-}
-
-#[cfg(any(feature = "google", feature = "google-vertex"))]
-fn parse_gemini_generation_config(
-    generation_config: &GeminiGenerationConfig,
-    raw_generation_config: Option<&Map<String, Value>>,
-    request: &mut ChatRequest,
-    google_options: &mut Map<String, Value>,
-) -> Result<(), LlmError> {
-    request.common_params.temperature = generation_config.temperature;
-    request.common_params.top_p = generation_config.top_p;
-    request.common_params.frequency_penalty = generation_config.frequency_penalty;
-    request.common_params.presence_penalty = generation_config.presence_penalty;
-    request.common_params.stop_sequences = generation_config
-        .stop_sequences
-        .clone()
-        .filter(|sequences| !sequences.is_empty());
-
-    if let Some(max_output_tokens) = generation_config.max_output_tokens {
-        request.common_params.max_tokens =
-            Some(u32::try_from(max_output_tokens).map_err(|_| {
-                LlmError::ParseError(
-                    "Gemini generationConfig.maxOutputTokens must be >= 0".to_string(),
-                )
-            })?);
-    }
-    if let Some(top_k) = generation_config.top_k {
-        request.common_params.top_k = Some(f64::from(top_k));
-    }
-    if let Some(seed) = generation_config.seed {
-        request.common_params.seed = Some(u64::try_from(seed).map_err(|_| {
-            LlmError::ParseError("Gemini generationConfig.seed must be >= 0".to_string())
-        })?);
-    }
-
-    if let Some(raw) = raw_generation_config {
-        if let Some(schema) = raw.get("responseJsonSchema") {
-            request.response_format = Some(ResponseFormat::json_schema(schema.clone()));
-            google_options.insert("responseJsonSchema".to_string(), schema.clone());
-            google_options.insert("structuredOutputs".to_string(), Value::Bool(false));
-        } else if let Some(schema) = raw.get("responseSchema") {
-            request.response_format = Some(ResponseFormat::json_schema(schema.clone()));
-        }
-
-        let preserve_keys = [
-            "responseMimeType",
-            "responseModalities",
-            "thinkingConfig",
-            "audioTimestamp",
-            "mediaResolution",
-            "imageConfig",
-            "responseLogprobs",
-            "logprobs",
-        ];
-        for key in preserve_keys {
-            if let Some(value) = raw.get(key) {
-                let should_skip = key == "responseMimeType"
-                    && value.as_str() == Some("application/json")
-                    && request.response_format.is_some();
-                if !should_skip {
-                    google_options.insert(key.to_string(), value.clone());
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn parse_openai_chat_message(
@@ -1358,7 +628,7 @@ fn parse_openai_chat_tool_message(
 
     Ok(message_from_parts(
         MessageRole::Tool,
-        vec![request_tool_result_part(
+        vec![legacy_content::request_tool_result_part(
             tool_call_id,
             tool_name,
             parse_tool_result_output_from_string(&content, false),
@@ -1375,11 +645,13 @@ fn parse_openai_chat_tool_call(value: &Value) -> Result<ContentPart, LlmError> {
     let tool_type = optional_string(obj, "type").unwrap_or_else(|| "function".to_string());
 
     if tool_type != "function" {
-        return Ok(ContentPart::tool_call(
+        return Ok(legacy_content::request_tool_call_part(
             tool_call_id,
             tool_type.clone(),
             collect_remaining_object_fields(obj, &["id", "type", "function"]),
             None,
+            None,
+            ProviderOptionsMap::default(),
         ));
     }
 
@@ -1402,7 +674,14 @@ fn parse_openai_chat_tool_call(value: &Value) -> Result<ContentPart, LlmError> {
         .transpose()?
         .unwrap_or_else(|| Value::Object(Map::new()));
 
-    Ok(ContentPart::tool_call(tool_call_id, name, arguments, None))
+    Ok(legacy_content::request_tool_call_part(
+        tool_call_id,
+        name,
+        arguments,
+        None,
+        None,
+        ProviderOptionsMap::default(),
+    ))
 }
 
 fn parse_openai_chat_content_parts(value: &Value) -> Result<Vec<ContentPart>, LlmError> {
@@ -1422,8 +701,9 @@ fn parse_openai_chat_content_part(value: &Value) -> Result<ContentPart, LlmError
     let kind = required_string(obj, "type", "OpenAI Chat Completions content part")?;
 
     match kind.as_str() {
-        "text" => Ok(ContentPart::text(
+        "text" => Ok(legacy_content::request_text_part(
             optional_string(obj, "text").unwrap_or_default(),
+            ProviderOptionsMap::default(),
         )),
         "image_url" => parse_openai_image_url_part(obj),
         "input_audio" => parse_openai_input_audio_part(obj),
@@ -1436,7 +716,7 @@ fn parse_openai_chat_content_part(value: &Value) -> Result<ContentPart, LlmError
 
 fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     match obj.get("image_url") {
-        Some(Value::String(url)) => Ok(request_image_part(
+        Some(Value::String(url)) => Ok(legacy_content::request_image_part(
             FilePartSource::url(url),
             None,
             None,
@@ -1448,7 +728,7 @@ fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, 
                 .get("detail")
                 .and_then(Value::as_str)
                 .map(ImageDetail::from);
-            Ok(request_image_part(
+            Ok(legacy_content::request_image_part(
                 FilePartSource::url(url),
                 None,
                 detail,
@@ -1475,7 +755,7 @@ fn parse_openai_input_audio_part(obj: &Map<String, Value>) -> Result<ContentPart
         _ => "audio/wav".to_string(),
     };
 
-    Ok(request_audio_part(
+    Ok(legacy_content::request_audio_part(
         MediaSource::Base64 { data },
         Some(media_type),
         ProviderOptionsMap::default(),
@@ -1489,7 +769,7 @@ fn parse_openai_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmEr
         .and_then(|value| expect_object(value, "OpenAI file part.file"))?;
 
     if let Some(file_id) = optional_string(file, "file_id") {
-        return Ok(request_file_part(
+        return Ok(legacy_content::request_file_part(
             FilePartSource::provider_reference(ProviderReference::single("openai", file_id)),
             "application/pdf",
             optional_string(file, "filename"),
@@ -1497,7 +777,7 @@ fn parse_openai_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmEr
         ));
     }
     if let Some(file_data) = optional_string(file, "file_data") {
-        return Ok(request_file_part(
+        return Ok(legacy_content::request_file_part(
             FilePartSource::base64(strip_data_url_prefix(&file_data)),
             "application/pdf",
             optional_string(file, "filename"),
@@ -1837,11 +1117,13 @@ fn parse_openai_responses_message_content(
                     .get("input")
                     .cloned()
                     .unwrap_or_else(|| Value::Object(Map::new()));
-                out.push(ContentPart::tool_call(
+                out.push(legacy_content::request_tool_call_part(
                     tool_call_id,
                     tool_name,
                     arguments,
                     None,
+                    None,
+                    ProviderOptionsMap::default(),
                 ));
             }
             other if matches!(role, MessageRole::Assistant) && other == "tool_call" => {
@@ -1854,11 +1136,13 @@ fn parse_openai_responses_message_content(
                     .map(parse_embedded_json)
                     .transpose()?
                     .unwrap_or_else(|| Value::Object(Map::new()));
-                out.push(ContentPart::tool_call(
+                out.push(legacy_content::request_tool_call_part(
                     tool_call_id,
                     tool_name,
                     arguments,
                     None,
+                    None,
+                    ProviderOptionsMap::default(),
                 ));
             }
             other => {
@@ -1875,7 +1159,7 @@ fn parse_openai_responses_image_part(obj: &Map<String, Value>) -> ContentPart {
     let provider_options = openai_image_detail_provider_options(obj);
 
     if let Some(file_id) = optional_string(obj, "file_id") {
-        return request_image_part(
+        return legacy_content::request_image_part(
             FilePartSource::provider_reference(ProviderReference::single("openai", file_id)),
             None,
             None,
@@ -1890,12 +1174,12 @@ fn parse_openai_responses_image_part(obj: &Map<String, Value>) -> ContentPart {
         FilePartSource::url(image_url)
     };
 
-    request_image_part(source, None, None, provider_options)
+    legacy_content::request_image_part(source, None, None, provider_options)
 }
 
 fn parse_openai_responses_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     if let Some(file_id) = optional_string(obj, "file_id") {
-        return Ok(request_file_part(
+        return Ok(legacy_content::request_file_part(
             FilePartSource::provider_reference(ProviderReference::single("openai", file_id)),
             "application/pdf",
             optional_string(obj, "filename"),
@@ -1903,7 +1187,7 @@ fn parse_openai_responses_file_part(obj: &Map<String, Value>) -> Result<ContentP
         ));
     }
     if let Some(file_url) = optional_string(obj, "file_url") {
-        return Ok(request_file_part(
+        return Ok(legacy_content::request_file_part(
             FilePartSource::url(file_url),
             infer_document_media_type(None, None),
             optional_string(obj, "filename"),
@@ -1911,7 +1195,7 @@ fn parse_openai_responses_file_part(obj: &Map<String, Value>) -> Result<ContentP
         ));
     }
     if let Some(file_data) = optional_string(obj, "file_data") {
-        return Ok(request_file_part(
+        return Ok(legacy_content::request_file_part(
             FilePartSource::base64(strip_data_url_prefix(&file_data)),
             "application/pdf",
             optional_string(obj, "filename"),
@@ -1947,7 +1231,10 @@ fn parse_openai_responses_reasoning_item(
 
     Ok(message_from_parts(
         MessageRole::Assistant,
-        vec![request_reasoning_part(text, provider_options)],
+        vec![legacy_content::request_reasoning_part(
+            text,
+            provider_options,
+        )],
     ))
 }
 
@@ -1967,7 +1254,7 @@ fn parse_openai_responses_function_call_item(
 
     Ok(message_from_parts(
         MessageRole::Assistant,
-        vec![request_tool_call_part(
+        vec![legacy_content::request_tool_call_part(
             tool_call_id,
             tool_name,
             arguments,
@@ -1998,7 +1285,7 @@ fn parse_openai_responses_provider_call_item(
 
     Ok(message_from_parts(
         MessageRole::Assistant,
-        vec![request_tool_call_part(
+        vec![legacy_content::request_tool_call_part(
             tool_call_id,
             tool_name,
             Value::Object(arguments),
@@ -2023,7 +1310,7 @@ fn parse_openai_responses_function_call_output_item(
 
     Ok(message_from_parts(
         MessageRole::Tool,
-        vec![request_tool_result_part(
+        vec![legacy_content::request_tool_result_part(
             tool_call_id,
             tool_name,
             output,
@@ -2068,7 +1355,7 @@ fn parse_openai_responses_provider_call_output_item(
 
     Ok(message_from_parts(
         MessageRole::Tool,
-        vec![request_tool_result_part(
+        vec![legacy_content::request_tool_result_part(
             tool_call_id,
             tool_name,
             output,
@@ -2269,7 +1556,14 @@ fn parse_anthropic_message_parts(value: &Value) -> Result<Vec<ContentPart>, LlmE
                     .get("input")
                     .cloned()
                     .unwrap_or_else(|| Value::Object(Map::new()));
-                let mut part = ContentPart::tool_call(tool_call_id, tool_name, arguments, None);
+                let mut part = legacy_content::request_tool_call_part(
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                    None,
+                    None,
+                    ProviderOptionsMap::default(),
+                );
                 if let Some(cache_control) = cache_control.as_ref() {
                     apply_anthropic_part_cache_control(&mut part, cache_control);
                 }
@@ -2284,7 +1578,8 @@ fn parse_anthropic_message_parts(value: &Value) -> Result<Vec<ContentPart>, LlmE
             }
             "thinking" => {
                 let text = optional_string(obj, "thinking").unwrap_or_default();
-                let mut part = ContentPart::reasoning(text);
+                let mut part =
+                    legacy_content::request_reasoning_part(text, ProviderOptionsMap::default());
                 if let Some(signature) = optional_string(obj, "signature")
                     && !signature.is_empty()
                 {
@@ -2300,7 +1595,10 @@ fn parse_anthropic_message_parts(value: &Value) -> Result<Vec<ContentPart>, LlmE
             }
             "redacted_thinking" => {
                 let data = optional_string(obj, "data");
-                let mut part = ContentPart::reasoning(String::new());
+                let mut part = legacy_content::request_reasoning_part(
+                    String::new(),
+                    ProviderOptionsMap::default(),
+                );
                 if let Some(data) = data
                     && !data.is_empty()
                 {
@@ -2355,7 +1653,7 @@ fn parse_anthropic_image_part(obj: &Map<String, Value>) -> Result<ContentPart, L
         }
     };
 
-    Ok(request_image_part(
+    Ok(legacy_content::request_image_part(
         media_source,
         optional_string(obj, "media_type").or_else(|| optional_string(obj, "mime_type")),
         None,
@@ -2437,7 +1735,7 @@ fn parse_anthropic_document_part(obj: &Map<String, Value>) -> Result<ContentPart
         provider_options.insert("anthropic", Value::Object(anthropic));
     }
 
-    Ok(request_file_part(
+    Ok(legacy_content::request_file_part(
         media_source,
         media_type,
         title,
@@ -2456,7 +1754,7 @@ fn parse_anthropic_tool_result_part(obj: &Map<String, Value>) -> Result<ContentP
         .unwrap_or(false);
     let output = parse_anthropic_tool_result_output(output_value, is_error)?;
 
-    Ok(request_tool_result_part(
+    Ok(legacy_content::request_tool_result_part(
         tool_call_id,
         String::new(),
         output,
@@ -2793,123 +2091,17 @@ fn strip_wrapped_thinking(text: &str) -> Option<String> {
     Some(inner.to_string())
 }
 
-// Request-side adapters into the legacy `ContentPart` carrier. These helpers are the only place
-// request normalization should manufacture dual-use parts, and they deliberately keep response
-// metadata empty.
-fn request_text_part(text: impl Into<String>, provider_options: ProviderOptionsMap) -> ContentPart {
-    ContentPart::Text {
-        text: text.into(),
-        provider_options,
-        provider_metadata: None,
-    }
-}
-
-fn request_reasoning_part(
-    text: impl Into<String>,
-    provider_options: ProviderOptionsMap,
-) -> ContentPart {
-    ContentPart::Reasoning {
-        text: text.into(),
-        provider_options,
-        provider_metadata: None,
-    }
-}
-
-fn request_image_part(
-    source: FilePartSource,
-    media_type: Option<String>,
-    detail: Option<ImageDetail>,
-    provider_options: ProviderOptionsMap,
-) -> ContentPart {
-    ContentPart::Image {
-        source,
-        media_type,
-        detail,
-        provider_options,
-        provider_metadata: None,
-    }
-}
-
-fn request_audio_part(
-    source: MediaSource,
-    media_type: Option<String>,
-    provider_options: ProviderOptionsMap,
-) -> ContentPart {
-    ContentPart::Audio {
-        source,
-        media_type,
-        provider_options,
-        provider_metadata: None,
-    }
-}
-
-fn request_file_part(
-    source: FilePartSource,
-    media_type: impl Into<String>,
-    filename: Option<String>,
-    provider_options: ProviderOptionsMap,
-) -> ContentPart {
-    ContentPart::File {
-        source,
-        media_type: media_type.into(),
-        filename,
-        provider_options,
-        provider_metadata: None,
-    }
-}
-
-fn request_tool_call_part(
-    tool_call_id: impl Into<String>,
-    tool_name: impl Into<String>,
-    arguments: Value,
-    provider_executed: Option<bool>,
-    dynamic: Option<bool>,
-    provider_options: ProviderOptionsMap,
-) -> ContentPart {
-    ContentPart::ToolCall {
-        tool_call_id: tool_call_id.into(),
-        tool_name: tool_name.into(),
-        arguments,
-        provider_executed,
-        dynamic,
-        invalid: None,
-        error: None,
-        title: None,
-        provider_options,
-        provider_metadata: None,
-    }
-}
-
-fn request_tool_result_part(
-    tool_call_id: impl Into<String>,
-    tool_name: impl Into<String>,
-    output: ToolResultOutput,
-    provider_executed: Option<bool>,
-    dynamic: Option<bool>,
-    provider_options: ProviderOptionsMap,
-) -> ContentPart {
-    ContentPart::ToolResult {
-        tool_call_id: tool_call_id.into(),
-        tool_name: tool_name.into(),
-        output,
-        input: None,
-        provider_executed,
-        dynamic,
-        preliminary: None,
-        title: None,
-        provider_options,
-        provider_metadata: None,
-    }
-}
-
 fn parse_text_like_content_parts(text: &str) -> Vec<ContentPart> {
     if let Some(reasoning) = strip_wrapped_thinking(text) {
-        vec![request_reasoning_part(
+        vec![legacy_content::request_reasoning_part(
             reasoning,
             ProviderOptionsMap::default(),
         )]
     } else {
-        vec![request_text_part(text, ProviderOptionsMap::default())]
+        vec![legacy_content::request_text_part(
+            text,
+            ProviderOptionsMap::default(),
+        )]
     }
 }
 
@@ -3033,8 +2225,9 @@ fn message_content_into_parts(content: MessageContent) -> Vec<ContentPart> {
         }
         MessageContent::MultiModal(parts) => parts,
         #[cfg(feature = "structured-messages")]
-        MessageContent::Json(value) => vec![ContentPart::text(
+        MessageContent::Json(value) => vec![legacy_content::request_text_part(
             serde_json::to_string(&value).unwrap_or_default(),
+            ProviderOptionsMap::default(),
         )],
     }
 }
@@ -3132,16 +2325,24 @@ fn apply_anthropic_part_cache_control(part: &mut ContentPart, cache_control: &Ca
 
 fn openai_provider_tool_id_from_wire_type(wire_type: &str) -> String {
     match wire_type {
-        "computer_use_preview" => siumai_core::tools::openai::COMPUTER_USE_ID.to_string(),
-        "web_search" => siumai_core::tools::openai::WEB_SEARCH_ID.to_string(),
-        "web_search_preview" => siumai_core::tools::openai::WEB_SEARCH_PREVIEW_ID.to_string(),
-        "file_search" => siumai_core::tools::openai::FILE_SEARCH_ID.to_string(),
-        "code_interpreter" => siumai_core::tools::openai::CODE_INTERPRETER_ID.to_string(),
-        "image_generation" => siumai_core::tools::openai::IMAGE_GENERATION_ID.to_string(),
-        "local_shell" => siumai_core::tools::openai::LOCAL_SHELL_ID.to_string(),
-        "shell" => siumai_core::tools::openai::SHELL_ID.to_string(),
-        "mcp" => siumai_core::tools::openai::MCP_ID.to_string(),
-        "apply_patch" => siumai_core::tools::openai::APPLY_PATCH_ID.to_string(),
+        "computer_use_preview" => {
+            siumai_protocol_openai::tool_catalog::openai::COMPUTER_USE_ID.to_string()
+        }
+        "web_search" => siumai_protocol_openai::tool_catalog::openai::WEB_SEARCH_ID.to_string(),
+        "web_search_preview" => {
+            siumai_protocol_openai::tool_catalog::openai::WEB_SEARCH_PREVIEW_ID.to_string()
+        }
+        "file_search" => siumai_protocol_openai::tool_catalog::openai::FILE_SEARCH_ID.to_string(),
+        "code_interpreter" => {
+            siumai_protocol_openai::tool_catalog::openai::CODE_INTERPRETER_ID.to_string()
+        }
+        "image_generation" => {
+            siumai_protocol_openai::tool_catalog::openai::IMAGE_GENERATION_ID.to_string()
+        }
+        "local_shell" => siumai_protocol_openai::tool_catalog::openai::LOCAL_SHELL_ID.to_string(),
+        "shell" => siumai_protocol_openai::tool_catalog::openai::SHELL_ID.to_string(),
+        "mcp" => siumai_protocol_openai::tool_catalog::openai::MCP_ID.to_string(),
+        "apply_patch" => siumai_protocol_openai::tool_catalog::openai::APPLY_PATCH_ID.to_string(),
         other => format!("openai.{other}"),
     }
 }
@@ -3161,7 +2362,7 @@ fn default_openai_tool_name(wire_type: &str) -> String {
 
 #[cfg(feature = "anthropic")]
 fn anthropic_provider_tool_id_from_wire_type(wire_type: &str) -> Option<String> {
-    siumai_core::tools::anthropic::SERVER_TOOL_SPECS
+    siumai_protocol_anthropic::tool_catalog::anthropic::SERVER_TOOL_SPECS
         .iter()
         .find(|spec| spec.tool_type == wire_type)
         .map(|spec| spec.id.to_string())
@@ -3169,7 +2370,7 @@ fn anthropic_provider_tool_id_from_wire_type(wire_type: &str) -> Option<String> 
 
 #[cfg(feature = "anthropic")]
 fn default_anthropic_tool_name(wire_type: &str) -> String {
-    siumai_core::tools::anthropic::SERVER_TOOL_SPECS
+    siumai_protocol_anthropic::tool_catalog::anthropic::SERVER_TOOL_SPECS
         .iter()
         .find(|spec| spec.tool_type == wire_type)
         .map(|spec| spec.tool_name.to_string())
@@ -3177,7 +2378,28 @@ fn default_anthropic_tool_name(wire_type: &str) -> String {
 }
 
 fn default_provider_defined_tool(provider_id: &str) -> Option<Tool> {
-    siumai_core::tools::provider_defined_tool(provider_id)
+    #[cfg(feature = "openai")]
+    if let Some(tool) =
+        siumai_protocol_openai::tool_catalog::openai::provider_defined_tool(provider_id)
+    {
+        return Some(tool);
+    }
+
+    #[cfg(feature = "anthropic")]
+    if let Some(tool) =
+        siumai_protocol_anthropic::tool_catalog::anthropic::provider_defined_tool(provider_id)
+    {
+        return Some(tool);
+    }
+
+    #[cfg(any(feature = "google", feature = "google-vertex"))]
+    if let Some(tool) =
+        siumai_protocol_gemini::tool_catalog::google::provider_defined_tool(provider_id)
+    {
+        return Some(tool);
+    }
+
+    None
 }
 
 fn openai_responses_wire_type_for_tool(tool: &Tool) -> Option<String> {

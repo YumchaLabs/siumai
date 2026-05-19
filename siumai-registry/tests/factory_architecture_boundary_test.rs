@@ -301,6 +301,8 @@ fn registry_root_does_not_mirror_broad_core_modules() {
         .expect("public root export section");
 
     for forbidden in [
+        "pub use siumai_core::client::LlmClient",
+        "pub use siumai_core::{LlmError, client",
         "custom_provider",
         "embedding",
         "hosted_tools",
@@ -319,12 +321,59 @@ fn registry_root_does_not_mirror_broad_core_modules() {
     }
 
     assert!(
+        lib_rs.contains("pub mod compat {")
+            && lib_rs.contains("pub use siumai_core::compat::client::{ClientWrapper, LlmClient};"),
+        "registry should expose generic client compatibility types through siumai_registry::compat::client"
+    );
+    assert!(
         lib_rs.contains("pub use siumai_core::{LlmError, error, streaming, text, traits, types};"),
         "registry root should keep only the small custom-factory contract surface"
     );
     assert!(
         lib_rs.contains("pub mod experimental {"),
         "low-level core implementation modules should stay behind siumai_registry::experimental"
+    );
+}
+
+#[test]
+fn registry_generic_client_imports_are_compat_scoped() {
+    let root = crate_root();
+    let src = root.join("src");
+    let mut rust_files = Vec::new();
+    collect_rust_files(&src, &mut rust_files);
+
+    let allowed_legacy_alias_files = ["src/lib.rs"];
+    let mut violations = Vec::new();
+    for file in rust_files {
+        let relative = file
+            .strip_prefix(&root)
+            .expect("registry source under crate root")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let source = fs::read_to_string(&file).expect("read registry source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or(source.as_str());
+
+        for forbidden in [
+            "use crate::client::LlmClient",
+            "crate::client::LlmClient",
+            "use siumai_core::client::LlmClient",
+            "siumai_core::client::LlmClient",
+        ] {
+            if production_source.contains(forbidden)
+                && !allowed_legacy_alias_files.contains(&relative.as_str())
+            {
+                violations.push(format!("{relative}: `{forbidden}`"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "registry production code should import generic LlmClient through explicit compat/client aliases:\n{}",
+        violations.join("\n")
     );
 }
 
@@ -449,6 +498,103 @@ fn production_factories_do_not_override_legacy_generic_language_method() {
             "{file_name} should keep generic-client construction behind an explicit compat_* method"
         );
     }
+}
+
+#[test]
+fn production_factories_do_not_call_legacy_broad_build_client_helpers() {
+    let factories_dir = crate_root().join("src").join("registry").join("factories");
+    let forbidden_helpers = [
+        "build_openai_client",
+        "build_openai_chat_completions_client",
+        "build_openai_compatible_client",
+        "build_anthropic_client",
+        "build_gemini_client",
+        "build_anthropic_vertex_client",
+        "build_google_vertex_client",
+        "build_ollama_client",
+        "build_minimaxi_client",
+    ];
+    let mut violations = Vec::new();
+
+    for entry in fs::read_dir(factories_dir).expect("read registry factories directory") {
+        let path = entry.expect("read registry factory entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if matches!(file_name, "contract_tests.rs" | "test.rs" | "mod.rs") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path).expect("read registry factory source");
+        for helper in forbidden_helpers {
+            let qualified_call = format!("crate::registry::factory::{helper}(");
+            if source.contains(&qualified_call) {
+                violations.push(format!("{file_name}: {qualified_call}"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "production ProviderFactory implementations should construct provider-owned clients through private typed builders/family methods, not legacy broad registry::factory build helpers:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn legacy_registry_factory_build_helpers_are_deprecated_compatibility_shims() {
+    let source = fs::read_to_string(crate_root().join("src").join("registry").join("factory.rs"))
+        .expect("read legacy registry factory module");
+    let broad_helpers = [
+        "build_openai_client",
+        "build_openai_chat_completions_client",
+        "build_openai_compatible_client",
+        "build_anthropic_client",
+        "build_gemini_client",
+        "build_anthropic_vertex_client",
+        "build_google_vertex_client",
+        "build_ollama_client",
+        "build_minimaxi_client",
+    ];
+
+    assert!(
+        source.contains("compatibility-only"),
+        "registry::factory module docs should classify broad build helpers as compatibility-only"
+    );
+
+    for helper in broad_helpers {
+        let marker = format!("pub async fn {helper}(");
+        let Some(start) = source.find(&marker) else {
+            continue;
+        };
+        let prefix_start = start.saturating_sub(256);
+        let prefix = &source[prefix_start..start];
+        assert!(
+            prefix.contains("#[deprecated("),
+            "legacy broad helper `{helper}` should be deprecated instead of advertised as a primary provider-construction path"
+        );
+    }
+}
+
+#[test]
+fn all_providers_feature_includes_google_vertex_family() {
+    let manifest =
+        fs::read_to_string(crate_root().join("Cargo.toml")).expect("read siumai-registry manifest");
+    let start = manifest
+        .find("all-providers = [")
+        .expect("all-providers feature should exist");
+    let tail = &manifest[start..];
+    let end = tail.find("\n]").expect("all-providers array should end");
+    let all_providers = &tail[..end];
+
+    assert!(
+        all_providers.contains("\"google-vertex\""),
+        "all-providers should include google-vertex because the OpenAI-compatible catalog contains Google Vertex xAI entries that require the google-vertex factory"
+    );
 }
 
 #[test]
@@ -665,6 +811,58 @@ fn siumai_builder_provider_type_alias_is_removed() {
 }
 
 #[test]
+fn provider_catalog_lookup_is_provider_id_first() {
+    let source = fs::read_to_string(crate_root().join("src/provider_catalog.rs"))
+        .expect("read provider catalog source");
+
+    assert!(
+        source.contains("pub provider_id: Cow<'static, str>"),
+        "ProviderInfo should expose provider_id as the primary open provider identity"
+    );
+    for forbidden in [
+        "let ptype = ProviderType::from_name",
+        "match ptype",
+        "get_provider_info(&ProviderType::from_name",
+        "is_model_supported(&ProviderType::from_name",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "provider catalog should not route primary lookup through closed ProviderType classification: `{forbidden}`"
+        );
+    }
+    assert!(
+        source.contains("CatalogProviderId::parse"),
+        "provider catalog should route built-in metadata by registry-owned provider-id classification"
+    );
+
+    let lookup_start = source
+        .find("pub fn get_provider_info_by_id(")
+        .expect("provider-id lookup function should exist");
+    let lookup_tail = &source[lookup_start..];
+    let lookup_end = lookup_tail
+        .find("/// Check if a model is supported by the provider")
+        .expect("provider-id lookup function should precede model support helper");
+    let lookup_source = &lookup_tail[..lookup_end];
+    assert!(
+        !lookup_source.contains("ProviderType::from_name"),
+        "get_provider_info_by_id should resolve provider ids/aliases directly instead of classifying through ProviderType"
+    );
+
+    let model_lookup_start = source
+        .find("pub fn is_model_supported_by_id(")
+        .expect("provider-id model lookup function should exist");
+    let model_lookup_tail = &source[model_lookup_start..];
+    let model_lookup_end = model_lookup_tail
+        .find("#[cfg(test)]")
+        .unwrap_or(model_lookup_tail.len());
+    let model_lookup_source = &model_lookup_tail[..model_lookup_end];
+    assert!(
+        !model_lookup_source.contains("ProviderType::from_name"),
+        "is_model_supported_by_id should reuse provider-id lookup instead of classifying through ProviderType"
+    );
+}
+
+#[test]
 fn public_docs_do_not_recommend_compatibility_surfaces_as_default() {
     let docs_root = crate_root().join("../docs");
     let mut files = Vec::new();
@@ -733,6 +931,12 @@ fn public_docs_classify_generic_llm_client_factory_paths_as_migration_only() {
             && migration_doc.contains("language_model_text_with_ctx"),
         "the beta.7 migration guide should give downstream users a concrete replacement for generic LlmClient factory paths"
     );
+    assert!(
+        migration_doc.contains("siumai_registry::LlmClient")
+            && migration_doc.contains("siumai_registry::compat::client::LlmClient")
+            && public_surface_doc.contains("siumai_registry::compat::client::LlmClient"),
+        "docs should spell out the registry-root LlmClient migration path"
+    );
 }
 
 #[test]
@@ -754,9 +958,7 @@ fn focused_public_facade_tests_use_registry_owned_builtin_factory_resolution() {
         );
     }
 
-    let public_path_source =
-        fs::read_to_string(root.join("../siumai/tests/provider_public_path_parity_test.rs"))
-            .expect("read provider public-path parity test");
+    let public_path_source = provider_public_path_combined_source();
     assert!(
         public_path_source.contains("registry::builtin_provider_factory(")
             && public_path_source.contains("registry::azure_provider_factory_with_options(")
@@ -878,156 +1080,156 @@ fn registry_options_default_is_create_provider_registry_default_source() {
     );
 }
 
-fn module_source<'a>(source: &'a str, marker: &str, next_marker: &str) -> &'a str {
-    let start = source.find(marker).expect("module marker present");
-    let rest = &source[start..];
-    if let Some(end) = rest.find(next_marker) {
-        &rest[..end]
-    } else {
-        rest
+fn provider_public_path_test_root() -> PathBuf {
+    crate_root().join("../siumai/tests")
+}
+
+fn read_provider_public_path_module(module_name: &str) -> String {
+    let path = provider_public_path_test_root()
+        .join("provider_public_path_parity")
+        .join(format!("{module_name}.rs"));
+    fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+}
+
+fn provider_public_path_module_manifest() -> &'static [(&'static str, &'static str, &'static str)] {
+    &[
+        (
+            "openai_public_path",
+            "openai",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "azure_public_path",
+            "azure",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "gemini_public_path",
+            "google",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "cohere_public_path",
+            "cohere",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "togetherai_public_path",
+            "togetherai",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "deepinfra_public_path",
+            "deepinfra",
+            "built_in_registry_builder(",
+        ),
+        (
+            "vertex_maas_public_path",
+            "google-vertex",
+            ".with_provider_base_url_http_config_fetch(",
+        ),
+        (
+            "google_vertex_xai_public_path",
+            "google-vertex",
+            ".with_provider_base_url_http_config_fetch(",
+        ),
+        (
+            "deepseek_public_path",
+            "deepseek",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "openai_compatible_audio_public_path",
+            "openai",
+            ".with_provider_api_key_fetch(",
+        ),
+        (
+            "groq_public_path",
+            "groq",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "ollama_public_path",
+            "ollama",
+            ".with_provider_base_url_fetch(",
+        ),
+        (
+            "minimaxi_public_path",
+            "minimaxi",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "bedrock_public_path",
+            "bedrock",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "anthropic_public_path",
+            "anthropic",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+        (
+            "vertex_public_path",
+            "google-vertex",
+            ".with_provider_base_url_http_config_fetch(",
+        ),
+        (
+            "xai_public_path",
+            "xai",
+            ".with_provider_api_key_base_url_fetch(",
+        ),
+    ]
+}
+
+fn provider_public_path_combined_source() -> String {
+    let mut source = fs::read_to_string(
+        provider_public_path_test_root().join("provider_public_path_parity_test.rs"),
+    )
+    .expect("read provider public-path parity test root");
+    for &(module_name, _, _) in provider_public_path_module_manifest() {
+        source.push('\n');
+        source.push_str(&read_provider_public_path_module(module_name));
+    }
+    source
+}
+
+#[test]
+fn provider_public_path_parity_test_is_split_by_provider_module() {
+    let root_source = fs::read_to_string(
+        provider_public_path_test_root().join("provider_public_path_parity_test.rs"),
+    )
+    .expect("read provider public-path parity test root");
+
+    for &(module_name, feature_name, _) in provider_public_path_module_manifest() {
+        let path_marker = format!("#[path = \"provider_public_path_parity/{module_name}.rs\"]");
+        let mod_marker = format!("mod {module_name};");
+        let inline_marker = format!("mod {module_name} {{");
+        let module_source = read_provider_public_path_module(module_name);
+
+        assert!(
+            root_source.contains(&format!("#[cfg(feature = \"{feature_name}\")]")),
+            "provider_public_path_parity_test.rs should keep `{module_name}` feature-gated by `{feature_name}`"
+        );
+        assert!(
+            root_source.contains(&path_marker) && root_source.contains(&mod_marker),
+            "provider_public_path_parity_test.rs should load `{module_name}` from a provider-local module file"
+        );
+        assert!(
+            !root_source.contains(&inline_marker),
+            "provider_public_path_parity_test.rs should not keep oversized inline provider module `{module_name}`"
+        );
+        assert!(
+            module_source.contains("use super::*;"),
+            "{module_name}.rs should reuse the shared parity-test harness from the root module"
+        );
     }
 }
 
 #[test]
 fn migrated_public_path_modules_use_registry_builder_shortcuts() {
-    let root = crate_root();
-    let source =
-        fs::read_to_string(root.join("../siumai/tests/provider_public_path_parity_test.rs"))
-            .expect("read provider public-path parity test");
-
-    for (module_name, module_source, shortcut_marker) in [
-        (
-            "openai_public_path",
-            module_source(
-                &source,
-                "mod openai_public_path",
-                "#[cfg(feature = \"azure\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "azure_public_path",
-            module_source(
-                &source,
-                "mod azure_public_path",
-                "#[cfg(feature = \"google\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "deepseek_public_path",
-            module_source(
-                &source,
-                "mod deepseek_public_path",
-                "#[cfg(feature = \"openai\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "gemini_public_path",
-            module_source(
-                &source,
-                "mod gemini_public_path",
-                "#[cfg(feature = \"cohere\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "cohere_public_path",
-            module_source(
-                &source,
-                "mod cohere_public_path",
-                "#[cfg(feature = \"togetherai\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "togetherai_public_path",
-            module_source(
-                &source,
-                "mod togetherai_public_path",
-                "#[cfg(feature = \"deepinfra\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "vertex_maas_public_path",
-            module_source(
-                &source,
-                "mod vertex_maas_public_path",
-                "#[cfg(feature = \"deepseek\")]",
-            ),
-            ".with_provider_base_url_http_config_fetch(",
-        ),
-        (
-            "ollama_public_path",
-            module_source(
-                &source,
-                "mod ollama_public_path",
-                "#[cfg(feature = \"minimaxi\")]",
-            ),
-            ".with_provider_base_url_fetch(",
-        ),
-        (
-            "xai_public_path",
-            module_source(&source, "mod xai_public_path", "mod __end_marker"),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "bedrock_public_path",
-            module_source(
-                &source,
-                "mod bedrock_public_path",
-                "#[cfg(feature = \"anthropic\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "anthropic_public_path",
-            module_source(
-                &source,
-                "mod anthropic_public_path",
-                "#[cfg(feature = \"google-vertex\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "groq_public_path",
-            module_source(
-                &source,
-                "mod groq_public_path",
-                "#[cfg(feature = \"ollama\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "minimaxi_public_path",
-            module_source(
-                &source,
-                "mod minimaxi_public_path",
-                "#[cfg(feature = \"bedrock\")]",
-            ),
-            ".with_provider_api_key_base_url_fetch(",
-        ),
-        (
-            "vertex_public_path",
-            module_source(
-                &source,
-                "mod vertex_public_path",
-                "#[cfg(feature = \"xai\")]",
-            ),
-            ".with_provider_base_url_http_config_fetch(",
-        ),
-        (
-            "openai_compatible_audio_public_path",
-            module_source(
-                &source,
-                "mod openai_compatible_audio_public_path",
-                "#[cfg(feature = \"groq\")]",
-            ),
-            ".with_provider_api_key_fetch(",
-        ),
-    ] {
+    for &(module_name, _, shortcut_marker) in provider_public_path_module_manifest() {
+        let module_source = read_provider_public_path_module(module_name);
         assert!(
             module_source.contains("RegistryBuilder") && module_source.contains(shortcut_marker),
             "{module_name} should route provider override setup through RegistryBuilder shortcuts"

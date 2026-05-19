@@ -6,6 +6,9 @@ use crate::types::{
 };
 use base64::Engine;
 
+#[cfg(feature = "openai-responses")]
+mod responses_request_builder;
+
 /// Request transformer for OpenAI Responses API
 #[derive(Clone)]
 #[cfg(feature = "openai-responses")]
@@ -230,7 +233,7 @@ impl OpenAiResponsesRequestTransformer {
                 return false;
             };
 
-            provider_tool.id == siumai_core::tools::openai::CUSTOM_ID && provider_tool.name == name
+            provider_tool.id == crate::tool_catalog::openai::CUSTOM_ID && provider_tool.name == name
         })
     }
 
@@ -258,7 +261,7 @@ impl OpenAiResponsesRequestTransformer {
             .unwrap_or("auto");
         let tool_name_mapping = siumai_core::standards::tool_name_mapping::create_tool_name_mapping(
             req.tools.as_deref().unwrap_or_default(),
-            siumai_core::tools::openai::PROVIDER_TOOL_NAMES,
+            crate::tool_catalog::openai::PROVIDER_TOOL_NAMES,
         );
 
         let tools = tool_names
@@ -323,7 +326,7 @@ impl OpenAiResponsesRequestTransformer {
         if matches!(msg.role, MessageRole::Tool) {
             let store = Self::should_include_item_reference(req);
             let tool_name_mapping = req.tools.as_deref().map(|tools| {
-                create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
+                create_tool_name_mapping(tools, crate::tool_catalog::openai::PROVIDER_TOOL_NAMES)
             });
             let tool_name_mapping = tool_name_mapping.unwrap_or_default();
 
@@ -693,7 +696,7 @@ impl OpenAiResponsesRequestTransformer {
         // Assistant messages (Vercel-aligned: expand to message + tool call items).
         if matches!(msg.role, MessageRole::Assistant) {
             let tool_name_mapping = req.tools.as_deref().map(|tools| {
-                create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
+                create_tool_name_mapping(tools, crate::tool_catalog::openai::PROVIDER_TOOL_NAMES)
             });
             let tool_name_mapping = tool_name_mapping.unwrap_or_default();
 
@@ -1748,248 +1751,7 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        struct ResponsesHooks;
-        impl crate::execution::transformers::request::ProviderRequestHooks for ResponsesHooks {
-            fn build_base_chat_body(
-                &self,
-                req: &ChatRequest,
-            ) -> Result<serde_json::Value, LlmError> {
-                // Build base body
-                let mut body = serde_json::json!({
-                    "model": req.common_params.model,
-                });
-
-                if req.stream {
-                    body["stream"] = serde_json::Value::Bool(true);
-                }
-
-                // input
-                let mut input_items: Vec<serde_json::Value> = Vec::new();
-                let mut state = ResponsesInputConversionState::default();
-                for m in &req.messages {
-                    OpenAiResponsesRequestTransformer::extend_message(
-                        req,
-                        m,
-                        &mut state,
-                        &mut input_items,
-                    )?;
-                }
-                body["input"] = serde_json::Value::Array(input_items);
-
-                // tools (flattened)
-                if let Some(tools) = &req.tools {
-                    let openai_tools =
-                        crate::standards::openai::utils::convert_tools_to_responses_format(tools)?;
-                    if !openai_tools.is_empty() {
-                        body["tools"] = serde_json::Value::Array(openai_tools);
-
-                        // Add tool_choice if specified
-                        if let Some(choice) = &req.tool_choice
-                            && let Some(tool_choice) =
-                                crate::standards::openai::utils::convert_responses_tool_choice(
-                                    choice,
-                                    req.tools.as_deref(),
-                                )
-                        {
-                            body["tool_choice"] = tool_choice;
-                        }
-                    }
-                }
-
-                // temperature
-                if let Some(temp) = req.common_params.temperature {
-                    body["temperature"] = serde_json::json!(temp);
-                }
-
-                // top_p
-                if let Some(tp) = req.common_params.top_p {
-                    body["top_p"] = serde_json::json!(tp);
-                }
-
-                // max_output_tokens (prefer max_completion_tokens, fallback to max_tokens)
-                if let Some(max_tokens) = req.common_params.max_completion_tokens {
-                    body["max_output_tokens"] = serde_json::json!(max_tokens);
-                } else if let Some(max_tokens) = req.common_params.max_tokens {
-                    body["max_output_tokens"] = serde_json::json!(max_tokens);
-                }
-
-                if let Some(fmt) = &req.response_format {
-                    let text = body
-                        .as_object_mut()
-                        .expect("responses request body must be an object")
-                        .entry("text".to_string())
-                        .or_insert_with(|| serde_json::json!({}));
-
-                    if !text.is_object() {
-                        *text = serde_json::json!({});
-                    }
-
-                    text.as_object_mut()
-                        .expect("responses text entry was normalized to an object")
-                        .insert(
-                            "format".to_string(),
-                            crate::standards::openai::utils::convert_responses_response_format(fmt),
-                        );
-                }
-
-                Ok(body)
-            }
-
-            fn post_process_chat(
-                &self,
-                req: &crate::types::ChatRequest,
-                body: &mut serde_json::Value,
-            ) -> Result<(), LlmError> {
-                let xai_options = req.provider_options_map.get_object("xai");
-                let responses_options = xai_options.or_else(|| {
-                    provider_option_object(Some(&req.provider_options_map), "openai").or_else(
-                        || provider_option_object(Some(&req.provider_options_map), "azure"),
-                    )
-                });
-
-                let Some(responses_options) = responses_options else {
-                    return Ok(());
-                };
-
-                let Some(body_obj) = body.as_object_mut() else {
-                    return Ok(());
-                };
-
-                let get_option = |camel_case: &str, snake_case: &str| {
-                    responses_options
-                        .get(camel_case)
-                        .or_else(|| responses_options.get(snake_case))
-                };
-                let get_responses_api_option = |camel_case: &str, snake_case: &str| {
-                    get_option("responsesApi", "responses_api")
-                        .and_then(|value| value.as_object())
-                        .and_then(|options| {
-                            options.get(camel_case).or_else(|| options.get(snake_case))
-                        })
-                };
-
-                if xai_options.is_some() {
-                    let reasoning_effort = get_option("reasoningEffort", "reasoning_effort")
-                        .and_then(|value| value.as_str());
-                    let reasoning_summary = get_option("reasoningSummary", "reasoning_summary")
-                        .and_then(|value| value.as_str());
-
-                    if reasoning_effort.is_some() || reasoning_summary.is_some() {
-                        let reasoning = body_obj
-                            .entry("reasoning".to_string())
-                            .or_insert_with(|| serde_json::json!({}));
-                        if !reasoning.is_object() {
-                            *reasoning = serde_json::json!({});
-                        }
-                        let reasoning_obj = reasoning
-                            .as_object_mut()
-                            .expect("xai reasoning body was normalized to an object");
-                        if let Some(effort) = reasoning_effort {
-                            reasoning_obj.insert("effort".to_string(), serde_json::json!(effort));
-                        }
-                        if let Some(summary) = reasoning_summary {
-                            reasoning_obj.insert("summary".to_string(), serde_json::json!(summary));
-                        }
-                    }
-
-                    let top_logprobs = get_option("topLogprobs", "top_logprobs").cloned();
-                    let logprobs =
-                        get_option("logprobs", "logprobs").and_then(|value| value.as_bool());
-                    if let Some(top_logprobs) = top_logprobs {
-                        body_obj.insert("top_logprobs".to_string(), top_logprobs);
-                        body_obj.insert("logprobs".to_string(), serde_json::json!(true));
-                    } else if let Some(logprobs) = logprobs {
-                        body_obj.insert("logprobs".to_string(), serde_json::json!(logprobs));
-                    }
-                }
-
-                let store = get_option("store", "store").and_then(|value| value.as_bool());
-                if store == Some(false) {
-                    body_obj.insert("store".to_string(), serde_json::json!(false));
-                }
-
-                if let Some(previous_response_id) =
-                    get_option("previousResponseId", "previous_response_id")
-                        .and_then(|value| value.as_str())
-                {
-                    body_obj.insert(
-                        "previous_response_id".to_string(),
-                        serde_json::json!(previous_response_id),
-                    );
-                }
-
-                let include_value = get_option("include", "include");
-                let include_was_explicit_array =
-                    include_value.is_some_and(|value| value.is_array());
-                let mut include = include_value
-                    .and_then(|value| value.as_array())
-                    .map(|values| {
-                        values
-                            .iter()
-                            .filter_map(|value| value.as_str().map(|value| value.to_string()))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-
-                if store == Some(false)
-                    && !include
-                        .iter()
-                        .any(|value| value == "reasoning.encrypted_content")
-                {
-                    include.push("reasoning.encrypted_content".to_string());
-                }
-
-                if include_was_explicit_array || !include.is_empty() {
-                    body_obj.insert("include".to_string(), serde_json::json!(include));
-                }
-
-                let context_management_value =
-                    get_option("contextManagement", "context_management");
-                let context_management_was_explicit_array =
-                    context_management_value.is_some_and(|value| value.is_array());
-                let context_management = context_management_value
-                    .and_then(|value| value.as_array())
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|item| {
-                                let mut obj = item.as_object()?.clone();
-                                rename_json_field(
-                                    &mut obj,
-                                    "compactThreshold",
-                                    "compact_threshold",
-                                );
-                                Some(serde_json::Value::Object(obj))
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-
-                if context_management_was_explicit_array {
-                    body_obj.insert(
-                        "context_management".to_string(),
-                        serde_json::Value::Array(context_management),
-                    );
-                }
-
-                let has_wire_tools = body_obj
-                    .get("tools")
-                    .and_then(|value| value.as_array())
-                    .is_some_and(|tools| !tools.is_empty());
-                if xai_options.is_none() && has_wire_tools {
-                    let allowed_tools = get_option("allowedTools", "allowed_tools")
-                        .or_else(|| get_responses_api_option("allowedTools", "allowed_tools"));
-                    if let Some(tool_choice) =
-                        OpenAiResponsesRequestTransformer::allowed_tools_choice(req, allowed_tools)
-                    {
-                        body_obj.insert("tool_choice".to_string(), tool_choice);
-                    }
-                }
-
-                Ok(())
-            }
-        }
-        let hooks = ResponsesHooks;
+        let hooks = responses_request_builder::ResponsesRequestHooks;
         let profile = crate::execution::transformers::request::MappingProfile {
             provider_id: "openai_responses",
             rules: vec![crate::execution::transformers::request::Rule::Range {
@@ -2220,7 +1982,7 @@ mod tests {
                         "required": ["city"]
                     }),
                 ),
-                siumai_core::tools::openai::web_search(),
+                crate::tool_catalog::openai::web_search(),
             ])
             .tool_choice(ToolChoice::Required)
             .provider_option(
@@ -2752,7 +2514,7 @@ mod tests {
         let request = ChatRequest::builder()
             .message(assistant)
             .message(tool)
-            .tools(vec![siumai_core::tools::openai::tool_search()])
+            .tools(vec![crate::tool_catalog::openai::tool_search()])
             .provider_option("openai", serde_json::json!({ "store": false }))
             .model("gpt-4.1")
             .build();
@@ -2815,7 +2577,7 @@ mod tests {
 
         let request = ChatRequest::builder()
             .message(assistant)
-            .tools(vec![siumai_core::tools::openai::apply_patch()])
+            .tools(vec![crate::tool_catalog::openai::apply_patch()])
             .provider_option("openai", serde_json::json!({ "store": false }))
             .model("gpt-5")
             .build();
@@ -2876,7 +2638,7 @@ mod tests {
         let request = ChatRequest::builder()
             .message(assistant)
             .message(tool)
-            .tools(vec![siumai_core::tools::openai::custom("write_sql")])
+            .tools(vec![crate::tool_catalog::openai::custom("write_sql")])
             .model("gpt-4.1")
             .build();
 
@@ -3190,5 +2952,33 @@ mod tests {
                 "OpenAI Responses request transformer should not read legacy provider metadata via {forbidden}"
             );
         }
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn openai_responses_request_transformer_has_deep_request_builder_module() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/openai/transformers/request/responses.rs"
+        ));
+
+        assert!(
+            source.contains("mod responses_request_builder;"),
+            "OpenAI Responses request body building should live behind a narrow request-builder module"
+        );
+        let implementation = source
+            .lines()
+            .take_while(|line| !line.contains("mod tests {"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !implementation.contains("struct ResponsesHooks;"),
+            "OpenAI Responses request transformer should not define GenericRequestTransformer hooks inline"
+        );
+        assert!(
+            !implementation.contains("fn build_base_chat_body(")
+                && !implementation.contains("fn post_process_chat("),
+            "OpenAI Responses request transformer should delegate base body and typed option post-processing"
+        );
     }
 }

@@ -176,7 +176,7 @@ impl ModelListingCapability for OpenAiCompatibleClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::LlmClient;
+    use crate::core_compat::client::LlmClient;
     use crate::execution::http::transport::{
         HttpTransport, HttpTransportGetRequest, HttpTransportRequest, HttpTransportResponse,
     };

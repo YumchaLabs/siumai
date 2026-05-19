@@ -121,7 +121,8 @@ pub fn convert_tools_to_anthropic_format(
             crate::types::Tool::ProviderDefined(provider_tool) => {
                 // Check if this is an Anthropic provider-defined tool
                 if provider_tool.provider() == Some("anthropic") {
-                    let Some(spec) = crate::tools::anthropic::server_tool_spec(&provider_tool.id)
+                    let Some(spec) =
+                        crate::tool_catalog::anthropic::server_tool_spec(&provider_tool.id)
                     else {
                         continue;
                     };
@@ -276,11 +277,12 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_web_search() {
-        let t = crate::tools::anthropic::web_search_20250305().with_args(serde_json::json!({
-            "maxUses": 2,
-            "allowedDomains": ["example.com"],
-            "blockedDomains": ["bad.com"]
-        }));
+        let t =
+            crate::tool_catalog::anthropic::web_search_20250305().with_args(serde_json::json!({
+                "maxUses": 2,
+                "allowedDomains": ["example.com"],
+                "blockedDomains": ["bad.com"]
+            }));
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -295,12 +297,13 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_web_search_20260209() {
-        let t = crate::tools::anthropic::web_search_20260209().with_args(serde_json::json!({
-            "maxUses": 2,
-            "allowedDomains": ["example.com"],
-            "blockedDomains": ["bad.com"],
-            "userLocation": { "type": "approximate", "city": "New York" }
-        }));
+        let t =
+            crate::tool_catalog::anthropic::web_search_20260209().with_args(serde_json::json!({
+                "maxUses": 2,
+                "allowedDomains": ["example.com"],
+                "blockedDomains": ["bad.com"],
+                "userLocation": { "type": "approximate", "city": "New York" }
+            }));
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -321,7 +324,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_web_fetch() {
-        let t = crate::tools::anthropic::web_fetch_20250910().with_args(serde_json::json!({
+        let t = crate::tool_catalog::anthropic::web_fetch_20250910().with_args(serde_json::json!({
             "maxUses": 1,
             "allowedDomains": ["example.com"],
             "citations": { "enabled": true },
@@ -345,7 +348,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_web_fetch_20260209() {
-        let t = crate::tools::anthropic::web_fetch_20260209().with_args(serde_json::json!({
+        let t = crate::tool_catalog::anthropic::web_fetch_20260209().with_args(serde_json::json!({
             "maxUses": 1,
             "allowedDomains": ["example.com"],
             "citations": { "enabled": true },
@@ -369,7 +372,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_tool_search_regex() {
-        let t = crate::tools::anthropic::tool_search_regex_20251119();
+        let t = crate::tool_catalog::anthropic::tool_search_regex_20251119();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -384,7 +387,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_tool_search_bm25() {
-        let t = crate::tools::anthropic::tool_search_bm25_20251119();
+        let t = crate::tool_catalog::anthropic::tool_search_bm25_20251119();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -399,7 +402,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_code_execution() {
-        let t = crate::tools::anthropic::code_execution_20250522();
+        let t = crate::tool_catalog::anthropic::code_execution_20250522();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -414,7 +417,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_code_execution_20250825() {
-        let t = crate::tools::anthropic::code_execution_20250825();
+        let t = crate::tool_catalog::anthropic::code_execution_20250825();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -429,7 +432,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_code_execution_20260120() {
-        let t = crate::tools::anthropic::code_execution_20260120();
+        let t = crate::tool_catalog::anthropic::code_execution_20260120();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -444,7 +447,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_computer_use() {
-        let t = crate::tools::anthropic::computer_20241022().with_args(serde_json::json!({
+        let t = crate::tool_catalog::anthropic::computer_20241022().with_args(serde_json::json!({
             "displayWidthPx": 800,
             "displayHeightPx": 600,
             "displayNumber": 1
@@ -469,7 +472,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_computer_use_20250124() {
-        let t = crate::tools::anthropic::computer_20250124().with_args(serde_json::json!({
+        let t = crate::tool_catalog::anthropic::computer_20250124().with_args(serde_json::json!({
             "displayWidthPx": 800,
             "displayHeightPx": 600,
             "displayNumber": 1
@@ -494,7 +497,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_computer_use_20251124() {
-        let t = crate::tools::anthropic::computer_20251124().with_args(serde_json::json!({
+        let t = crate::tool_catalog::anthropic::computer_20251124().with_args(serde_json::json!({
             "displayWidthPx": 800,
             "displayHeightPx": 600,
             "displayNumber": 1,
@@ -521,7 +524,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_text_editor() {
-        let t = crate::tools::anthropic::text_editor_20241022();
+        let t = crate::tool_catalog::anthropic::text_editor_20241022();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -536,7 +539,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_text_editor_20250124() {
-        let t = crate::tools::anthropic::text_editor_20250124();
+        let t = crate::tool_catalog::anthropic::text_editor_20250124();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -551,7 +554,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_text_editor_20250429() {
-        let t = crate::tools::anthropic::text_editor_20250429();
+        let t = crate::tool_catalog::anthropic::text_editor_20250429();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -566,9 +569,10 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_text_editor_20250728_max_characters() {
-        let t = crate::tools::anthropic::text_editor_20250728().with_args(serde_json::json!({
-            "maxCharacters": 10000
-        }));
+        let t =
+            crate::tool_catalog::anthropic::text_editor_20250728().with_args(serde_json::json!({
+                "maxCharacters": 10000
+            }));
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -587,7 +591,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_bash() {
-        let t = crate::tools::anthropic::bash_20241022();
+        let t = crate::tool_catalog::anthropic::bash_20241022();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(
@@ -599,7 +603,7 @@ mod provider_tool_tests {
 
     #[test]
     fn maps_anthropic_provider_defined_bash_20250124() {
-        let t = crate::tools::anthropic::bash_20250124();
+        let t = crate::tool_catalog::anthropic::bash_20250124();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
         let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
         assert_eq!(

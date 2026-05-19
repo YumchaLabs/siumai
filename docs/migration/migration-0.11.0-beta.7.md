@@ -139,6 +139,15 @@ prelude.
 Generic `LlmClient` factory construction remains available only through explicit
 `compat_*_client(...)` / `compat_*_client_with_ctx(...)` methods. Use those methods for migration
 code or for extension-only surfaces that do not yet have a first-class model family.
+Generic client type imports now have an explicit migration path:
+`siumai::compat::client::{LlmClient, ClientWrapper}`. `siumai::experimental::client` remains an
+advanced alias, and `siumai_core::client` remains a lower-level migration alias, but new
+application-facing code should prefer the explicit compat path.
+If custom registry or factory code imported the old registry-root alias
+`siumai_registry::LlmClient`, replace it with `siumai_registry::compat::client::LlmClient`.
+Direct uses of `siumai_registry::registry::factory::build_*_client(...)` are now deprecated
+compatibility shims. Migrate custom factory code to `ProviderFactory::*_family_with_ctx(...)` and
+construct provider clients from the provider crate's config-first APIs inside those family methods.
 
 Hybrid built-in providers such as DeepInfra, Fireworks, and TogetherAI may still keep an internal
 compat composite client for historical method-style construction. Treat those wrappers as
@@ -147,7 +156,8 @@ models directly in the `*_family_with_ctx(...)` methods instead of reusing a gen
 wrapper and downcasting capabilities.
 
 `ClientWrapper` is now provider-agnostic in `siumai-core`. Provider-named convenience constructors
-such as `ClientWrapper::openai(...)` were removed; use `ClientWrapper::new(...)` instead.
+such as `ClientWrapper::openai(...)` were removed; import
+`siumai::compat::client::ClientWrapper` and use `ClientWrapper::new(...)` instead.
 
 Before:
 

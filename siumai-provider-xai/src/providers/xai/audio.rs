@@ -243,7 +243,7 @@ impl AudioCapability for XaiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::LlmClient;
+    use crate::core_compat::client::LlmClient;
     use crate::execution::http::transport::{
         HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
         HttpTransportStreamResponse,

@@ -76,8 +76,8 @@ mod tests {
     #[test]
     fn marks_code_execution_dynamic_for_2026_web_tools_without_code_execution_tool() {
         let params = AnthropicParams::default().with_tools(&[
-            crate::tools::anthropic::web_search_20260209(),
-            crate::tools::anthropic::web_fetch_20260209(),
+            crate::tool_catalog::anthropic::web_search_20260209(),
+            crate::tool_catalog::anthropic::web_fetch_20260209(),
         ]);
 
         assert!(params.should_mark_code_execution_dynamic());
@@ -86,8 +86,8 @@ mod tests {
     #[test]
     fn does_not_mark_code_execution_dynamic_when_code_execution_tool_exists() {
         let params = AnthropicParams::default().with_tools(&[
-            crate::tools::anthropic::web_fetch_20260209(),
-            crate::tools::anthropic::code_execution_20260120(),
+            crate::tool_catalog::anthropic::web_fetch_20260209(),
+            crate::tool_catalog::anthropic::code_execution_20260120(),
         ]);
 
         assert!(!params.should_mark_code_execution_dynamic());
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn function_tool_named_code_execution_counts_as_explicit_code_execution() {
         let params = AnthropicParams::default().with_tools(&[
-            crate::tools::anthropic::web_search_20260209(),
+            crate::tool_catalog::anthropic::web_search_20260209(),
             Tool::function(
                 "code_execution",
                 "custom",

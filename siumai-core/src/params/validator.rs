@@ -14,17 +14,19 @@
 
 use crate::error::LlmError;
 use crate::types::{CommonParams, ProviderType};
+use std::borrow::Cow;
 
 /// Enhanced parameter validator with provider-agnostic checks.
 pub struct EnhancedParameterValidator;
 
 impl EnhancedParameterValidator {
     /// Validates parameters with provider-agnostic sanity checks.
-    pub fn validate_for_provider(
+    pub fn validate_for_provider_id(
         params: &CommonParams,
-        provider_type: &ProviderType,
+        provider_id: impl Into<Cow<'static, str>>,
     ) -> Result<ValidationReport, LlmError> {
-        let mut report = ValidationReport::new(provider_type.clone());
+        let provider_id = provider_id.into();
+        let mut report = ValidationReport::new(provider_id.clone());
         let mut has_errors = false;
 
         // Fast validation with early returns for better performance
@@ -38,7 +40,7 @@ impl EnhancedParameterValidator {
                     value: temp.to_string(),
                     min: 0.0,
                     max: f64::INFINITY,
-                    provider: format!("{provider_type:?}"),
+                    provider: provider_id.to_string(),
                 });
                 has_errors = true;
             } else {
@@ -56,7 +58,7 @@ impl EnhancedParameterValidator {
                     value: max_tokens.to_string(),
                     min: 1.0,
                     max: f64::INFINITY,
-                    provider: format!("{provider_type:?}"),
+                    provider: provider_id.to_string(),
                 });
                 has_errors = true;
             } else {
@@ -73,7 +75,7 @@ impl EnhancedParameterValidator {
                     value: top_p.to_string(),
                     min: 0.0,
                     max: 1.0,
-                    provider: format!("{provider_type:?}"),
+                    provider: provider_id.to_string(),
                 });
                 has_errors = true;
             } else {
@@ -95,8 +97,8 @@ impl EnhancedParameterValidator {
 
         if has_errors {
             Err(LlmError::InvalidParameter(format!(
-                "Parameter validation failed for {:?}: {}",
-                provider_type,
+                "Parameter validation failed for {}: {}",
+                provider_id,
                 report.error_summary()
             )))
         } else {
@@ -104,16 +106,25 @@ impl EnhancedParameterValidator {
         }
     }
 
+    /// Compatibility wrapper for callers that still pass `ProviderType`.
+    pub fn validate_for_provider(
+        params: &CommonParams,
+        provider_type: &ProviderType,
+    ) -> Result<ValidationReport, LlmError> {
+        Self::validate_for_provider_id(params, provider_type.to_string())
+    }
+
     /// Cross-provider parameter compatibility check.
     ///
     /// This check is intentionally provider-agnostic. Provider/model support is validated by
     /// provider-owned config and request layers, not by `siumai-core`.
-    pub fn check_cross_provider_compatibility(
+    pub fn check_cross_provider_compatibility_by_id(
         params: &CommonParams,
-        source_provider: &ProviderType,
-        target_provider: &ProviderType,
+        source_provider_id: impl Into<Cow<'static, str>>,
+        target_provider_id: impl Into<Cow<'static, str>>,
     ) -> CompatibilityReport {
-        let mut report = CompatibilityReport::new(source_provider.clone(), target_provider.clone());
+        let mut report =
+            CompatibilityReport::new(source_provider_id.into(), target_provider_id.into());
 
         // Use simplified, provider-agnostic constraints for compatibility checking
         let target_constraints = super::mapper::ParameterConstraints::default();
@@ -139,12 +150,25 @@ impl EnhancedParameterValidator {
         report
     }
 
+    /// Compatibility wrapper for callers that still pass `ProviderType`.
+    pub fn check_cross_provider_compatibility(
+        params: &CommonParams,
+        source_provider: &ProviderType,
+        target_provider: &ProviderType,
+    ) -> CompatibilityReport {
+        Self::check_cross_provider_compatibility_by_id(
+            params,
+            source_provider.to_string(),
+            target_provider.to_string(),
+        )
+    }
+
     /// Optimize parameters with provider-agnostic constraints.
-    pub fn optimize_for_provider(
+    pub fn optimize_for_provider_id(
         params: &mut CommonParams,
-        provider_type: &ProviderType,
+        provider_id: impl Into<Cow<'static, str>>,
     ) -> OptimizationReport {
-        let mut report = OptimizationReport::new(provider_type.clone());
+        let mut report = OptimizationReport::new(provider_id.into());
         // Use default constraints for optimization (provider-agnostic)
         let constraints = super::mapper::ParameterConstraints::default();
 
@@ -194,21 +218,29 @@ impl EnhancedParameterValidator {
 
         report
     }
+
+    /// Compatibility wrapper for callers that still pass `ProviderType`.
+    pub fn optimize_for_provider(
+        params: &mut CommonParams,
+        provider_type: &ProviderType,
+    ) -> OptimizationReport {
+        Self::optimize_for_provider_id(params, provider_type.to_string())
+    }
 }
 
 /// Validation report containing errors, warnings, and valid parameters
 #[derive(Debug, Clone)]
 pub struct ValidationReport {
-    pub provider: ProviderType,
+    pub provider_id: Cow<'static, str>,
     pub errors: Vec<ValidationError>,
     pub warnings: Vec<ValidationWarning>,
     pub valid_params: Vec<String>,
 }
 
 impl ValidationReport {
-    pub const fn new(provider: ProviderType) -> Self {
+    pub const fn new(provider_id: Cow<'static, str>) -> Self {
         Self {
-            provider,
+            provider_id,
             errors: Vec::new(),
             warnings: Vec::new(),
             valid_params: Vec::new(),
@@ -274,16 +306,16 @@ pub enum ValidationWarning {
 /// Cross-provider compatibility report
 #[derive(Debug, Clone)]
 pub struct CompatibilityReport {
-    pub source_provider: ProviderType,
-    pub target_provider: ProviderType,
+    pub source_provider_id: Cow<'static, str>,
+    pub target_provider_id: Cow<'static, str>,
     pub incompatibilities: Vec<ParameterIncompatibility>,
 }
 
 impl CompatibilityReport {
-    pub const fn new(source: ProviderType, target: ProviderType) -> Self {
+    pub const fn new(source: Cow<'static, str>, target: Cow<'static, str>) -> Self {
         Self {
-            source_provider: source,
-            target_provider: target,
+            source_provider_id: source,
+            target_provider_id: target,
             incompatibilities: Vec::new(),
         }
     }
@@ -308,14 +340,14 @@ pub struct ParameterIncompatibility {
 /// Parameter optimization report
 #[derive(Debug, Clone)]
 pub struct OptimizationReport {
-    pub provider: ProviderType,
+    pub provider_id: Cow<'static, str>,
     pub optimizations: Vec<ParameterOptimization>,
 }
 
 impl OptimizationReport {
-    pub const fn new(provider: ProviderType) -> Self {
+    pub const fn new(provider_id: Cow<'static, str>) -> Self {
         Self {
-            provider,
+            provider_id,
             optimizations: Vec::new(),
         }
     }

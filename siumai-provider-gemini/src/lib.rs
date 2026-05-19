@@ -14,8 +14,8 @@
 // Provider crates must not publicly mirror `siumai-core`.
 #[allow(unused_imports)]
 pub(crate) use siumai_core::{
-    LlmError, auth, client, core, defaults, error, execution, observability, retry, retry_api,
-    streaming, tools, traits, types, utils,
+    LlmError, auth, compat as core_compat, core, defaults, error, execution, observability, retry,
+    retry_api, streaming, traits, types, utils,
 };
 
 /// Builder utilities shared across provider crates.

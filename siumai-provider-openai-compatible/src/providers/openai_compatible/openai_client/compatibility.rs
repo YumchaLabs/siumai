@@ -1,5 +1,5 @@
 use super::OpenAiCompatibleClient;
-use crate::client::LlmClient;
+use crate::core_compat::client::LlmClient;
 use crate::traits::{
     AudioCapability, ChatCapability, CompletionCapability, EmbeddingCapability,
     ImageGenerationCapability, RerankCapability, SpeechCapability, SpeechExtras,

@@ -16,25 +16,25 @@ impl AnthropicToolWarningsMiddleware {
     fn is_supported_provider_defined_tool_id(id: &str) -> bool {
         matches!(
             id,
-            crate::tools::anthropic::WEB_SEARCH_20250305_ID
-                | crate::tools::anthropic::WEB_SEARCH_20260209_ID
-                | crate::tools::anthropic::WEB_FETCH_20250910_ID
-                | crate::tools::anthropic::WEB_FETCH_20260209_ID
-                | crate::tools::anthropic::COMPUTER_20250124_ID
-                | crate::tools::anthropic::COMPUTER_20241022_ID
-                | crate::tools::anthropic::COMPUTER_20251124_ID
-                | crate::tools::anthropic::TEXT_EDITOR_20250124_ID
-                | crate::tools::anthropic::TEXT_EDITOR_20241022_ID
-                | crate::tools::anthropic::TEXT_EDITOR_20250429_ID
-                | crate::tools::anthropic::TEXT_EDITOR_20250728_ID
-                | crate::tools::anthropic::BASH_20241022_ID
-                | crate::tools::anthropic::BASH_20250124_ID
-                | crate::tools::anthropic::TOOL_SEARCH_REGEX_20251119_ID
-                | crate::tools::anthropic::TOOL_SEARCH_BM25_20251119_ID
-                | crate::tools::anthropic::CODE_EXECUTION_20250522_ID
-                | crate::tools::anthropic::CODE_EXECUTION_20250825_ID
-                | crate::tools::anthropic::CODE_EXECUTION_20260120_ID
-                | crate::tools::anthropic::MEMORY_20250818_ID
+            siumai_protocol_anthropic::tool_catalog::anthropic::WEB_SEARCH_20250305_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::WEB_SEARCH_20260209_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::WEB_FETCH_20250910_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::WEB_FETCH_20260209_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::COMPUTER_20250124_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::COMPUTER_20241022_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::COMPUTER_20251124_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::TEXT_EDITOR_20250124_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::TEXT_EDITOR_20241022_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::TEXT_EDITOR_20250429_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::TEXT_EDITOR_20250728_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::BASH_20241022_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::BASH_20250124_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::TOOL_SEARCH_REGEX_20251119_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::TOOL_SEARCH_BM25_20251119_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::CODE_EXECUTION_20250522_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::CODE_EXECUTION_20250825_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::CODE_EXECUTION_20260120_ID
+                | siumai_protocol_anthropic::tool_catalog::anthropic::MEMORY_20250818_ID
         )
     }
 
@@ -342,7 +342,7 @@ mod tests {
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
             Tool::provider_defined("unsupported.tool", "unsupported_tool"),
             Tool::provider_defined("anthropic.unknown_tool", "unknown_tool"),
-            crate::tools::anthropic::web_search_20250305(),
+            siumai_protocol_anthropic::tool_catalog::anthropic::web_search_20250305(),
         ]);
 
         let mw = AnthropicToolWarningsMiddleware::new();

@@ -370,7 +370,7 @@ mod config_first_tests {
 
     use super::*;
     use crate::builder::BuilderBase;
-    use crate::client::LlmClient;
+    use crate::core_compat::client::LlmClient;
     use std::sync::{Mutex, MutexGuard};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());

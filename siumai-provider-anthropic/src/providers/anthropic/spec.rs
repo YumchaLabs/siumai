@@ -564,8 +564,10 @@ mod tests {
     fn chat_request_headers_include_code_execution_web_tools_beta_for_2026_web_tools() {
         let spec = AnthropicSpec::new();
 
-        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
-            .with_tools(vec![crate::tools::anthropic::web_search_20260209()]);
+        let req =
+            ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]).with_tools(vec![
+                siumai_protocol_anthropic::tool_catalog::anthropic::web_search_20260209(),
+            ]);
 
         let ctx = ProviderContext::new(
             "anthropic",
@@ -585,8 +587,10 @@ mod tests {
     fn chat_request_headers_include_computer_use_2025_11_24_beta() {
         let spec = AnthropicSpec::new();
 
-        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
-            .with_tools(vec![crate::tools::anthropic::computer_20251124()]);
+        let req =
+            ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]).with_tools(vec![
+                siumai_protocol_anthropic::tool_catalog::anthropic::computer_20251124(),
+            ]);
 
         let ctx = ProviderContext::new(
             "anthropic",
@@ -606,8 +610,10 @@ mod tests {
     fn chat_request_headers_do_not_add_beta_for_code_execution_20260120() {
         let spec = AnthropicSpec::new();
 
-        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
-            .with_tools(vec![crate::tools::anthropic::code_execution_20260120()]);
+        let req =
+            ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]).with_tools(vec![
+                siumai_protocol_anthropic::tool_catalog::anthropic::code_execution_20260120(),
+            ]);
 
         let ctx = ProviderContext::new(
             "anthropic",

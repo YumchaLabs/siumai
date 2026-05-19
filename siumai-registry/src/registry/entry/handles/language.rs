@@ -4,7 +4,7 @@ use std::time::Duration;
 use lru::LruCache;
 use tokio::sync::Mutex as TokioMutex;
 
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;

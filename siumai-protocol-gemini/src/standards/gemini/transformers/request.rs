@@ -1428,7 +1428,7 @@ mod tests_gemini_rules {
         let req = ChatRequest::builder()
             .model("gemini-2.5-flash")
             .messages(vec![ChatMessage::user("hi").build()])
-            .tools(vec![crate::tools::google::google_search()])
+            .tools(vec![crate::tool_catalog::google::google_search()])
             .tool_choice(crate::types::ToolChoice::Required)
             .build();
 
@@ -1459,7 +1459,7 @@ mod tests_gemini_rules {
                     "Weather lookup",
                     serde_json::json!({ "type": "object", "properties": {} }),
                 ),
-                crate::tools::google::google_search(),
+                crate::tool_catalog::google::google_search(),
             ])
             .tool_choice(crate::types::ToolChoice::tool("weather"))
             .build();

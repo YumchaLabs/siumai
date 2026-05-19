@@ -35,7 +35,7 @@ use super::tool_rules::{
 const OPENAI_TO_ANTHROPIC_TOOL_RULES: &[ProviderToolTranslationRule] = &[
     ProviderToolTranslationRule {
         source_tool_types: &["web_search", "web_search_preview"],
-        target_tool_id: siumai_core::tools::anthropic::WEB_SEARCH_20250305_ID,
+        target_tool_id: siumai_protocol_anthropic::tool_catalog::anthropic::WEB_SEARCH_20250305_ID,
         target_tool_name: TargetToolNamePolicy::Fixed("web_search"),
         choice_name: Some("web_search"),
         aliases: &["web_search", "web_search_preview"],
@@ -43,7 +43,8 @@ const OPENAI_TO_ANTHROPIC_TOOL_RULES: &[ProviderToolTranslationRule] = &[
     },
     ProviderToolTranslationRule {
         source_tool_types: &["code_interpreter"],
-        target_tool_id: siumai_core::tools::anthropic::CODE_EXECUTION_20250825_ID,
+        target_tool_id:
+            siumai_protocol_anthropic::tool_catalog::anthropic::CODE_EXECUTION_20250825_ID,
         target_tool_name: TargetToolNamePolicy::Fixed("code_execution"),
         choice_name: Some("code_execution"),
         aliases: &["code_interpreter"],
@@ -51,7 +52,7 @@ const OPENAI_TO_ANTHROPIC_TOOL_RULES: &[ProviderToolTranslationRule] = &[
     },
     ProviderToolTranslationRule {
         source_tool_types: &["computer_use"],
-        target_tool_id: siumai_core::tools::anthropic::COMPUTER_20250124_ID,
+        target_tool_id: siumai_protocol_anthropic::tool_catalog::anthropic::COMPUTER_20250124_ID,
         target_tool_name: TargetToolNamePolicy::Fixed("computer"),
         choice_name: Some("computer"),
         aliases: &["computer_use", "computer_use_preview"],

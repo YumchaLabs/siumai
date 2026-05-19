@@ -1398,7 +1398,7 @@ mod tests {
             &content_blocks,
             &[],
             &AnthropicParams::default()
-                .with_tools(&[crate::tools::anthropic::web_fetch_20260209()]),
+                .with_tools(&[crate::tool_catalog::anthropic::web_fetch_20260209()]),
         );
 
         let MessageContent::MultiModal(parts) = &parsed.content else {
@@ -1433,8 +1433,8 @@ mod tests {
             &content_blocks,
             &[],
             &AnthropicParams::default().with_tools(&[
-                crate::tools::anthropic::web_search_20260209(),
-                crate::tools::anthropic::code_execution_20260120(),
+                crate::tool_catalog::anthropic::web_search_20260209(),
+                crate::tool_catalog::anthropic::code_execution_20260120(),
             ]),
         );
 

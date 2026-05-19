@@ -1,8 +1,8 @@
 //! `Cohere` native unified client.
 
 use super::config::CohereConfig;
-use crate::client::LlmClient;
 use crate::core::{ProviderContext, ProviderSpec};
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
 use crate::execution::executors::embedding::{EmbeddingExecutor, EmbeddingExecutorBuilder};
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn cohere_client_allows_config_without_default_model() {
         let client = CohereClient::from_config(CohereConfig::new("test-key")).expect("client");
-        assert!(crate::client::LlmClient::supported_models(&client).is_empty());
+        assert!(crate::core_compat::client::LlmClient::supported_models(&client).is_empty());
         assert_eq!(client.model_id(), "");
     }
 

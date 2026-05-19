@@ -9,7 +9,7 @@ use siumai_core::traits::ModelMetadata;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::client::LlmClient;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::streaming::ChatStream;
 use crate::traits::*;

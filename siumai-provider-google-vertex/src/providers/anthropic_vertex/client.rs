@@ -639,7 +639,7 @@ impl crate::traits::ModelMetadata for VertexAnthropicClient {
     }
 }
 
-impl crate::client::LlmClient for VertexAnthropicClient {
+impl crate::core_compat::client::LlmClient for VertexAnthropicClient {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("anthropic-vertex")
     }
@@ -659,7 +659,7 @@ impl crate::client::LlmClient for VertexAnthropicClient {
         self
     }
 
-    fn clone_box(&self) -> Box<dyn crate::client::LlmClient> {
+    fn clone_box(&self) -> Box<dyn crate::core_compat::client::LlmClient> {
         Box::new(self.clone())
     }
 
@@ -1247,7 +1247,7 @@ mod tests {
             model_middlewares: Vec::new(),
         };
         let client = VertexAnthropicClient::new(cfg, reqwest::Client::new());
-        let llm: &dyn crate::client::LlmClient = &client;
+        let llm: &dyn crate::core_compat::client::LlmClient = &client;
         assert_eq!(
             llm.provider_id(),
             std::borrow::Cow::Borrowed("anthropic-vertex")

@@ -373,7 +373,7 @@ impl VertexAnthropicBuilder {
 mod tests {
     use super::*;
     use crate::builder::BuilderBase;
-    use crate::client::LlmClient;
+    use crate::core_compat::client::LlmClient;
     use crate::provider_options::anthropic_vertex::{
         VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
     };

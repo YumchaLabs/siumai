@@ -18,10 +18,13 @@
 #[allow(unused_imports)]
 pub(crate) use siumai_core::{
     LlmError, auth, client, core, defaults, encoding, error, execution, observability, retry,
-    retry_api, streaming, tools, traits, types, utils,
+    retry_api, streaming, traits, types, utils,
 };
 
 pub mod hosted_tools;
+
+/// Provider-defined tool catalog owned by the OpenAI protocol family.
+pub mod tool_catalog;
 
 /// Protocol-owned typed metadata views.
 pub mod provider_metadata;

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use crate::error::LlmError;
 use crate::image::ImageModel as FamilyImageModel;

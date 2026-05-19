@@ -80,7 +80,7 @@ impl VideoGenerationCapability for GeminiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::LlmClient;
+    use crate::core_compat::client::LlmClient;
 
     #[test]
     fn gemini_client_exposes_video_capability_when_enabled() {

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::traits::{FileManagementCapability, MusicGenerationCapability, SkillsCapability};
 use crate::types::{

@@ -4,9 +4,9 @@
 //! It mirrors the approach used by other spec-driven providers (e.g. Anthropic Vertex).
 
 use super::{AzureOpenAiConfig, AzureOpenAiSpec};
-use crate::client::LlmClient;
 use crate::core::ProviderContext;
 use crate::core::ProviderSpec;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder};
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder, HttpChatExecutor};
@@ -600,7 +600,7 @@ mod tests {
             .with_model("deployment-id");
         let client = AzureOpenAiClient::from_config(cfg).expect("from_config ok");
         assert_eq!(
-            siumai_core::client::LlmClient::provider_id(&client),
+            siumai_core::compat::client::LlmClient::provider_id(&client),
             std::borrow::Cow::Borrowed("azure")
         );
     }

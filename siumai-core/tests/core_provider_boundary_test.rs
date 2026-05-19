@@ -222,6 +222,121 @@ fn core_does_not_own_provider_hosted_tool_factories() {
         !core_lib.contains("pub mod hosted_tools"),
         "siumai-core must not expose a provider-specific hosted_tools module"
     );
+    assert!(
+        !src_dir.join("tools.rs").exists(),
+        "provider-defined tool catalogs belong to protocol/provider-owned code, not siumai-core"
+    );
+    assert!(
+        !core_lib.contains("pub mod tools"),
+        "siumai-core must not expose a provider-specific tools module"
+    );
+}
+
+#[test]
+fn core_primary_client_identity_is_provider_id_first() {
+    let manifest_dir = crate_root();
+    let client_rs = fs::read_to_string(manifest_dir.join("src").join("compat").join("client.rs"))
+        .expect("read compat/client.rs");
+    let production_source = production_non_comment_source(&client_rs);
+
+    assert!(
+        production_source.contains("fn provider_id(&self) -> Cow<'static, str>"),
+        "LlmClient should expose provider_id as the primary provider identity"
+    );
+    assert!(
+        !production_source.contains("fn provider_type(&self) -> ProviderType"),
+        "ProviderType classification should not remain on the primary LlmClient contract"
+    );
+    assert!(
+        !production_source.contains("pub fn provider_type(&self) -> ProviderType"),
+        "ClientWrapper should not promote closed ProviderType classification as a primary API"
+    );
+    assert!(
+        !production_source.contains("ProviderType::from_name"),
+        "siumai-core should not map provider ids through the closed ProviderType enum"
+    );
+
+    let params_common =
+        fs::read_to_string(manifest_dir.join("src").join("params").join("common.rs"))
+            .expect("read params/common.rs");
+    let params_common = production_non_comment_source(&params_common);
+    assert!(
+        !params_common.contains("ProviderParamsExt"),
+        "siumai-core params should not expose ProviderType-based extension traits for primary parameter flows"
+    );
+
+    let params_validator =
+        fs::read_to_string(manifest_dir.join("src").join("params").join("validator.rs"))
+            .expect("read params/validator.rs");
+    let params_validator = production_non_comment_source(&params_validator);
+    assert!(
+        params_validator.contains("validate_for_provider_id"),
+        "parameter validation should expose a provider-id-first entry point"
+    );
+    assert!(
+        params_validator.contains("pub provider_id: Cow<'static, str>"),
+        "validation reports should keep provider ids as their primary provider identity"
+    );
+    for forbidden in [
+        "pub provider: ProviderType",
+        "pub source_provider: ProviderType",
+        "pub target_provider: ProviderType",
+    ] {
+        assert!(
+            !params_validator.contains(forbidden),
+            "parameter validation reports should not promote closed ProviderType fields: `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn llm_client_is_physically_scoped_under_compat_module() {
+    let manifest_dir = crate_root();
+    let src_dir = manifest_dir.join("src");
+
+    let compat_mod =
+        fs::read_to_string(src_dir.join("compat").join("mod.rs")).expect("read compat/mod.rs");
+    let compat_client = fs::read_to_string(src_dir.join("compat").join("client.rs"))
+        .expect("read compat/client.rs");
+    let client_alias = fs::read_to_string(src_dir.join("client.rs")).expect("read client.rs");
+    let lib_rs = fs::read_to_string(src_dir.join("lib.rs")).expect("read lib.rs");
+    let core_client =
+        fs::read_to_string(src_dir.join("core").join("client.rs")).expect("read core/client.rs");
+
+    assert!(
+        lib_rs.contains("pub mod compat;"),
+        "siumai-core should expose an explicit compatibility namespace"
+    );
+    assert!(
+        compat_mod.contains("pub mod client;"),
+        "siumai-core::compat should own the client compatibility module"
+    );
+    assert!(
+        compat_client.contains("pub trait LlmClient")
+            && compat_client.contains("pub enum ClientWrapper")
+            && compat_client.contains("fn as_chat_capability("),
+        "generic LlmClient and capability downcast definitions should live in compat/client.rs"
+    );
+
+    for forbidden in [
+        "pub trait LlmClient",
+        "pub enum ClientWrapper",
+        "fn as_chat_capability(",
+        "impl dyn LlmClient",
+    ] {
+        assert!(
+            !client_alias.contains(forbidden),
+            "siumai_core::client should be a migration alias, not the physical implementation owner: `{forbidden}`"
+        );
+    }
+    assert!(
+        client_alias.contains("pub use crate::compat::client::*;"),
+        "siumai_core::client should re-export the compat client surface as a migration alias"
+    );
+    assert!(
+        core_client.contains("pub use crate::compat::client::LlmClient;"),
+        "siumai_core::core::client should point at the compat-owned LlmClient definition"
+    );
 }
 
 #[test]

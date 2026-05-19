@@ -1,4 +1,4 @@
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
 use crate::traits::*;
@@ -49,7 +49,6 @@ impl Clone for Siumai {
 impl std::fmt::Debug for Siumai {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Siumai")
-            .field("provider_type", &self.metadata.provider_type)
             .field("provider_id", &self.metadata.provider_id)
             .field(
                 "supported_models_count",
@@ -77,8 +76,10 @@ impl ModelMetadata for Siumai {
 /// Metadata about the provider
 #[derive(Debug, Clone)]
 pub struct ProviderMetadata {
-    pub provider_type: ProviderType,
+    /// Canonical provider id.
     pub provider_id: String,
+    /// Legacy compatibility classification derived from `provider_id`.
+    pub provider_type: ProviderType,
     pub supported_models: Vec<String>,
     pub capabilities: ProviderCapabilities,
 }
@@ -95,9 +96,10 @@ impl Siumai {
 
     /// Create a new siumai provider
     pub fn new(client: Arc<dyn LlmClient>) -> Self {
+        let provider_id = client.provider_id().into_owned();
         let metadata = ProviderMetadata {
-            provider_type: client.provider_type(),
-            provider_id: client.provider_id().into_owned(),
+            provider_type: super::legacy::provider_type_for_id(&provider_id),
+            provider_id,
             supported_models: client.supported_models(),
             capabilities: client.capabilities(),
         };

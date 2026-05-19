@@ -5,7 +5,7 @@
 use secrecy::ExposeSecret;
 use std::sync::Arc;
 
-use crate::client::LlmClient;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::params::OpenAiParams;
 use crate::traits::*;
@@ -962,7 +962,7 @@ mod tests {
     // Local helpers to construct provider-defined tools for tests without depending
     // on the `siumai::hosted_tools` helper module.
     fn web_search_tool() -> crate::types::Tool {
-        crate::tools::openai::web_search()
+        crate::tool_catalog::openai::web_search()
     }
 
     fn file_search_tool_with(
@@ -985,7 +985,7 @@ mod tests {
             });
         }
 
-        crate::tools::openai::file_search().with_args(args)
+        crate::tool_catalog::openai::file_search().with_args(args)
     }
 
     #[test]

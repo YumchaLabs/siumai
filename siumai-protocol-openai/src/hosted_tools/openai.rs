@@ -32,7 +32,17 @@
 //! let computer_use = openai::computer_use(1920, 1080, "headless");
 //! ```
 
-use crate::types::{ProviderDefinedTool, Tool};
+use siumai_core::types::{ProviderDefinedTool, Tool};
+
+pub use crate::tool_catalog::openai::{
+    APPLY_PATCH_ID, CODE_INTERPRETER_ID, COMPUTER_USE_ID, CUSTOM_ID, FILE_SEARCH_ID,
+    IMAGE_GENERATION_ID, LOCAL_SHELL_ID, MCP_ID, PROVIDER_TOOL_NAMES, RESPONSES_BUILTIN_TOOL_TYPES,
+    SHELL_ID, TOOL_SEARCH_ID, WEB_SEARCH_ID, WEB_SEARCH_PREVIEW_ID, apply_patch_named,
+    code_interpreter_named, computer_use_named, custom, image_generation_named, local_shell_named,
+    mcp_named, provider_defined_tool, responses_builtin_type_for_choice_name,
+    responses_builtin_type_for_tool_type, shell_named, tool_search, tool_search_named,
+    web_search_named, web_search_preview_named,
+};
 
 /// MCP server configuration builder (OpenAI Responses `mcp` tool).
 ///

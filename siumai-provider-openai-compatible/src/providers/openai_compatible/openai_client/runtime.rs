@@ -1,7 +1,7 @@
 use super::super::openai_config::OpenAiCompatibleConfig;
 use super::OpenAiCompatibleClient;
-use crate::client::LlmClient;
 use crate::core::ProviderContext;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;

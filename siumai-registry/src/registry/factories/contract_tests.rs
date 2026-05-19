@@ -770,7 +770,7 @@ fn assert_embedding_image_rerank_capabilities_absent(caps: &crate::traits::Provi
 }
 
 #[allow(dead_code)]
-fn assert_no_deferred_capability_leaks(client: &dyn crate::client::LlmClient) {
+fn assert_no_deferred_capability_leaks(client: &dyn crate::compat::client::LlmClient) {
     assert!(client.as_embedding_capability().is_none());
     assert!(client.as_image_generation_capability().is_none());
     assert!(client.as_rerank_capability().is_none());
@@ -5059,7 +5059,7 @@ mod openai_contract {
             .language_model("infini:deepseek-chat")
             .expect("build infini text handle");
 
-        assert!(crate::client::LlmClient::as_chat_capability(&handle).is_some());
+        assert!(crate::compat::client::LlmClient::as_chat_capability(&handle).is_some());
         let _ = handle
             .chat_request(make_chat_request_with_model("deepseek-chat"))
             .await;

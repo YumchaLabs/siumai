@@ -1738,7 +1738,7 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
 #[tokio::test]
 async fn marks_code_execution_dynamic_for_2026_web_tool_injection() {
     let converter = AnthropicEventConverter::new(
-        create_test_config().with_tools(&[crate::tools::anthropic::web_search_20260209()]),
+        create_test_config().with_tools(&[crate::tool_catalog::anthropic::web_search_20260209()]),
     );
 
     let evs = converter
@@ -1779,8 +1779,8 @@ async fn marks_code_execution_dynamic_for_2026_web_tool_injection() {
 #[tokio::test]
 async fn explicit_code_execution_tool_disables_dynamic_marking_for_2026_web_tool_injection() {
     let converter = AnthropicEventConverter::new(create_test_config().with_tools(&[
-        crate::tools::anthropic::web_fetch_20260209(),
-        crate::tools::anthropic::code_execution_20260120(),
+        crate::tool_catalog::anthropic::web_fetch_20260209(),
+        crate::tool_catalog::anthropic::code_execution_20260120(),
     ]));
 
     let evs = converter

@@ -1,5 +1,5 @@
 use super::Siumai;
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::core::EmbeddingCapability;
 use crate::error::LlmError;
 use crate::types::EmbeddingResponse;
@@ -125,7 +125,7 @@ impl<'a> EmbeddingCapabilityProxy<'a> {
 #[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use crate::client::LlmClient;
+    use crate::compat::client::LlmClient;
     #[cfg(any(feature = "ollama", feature = "openai"))]
     use crate::provider::SiumaiBuilder;
     use crate::streaming::ChatStream;

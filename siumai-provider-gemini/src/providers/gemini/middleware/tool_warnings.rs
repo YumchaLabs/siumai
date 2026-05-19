@@ -199,7 +199,7 @@ mod tests {
             })
             .tools(vec![
                 Tool::function("f".to_string(), "".to_string(), serde_json::json!({})),
-                crate::tools::google::google_search(),
+                siumai_protocol_gemini::tool_catalog::google::google_search(),
             ])
             .build();
 
@@ -222,7 +222,9 @@ mod tests {
                 model: "gemini-1.5-pro".to_string(),
                 ..Default::default()
             })
-            .tools(vec![crate::tools::google::url_context()])
+            .tools(vec![
+                siumai_protocol_gemini::tool_catalog::google::url_context(),
+            ])
             .build();
 
         let mw = GeminiToolWarningsMiddleware::new();

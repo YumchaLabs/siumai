@@ -63,11 +63,11 @@ impl From<Tool> for LanguageModelV4Tool {
 /// ```rust
 /// use siumai::types::Tool;
 ///
-/// // Preferred: use Vercel-aligned factories.
-/// let tool = siumai::tools::openai::web_search();
+/// // Preferred: use provider/protocol-owned hosted-tool factories.
+/// let tool = siumai::hosted_tools::openai::web_search().build();
 ///
-/// // Or: config-driven selection by tool id (uses Vercel-aligned default name).
-/// let tool = Tool::provider_defined_id("openai.web_search").unwrap();
+/// // Or construct the passive data shape directly when ids are config-driven.
+/// let tool = Tool::provider_defined("openai.web_search", "webSearch");
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -187,17 +187,6 @@ impl Tool {
                 .with_input_schema(input_schema)
                 .with_output_schema(output_schema),
         )
-    }
-
-    /// Create a provider-defined tool from a known tool id using a Vercel-aligned default name.
-    ///
-    /// This is equivalent to calling the corresponding factory in `siumai::tools::<provider>`,
-    /// but works when you only have the tool id as a string.
-    ///
-    /// Note: some tools require mandatory provider args and therefore cannot be constructed from
-    /// an id alone (e.g. `google.file_search`, `google.vertex_rag_store`).
-    pub fn provider_defined_id(id: &str) -> Option<Self> {
-        crate::tools::provider_defined_tool(id)
     }
 
     /// Add arguments to a provider-defined tool

@@ -7,7 +7,7 @@ use backoff::ExponentialBackoffBuilder;
 use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
-use crate::client::LlmClient;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::executors::chat::HttpChatExecutor;
 // use crate::execution::transformers::{request::RequestTransformer, response::ResponseTransformer};
@@ -884,7 +884,7 @@ mod tests {
         );
 
         assert_eq!(
-            crate::client::LlmClient::provider_id(&client),
+            crate::core_compat::client::LlmClient::provider_id(&client),
             std::borrow::Cow::Borrowed("anthropic")
         );
         assert!(!client.supported_models().is_empty());
@@ -895,7 +895,7 @@ mod tests {
         let cfg = AnthropicConfig::new("test-key").with_model("claude-3-5-haiku-20241022");
         let client = AnthropicClient::from_config(cfg).expect("from_config ok");
         assert_eq!(
-            crate::client::LlmClient::provider_id(&client),
+            crate::core_compat::client::LlmClient::provider_id(&client),
             std::borrow::Cow::Borrowed("anthropic")
         );
         assert_eq!(client.common_params().model, "claude-3-5-haiku-20241022");
@@ -1038,8 +1038,8 @@ mod tests {
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
             .with_tools(vec![
-                crate::tools::anthropic::tool_search_regex_20251119(),
-                crate::tools::anthropic::code_execution_20250522(),
+                siumai_protocol_anthropic::tool_catalog::anthropic::tool_search_regex_20251119(),
+                siumai_protocol_anthropic::tool_catalog::anthropic::code_execution_20250522(),
             ])
             .with_http_config(
                 HttpConfig::builder()
@@ -1098,7 +1098,9 @@ mod tests {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
-            .with_tools(vec![crate::tools::anthropic::code_execution_20250825()])
+            .with_tools(vec![
+                siumai_protocol_anthropic::tool_catalog::anthropic::code_execution_20250825(),
+            ])
             .with_provider_option(
                 "anthropic",
                 serde_json::json!({
@@ -1162,7 +1164,7 @@ mod tests {
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
             crate::types::Tool::provider_defined("unsupported.tool", "unsupported_tool"),
             crate::types::Tool::provider_defined("anthropic.unknown_tool", "unknown_tool"),
-            crate::tools::anthropic::web_search_20250305(),
+            siumai_protocol_anthropic::tool_catalog::anthropic::web_search_20250305(),
         ]);
 
         let base = ChatResponse::new(crate::types::MessageContent::Text("ok".to_string()));
@@ -1210,7 +1212,9 @@ mod tests {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
-            .with_tools(vec![crate::tools::anthropic::code_execution_20260120()])
+            .with_tools(vec![
+                siumai_protocol_anthropic::tool_catalog::anthropic::code_execution_20260120(),
+            ])
             .with_provider_option(
                 "anthropic",
                 serde_json::json!({
@@ -1287,11 +1291,13 @@ mod tests {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
-            crate::tools::anthropic::computer_20241022().with_args(serde_json::json!({
-                "displayWidthPx": 800,
-                "displayHeightPx": 600,
-                "displayNumber": 1
-            })),
+            siumai_protocol_anthropic::tool_catalog::anthropic::computer_20241022().with_args(
+                serde_json::json!({
+                    "displayWidthPx": 800,
+                    "displayHeightPx": 600,
+                    "displayNumber": 1
+                }),
+            ),
         ]);
 
         let out = mw.transform_params(req);
@@ -1310,11 +1316,13 @@ mod tests {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
-            crate::tools::anthropic::computer_20250124().with_args(serde_json::json!({
-                "displayWidthPx": 800,
-                "displayHeightPx": 600,
-                "displayNumber": 1
-            })),
+            siumai_protocol_anthropic::tool_catalog::anthropic::computer_20250124().with_args(
+                serde_json::json!({
+                    "displayWidthPx": 800,
+                    "displayHeightPx": 600,
+                    "displayNumber": 1
+                }),
+            ),
         ]);
 
         let out = mw.transform_params(req);
@@ -1527,9 +1535,11 @@ mod tests {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
-            crate::tools::anthropic::text_editor_20250728().with_args(serde_json::json!({
-                "maxCharacters": 10000
-            })),
+            siumai_protocol_anthropic::tool_catalog::anthropic::text_editor_20250728().with_args(
+                serde_json::json!({
+                    "maxCharacters": 10000
+                }),
+            ),
         ]);
 
         let out = mw.transform_params(req);

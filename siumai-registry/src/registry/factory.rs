@@ -1,12 +1,12 @@
-//! Provider construction helpers (registry-driven)
+//! Legacy provider construction helpers (compatibility-only, registry-driven)
 //!
-//! These helpers encapsulate provider-specific client construction while
-//! allowing SiumaiBuilder to resolve defaults (like base URLs) from the
-//! ProviderRegistry v2. They keep the external API unchanged and reduce
-//! duplication inside the builder.
+//! These helpers predate the family-first `ProviderFactory` contract and return generic
+//! `LlmClient` compatibility objects. New built-in provider construction should live in
+//! `registry::factories::*` private typed builders plus `ProviderFactory::*_family_with_ctx(...)`
+//! methods. Keep this module only as a migration surface for older direct imports.
 
 #[allow(unused_imports)]
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 #[allow(unused_imports)]
 use crate::error::LlmError;
 #[allow(unused_imports)]
@@ -21,6 +21,10 @@ use crate::types::{CommonParams, HttpConfig};
 use std::sync::Arc;
 
 #[cfg(feature = "openai")]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or OpenAI provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_openai_client(
     api_key: String,
@@ -57,6 +61,10 @@ pub async fn build_openai_client(
 }
 
 #[cfg(feature = "openai")]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or OpenAI provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_openai_chat_completions_client(
     api_key: String,
@@ -295,6 +303,10 @@ pub async fn build_openai_compatible_typed_client(
     feature = "deepinfra",
     feature = "google-vertex"
 ))]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or OpenAI-compatible provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_openai_compatible_client(
     provider_id: String,
@@ -336,6 +348,10 @@ pub async fn build_openai_compatible_client(
 }
 
 #[cfg(feature = "anthropic")]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or Anthropic provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_anthropic_client(
     api_key: String,
@@ -463,6 +479,10 @@ pub async fn build_gemini_typed_client(
 }
 
 #[cfg(feature = "google")]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or Gemini provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_gemini_client(
     api_key: String,
@@ -580,6 +600,10 @@ pub async fn build_anthropic_vertex_typed_client(
 
 /// Build Anthropic on Vertex AI compatibility client.
 #[cfg(feature = "google-vertex")]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or Google Vertex provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_anthropic_vertex_client(
     base_url: String,
@@ -658,6 +682,10 @@ pub async fn build_google_vertex_typed_client(
 
 /// Build Google Vertex client (Imagen via Vertex AI).
 #[cfg(feature = "google-vertex")]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or Google Vertex provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_google_vertex_client(
     base_url: String,
@@ -691,6 +719,10 @@ pub async fn build_google_vertex_client(
 }
 
 #[cfg(feature = "ollama")]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or Ollama provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_ollama_client(
     base_url: String,
@@ -745,6 +777,10 @@ pub async fn build_ollama_client(
 }
 
 #[cfg(feature = "minimaxi")]
+#[deprecated(
+    since = "0.11.0-beta.8",
+    note = "compatibility-only; use registry ProviderFactory family methods or MiniMaxi provider config-first construction"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_minimaxi_client(
     api_key: String,

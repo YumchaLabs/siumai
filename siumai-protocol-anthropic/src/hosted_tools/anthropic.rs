@@ -3,7 +3,26 @@
 //! Factory functions for creating Anthropic-specific provider-defined tools.
 //! These tools are executed by Anthropic's servers.
 
-use crate::types::{ProviderDefinedTool, Tool};
+use siumai_core::types::{ProviderDefinedTool, Tool};
+
+pub use crate::tool_catalog::anthropic::{
+    BASH_20241022_ID, BASH_20250124_ID, CODE_EXECUTION_20250522_ID, CODE_EXECUTION_20250825_ID,
+    CODE_EXECUTION_20260120_ID, COMPUTER_20241022_ID, COMPUTER_20250124_ID, COMPUTER_20251124_ID,
+    MEMORY_20250818_ID, PROVIDER_TOOL_NAMES, SERVER_TOOL_SPECS, ServerToolSpec,
+    TEXT_EDITOR_20241022_ID, TEXT_EDITOR_20250124_ID, TEXT_EDITOR_20250429_ID,
+    TEXT_EDITOR_20250728_ID, TOOL_SEARCH_BM25_20251119_ID, TOOL_SEARCH_REGEX_20251119_ID,
+    WEB_FETCH_20250910_ID, WEB_FETCH_20260209_ID, WEB_SEARCH_20250305_ID, WEB_SEARCH_20260209_ID,
+    bash_20241022, bash_20241022_named, bash_20250124, bash_20250124_named,
+    code_execution_20250522_named, code_execution_20250825_named, code_execution_20260120,
+    code_execution_20260120_named, computer_20241022, computer_20241022_named, computer_20250124,
+    computer_20250124_named, computer_20251124, computer_20251124_named, memory_20250818_named,
+    provider_defined_tool, server_tool_spec, text_editor_20241022, text_editor_20241022_named,
+    text_editor_20250124, text_editor_20250124_named, text_editor_20250429,
+    text_editor_20250429_named, text_editor_20250728, text_editor_20250728_named,
+    tool_search_bm25_20251119_named, tool_search_regex_20251119_named, web_fetch_20250910_named,
+    web_fetch_20260209, web_fetch_20260209_named, web_search, web_search_20250305_named,
+    web_search_20260209, web_search_20260209_named,
+};
 
 /// User location for Anthropic web search (Vercel-aligned).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

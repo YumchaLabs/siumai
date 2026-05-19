@@ -38,7 +38,7 @@ use std::sync::Arc;
     feature = "minimaxi",
     feature = "bedrock"
 ))]
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 #[cfg(any(
     test,
     feature = "openai",

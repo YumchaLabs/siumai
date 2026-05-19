@@ -5,7 +5,7 @@
 #[cfg(test)]
 mod groq_tests {
     use super::super::*;
-    use crate::client::LlmClient;
+    use crate::core_compat::client::LlmClient;
     use crate::types::*;
 
     #[test]

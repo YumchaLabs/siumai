@@ -147,3 +147,24 @@ fn spec_error_type_does_not_own_runtime_policy_helpers() {
         );
     }
 }
+
+#[test]
+fn spec_provider_type_is_documented_as_compatibility_only() {
+    let types_source =
+        fs::read_to_string(crate_root().join("src/types.rs")).expect("read types.rs");
+    let common_source =
+        fs::read_to_string(crate_root().join("src/types/common.rs")).expect("read common.rs");
+
+    assert!(
+        types_source.contains("ProviderType` - Legacy compatibility provider classification enum"),
+        "siumai-spec docs should not present ProviderType as the primary provider identity"
+    );
+    assert!(
+        common_source.contains("Legacy compatibility provider classification."),
+        "ProviderType should be documented as compatibility classification, not the extensibility seam"
+    );
+    assert!(
+        common_source.contains("Provider ids are open strings"),
+        "ProviderType docs should point new provider flows to open provider ids"
+    );
+}

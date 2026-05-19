@@ -461,10 +461,12 @@ fn anthropic_direct_pair_bridge_translates_web_search_tool_and_required_choice()
     let request = ChatRequest::builder()
         .message(ChatMessage::user("search rust").build())
         .tools(vec![
-            siumai_core::tools::anthropic::web_search_20250305().with_args(json!({
-                "allowedDomains": ["example.com"],
-                "maxUses": 2
-            })),
+            siumai_protocol_anthropic::tool_catalog::anthropic::web_search_20250305().with_args(
+                json!({
+                    "allowedDomains": ["example.com"],
+                    "maxUses": 2
+                }),
+            ),
         ])
         .tool_choice(siumai_core::types::ToolChoice::Required)
         .model("gpt-4.1-mini")
@@ -671,7 +673,9 @@ fn anthropic_direct_pair_bridge_ignores_reasoning_provider_metadata_fallback() {
 fn anthropic_direct_pair_bridge_maps_tool_result_to_function_call_output() {
     let request = ChatRequest::builder()
         .message(ChatMessage::tool_result_text("call_1", "web_search", "done").build())
-        .tools(vec![siumai_core::tools::anthropic::web_search_20250305()])
+        .tools(vec![
+            siumai_protocol_anthropic::tool_catalog::anthropic::web_search_20250305(),
+        ])
         .model("gpt-4.1-mini")
         .build();
 
@@ -733,13 +737,13 @@ fn openai_direct_pair_bridge_lifts_instructions_to_system() {
 fn openai_direct_pair_bridge_maps_web_search_choice_and_parallel_policy() {
     let request = ChatRequest::builder()
         .message(ChatMessage::user("search rust").build())
-        .tools(vec![siumai_core::tools::openai::web_search().with_args(
-            json!({
+        .tools(vec![
+            siumai_protocol_openai::tool_catalog::openai::web_search().with_args(json!({
                 "filters": {
                     "allowedDomains": ["example.com"]
                 }
-            }),
-        )])
+            })),
+        ])
         .tool_choice(siumai_core::types::ToolChoice::tool("web_search"))
         .provider_option(
             "openai",
@@ -2446,26 +2450,48 @@ fn request_normalization_source_never_populates_legacy_provider_metadata() {
 
 #[test]
 fn request_normalization_centralizes_legacy_request_content_constructors() {
-    let source = include_str!(concat!(
+    let normalize_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/request/normalize.rs"
     ));
-    let helper_start = source
-        .find("fn request_text_part")
-        .expect("request content adapter helpers should exist");
-    let helper_end = source
-        .find("fn parse_text_like_content_parts")
-        .expect("request content adapter helpers should precede text-like parsing");
-    assert!(helper_start < helper_end);
+    let request_mod_source =
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/request/mod.rs"));
+    let adapter_source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/request/legacy_content.rs"
+    ));
+
+    assert!(
+        request_mod_source.contains("mod legacy_content;"),
+        "request module should own the request-side legacy ContentPart adapter module"
+    );
+    assert!(
+        normalize_source.contains("legacy_content::"),
+        "request normalization should call the request-side legacy ContentPart adapter module"
+    );
+    assert!(
+        adapter_source.contains("pub(super) fn request_text_part"),
+        "request-side legacy ContentPart text construction should live in request/legacy_content.rs"
+    );
+
+    for forbidden in [
+        "fn request_text_part",
+        "fn request_reasoning_part",
+        "fn request_image_part",
+        "fn request_audio_part",
+        "fn request_file_part",
+        "fn request_tool_call_part",
+        "fn request_tool_result_part",
+    ] {
+        assert!(
+            !normalize_source.contains(forbidden),
+            "request normalization should not own legacy ContentPart adapter helper `{forbidden}`"
+        );
+    }
 
     let mut outside_helper_provider_metadata_lines = Vec::new();
-    let mut offset = 0usize;
-    for (index, line) in source.lines().enumerate() {
-        let line_start = offset;
-        offset += line.len() + 1;
-        if line.contains("provider_metadata: None,")
-            && !(helper_start..helper_end).contains(&line_start)
-        {
+    for (index, line) in normalize_source.lines().enumerate() {
+        if line.contains("provider_metadata: None,") {
             outside_helper_provider_metadata_lines.push((index + 1, line.trim().to_string()));
         }
     }
@@ -2473,12 +2499,23 @@ fn request_normalization_centralizes_legacy_request_content_constructors() {
     assert_eq!(
         outside_helper_provider_metadata_lines.len(),
         1,
-        "legacy request ContentPart provider_metadata construction should stay centralized; the only outside-helper occurrence is the plain-text collapse match: {outside_helper_provider_metadata_lines:?}"
+        "legacy request ContentPart provider_metadata construction should stay in request/legacy_content.rs; the only normalize.rs occurrence is the plain-text collapse match: {outside_helper_provider_metadata_lines:?}"
     );
     assert_eq!(
         outside_helper_provider_metadata_lines[0].1,
         "provider_metadata: None,"
     );
+
+    for line in adapter_source
+        .lines()
+        .filter(|line| line.contains("provider_metadata:"))
+    {
+        assert_eq!(
+            line.trim(),
+            "provider_metadata: None,",
+            "request-side legacy ContentPart adapters must never populate response provider_metadata"
+        );
+    }
 }
 
 #[cfg(all(feature = "anthropic", feature = "openai"))]
@@ -2517,10 +2554,57 @@ fn request_bridge_pair_sources_do_not_read_legacy_provider_metadata() {
 
 #[cfg(feature = "google")]
 #[test]
+fn gemini_generate_content_request_normalization_is_protocol_adapter_backed() {
+    use std::fs;
+    use std::path::Path;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let monolith =
+        fs::read_to_string(root.join("src/request/normalize.rs")).expect("read normalize.rs");
+    let adapter = fs::read_to_string(root.join("src/request/normalize/gemini_generate_content.rs"))
+        .expect("read Gemini GenerateContent request adapter");
+
+    assert!(
+        monolith.contains("mod gemini_generate_content;"),
+        "Gemini GenerateContent request normalization should be delegated to a narrow adapter module"
+    );
+    assert!(
+        monolith.contains("gemini_generate_content::parse_json_to_chat_request"),
+        "normalize.rs should keep only the public wrapper and delegate the Gemini parser"
+    );
+
+    for forbidden in [
+        "fn parse_gemini_generate_content_json_to_chat_request",
+        "fn parse_gemini_content(",
+        "fn parse_gemini_tools(",
+        "GeminiGenerateContentRequest",
+        "GeminiRequestTool",
+    ] {
+        assert!(
+            !monolith.contains(forbidden),
+            "Gemini-specific request parsing policy should live outside normalize.rs: found `{forbidden}`"
+        );
+    }
+
+    for required in [
+        "pub(super) fn parse_json_to_chat_request",
+        "GeminiGenerateContentRequest",
+        "fn parse_gemini_content(",
+        "fn parse_gemini_tools(",
+    ] {
+        assert!(
+            adapter.contains(required),
+            "Gemini GenerateContent adapter should own `{required}`"
+        );
+    }
+}
+
+#[cfg(feature = "google")]
+#[test]
 fn gemini_request_normalization_source_uses_provider_options_for_thought_signature() {
     let source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/request/normalize.rs"
+        "/src/request/normalize/gemini_generate_content.rs"
     ));
 
     assert!(source.contains("fn gemini_thought_signature_provider_options"));

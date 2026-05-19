@@ -1,11 +1,19 @@
 use crate::error::LlmError;
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::standards::openai::compat::usage::{
-    parse_xai_responses_usage_value, xai_responses_usage_provider_metadata_value,
-    xai_responses_zero_usage,
+    parse_xai_responses_usage_value, xai_responses_zero_usage,
 };
 use crate::standards::openai::utils::parse_openai_usage_value;
 use crate::types::ChatResponse;
+
+#[cfg(feature = "openai-responses")]
+mod hosted_tools;
+
+#[cfg(feature = "openai-responses")]
+mod metadata;
+
+#[cfg(feature = "openai-responses")]
+pub(crate) use metadata::output_text_logprobs as extract_responses_output_text_logprobs;
 
 #[cfg(feature = "openai-responses")]
 /// Response transformer for OpenAI Responses API
@@ -57,12 +65,6 @@ impl OpenAiResponsesResponseTransformer {
         out
     }
 
-    fn single_provider_metadata_value(&self, value: serde_json::Value) -> serde_json::Value {
-        let mut out = serde_json::Map::new();
-        out.insert(self.provider_metadata_key.clone(), value);
-        serde_json::Value::Object(out)
-    }
-
     fn custom_tool_name_for_call_name(&self, call_name: &str) -> String {
         if call_name.is_empty() {
             return String::new();
@@ -80,217 +82,6 @@ impl OpenAiResponsesResponseTransformer {
             ResponsesTransformStyle::Xai => parse_xai_responses_usage_value(value),
         }
     }
-
-    fn xai_file_search_queries(item: &serde_json::Value) -> serde_json::Value {
-        item.get("queries")
-            .filter(|value| !value.is_null())
-            .cloned()
-            .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
-    }
-
-    fn file_search_results(item: &serde_json::Value) -> serde_json::Value {
-        let Some(results) = item.get("results") else {
-            return serde_json::Value::Null;
-        };
-        let Some(results) = results.as_array() else {
-            return results.clone();
-        };
-
-        serde_json::Value::Array(
-            results
-                .iter()
-                .map(|result| {
-                    let mut out = serde_json::Map::new();
-                    if let Some(file_id) = result.get("file_id").or_else(|| result.get("fileId"))
-                        && !file_id.is_null()
-                    {
-                        out.insert("fileId".to_string(), file_id.clone());
-                    }
-                    if let Some(filename) = result.get("filename")
-                        && !filename.is_null()
-                    {
-                        out.insert("filename".to_string(), filename.clone());
-                    }
-                    if let Some(attributes) = result.get("attributes")
-                        && !attributes.is_null()
-                    {
-                        out.insert("attributes".to_string(), attributes.clone());
-                    }
-                    if let Some(score) = result.get("score")
-                        && !score.is_null()
-                    {
-                        out.insert("score".to_string(), score.clone());
-                    }
-                    if let Some(text) = result.get("text")
-                        && !text.is_null()
-                    {
-                        out.insert("text".to_string(), text.clone());
-                    }
-                    serde_json::Value::Object(out)
-                })
-                .collect(),
-        )
-    }
-
-    fn json_string(value: &serde_json::Value) -> String {
-        serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
-    }
-
-    fn ordered_object_json(
-        object: &serde_json::Map<String, serde_json::Value>,
-        ordered_keys: &[&str],
-    ) -> String {
-        let mut fields = Vec::new();
-        for key in ordered_keys {
-            if let Some(value) = object.get(*key) {
-                fields.push(format!("\"{key}\":{}", Self::json_string(value)));
-            }
-        }
-        for (key, value) in object {
-            if !ordered_keys.contains(&key.as_str()) {
-                let key = serde_json::to_string(key).unwrap_or_else(|_| "\"\"".to_string());
-                fields.push(format!("{key}:{}", Self::json_string(value)));
-            }
-        }
-
-        format!("{{{}}}", fields.join(","))
-    }
-
-    fn local_shell_generate_input(item: &serde_json::Value) -> String {
-        const ACTION_KEYS: [&str; 6] = [
-            "type",
-            "command",
-            "timeout_ms",
-            "user",
-            "working_directory",
-            "env",
-        ];
-
-        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
-        let Some(action_obj) = action.as_object() else {
-            return format!("{{\"action\":{}}}", Self::json_string(action));
-        };
-
-        format!(
-            "{{\"action\":{}}}",
-            Self::ordered_object_json(action_obj, &ACTION_KEYS)
-        )
-    }
-
-    fn apply_patch_generate_input(call_id: &str, item: &serde_json::Value) -> String {
-        const OPERATION_KEYS: [&str; 3] = ["type", "path", "diff"];
-
-        let call_id_json = serde_json::to_string(call_id).unwrap_or_else(|_| "\"\"".to_string());
-        let operation = item.get("operation").unwrap_or(&serde_json::Value::Null);
-        let operation_json = operation
-            .as_object()
-            .map(|object| Self::ordered_object_json(object, &OPERATION_KEYS))
-            .unwrap_or_else(|| Self::json_string(operation));
-
-        format!("{{\"callId\":{call_id_json},\"operation\":{operation_json}}}")
-    }
-
-    fn shell_environment_is_provider_executed(value: &serde_json::Value) -> bool {
-        let environment = value.get("environment").unwrap_or(value);
-        let Some(environment_type) = environment.get("type").and_then(|value| value.as_str())
-        else {
-            return false;
-        };
-
-        matches!(
-            environment_type,
-            "containerAuto" | "containerReference" | "container_auto" | "container_reference"
-        )
-    }
-
-    fn response_shell_call_provider_executed(root: &serde_json::Value) -> bool {
-        root.get("tools")
-            .and_then(|value| value.as_array())
-            .is_some_and(|tools| {
-                tools.iter().any(|tool| {
-                    tool.get("type").and_then(|value| value.as_str()) == Some("shell")
-                        && Self::shell_environment_is_provider_executed(tool)
-                })
-            })
-    }
-}
-
-#[cfg(feature = "openai-responses")]
-pub(crate) fn extract_responses_output_text_logprobs(
-    root: &serde_json::Value,
-) -> Option<serde_json::Value> {
-    let output = root.get("output")?.as_array()?;
-
-    let mut outer: Vec<serde_json::Value> = Vec::new();
-    for item in output {
-        if item.get("type").and_then(|v| v.as_str()) != Some("message") {
-            continue;
-        }
-
-        let content = item.get("content").and_then(|v| v.as_array());
-        let Some(content) = content else { continue };
-
-        for part in content {
-            if part.get("type").and_then(|v| v.as_str()) != Some("output_text") {
-                continue;
-            }
-
-            let logprobs = part.get("logprobs").and_then(|v| v.as_array());
-            let Some(logprobs) = logprobs else { continue };
-
-            let mut inner: Vec<serde_json::Value> = Vec::new();
-            for entry in logprobs {
-                let token = entry.get("token").and_then(|v| v.as_str()).unwrap_or("");
-                if token.is_empty() {
-                    continue;
-                }
-
-                let logprob = entry
-                    .get("logprob")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-
-                let mut out_entry = serde_json::Map::new();
-                out_entry.insert(
-                    "token".to_string(),
-                    serde_json::Value::String(token.to_string()),
-                );
-                out_entry.insert("logprob".to_string(), logprob);
-
-                let top = entry.get("top_logprobs").and_then(|v| v.as_array());
-                if let Some(top) = top {
-                    let mut tops: Vec<serde_json::Value> = Vec::new();
-                    for t in top {
-                        let t_token = t.get("token").and_then(|v| v.as_str()).unwrap_or("");
-                        if t_token.is_empty() {
-                            continue;
-                        }
-                        let t_logprob =
-                            t.get("logprob").cloned().unwrap_or(serde_json::Value::Null);
-                        tops.push(serde_json::json!({
-                            "token": t_token,
-                            "logprob": t_logprob,
-                        }));
-                    }
-                    out_entry.insert("top_logprobs".to_string(), serde_json::Value::Array(tops));
-                } else {
-                    out_entry.insert("top_logprobs".to_string(), serde_json::Value::Array(vec![]));
-                }
-
-                inner.push(serde_json::Value::Object(out_entry));
-            }
-
-            if !inner.is_empty() {
-                outer.push(serde_json::Value::Array(inner));
-            }
-        }
-    }
-
-    if outer.is_empty() {
-        None
-    } else {
-        Some(serde_json::Value::Array(outer))
-    }
 }
 
 #[cfg(feature = "openai-responses")]
@@ -303,7 +94,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         use crate::types::{ContentPart, FinishReason, MessageContent};
         let root = raw.get("response").unwrap_or(raw);
         let xai_style = self.style == ResponsesTransformStyle::Xai;
-        let shell_call_provider_executed = Self::response_shell_call_provider_executed(root);
+        let shell_call_provider_executed =
+            hosted_tools::response_shell_call_provider_executed(root);
 
         // Build content parts (tool calls/results + text).
         //
@@ -785,13 +577,13 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         };
                         let result = if xai_style {
                             serde_json::json!({
-                                "queries": Self::xai_file_search_queries(item),
-                                "results": Self::file_search_results(item),
+                                "queries": hosted_tools::xai_file_search_queries(item),
+                                "results": hosted_tools::file_search_results(item),
                             })
                         } else {
                             serde_json::json!({
                                 "queries": item.get("queries").cloned().unwrap_or(serde_json::Value::Null),
-                                "results": Self::file_search_results(item),
+                                "results": hosted_tools::file_search_results(item),
                             })
                         };
                         let tool_name = if xai_style {
@@ -1128,7 +920,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         }
 
                         // AI SDK doGenerate preserves OpenAI's raw action shape for local_shell_call.
-                        let input_str = Self::local_shell_generate_input(item);
+                        let input_str = hosted_tools::local_shell_generate_input(item);
 
                         let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
                             self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
@@ -1189,7 +981,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             continue;
                         }
 
-                        let input_str = Self::apply_patch_generate_input(call_id, item);
+                        let input_str = hosted_tools::apply_patch_generate_input(call_id, item);
 
                         let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
                             self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
@@ -1521,390 +1313,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
         // Provider metadata (Vercel-aligned): sources extracted from provider tool results and
         // message annotations.
-        let provider_metadata = if xai_style {
-            root.get("usage")
-                .and_then(xai_responses_usage_provider_metadata_value)
-                .map(|metadata| self.single_provider_metadata_map(metadata))
-        } else {
-            let mut sources: Vec<serde_json::Value> = Vec::new();
-            let mut seen_source_keys: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
-            if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
-                for item in output {
-                    let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                    if !matches!(item_type, "web_search_call" | "file_search_call") {
-                        continue;
-                    }
-
-                    let tool_call_id = item
-                        .get("call_id")
-                        .and_then(|v| v.as_str())
-                        .or_else(|| item.get("id").and_then(|v| v.as_str()))
-                        .unwrap_or("")
-                        .to_string();
-                    if tool_call_id.is_empty() {
-                        continue;
-                    }
-
-                    let Some(arr) = item.get("results").and_then(|v| v.as_array()) else {
-                        continue;
-                    };
-
-                    for (i, r) in arr.iter().enumerate() {
-                        let Some(obj) = r.as_object() else {
-                            continue;
-                        };
-
-                        if item_type == "web_search_call" {
-                            let url = obj.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                            if url.is_empty() {
-                                continue;
-                            }
-                            let source_key = format!("tool:{tool_call_id}:url:{url}");
-                            if !seen_source_keys.insert(source_key) {
-                                continue;
-                            }
-
-                            let title = obj
-                                .get("title")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-                            let snippet = obj
-                                .get("snippet")
-                                .or_else(|| obj.get("text"))
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-                            let source_id = obj
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| format!("{tool_call_id}:{i}"));
-
-                            let mut src = serde_json::Map::new();
-                            src.insert("id".to_string(), serde_json::Value::String(source_id));
-                            src.insert(
-                                "source_type".to_string(),
-                                serde_json::Value::String("url".to_string()),
-                            );
-                            src.insert(
-                                "url".to_string(),
-                                serde_json::Value::String(url.to_string()),
-                            );
-                            if let Some(t) = title {
-                                src.insert("title".to_string(), serde_json::Value::String(t));
-                            }
-                            src.insert(
-                                "tool_call_id".to_string(),
-                                serde_json::Value::String(tool_call_id.clone()),
-                            );
-                            if let Some(s) = snippet {
-                                src.insert("snippet".to_string(), serde_json::Value::String(s));
-                            }
-                            sources.push(serde_json::Value::Object(src));
-                            continue;
-                        }
-
-                        let file_id = obj
-                            .get("file_id")
-                            .or_else(|| obj.get("fileId"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        if file_id.is_empty() {
-                            continue;
-                        }
-
-                        let container_id = obj
-                            .get("container_id")
-                            .or_else(|| obj.get("containerId"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        let index = obj.get("index").and_then(|v| v.as_u64()).map(|v| v as u32);
-                        let source_key = format!(
-                            "tool:{tool_call_id}:document:{file_id}:{}:{}",
-                            container_id.as_deref().unwrap_or(""),
-                            index.map(|v| v.to_string()).unwrap_or_default()
-                        );
-                        if !seen_source_keys.insert(source_key) {
-                            continue;
-                        }
-
-                        let source_id = obj
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("{tool_call_id}:{i}"));
-                        let title = obj
-                            .get("title")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        let snippet = obj
-                            .get("snippet")
-                            .or_else(|| obj.get("text"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        let filename = obj
-                            .get("filename")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        let media_type = obj
-                            .get("media_type")
-                            .or_else(|| obj.get("mediaType"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-
-                        let mut openai_source_meta = serde_json::Map::new();
-                        openai_source_meta.insert(
-                            "fileId".to_string(),
-                            serde_json::Value::String(file_id.clone()),
-                        );
-                        if let Some(container_id) = &container_id {
-                            openai_source_meta.insert(
-                                "containerId".to_string(),
-                                serde_json::Value::String(container_id.clone()),
-                            );
-                        }
-                        if let Some(index) = index {
-                            openai_source_meta
-                                .insert("index".to_string(), serde_json::json!(index));
-                        }
-
-                        let mut src = serde_json::Map::new();
-                        src.insert("id".to_string(), serde_json::Value::String(source_id));
-                        src.insert(
-                            "source_type".to_string(),
-                            serde_json::Value::String("document".to_string()),
-                        );
-                        src.insert("url".to_string(), serde_json::Value::String(file_id));
-                        src.insert(
-                            "tool_call_id".to_string(),
-                            serde_json::Value::String(tool_call_id.clone()),
-                        );
-                        if let Some(t) = title {
-                            src.insert("title".to_string(), serde_json::Value::String(t));
-                        }
-                        if let Some(s) = snippet {
-                            src.insert("snippet".to_string(), serde_json::Value::String(s));
-                        }
-                        if let Some(fn_) = filename {
-                            src.insert("filename".to_string(), serde_json::Value::String(fn_));
-                        }
-                        if let Some(mt) = media_type {
-                            src.insert("media_type".to_string(), serde_json::Value::String(mt));
-                        }
-                        src.insert(
-                            "provider_metadata".to_string(),
-                            self.single_provider_metadata_value(serde_json::Value::Object(
-                                openai_source_meta,
-                            )),
-                        );
-                        sources.push(serde_json::Value::Object(src));
-                    }
-                }
-
-                // Additionally, OpenAI Responses may include URL citations as annotations
-                // on message output parts (Vercel alignment: expand to sources).
-                let mut ann_idx: u64 = 0;
-                for item in output {
-                    if item.get("type").and_then(|v| v.as_str()) != Some("message") {
-                        continue;
-                    }
-                    let Some(content_parts) = item.get("content").and_then(|v| v.as_array()) else {
-                        continue;
-                    };
-                    for cp in content_parts {
-                        let Some(annotations) = cp.get("annotations").and_then(|v| v.as_array())
-                        else {
-                            continue;
-                        };
-                        for ann in annotations {
-                            let ann_type = ann.get("type").and_then(|v| v.as_str()).unwrap_or("");
-
-                            if ann_type == "url_citation" {
-                                if xai_style {
-                                    // xAI Vercel alignment: citations are exposed as `source` parts,
-                                    // so keep provider metadata minimal.
-                                    continue;
-                                }
-                                let url = ann.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                                if url.is_empty() {
-                                    continue;
-                                }
-                                let source_key = format!("message:url:{url}");
-                                if !seen_source_keys.insert(source_key) {
-                                    continue;
-                                }
-                                let title = ann
-                                    .get("title")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
-                                let mut src = serde_json::Map::new();
-                                src.insert(
-                                    "id".to_string(),
-                                    serde_json::Value::String(format!("ann:{ann_idx}")),
-                                );
-                                src.insert(
-                                    "source_type".to_string(),
-                                    serde_json::Value::String("url".to_string()),
-                                );
-                                src.insert(
-                                    "url".to_string(),
-                                    serde_json::Value::String(url.to_string()),
-                                );
-                                if let Some(t) = title {
-                                    src.insert("title".to_string(), serde_json::Value::String(t));
-                                }
-                                sources.push(serde_json::Value::Object(src));
-                                ann_idx += 1;
-                                continue;
-                            }
-
-                            // Document sources
-                            if matches!(
-                                ann_type,
-                                "file_citation" | "container_file_citation" | "file_path"
-                            ) {
-                                let file_id = ann
-                                    .get("file_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                if file_id.is_empty() {
-                                    continue;
-                                }
-
-                                let filename = ann
-                                    .get("filename")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string())
-                                    .or_else(|| Some(file_id.clone()));
-
-                                let title = ann
-                                    .get("quote")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string())
-                                    .or_else(|| filename.clone())
-                                    .or_else(|| Some("Document".to_string()));
-
-                                let media_type = if ann_type == "file_path" {
-                                    Some("application/octet-stream".to_string())
-                                } else {
-                                    Some("text/plain".to_string())
-                                };
-                                let index = ann.get("index").and_then(|v| v.as_u64());
-                                let container_id = ann
-                                    .get("container_id")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
-                                let source_key = format!(
-                                    "message:doc:{ann_type}:{file_id}:{}:{}:{}:{}",
-                                    container_id.as_deref().unwrap_or(""),
-                                    index.map(|value| value.to_string()).unwrap_or_default(),
-                                    filename.as_deref().unwrap_or(""),
-                                    title.as_deref().unwrap_or(""),
-                                );
-                                if !seen_source_keys.insert(source_key) {
-                                    continue;
-                                }
-
-                                let provider_metadata = match ann_type {
-                                    "file_citation" => Some(self.single_provider_metadata_value(
-                                        serde_json::json!({
-                                            "type": "file_citation",
-                                            "fileId": file_id,
-                                            "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
-                                        }),
-                                    )),
-                                    "container_file_citation" => Some(
-                                        self.single_provider_metadata_value(serde_json::json!({
-                                            "type": "container_file_citation",
-                                            "fileId": file_id,
-                                            "containerId": ann.get("container_id").cloned().unwrap_or(serde_json::Value::Null),
-                                            "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
-                                        })),
-                                    ),
-                                    "file_path" => Some(self.single_provider_metadata_value(
-                                        serde_json::json!({
-                                            "type": "file_path",
-                                            "fileId": file_id,
-                                            "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
-                                        }),
-                                    )),
-                                    _ => None,
-                                };
-
-                                let mut src = serde_json::Map::new();
-                                src.insert(
-                                    "id".to_string(),
-                                    serde_json::Value::String(format!("ann:{ann_idx}")),
-                                );
-                                src.insert(
-                                    "source_type".to_string(),
-                                    serde_json::Value::String("document".to_string()),
-                                );
-                                src.insert("url".to_string(), serde_json::Value::String(file_id));
-                                if let Some(t) = title {
-                                    src.insert("title".to_string(), serde_json::Value::String(t));
-                                }
-                                if let Some(mt) = media_type {
-                                    src.insert(
-                                        "media_type".to_string(),
-                                        serde_json::Value::String(mt),
-                                    );
-                                }
-                                if let Some(fn_) = filename {
-                                    src.insert(
-                                        "filename".to_string(),
-                                        serde_json::Value::String(fn_),
-                                    );
-                                }
-                                if let Some(pm) = provider_metadata {
-                                    src.insert("provider_metadata".to_string(), pm);
-                                }
-                                sources.push(serde_json::Value::Object(src));
-                                ann_idx += 1;
-                            }
-                        }
-                    }
-                }
-            }
-
-            let mut openai_meta: std::collections::HashMap<String, serde_json::Value> =
-                std::collections::HashMap::new();
-
-            if let Some(response_id) = root.get("id").and_then(|v| v.as_str()) {
-                openai_meta.insert(
-                    "responseId".to_string(),
-                    serde_json::Value::String(response_id.to_string()),
-                );
-            }
-
-            if let Some(service_tier) = root.get("service_tier").and_then(|v| v.as_str()) {
-                openai_meta.insert(
-                    "serviceTier".to_string(),
-                    serde_json::Value::String(service_tier.to_string()),
-                );
-            }
-
-            if !sources.is_empty() {
-                openai_meta.insert("sources".to_string(), serde_json::Value::Array(sources));
-            }
-
-            if let Some(logprobs) = extract_responses_output_text_logprobs(root) {
-                openai_meta.insert("logprobs".to_string(), logprobs);
-            }
-
-            if openai_meta.is_empty() {
-                None
-            } else {
-                let mut all = std::collections::HashMap::new();
-                all.insert(
-                    self.provider_metadata_key.clone(),
-                    serde_json::Value::Object(openai_meta.into_iter().collect()),
-                );
-                Some(all)
-            }
-        };
+        let provider_metadata =
+            metadata::response_provider_metadata(root, self.style, &self.provider_metadata_key);
 
         // Extract warnings and provider metadata if present
         Ok(ChatResponse {
@@ -3140,6 +2550,69 @@ mod tests {
         assert_eq!(source_b.filename.as_deref(), Some("design-b.md"));
         assert_eq!(source_b.media_type.as_deref(), Some("text/markdown"));
         assert_eq!(source_b.snippet.as_deref(), Some("second hit"));
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn openai_responses_response_transformer_has_hosted_tool_output_module() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/openai/transformers/response/responses.rs"
+        ));
+        let implementation = source
+            .lines()
+            .take_while(|line| !line.contains("mod tests {"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            implementation.contains("mod hosted_tools;"),
+            "OpenAI Responses hosted/dynamic output item policy should live behind a narrow response module"
+        );
+
+        for forbidden in [
+            "fn xai_file_search_queries(",
+            "fn file_search_results(",
+            "fn local_shell_generate_input(",
+            "fn apply_patch_generate_input(",
+            "fn response_shell_call_provider_executed(",
+        ] {
+            assert!(
+                !implementation.contains(forbidden),
+                "hosted/dynamic output item helper `{forbidden}` should not live in the monolithic response transformer"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn openai_responses_response_transformer_has_metadata_module() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/standards/openai/transformers/response/responses.rs"
+        ));
+        let implementation = source
+            .lines()
+            .take_while(|line| !line.contains("mod tests {"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            implementation.contains("mod metadata;"),
+            "OpenAI Responses provider metadata/source/logprobs aggregation should live behind a narrow response module"
+        );
+
+        for forbidden in [
+            "fn extract_responses_output_text_logprobs(",
+            "let provider_metadata = if xai_style",
+            "let mut sources: Vec<serde_json::Value>",
+            "seen_source_keys",
+        ] {
+            assert!(
+                !implementation.contains(forbidden),
+                "provider metadata/source/logprobs helper `{forbidden}` should not live in the monolithic response transformer"
+            );
+        }
     }
 }
 

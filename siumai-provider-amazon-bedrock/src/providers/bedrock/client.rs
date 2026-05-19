@@ -1,8 +1,8 @@
 //! `Bedrock` client.
 
 use super::config::BedrockConfig;
-use crate::client::LlmClient;
 use crate::core::{ProviderContext, ProviderSpec};
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
 use crate::execution::executors::embedding::{EmbeddingExecutor, EmbeddingExecutorBuilder};

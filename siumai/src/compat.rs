@@ -74,3 +74,11 @@ pub mod types {
 pub mod builder {
     pub use siumai_core::builder::*;
 }
+
+/// Legacy generic-client dynamic-dispatch types.
+///
+/// New code should prefer model-family traits and registry handles. This module is the explicit
+/// migration path for code that still needs `LlmClient` or `ClientWrapper`.
+pub mod client {
+    pub use siumai_core::compat::client::{ClientWrapper, LlmClient};
+}

@@ -37,9 +37,8 @@
 //! - **`RerankCapability`** - Document reranking capability
 //! - **`AudioCapability`** - Compatibility-only catch-all for transitional audio code
 //!
-//! ### Client Abstractions
-//! - **`LlmClient`** - Unified client trait for all providers
-//! - **`ProviderCore`** - Core builder functionality shared across providers
+//! ### Compatibility Client Abstractions
+//! - **`LlmClient`** - Compatibility-only generic client trait for migration paths
 //!
 //! ## Design Principles
 //!
@@ -88,4 +87,4 @@ pub use crate::traits::{
     SpeechCapability, TimeoutCapability, TranscriptionCapability,
 };
 
-pub use client::LlmClient;
+pub use crate::compat::client::LlmClient;

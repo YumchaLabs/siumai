@@ -150,7 +150,15 @@ as `language_model_text_with_ctx(...)`, `embedding_model_family_with_ctx(...)`,
 `ProviderBuildOverrides` so custom factory implementations can use the complete family-first
 method signatures from the stable registry surface. Generic `LlmClient` factory construction is
 compatibility-only and should stay behind explicit `compat_*_client(...)` /
-`compat_*_client_with_ctx(...)` methods.
+`compat_*_client_with_ctx(...)` methods. Downstream code that still needs the generic client types
+should import them from `siumai::compat::client::{LlmClient, ClientWrapper}`; the old
+`siumai::experimental::client` path remains an advanced alias during migration.
+Custom registry/factory code that must name the generic client trait should use
+`siumai_registry::compat::client::LlmClient`; the old `siumai_registry::LlmClient` root import is
+no longer part of the small registry root surface.
+The old `siumai_registry::registry::factory::build_*_client(...)` helpers are compatibility-only
+shims; new registry/provider work should implement `ProviderFactory::*_family_with_ctx(...)` using
+provider-owned config builders instead of calling those broad generic-client constructors.
 OpenAI-compatible vendor or dynamic provider ids should use
 `openai_compatible_provider_factory(...)` instead of concrete OpenAI-compatible factory
 construction.
@@ -189,8 +197,9 @@ use siumai::{parse_json, normalize_headers};
 ID generation helpers, stop-condition helpers, UI part predicates, `SerialJobExecutor`, and
 `ToolNameMapping`, without mirroring the whole `siumai-core::utils` module.
 
-Generic `ClientWrapper` construction is provider-agnostic. Use `ClientWrapper::new(...)` for boxed
-advanced clients; provider-named wrapper constructors do not belong in `siumai-core`.
+Generic `ClientWrapper` construction is provider-agnostic. Use
+`siumai::compat::client::ClientWrapper::new(...)` for boxed advanced clients; provider-named wrapper
+constructors do not belong in `siumai-core`.
 
 Execution middleware is also an advanced integration API. Import middleware contracts and builders
 from `siumai::experimental::execution::middleware::*`, for example

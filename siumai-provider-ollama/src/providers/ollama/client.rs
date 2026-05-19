@@ -7,8 +7,8 @@ use backoff::ExponentialBackoffBuilder;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::client::LlmClient;
 use crate::core::ProviderContext;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;

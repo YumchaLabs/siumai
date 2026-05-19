@@ -178,7 +178,7 @@ async fn public_surface_tooling_runtime_contract_compiles() {
 
 #[test]
 fn public_surface_provider_defined_tool_metadata_compiles() {
-    use siumai::prelude::unified::{ProviderDefinedTool, ProviderOptionsMap, Tool};
+    use siumai::prelude::unified::{ProviderOptionsMap, Tool};
 
     let mut provider_options = ProviderOptionsMap::new();
     provider_options.insert("openai", json!({ "defer_loading": true }));
@@ -200,10 +200,15 @@ fn public_surface_provider_defined_tool_metadata_compiles() {
     assert_eq!(provider_tool.supports_deferred_results, Some(true));
     assert_eq!(provider_tool.args["searchContextSize"], json!("high"));
 
-    let from_id = Tool::provider_defined_id("openai.web_search").expect("known provider tool id");
+    let from_id =
+        siumai::tools::provider_defined_tool("openai.web_search").expect("known provider tool id");
     assert!(matches!(from_id, Tool::ProviderDefined(_)));
 
-    let typed =
-        ProviderDefinedTool::from_id("openai.web_search").expect("known provider-defined tool");
+    let typed = match siumai::tools::openai::provider_defined_tool("openai.web_search")
+        .expect("known provider-defined tool")
+    {
+        Tool::ProviderDefined(provider_tool) => provider_tool,
+        Tool::Function { .. } => panic!("expected provider-defined tool"),
+    };
     assert_eq!(typed.id, "openai.web_search");
 }

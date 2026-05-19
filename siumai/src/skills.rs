@@ -1,7 +1,7 @@
 //! High-level skill upload helpers aligned with AI SDK `uploadSkill`.
 
 use async_trait::async_trait;
-use siumai_core::client::LlmClient;
+use siumai_core::compat::client::LlmClient;
 use siumai_core::error::LlmError;
 use siumai_core::traits::SkillsCapability;
 use siumai_core::types::{

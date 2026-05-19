@@ -129,7 +129,11 @@ impl Warning {
     }
 }
 
-/// Provider type enumeration
+/// Legacy compatibility provider classification.
+///
+/// Provider ids are open strings and are the primary identity for registry handles, provider
+/// options, provider metadata, and custom providers. Keep this enum only for migration and old
+/// compatibility surfaces that need a coarse built-in-provider classification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderType {
     OpenAi,

@@ -27,7 +27,10 @@ pub use proxies::{AudioCapabilityProxy, EmbeddingCapabilityProxy};
 mod siumai_builder;
 pub use siumai_builder::SiumaiBuilder;
 
+#[cfg(feature = "builtins")]
+pub(crate) mod catalog_ids;
 pub(crate) mod ids;
+pub(crate) mod legacy;
 pub(crate) mod resolver;
 
 // Keep module slim by moving heavy build logic out

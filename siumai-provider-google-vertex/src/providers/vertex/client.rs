@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::auth::TokenProvider;
-use crate::client::LlmClient;
 use crate::core::ProviderSpec;
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::executors::image::{ImageExecutor, ImageExecutorBuilder};
 use crate::execution::http::interceptor::HttpInterceptor;
@@ -1477,7 +1477,7 @@ mod tests {
     fn google_vertex_llmclient_exposes_expected_capabilities() {
         let cfg = GoogleVertexConfig::new("https://example.invalid", "imagen-3.0-generate-002");
         let client = GoogleVertexClient::from_config(cfg).expect("from_config ok");
-        let llm: &dyn crate::client::LlmClient = &client;
+        let llm: &dyn crate::core_compat::client::LlmClient = &client;
         assert_eq!(llm.provider_id(), std::borrow::Cow::Borrowed("vertex"));
         assert!(llm.as_chat_capability().is_some());
         assert!(llm.as_image_generation_capability().is_some());

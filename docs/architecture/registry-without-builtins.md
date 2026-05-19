@@ -32,6 +32,10 @@ At a high level:
 3. Build a registry handle via `create_provider_registry`.
 4. Resolve and use models like `"my_provider:my_model"`.
 
+Do not build new custom providers around `registry::factory::build_*_client(...)`; those broad
+generic-client helpers are compatibility-only shims for older built-in construction paths. Prefer
+provider-owned config objects inside the `*_family_with_ctx(...)` methods.
+
 See the runnable example:
 
 - `siumai-registry/examples/no_builtins_custom_factory.rs`

@@ -1491,16 +1491,19 @@ mod tests {
                         "properties": { "city": { "type": "string" } }
                     }),
                 ),
-                crate::tools::google::google_search().with_args(serde_json::json!({
-                    "searchTypes": { "webSearch": true, "imageSearch": true }
-                })),
-                crate::tools::google::file_search(vec!["stores/main".to_string()]).with_args(
+                siumai_protocol_gemini::tool_catalog::google::google_search().with_args(
                     serde_json::json!({
-                        "fileSearchStoreNames": ["stores/main"],
-                        "topK": 5,
-                        "metadataFilter": "lang = 'en'"
+                        "searchTypes": { "webSearch": true, "imageSearch": true }
                     }),
                 ),
+                siumai_protocol_gemini::tool_catalog::google::file_search(vec![
+                    "stores/main".to_string(),
+                ])
+                .with_args(serde_json::json!({
+                    "fileSearchStoreNames": ["stores/main"],
+                    "topK": 5,
+                    "metadataFilter": "lang = 'en'"
+                })),
             ])
             .with_tool_choice(ToolChoice::tool("weather"));
 
@@ -1544,8 +1547,9 @@ mod tests {
     #[test]
     fn google_interactions_request_warns_for_unsupported_provider_tool() {
         let model = model_handle();
-        let request = ChatRequest::new(vec![ChatMessage::user("search").build()])
-            .with_tools(vec![crate::tools::openai::web_search()]);
+        let request = ChatRequest::new(vec![ChatMessage::user("search").build()]).with_tools(vec![
+            Tool::provider_defined("openai.web_search", "web_search"),
+        ]);
 
         let prepared = model
             .prepare_request_body(&request, false)

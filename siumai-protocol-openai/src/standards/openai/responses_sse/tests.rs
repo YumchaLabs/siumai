@@ -616,7 +616,7 @@ fn responses_web_search_stream_maps_ai_sdk_result_shape() {
 
 #[test]
 fn responses_image_generation_partial_image_emits_preliminary_tool_result() {
-    let tools = [siumai_core::tools::openai::image_generation()];
+    let tools = [crate::tool_catalog::openai::image_generation()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
 
     let ev = eventsource_stream::Event {
@@ -714,7 +714,7 @@ fn responses_computer_call_stream_matches_ai_sdk_lifecycle() {
 
 #[test]
 fn responses_local_shell_stream_maps_ai_sdk_action_keys() {
-    let tools = [siumai_core::tools::openai::local_shell()];
+    let tools = [crate::tool_catalog::openai::local_shell()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
 
     let ev_done = eventsource_stream::Event {
@@ -782,7 +782,7 @@ fn responses_local_shell_stream_maps_ai_sdk_action_keys() {
 
 #[test]
 fn responses_shell_stream_omits_provider_executed_for_local_environment() {
-    let tools = [siumai_core::tools::openai::shell()];
+    let tools = [crate::tool_catalog::openai::shell()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
 
     let ev_done = eventsource_stream::Event {
@@ -808,7 +808,7 @@ fn responses_shell_stream_omits_provider_executed_for_local_environment() {
 #[test]
 fn responses_shell_stream_marks_container_environment_provider_executed() {
     let tools = [
-        siumai_core::tools::openai::shell().with_args(serde_json::json!({
+        crate::tool_catalog::openai::shell().with_args(serde_json::json!({
             "environment": { "type": "containerAuto" }
         })),
     ];
@@ -836,7 +836,7 @@ fn responses_shell_stream_marks_container_environment_provider_executed() {
 
 #[test]
 fn responses_file_search_stream_maps_ai_sdk_result_shape() {
-    let tools = [siumai_core::tools::openai::file_search()];
+    let tools = [crate::tool_catalog::openai::file_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
 
     let ev_done = eventsource_stream::Event {
@@ -1282,7 +1282,7 @@ fn responses_apply_patch_done_omits_provider_executed_and_preserves_delete_input
 
 #[test]
 fn responses_tool_search_stream_maps_call_and_output() {
-    let tools = [siumai_core::tools::openai::tool_search()];
+    let tools = [crate::tool_catalog::openai::tool_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
 
     let call_done = eventsource_stream::Event {
@@ -1334,7 +1334,7 @@ fn responses_tool_search_stream_maps_call_and_output() {
 
 #[test]
 fn responses_tool_search_stream_emits_hosted_input_lifecycle() {
-    let tools = [siumai_core::tools::openai::tool_search()];
+    let tools = [crate::tool_catalog::openai::tool_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
 
     let call_added = eventsource_stream::Event {
@@ -1521,7 +1521,7 @@ fn responses_mcp_call_waits_for_done_and_maps_result_shape() {
 
 #[test]
 fn responses_client_tool_search_stream_uses_final_call_id() {
-    let tools = [siumai_core::tools::openai::tool_search()];
+    let tools = [crate::tool_catalog::openai::tool_search()];
     let conv = OpenAiResponsesEventConverter::new().with_request_tools(&tools);
 
     let call_done = eventsource_stream::Event {

@@ -20,55 +20,27 @@ fn collect_rust_files(path: &Path, files: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn provider_defined_tool_factories_remain_passive_data_constructors() {
-    let tools_rs = fs::read_to_string(crate_root().join("src/tools.rs"))
-        .expect("read siumai-spec/src/tools.rs");
+fn spec_does_not_own_provider_defined_tool_catalogs() {
     let lib_rs =
         fs::read_to_string(crate_root().join("src/lib.rs")).expect("read siumai-spec/src/lib.rs");
+    let tools_rs_path = crate_root().join("src/tools.rs");
 
     assert!(
-        lib_rs.contains("pub mod tools;"),
-        "siumai-spec should keep the passive provider-defined tool factory module public"
+        !tools_rs_path.exists(),
+        "siumai-spec must not own the provider-defined tool catalog; keep concrete catalogs in protocol/provider-owned hosted_tools modules"
     );
 
-    for forbidden in [
-        "siumai_core::",
-        "siumai_provider_",
-        "siumai_protocol_",
-        "tokio",
-        "reqwest",
-        "async_trait",
-        "spawn_blocking",
-        "execute_tool",
-        "ToolExecutionOptions",
-        "ToolExecutionResult",
-        "ToolSet",
-    ] {
-        assert!(
-            !tools_rs.contains(forbidden),
-            "siumai-spec::tools must stay passive and must not contain runtime/provider execution fragment `{forbidden}`"
-        );
-    }
-
-    for passive_constructor in [
-        "provider_defined_tool",
-        "pub mod openai",
-        "pub mod anthropic",
-        "pub mod google",
-        "pub mod groq",
-        "pub mod xai",
-    ] {
-        assert!(
-            tools_rs.contains(passive_constructor),
-            "siumai-spec::tools should keep passive provider-defined constructor `{passive_constructor}`"
-        );
-    }
+    assert!(
+        !lib_rs.contains("pub mod tools;"),
+        "siumai-spec should only expose passive tool data shapes, not a provider catalog module"
+    );
+    assert!(lib_rs.contains("pub mod types;"));
 }
 
 #[test]
 fn provider_defined_tool_data_surface_remains_passive() {
     let root = crate_root();
-    let mut files = vec![root.join("src/tools.rs")];
+    let mut files = Vec::new();
     collect_rust_files(&root.join("src/types/tools"), &mut files);
     files.sort();
 
@@ -77,6 +49,7 @@ fn provider_defined_tool_data_surface_remains_passive() {
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", file.display()));
 
         for forbidden in [
+            "crate::tools::",
             "siumai_core::",
             "siumai_provider_",
             "siumai_protocol_",

@@ -14,7 +14,16 @@
 //!   - `google.google_maps`
 //!   - `google.vertex_rag_store`
 
-use crate::types::{ProviderDefinedTool, Tool};
+use siumai_core::types::{ProviderDefinedTool, Tool};
+
+pub use crate::tool_catalog::google::{
+    CODE_EXECUTION_ID, ENTERPRISE_WEB_SEARCH_ID, FILE_SEARCH_ID, GOOGLE_MAPS_ID, GOOGLE_SEARCH_ID,
+    GOOGLE_SEARCH_RETRIEVAL_ID, PROVIDER_TOOL_NAMES, URL_CONTEXT_ID, VERTEX_RAG_STORE_ID,
+    code_execution_named, enterprise_web_search_named,
+    file_search_named as direct_file_search_named, google_maps_named, google_search_named,
+    google_search_retrieval, google_search_retrieval_named, provider_defined_tool,
+    url_context_named, vertex_rag_store_named as direct_vertex_rag_store_named,
+};
 
 /// Create a code execution tool.
 ///

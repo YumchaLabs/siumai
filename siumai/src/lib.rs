@@ -486,7 +486,14 @@ pub mod experimental {
         pub use siumai_provider_togetherai::standards::togetherai;
     }
 
-    pub use siumai_core::{client, defaults, execution, observability, params, retry, utils};
+    /// Legacy generic-client dynamic-dispatch types.
+    ///
+    /// Prefer `siumai::compat::client` for migration-oriented imports.
+    pub mod client {
+        pub use crate::compat::client::{ClientWrapper, LlmClient};
+    }
+
+    pub use siumai_core::{defaults, execution, observability, params, retry, utils};
 }
 
 pub use siumai_registry::registry;

@@ -325,11 +325,17 @@ mod config_first_tests {
         let built = builder.build().expect("build client");
         let from_config = AzureOpenAiClient::from_config(cfg).expect("from_config client");
 
-        assert_eq!(crate::client::LlmClient::provider_id(&built), "azure");
-        assert_eq!(crate::client::LlmClient::provider_id(&from_config), "azure");
         assert_eq!(
-            crate::client::LlmClient::supported_models(&built),
-            crate::client::LlmClient::supported_models(&from_config)
+            crate::core_compat::client::LlmClient::provider_id(&built),
+            "azure"
+        );
+        assert_eq!(
+            crate::core_compat::client::LlmClient::provider_id(&from_config),
+            "azure"
+        );
+        assert_eq!(
+            crate::core_compat::client::LlmClient::supported_models(&built),
+            crate::core_compat::client::LlmClient::supported_models(&from_config)
         );
     }
 

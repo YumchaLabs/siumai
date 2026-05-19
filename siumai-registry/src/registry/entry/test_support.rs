@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::traits::{ChatCapability, ProviderCapabilities};
 

@@ -4,14 +4,21 @@
 #![deny(unsafe_code)]
 
 // Keep a small stable surface; avoid leaking provider-agnostic internals by default.
-pub use siumai_core::client::LlmClient;
 pub use siumai_core::{LlmError, error, streaming, text, traits, types};
+
+/// Explicit compatibility surface for legacy generic-client paths.
+pub mod compat {
+    /// Generic client compatibility imports.
+    pub mod client {
+        pub use siumai_core::compat::client::{ClientWrapper, LlmClient};
+    }
+}
 
 // Internal aliases for registry implementation (not part of the public API).
 #[allow(unused_imports)]
 pub(crate) use siumai_core::{
-    auth, client, core, defaults, embedding, execution, image, observability, params, retry,
-    retry_api, utils, video,
+    auth, compat as core_compat, core, defaults, embedding, execution, image, observability,
+    params, retry, retry_api, utils, video,
 };
 
 /// Experimental low-level APIs (advanced use only).
@@ -21,7 +28,7 @@ pub(crate) use siumai_core::{
 pub mod experimental {
     pub use siumai_core::core::*;
     pub use siumai_core::{
-        auth, client, core, defaults, execution, observability, params, retry, utils,
+        auth, compat as core_compat, core, defaults, execution, observability, params, retry, utils,
     };
 }
 

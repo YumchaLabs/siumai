@@ -1,3 +1,4 @@
+use crate::provider::catalog_ids::CatalogProviderId;
 use crate::traits::ProviderCapabilities;
 use crate::types::ProviderType;
 use std::borrow::Cow;
@@ -5,7 +6,9 @@ use std::borrow::Cow;
 /// Provider Information
 #[derive(Debug, Clone)]
 pub struct ProviderInfo {
-    /// Provider type
+    /// Canonical provider id.
+    pub provider_id: Cow<'static, str>,
+    /// Legacy compatibility classification derived from `provider_id`.
     pub provider_type: ProviderType,
     /// Provider name
     pub name: Cow<'static, str>,
@@ -47,11 +50,12 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
 
     let mut out = Vec::new();
     for rec in providers_iter {
-        let ptype = ProviderType::from_name(&rec.id);
+        let provider_id = CatalogProviderId::parse(&rec.id);
+        let provider_type = crate::provider::legacy::provider_type_for_id(&rec.id);
         #[allow(unreachable_patterns)]
-        match ptype {
+        match provider_id {
             #[cfg(feature = "openai")]
-            ProviderType::OpenAi => {
+            CatalogProviderId::OpenAi => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "openai")
@@ -72,19 +76,22 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 models.extend(openai::images::ALL.iter().copied().map(Cow::Borrowed));
                 models.extend(openai::embeddings::ALL.iter().copied().map(Cow::Borrowed));
                 models.extend(openai::moderation::ALL.iter().copied().map(Cow::Borrowed));
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url.unwrap_or("https://api.openai.com/v1"),
-                    ),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url.unwrap_or("https://api.openai.com/v1"),
+                        ),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "azure")]
-            ProviderType::Azure => {
+            CatalogProviderId::Azure => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "azure")
@@ -93,17 +100,20 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 if let Some(model) = rec.default_model.clone() {
                     models.push(Cow::Owned(model));
                 }
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(meta.default_base_url.unwrap_or("N/A")),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(meta.default_base_url.unwrap_or("N/A")),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "anthropic")]
-            ProviderType::Anthropic => {
+            CatalogProviderId::Anthropic => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "anthropic")
@@ -164,19 +174,22 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         .copied()
                         .map(Cow::Borrowed),
                 );
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url.unwrap_or("https://api.anthropic.com"),
-                    ),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url.unwrap_or("https://api.anthropic.com"),
+                        ),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "google")]
-            ProviderType::Gemini => {
+            CatalogProviderId::Gemini => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "gemini")
@@ -231,19 +244,22 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         .copied()
                         .map(Cow::Borrowed),
                 );
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        "https://generativelanguage.googleapis.com/v1beta",
-                    ),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            "https://generativelanguage.googleapis.com/v1beta",
+                        ),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "google-vertex")]
-            ProviderType::Vertex => {
+            CatalogProviderId::Vertex => {
                 use siumai_provider_google_vertex::providers::vertex::models as vertex_models;
 
                 let meta = native_metas
@@ -259,17 +275,20 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "google-vertex")]
-            ProviderType::AnthropicVertex => {
+            CatalogProviderId::AnthropicVertex => {
                 use siumai_provider_google_vertex::providers::anthropic_vertex::models as anthropic_vertex_models;
 
                 let meta = native_metas
@@ -280,17 +299,20 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 for model in anthropic_vertex_models::ALL_CHAT.iter() {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "google-vertex")]
-            ProviderType::VertexMaas => {
+            CatalogProviderId::VertexMaas => {
                 use siumai_provider_openai_compatible::providers::openai_compatible::vertex_maas as vertex_maas_models;
 
                 let meta = native_metas
@@ -308,17 +330,20 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "google-vertex")]
-            ProviderType::GoogleVertexXai => {
+            CatalogProviderId::GoogleVertexXai => {
                 use siumai_provider_openai_compatible::providers::openai_compatible::google_vertex_xai as google_vertex_xai_models;
 
                 let meta = native_metas
@@ -332,17 +357,20 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 for model in google_vertex_xai_models::ALL_CHAT.iter() {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed("https://aiplatform.googleapis.com/v1"),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "ollama")]
-            ProviderType::Ollama => {
+            CatalogProviderId::Ollama => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "ollama")
@@ -354,18 +382,21 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 for model in siumai_provider_ollama::providers::ollama::models::ALL_EMBEDDING {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url.unwrap_or("http://localhost:11434"),
-                    ),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url.unwrap_or("http://localhost:11434"),
+                        ),
+                        supported_models: models,
+                    },
+                ));
             }
-            ProviderType::DeepSeek => {
+            CatalogProviderId::DeepSeek => {
                 #[cfg(feature = "deepseek")]
                 {
                     let meta = native_metas
@@ -379,16 +410,19 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     for model in siumai_provider_deepseek::providers::deepseek::models::ALL_CHAT {
                         push_unique_model(&mut models, Cow::Borrowed(*model));
                     }
-                    out.push(ProviderInfo {
-                        provider_type: ptype,
-                        name: Cow::Borrowed(meta.name),
-                        description: Cow::Borrowed(meta.description),
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: Cow::Borrowed(
-                            meta.default_base_url.unwrap_or("https://api.deepseek.com"),
-                        ),
-                        supported_models: models,
-                    });
+                    out.push(provider_info_from_record(
+                        &rec,
+                        provider_type.clone(),
+                        ProviderInfoBody {
+                            name: Cow::Borrowed(meta.name),
+                            description: Cow::Borrowed(meta.description),
+                            capabilities: rec.capabilities.clone(),
+                            default_base_url: Cow::Borrowed(
+                                meta.default_base_url.unwrap_or("https://api.deepseek.com"),
+                            ),
+                            supported_models: models,
+                        },
+                    ));
                     continue;
                 }
                 #[cfg(all(not(feature = "deepseek"), feature = "openai"))]
@@ -406,8 +440,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                                 models.push(Cow::Borrowed(model));
                             }
                         }
-                        out.push(ProviderInfo {
-                            provider_type: ptype,
+                        out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderInfoBody {
                             name: Cow::Owned(cfg.name),
                             description: Cow::Borrowed(
                                 "OpenAI-compatible provider with DeepSeek-specific routing",
@@ -415,22 +448,25 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                             capabilities: rec.capabilities.clone(),
                             default_base_url: Cow::Owned(cfg.base_url),
                             supported_models: models,
-                        });
+                        }));
                         continue;
                     }
                 }
                 #[cfg(not(feature = "deepseek"))]
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Owned(rec.name.clone()),
-                    description: Cow::Owned(rec.id.clone()),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Owned(rec.base_url.unwrap_or_default()),
-                    supported_models: Vec::new(),
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Owned(rec.name.clone()),
+                        description: Cow::Owned(rec.id.clone()),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Owned(rec.base_url.clone().unwrap_or_default()),
+                        supported_models: Vec::new(),
+                    },
+                ));
             }
             #[cfg(feature = "deepinfra")]
-            ProviderType::DeepInfra => {
+            CatalogProviderId::DeepInfra => {
                 use siumai_provider_openai_compatible::providers::openai_compatible::deepinfra as deepinfra_models;
 
                 let meta = native_metas
@@ -451,20 +487,23 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url
-                            .unwrap_or("https://api.deepinfra.com/v1"),
-                    ),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url
+                                .unwrap_or("https://api.deepinfra.com/v1"),
+                        ),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "cohere")]
-            ProviderType::Cohere => {
+            CatalogProviderId::Cohere => {
                 use siumai_provider_cohere::providers::cohere::models as cohere_models;
 
                 let meta = native_metas
@@ -483,19 +522,22 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url.unwrap_or("https://api.cohere.com/v2"),
-                    ),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url.unwrap_or("https://api.cohere.com/v2"),
+                        ),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "togetherai")]
-            ProviderType::TogetherAi => {
+            CatalogProviderId::TogetherAi => {
                 use siumai_provider_togetherai::providers::togetherai::models as togetherai_models;
 
                 let meta = native_metas
@@ -536,20 +578,23 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url
-                            .unwrap_or("https://api.together.xyz/v1"),
-                    ),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url
+                                .unwrap_or("https://api.together.xyz/v1"),
+                        ),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "openai")]
-            ProviderType::Mistral => {
+            CatalogProviderId::Mistral => {
                 use siumai_provider_openai_compatible::providers::openai_compatible::mistral as mistral_models;
 
                 let mut models: Vec<Cow<'static, str>> = Vec::new();
@@ -564,8 +609,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(ProviderInfo {
-                    provider_type: ptype,
+                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderInfoBody {
                     name: Cow::Owned(rec.name.clone()),
                     description: Cow::Borrowed(
                         "Mistral AI provider surface via OpenAI-compatible chat and embedding endpoints",
@@ -577,10 +621,10 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                             .unwrap_or_else(|| "https://api.mistral.ai/v1".to_string()),
                     ),
                     supported_models: models,
-                });
+                }));
             }
             #[cfg(feature = "openai")]
-            ProviderType::Fireworks => {
+            CatalogProviderId::Fireworks => {
                 use siumai_provider_openai_compatible::providers::openai_compatible::fireworks as fireworks_models;
 
                 let mut models: Vec<Cow<'static, str>> = Vec::new();
@@ -598,8 +642,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(ProviderInfo {
-                    provider_type: ptype,
+                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderInfoBody {
                     name: Cow::Owned(rec.name.clone()),
                     description: Cow::Borrowed(
                         "Fireworks AI unified provider surface via OpenAI-compatible chat, completion, embedding, and transcription endpoints plus provider-owned image generation and edit workflows",
@@ -611,10 +654,10 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         }),
                     ),
                     supported_models: models,
-                });
+                }));
             }
             #[cfg(feature = "openai")]
-            ProviderType::Perplexity => {
+            CatalogProviderId::Perplexity => {
                 use siumai_provider_openai_compatible::providers::openai_compatible::perplexity as perplexity_models;
 
                 let mut models: Vec<Cow<'static, str>> = Vec::new();
@@ -625,8 +668,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(ProviderInfo {
-                    provider_type: ptype,
+                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderInfoBody {
                     name: Cow::Owned(rec.name.clone()),
                     description: Cow::Borrowed(
                         "Perplexity language models on the hosted-search OpenAI-compatible chat surface",
@@ -638,10 +680,10 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                             .unwrap_or_else(|| "https://api.perplexity.ai".to_string()),
                     ),
                     supported_models: models,
-                });
+                }));
             }
             #[cfg(feature = "bedrock")]
-            ProviderType::Bedrock => {
+            CatalogProviderId::Bedrock => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == crate::provider::ids::BEDROCK)
@@ -651,58 +693,68 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     models.push(Cow::Owned(model));
                 }
 
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(meta.default_base_url.unwrap_or("N/A")),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(meta.default_base_url.unwrap_or("N/A")),
+                        supported_models: models,
+                    },
+                ));
             }
             #[cfg(feature = "xai")]
-            ProviderType::XAI => {
+            CatalogProviderId::Xai => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "xai")
                     .expect("xAI metadata should be registered");
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url.unwrap_or("https://api.x.ai/v1"),
-                    ),
-                    supported_models: siumai_provider_xai::providers::xai::models::all_models()
-                        .into_iter()
-                        .map(Cow::Borrowed)
-                        .collect(),
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url.unwrap_or("https://api.x.ai/v1"),
+                        ),
+                        supported_models: siumai_provider_xai::providers::xai::models::all_models()
+                            .into_iter()
+                            .map(Cow::Borrowed)
+                            .collect(),
+                    },
+                ));
             }
             #[cfg(feature = "groq")]
-            ProviderType::Groq => {
+            CatalogProviderId::Groq => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "groq")
                     .expect("Groq metadata should be registered");
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url
-                            .unwrap_or("https://api.groq.com/openai/v1"),
-                    ),
-                    supported_models: siumai_provider_groq::providers::groq::models::all_models()
-                        .into_iter()
-                        .map(Cow::Borrowed)
-                        .collect(),
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url
+                                .unwrap_or("https://api.groq.com/openai/v1"),
+                        ),
+                        supported_models:
+                            siumai_provider_groq::providers::groq::models::all_models()
+                                .into_iter()
+                                .map(Cow::Borrowed)
+                                .collect(),
+                    },
+                ));
             }
             #[cfg(feature = "minimaxi")]
-            ProviderType::MiniMaxi => {
+            CatalogProviderId::MiniMaxi => {
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "minimaxi")
@@ -726,19 +778,22 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 for model in siumai_provider_minimaxi::providers::minimaxi::models::ALL_IMAGE {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Borrowed(meta.name),
-                    description: Cow::Borrowed(meta.description),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Borrowed(
-                        meta.default_base_url
-                            .unwrap_or("https://api.minimaxi.com/v1"),
-                    ),
-                    supported_models: models,
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url
+                                .unwrap_or("https://api.minimaxi.com/v1"),
+                        ),
+                        supported_models: models,
+                    },
+                ));
             }
-            ProviderType::Custom(_) => {
+            CatalogProviderId::Custom => {
                 // Treat native providers that aren't represented in `ProviderType` as built-ins
                 // when they are registered via the shared native metadata table.
                 if let Some(meta) = native_metas.iter().find(|m| m.id == rec.id) {
@@ -746,14 +801,17 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     if let Some(m) = rec.default_model.clone() {
                         models.push(Cow::Owned(m));
                     }
-                    out.push(ProviderInfo {
-                        provider_type: ProviderType::Custom(rec.id.clone()),
-                        name: Cow::Borrowed(meta.name),
-                        description: Cow::Borrowed(meta.description),
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: Cow::Borrowed(meta.default_base_url.unwrap_or("N/A")),
-                        supported_models: models,
-                    });
+                    out.push(provider_info_from_record(
+                        &rec,
+                        provider_type.clone(),
+                        ProviderInfoBody {
+                            name: Cow::Borrowed(meta.name),
+                            description: Cow::Borrowed(meta.description),
+                            capabilities: rec.capabilities.clone(),
+                            default_base_url: Cow::Borrowed(meta.default_base_url.unwrap_or("N/A")),
+                            supported_models: models,
+                        },
+                    ));
                     continue;
                 }
 
@@ -801,8 +859,11 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                             _ => {}
                         }
 
-                        out.push(ProviderInfo {
-                            provider_type: ProviderType::Custom(cfg.id),
+                        let provider_id = cfg.id;
+                        out.push(provider_info(
+                            Cow::Owned(provider_id.clone()),
+                            crate::provider::legacy::provider_type_for_id(&provider_id),
+                            ProviderInfoBody {
                             name: Cow::Owned(cfg.name),
                             description: Cow::Owned(format!(
                                 "OpenAI-compatible provider (via adapter): {}",
@@ -811,36 +872,76 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                             capabilities: rec.capabilities.clone(),
                             default_base_url: Cow::Owned(cfg.base_url),
                             supported_models: models,
-                        });
+                        }));
                         continue;
                     }
                 }
 
                 // Custom providers registered by users (or builds without OpenAI adapters).
-                out.push(ProviderInfo {
-                    provider_type: ProviderType::Custom(rec.id.clone()),
-                    name: Cow::Owned(rec.name.clone()),
-                    description: Cow::Borrowed("Custom provider"),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Owned(rec.base_url.unwrap_or_else(|| "N/A".into())),
-                    supported_models: Vec::new(),
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Owned(rec.name.clone()),
+                        description: Cow::Borrowed("Custom provider"),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Owned(
+                            rec.base_url.clone().unwrap_or_else(|| "N/A".into()),
+                        ),
+                        supported_models: Vec::new(),
+                    },
+                ));
             }
             // Generic fallback (keeps the catalog useful when provider features are disabled).
             _ => {
-                out.push(ProviderInfo {
-                    provider_type: ptype,
-                    name: Cow::Owned(rec.name),
-                    description: Cow::Owned(rec.id.clone()),
-                    capabilities: rec.capabilities.clone(),
-                    default_base_url: Cow::Owned(rec.base_url.unwrap_or_default()),
-                    supported_models: Vec::new(),
-                });
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Owned(rec.name.clone()),
+                        description: Cow::Owned(rec.id.clone()),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Owned(rec.base_url.clone().unwrap_or_default()),
+                        supported_models: Vec::new(),
+                    },
+                ));
             }
         }
     }
 
     out
+}
+
+struct ProviderInfoBody {
+    name: Cow<'static, str>,
+    description: Cow<'static, str>,
+    capabilities: ProviderCapabilities,
+    default_base_url: Cow<'static, str>,
+    supported_models: Vec<Cow<'static, str>>,
+}
+
+fn provider_info_from_record(
+    record: &crate::registry::ProviderRecord,
+    provider_type: ProviderType,
+    body: ProviderInfoBody,
+) -> ProviderInfo {
+    provider_info(Cow::Owned(record.id.clone()), provider_type, body)
+}
+
+fn provider_info(
+    provider_id: Cow<'static, str>,
+    provider_type: ProviderType,
+    body: ProviderInfoBody,
+) -> ProviderInfo {
+    ProviderInfo {
+        provider_id,
+        provider_type,
+        name: body.name,
+        description: body.description,
+        capabilities: body.capabilities,
+        default_base_url: body.default_base_url,
+        supported_models: body.supported_models,
+    }
 }
 
 /// Get provider information by provider type
@@ -852,7 +953,10 @@ pub fn get_provider_info(provider_type: &ProviderType) -> Option<ProviderInfo> {
 
 /// Get provider information by provider id (canonical id or alias-like string).
 pub fn get_provider_info_by_id(provider_id: &str) -> Option<ProviderInfo> {
-    get_provider_info(&ProviderType::from_name(provider_id))
+    let canonical_id = canonical_catalog_provider_id(provider_id);
+    get_supported_providers()
+        .into_iter()
+        .find(|info| info.provider_id.as_ref() == canonical_id)
 }
 
 /// Check if a model is supported by the provider
@@ -866,7 +970,31 @@ pub fn is_model_supported(provider_type: &ProviderType, model: &str) -> bool {
 
 /// Check if a model is supported by the provider id.
 pub fn is_model_supported_by_id(provider_id: &str, model: &str) -> bool {
-    is_model_supported(&ProviderType::from_name(provider_id), model)
+    if let Some(info) = get_provider_info_by_id(provider_id) {
+        info.supported_models.iter().any(|m| m.as_ref() == model)
+    } else {
+        false
+    }
+}
+
+fn canonical_catalog_provider_id(provider_id: &str) -> String {
+    if let Ok(guard) = crate::registry::global_registry().read()
+        && let Some(canonical_id) = guard.canonical_id(provider_id)
+    {
+        return canonical_id.to_string();
+    }
+
+    let registry = crate::registry::ProviderRegistry::with_builtin_providers();
+    if let Some(canonical_id) = registry.canonical_id(provider_id) {
+        return canonical_id.to_string();
+    }
+
+    let normalized = crate::provider::resolver::normalize_provider_id(provider_id);
+    if let Some(canonical_id) = CatalogProviderId::parse(&normalized).canonical_provider_id() {
+        canonical_id.to_string()
+    } else {
+        normalized
+    }
 }
 
 #[cfg(test)]
@@ -887,6 +1015,7 @@ mod tests {
     #[cfg(feature = "openai")]
     fn provider_catalog_lookup_by_id_works_for_openai_compatible() {
         let info = super::get_provider_info_by_id("deepseek").expect("deepseek should exist");
+        assert_eq!(info.provider_id.as_ref(), "deepseek");
         assert_eq!(info.provider_type, super::ProviderType::DeepSeek);
         assert!(
             info.supported_models
@@ -900,6 +1029,7 @@ mod tests {
     #[cfg(feature = "openai")]
     fn provider_catalog_keeps_custom_openai_compatible_variants() {
         let info = super::get_provider_info_by_id("openrouter").expect("openrouter should exist");
+        assert_eq!(info.provider_id.as_ref(), "openrouter");
         assert!(
             matches!(info.provider_type, super::ProviderType::Custom(id) if id == "openrouter")
         );
@@ -1192,6 +1322,7 @@ mod tests {
     #[cfg(feature = "azure")]
     fn provider_catalog_lookup_by_id_maps_azure_chat_to_azure_family() {
         let info = super::get_provider_info_by_id("azure-chat").expect("azure-chat should resolve");
+        assert_eq!(info.provider_id.as_ref(), "azure");
         assert_eq!(info.provider_type, super::ProviderType::Azure);
         assert_eq!(info.name.as_ref(), "Azure OpenAI");
     }
@@ -1201,11 +1332,13 @@ mod tests {
     fn provider_catalog_lookup_by_id_maps_openai_family_variants() {
         let chat =
             super::get_provider_info_by_id("openai-chat").expect("openai-chat should resolve");
+        assert_eq!(chat.provider_id.as_ref(), "openai");
         assert_eq!(chat.provider_type, super::ProviderType::OpenAi);
         assert_eq!(chat.name.as_ref(), "OpenAI");
 
         let responses = super::get_provider_info_by_id("openai-responses")
             .expect("openai-responses should resolve");
+        assert_eq!(responses.provider_id.as_ref(), "openai");
         assert_eq!(responses.provider_type, super::ProviderType::OpenAi);
         assert_eq!(responses.name.as_ref(), "OpenAI");
     }

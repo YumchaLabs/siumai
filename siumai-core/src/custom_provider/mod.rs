@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::streaming::ChatStream;
 use crate::traits::*;

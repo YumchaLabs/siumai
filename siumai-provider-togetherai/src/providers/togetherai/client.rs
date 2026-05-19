@@ -1,8 +1,8 @@
 //! `TogetherAI` rerank client.
 
 use super::config::TogetherAiConfig;
-use crate::client::LlmClient;
 use crate::core::{ProviderContext, ProviderSpec};
+use crate::core_compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::executors::rerank::{RerankExecutor, RerankExecutorBuilder};
 use crate::execution::http::interceptor::HttpInterceptor;

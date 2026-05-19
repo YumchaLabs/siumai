@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(test)]
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;

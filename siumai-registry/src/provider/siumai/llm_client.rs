@@ -1,5 +1,5 @@
 use super::Siumai;
-use crate::client::LlmClient;
+use crate::compat::client::LlmClient;
 use crate::traits::*;
 use std::borrow::Cow;
 

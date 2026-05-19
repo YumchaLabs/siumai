@@ -13,7 +13,7 @@ pub mod tools {
     pub use crate::hosted_tools::anthropic::{
         tool_search_bm25_20251119, tool_search_regex_20251119,
     };
-    pub use siumai_core::tools::anthropic::{
+    pub use siumai_protocol_anthropic::tool_catalog::anthropic::{
         bash_20241022, bash_20250124, computer_20241022, text_editor_20241022,
         text_editor_20250124, text_editor_20250429, text_editor_20250728,
     };

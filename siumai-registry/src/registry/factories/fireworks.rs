@@ -813,7 +813,7 @@ impl ModelMetadata for FireworksImageClient {
     }
 }
 
-impl crate::client::LlmClient for FireworksImageClient {
+impl crate::compat::client::LlmClient for FireworksImageClient {
     fn provider_id(&self) -> Cow<'static, str> {
         Cow::Borrowed(ids::FIREWORKS)
     }
@@ -838,7 +838,7 @@ impl crate::client::LlmClient for FireworksImageClient {
         self
     }
 
-    fn clone_box(&self) -> Box<dyn crate::client::LlmClient> {
+    fn clone_box(&self) -> Box<dyn crate::compat::client::LlmClient> {
         Box::new(self.clone())
     }
 }

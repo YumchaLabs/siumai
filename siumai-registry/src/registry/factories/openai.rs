@@ -120,87 +120,8 @@ impl ProviderFactory for OpenAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        use crate::execution::http::client::build_http_client_from_config;
-
-        // Resolve HTTP configuration and client (prefer provided client).
-        let http_config = ctx.http_config.clone().unwrap_or_default();
-        let http_client = if let Some(client) = &ctx.http_client {
-            client.clone()
-        } else {
-            build_http_client_from_config(&http_config)?
-        };
-
-        // Resolve API key: context override 鈫?environment variable.
-        let api_key = if let Some(key) = &ctx.api_key {
-            key.clone()
-        } else {
-            std::env::var("OPENAI_API_KEY").map_err(|_| {
-                LlmError::ConfigurationError(
-                    "Missing OPENAI_API_KEY or explicit api_key in BuildContext".to_string(),
-                )
-            })?
-        };
-
-        // Resolve base URL (context override 鈫?default).
-        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
-            ctx.base_url.clone(),
-            Some("OPENAI_BASE_URL"),
-            "https://api.openai.com/v1",
-        );
-
-        // Resolve common parameters (model, temperature, max_tokens, etc.).
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
-            ctx.common_params.clone(),
-            model_id,
-        );
-
-        let mode = match ctx.provider_id.as_deref() {
-            Some(crate::provider::ids::OPENAI_CHAT) => {
-                crate::registry::factory::OpenAiChatApiMode::ChatCompletions
-            }
-            // Default to Responses API for OpenAI (Vercel-aligned).
-            _ => crate::registry::factory::OpenAiChatApiMode::Responses,
-        };
-
-        // Delegate to the shared OpenAI client builder used by SiumaiBuilder.
-        match mode {
-            crate::registry::factory::OpenAiChatApiMode::Responses => {
-                crate::registry::factory::build_openai_client(
-                    api_key,
-                    base_url,
-                    http_client,
-                    common_params,
-                    http_config,
-                    None,
-                    ctx.organization.clone(),
-                    ctx.project.clone(),
-                    ctx.tracing_config.clone(),
-                    ctx.retry_options.clone(),
-                    ctx.http_interceptors.clone(),
-                    ctx.model_middlewares.clone(),
-                    ctx.http_transport.clone(),
-                )
-                .await
-            }
-            crate::registry::factory::OpenAiChatApiMode::ChatCompletions => {
-                crate::registry::factory::build_openai_chat_completions_client(
-                    api_key,
-                    base_url,
-                    http_client,
-                    common_params,
-                    http_config,
-                    None,
-                    ctx.organization.clone(),
-                    ctx.project.clone(),
-                    ctx.tracing_config.clone(),
-                    ctx.retry_options.clone(),
-                    ctx.http_interceptors.clone(),
-                    ctx.model_middlewares.clone(),
-                    ctx.http_transport.clone(),
-                )
-                .await
-            }
-        }
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
     }
 
     async fn language_model_text_with_ctx(

@@ -3854,7 +3854,7 @@ pub fn convert_responses_tool_choice(
                                     }
 
                                     if let Some(tool_type) = provider_tool.tool_type()
-                                        && let Some(t) = siumai_core::tools::openai::responses_builtin_type_for_tool_type(
+                                        && let Some(t) = crate::tool_catalog::openai::responses_builtin_type_for_tool_type(
                                             tool_type,
                                         )
                                     {
@@ -3891,7 +3891,7 @@ pub fn convert_responses_tool_choice(
             }
 
             if let Some(t) =
-                siumai_core::tools::openai::responses_builtin_type_for_choice_name(name.as_str())
+                crate::tool_catalog::openai::responses_builtin_type_for_choice_name(name.as_str())
             {
                 return Some(serde_json::json!({ "type": t }));
             }
@@ -3962,7 +3962,7 @@ mod tests {
 
     #[test]
     fn responses_tools_map_computer_use_to_preview_type() {
-        let tool = crate::tools::openai::computer_use().with_args(serde_json::json!({
+        let tool = crate::tool_catalog::openai::computer_use().with_args(serde_json::json!({
             "displayWidth": 1920,
             "displayHeight": 1080,
             "environment": "headless",
@@ -3978,7 +3978,7 @@ mod tests {
 
     #[test]
     fn responses_tools_map_code_interpreter_container_shape() {
-        let tool = crate::tools::openai::code_interpreter().with_args(serde_json::json!({
+        let tool = crate::tool_catalog::openai::code_interpreter().with_args(serde_json::json!({
             "container": { "fileIds": ["file_1", "file_2"] }
         }));
 
@@ -4014,7 +4014,7 @@ mod tests {
 
     #[test]
     fn responses_tools_map_image_generation_keys() {
-        let tool = crate::tools::openai::image_generation().with_args(serde_json::json!({
+        let tool = crate::tool_catalog::openai::image_generation().with_args(serde_json::json!({
             "background": "transparent",
             "inputFidelity": "high",
             "inputImageMask": { "fileId": "file_mask", "imageUrl": "data:image/png;base64,..." },
@@ -4049,7 +4049,7 @@ mod tests {
 
     #[test]
     fn responses_tools_map_mcp_filters_like_ai_sdk() {
-        let tool = crate::tools::openai::mcp().with_args(serde_json::json!({
+        let tool = crate::tool_catalog::openai::mcp().with_args(serde_json::json!({
             "serverLabel": "docs",
             "serverUrl": "https://example.com/mcp",
             "allowedTools": {
@@ -4092,7 +4092,7 @@ mod tests {
 
     #[test]
     fn responses_tools_map_shell_environment_like_ai_sdk() {
-        let tool = crate::tools::openai::shell().with_args(serde_json::json!({
+        let tool = crate::tool_catalog::openai::shell().with_args(serde_json::json!({
             "environment": {
                 "type": "containerAuto",
                 "fileIds": ["file_1"],
@@ -4163,7 +4163,7 @@ mod tests {
     #[test]
     fn responses_tools_map_custom_and_tool_search() {
         let tools = vec![
-            crate::tools::openai::custom("write_sql").with_args(serde_json::json!({
+            crate::tool_catalog::openai::custom("write_sql").with_args(serde_json::json!({
                 "description": "Write SQL.",
                 "format": {
                     "type": "grammar",
@@ -4171,7 +4171,7 @@ mod tests {
                     "definition": "SELECT .+"
                 }
             })),
-            crate::tools::openai::tool_search().with_args(serde_json::json!({
+            crate::tool_catalog::openai::tool_search().with_args(serde_json::json!({
                 "execution": "client",
                 "description": "Search for deferred tools",
                 "parameters": {
@@ -4217,30 +4217,34 @@ mod tests {
     #[test]
     fn responses_tools_map_xai_server_tools_to_sdk_aligned_shapes() {
         let tools = vec![
-            crate::tools::xai::web_search().with_args(serde_json::json!({
-                "allowedDomains": ["wikipedia.org"],
-                "enableImageUnderstanding": true,
-            })),
-            crate::tools::xai::x_search().with_args(serde_json::json!({
-                "allowedXHandles": ["xai"],
-                "fromDate": "2025-01-01",
-                "enableVideoUnderstanding": true,
-            })),
-            crate::tools::xai::view_image(),
-            crate::tools::xai::view_x_video(),
-            crate::tools::xai::file_search(vec!["collection_1".to_string()]).with_args(
+            crate::types::Tool::provider_defined("xai.web_search", "web_search").with_args(
+                serde_json::json!({
+                    "allowedDomains": ["wikipedia.org"],
+                    "enableImageUnderstanding": true,
+                }),
+            ),
+            crate::types::Tool::provider_defined("xai.x_search", "x_search").with_args(
+                serde_json::json!({
+                    "allowedXHandles": ["xai"],
+                    "fromDate": "2025-01-01",
+                    "enableVideoUnderstanding": true,
+                }),
+            ),
+            crate::types::Tool::provider_defined("xai.view_image", "view_image"),
+            crate::types::Tool::provider_defined("xai.view_x_video", "view_x_video"),
+            crate::types::Tool::provider_defined("xai.file_search", "file_search").with_args(
                 serde_json::json!({
                     "vectorStoreIds": ["collection_1"],
                     "maxNumResults": 5,
                 }),
             ),
-            crate::tools::xai::mcp("https://example.com/mcp").with_args(serde_json::json!({
+            crate::types::Tool::provider_defined("xai.mcp", "mcp").with_args(serde_json::json!({
                 "serverUrl": "https://example.com/mcp",
                 "serverLabel": "docs",
                 "allowedTools": ["search_docs"],
                 "authorization": "Bearer token",
             })),
-            crate::tools::xai::code_execution(),
+            crate::types::Tool::provider_defined("xai.code_execution", "code_execution"),
         ];
 
         let out = convert_tools_to_responses_format(&tools).unwrap();
@@ -4310,7 +4314,7 @@ mod tests {
     #[test]
     fn responses_tool_choice_resolves_custom_provider_tool_name() {
         let choice = crate::types::ToolChoice::tool("generateImage");
-        let tools = vec![crate::tools::openai::image_generation_named(
+        let tools = vec![crate::tool_catalog::openai::image_generation_named(
             "generateImage",
         )];
         let out = convert_responses_tool_choice(&choice, Some(&tools));
@@ -4320,7 +4324,9 @@ mod tests {
     #[test]
     fn responses_tool_choice_resolves_custom_provider_tool_name_for_computer_use() {
         let choice = crate::types::ToolChoice::tool("myComputer");
-        let tools = vec![crate::tools::openai::computer_use_named("myComputer")];
+        let tools = vec![crate::tool_catalog::openai::computer_use_named(
+            "myComputer",
+        )];
         let out = convert_responses_tool_choice(&choice, Some(&tools));
         assert_eq!(
             out,
@@ -4331,7 +4337,7 @@ mod tests {
     #[test]
     fn responses_tool_choice_resolves_openai_custom_provider_tool_name() {
         let choice = crate::types::ToolChoice::tool("write_sql");
-        let tools = vec![crate::tools::openai::custom("write_sql")];
+        let tools = vec![crate::tool_catalog::openai::custom("write_sql")];
         let out = convert_responses_tool_choice(&choice, Some(&tools));
         assert_eq!(
             out,
@@ -4342,7 +4348,10 @@ mod tests {
     #[test]
     fn responses_tool_choice_drops_xai_server_side_tools() {
         let choice = crate::types::ToolChoice::tool("web_search");
-        let tools = vec![crate::tools::xai::web_search()];
+        let tools = vec![crate::types::Tool::provider_defined(
+            "xai.web_search",
+            "web_search",
+        )];
         let out = convert_responses_tool_choice(&choice, Some(&tools));
         assert_eq!(out, None);
     }
