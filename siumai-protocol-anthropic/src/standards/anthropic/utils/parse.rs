@@ -2,8 +2,9 @@ use super::*;
 use crate::provider_metadata::anthropic::AnthropicSource;
 use crate::standards::anthropic::params::AnthropicParams;
 use crate::standards::anthropic::streaming::AnthropicCitationDocument;
-use crate::types::SourcePart;
 use std::collections::HashMap;
+
+mod response_content;
 
 pub fn parse_response_content(content_blocks: &[AnthropicContentBlock]) -> MessageContent {
     // Find the first text block (skip thinking blocks for main content)
@@ -30,7 +31,7 @@ fn next_anthropic_source_id(index: &mut usize) -> String {
 fn anthropic_part_provider_metadata(
     value: serde_json::Value,
 ) -> Option<HashMap<String, serde_json::Value>> {
-    Some(HashMap::from([("anthropic".to_string(), value)]))
+    response_content::anthropic_provider_metadata(value)
 }
 
 fn create_citation_source_part(
@@ -68,14 +69,12 @@ fn create_citation_source_part(
             let provider_meta = serde_json::Value::Object(provider_meta);
 
             Some((
-                crate::types::ContentPart::Source {
-                    id: id.clone(),
-                    source: SourcePart::Url {
-                        url: url.to_string(),
-                        title: title.clone(),
-                    },
-                    provider_metadata: anthropic_part_provider_metadata(provider_meta.clone()),
-                },
+                response_content::source_url(
+                    id.clone(),
+                    url.to_string(),
+                    title.clone(),
+                    anthropic_part_provider_metadata(provider_meta.clone()),
+                ),
                 AnthropicSource {
                     id,
                     source_type: "url".to_string(),
@@ -119,15 +118,13 @@ fn create_citation_source_part(
             };
 
             Some((
-                crate::types::ContentPart::Source {
-                    id: id.clone(),
-                    source: SourcePart::Document {
-                        media_type: document.media_type.clone(),
-                        title: title.clone(),
-                        filename: document.filename.clone(),
-                    },
-                    provider_metadata: anthropic_part_provider_metadata(provider_meta.clone()),
-                },
+                response_content::source_document(
+                    id.clone(),
+                    document.media_type.clone(),
+                    title.clone(),
+                    document.filename.clone(),
+                    anthropic_part_provider_metadata(provider_meta.clone()),
+                ),
                 AnthropicSource {
                     id,
                     source_type: "document".to_string(),
@@ -176,14 +173,12 @@ fn create_web_search_source_part(
     let id = next_anthropic_source_id(next_source_index);
 
     Some((
-        crate::types::ContentPart::Source {
-            id: id.clone(),
-            source: SourcePart::Url {
-                url: url.to_string(),
-                title: title.clone(),
-            },
-            provider_metadata: anthropic_part_provider_metadata(provider_meta),
-        },
+        response_content::source_url(
+            id.clone(),
+            url.to_string(),
+            title.clone(),
+            anthropic_part_provider_metadata(provider_meta),
+        ),
         AnthropicSource {
             id,
             source_type: "url".to_string(),
@@ -227,7 +222,6 @@ pub(crate) fn parse_response_content_and_tools_with_context_and_params(
     citation_documents: &[AnthropicCitationDocument],
     params: &AnthropicParams,
 ) -> ParsedAnthropicResponseContent {
-    use crate::types::ContentPart;
     use crate::types::ToolResultOutput;
 
     let mut parts = Vec::new();
@@ -235,77 +229,39 @@ pub(crate) fn parse_response_content_and_tools_with_context_and_params(
     let mut next_source_index = 0usize;
     let mut tool_names_by_id: HashMap<String, String> = HashMap::new();
 
-    fn text_part_provider_metadata(
-        citations: Option<&Vec<serde_json::Value>>,
-    ) -> Option<HashMap<String, serde_json::Value>> {
-        let citations = citations.filter(|citations| !citations.is_empty())?;
-        Some(HashMap::from([(
-            "anthropic".to_string(),
-            serde_json::json!({
-                "citations": citations
-            }),
-        )]))
-    }
-
-    fn reasoning_part_provider_metadata(
-        signature: Option<&str>,
-        redacted_data: Option<&str>,
-    ) -> Option<HashMap<String, serde_json::Value>> {
-        let mut anthropic = serde_json::Map::new();
-
-        if let Some(signature) = signature {
-            anthropic.insert("signature".to_string(), serde_json::json!(signature));
-        }
-        if let Some(redacted_data) = redacted_data {
-            anthropic.insert("redactedData".to_string(), serde_json::json!(redacted_data));
-        }
-
-        (!anthropic.is_empty()).then(|| {
-            HashMap::from([(
-                "anthropic".to_string(),
-                serde_json::Value::Object(anthropic),
-            )])
-        })
-    }
-
     for content_block in content_blocks {
         match content_block.r#type.as_str() {
             "thinking" => {
                 let text = content_block.thinking.clone().unwrap_or_default();
-                let provider_metadata =
-                    reasoning_part_provider_metadata(content_block.signature.as_deref(), None);
+                let provider_metadata = response_content::reasoning_part_provider_metadata(
+                    content_block.signature.as_deref(),
+                    None,
+                );
 
                 if !text.is_empty() || provider_metadata.is_some() {
-                    parts.push(ContentPart::Reasoning {
-                        text,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
-                        provider_metadata,
-                    });
+                    parts.push(response_content::reasoning(text, provider_metadata));
                 }
             }
             "redacted_thinking" => {
-                let provider_metadata =
-                    reasoning_part_provider_metadata(None, content_block.data.as_deref());
+                let provider_metadata = response_content::reasoning_part_provider_metadata(
+                    None,
+                    content_block.data.as_deref(),
+                );
 
                 if provider_metadata.is_some() {
-                    parts.push(ContentPart::Reasoning {
-                        text: String::new(),
-                        provider_options: crate::types::ProviderOptionsMap::default(),
+                    parts.push(response_content::reasoning(
+                        String::new(),
                         provider_metadata,
-                    });
+                    ));
                 }
             }
             "text" => {
                 let text = content_block.text.clone().unwrap_or_default();
                 let provider_metadata =
-                    text_part_provider_metadata(content_block.citations.as_ref());
+                    response_content::text_part_provider_metadata(content_block.citations.as_ref());
 
                 if !text.is_empty() || provider_metadata.is_some() {
-                    parts.push(ContentPart::Text {
-                        text,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
-                        provider_metadata,
-                    });
+                    parts.push(response_content::text(text, provider_metadata));
                 }
 
                 if let Some(citations) = content_block.citations.as_ref() {
@@ -327,30 +283,23 @@ pub(crate) fn parse_response_content_and_tools_with_context_and_params(
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
                     tool_names_by_id.insert(id.clone(), name.clone());
-                    let provider_metadata = content_block.caller.as_ref().map(|caller| {
+                    let provider_metadata = content_block.caller.as_ref().and_then(|caller| {
                         let mut anthropic = serde_json::Map::new();
                         anthropic.insert("caller".to_string(), caller.clone());
 
-                        let mut all = HashMap::new();
-                        all.insert(
-                            "anthropic".to_string(),
-                            serde_json::Value::Object(anthropic),
-                        );
-                        all
+                        response_content::anthropic_provider_metadata(serde_json::Value::Object(
+                            anthropic,
+                        ))
                     });
 
-                    parts.push(ContentPart::ToolCall {
-                        tool_call_id: id.clone(),
-                        tool_name: name.clone(),
-                        arguments: input.clone(),
-                        provider_executed: None,
-                        dynamic: None,
-                        invalid: None,
-                        error: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
+                    parts.push(response_content::tool_call(
+                        id.clone(),
+                        name.clone(),
+                        input.clone(),
+                        None,
+                        None,
                         provider_metadata,
-                    });
+                    ));
                 }
             }
             "server_tool_use" => {
@@ -378,27 +327,20 @@ pub(crate) fn parse_response_content_and_tools_with_context_and_params(
                             serde_json::Value::String(raw_tool_name.clone()),
                         );
                     }
-                    let provider_metadata = (!anthropic_meta.is_empty()).then(|| {
-                        HashMap::from([(
-                            "anthropic".to_string(),
-                            serde_json::Value::Object(anthropic_meta),
-                        )])
-                    });
+                    let provider_metadata = (!anthropic_meta.is_empty())
+                        .then(|| serde_json::Value::Object(anthropic_meta))
+                        .and_then(response_content::anthropic_provider_metadata);
 
-                    parts.push(ContentPart::ToolCall {
-                        tool_call_id: id.clone(),
+                    parts.push(response_content::tool_call(
+                        id.clone(),
                         tool_name,
-                        arguments: input,
-                        provider_executed: Some(true),
-                        dynamic: (params.should_mark_code_execution_dynamic()
+                        input,
+                        Some(true),
+                        (params.should_mark_code_execution_dynamic()
                             && raw_tool_name == "code_execution")
                             .then_some(true),
-                        invalid: None,
-                        error: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
-                    });
+                    ));
                 }
             }
             "mcp_tool_use" => {
@@ -407,26 +349,20 @@ pub(crate) fn parse_response_content_and_tools_with_context_and_params(
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
                     tool_names_by_id.insert(id.clone(), name.clone());
-                    let provider_metadata = content_block.server_name.as_ref().map(|server_name| {
-                        HashMap::from([(
-                            "anthropic".to_string(),
-                            serde_json::json!({
+                    let provider_metadata =
+                        content_block.server_name.as_ref().and_then(|server_name| {
+                            response_content::anthropic_provider_metadata(serde_json::json!({
                                 "serverName": server_name
-                            }),
-                        )])
-                    });
-                    parts.push(ContentPart::ToolCall {
-                        tool_call_id: id.clone(),
-                        tool_name: name.clone(),
-                        arguments: input.clone(),
-                        provider_executed: Some(true),
-                        dynamic: None,
-                        invalid: None,
-                        error: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
+                            }))
+                        });
+                    parts.push(response_content::tool_call(
+                        id.clone(),
+                        name.clone(),
+                        input.clone(),
+                        Some(true),
+                        None,
                         provider_metadata,
-                    });
+                    ));
                 }
             }
             block_type if block_type.ends_with("_tool_result") => {
@@ -458,10 +394,7 @@ pub(crate) fn parse_response_content_and_tools_with_context_and_params(
                             if t == "text"
                                 && let Some(text) = obj.get("text").and_then(|v| v.as_str())
                             {
-                                out_parts.push(crate::types::ToolResultContentPart::Text {
-                                    text: text.to_string(),
-                                    provider_options: crate::types::ProviderOptionsMap::default(),
-                                });
+                                out_parts.push(response_content::tool_result_text_part(text));
                             }
                         }
                     }
@@ -493,18 +426,15 @@ pub(crate) fn parse_response_content_and_tools_with_context_and_params(
                     }
                 };
 
-                parts.push(ContentPart::ToolResult {
-                    tool_call_id: tool_use_id.clone(),
+                parts.push(response_content::tool_result(
+                    tool_use_id.clone(),
                     tool_name,
                     output,
-                    input: None,
-                    provider_executed: Some(true),
-                    dynamic: None,
-                    preliminary: None,
-                    title: None,
-                    provider_options: crate::types::ProviderOptionsMap::default(),
-                    provider_metadata: None,
-                });
+                    None,
+                    Some(true),
+                    None,
+                    None,
+                ));
 
                 if block_type == "web_search_tool_result"
                     && let Some(items) = content.as_array()
@@ -524,20 +454,7 @@ pub(crate) fn parse_response_content_and_tools_with_context_and_params(
     }
 
     // Return appropriate content type
-    let content = if parts.is_empty() {
-        MessageContent::Text(String::new())
-    } else if let [
-        ContentPart::Text {
-            text,
-            provider_metadata: None,
-            ..
-        },
-    ] = parts.as_slice()
-    {
-        MessageContent::Text(text.clone())
-    } else {
-        MessageContent::MultiModal(parts)
-    };
+    let content = response_content::message_content_from_parts(parts);
 
     ParsedAnthropicResponseContent { content, sources }
 }
@@ -666,7 +583,7 @@ mod tests {
     fn parse_response_content_source() -> &'static str {
         let source = include_str!("parse.rs");
         let (_, after_start) = source
-            .split_once("pub(crate) fn parse_response_content_and_tools_with_context_and_params(")
+            .split_once("mod response_content;")
             .expect("parse response content start marker should exist");
         let (section, _) = after_start
             .split_once("pub fn extract_thinking_content(")
@@ -674,9 +591,14 @@ mod tests {
         section
     }
 
+    fn response_content_source() -> &'static str {
+        include_str!("parse/response_content.rs")
+    }
+
     #[test]
     fn anthropic_parse_response_content_source_does_not_emit_request_provider_options() {
         let source = parse_response_content_source();
+        let adapter_source = response_content_source();
 
         assert!(
             !source.contains("providerOptions"),
@@ -690,15 +612,76 @@ mod tests {
             !source.contains("provider_options_map"),
             "Anthropic response parsing must not read request provider option maps"
         );
+        assert!(
+            !adapter_source.contains("providerOptions"),
+            "Anthropic response content adapter must not emit request-side providerOptions"
+        );
+        assert!(
+            !adapter_source.contains(".provider_options"),
+            "Anthropic response content adapter must not read request provider_options fields"
+        );
+        assert!(
+            !adapter_source.contains("provider_options_map"),
+            "Anthropic response content adapter must not read request provider option maps"
+        );
 
         for line in source
             .lines()
+            .chain(adapter_source.lines())
             .filter(|line| line.contains("provider_options"))
         {
+            let trimmed = line.trim();
             assert!(
-                line.contains("ProviderOptionsMap::default()"),
+                trimmed == "provider_options: ProviderOptionsMap::default(),"
+                    || trimmed == "provider_options,"
+                    || trimmed.contains("provider_options.is_empty()"),
                 "Anthropic response ContentPart provider_options must stay empty defaults: {line}"
             );
+        }
+    }
+
+    #[test]
+    fn anthropic_parse_response_content_delegates_legacy_construction_to_adapter() {
+        let source = parse_response_content_source();
+
+        assert!(
+            source.contains("response_content::"),
+            "Anthropic response parsing must delegate legacy ContentPart construction to response_content"
+        );
+
+        for forbidden in [
+            "ContentPart::Text {",
+            "ContentPart::Reasoning {",
+            "ContentPart::Source {",
+            "ContentPart::ToolCall {",
+            "ContentPart::ToolResult {",
+            "ToolResultContentPart::Text {",
+            "MessageContent::MultiModal(parts)",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "Anthropic response parsing should not construct legacy content directly; use response_content adapter instead of {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn anthropic_parse_response_content_does_not_force_generated_output_projection() {
+        let source = parse_response_content_source();
+        let adapter_source = response_content_source();
+
+        for source in [source, adapter_source] {
+            for forbidden in [
+                "GenerateTextContentPart",
+                "project_chat_response_to_generate_text_content_parts",
+                "project_response_content_to_generate_text_content_parts",
+                "project_response_content_part_to_generate_text_content_part",
+            ] {
+                assert!(
+                    !source.contains(forbidden),
+                    "Anthropic response parsing must not call generated-output projection helper `{forbidden}` directly"
+                );
+            }
         }
     }
 

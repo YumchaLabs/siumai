@@ -172,6 +172,75 @@ Broader gates not run:
   Responses transformer tests/docs and did not change production projection logic.
 - Anthropic/Gemini/bridge gates: intentionally deferred to PRG-040, PRG-050, and PRG-060.
 
+### 2026-05-19 — PRG-040 Anthropic response adapter proof
+
+Changed files:
+
+- `siumai-protocol-anthropic/src/standards/anthropic/utils/parse.rs`
+- `siumai-protocol-anthropic/src/standards/anthropic/utils/parse/response_content.rs`
+
+Implementation evidence:
+
+- Added parser-local `response_content` adapter module for Anthropic response compatibility
+  payloads.
+- Moved Anthropic response-owned legacy `ContentPart` and `ToolResultContentPart` construction
+  behind named helpers:
+  - text and thinking/reasoning parts;
+  - URL/document source parts for citations and web-search result attribution;
+  - user tool, server tool, MCP tool call parts;
+  - provider-executed tool result parts.
+- Kept Anthropic-specific metadata response-side:
+  - text block citations remain under `provider_metadata["anthropic"]["citations"]`;
+  - citation/source metadata stays on source parts and the separate `AnthropicSource` list;
+  - server tool names, callers, and MCP server names remain Anthropic provider metadata;
+  - request-side `provider_options` are initialized only as empty compatibility defaults.
+- Added source guards:
+  - parser code delegates legacy content construction to `response_content`;
+  - parser and adapter do not emit/read request provider options beyond empty defaults;
+  - parser and adapter do not call generated-output projection helpers directly.
+
+Fresh verification:
+
+```text
+cargo fmt --check -p siumai-protocol-anthropic
+```
+
+Result: PASS. Formatting is clean for the touched Anthropic package.
+
+```text
+cargo nextest run -p siumai-protocol-anthropic --no-default-features --features anthropic-standard anthropic_parse_response_content_source_does_not_emit_request_provider_options --no-fail-fast
+```
+
+Result: PASS. 1 test passed. This verifies the PRG-040 directionality guard.
+
+```text
+cargo nextest run -p siumai-protocol-anthropic --no-default-features --features anthropic-standard anthropic_parse_response_content --no-fail-fast
+```
+
+Result: PASS. 3 source-guard tests passed. This verifies delegation to the adapter, request option
+hygiene, and no forced generated-output projection.
+
+```text
+cargo nextest run -p siumai-protocol-anthropic --no-default-features --features anthropic-standard standards::anthropic::utils::parse::tests --no-fail-fast
+```
+
+Result: PASS. 16 tests passed. This covers the touched Anthropic response parser behavior tests,
+including citations, document sources, web-search source attribution, server tools, MCP metadata,
+tool-result normalization, dynamic code execution marking, and usage parsing.
+
+```text
+cargo check -p siumai-protocol-anthropic --no-default-features --features anthropic-standard
+```
+
+Result: PASS. Touched Anthropic package compiles under the PRG-040 feature set.
+
+Broader gates not run:
+
+- Full `siumai-protocol-anthropic` package matrix: skipped because PRG-040 changed only the
+  Anthropic parse utility response-content construction seam; targeted parse tests and package
+  check were run.
+- Gemini and bridge gates: intentionally deferred to PRG-050 and PRG-060.
+
 ## Planned Gates
 
 ### PRG-010 — Workstream planning

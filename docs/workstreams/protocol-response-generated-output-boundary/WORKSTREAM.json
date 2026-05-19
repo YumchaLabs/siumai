@@ -42,9 +42,9 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": null,
-  "next_task": "PRG-040",
+  "next_task": "PRG-050",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "PRG-020 and PRG-030 are complete. Continue with PRG-040 to apply or adapt the response-adapter pattern for Anthropic before touching Gemini, bridge, or provider-owned parser paths."
+    "notes": "PRG-020, PRG-030, and PRG-040 are complete. Continue with PRG-050 to evaluate Gemini response parsing before touching bridge or provider-owned parser paths."
   }
 }

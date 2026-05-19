@@ -41,6 +41,15 @@ PRG-030 is complete:
   approval requests and output-only hosted tool results are rejected rather than forced through a
   lossy projection.
 
+PRG-040 is complete:
+
+- `siumai-protocol-anthropic/src/standards/anthropic/utils/parse/response_content.rs` now owns
+  Anthropic response-side legacy content compatibility constructors.
+- `parse.rs` delegates response content construction to the local adapter while preserving
+  Anthropic-specific citation/source/tool-use metadata behavior.
+- Source guards cover legacy-construction delegation, empty request-provider-option defaults, and
+  no direct generated-output projection.
+
 ## Active Decision
 
 Do not force protocol response parsers through `GenerateTextContentPart` until lossiness is proven.
@@ -53,26 +62,26 @@ Instead, first extract parser-local response compatibility adapters that:
 
 ## Last Completed Task
 
-PRG-030:
+PRG-040:
 
 - Status: DONE.
 - Scope:
-  `siumai-protocol-openai/src/standards/openai/transformers/response`
+  `siumai-protocol-anthropic/src/standards/anthropic/utils/parse.rs`
 - Result:
-  Classified OpenAI Responses generated-output lossiness and added projection-boundary guards.
+  Applied the parser-local response adapter pattern to Anthropic response parsing.
 
 ## Next Executable Task
 
-PRG-040:
+PRG-050:
 
 - Scope:
-  `siumai-protocol-anthropic/src/standards/anthropic/utils/parse.rs`
+  `siumai-protocol-gemini/src/standards/gemini/transformers/response.rs`
 - Goal:
-  Apply the response-adapter pattern to Anthropic response parsing or document why Anthropic
-  citations/tool-use require a different adapter shape.
+  Evaluate Gemini response parsing against the adapter pattern and either migrate a narrow helper
+  or record it as already sufficiently guarded.
 - Important constraint:
-  Keep citation/source metadata provider-owned and response-side; avoid creating a generic
-  catch-all adapter if Anthropic needs a provider-specific shape.
+  Keep grounding, URL context, safety metadata, and response-side provider metadata out of
+  request-side provider options.
 
 ## Blockers
 
@@ -88,7 +97,7 @@ None known.
 
 ## Next Recommended Action
 
-Run PRG-040 with `run-workstream-task`. Start with a narrow Anthropic parser scan and either extract
-a parser-local response compatibility adapter or record a documented provider-specific exception.
-Do not start Gemini or bridge migration until the Anthropic proof is recorded or intentionally
+Run PRG-050 with `run-workstream-task`. Start with a narrow Gemini response parser audit; if Gemini
+already has a named response boundary and source guards, record a no-op decision instead of
+inventing an adapter. Do not start bridge migration until Gemini is recorded or intentionally
 deferred.

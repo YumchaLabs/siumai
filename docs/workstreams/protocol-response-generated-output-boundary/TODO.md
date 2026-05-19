@@ -53,16 +53,19 @@ Status legend:
 
 ## M2 — Second Provider Proof
 
-- [ ] PRG-040 [owner=unassigned] [deps=PRG-020] [scope=siumai-protocol-anthropic/src/standards/anthropic/utils/parse.rs]
+- [x] PRG-040 [owner=codex] [deps=PRG-020] [scope=siumai-protocol-anthropic/src/standards/anthropic/utils/parse.rs]
   Goal: Apply the response-adapter pattern to Anthropic response parsing or document why Anthropic
   citations/tool-use require a different adapter shape.
   Validation:
   `cargo fmt --check -p siumai-protocol-anthropic`;
   `cargo nextest run -p siumai-protocol-anthropic --no-default-features --features anthropic-standard anthropic_parse_response_content_source_does_not_emit_request_provider_options --no-fail-fast`.
-  Review: ensure citation/source metadata stays provider-owned and response-side.
-  Evidence: `EVIDENCE_AND_GATES.md`.
-  Handoff: If Anthropic needs source-specific helpers, name them explicitly instead of creating a
-  generic catch-all adapter.
+  Review: completed; parser-local `response_content` adapter owns legacy response constructors,
+  source guards cover delegation, request-provider-options hygiene, and no forced generated-output
+  projection.
+  Evidence: `EVIDENCE_AND_GATES.md`; targeted Anthropic parse tests preserve text citations,
+  document sources, web-search sources, MCP/server tool metadata, and provider-executed tool parts.
+  Handoff: PRG-050 should evaluate Gemini response parsing against the same named-adapter/source
+  guard pattern; a documented no-op is acceptable if Gemini is already sufficiently guarded.
 
 - [ ] PRG-050 [owner=unassigned] [deps=PRG-020] [scope=siumai-protocol-gemini/src/standards/gemini/transformers/response.rs]
   Goal: Evaluate Gemini response parsing against the adapter pattern and either migrate a narrow
