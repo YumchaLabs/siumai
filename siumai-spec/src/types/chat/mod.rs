@@ -25,3 +25,12 @@ pub use ui::{
     UiToolApprovedApproval, UiToolDeniedApproval, UiToolInvocation, UiToolInvocationState,
     UiToolKind, UiToolPart, UiToolPartState,
 };
+
+/// Explicit compatibility namespace for legacy chat content payloads.
+///
+/// Prefer prompt/model-message parts for new request code and generated-output parts for new
+/// response code. Use this module when source compatibility or serde-facing legacy chat payloads
+/// require `ContentPart` / `MessageContent`.
+pub mod compat {
+    pub use super::content::compat::*;
+}

@@ -82,3 +82,13 @@ pub mod builder {
 pub mod client {
     pub use siumai_core::compat::client::{ClientWrapper, LlmClient};
 }
+
+/// Legacy chat content payloads.
+///
+/// Prefer `siumai::prelude::unified::{ModelMessage, UserContentPart, AssistantContentPart,
+/// ToolContentPart}` for request input and `GenerateTextContentPart` / output-part carriers for
+/// response output. Use this module when migration code intentionally needs the serde-compatible
+/// legacy `ContentPart` carrier.
+pub mod content {
+    pub use siumai_core::compat::content::*;
+}

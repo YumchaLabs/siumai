@@ -74,7 +74,9 @@ below. This keeps the audit from becoming stale while the legacy dual-use carrie
 | `siumai-core/src/execution/middleware/auto.rs` | provider-agnostic middleware wiring | `automatic_middleware_source_stays_provider_agnostic` keeps automatic middleware selection from hard-coding concrete providers or models and passes the configured provider option namespace into request warning middleware |
 | `siumai-core/src/execution/executors/files.rs` | provider-agnostic files HTTP executor | `files_executor_upload_path_stays_provider_agnostic` keeps concrete provider literals and response metadata out of the core upload runtime |
 | `siumai-bridge/src/request/*` | protocol-body to `ChatRequest` request normalization | request normalization guards reject legacy provider metadata reads and centralize request constructors |
+| `siumai-bridge/src/request/legacy_content.rs` | request-side bridge compatibility constructors for legacy `ContentPart` | helper centralizes request `provider_options` projection and initializes response `provider_metadata` as empty for every legacy carrier |
 | `siumai-bridge/src/request/normalize.rs` | protocol-body to `ChatRequest` request normalization implementation | covered by bridge request normalization guards |
+| `siumai-bridge/src/request/normalize/gemini_generate_content.rs` | Gemini GenerateContent request normalizer | parses protocol request parts through the bridge request helper and only pattern-matches legacy `ContentPart` variants for role classification |
 | `siumai-bridge/src/request/primitives.rs` | request-side bridge primitive helpers | covered by bridge request normalization guards |
 | `siumai-bridge/src/request/pairs/*` | direct cross-protocol request bridge pairs | `request_bridge_pair_sources_do_not_read_legacy_provider_metadata` keeps OpenAI Responses ↔ Anthropic Messages pair bridges request-side |
 | `siumai-bridge/src/request/pairs/anthropic_messages_to_openai_responses.rs` | Anthropic Messages to OpenAI Responses request bridge pair | `request_bridge_pair_sources_do_not_read_legacy_provider_metadata` |
@@ -258,12 +260,14 @@ of introducing another `GeneratedContentPart` family:
 - `GenerateTextStepReasoningPart` is a documented cross-step replay exception: it converts response
   metadata into request-side provider options for the next step and is not the final generated
   content projection.
-- `project_response_content_part_to_generate_text_content_part`,
+- `siumai-spec/src/types/ai_sdk/response_compat_projection.rs` now owns
+  `project_response_content_part_to_generate_text_content_part`,
   `project_response_content_to_generate_text_content_parts`, and
-  `project_chat_response_to_generate_text_content_parts` provide the first fallible migration path
-  for response-owned legacy content. They only map lossless response-side subsets and reject
-  ambiguous legacy carriers such as `Image`, `Audio`, URL-backed generated files, tool approval
-  parts without the original tool call, and tool results without original input.
+  `project_chat_response_to_generate_text_content_parts`. This named response compatibility adapter
+  provides the first fallible migration path for response-owned legacy content. It only maps
+  lossless response-side subsets and rejects ambiguous legacy carriers such as `Image`, `Audio`,
+  URL-backed generated files, tool approval parts without the original tool call, and tool results
+  without original input.
 
 ## Next Slice
 

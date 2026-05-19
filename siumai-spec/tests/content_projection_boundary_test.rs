@@ -288,6 +288,7 @@ fn non_v4_prompt_projection_types_keep_provider_maps_directional() {
 fn non_v4_generate_text_output_projection_keeps_provider_maps_directional() {
     let generate_text_source = read_source("src/types/ai_sdk/generate_text.rs");
     let output_parts_source = read_source("src/types/ai_sdk/output_parts.rs");
+    let response_adapter_source = read_source("src/types/ai_sdk/response_compat_projection.rs");
 
     for (source, item) in [
         (&generate_text_source, "GenerateTextContentPart"),
@@ -332,14 +333,31 @@ fn non_v4_generate_text_output_projection_keeps_provider_maps_directional() {
     }
 
     assert!(
-        generate_text_source
+        response_adapter_source
             .contains("pub fn project_response_content_part_to_generate_text_content_part"),
-        "non-V4 response projection should expose a named ContentPart -> GenerateTextContentPart helper"
+        "non-V4 response projection should expose a named ContentPart -> GenerateTextContentPart helper from the response compatibility adapter"
     );
     assert!(
-        generate_text_source
+        response_adapter_source
             .contains("pub fn project_chat_response_to_generate_text_content_parts"),
-        "non-V4 response projection should expose a named ChatResponse -> GenerateTextContentPart helper"
+        "non-V4 response projection should expose a named ChatResponse -> GenerateTextContentPart helper from the response compatibility adapter"
+    );
+    assert!(
+        generate_text_source.contains("pub enum GenerateTextContentPart")
+            && !generate_text_source.contains("ContentPart::Text")
+            && !generate_text_source.contains("ContentPart::ToolResult"),
+        "generate_text.rs should own generated-output shapes, not legacy ContentPart response mapping"
+    );
+    assert!(
+        response_adapter_source.contains("ignores request options")
+            && response_adapter_source.contains("provider_metadata")
+            && response_adapter_source.contains("ContentPart::ToolResult"),
+        "response compatibility adapter should document and own legacy ContentPart response mapping"
+    );
+    assert!(
+        response_adapter_source.contains("providerOptions")
+            && !response_adapter_source.contains("provider_options:"),
+        "response compatibility adapter may document/request-ignore providerOptions, but must not construct request provider_options fields"
     );
 }
 

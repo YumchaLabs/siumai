@@ -93,6 +93,18 @@ pub mod tools;
 pub mod usage;
 pub mod video;
 
+/// Explicit compatibility namespace for legacy spec-level carriers.
+///
+/// This namespace is for migration and serde-facing compatibility payloads that intentionally keep
+/// older broad shapes. New request code should use prompt/model-message parts, and new response code
+/// should use generated-output parts.
+pub mod compat {
+    /// Legacy chat content carriers.
+    pub mod content {
+        pub use super::super::chat::compat::*;
+    }
+}
+
 // Re-export all types for convenience
 pub use ai_sdk::*;
 pub use audio::*;

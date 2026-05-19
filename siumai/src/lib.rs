@@ -625,29 +625,29 @@ pub mod prelude {
             ChatRequestOptions, ChatResponse, ChatState, ChatStatus,
             ChatTransportReconnectToStreamOptions, ChatTransportSendMessagesOptions,
             ChatTransportTrigger, CommonParams, CompletionRequest, CompletionRequestOptions,
-            CompletionResponse, CompletionStreamProtocol, CompletionTokensDetails, ContentPart,
-            Context, CreateUIMessage, CustomContentUIPart, CustomOutput, CustomPart,
-            CustomProviderOptions, DataContent, DataUIMessageChunk, DataUIPart,
-            DefaultGeneratedAudioFile, DefaultGeneratedAudioFileWithType, DefaultGeneratedFile,
-            DefaultGeneratedFileWithType, DefaultStepResult, DownloadError, DynamicToolCall,
-            DynamicToolError, DynamicToolResult, DynamicToolUIPart, EmbedEndEvent, EmbedManyResult,
-            EmbedOutput, EmbedResponseData, EmbedResult, EmbedStartEvent, EmbedValue, Embedding,
-            EmbeddingModelCallEndEvent, EmbeddingModelCallStartEvent, EmbeddingModelUsage,
-            EmbeddingRequest, EmbeddingResponse, EmbeddingTaskType, EmptyResponseBodyError,
-            FileOutput, FilePart, FilePartSource, FileUIPart, FinishReason, FlexibleSchema,
-            GenerateImagePrompt, GenerateImageRequest, GenerateImageResult, GenerateObjectEndEvent,
-            GenerateObjectOutputStrategy, GenerateObjectResponseMetadata, GenerateObjectStartEvent,
-            GenerateObjectStepEndEvent, GenerateObjectStepStartEvent, GenerateTextContentPart,
-            GenerateTextEndEvent, GenerateTextModelInfo, GenerateTextReasoningPart,
-            GenerateTextResponseMetadata, GenerateTextResult, GenerateTextStartEvent,
-            GenerateTextStepEndEvent, GenerateTextStepReasoningPart, GenerateTextStepResult,
-            GenerateTextStepStartEvent, GenerateVideoResult, GeneratedAudioFile, GeneratedFile,
-            GeneratedImage, HttpChatTransportInitOptions, HttpConfig, ImageDetail,
-            ImageGenerationRequest, ImageGenerationResponse, ImageModelProviderMetadata,
-            ImageModelResponseMetadata, ImageModelUsage, ImagePart, InferUIDataParts,
-            InferUIMessageChunk, InferUIMessageData, InferUIMessageMetadata, InferUIMessagePart,
-            InferUIMessageToolCall, InferUIMessageToolOutputs, InferUIMessageTools, InferUITool,
-            InferUITools, InvalidArgumentError, InvalidDataContentError, InvalidMessageRoleError,
+            CompletionResponse, CompletionStreamProtocol, CompletionTokensDetails, Context,
+            CreateUIMessage, CustomContentUIPart, CustomOutput, CustomPart, CustomProviderOptions,
+            DataContent, DataUIMessageChunk, DataUIPart, DefaultGeneratedAudioFile,
+            DefaultGeneratedAudioFileWithType, DefaultGeneratedFile, DefaultGeneratedFileWithType,
+            DefaultStepResult, DownloadError, DynamicToolCall, DynamicToolError, DynamicToolResult,
+            DynamicToolUIPart, EmbedEndEvent, EmbedManyResult, EmbedOutput, EmbedResponseData,
+            EmbedResult, EmbedStartEvent, EmbedValue, Embedding, EmbeddingModelCallEndEvent,
+            EmbeddingModelCallStartEvent, EmbeddingModelUsage, EmbeddingRequest, EmbeddingResponse,
+            EmbeddingTaskType, EmptyResponseBodyError, FileOutput, FilePart, FilePartSource,
+            FileUIPart, FinishReason, FlexibleSchema, GenerateImagePrompt, GenerateImageRequest,
+            GenerateImageResult, GenerateObjectEndEvent, GenerateObjectOutputStrategy,
+            GenerateObjectResponseMetadata, GenerateObjectStartEvent, GenerateObjectStepEndEvent,
+            GenerateObjectStepStartEvent, GenerateTextContentPart, GenerateTextEndEvent,
+            GenerateTextModelInfo, GenerateTextReasoningPart, GenerateTextResponseMetadata,
+            GenerateTextResult, GenerateTextStartEvent, GenerateTextStepEndEvent,
+            GenerateTextStepReasoningPart, GenerateTextStepResult, GenerateTextStepStartEvent,
+            GenerateVideoResult, GeneratedAudioFile, GeneratedFile, GeneratedImage,
+            HttpChatTransportInitOptions, HttpConfig, ImageDetail, ImageGenerationRequest,
+            ImageGenerationResponse, ImageModelProviderMetadata, ImageModelResponseMetadata,
+            ImageModelUsage, ImagePart, InferUIDataParts, InferUIMessageChunk, InferUIMessageData,
+            InferUIMessageMetadata, InferUIMessagePart, InferUIMessageToolCall,
+            InferUIMessageToolOutputs, InferUIMessageTools, InferUITool, InferUITools,
+            InvalidArgumentError, InvalidDataContentError, InvalidMessageRoleError,
             InvalidPromptError, InvalidResponseDataError, InvalidStreamPartError,
             InvalidToolApprovalError, InvalidToolInputError, JSONParseError, JSONSchema7,
             JSONValue, LanguageModelCallOptions, LanguageModelInputTokenDetails,
@@ -813,6 +813,11 @@ pub mod prelude {
         /// Historical broad type namespace for migration-oriented imports.
         pub mod types {
             pub use crate::compat::types::*;
+        }
+
+        /// Legacy chat content payloads.
+        pub mod content {
+            pub use crate::compat::content::*;
         }
     }
 

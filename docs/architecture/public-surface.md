@@ -38,6 +38,12 @@ imports such as `CallSettings`, `Experimental_*` result aliases,
 `experimental_filter_active_tools`, and `step_count_is`. New compatibility aliases should not be
 added to the unified prelude without an audit entry and a boundary test.
 
+Legacy `ContentPart` is not part of this stable unified prelude. It remains available only through
+`siumai::compat::content::*` / `siumai::prelude::compat::content::*` for serde and migration code.
+Use request-directional prompt parts (`UserContentPart`, `AssistantContentPart`, `ToolContentPart`)
+or response-directional generated output parts (`GenerateTextContentPart`, `TextOutput`,
+`ReasoningOutput`, `FileOutput`, `Source`) for new examples.
+
 ### 2) Provider-specific APIs (typed options, metadata, resources)
 
 Use provider extension modules (feature-gated):
@@ -300,6 +306,15 @@ catch-all type namespace should import `siumai::compat::types::*` or
 `siumai::prelude::unified::*`, extension-only imports from `siumai::extensions::*` /
 `siumai::prelude::extensions::*`, and provider-specific data from
 `siumai::provider_ext::<provider>::*`.
+
+Legacy chat content carriers are also compatibility-only. Migration code that intentionally needs
+the serde-compatible `ContentPart` / `MessageContent` payload should import
+`siumai::compat::content::{ContentPart, MessageContent}` or
+`siumai::prelude::compat::content::*`. `prelude::unified` no longer exports legacy `ContentPart`;
+this is an intentional namespace break so new code does not see the dual request/response carrier
+as the canonical content model. New request examples should use `ModelMessage`, `UserContentPart`,
+`AssistantContentPart`, and `ToolContentPart`; new response examples should use
+`GenerateTextContentPart` and output-part carriers.
 
 ## Explicitly *not* stable
 

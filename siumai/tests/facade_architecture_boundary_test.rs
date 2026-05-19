@@ -196,6 +196,16 @@ fn experimental_bridge_is_owned_by_bridge_crate_and_reexported_by_facade() {
 #[test]
 fn generate_text_projection_delegates_content_part_mapping_to_spec() {
     let text_rs = read_source("src/text.rs");
+    let spec_generate_text_rs =
+        fs::read_to_string(workspace_root().join("siumai-spec/src/types/ai_sdk/generate_text.rs"))
+            .expect("read spec generate_text source");
+    let spec_response_adapter_rs = fs::read_to_string(
+        workspace_root().join("siumai-spec/src/types/ai_sdk/response_compat_projection.rs"),
+    )
+    .expect("read spec response compatibility adapter source");
+    let spec_ai_sdk_mod_rs =
+        fs::read_to_string(workspace_root().join("siumai-spec/src/types/ai_sdk/mod.rs"))
+            .expect("read spec ai_sdk module source");
     let projection_start = text_rs
         .find("fn project_generate_text_content_part")
         .expect("generate_text content projection function");
@@ -210,6 +220,19 @@ fn generate_text_projection_delegates_content_part_mapping_to_spec() {
     assert!(
         projection_fn.contains("project_response_content_part_to_generate_text_content_part"),
         "facade generate_text should delegate response ContentPart projection to siumai-spec"
+    );
+    assert!(
+        spec_ai_sdk_mod_rs.contains("mod response_compat_projection;")
+            && spec_ai_sdk_mod_rs.contains("pub use response_compat_projection::*;"),
+        "siumai-spec should expose legacy ContentPart response projection through a named response compatibility adapter module"
+    );
+    assert!(
+        !spec_generate_text_rs.contains("ContentPart::Text")
+            && !spec_generate_text_rs.contains("ContentPart::ToolResult")
+            && spec_response_adapter_rs.contains("ContentPart::Text")
+            && spec_response_adapter_rs.contains("ContentPart::ToolResult")
+            && spec_response_adapter_rs.contains("ignores request options"),
+        "legacy ContentPart response mapping should live in response_compat_projection.rs, not the broad generate_text.rs output-shape module"
     );
 
     for forbidden_local_mapping in [
@@ -445,6 +468,8 @@ fn stable_unified_prelude_excludes_compatibility_construction_aliases() {
             && lib_rs.contains("pub use crate::compat::{")
             && lib_rs.contains("StreamingToolCallTracker")
             && lib_rs.contains("Experimental_GenerateImageResult")
+            && lib_rs.contains("pub mod content")
+            && lib_rs.contains("pub use crate::compat::content::*")
             && lib_rs.contains("step_count_is"),
         "compatibility construction and legacy helper aliases should remain explicit under prelude::compat"
     );
@@ -455,6 +480,75 @@ fn stable_unified_prelude_excludes_compatibility_construction_aliases() {
             )
             && architecture_audit.contains("keep, explicit compat only"),
         "architecture compatibility audit should classify deprecated helper aliases as explicit compat-only, not stable unified prelude exports"
+    );
+}
+
+#[test]
+fn legacy_content_part_has_explicit_compat_namespace() {
+    let lib_rs = read_source("src/lib.rs");
+    let compat_rs = read_source("src/compat.rs");
+    let public_surface = read_source("tests/public_surface_imports_test.rs");
+    let migration_doc =
+        fs::read_to_string(workspace_root().join("docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read migration beta.7 doc");
+
+    assert!(
+        compat_rs.contains("pub mod content")
+            && compat_rs.contains("pub use siumai_core::compat::content::*"),
+        "siumai::compat::content should be the facade compatibility namespace for legacy ContentPart"
+    );
+    assert!(
+        lib_rs.contains("pub mod content") && lib_rs.contains("pub use crate::compat::content::*"),
+        "siumai::prelude::compat::content should re-export the legacy content compatibility namespace"
+    );
+    assert!(
+        public_surface.contains("use siumai::compat::content::{")
+            && public_surface.contains("prelude::compat::content"),
+        "public import tests should exercise explicit compatibility content imports"
+    );
+    assert!(
+        migration_doc.contains("siumai::compat::content::ContentPart"),
+        "migration docs should teach the explicit ContentPart compatibility import"
+    );
+    assert!(
+        migration_doc.contains("project_response_content_part_to_generate_text_content_part")
+            && migration_doc.contains("preserves `providerMetadata`")
+            && migration_doc.contains("ignores request"),
+        "migration docs should explain the named response adapter and provider metadata/options directionality"
+    );
+}
+
+#[test]
+fn stable_unified_prelude_does_not_export_legacy_content_part() {
+    let lib_rs = read_source("src/lib.rs");
+    let unified_source = prelude_unified_source(&lib_rs);
+    let public_surface = read_source("tests/public_surface_imports_test.rs");
+    let public_surface_doc =
+        fs::read_to_string(workspace_root().join("docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+
+    assert!(
+        !source_identifiers(unified_source).contains("ContentPart"),
+        "prelude::unified should not export the legacy dual-use ContentPart carrier; use siumai::compat::content::ContentPart for migration code"
+    );
+    assert!(
+        public_surface
+            .contains("public_surface_legacy_content_part_uses_explicit_compat_namespace")
+            && public_surface.contains("use siumai::compat::content::{"),
+        "public surface tests should keep legacy ContentPart examples on the explicit compat namespace"
+    );
+    assert!(
+        public_surface_doc.contains("`prelude::unified` no longer exports legacy `ContentPart`")
+            && public_surface_doc
+                .contains("`siumai::compat::content::{ContentPart, MessageContent}`"),
+        "public surface docs should state the stable-prelude ContentPart removal and the explicit migration path"
+    );
+    assert!(
+        public_surface_doc
+            .contains("Legacy `ContentPart` is not part of this stable unified prelude")
+            && public_surface_doc.contains("Use request-directional prompt parts")
+            && public_surface_doc.contains("response-directional generated output parts"),
+        "public surface docs should keep replacement request/response content families visible near the recommended prelude"
     );
 }
 

@@ -69,7 +69,9 @@ construct shared structs directly, or compare serialized snapshots.
   `siumai-core`; direct `HttpConfig::default()` construction is now a deterministic data default.
 - Usage and metadata snapshots: expect AI SDK-aligned field names and provider-rooted metadata.
 - Content parts: use prompt/request content types for inputs and generated-output content types for
-  responses; treat `ContentPart` as a compatibility carrier.
+  responses; treat `ContentPart` as a compatibility carrier. If migration code still needs it,
+  import `siumai::compat::content::ContentPart`; the stable unified prelude no longer exports the
+  legacy carrier.
 - Dedicated vision compatibility: use multimodal chat for image understanding and image-family APIs
   for image creation; `VisionCapability`, `SiumaiBuilder::with_vision()`, and related
   proxy/request aliases were removed.
@@ -403,6 +405,40 @@ use siumai::prelude::unified::LanguageModelV4Content;
 Migration-only code can continue to import `ContentPart`, but new provider/protocol code should
 cross into it through named request or response adapters so provider options and provider metadata
 stay directional.
+
+The named response-side adapter is
+`project_response_content_part_to_generate_text_content_part(...)` (and the response/content helper
+variants re-exported from the unified prelude). It projects only lossless response-side legacy
+parts into `GenerateTextContentPart`, preserves `providerMetadata`, ignores request
+`providerOptions`, and rejects ambiguous legacy carriers rather than silently dropping data.
+
+The explicit compatibility import path for the legacy carrier is:
+
+```rust,ignore
+use siumai::compat::content::ContentPart;
+use siumai::compat::content::MessageContent;
+```
+
+If you need the migration prelude, use:
+
+```rust,ignore
+use siumai::prelude::compat::content::ContentPart;
+```
+
+Before:
+
+```rust,ignore
+use siumai::prelude::unified::ContentPart;
+```
+
+After:
+
+```rust,ignore
+use siumai::compat::content::ContentPart;
+```
+
+Avoid adding new examples that import `ContentPart` from the stable unified prelude; that path has
+been removed in favor of request/response-specific content types.
 
 ## 5.2) Dedicated vision compatibility removal
 

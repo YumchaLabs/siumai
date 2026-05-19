@@ -3,6 +3,7 @@ use std::mem::size_of;
 #[test]
 #[allow(deprecated)]
 fn public_surface_unified_imports_compile() {
+    use siumai::compat::content::ContentPart;
     use siumai::prelude::unified::*;
     use siumai::{
         DEFAULT_JSON_GENERIC_SUFFIX, DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX,
@@ -1175,6 +1176,53 @@ fn public_surface_unified_imports_compile() {
 }
 
 #[test]
+fn public_surface_legacy_content_part_uses_explicit_compat_namespace() {
+    use siumai::compat::content::{
+        ContentPart, FilePartSource, MessageContent, SourcePart, ToolResultContentPart,
+        ToolResultOutput,
+    };
+    use siumai::prelude::compat::content as prelude_compat_content;
+
+    let text = ContentPart::text("legacy");
+    let message_content = MessageContent::MultiModal(vec![text.clone()]);
+    assert_eq!(message_content.text(), Some("legacy"));
+
+    let file = FilePartSource::url("https://example.com/file.pdf");
+    assert_eq!(file.as_url(), Some("https://example.com/file.pdf"));
+
+    let source = SourcePart::Url {
+        url: "https://example.com".to_string(),
+        title: Some("Example".to_string()),
+    };
+    assert_eq!(source.source_type(), "url");
+
+    let output = ToolResultOutput::content(vec![ToolResultContentPart::text("ok")]);
+    assert!(
+        output.to_string_lossy().contains("\"ok\""),
+        "legacy tool-result content should still serialize through the compatibility namespace"
+    );
+
+    let _: prelude_compat_content::ContentPart = text;
+}
+
+#[test]
+fn public_surface_unified_prelude_excludes_legacy_content_part() {
+    use siumai::prelude::unified::{ChatRequest, ChatResponse, GenerateTextContentPart};
+
+    let _ = size_of::<ChatRequest>();
+    let _ = size_of::<ChatResponse>();
+    let _ = size_of::<GenerateTextContentPart>();
+
+    // Legacy `ContentPart` intentionally is not imported from `prelude::unified`.
+    // Migration code must opt into `siumai::compat::content::ContentPart`.
+    let legacy_part = siumai::compat::content::ContentPart::text("legacy");
+    assert!(matches!(
+        legacy_part,
+        siumai::compat::content::ContentPart::Text { .. }
+    ));
+}
+
+#[test]
 fn public_surface_experimental_middleware_imports_compile() {
     use siumai::experimental::execution::middleware::{
         LanguageModelMiddleware, MiddlewareBuilder, NamedMiddleware,
@@ -2051,6 +2099,7 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
 #[cfg(feature = "openai")]
 #[test]
 fn public_surface_openrouter_provider_ext_compiles() {
+    use siumai::compat::content::ContentPart;
     use siumai::prelude::unified::*;
     use siumai::provider_ext::openrouter::{metadata::*, options::*};
     use std::collections::HashMap;
@@ -3113,6 +3162,7 @@ fn public_surface_moonshotai_provider_ext_compile() {
 #[test]
 #[allow(deprecated)]
 fn public_surface_bedrock_provider_ext_compiles() {
+    use siumai::compat::content::ContentPart;
     use siumai::prelude::unified::*;
     use siumai::provider_ext::bedrock::{
         AmazonBedrockProviderSettings, BedrockBuilder, BedrockClient, BedrockConfig,
@@ -3306,7 +3356,8 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
 #[allow(deprecated)]
 fn public_surface_google_vertex_provider_ext_compiles() {
     use siumai::compat::Siumai;
-    use siumai::prelude::unified::{ChatResponse, ContentPart, EmbeddingTaskType, MessageContent};
+    use siumai::compat::content::ContentPart;
+    use siumai::prelude::unified::{ChatResponse, EmbeddingTaskType, MessageContent};
     use siumai::provider_ext::google_vertex::{
         GoogleVertexBuilder, GoogleVertexClient, GoogleVertexConfig, GoogleVertexProviderSettings,
         SharedIdGenerator, VERSION, chat, create_google_vertex, create_vertex, embedding,
@@ -3996,6 +4047,7 @@ fn public_surface_ollama_provider_ext_compiles() {
 #[cfg(feature = "minimaxi")]
 #[test]
 fn public_surface_minimaxi_provider_ext_compiles() {
+    use siumai::compat::content::ContentPart;
     use siumai::prelude::unified::*;
     use siumai::provider_ext::minimaxi::{
         MinimaxiBuilder, MinimaxiClient, MinimaxiConfig, chat,
@@ -4076,6 +4128,7 @@ fn public_surface_minimaxi_provider_ext_compiles() {
 #[test]
 #[allow(deprecated)]
 fn public_surface_azure_provider_ext_compiles() {
+    use siumai::compat::content::ContentPart;
     use siumai::prelude::unified::*;
     use siumai::provider_ext::azure::{
         AzureChatMode, AzureOpenAIProviderSettings, AzureOpenAiBuilder, AzureOpenAiClient,
