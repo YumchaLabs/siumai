@@ -44,6 +44,25 @@ Use request-directional prompt parts (`UserContentPart`, `AssistantContentPart`,
 or response-directional generated output parts (`GenerateTextContentPart`, `TextOutput`,
 `ReasoningOutput`, `FileOutput`, `Source`) for new examples.
 
+#### Response parsing, compatibility payloads, and generated output
+
+Provider and protocol response parsers may still populate `ChatResponse` / `MessageContent` because
+those serialized payloads are part of the legacy compatibility contract. That does **not** make
+`ContentPart` the canonical response model. Parser code that must construct legacy response content
+should do so through a local `response_content` module or equivalent compatibility adapter. These
+adapters own empty request-side `provider_options` defaults and preserve response-side
+`provider_metadata`.
+
+Generated-output projection is a separate, fallible boundary. Use `GenerateTextContentPart` and the
+output-part carriers for response shapes that can be represented without losing provider data. Do
+not force hosted tool results, approval requests, files, images, audio, or provider-specific
+metadata through generated-output projection unless the losslessness has been proven. Those shapes
+should remain `ChatResponse` compatibility payloads until an ADR-backed public output model exists.
+
+Bridge response/stream APIs are primitive serialization boundaries: they accept `ChatResponse` /
+`ChatStreamEvent` and encode target JSON/SSE. They should not import parser-local
+`response_content` adapters or spec-owned generated-output projection helpers.
+
 ### 2) Provider-specific APIs (typed options, metadata, resources)
 
 Use provider extension modules (feature-gated):

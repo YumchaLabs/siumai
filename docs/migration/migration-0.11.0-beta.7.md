@@ -72,6 +72,9 @@ construct shared structs directly, or compare serialized snapshots.
   responses; treat `ContentPart` as a compatibility carrier. If migration code still needs it,
   import `siumai::compat::content::ContentPart`; the stable unified prelude no longer exports the
   legacy carrier.
+- Response parser internals: parser-local `response_content` modules are compatibility seams for
+  retaining legacy `ChatResponse` payloads, not a public generated-output model. Generated-output
+  projection helpers are separate and intentionally fallible.
 - Dedicated vision compatibility: use multimodal chat for image understanding and image-family APIs
   for image creation; `VisionCapability`, `SiumaiBuilder::with_vision()`, and related
   proxy/request aliases were removed.
@@ -406,11 +409,23 @@ Migration-only code can continue to import `ContentPart`, but new provider/proto
 cross into it through named request or response adapters so provider options and provider metadata
 stay directional.
 
-The named response-side adapter is
-`project_response_content_part_to_generate_text_content_part(...)` (and the response/content helper
-variants re-exported from the unified prelude). It projects only lossless response-side legacy
-parts into `GenerateTextContentPart`, preserves `providerMetadata`, ignores request
-`providerOptions`, and rejects ambiguous legacy carriers rather than silently dropping data.
+There are two different response-side boundaries:
+
+1. Parser-local response compatibility adapters, usually named `response_content` or an equivalent
+   provider/protocol-local module. These are internal seams for building legacy `ChatResponse` /
+   `MessageContent` payloads while keeping request `providerOptions` empty and response
+   `providerMetadata` intact. They are not public generated-output APIs and should not be copied
+   into application examples.
+2. Spec-owned generated-output projection helpers such as
+   `project_response_content_part_to_generate_text_content_part(...)` (and the response/content
+   helper variants re-exported from the unified prelude). These helpers project only lossless
+   response-side legacy parts into `GenerateTextContentPart`, preserve `providerMetadata`, ignore
+   request `providerOptions`, and reject ambiguous legacy carriers rather than silently dropping
+   data.
+
+If a response shape carries hosted tool results, approval requests, file/image/audio data, or
+provider-specific metadata without a lossless generated-output carrier, keep it as a `ChatResponse`
+compatibility payload until a future ADR introduces a richer public output model.
 
 The explicit compatibility import path for the legacy carrier is:
 

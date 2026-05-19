@@ -42,9 +42,9 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": null,
-  "next_task": "PRG-080",
+  "next_task": "PRG-090",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "PRG-020, PRG-030, PRG-040, PRG-050, PRG-060, and PRG-070 are complete. Continue with PRG-080 to update public architecture and migration docs for response adapters versus generated-output projection."
+    "notes": "PRG-020, PRG-030, PRG-040, PRG-050, PRG-060, PRG-070, and PRG-080 are complete. Continue with PRG-090 to close this lane or split remaining parser-wide generated-output migration follow-ons."
   }
 }

@@ -461,6 +461,57 @@ Broader gates not run:
   feature gates passed.
 - Protocol parser gates: skipped because protocol parser code was not changed by PRG-070.
 
+### 2026-05-19 — PRG-080 Public architecture and migration docs
+
+Changed files:
+
+- `docs/architecture/public-surface.md`
+- `docs/migration/migration-0.11.0-beta.7.md`
+- `docs/workstreams/protocol-response-generated-output-boundary/TODO.md`
+- `docs/workstreams/protocol-response-generated-output-boundary/WORKSTREAM.json`
+- `docs/workstreams/protocol-response-generated-output-boundary/HANDOFF.md`
+- `docs/workstreams/protocol-response-generated-output-boundary/JOURNAL/2026-05-19-prg-080.md`
+
+Documentation boundary updates:
+
+- Public surface docs now state that response parsers may still emit legacy `ChatResponse` /
+  `MessageContent` payloads for compatibility, but that this does not make `ContentPart` the
+  canonical response model.
+- Migration docs now distinguish parser-local `response_content` modules from spec-owned
+  generated-output projection helpers.
+- Migration docs explicitly keep generated-output projection fallible and keep hosted tool results,
+  approval requests, files, images, audio, and provider-specific metadata as compatibility payloads
+  unless lossless projection is proven.
+- No new public generated-output response model was proposed; future model work still requires an
+  ADR-backed follow-on.
+
+Fresh verification:
+
+```text
+python -c "import json, pathlib; json.loads(pathlib.Path('docs/workstreams/protocol-response-generated-output-boundary/WORKSTREAM.json').read_text(encoding='utf-8'))"
+```
+
+Result: PASS. Verifies workstream metadata remains valid JSON after PRG-080 updates.
+
+```text
+python -c "from pathlib import Path; arch=Path('docs/architecture/public-surface.md').read_text(encoding='utf-8'); mig=Path('docs/migration/migration-0.11.0-beta.7.md').read_text(encoding='utf-8'); assert 'Response parsing, compatibility payloads, and generated output' in arch; assert 'Parser-local response compatibility adapters' in mig; assert 'Spec-owned generated-output projection helpers' in mig; assert 'The named response-side adapter is' not in mig"
+```
+
+Result: PASS. Verifies the public docs contain the new boundary language and no longer call the
+generated-output projection helper the named response-side adapter.
+
+```text
+git diff --check -- docs/architecture/public-surface.md docs/migration/migration-0.11.0-beta.7.md docs/workstreams/protocol-response-generated-output-boundary
+```
+
+Result: PASS. Verifies touched documentation has no whitespace errors. Git emitted local line-ending
+conversion warnings for these existing text files on Windows, but reported no whitespace errors.
+
+Broader gates not run:
+
+- Rust crate tests: skipped because PRG-080 changed only documentation and workstream metadata.
+- Workspace-wide nextest/fmt: skipped for the same reason; no Rust source files changed.
+
 ## Planned Gates
 
 ### PRG-010 — Workstream planning

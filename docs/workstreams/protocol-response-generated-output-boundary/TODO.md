@@ -109,13 +109,17 @@ Status legend:
 
 ## M4 — Integration, Docs, And Closeout
 
-- [ ] PRG-080 [owner=planner] [deps=PRG-020,PRG-040,PRG-050] [scope=docs/architecture,docs/migration,docs/workstreams]
+- [x] PRG-080 [owner=codex] [deps=PRG-020,PRG-040,PRG-050] [scope=docs/architecture,docs/migration,docs/workstreams]
   Goal: Update public architecture/migration docs so response parser adapters, legacy
   compatibility payloads, and generated-output projection are clearly distinguished.
   Validation: docs grep/source guard evidence plus touched crate tests.
-  Review: migration docs must not teach legacy `ContentPart` as canonical.
-  Evidence: `EVIDENCE_AND_GATES.md`.
-  Handoff: Split an ADR if a new public generated-output response model is proposed.
+  Review: completed; public surface and beta.7 migration docs now distinguish parser-local
+  response compatibility adapters from spec-owned generated-output projection helpers, and legacy
+  `ContentPart` remains documented as compatibility-only rather than canonical.
+  Evidence: `EVIDENCE_AND_GATES.md`; docs source guards verify the new boundary language and the
+  old "named response-side adapter" wording is absent.
+  Handoff: PRG-090 should close this lane or split any future public generated-output response
+  model into an ADR-backed follow-on.
 
 - [ ] PRG-090 [owner=planner] [deps=PRG-080] [scope=docs/workstreams/protocol-response-generated-output-boundary]
   Goal: Close this lane or split remaining parser-wide generated-output migration into narrower

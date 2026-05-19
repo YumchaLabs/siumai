@@ -98,28 +98,39 @@ Instead, first extract parser-local response compatibility adapters that:
 - preserve provider response metadata exactly;
 - document which shapes can later project into generated-output parts.
 
+PRG-080 is complete:
+
+- `docs/architecture/public-surface.md` now explains response parser adapters as internal
+  compatibility seams for legacy `ChatResponse` / `MessageContent` payloads.
+- `docs/migration/migration-0.11.0-beta.7.md` now separates parser-local response compatibility
+  adapters from spec-owned generated-output projection helpers.
+- The migration guide keeps `ContentPart` compatibility-only and warns that hosted tool results,
+  approval requests, files, images, audio, and provider-specific metadata should not be forced
+  through generated-output projection without proven losslessness.
+- No new public response model was proposed; an ADR is still required before adding one.
+
 ## Last Completed Task
-
-PRG-070:
-
-- Status: DONE.
-- Scope:
-  `siumai-provider-gemini,siumai-provider-amazon-bedrock`
-- Result:
-  Added provider-local response adapters for Google Interactions and Bedrock response parsing /
-  stream final-response aggregation, with provider feature gates passing.
-
-## Next Executable Task
 
 PRG-080:
 
+- Status: DONE.
 - Scope:
   `docs/architecture,docs/migration,docs/workstreams`
+- Result:
+  Updated public architecture and beta.7 migration docs to distinguish parser-local response
+  compatibility adapters, legacy compatibility payloads, and fallible generated-output projection.
+
+## Next Executable Task
+
+PRG-090:
+
+- Scope:
+  `docs/workstreams/protocol-response-generated-output-boundary`
 - Goal:
-  Update public architecture/migration docs so response parser adapters, legacy compatibility
-  payloads, and generated-output projection are clearly distinguished.
+  Close this lane or split remaining parser-wide generated-output migration into narrower
+  follow-ons.
 - Important constraint:
-  Migration docs must not teach legacy `ContentPart` as canonical.
+  Final status must name retained compatibility paths and their removal/narrowing criteria.
 
 ## Blockers
 
@@ -134,11 +145,12 @@ None known.
   there until parser-local proofs exist.
 - Bridge stream replay can become a semantic sink if expanded casually; split a follow-on before
   adding richer provider-specific response JSON/SSE reconstruction.
-- Public docs can accidentally overstate the new adapters as a new public output model. PRG-080
-  should explain them as compatibility boundaries, not as a replacement for generated-output
-  carriers.
+- Closeout can accidentally promise removal of compatibility payloads too early. PRG-090 should
+  preserve the current compatibility contract unless it opens an ADR-backed public output model
+  follow-on.
 
 ## Next Recommended Action
 
-Run PRG-080 with `run-workstream-task`. Start with docs that already discuss the public surface and
-migration notes; keep the docs concise and avoid promising removal of legacy `ContentPart`.
+Run PRG-090 with `close-workstream` or `verify-rust-workstream`. Decide whether this lane is ready
+to close after PRG-080's documentation boundary, or split follow-ons for broader parser-wide
+generated-output migration.
