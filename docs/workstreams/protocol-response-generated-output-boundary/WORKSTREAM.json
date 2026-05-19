@@ -42,9 +42,9 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": null,
-  "next_task": "PRG-020",
+  "next_task": "PRG-040",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Start with PRG-020. Extract a narrow OpenAI Responses response compatibility adapter before any broad protocol parser or generated-output conversion."
+    "notes": "PRG-020 and PRG-030 are complete. Continue with PRG-040 to apply or adapt the response-adapter pattern for Anthropic before touching Gemini, bridge, or provider-owned parser paths."
   }
 }

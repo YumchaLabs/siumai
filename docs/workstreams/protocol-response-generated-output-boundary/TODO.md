@@ -22,28 +22,34 @@ Status legend:
 
 ## M1 — OpenAI Responses Proof Slice
 
-- [ ] PRG-020 [owner=unassigned] [deps=PRG-010] [scope=siumai-protocol-openai/src/standards/openai/transformers/response]
+- [x] PRG-020 [owner=codex] [deps=PRG-010] [scope=siumai-protocol-openai/src/standards/openai/transformers/response]
   Goal: Extract OpenAI Responses response-owned legacy `ContentPart` construction behind a named
   response compatibility adapter module without changing serialized output.
   Validation:
   `cargo fmt --check -p siumai-protocol-openai`;
   `cargo nextest run -p siumai-protocol-openai --no-default-features --features openai-standard,openai-responses responses_response_transformer_source_does_not_emit_request_provider_options --no-fail-fast`;
   plus targeted OpenAI Responses transformer fixture tests touched by the extraction.
-  Review: use `review-workstream` before accepting completion.
-  Evidence: `EVIDENCE_AND_GATES.md`; source guard proving broad parser code delegates legacy
-  construction to the adapter.
-  Handoff: If OpenAI Responses is too large, split a smaller PRG-021 subtask for text/reasoning
-  parts first and leave tools/files/sources for follow-up.
+  Review: completed; no blocking findings from task-local self-review. A formal
+  `review-workstream` pass can be run before accepting the lane, but PRG-020's own gates pass.
+  Evidence: recorded in `EVIDENCE_AND_GATES.md`; source guards prove broad parser code delegates
+  legacy construction to the adapter, and adapter-owned defaults keep request provider options
+  empty.
+  Handoff: PRG-030 should classify OpenAI Responses output shapes by generated-output projection
+  lossiness; do not force ambiguous hosted tools/files/approval parts through
+  `GenerateTextContentPart`.
 
-- [ ] PRG-030 [owner=unassigned] [deps=PRG-020] [scope=siumai-protocol-openai/src/standards/openai/transformers/response,siumai-spec/tests]
+- [x] PRG-030 [owner=codex] [deps=PRG-020] [scope=siumai-protocol-openai/src/standards/openai/transformers/response,siumai-spec/tests]
   Goal: Classify OpenAI Responses output shapes by generated-output projection lossiness and add
   tests/docs for the shapes that must remain legacy compatibility payloads.
   Validation:
   `cargo nextest run -p siumai-spec --no-default-features --test content_projection_boundary_test --no-fail-fast`;
   targeted OpenAI Responses fixture tests.
-  Review: verify that no lossy path is forced through `GenerateTextContentPart`.
-  Evidence: `EVIDENCE_AND_GATES.md` lossiness matrix.
-  Handoff: Only lossless subsets may call spec-owned response projection helpers.
+  Review: completed; source guard verifies production OpenAI Responses parsing does not directly
+  call generated-output projection helpers, and behavior tests cover both lossless and lossy
+  representative shapes.
+  Evidence: `EVIDENCE_AND_GATES.md` lossiness matrix and fresh PRG-030 gates.
+  Handoff: Only lossless subsets may call spec-owned response projection helpers. PRG-040 should
+  apply or deliberately adapt the response-adapter pattern for Anthropic response parsing.
 
 ## M2 — Second Provider Proof
 

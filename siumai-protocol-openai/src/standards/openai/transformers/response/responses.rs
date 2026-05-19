@@ -13,6 +13,9 @@ mod hosted_tools;
 mod metadata;
 
 #[cfg(feature = "openai-responses")]
+mod response_content;
+
+#[cfg(feature = "openai-responses")]
 pub(crate) use metadata::output_text_logprobs as extract_responses_output_text_logprobs;
 
 #[cfg(feature = "openai-responses")]
@@ -91,7 +94,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        use crate::types::{ContentPart, FinishReason, MessageContent};
+        use crate::types::FinishReason;
         let root = raw.get("response").unwrap_or(raw);
         let xai_style = self.style == ResponsesTransformStyle::Xai;
         let shell_call_provider_executed =
@@ -101,14 +104,14 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         //
         // Vercel alignment: represent provider-executed tools as ToolCall + ToolResult parts
         // in the unified stream/content surface (without introducing new unified traits).
-        let mut content_parts: Vec<ContentPart> = Vec::new();
+        let mut content_parts: Vec<crate::types::ContentPart> = Vec::new();
 
         // Provider-executed tools in Responses API appear as output items:
         // - web_search_call
         // - file_search_call
         // - computer_call
         //
-        // We translate them into `ContentPart::ToolCall` + `ContentPart::ToolResult` with
+        // We translate them into legacy tool-call + tool-result compatibility parts with
         // `provider_executed = Some(true)`.
         let mut mcp_approval_tool_call_id_by_approval_id: std::collections::HashMap<
             String,
@@ -180,7 +183,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     let tool_name = format!("mcp.{name}");
 
                     content_parts.push(
-                        ContentPart::tool_call(
+                        response_content::tool_call(
                             tool_call_id.clone(),
                             tool_name,
                             serde_json::Value::String(args_str.to_string()),
@@ -188,7 +191,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         )
                         .with_tool_dynamic(true),
                     );
-                    content_parts.push(ContentPart::tool_approval_request(
+                    content_parts.push(response_content::tool_approval_request(
                         approval_id.to_string(),
                         tool_call_id,
                     ));
@@ -257,7 +260,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
                     let input = serde_json::Value::String(args_str.to_string());
                     content_parts.push(
-                        ContentPart::tool_call(
+                        response_content::tool_call(
                             tool_call_id.clone(),
                             tool_name.clone(),
                             input.clone(),
@@ -274,20 +277,18 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         })))
                     };
 
-                    content_parts.push(ContentPart::ToolResult {
-                        tool_call_id,
-                        tool_name,
-                        output: crate::types::ToolResultOutput::json(serde_json::Value::Object(
-                            result_obj,
-                        )),
-                        input: Some(input),
-                        provider_executed: Some(true),
-                        dynamic: Some(true),
-                        preliminary: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
-                        provider_metadata,
-                    });
+                    content_parts.push(
+                        response_content::tool_result(
+                            tool_call_id,
+                            tool_name,
+                            provider_metadata,
+                            crate::types::ToolResultOutput::json(serde_json::Value::Object(
+                                result_obj,
+                            )),
+                        )
+                        .with_tool_result_input(input)
+                        .with_tool_dynamic(true),
+                    );
 
                     continue;
                 }
@@ -332,21 +333,19 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                 continue;
                             }
                             let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                            content_parts.push(ContentPart::Reasoning {
-                                text: text.to_string(),
-                                provider_options: crate::types::ProviderOptionsMap::default(),
-                                provider_metadata: provider_metadata.clone(),
-                            });
+                            content_parts.push(response_content::reasoning(
+                                text.to_string(),
+                                provider_metadata.clone(),
+                            ));
                             emitted += 1;
                         }
                     }
 
                     if emitted == 0 {
-                        content_parts.push(ContentPart::Reasoning {
-                            text: String::new(),
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::reasoning(
+                            String::new(),
                             provider_metadata,
-                        });
+                        ));
                     }
 
                     continue;
@@ -370,15 +369,14 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             .insert("encryptedContent".to_string(), encrypted_content.clone());
                     }
 
-                    content_parts.push(ContentPart::Custom {
-                        kind: "openai.compaction".to_string(),
-                        provider_options: crate::types::ProviderOptionsMap::default(),
-                        provider_metadata: Some(
+                    content_parts.push(response_content::custom(
+                        "openai.compaction",
+                        Some(
                             self.single_provider_metadata_map(serde_json::Value::Object(
                                 openai_meta,
                             )),
                         ),
-                    });
+                    ));
 
                     continue;
                 }
@@ -414,18 +412,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             "itemId": provider_item_id,
                         })));
 
-                    content_parts.push(ContentPart::ToolCall {
-                        tool_call_id: tool_call_id.clone(),
-                        tool_name: tool_name.clone(),
-                        arguments: arguments.clone(),
-                        provider_executed: Some(true),
-                        dynamic: Some(true),
-                        invalid: None,
-                        error: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
-                        provider_metadata: provider_metadata.clone(),
-                    });
+                    content_parts.push(
+                        response_content::tool_call_with_metadata(
+                            tool_call_id.clone(),
+                            tool_name.clone(),
+                            arguments.clone(),
+                            Some(true),
+                            provider_metadata.clone(),
+                        )
+                        .with_tool_dynamic(true),
+                    );
 
                     if let Some(output) = item.get("output") {
                         let is_error = item
@@ -433,18 +429,17 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
 
-                        content_parts.push(ContentPart::ToolResult {
-                            tool_call_id,
-                            tool_name,
-                            output: custom_tool_output_to_result_output(output, is_error),
-                            input: Some(arguments.clone()),
-                            provider_executed: Some(true),
-                            dynamic: Some(true),
-                            preliminary: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata,
-                        });
+                        content_parts.push(
+                            response_content::tool_result_with_provider_executed(
+                                tool_call_id,
+                                tool_name,
+                                provider_metadata,
+                                custom_tool_output_to_result_output(output, is_error),
+                                Some(true),
+                            )
+                            .with_tool_result_input(arguments.clone())
+                            .with_tool_dynamic(true),
+                        );
                     }
 
                     continue;
@@ -698,18 +693,13 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             }))
                         });
 
-                        content_parts.push(ContentPart::ToolCall {
+                        content_parts.push(response_content::tool_call_with_metadata(
                             tool_call_id,
-                            tool_name: "toolSearch".to_string(),
-                            arguments: serde_json::Value::String(input),
-                            provider_executed: is_hosted.then_some(true),
-                            dynamic: None,
-                            invalid: None,
-                            error: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            "toolSearch",
+                            serde_json::Value::String(input),
+                            is_hosted.then_some(true),
                             provider_metadata,
-                        });
+                        ));
                         continue;
                     }
                     "tool_search_output" => {
@@ -730,22 +720,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             }))
                         });
 
-                        content_parts.push(ContentPart::ToolResult {
+                        content_parts.push(response_content::tool_result(
                             tool_call_id,
-                            tool_name: "toolSearch".to_string(),
-                            output: crate::types::ToolResultOutput::json(serde_json::json!({
+                            "toolSearch",
+                            provider_metadata,
+                            crate::types::ToolResultOutput::json(serde_json::json!({
                                 "tools": item.get("tools").cloned().unwrap_or_else(|| {
                                     serde_json::Value::Array(Vec::new())
                                 }),
                             })),
-                            input: None,
-                            provider_executed: None,
-                            dynamic: None,
-                            preliminary: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata,
-                        });
+                        ));
                         continue;
                     }
                     "local_shell_call_output" => {
@@ -753,23 +737,20 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             continue;
                         }
 
-                        content_parts.push(ContentPart::ToolResult {
-                            tool_call_id: output_call_id.clone(),
-                            tool_name: "shell".to_string(),
-                            output: crate::types::ToolResultOutput::json(serde_json::json!({
-                                "output": item
-                                    .get("output")
-                                    .cloned()
-                                    .unwrap_or_else(|| serde_json::json!("")),
-                            })),
-                            input: None,
-                            provider_executed: None,
-                            dynamic: Some(true),
-                            preliminary: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata: None,
-                        });
+                        content_parts.push(
+                            response_content::tool_result(
+                                output_call_id.clone(),
+                                "shell",
+                                None,
+                                crate::types::ToolResultOutput::json(serde_json::json!({
+                                    "output": item
+                                        .get("output")
+                                        .cloned()
+                                        .unwrap_or_else(|| serde_json::json!("")),
+                                })),
+                            )
+                            .with_tool_dynamic(true),
+                        );
                         continue;
                     }
                     "shell_call_output" => {
@@ -829,20 +810,17 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             })
                             .unwrap_or_default();
 
-                        content_parts.push(ContentPart::ToolResult {
-                            tool_call_id: output_call_id.clone(),
-                            tool_name: "shell".to_string(),
-                            output: crate::types::ToolResultOutput::json(serde_json::json!({
-                                "output": output,
-                            })),
-                            input: None,
-                            provider_executed: None,
-                            dynamic: Some(true),
-                            preliminary: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata: None,
-                        });
+                        content_parts.push(
+                            response_content::tool_result(
+                                output_call_id.clone(),
+                                "shell",
+                                None,
+                                crate::types::ToolResultOutput::json(serde_json::json!({
+                                    "output": output,
+                                })),
+                            )
+                            .with_tool_dynamic(true),
+                        );
                         continue;
                     }
                     "apply_patch_call_output" => {
@@ -861,20 +839,17 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             result.insert("output".to_string(), output);
                         }
 
-                        content_parts.push(ContentPart::ToolResult {
-                            tool_call_id: output_call_id.clone(),
-                            tool_name: "apply_patch".to_string(),
-                            output: crate::types::ToolResultOutput::json(
-                                serde_json::Value::Object(result),
-                            ),
-                            input: None,
-                            provider_executed: None,
-                            dynamic: Some(true),
-                            preliminary: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata: None,
-                        });
+                        content_parts.push(
+                            response_content::tool_result(
+                                output_call_id.clone(),
+                                "apply_patch",
+                                None,
+                                crate::types::ToolResultOutput::json(serde_json::Value::Object(
+                                    result,
+                                )),
+                            )
+                            .with_tool_dynamic(true),
+                        );
                         continue;
                     }
                     "x_search_call" => {
@@ -926,18 +901,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
                         });
 
-                        content_parts.push(ContentPart::ToolCall {
-                            tool_call_id: call_id.to_string(),
-                            tool_name: "shell".to_string(),
-                            arguments: serde_json::Value::String(input_str),
-                            provider_executed: None,
-                            dynamic: Some(true),
-                            invalid: None,
-                            error: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata,
-                        });
+                        content_parts.push(
+                            response_content::tool_call_with_metadata(
+                                call_id.to_string(),
+                                "shell",
+                                serde_json::Value::String(input_str),
+                                None,
+                                provider_metadata,
+                            )
+                            .with_tool_dynamic(true),
+                        );
                         continue;
                     }
                     "shell_call" => {
@@ -959,18 +932,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
                         });
 
-                        content_parts.push(ContentPart::ToolCall {
-                            tool_call_id: call_id.to_string(),
-                            tool_name: "shell".to_string(),
-                            arguments: serde_json::Value::String(input_str),
-                            provider_executed: shell_call_provider_executed.then_some(true),
-                            dynamic: Some(true),
-                            invalid: None,
-                            error: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata,
-                        });
+                        content_parts.push(
+                            response_content::tool_call_with_metadata(
+                                call_id.to_string(),
+                                "shell",
+                                serde_json::Value::String(input_str),
+                                shell_call_provider_executed.then_some(true),
+                                provider_metadata,
+                            )
+                            .with_tool_dynamic(true),
+                        );
                         continue;
                     }
                     "apply_patch_call" => {
@@ -987,18 +958,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
                         });
 
-                        content_parts.push(ContentPart::ToolCall {
-                            tool_call_id: call_id.to_string(),
-                            tool_name: "apply_patch".to_string(),
-                            arguments: serde_json::Value::String(input_str),
-                            provider_executed: None,
-                            dynamic: Some(true),
-                            invalid: None,
-                            error: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata,
-                        });
+                        content_parts.push(
+                            response_content::tool_call_with_metadata(
+                                call_id.to_string(),
+                                "apply_patch",
+                                serde_json::Value::String(input_str),
+                                None,
+                                provider_metadata,
+                            )
+                            .with_tool_dynamic(true),
+                        );
                         continue;
                     }
                     "function_call" => {
@@ -1022,28 +991,17 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             .get("arguments")
                             .and_then(|v| v.as_str())
                             .unwrap_or("{}");
-                        let mut provider_metadata: Option<
-                            std::collections::HashMap<String, serde_json::Value>,
-                        > = None;
-                        if let Some(item_id) = item.get("id").and_then(|v| v.as_str()) {
-                            provider_metadata =
-                                Some(self.single_provider_metadata_map(serde_json::json!({
-                                    "itemId": item_id
-                                })));
-                        }
-
-                        content_parts.push(ContentPart::ToolCall {
-                            tool_call_id: call_id.to_string(),
-                            tool_name: name.to_string(),
-                            arguments: serde_json::Value::String(args_str.to_string()),
-                            provider_executed: None,
-                            dynamic: None,
-                            invalid: None,
-                            error: None,
-                            title: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata,
+                        let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
+                            self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
                         });
+
+                        content_parts.push(response_content::tool_call_with_metadata(
+                            call_id.to_string(),
+                            name.to_string(),
+                            serde_json::Value::String(args_str.to_string()),
+                            None,
+                            provider_metadata,
+                        ));
 
                         // Function calls are not provider-executed; no synthetic ToolResult is emitted here.
                         continue;
@@ -1057,23 +1015,21 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
                 let result_input = args.clone();
                 content_parts.push(
-                    ContentPart::tool_call(tool_call_id.clone(), tool_name, args, Some(true))
+                    response_content::tool_call(tool_call_id.clone(), tool_name, args, Some(true))
                         .with_tool_dynamic(true),
                 );
 
                 if emit_tool_result {
-                    content_parts.push(ContentPart::ToolResult {
-                        tool_call_id,
-                        tool_name: tool_name.to_string(),
-                        output: crate::types::ToolResultOutput::json(result),
-                        input: Some(result_input),
-                        provider_executed: Some(true),
-                        dynamic: Some(true),
-                        preliminary: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
-                        provider_metadata: None,
-                    });
+                    content_parts.push(
+                        response_content::tool_result(
+                            tool_call_id,
+                            tool_name.to_string(),
+                            None,
+                            crate::types::ToolResultOutput::json(result),
+                        )
+                        .with_tool_result_input(result_input)
+                        .with_tool_dynamic(true),
+                    );
                 }
             }
         }
@@ -1083,9 +1039,9 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         // Vercel AI SDK always surfaces OpenAI Responses `message.content[*].output_text`
         // as structured text parts carrying `providerMetadata.{provider}.itemId`.
         // Preserve that typed part structure for standard OpenAI/Azure Responses items,
-        // instead of collapsing plain single-text messages back to bare `MessageContent::Text`.
+        // instead of collapsing plain single-text messages back to bare text content.
         let mut text_content = String::new();
-        let mut structured_text_parts: Vec<ContentPart> = Vec::new();
+        let mut structured_text_parts: Vec<crate::types::ContentPart> = Vec::new();
         let mut xai_source_urls: Vec<String> = Vec::new();
         if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
             for item in output {
@@ -1140,11 +1096,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                     ))
                                 });
 
-                                structured_text_parts.push(ContentPart::Text {
-                                    text: t.to_string(),
-                                    provider_options: crate::types::ProviderOptionsMap::default(),
-                                    provider_metadata,
-                                });
+                                structured_text_parts
+                                    .push(response_content::text(t.to_string(), provider_metadata));
                             }
                         }
 
@@ -1170,7 +1123,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             content_parts.extend(structured_text_parts);
         } else if !text_content.is_empty() {
             // Add text content if present.
-            content_parts.push(ContentPart::text(&text_content));
+            content_parts.push(response_content::text(text_content.clone(), None));
         }
 
         if xai_style && !xai_source_urls.is_empty() {
@@ -1181,7 +1134,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     continue;
                 }
                 let id = format!("id-{idx}");
-                content_parts.push(ContentPart::source(&id, "url", &url, &url));
+                content_parts.push(response_content::source_url(&id, &url, &url));
                 idx += 1;
             }
         }
@@ -1223,7 +1176,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             // Parse arguments string to JSON Value
                             let args_value = serde_json::from_str(&arguments)
                                 .unwrap_or(serde_json::Value::String(arguments));
-                            content_parts.push(ContentPart::tool_call(id, name, args_value, None));
+                            content_parts
+                                .push(response_content::tool_call(id, name, args_value, None));
                         }
                     }
                 }
@@ -1294,22 +1248,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         let raw_finish_reason = incomplete_reason.map(ToString::to_string);
 
         // Determine final content
-        let content = if content_parts.is_empty() {
-            MessageContent::Text(String::new())
-        } else if content_parts.len() == 1 {
-            match &content_parts[0] {
-                ContentPart::Text {
-                    provider_options,
-                    provider_metadata,
-                    ..
-                } if provider_options.is_empty() && provider_metadata.is_none() => {
-                    MessageContent::Text(text_content)
-                }
-                _ => MessageContent::MultiModal(content_parts),
-            }
-        } else {
-            MessageContent::MultiModal(content_parts)
-        };
+        let content = response_content::message_content_from_parts(content_parts, text_content);
 
         // Provider metadata (Vercel-aligned): sources extracted from provider tool results and
         // message annotations.
@@ -1366,16 +1305,20 @@ mod tests {
     use crate::execution::transformers::response::ResponseTransformer;
     use crate::standards::openai::json_response::OpenAiResponsesJsonResponseConverter;
 
-    fn production_source() -> &'static str {
+    fn transformer_source() -> &'static str {
         include_str!("responses.rs")
             .split_once("#[cfg(all(test, feature = \"openai-responses\"))]")
             .expect("test marker should exist")
             .0
     }
 
+    fn response_content_source() -> &'static str {
+        include_str!("responses/response_content.rs")
+    }
+
     #[test]
     fn responses_response_transformer_source_does_not_emit_request_provider_options() {
-        let source = production_source();
+        let source = transformer_source();
 
         assert!(
             !source.contains("providerOptions"),
@@ -1393,6 +1336,7 @@ mod tests {
         for line in source
             .lines()
             .filter(|line| line.contains("provider_options"))
+            .filter(|line| !line.trim_start().starts_with("//"))
         {
             let trimmed = line.trim();
             assert!(
@@ -1401,6 +1345,237 @@ mod tests {
                     || trimmed.contains("provider_options.is_empty()"),
                 "OpenAI Responses response provider_options must stay empty defaults or final empty checks: {line}"
             );
+        }
+    }
+
+    #[test]
+    fn responses_response_transformer_delegates_legacy_content_construction_to_adapter() {
+        let source = transformer_source();
+
+        assert!(
+            source.contains("mod response_content;"),
+            "OpenAI Responses response transformer must declare the parser-local response content adapter"
+        );
+        assert!(
+            source.contains("response_content::"),
+            "OpenAI Responses response transformer must delegate legacy ContentPart construction"
+        );
+
+        for forbidden in [
+            "ContentPart::ToolCall {",
+            "ContentPart::ToolResult {",
+            "ContentPart::Reasoning {",
+            "ContentPart::Custom {",
+            "ContentPart::Source {",
+            "ContentPart::Text {",
+            "ContentPart::tool_call(",
+            "ContentPart::tool_approval_request(",
+            "ContentPart::text(",
+            "ContentPart::source(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "OpenAI Responses response transformer should not construct legacy content directly; use response_content adapter instead of {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_response_content_adapter_owns_empty_request_option_defaults() {
+        let source = response_content_source();
+
+        assert!(
+            source.contains("ContentPart::"),
+            "response content adapter should own legacy ContentPart construction"
+        );
+        assert!(
+            !source.contains("providerOptions"),
+            "response content adapter must not emit request-side providerOptions"
+        );
+        assert!(
+            !source.contains(".provider_options"),
+            "response content adapter must not read request provider_options fields"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "response content adapter must not read request provider option maps"
+        );
+
+        for line in source
+            .lines()
+            .filter(|line| line.contains("provider_options"))
+            .filter(|line| !line.trim_start().starts_with("//"))
+        {
+            let trimmed = line.trim();
+            assert!(
+                trimmed == "provider_options: ProviderOptionsMap::default(),"
+                    || trimmed == "provider_options,"
+                    || trimmed.contains("provider_options.is_empty()"),
+                "response content adapter may only initialize empty legacy request provider options: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_response_transformer_does_not_force_generated_output_projection() {
+        let transformer_source = transformer_source();
+        let adapter_source = response_content_source();
+
+        for source in [transformer_source, adapter_source] {
+            for forbidden in [
+                "GenerateTextContentPart",
+                "project_chat_response_to_generate_text_content_parts",
+                "project_response_content_to_generate_text_content_parts",
+                "project_response_content_part_to_generate_text_content_part",
+            ] {
+                assert!(
+                    !source.contains(forbidden),
+                    "OpenAI Responses response parsing must keep generated-output projection as a later lossiness-classified boundary, not call `{forbidden}` directly"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn responses_generated_output_projection_accepts_lossless_text_reasoning_and_function_call() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_lossless_1",
+                "model": "gpt-5.4",
+                "output": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_1",
+                        "encrypted_content": "enc_reasoning",
+                        "summary": [
+                            { "type": "summary_text", "text": "Thinking" }
+                        ]
+                    },
+                    {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_weather",
+                        "name": "get_weather",
+                        "arguments": "{\"city\":\"Tokyo\"}"
+                    },
+                    {
+                        "type": "message",
+                        "id": "msg_1",
+                        "content": [
+                            { "type": "output_text", "text": "Sunny" }
+                        ]
+                    }
+                ],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let projected = crate::types::project_chat_response_to_generate_text_content_parts(&resp)
+            .expect("text, reasoning, and function-call response parts should project losslessly");
+        let projected_json = serde_json::to_value(&projected).expect("serialize projected parts");
+
+        assert_eq!(projected_json.as_array().expect("array").len(), 3);
+        assert_eq!(projected_json[0]["type"], serde_json::json!("reasoning"));
+        assert_eq!(
+            projected_json[0]["providerMetadata"]["openai"]["itemId"],
+            serde_json::json!("rs_1")
+        );
+        assert_eq!(projected_json[1]["type"], serde_json::json!("tool-call"));
+        assert_eq!(
+            projected_json[1]["toolCallId"],
+            serde_json::json!("call_weather")
+        );
+        assert_eq!(projected_json[2]["type"], serde_json::json!("text"));
+        assert_eq!(
+            projected_json[2]["providerMetadata"]["openai"]["itemId"],
+            serde_json::json!("msg_1")
+        );
+        assert_json_has_no_key(&projected_json, "providerOptions");
+        assert_json_has_no_key(&projected_json, "provider_options");
+    }
+
+    #[test]
+    fn responses_generated_output_projection_rejects_mcp_approval_requests() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_mcp_approval_1",
+                "model": "gpt-5.4",
+                "output": [
+                    {
+                        "type": "mcp_approval_request",
+                        "id": "approval_1",
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"Cargo.toml\"}"
+                    }
+                ],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let err = crate::types::project_chat_response_to_generate_text_content_parts(&resp)
+            .expect_err("MCP approval requests require surrounding approval/tool context");
+
+        assert_eq!(
+            err,
+            crate::types::GenerateTextContentPartProjectionError::UnsupportedContentPart {
+                part_type: "tool-approval-request",
+                reason: "tool approval request output requires the original tool call",
+            }
+        );
+    }
+
+    #[test]
+    fn responses_generated_output_projection_rejects_output_only_hosted_tool_results() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_hosted_output_1",
+                "model": "gpt-5.4",
+                "output": [
+                    {
+                        "type": "local_shell_call_output",
+                        "call_id": "call_local",
+                        "output": "ok\n"
+                    }
+                ],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let err = crate::types::project_chat_response_to_generate_text_content_parts(&resp)
+            .expect_err("hosted tool output-only payloads lack the original tool input");
+
+        assert_eq!(
+            err,
+            crate::types::GenerateTextContentPartProjectionError::UnsupportedContentPart {
+                part_type: "tool-result",
+                reason: "tool-result generated output requires original input",
+            }
+        );
+    }
+
+    fn assert_json_has_no_key(value: &serde_json::Value, key: &str) {
+        match value {
+            serde_json::Value::Object(map) => {
+                assert!(
+                    !map.contains_key(key),
+                    "projected generated output must not contain `{key}`"
+                );
+                for nested in map.values() {
+                    assert_json_has_no_key(nested, key);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for nested in values {
+                    assert_json_has_no_key(nested, key);
+                }
+            }
+            _ => {}
         }
     }
 
