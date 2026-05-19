@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-core-v0.11.0-beta.7...siumai-core-v0.11.0-beta.8) - 2026-05-18
+
+### Added
+
+- reconnect google interactions streams
+
+### Fixed
+
+- *(openai-compatible)* preserve whitespace stream deltas
+
+### Other
+
+- guard core standards boundary
+- *(clippy)* clean release lint failures
+- *(release)* prepare v0.11.0-beta.8
+- *(openai-compatible)* enforce lossless stream deltas
+- harden spec core architecture guards
+- remove static-header json executor helper
+- remove dedicated vision compatibility surface
+- route stream text fallback through response adapter
+- converge provider boundary architecture
+- move provider model aliases out of core
+- harden crate boundaries
+- converge fearless architecture boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- *(deps)* refresh integration dependencies
+- clean stale refactor docs
+
 ### Added
 
 - Add a first-class completion family surface: `traits::CompletionCapability`,

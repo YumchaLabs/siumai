@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-amazon-bedrock-v0.11.0-beta.7...siumai-provider-amazon-bedrock-v0.11.0-beta.8) - 2026-05-18
+
+### Other
+
+- *(release)* prepare v0.11.0-beta.8
+- *(bedrock)* isolate chat stream conversion
+- *(bedrock)* isolate chat standard tests
+- converge provider boundary architecture
+- harden crate boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+
 ### Added
 
 - Native Bedrock provider now also exposes package-level `AmazonBedrockProviderSettings` plus

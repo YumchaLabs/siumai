@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-google-vertex-v0.11.0-beta.7...siumai-provider-google-vertex-v0.11.0-beta.8) - 2026-05-18
+
+### Added
+
+- align google vertex root aliases
+
+### Other
+
+- *(clippy)* clean release lint failures
+- *(release)* prepare v0.11.0-beta.8
+- route vertex image prompt through request adapter
+- converge provider boundary architecture
+- harden crate boundaries
+- converge fearless architecture boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+
 ### Added
 
 - The provider-owned/public Google Vertex surface now exposes the audited upstream primary

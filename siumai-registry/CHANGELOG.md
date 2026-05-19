@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-registry-v0.11.0-beta.7...siumai-registry-v0.11.0-beta.8) - 2026-05-18
+
+### Added
+
+- add google vertex xai provider boundary
+
+### Fixed
+
+- align anthropic files capability surface
+- require explicit compat completion capabilities
+- repair release test regressions
+
+### Other
+
+- *(clippy)* align provider feature gates
+- lock xai package files boundary
+- clarify togetherai audio extension boundary
+- lock groq provider-owned speech boundary
+- lock registry compat handle boundaries
+- *(clippy)* clean release lint failures
+- *(release)* prepare v0.11.0-beta.8
+- mark registry family adapters removed
+- align ProviderFactory compatibility audit
+- isolate provider composite clients
+- isolate language extension handle adapters
+- remove vision builder capability hint
+- remove provider-type builder alias
+- remove registry speech handle tts alias
+- remove static-header json executor helper
+- remove dedicated vision compatibility surface
+- migrate openai compatible override shortcuts
+- migrate core provider override shortcuts
+- migrate openai compatible registry overrides
+- migrate vertex registry overrides
+- migrate minimaxi registry overrides
+- migrate groq registry overrides
+- migrate anthropic registry overrides
+- migrate bedrock registry overrides
+- migrate xai registry overrides
+- migrate ollama registry overrides
+- migrate vertex maas registry overrides
+- migrate public path registry overrides
+- centralize registry option defaults
+- add provider build override shortcuts
+- move builder default models into registry metadata
+- route facade parity registries through helpers
+- guard public path registry helper boundary
+- route openai compatible registries through helper
+- route azure registry factory options through helper
+- converge provider boundary architecture
+- centralize builtin registry factory resolution
+- move provider model aliases out of core
+- harden crate boundaries
+- converge fearless architecture boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+
 ### Added
 
 - Add completion-family registry plumbing: `ProviderFactory::completion_model_family*`,

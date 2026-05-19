@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-compatible-v0.11.0-beta.7...siumai-provider-openai-compatible-v0.11.0-beta.8) - 2026-05-18
+
+### Added
+
+- add google vertex xai provider boundary
+
+### Fixed
+
+- require explicit compat completion capabilities
+
+### Other
+
+- *(openai-compatible)* centralize reasoning policy
+- *(openai-compatible)* centralize usage policy
+- fix openai compatible settings formatting
+- *(release)* prepare v0.11.0-beta.8
+- *(openai-compatible)* isolate settings tests
+- *(openai-compatible)* isolate builder tests
+- *(openai-compatible)* isolate request option tests
+- *(openai-compatible)* split builder reasoning mapping
+- *(openai-compatible)* split builtin provider registry
+- *(openai-compatible)* split provider family defaults
+- *(openai-compatible)* converge simple provider settings
+- *(openai-compatible)* split completion runtime boundary
+- *(openai-compatible)* isolate client shell tests
+- *(openai-compatible)* split client shell boundaries
+- *(openai-compatible)* split provider model catalog
+- *(openai-compatible)* isolate model listing module
+- *(openai-compatible)* isolate audio client module
+- *(openai-compatible)* isolate rerank client module
+- *(openai-compatible)* isolate image client module
+- *(openai-compatible)* isolate embedding client module
+- *(openai-compatible)* isolate chat client module
+- *(openai-compatible)* isolate completion client module
+- *(openai)* unify completion request shaping
+- *(openai)* unify completion response metadata
+- *(openai)* unify completion metadata helpers
+- *(openai-compatible)* enforce lossless stream deltas
+- converge provider boundary architecture
+- move provider model aliases out of core
+- harden crate boundaries
+- converge fearless architecture boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+﻿
 ### Added
 
 - Add compat-backed AI SDK-style `DeepSeekProviderSettings`, `GroqProviderSettings`,

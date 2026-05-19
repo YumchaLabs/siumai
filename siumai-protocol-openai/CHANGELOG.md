@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.7...siumai-protocol-openai-v0.11.0-beta.8) - 2026-05-18
+
+### Added
+
+- align openai metadata package surface
+- *(openai)* support responses allowed tools option
+- *(openai)* support gpt-image-2 image model
+
+### Fixed
+
+- require explicit compat completion capabilities
+- *(openai-compatible)* extract generic response metadata
+- *(openai)* preserve empty responses deltas
+- *(openai)* preserve lossless stream deltas
+- *(openai-compatible)* preserve whitespace stream deltas
+- *(openai)* align image provider option wire keys
+- *(openai)* align model capability gating with ai sdk
+
+### Other
+
+- *(openai-compatible)* centralize reasoning policy
+- *(openai-compatible)* centralize usage policy
+- prefer stable responses stream parts
+- *(clippy)* clean release lint failures
+- *(release)* prepare v0.11.0-beta.8
+- *(openai)* unify completion request shaping
+- *(openai)* unify completion response metadata
+- *(openai)* unify completion metadata helpers
+- *(openai-compatible)* enforce lossless stream deltas
+- converge provider boundary architecture
+- harden crate boundaries
+- converge fearless architecture boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+
 ### Fixed
 
 - OpenAI-compatible rerank response transformation now preserves an AI SDK-style response envelope

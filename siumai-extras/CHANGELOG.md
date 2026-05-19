@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-extras-v0.11.0-beta.7...siumai-extras-v0.11.0-beta.8) - 2026-05-18
+
+### Other
+
+- cover extras stable stream bridge
+- lock bridge stable stream parts
+- require stable gateway tool parts
+- *(clippy)* clean release lint failures
+- *(release)* prepare v0.11.0-beta.8
+- harden extras boundary and audit evidence
+- converge provider boundary architecture
+- converge fearless architecture boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- *(examples)* modernize MCP and tool-loop demos
+- *(deps)* refresh integration dependencies
+- clean stale refactor docs
+
 ### Added
 
 - Runnable loss-policy bridge example:
