@@ -61,6 +61,18 @@ PRG-050 is complete:
 - Grounding, URL context, safety, logprobs, sources, usage, service tier, and finish-message
   metadata remain on response-side provider metadata.
 
+PRG-060 is complete:
+
+- Bridge response/stream paths were audited and intentionally kept primitive-only:
+  `ChatResponse` / `ChatStreamEvent` in, target JSON/SSE bytes or values out, plus `BridgeReport`
+  loss accounting.
+- Bridge delegates wire response and stream encoding to protocol-owned JSON/SSE converters through
+  `target_dispatch.rs`.
+- Bridge does not use parser-local protocol `response_content` adapters and does not call
+  generated-output projection helpers directly.
+- `OpenAiResponsesStreamPartsBridge` remains a narrow stream replay shim for cross-protocol
+  gateway/proxy use-cases, not the canonical owner of OpenAI Responses response semantics.
+
 ## Active Decision
 
 Do not force protocol response parsers through `GenerateTextContentPart` until lossiness is proven.
@@ -73,25 +85,26 @@ Instead, first extract parser-local response compatibility adapters that:
 
 ## Last Completed Task
 
-PRG-050:
+PRG-060:
 
 - Status: DONE.
 - Scope:
-  `siumai-protocol-gemini/src/standards/gemini/transformers/response.rs`
+  `siumai-bridge/src/response,siumai-bridge/src/stream`
 - Result:
-  Applied the parser-local response adapter pattern to Gemini response parsing.
+  Recorded the bridge ownership decision, added source guards, and passed the required bridge
+  response gate.
 
 ## Next Executable Task
 
-PRG-060:
+PRG-070:
 
 - Scope:
-  `siumai-bridge/src/response,siumai-bridge/src/stream`
+  `siumai-provider-gemini,siumai-provider-amazon-bedrock`
 - Goal:
-  Decide whether bridge response/stream paths should use protocol response adapters, keep
-  primitive-only serialization, or split a narrower bridge follow-on.
+  Audit provider-owned response parsers that are not pure protocol modules and decide whether they
+  should adopt local response adapters or remain provider-owned exceptions.
 - Important constraint:
-  Bridge code must not become the canonical owner of provider response semantics.
+  Bedrock is a mixed request/response file; split before broad edits.
 
 ## Blockers
 
@@ -104,8 +117,10 @@ None known.
   audio, tool-approval context, or provider metadata.
 - Bedrock and some gateway/proxy files mix request and response responsibilities; avoid broad edits
   there until parser-local proofs exist.
+- Bridge stream replay can become a semantic sink if expanded casually; split a follow-on before
+  adding richer provider-specific response JSON/SSE reconstruction.
 
 ## Next Recommended Action
 
-Run PRG-060 with `run-workstream-task`. Start with a narrow bridge response/stream audit and decide
-ownership before editing; prefer a split follow-on if gateway/proxy serialization scope grows.
+Run PRG-070 with `run-workstream-task`. Start with `siumai-provider-gemini` because it is narrower,
+then audit Bedrock separately before touching its mixed request/response chat file.

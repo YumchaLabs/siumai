@@ -42,9 +42,9 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "active_task": null,
-  "next_task": "PRG-060",
+  "next_task": "PRG-070",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "PRG-020, PRG-030, PRG-040, and PRG-050 are complete. Continue with PRG-060 to decide bridge response/stream ownership before touching provider-owned parser paths."
+    "notes": "PRG-020, PRG-030, PRG-040, PRG-050, and PRG-060 are complete. Continue with PRG-070 to audit provider-owned response parsers, starting narrow before broad Bedrock edits."
   }
 }

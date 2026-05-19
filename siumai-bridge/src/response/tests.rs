@@ -29,9 +29,8 @@ use super::{
     bridge_chat_response_to_openai_responses_json_value,
 };
 
-#[test]
-fn response_and_stream_bridge_sources_do_not_emit_request_provider_options() {
-    for (path, source) in [
+fn response_and_stream_bridge_source_files() -> Vec<(&'static str, &'static str)> {
+    vec![
         (
             "src/response/inspect.rs",
             include_str!(concat!(
@@ -81,11 +80,64 @@ fn response_and_stream_bridge_sources_do_not_emit_request_provider_options() {
                 "/src/stream/serialize.rs"
             )),
         ),
-    ] {
+    ]
+}
+
+fn response_stream_and_dispatch_source_files() -> Vec<(&'static str, &'static str)> {
+    let mut sources = response_and_stream_bridge_source_files();
+    sources.push((
+        "src/target_dispatch.rs",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/target_dispatch.rs"
+        )),
+    ));
+    sources
+}
+
+#[test]
+fn response_and_stream_bridge_sources_do_not_emit_request_provider_options() {
+    for (path, source) in response_and_stream_bridge_source_files() {
         for forbidden in ["provider_options", "providerOptions"] {
             assert!(
                 !source.contains(forbidden),
                 "{path} is response/stream-side bridge code and must not emit request-side {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn response_and_stream_bridge_sources_do_not_force_generated_output_projection() {
+    for (path, source) in response_stream_and_dispatch_source_files() {
+        for forbidden in [
+            "GenerateTextContentPart",
+            "project_response_content_to_generate_text_content_parts",
+            "project_response_content_part_to_generate_text_content_part",
+            "response_compat_projection",
+            "generated_output",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{path} must keep generated-output projection behind the spec-owned lossiness boundary, not call `{forbidden}` directly"
+            );
+        }
+    }
+}
+
+#[test]
+fn response_and_stream_bridge_sources_do_not_use_parser_local_response_adapters() {
+    for (path, source) in response_stream_and_dispatch_source_files() {
+        for forbidden in [
+            "transformers::response::responses::response_content",
+            "transformers::response::response_content",
+            "utils::parse::response_content",
+            "response_content::",
+            "mod response_content;",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{path} must route through protocol JSON/SSE converters and primitive stream replay, not parser-local response adapter `{forbidden}`"
             );
         }
     }

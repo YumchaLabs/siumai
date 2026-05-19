@@ -312,6 +312,74 @@ Broader gates not run:
   response transformer seam; targeted response tests and package check were run.
 - Bridge gate: intentionally deferred to PRG-060.
 
+### 2026-05-19 — PRG-060 Bridge response/stream ownership decision
+
+Changed files:
+
+- `siumai-bridge/src/response/tests.rs`
+
+Bridge audit:
+
+| Area | Current responsibility | Ownership decision |
+| --- | --- | --- |
+| `siumai-bridge/src/response/serialize.rs` | Clones/remaps a normalized `ChatResponse`, runs bridge hooks, inspects target lossiness, and dispatches JSON bytes/value encoding. | Keep as orchestration only; it must not own provider response parsing semantics. |
+| `siumai-bridge/src/response/inspect.rs` and `target_caps.rs` | Compares response content, usage, finish reasons, and provider metadata against target capabilities, recording carried/lossy/dropped fields. | Keep target-loss accounting in bridge; provider metadata meaning remains provider/protocol-owned. |
+| `siumai-bridge/src/stream/serialize.rs`, `inspect.rs`, and `profile.rs` | Normalizes terminal stream events, applies bridge hooks/remappers, marks cross-protocol streams lossy, and chooses target SSE converters. | Keep primitive stream-event serialization; do not introduce response-parser adapters here. |
+| `siumai-bridge/src/stream/openai_responses_parts_bridge.rs` | Upgrades legacy/custom stream-part carriers into stable `ChatStreamPart` events and attaches OpenAI Responses replay raw items for provider-executed tool events. | Keep as a narrow stream replay adapter for gateway/proxy use-cases; split a follow-on before broadening provider semantics. |
+| `siumai-bridge/src/target_dispatch.rs` | Calls protocol-owned request transformers, JSON response converters, and SSE event converters. | This is the correct bridge/protocol boundary: bridge delegates wire shapes to protocol crates. |
+
+Decision:
+
+- Do **not** wire bridge response/stream paths to parser-local protocol `response_content` adapters.
+  Those adapters are parser-owned compatibility constructors for inbound provider responses, not a
+  public bridge serialization API.
+- Do **not** call `GenerateTextContentPart` or spec projection helpers from bridge response/stream
+  serialization. Generated-output projection remains behind the spec-owned lossiness boundary.
+- Keep bridge response/stream paths primitive-only at their public boundary:
+  `ChatResponse` / `ChatStreamEvent` in, target JSON/SSE bytes or values out, with explicit
+  `BridgeReport` loss accounting.
+- Treat `OpenAiResponsesStreamPartsBridge` as a narrow replay shim for cross-protocol streaming,
+  not as the canonical owner of OpenAI Responses provider semantics. If additional gateway/proxy
+  JSON encoders need richer provider semantics, split a dedicated follow-on instead of expanding
+  PRG-060.
+
+Implementation evidence:
+
+- Reused the existing source guard that proves response/stream bridge code does not emit
+  request-side `provider_options` / `providerOptions`.
+- Added source guards proving response/stream/dispatch bridge code:
+  - does not call generated-output projection helpers directly;
+  - does not depend on parser-local `response_content` adapters.
+
+Fresh verification:
+
+```text
+cargo fmt --check -p siumai-bridge
+```
+
+Result: PASS. Formatting is clean for the touched bridge package.
+
+```text
+cargo nextest run -p siumai-bridge --features openai,anthropic,google response_and_stream_bridge_sources --no-fail-fast
+```
+
+Result: PASS. 3 tests passed. This verifies the bridge ownership source guards: no request
+provider-options emission in response/stream scope, no direct generated-output projection, and no
+parser-local response adapter coupling.
+
+```text
+cargo nextest run -p siumai-bridge --features openai,anthropic,google response --no-fail-fast
+```
+
+Result: PASS. 55 tests passed. This is the required PRG-060 bridge gate and covers response bridge
+behavior plus stream replay tests selected by the `response` filter.
+
+Broader gates not run:
+
+- Full `siumai-bridge` package matrix: skipped because PRG-060 changed only bridge ownership source
+  guards and workstream evidence; the required response gate plus targeted guard gate passed.
+- Protocol parser gates: skipped because PRG-060 did not change protocol parser code.
+
 ## Planned Gates
 
 ### PRG-010 — Workstream planning

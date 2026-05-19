@@ -84,14 +84,17 @@ Status legend:
 
 ## M3 — Bridge, Stream, And Provider-Owned Response Paths
 
-- [ ] PRG-060 [owner=unassigned] [deps=PRG-020,PRG-040] [scope=siumai-bridge/src/response,siumai-bridge/src/stream]
+- [x] PRG-060 [owner=codex] [deps=PRG-020,PRG-040] [scope=siumai-bridge/src/response,siumai-bridge/src/stream]
   Goal: Decide whether bridge response/stream paths should use protocol response adapters, keep
   primitive-only serialization, or split a narrower bridge follow-on.
   Validation:
   `cargo nextest run -p siumai-bridge --features openai,anthropic,google response --no-fail-fast`.
-  Review: bridge code must not become the canonical owner of provider response semantics.
-  Evidence: bridge decision note in `EVIDENCE_AND_GATES.md`.
-  Handoff: Prefer split follow-ons for gateway/proxy JSON encoders if the scope grows.
+  Review: completed; bridge remains a primitive `ChatResponse`/`ChatStreamEvent` bridge that
+  delegates wire JSON/SSE encoding to protocol converters, reports target lossiness, and avoids
+  parser-local response adapters or generated-output projection.
+  Evidence: bridge ownership decision note and source-guard gates in `EVIDENCE_AND_GATES.md`.
+  Handoff: PRG-070 should audit provider-owned parsers next; split gateway/proxy encoder
+  follow-ons if stream replay or response JSON encoding scope grows beyond primitive serialization.
 
 - [ ] PRG-070 [owner=unassigned] [deps=PRG-040,PRG-050] [scope=siumai-provider-gemini,siumai-provider-amazon-bedrock]
   Goal: Audit provider-owned response parsers that are not pure protocol modules and decide whether
