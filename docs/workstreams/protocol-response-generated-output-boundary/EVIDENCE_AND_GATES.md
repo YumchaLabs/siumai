@@ -241,6 +241,77 @@ Broader gates not run:
   check were run.
 - Gemini and bridge gates: intentionally deferred to PRG-050 and PRG-060.
 
+### 2026-05-19 — PRG-050 Gemini response adapter proof
+
+Changed files:
+
+- `siumai-protocol-gemini/src/standards/gemini/transformers/mod.rs`
+- `siumai-protocol-gemini/src/standards/gemini/transformers/response.rs`
+- `siumai-protocol-gemini/src/standards/gemini/transformers/response/response_content.rs`
+
+Implementation evidence:
+
+- Audited Gemini response parsing and found it was not a no-op candidate: `transform_chat_response`
+  directly constructed text, reasoning, reasoning-file, image, audio, file, tool-call, and
+  tool-result legacy compatibility parts.
+- Added parser-local `response_content` adapter module for Gemini response compatibility payloads.
+- Moved Gemini response-owned legacy `ContentPart` construction behind named helpers while keeping
+  response semantics unchanged:
+  - text and thought reasoning parts;
+  - base64/URL reasoning files, images, audio, and files;
+  - function-call and provider-executed code-execution tool parts;
+  - text-vs-multimodal final `MessageContent` selection.
+- Kept Gemini-specific metadata response-side:
+  - thought signatures stay in provider metadata for individual response parts;
+  - grounding metadata, URL context metadata, safety ratings, usage metadata, logprobs, sources,
+    service tier, and finish message remain on `ChatResponse.provider_metadata`;
+  - request-side `provider_options` are initialized only as empty compatibility defaults.
+- Added/strengthened source guards:
+  - parser code delegates legacy content construction to `response_content`;
+  - parser and adapter do not emit/read request provider options beyond empty defaults;
+  - parser and adapter do not call generated-output projection helpers directly.
+
+Fresh verification:
+
+```text
+cargo fmt --check -p siumai-protocol-gemini
+```
+
+Result: PASS. Formatting is clean for the touched Gemini package.
+
+```text
+cargo nextest run -p siumai-protocol-gemini --no-default-features --features google gemini_response_content_source_does_not_emit_request_provider_options --no-fail-fast
+```
+
+Result: PASS. 1 test passed. This verifies the PRG-050 directionality guard.
+
+```text
+cargo nextest run -p siumai-protocol-gemini --no-default-features --features google gemini_response_content --no-fail-fast
+```
+
+Result: PASS. 3 source-guard tests passed. This verifies delegation to the adapter, request option
+hygiene, and no forced generated-output projection.
+
+```text
+cargo nextest run -p siumai-protocol-gemini --no-default-features --features google standards::gemini::transformers::response --no-fail-fast
+```
+
+Result: PASS. 15 tests passed. This covers the touched Gemini response transformer behavior tests,
+including grounding/url context metadata, safety metadata, raw finish reasons, logprobs, usage,
+custom generated IDs, function-call finish semantics, and thought reasoning files.
+
+```text
+cargo check -p siumai-protocol-gemini --no-default-features --features google
+```
+
+Result: PASS. Touched Gemini package compiles under the PRG-050 feature set.
+
+Broader gates not run:
+
+- Full `siumai-protocol-gemini` package matrix: skipped because PRG-050 changed only the Gemini
+  response transformer seam; targeted response tests and package check were run.
+- Bridge gate: intentionally deferred to PRG-060.
+
 ## Planned Gates
 
 ### PRG-010 — Workstream planning

@@ -50,6 +50,17 @@ PRG-040 is complete:
 - Source guards cover legacy-construction delegation, empty request-provider-option defaults, and
   no direct generated-output projection.
 
+PRG-050 is complete:
+
+- `siumai-protocol-gemini/src/standards/gemini/transformers/response/response_content.rs` now owns
+  Gemini response-side legacy content compatibility constructors.
+- Gemini was not a no-op candidate; direct response `ContentPart` construction moved behind the
+  parser-local adapter.
+- Source guards cover legacy-construction delegation, empty request-provider-option defaults, and
+  no direct generated-output projection.
+- Grounding, URL context, safety, logprobs, sources, usage, service tier, and finish-message
+  metadata remain on response-side provider metadata.
+
 ## Active Decision
 
 Do not force protocol response parsers through `GenerateTextContentPart` until lossiness is proven.
@@ -62,26 +73,25 @@ Instead, first extract parser-local response compatibility adapters that:
 
 ## Last Completed Task
 
-PRG-040:
+PRG-050:
 
 - Status: DONE.
 - Scope:
-  `siumai-protocol-anthropic/src/standards/anthropic/utils/parse.rs`
+  `siumai-protocol-gemini/src/standards/gemini/transformers/response.rs`
 - Result:
-  Applied the parser-local response adapter pattern to Anthropic response parsing.
+  Applied the parser-local response adapter pattern to Gemini response parsing.
 
 ## Next Executable Task
 
-PRG-050:
+PRG-060:
 
 - Scope:
-  `siumai-protocol-gemini/src/standards/gemini/transformers/response.rs`
+  `siumai-bridge/src/response,siumai-bridge/src/stream`
 - Goal:
-  Evaluate Gemini response parsing against the adapter pattern and either migrate a narrow helper
-  or record it as already sufficiently guarded.
+  Decide whether bridge response/stream paths should use protocol response adapters, keep
+  primitive-only serialization, or split a narrower bridge follow-on.
 - Important constraint:
-  Keep grounding, URL context, safety metadata, and response-side provider metadata out of
-  request-side provider options.
+  Bridge code must not become the canonical owner of provider response semantics.
 
 ## Blockers
 
@@ -97,7 +107,5 @@ None known.
 
 ## Next Recommended Action
 
-Run PRG-050 with `run-workstream-task`. Start with a narrow Gemini response parser audit; if Gemini
-already has a named response boundary and source guards, record a no-op decision instead of
-inventing an adapter. Do not start bridge migration until Gemini is recorded or intentionally
-deferred.
+Run PRG-060 with `run-workstream-task`. Start with a narrow bridge response/stream audit and decide
+ownership before editing; prefer a split follow-on if gateway/proxy serialization scope grows.

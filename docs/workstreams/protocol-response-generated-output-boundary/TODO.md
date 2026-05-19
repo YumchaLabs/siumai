@@ -67,16 +67,20 @@ Status legend:
   Handoff: PRG-050 should evaluate Gemini response parsing against the same named-adapter/source
   guard pattern; a documented no-op is acceptable if Gemini is already sufficiently guarded.
 
-- [ ] PRG-050 [owner=unassigned] [deps=PRG-020] [scope=siumai-protocol-gemini/src/standards/gemini/transformers/response.rs]
+- [x] PRG-050 [owner=codex] [deps=PRG-020] [scope=siumai-protocol-gemini/src/standards/gemini/transformers/response.rs]
   Goal: Evaluate Gemini response parsing against the adapter pattern and either migrate a narrow
   helper or record it as already sufficiently guarded.
   Validation:
   `cargo fmt --check -p siumai-protocol-gemini`;
   `cargo nextest run -p siumai-protocol-gemini --no-default-features --features google gemini_response_content_source_does_not_emit_request_provider_options --no-fail-fast`.
-  Review: keep grounding, URL context, and safety metadata on the response side.
-  Evidence: `EVIDENCE_AND_GATES.md`.
-  Handoff: A documented no-op is acceptable if the existing Gemini boundary is already named and
-  source-guarded.
+  Review: completed; Gemini was not a no-op, so response-side legacy constructors moved behind a
+  parser-local `response_content` adapter and source guards now cover delegation, request-option
+  hygiene, and no forced generated-output projection.
+  Evidence: `EVIDENCE_AND_GATES.md`; targeted Gemini response tests preserve grounding, URL
+  context, safety/logprobs metadata, thought-signature metadata, reasoning files, media, and
+  tool-call finish semantics.
+  Handoff: PRG-060 should decide bridge response/stream ownership after all three protocol parser
+  proofs are complete.
 
 ## M3 — Bridge, Stream, And Provider-Owned Response Paths
 

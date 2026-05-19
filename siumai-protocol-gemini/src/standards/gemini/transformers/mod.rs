@@ -14,7 +14,7 @@ use crate::execution::transformers::{
 use crate::streaming::SseEventConverter;
 use crate::types::EmbeddingRequest;
 use crate::types::ImageGenerationRequest;
-use crate::types::{ChatRequest, ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
+use crate::types::{ChatRequest, ChatResponse, FinishReason, Usage};
 use eventsource_stream::Event;
 use serde::Deserialize;
 use std::future::Future;

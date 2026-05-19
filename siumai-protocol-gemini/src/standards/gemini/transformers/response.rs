@@ -1,23 +1,31 @@
 use super::*;
 
+mod response_content;
+
 #[cfg(test)]
 mod tests_gemini_metadata {
     use super::*;
+    use crate::types::ContentPart;
 
     fn chat_response_source() -> &'static str {
         let source = include_str!("response.rs");
         let (_, after_start) = source
-            .split_once("fn transform_chat_response(")
+            .split_once("\n    fn transform_chat_response(")
             .expect("chat response transformer start marker should exist");
         let (section, _) = after_start
-            .split_once("fn transform_embedding_response(")
+            .split_once("\n    fn transform_embedding_response(")
             .expect("chat response transformer end marker should exist");
         section
+    }
+
+    fn response_content_source() -> &'static str {
+        include_str!("response/response_content.rs")
     }
 
     #[test]
     fn gemini_response_content_source_does_not_emit_request_provider_options() {
         let source = chat_response_source();
+        let adapter_source = response_content_source();
 
         assert!(
             !source.contains("providerOptions"),
@@ -31,15 +39,78 @@ mod tests_gemini_metadata {
             !source.contains(".provider_options"),
             "Gemini response parsing must not read request provider_options fields"
         );
+        assert!(
+            !adapter_source.contains("providerOptions"),
+            "Gemini response content adapter must not emit request-side providerOptions"
+        );
+        assert!(
+            !adapter_source.contains("provider_options_map"),
+            "Gemini response content adapter must not read request provider option maps"
+        );
+        assert!(
+            !adapter_source.contains(".provider_options"),
+            "Gemini response content adapter must not read request provider_options fields"
+        );
 
         for line in source
             .lines()
+            .chain(adapter_source.lines())
             .filter(|line| line.contains("provider_options"))
         {
+            let trimmed = line.trim();
             assert!(
-                line.contains("ProviderOptionsMap::default()"),
+                trimmed == "provider_options: ProviderOptionsMap::default(),"
+                    || trimmed == "provider_options,"
+                    || trimmed.contains("provider_options.is_empty()"),
                 "Gemini response ContentPart provider_options must stay empty defaults: {line}"
             );
+        }
+    }
+
+    #[test]
+    fn gemini_response_content_delegates_legacy_construction_to_adapter() {
+        let source = chat_response_source();
+
+        assert!(
+            source.contains("response_content::"),
+            "Gemini response parsing must delegate legacy ContentPart construction to response_content"
+        );
+
+        for forbidden in [
+            "ContentPart::Text {",
+            "ContentPart::Reasoning {",
+            "ContentPart::ReasoningFile {",
+            "ContentPart::Image {",
+            "ContentPart::Audio {",
+            "ContentPart::File {",
+            "ContentPart::ToolCall {",
+            "ContentPart::ToolResult {",
+            "MessageContent::MultiModal(content_parts)",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "Gemini response parsing should not construct legacy content directly; use response_content adapter instead of {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn gemini_response_content_does_not_force_generated_output_projection() {
+        let source = chat_response_source();
+        let adapter_source = response_content_source();
+
+        for source in [source, adapter_source] {
+            for forbidden in [
+                "GenerateTextContentPart",
+                "project_chat_response_to_generate_text_content_parts",
+                "project_response_content_to_generate_text_content_parts",
+                "project_response_content_part_to_generate_text_content_part",
+            ] {
+                assert!(
+                    !source.contains(forbidden),
+                    "Gemini response parsing must not call generated-output projection helper `{forbidden}` directly"
+                );
+            }
         }
     }
 
@@ -699,21 +770,14 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     );
                     if thought.unwrap_or(false) {
                         // Add reasoning content
-                        content_parts.push(ContentPart::Reasoning {
-                            text: text.clone(),
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata,
-                        });
+                        content_parts
+                            .push(response_content::reasoning(text.clone(), provider_metadata));
                     } else {
                         if !text_content.is_empty() {
                             text_content.push('\n');
                         }
                         text_content.push_str(text);
-                        content_parts.push(ContentPart::Text {
-                            text: text.clone(),
-                            provider_options: crate::types::ProviderOptionsMap::default(),
-                            provider_metadata,
-                        });
+                        content_parts.push(response_content::text(text.clone(), provider_metadata));
                     }
                 }
                 Part::InlineData {
@@ -727,40 +791,30 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         thought_signature.as_ref(),
                     );
                     if thought.unwrap_or(false) {
-                        content_parts.push(crate::types::ContentPart::ReasoningFile {
-                            source: crate::types::chat::MediaSource::Base64 {
-                                data: inline_data.data.clone(),
-                            },
-                            media_type: inline_data.mime_type.clone(),
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::reasoning_file_base64(
+                            inline_data.data.clone(),
+                            inline_data.mime_type.clone(),
                             provider_metadata,
-                        });
+                        ));
                     } else if inline_data.mime_type.starts_with("image/") {
-                        content_parts.push(crate::types::ContentPart::Image {
-                            source: crate::types::FilePartSource::base64(inline_data.data.clone()),
-                            media_type: Some(inline_data.mime_type.clone()),
-                            detail: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::image_base64(
+                            inline_data.data.clone(),
+                            inline_data.mime_type.clone(),
                             provider_metadata,
-                        });
+                        ));
                     } else if inline_data.mime_type.starts_with("audio/") {
-                        content_parts.push(crate::types::ContentPart::Audio {
-                            source: crate::types::chat::MediaSource::Base64 {
-                                data: inline_data.data.clone(),
-                            },
-                            media_type: Some(inline_data.mime_type.clone()),
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::audio_base64(
+                            inline_data.data.clone(),
+                            inline_data.mime_type.clone(),
                             provider_metadata,
-                        });
+                        ));
                     } else {
                         // Other file types
-                        content_parts.push(crate::types::ContentPart::File {
-                            source: crate::types::FilePartSource::base64(inline_data.data.clone()),
-                            media_type: inline_data.mime_type.clone(),
-                            filename: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::file_base64(
+                            inline_data.data.clone(),
+                            inline_data.mime_type.clone(),
                             provider_metadata,
-                        });
+                        ));
                     }
                 }
                 Part::FileData {
@@ -778,40 +832,30 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         thought_signature.as_ref(),
                     );
                     if thought.unwrap_or(false) {
-                        content_parts.push(crate::types::ContentPart::ReasoningFile {
-                            source: crate::types::chat::MediaSource::Url {
-                                url: file_data.file_uri.clone(),
-                            },
-                            media_type: mime_type.to_string(),
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::reasoning_file_url(
+                            file_data.file_uri.clone(),
+                            mime_type.to_string(),
                             provider_metadata,
-                        });
+                        ));
                     } else if mime_type.starts_with("image/") {
-                        content_parts.push(crate::types::ContentPart::Image {
-                            source: crate::types::FilePartSource::url(file_data.file_uri.clone()),
-                            media_type: Some(mime_type.to_string()),
-                            detail: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::image_url(
+                            file_data.file_uri.clone(),
+                            mime_type.to_string(),
                             provider_metadata,
-                        });
+                        ));
                     } else if mime_type.starts_with("audio/") {
-                        content_parts.push(crate::types::ContentPart::Audio {
-                            source: crate::types::chat::MediaSource::Url {
-                                url: file_data.file_uri.clone(),
-                            },
-                            media_type: Some(mime_type.to_string()),
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::audio_url(
+                            file_data.file_uri.clone(),
+                            mime_type.to_string(),
                             provider_metadata,
-                        });
+                        ));
                     } else {
                         // Other file types
-                        content_parts.push(crate::types::ContentPart::File {
-                            source: crate::types::FilePartSource::url(file_data.file_uri.clone()),
-                            media_type: mime_type.to_string(),
-                            filename: None,
-                            provider_options: crate::types::ProviderOptionsMap::default(),
+                        content_parts.push(response_content::file_url(
+                            file_data.file_uri.clone(),
+                            mime_type.to_string(),
                             provider_metadata,
-                        });
+                        ));
                     }
                 }
                 Part::FunctionCall {
@@ -826,18 +870,13 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         provider_key,
                         thought_signature.as_ref(),
                     );
-                    content_parts.push(ContentPart::ToolCall {
-                        tool_call_id: self.config.generate_id(),
-                        tool_name: function_call.name.clone(),
+                    content_parts.push(response_content::tool_call(
+                        self.config.generate_id(),
+                        function_call.name.clone(),
                         arguments,
-                        provider_executed: None,
-                        dynamic: None,
-                        invalid: None,
-                        error: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        None,
                         provider_metadata,
-                    });
+                    ));
                 }
                 Part::ExecutableCode {
                     executable_code,
@@ -855,21 +894,16 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         provider_key,
                         thought_signature.as_ref(),
                     );
-                    content_parts.push(ContentPart::ToolCall {
-                        tool_call_id: id,
-                        tool_name: "code_execution".to_string(),
-                        arguments: serde_json::json!({
+                    content_parts.push(response_content::tool_call(
+                        id,
+                        "code_execution",
+                        serde_json::json!({
                             "language": language,
                             "code": executable_code.code.clone()
                         }),
-                        provider_executed: Some(true),
-                        dynamic: None,
-                        invalid: None,
-                        error: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        Some(true),
                         provider_metadata,
-                    });
+                    ));
                 }
                 Part::CodeExecutionResult {
                     code_execution_result,
@@ -892,21 +926,17 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         provider_key,
                         thought_signature.as_ref(),
                     );
-                    content_parts.push(ContentPart::ToolResult {
-                        tool_call_id: id,
-                        tool_name: "code_execution".to_string(),
-                        output: crate::types::ToolResultOutput::json(serde_json::json!({
+                    content_parts.push(response_content::tool_result(
+                        id,
+                        "code_execution",
+                        crate::types::ToolResultOutput::json(serde_json::json!({
                             "outcome": outcome,
                             "output": code_execution_result.output.clone()
                         })),
-                        input: None,
-                        provider_executed: Some(true),
-                        dynamic: None,
-                        preliminary: None,
-                        title: None,
-                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        None,
+                        Some(true),
                         provider_metadata,
-                    });
+                    ));
                 }
                 _ => {}
             }
@@ -972,12 +1002,9 @@ impl ResponseTransformer for GeminiResponseTransformer {
 
         let finish_reason = candidate.finish_reason.as_ref().map(|reason| match reason {
             types::FinishReason::Stop => {
-                let has_client_tool_calls = content_parts.iter().any(|p| match p {
-                    ContentPart::ToolCall {
-                        provider_executed, ..
-                    } => provider_executed != &Some(true),
-                    _ => false,
-                });
+                let has_client_tool_calls = content_parts
+                    .iter()
+                    .any(response_content::is_client_tool_call);
                 if has_client_tool_calls {
                     FinishReason::ToolCalls
                 } else {
@@ -1060,15 +1087,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
 
         // If we collected any content parts (text, tool calls, media), prefer MultiModal
         // unless all parts are plain text, in which case return a single Text.
-        let content = if !content_parts.is_empty() {
-            if content_parts.iter().all(|p| p.is_text()) {
-                MessageContent::Text(text_content)
-            } else {
-                MessageContent::MultiModal(content_parts)
-            }
-        } else {
-            MessageContent::Text(text_content)
-        };
+        let content = response_content::message_content_from_parts(content_parts, text_content);
 
         Ok(ChatResponse {
             id: response.response_id.clone(),
