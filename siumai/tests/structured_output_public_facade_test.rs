@@ -1,7 +1,8 @@
 use futures_util::stream;
 use serde::Deserialize;
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::{
-    ChatResponse, ChatStreamEvent, ContentPart, FinishReason, LlmError, MessageContent,
+    ChatResponse, ChatStreamEvent, FinishReason, LlmError, MessageContent,
 };
 
 #[derive(Debug, Deserialize, PartialEq)]

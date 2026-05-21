@@ -7,6 +7,7 @@ use serde_json::{Map, Value};
 
 use super::prepare_step::PrepareStepFn;
 use super::stop_condition::StopCondition;
+use siumai::compat::content::ContentPart;
 use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai::prelude::unified::ProviderMetadata as ProviderMetadataMap;
 use siumai::prelude::unified::*;

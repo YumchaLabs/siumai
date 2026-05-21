@@ -9,6 +9,7 @@ use crate::execution::executors::embedding::{EmbeddingExecutor, EmbeddingExecuto
 use crate::execution::executors::rerank::{RerankExecutor, RerankExecutorBuilder};
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
+use crate::provider_utils::chat_request::{ChatRequestDefaults, normalize_chat_request};
 use crate::retry_api::RetryOptions;
 use crate::standards::cohere::CohereSpec;
 use crate::traits::{
@@ -18,7 +19,6 @@ use crate::traits::{
 use crate::types::{
     ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, RerankRequest, RerankResponse,
 };
-use crate::utils::chat_request::{ChatRequestDefaults, normalize_chat_request};
 use async_trait::async_trait;
 use secrecy::ExposeSecret;
 use std::borrow::Cow;

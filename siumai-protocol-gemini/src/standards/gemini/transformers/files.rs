@@ -123,7 +123,7 @@ impl FilesTransformer for GeminiFilesTransformer {
         req: &crate::types::FileUploadRequest,
     ) -> Result<FilesHttpBody, LlmError> {
         let detected = req.mime_type.clone().unwrap_or_else(|| {
-            crate::utils::guess_mime(Some(&req.content), req.filename.as_deref())
+            crate::provider_utils::guess_mime(Some(&req.content), req.filename.as_deref())
         });
         let mut part = reqwest::multipart::Part::bytes(req.content.clone());
         if let Some(filename) = req.filename.clone() {

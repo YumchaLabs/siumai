@@ -6,18 +6,25 @@ fn public_surface_unified_imports_compile() {
     use siumai::compat::content::ContentPart;
     use siumai::prelude::unified::*;
     use siumai::{
-        DEFAULT_JSON_GENERIC_SUFFIX, DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX,
-        DEFAULT_MAX_DOWNLOAD_SIZE, Download, DownloadOptions, DownloadedFile, HeaderRecord,
-        JsonInstructionMessageOptions, JsonInstructionOptions, JsonParseResult, LoadApiKeyOptions,
-        LoadOptionalSettingOptions, LoadSettingOptions, SupportedUrlMap, TypeValidationResult,
-        UrlSupportRegex, combine_headers, create_download, download_url, extract_response_headers,
-        inject_json_instruction, inject_json_instruction_into_messages, is_parsable_json,
+        Arrayable, DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX,
+        DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE,
+        DEFAULT_REASONING_BUDGET_PERCENTAGES, Download, DownloadOptions, DownloadedFile,
+        HeaderRecord, JsonInstructionMessageOptions, JsonInstructionOptions, JsonParseResult,
+        LoadApiKeyOptions, LoadOptionalSettingOptions, LoadSettingOptions, ReasoningBudgetOptions,
+        ReasoningLevel, ReasoningLevelConversionError, SupportedUrlMap, TypeValidationResult,
+        UrlSupportRegex, VERSION, as_array, combine_headers, convert_base64_to_uint8_array,
+        convert_image_model_file_to_data_uri, convert_to_base64, convert_uint8_array_to_base64,
+        cosine_similarity, create_download, delay, download_url, extract_response_headers,
+        filter_nullable, get_error_message, get_runtime_environment_user_agent,
+        get_text_from_data_url, inject_json_instruction, inject_json_instruction_into_messages,
+        is_abort_error, is_custom_reasoning, is_deep_equal_data, is_non_nullable, is_parsable_json,
         is_provider_reference, is_url_supported, load_api_key, load_optional_setting, load_setting,
-        normalize_header_map, normalize_headers, normalize_optional_headers, parse_json,
-        parse_json_with_schema, parse_provider_options, read_response_with_size_limit,
-        resolve_provider_reference, safe_parse_json, safe_parse_json_with_schema,
-        safe_validate_types, validate_download_url, validate_types, with_user_agent_suffix,
-        without_trailing_slash,
+        map_reasoning_to_provider_budget, map_reasoning_to_provider_effort,
+        media_type_to_extension, normalize_header_map, normalize_headers,
+        normalize_optional_headers, parse_json, parse_json_with_schema, parse_provider_options,
+        read_response_with_size_limit, remove_undefined_entries, resolve_provider_reference,
+        safe_parse_json, safe_parse_json_with_schema, safe_validate_types, strip_file_extension,
+        validate_download_url, validate_types, with_user_agent_suffix, without_trailing_slash,
     };
 
     let _ = size_of::<AISDKError>();
@@ -1203,6 +1210,29 @@ fn public_surface_legacy_content_part_uses_explicit_compat_namespace() {
     );
 
     let _: prelude_compat_content::ContentPart = text;
+}
+
+#[test]
+fn public_surface_directional_content_namespaces_compile() {
+    use siumai::content::{compat, output, prompt};
+    use siumai::prelude::unified::{output as prelude_output, prompt as prelude_prompt};
+
+    let _ = size_of::<prompt::ModelMessage>();
+    let _ = size_of::<prompt::UserContentPart>();
+    let _ = size_of::<prompt::AssistantContentPart>();
+    let _ = size_of::<prompt::ToolContentPart>();
+    let _ = size_of::<prompt::ToolCallPart>();
+    let _ = size_of::<prompt::ToolResultPart>();
+
+    let _ = size_of::<output::GenerateTextContentPart>();
+    let _ = size_of::<output::TextOutput>();
+    let _ = size_of::<output::ReasoningOutput>();
+    let _ = size_of::<output::FileOutput>();
+    let _ = size_of::<output::Source>();
+
+    let _ = size_of::<compat::ContentPart>();
+    let _ = size_of::<prelude_prompt::UserContentPart>();
+    let _ = size_of::<prelude_output::GenerateTextContentPart>();
 }
 
 #[test]
@@ -2889,12 +2919,13 @@ fn public_surface_togetherai_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::togetherai::{
         TogetherAIErrorData, TogetherAIProviderSettings, TogetherAiBuilder, TogetherAiClient,
-        TogetherAiConfig, VERSION, chat, completion, create_togetherai, embedding, image,
-        model_sets, options::*, rerank, togetherai as togetherai_builder,
+        TogetherAiConfig, TogetherAiImageClient, VERSION, chat, completion, create_togetherai,
+        embedding, image, model_sets, options::*, rerank, togetherai as togetherai_builder,
     };
 
     let _ = size_of::<TogetherAiBuilder>();
     let _ = size_of::<TogetherAiClient>();
+    let _ = size_of::<TogetherAiImageClient>();
     let _ = size_of::<TogetherAiConfig>();
     let _ = size_of::<TogetherAIProviderSettings>();
     let _ = size_of::<TogetherAIErrorData>();
@@ -2915,6 +2946,10 @@ fn public_surface_togetherai_provider_ext_compiles() {
     let _ = TogetherAiClient::http_interceptors;
     let _ = TogetherAiClient::http_transport;
     let _ = TogetherAiClient::set_retry_options;
+    let _ = TogetherAiImageClient::from_config;
+    let _ = TogetherAiImageClient::with_http_client;
+    let _ = TogetherAiImageClient::with_retry_options;
+    let _ = TogetherAiBuilder::build_image_model;
     let _ = chat::META_LLAMA_3_1_8B_INSTRUCT_TURBO;
     let _ = completion::QWEN_2_5_CODER_32B_INSTRUCT;
     let _ = embedding::M2_BERT_80M_8K_RETRIEVAL;

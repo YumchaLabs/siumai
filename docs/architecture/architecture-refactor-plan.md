@@ -5,6 +5,9 @@ older release notes link to it, but it is not the current planning entry point. 
 architecture guidance, use `docs/architecture/module-split-design.md`,
 `docs/architecture/public-surface.md`, and `docs/workstreams/fearless-refactor-v4/`.
 
+Taxonomy note: the beta.6 checkpoint below listed six stable families. The current FCAB taxonomy is
+seven stable families with Video promoted as a task-oriented family; Music remains extension-only.
+
 ## Status (2026-02-27)
 
 Recent progress at that checkpoint:
@@ -15,13 +18,14 @@ Recent progress at that checkpoint:
 
 ## Goals
 
-- **Keep the stable surface small and consistent**: 6 model families only
+- **Keep the stable surface small and consistent**: seven model families
   - Language (chat + streaming)
   - Embedding
   - Image
   - Rerank
   - Speech (TTS)
   - Transcription (STT)
+  - Video (task-oriented generation)
 - **Make provider-specific features explicitly opt-in**:
   - provider-hosted tools (`hosted_tools::*`)
   - provider options (pass-through `providerOptions`)

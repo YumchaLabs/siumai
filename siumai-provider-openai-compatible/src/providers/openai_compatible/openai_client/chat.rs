@@ -71,10 +71,12 @@ impl OpenAiCompatibleClient {
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
         self.ensure_chat_surface(stream)?;
-        let request = crate::utils::chat_request::normalize_chat_request(
+        let request = crate::provider_utils::chat_request::normalize_chat_request(
             request,
-            crate::utils::chat_request::ChatRequestDefaults::new(&self.config.common_params)
-                .with_http_config(&self.config.http_config),
+            crate::provider_utils::chat_request::ChatRequestDefaults::new(
+                &self.config.common_params,
+            )
+            .with_http_config(&self.config.http_config),
             stream,
         );
         if request.common_params.model.trim().is_empty() {

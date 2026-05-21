@@ -96,9 +96,9 @@ impl OpenAiClient {
         request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
-        let request = crate::utils::chat_request::normalize_chat_request(
+        let request = crate::provider_utils::chat_request::normalize_chat_request(
             request,
-            crate::utils::chat_request::ChatRequestDefaults::new(&self.common_params)
+            crate::provider_utils::chat_request::ChatRequestDefaults::new(&self.common_params)
                 .with_provider_options_map(&self.default_provider_options_map),
             stream,
         );

@@ -138,7 +138,7 @@ impl ProviderSpec for GeminiSpec {
         } else {
             format!("models/{trimmed}")
         };
-        Ok(crate::utils::url::join_url(
+        Ok(crate::provider_utils::url::join_url(
             ctx.base_url.trim_end_matches('/'),
             &resource,
         ))

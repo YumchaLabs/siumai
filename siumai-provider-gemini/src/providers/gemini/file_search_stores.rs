@@ -18,8 +18,8 @@ use crate::execution::executors::common::{
     execute_json_request, execute_multipart_request,
 };
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::provider_utils::url::{join_url, join_url_segments};
 use crate::retry_api::RetryOptions;
-use crate::utils::url::{join_url, join_url_segments};
 use reqwest::Client as HttpClient;
 use std::sync::Arc;
 
@@ -151,7 +151,7 @@ impl GeminiFileSearchStores {
                 })?;
 
             let detected = mime_type_clone.clone().unwrap_or_else(|| {
-                crate::utils::guess_mime(Some(&content_clone), Some(&filename_clone))
+                crate::provider_utils::guess_mime(Some(&content_clone), Some(&filename_clone))
             });
             let file_part = reqwest::multipart::Part::bytes(content_clone.clone())
                 .file_name(filename_clone.clone())

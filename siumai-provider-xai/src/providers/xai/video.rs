@@ -2,12 +2,12 @@ use super::XaiClient;
 use super::http::{build_http_execution_config, headers_to_map};
 use crate::error::LlmError;
 use crate::provider_options::{XaiVideoMode, XaiVideoOptions, XaiVideoResolution};
+use crate::provider_utils::mime::guess_mime_from_bytes;
 use crate::types::video::{
     VideoGenerationInput, VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatus,
     VideoTaskStatusResponse,
 };
 use crate::types::{BaseResponse, HttpResponseInfo, Warning};
-use crate::utils::mime::guess_mime_from_bytes;
 use siumai_core::video::VideoPollingOptions;
 use std::collections::HashMap;
 use std::time::Duration;

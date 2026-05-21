@@ -3,6 +3,7 @@
 //!
 //! These tests verify the core functionality of the unified LLM interface
 
+use siumai::compat::content::ContentPart;
 use siumai::experimental::streaming::{ProcessedEvent, StreamProcessor};
 use siumai::prelude::unified::*;
 use siumai::user_builder;

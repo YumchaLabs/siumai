@@ -618,7 +618,7 @@ impl OpenAiBuilder {
                 "OpenAI API key not provided".to_string(),
             ))?;
 
-        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
+        let base_url = crate::provider_utils::builder_helpers::resolve_base_url_with_env(
             self.base_url,
             Some("OPENAI_BASE_URL"),
             "https://api.openai.com/v1",

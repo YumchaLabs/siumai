@@ -508,7 +508,7 @@ fn anthropic_function_tool_examples_enable_required_betas() {
 
 #[test]
 fn anthropic_code_execution_response_maps_to_stable_tool_name_and_container_metadata() {
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::{ContentPart, MessageContent};
     use siumai_core::types::ToolResultOutput;
 
     let root = fixtures_dir().join("anthropic-code-execution-20250825.1");
@@ -642,7 +642,7 @@ fn anthropic_agent_skills_provider_metadata_maps_container_skills() {
 
 #[test]
 fn anthropic_code_execution_result_preserves_file_id_list() {
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::{ContentPart, MessageContent};
     use siumai_core::types::ToolResultOutput;
 
     let root = fixtures_dir().join("anthropic-code-execution-20250825.2");
@@ -721,7 +721,7 @@ fn anthropic_code_execution_result_preserves_file_id_list() {
 
 #[test]
 fn anthropic_code_execution_fixture_preserves_server_tool_name_metadata() {
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::{ContentPart, MessageContent};
 
     let root = fixtures_dir().join("anthropic-code-execution-20250825.1");
     let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
@@ -783,7 +783,7 @@ fn anthropic_code_execution_fixture_preserves_server_tool_name_metadata() {
 
 #[test]
 fn anthropic_programmatic_tool_calling_includes_caller_metadata() {
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::{ContentPart, MessageContent};
 
     let root = fixtures_dir().join("anthropic-programmatic-tool-calling.1");
     let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
@@ -854,7 +854,7 @@ fn anthropic_programmatic_tool_calling_includes_caller_metadata() {
 
 #[test]
 fn anthropic_web_fetch_fixture_normalizes_result_shape() {
-    use siumai::prelude::unified::ContentPart;
+    use siumai::compat::content::ContentPart;
 
     let request_root = fixtures_dir().join("anthropic-web-fetch-tool.1");
     let response_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -912,7 +912,7 @@ fn anthropic_web_fetch_fixture_normalizes_result_shape() {
 
 #[test]
 fn anthropic_web_search_fixture_normalizes_result_shape() {
-    use siumai::prelude::unified::ContentPart;
+    use siumai::compat::content::ContentPart;
 
     let request_root = fixtures_dir().join("anthropic-web-search-tool.1");
     let response_path = Path::new(env!("CARGO_MANIFEST_DIR"))

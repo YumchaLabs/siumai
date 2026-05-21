@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::orchestrator::{OrchestratorContext, ToolResolver};
 use futures::StreamExt;
 use serde_json::{Value, json};
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::*;
 use siumai::tooling::ToolExecutionOptions;
 

@@ -8,6 +8,7 @@ use siumai::prelude::unified::ToolResultOutput;
 
 use super::*;
 use super::{PrepareStepResult, StepResult, StopCondition, step_count_is};
+use siumai::compat::content::ContentPart;
 use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai::prelude::unified::*;
 

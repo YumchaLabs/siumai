@@ -51,6 +51,8 @@ impl TogetherAiConfig {
     pub const DEFAULT_BASE_URL: &'static str = "https://api.together.xyz/v1";
     /// Default TogetherAI rerank model.
     pub const DEFAULT_MODEL: &'static str = "Salesforce/Llama-Rank-v1";
+    /// Default TogetherAI image model.
+    pub const DEFAULT_IMAGE_MODEL: &'static str = super::models::IMAGE;
     pub(crate) const PRIMARY_API_KEY_ENV: &'static str = "TOGETHER_API_KEY";
     pub(crate) const DEPRECATED_API_KEY_ENV: &'static str = "TOGETHER_AI_API_KEY";
 
@@ -147,10 +149,17 @@ impl TogetherAiConfig {
         }
         Ok(())
     }
+
+    /// Clone this config for an image model while preserving auth and HTTP wiring.
+    pub fn image_config_for_model(&self, model: impl Into<String>) -> Self {
+        let mut config = self.clone();
+        config.common_params.model = model.into();
+        config
+    }
 }
 
 pub(crate) fn resolve_api_key_from_env() -> Result<String, LlmError> {
-    siumai_core::utils::builder_helpers::get_api_key_with_envs(
+    crate::provider_utils::builder_helpers::get_api_key_with_envs(
         None,
         "togetherai",
         Some(TogetherAiConfig::PRIMARY_API_KEY_ENV),

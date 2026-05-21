@@ -391,7 +391,8 @@ mod json_transcode_tests {
     use super::*;
 
     use serde_json::json;
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::ContentPart;
+    use siumai::prelude::unified::MessageContent;
 
     use crate::bridge::{
         ClosureBridgeCustomization, ClosurePrimitiveRemapper, response_bridge_hook,

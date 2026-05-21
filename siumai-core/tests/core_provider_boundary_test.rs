@@ -76,7 +76,6 @@ fn core_manifest_does_not_depend_on_registry_facade_provider_or_protocol_crates(
         "siumai-registry",
         "siumai-bridge",
         "siumai-extras",
-        "siumai-provider-",
         "siumai-protocol-",
         "siumai =",
     ] {
@@ -85,6 +84,17 @@ fn core_manifest_does_not_depend_on_registry_facade_provider_or_protocol_crates(
             "siumai-core must stay provider-agnostic and must not depend on `{forbidden_dependency}`"
         );
     }
+
+    let forbidden_provider_impl_dependencies = manifest
+        .lines()
+        .filter(|line| line.trim_start().starts_with("siumai-provider-"))
+        .filter(|line| !line.trim_start().starts_with("siumai-provider-utils"))
+        .collect::<Vec<_>>();
+    assert!(
+        forbidden_provider_impl_dependencies.is_empty(),
+        "siumai-core must not depend on provider implementation crates; only the generic `siumai-provider-utils` seam is allowed:\n{}",
+        forbidden_provider_impl_dependencies.join("\n")
+    );
 
     assert!(
         manifest.contains("siumai-spec = { workspace = true, default-features = false }"),
@@ -112,7 +122,6 @@ fn core_production_source_does_not_import_registry_facade_provider_or_protocol_c
 
         for forbidden in [
             "siumai_registry::",
-            "siumai_provider_",
             "siumai_protocol_",
             "siumai_bridge::",
             "siumai_extras::",
@@ -149,6 +158,14 @@ fn core_production_source_does_not_import_registry_facade_provider_or_protocol_c
                 violations.push(format!("{relative_path}: `{forbidden}`"));
             }
         }
+
+        let source_without_provider_utils =
+            production_source.replace("siumai_provider_utils::", "");
+        if source_without_provider_utils.contains("siumai_provider_") {
+            violations.push(format!(
+                "{relative_path}: `siumai_provider_` (only the generic `siumai_provider_utils` seam is allowed)"
+            ));
+        }
     }
 
     assert!(
@@ -179,6 +196,207 @@ fn core_utils_do_not_own_provider_model_aliases() {
     assert!(
         !builder_helpers.contains("normalize_model_id"),
         "siumai-core builder helpers must not expose provider-specific model normalization"
+    );
+}
+
+#[test]
+fn provider_utils_crate_owns_high_churn_provider_helpers() {
+    let root = workspace_root();
+    let core_utils_dir = crate_root().join("src").join("utils");
+    let provider_utils_dir = root.join("siumai-provider-utils").join("src");
+
+    let moved_modules = [
+        "builder_helpers",
+        "chat_request",
+        "data",
+        "download",
+        "error_message",
+        "headers",
+        "id",
+        "json_instruction",
+        "json_parse",
+        "mime",
+        "option",
+        "provider_options",
+        "provider_reference",
+        "reasoning",
+        "runtime",
+        "serial_job",
+        "settings",
+        "url",
+        "utf8_decoder",
+        "validate_types",
+    ];
+    for module in moved_modules {
+        let provider_source = fs::read_to_string(provider_utils_dir.join(format!("{module}.rs")))
+            .unwrap_or_else(|error| panic!("read provider-utils module {module}: {error}"));
+        let core_source = fs::read_to_string(core_utils_dir.join(format!("{module}.rs")))
+            .unwrap_or_else(|error| panic!("read core utils module {module}: {error}"));
+
+        assert!(
+            !provider_source.trim().is_empty(),
+            "siumai-provider-utils::{module} should own the helper implementation"
+        );
+        assert!(
+            core_source.contains(&format!("pub use siumai_provider_utils::{module}::*;")),
+            "siumai-core::utils::{module} should be a migration alias to siumai-provider-utils"
+        );
+        for implementation_marker in [
+            "pub fn ",
+            "pub struct ",
+            "pub enum ",
+            "pub type ",
+            "impl ",
+            "fn ",
+        ] {
+            assert!(
+                !production_non_comment_source(&core_source).contains(implementation_marker),
+                "siumai-core::utils::{module} must not keep provider-utils implementation marker `{implementation_marker}`"
+            );
+        }
+    }
+
+    let core_manifest =
+        fs::read_to_string(crate_root().join("Cargo.toml")).expect("read siumai-core Cargo.toml");
+    assert!(
+        core_manifest
+            .contains("siumai-provider-utils = { workspace = true, default-features = false }"),
+        "siumai-core should keep provider-utils compatibility aliases backed by the new provider-utils crate"
+    );
+
+    let provider_manifest =
+        fs::read_to_string(root.join("siumai-provider-utils").join("Cargo.toml"))
+            .expect("read siumai-provider-utils Cargo.toml");
+    assert!(
+        provider_manifest.contains("siumai-spec = { workspace = true, default-features = false }"),
+        "siumai-provider-utils should depend on spec contracts, not on siumai-core"
+    );
+    assert!(
+        !provider_manifest.contains("siumai-core"),
+        "siumai-provider-utils must not depend on siumai-core; otherwise core compatibility aliases would create a cycle"
+    );
+}
+
+#[test]
+fn core_utils_remaining_owned_modules_are_classified() {
+    let utils_dir = crate_root().join("src").join("utils");
+    let mut actual_modules = fs::read_dir(&utils_dir)
+        .expect("read utils dir")
+        .filter_map(|entry| {
+            let entry = entry.expect("read utils entry");
+            let path = entry.path();
+            (path.extension().is_some_and(|extension| extension == "rs")
+                && path.file_stem().is_some_and(|stem| stem != "mod"))
+            .then(|| {
+                path.file_stem()
+                    .expect("utils file stem")
+                    .to_string_lossy()
+                    .to_string()
+            })
+        })
+        .collect::<Vec<_>>();
+    actual_modules.sort();
+
+    let mut classified_modules = [
+        // Compatibility aliases backed by siumai-provider-utils.
+        "builder_helpers",
+        "chat_request",
+        "data",
+        "download",
+        "error_message",
+        "headers",
+        "id",
+        "json_instruction",
+        "json_parse",
+        "mime",
+        "option",
+        "provider_options",
+        "provider_reference",
+        "reasoning",
+        "runtime",
+        "serial_job",
+        "settings",
+        "url",
+        "utf8_decoder",
+        "validate_types",
+        // Stable core runtime utility: depends on core CancelHandle and stream handles.
+        "cancel",
+        // Explicit compatibility helper: depends on core stream part types and is facade compat-only.
+        "streaming_tool_call",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    classified_modules.sort();
+
+    assert_eq!(
+        actual_modules, classified_modules,
+        "every siumai-core::utils module must be classified as provider-utils alias, stable core utility, or explicit compat helper"
+    );
+}
+
+#[test]
+fn provider_protocol_crates_do_not_import_moved_provider_utils_from_core() {
+    let root = workspace_root();
+    let moved_modules = [
+        "builder_helpers",
+        "chat_request",
+        "data",
+        "download",
+        "error_message",
+        "headers",
+        "id",
+        "json_instruction",
+        "json_parse",
+        "mime",
+        "option",
+        "provider_options",
+        "provider_reference",
+        "reasoning",
+        "runtime",
+        "serial_job",
+        "settings",
+        "url",
+        "utf8_decoder",
+        "validate_types",
+    ];
+
+    let mut rust_sources = Vec::new();
+    collect_workspace_crate_sources_by_prefix(
+        &root,
+        &["siumai-provider-", "siumai-protocol-", "siumai-registry"],
+        &mut rust_sources,
+    );
+
+    let mut violations = Vec::new();
+    for source_path in rust_sources {
+        let relative_path = normalized_relative_path(&root, &source_path);
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
+        let production_source = production_non_comment_source(&source);
+
+        for module in moved_modules {
+            for forbidden in [
+                format!("siumai_core::utils::{module}"),
+                format!("crate::utils::{module}"),
+            ] {
+                if production_source.contains(&forbidden) {
+                    violations.push(format!("{relative_path}: `{forbidden}`"));
+                }
+            }
+        }
+
+        for forbidden in ["crate::utils::guess_mime", "siumai_core::utils::guess_mime"] {
+            if production_source.contains(forbidden) {
+                violations.push(format!("{relative_path}: `{forbidden}`"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "provider, protocol, and registry crates must import moved generic helpers through `siumai-provider-utils` / internal `crate::provider_utils`, not old core utility paths:\n{}",
+        violations.join("\n")
     );
 }
 
@@ -872,8 +1090,19 @@ fn core_sample_streaming_middleware_only_initializes_empty_provider_metadata() {
 fn core_provider_options_parser_stays_request_only_and_provider_agnostic() {
     let manifest_dir = crate_root();
     let relative_path = "src/utils/provider_options.rs";
-    let source = fs::read_to_string(manifest_dir.join(relative_path))
+    let core_source = fs::read_to_string(manifest_dir.join(relative_path))
         .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
+    assert!(
+        core_source.contains("pub use siumai_provider_utils::provider_options::*;"),
+        "{relative_path} should be a compatibility alias to the provider-utils implementation"
+    );
+
+    let provider_utils_path = workspace_root()
+        .join("siumai-provider-utils")
+        .join("src")
+        .join("provider_options.rs");
+    let source = fs::read_to_string(&provider_utils_path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", provider_utils_path.display()));
     let production_source = source
         .split("#[cfg(test)]")
         .next()

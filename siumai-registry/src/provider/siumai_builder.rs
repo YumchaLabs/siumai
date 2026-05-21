@@ -1122,7 +1122,7 @@ impl SiumaiBuilder {
             })?
         };
 
-        let resolved_base = crate::utils::builder_helpers::resolve_base_url_with_env(
+        let resolved_base = crate::provider_utils::builder_helpers::resolve_base_url_with_env(
             self.base_url.clone(),
             Some("OPENAI_BASE_URL"),
             "https://api.openai.com/v1",

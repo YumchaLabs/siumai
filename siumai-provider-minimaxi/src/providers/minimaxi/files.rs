@@ -251,7 +251,7 @@ impl FileManagementCapability for MinimaxiFiles {
         let purpose = request.purpose.clone();
         let filename = request.filename.clone();
         let mime_type = request.mime_type.clone().unwrap_or_else(|| {
-            crate::utils::guess_mime(Some(&request.content), filename.as_deref())
+            crate::provider_utils::guess_mime(Some(&request.content), filename.as_deref())
         });
         let content = request.content.clone();
 

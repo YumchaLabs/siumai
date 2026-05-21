@@ -166,7 +166,10 @@ impl ProviderSpec for OpenAiRerankSpec {
             .as_ref()
             .map(|a| a.rerank_endpoint())
             .unwrap_or("/rerank");
-        Ok(crate::utils::url::join_url(&ctx.base_url, endpoint))
+        Ok(crate::provider_utils::url::join_url(
+            &ctx.base_url,
+            endpoint,
+        ))
     }
 
     fn choose_rerank_transformers(

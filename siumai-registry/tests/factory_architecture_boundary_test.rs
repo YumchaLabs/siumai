@@ -292,6 +292,590 @@ fn hybrid_provider_composite_clients_are_compat_only_adapters() {
 }
 
 #[test]
+fn openai_compatible_factory_centralizes_checked_family_projection_glue() {
+    let source = read_factory_source("openai_compatible.rs");
+
+    assert_eq!(
+        source
+            .matches("async fn build_checked_text_family_model_arc(")
+            .count(),
+        1,
+        "OpenAI-compatible factory should have one checked typed-client Arc projection helper"
+    );
+    assert_eq!(
+        source.matches("Ok(Arc::new(client))").count(),
+        1,
+        "OpenAI-compatible factory should not duplicate Arc::new(client) projection in every family/compat method"
+    );
+
+    for (method_name, capability) in [
+        ("compat_language_client_with_ctx", "chat"),
+        ("language_model_text_with_ctx", "chat"),
+        ("compat_embedding_client_with_ctx", "embedding"),
+        ("embedding_model_family_with_ctx", "embedding"),
+        ("compat_completion_client_with_ctx", "completion"),
+        ("completion_model_family_with_ctx", "completion"),
+        ("compat_image_client_with_ctx", "image_generation"),
+        ("image_model_family_with_ctx", "image_generation"),
+        ("compat_reranking_client_with_ctx", "rerank"),
+        ("reranking_model_family_with_ctx", "rerank"),
+        ("compat_speech_client_with_ctx", "speech"),
+        ("speech_model_family_with_ctx", "speech"),
+        ("compat_transcription_client_with_ctx", "transcription"),
+        ("transcription_model_family_with_ctx", "transcription"),
+    ] {
+        let method = async_method_source(&source, "openai_compatible.rs", method_name);
+        let helper_call = format!("build_checked_text_family_model_arc(\"{capability}\"");
+        assert!(
+            method.contains(&helper_call),
+            "openai_compatible.rs::{method_name} should delegate checked capability + typed-client projection to `{helper_call}`"
+        );
+        assert!(
+            !method.contains("ensure_capability(")
+                && !method.contains("build_text_family_model_with_ctx(")
+                && !method.contains("Arc::new(client)"),
+            "openai_compatible.rs::{method_name} should not reintroduce local checked projection glue"
+        );
+    }
+}
+
+#[test]
+fn openai_factory_centralizes_family_projection_glue() {
+    let source = read_factory_source("openai.rs");
+
+    assert_eq!(
+        source.matches("async fn build_family_model_arc(").count(),
+        1,
+        "OpenAI factory should have one typed-client Arc projection helper"
+    );
+    assert_eq!(
+        source.matches("Ok(Arc::new(client))").count(),
+        1,
+        "OpenAI factory should not duplicate Arc::new(client) projection in every family/compat method"
+    );
+
+    for method_name in [
+        "compat_language_client_with_ctx",
+        "language_model_text_with_ctx",
+        "compat_completion_client_with_ctx",
+        "completion_model_family_with_ctx",
+        "compat_embedding_client_with_ctx",
+        "embedding_model_family_with_ctx",
+        "compat_image_client_with_ctx",
+        "image_model_family_with_ctx",
+        "compat_speech_client_with_ctx",
+        "speech_model_family_with_ctx",
+        "compat_transcription_client_with_ctx",
+        "transcription_model_family_with_ctx",
+    ] {
+        let method = async_method_source(&source, "openai.rs", method_name);
+        assert!(
+            method.contains("build_family_model_arc(model_id, ctx)"),
+            "openai.rs::{method_name} should delegate typed-client projection to build_family_model_arc"
+        );
+        assert!(
+            !method.contains("build_family_model_with_ctx(")
+                && !method.contains("Arc::new(client)"),
+            "openai.rs::{method_name} should not reintroduce local projection glue"
+        );
+    }
+}
+
+#[test]
+fn promoted_openai_compatible_vendor_factories_centralize_projection_glue() {
+    struct Case<'a> {
+        file_name: &'a str,
+        image_client: &'a str,
+        text_projection_count: usize,
+        image_projection_count: usize,
+        async_image_projection: bool,
+        text_methods: &'a [&'a str],
+        image_methods: &'a [&'a str],
+        rerank_methods: &'a [&'a str],
+    }
+
+    let cases = [
+        Case {
+            file_name: "deepinfra.rs",
+            image_client: "DeepInfraImageClient",
+            text_projection_count: 1,
+            image_projection_count: 1,
+            async_image_projection: true,
+            text_methods: &[
+                "language_model_text_with_ctx",
+                "compat_completion_client_with_ctx",
+                "completion_model_family_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "embedding_model_family_with_ctx",
+            ],
+            image_methods: &[
+                "compat_image_client_with_ctx",
+                "image_model_family_with_ctx",
+            ],
+            rerank_methods: &[],
+        },
+        Case {
+            file_name: "fireworks.rs",
+            image_client: "FireworksImageClient",
+            text_projection_count: 1,
+            image_projection_count: 1,
+            async_image_projection: true,
+            text_methods: &[
+                "language_model_text_with_ctx",
+                "compat_completion_client_with_ctx",
+                "completion_model_family_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "embedding_model_family_with_ctx",
+                "compat_transcription_client_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+            image_methods: &[
+                "compat_image_client_with_ctx",
+                "image_model_family_with_ctx",
+            ],
+            rerank_methods: &[],
+        },
+        Case {
+            file_name: "togetherai.rs",
+            image_client: "TogetherAiImageClient",
+            text_projection_count: 1,
+            image_projection_count: 1,
+            async_image_projection: false,
+            text_methods: &[
+                "language_model_text_with_ctx",
+                "compat_completion_client_with_ctx",
+                "completion_model_family_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "embedding_model_family_with_ctx",
+                "compat_speech_client_with_ctx",
+                "speech_model_family_with_ctx",
+                "compat_transcription_client_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+            image_methods: &[
+                "compat_image_client_with_ctx",
+                "image_model_family_with_ctx",
+            ],
+            rerank_methods: &[
+                "compat_reranking_client_with_ctx",
+                "reranking_model_family_with_ctx",
+            ],
+        },
+    ];
+
+    for case in cases {
+        let source = read_factory_source(case.file_name);
+        let image_projection = format!("Ok(Arc::new({}::from_text_client(", case.image_client);
+
+        assert_eq!(
+            source.matches("async fn build_text_client_arc(").count(),
+            case.text_projection_count,
+            "{} should centralize text typed-client Arc projection in one helper",
+            case.file_name
+        );
+        if case.async_image_projection {
+            assert_eq!(
+                source.matches("async fn build_image_client_arc(").count(),
+                case.image_projection_count,
+                "{} should centralize provider-owned image Arc projection in one async helper",
+                case.file_name
+            );
+            assert_eq!(
+                source.matches(&image_projection).count(),
+                case.image_projection_count,
+                "{} should not duplicate provider-owned image projection outside build_image_client_arc",
+                case.file_name
+            );
+        } else {
+            assert_eq!(
+                source.matches("fn build_image_client_arc(").count(),
+                case.image_projection_count,
+                "{} should centralize provider-owned image Arc projection in one sync helper",
+                case.file_name
+            );
+            assert_eq!(
+                source
+                    .matches("TogetherAiImageClient::from_config(")
+                    .count()
+                    + source
+                        .matches("TogetherAiImageClient::with_http_client(")
+                        .count(),
+                2,
+                "{} should construct provider-owned TogetherAI image clients directly through the provider crate",
+                case.file_name
+            );
+            assert!(
+                !source.contains("struct TogetherAiImageClient")
+                    && !source.contains("impl ImageGenerationCapability for TogetherAiImageClient")
+                    && !source.contains("impl ImageExtras for TogetherAiImageClient")
+                    && !source.contains("build_generation_body(")
+                    && !source.contains("build_edit_body(")
+                    && !source.contains("execute_json_request("),
+                "{} should not own TogetherAI image runtime or protocol mapping in the registry factory",
+                case.file_name
+            );
+        }
+
+        for &method_name in case.text_methods {
+            let method = async_method_source(&source, case.file_name, method_name);
+            assert!(
+                method.contains("build_text_client_arc(model_id, ctx).await?"),
+                "{}::{method_name} should delegate text typed-client projection to build_text_client_arc",
+                case.file_name
+            );
+            assert!(
+                !method.contains("build_text_client_with_ctx(")
+                    && !method.contains("Arc::new(client)")
+                    && !method.contains("from_text_client("),
+                "{}::{method_name} should not reintroduce local text/image projection glue",
+                case.file_name
+            );
+        }
+
+        for &method_name in case.image_methods {
+            let method = async_method_source(&source, case.file_name, method_name);
+            let helper_call = if case.async_image_projection {
+                "build_image_client_arc(model_id, ctx).await?"
+            } else {
+                "build_image_client_arc(model_id, ctx)?"
+            };
+            assert!(
+                method.contains(helper_call),
+                "{}::{method_name} should delegate provider-owned image projection to build_image_client_arc",
+                case.file_name
+            );
+            assert!(
+                !method.contains("build_text_client_with_ctx(")
+                    && !method.contains("Arc::new(")
+                    && !method.contains("from_text_client(")
+                    && !method.contains("TogetherAiImageClient::from_config(")
+                    && !method.contains("TogetherAiImageClient::with_http_client("),
+                "{}::{method_name} should not reintroduce local image projection glue",
+                case.file_name
+            );
+        }
+
+        if !case.rerank_methods.is_empty() {
+            assert_eq!(
+                source.matches("fn build_rerank_client_arc(").count(),
+                1,
+                "{} should centralize provider-owned rerank Arc projection in one helper",
+                case.file_name
+            );
+            for &method_name in case.rerank_methods {
+                let method = async_method_source(&source, case.file_name, method_name);
+                assert!(
+                    method.contains("build_rerank_client_arc(model_id, ctx)?"),
+                    "{}::{method_name} should delegate provider-owned rerank projection to build_rerank_client_arc",
+                    case.file_name
+                );
+                assert!(
+                    !method.contains("build_native_rerank_client_with_ctx(")
+                        && !method.contains("Arc::new("),
+                    "{}::{method_name} should not reintroduce local rerank projection glue",
+                    case.file_name
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn togetherai_provider_crate_owns_image_runtime() {
+    let factory_source = read_factory_source("togetherai.rs");
+    let provider_root = crate_root().join("../siumai-provider-togetherai/src/providers/togetherai");
+    let provider_mod =
+        fs::read_to_string(provider_root.join("mod.rs")).expect("read TogetherAI provider module");
+    let provider_image =
+        fs::read_to_string(provider_root.join("image.rs")).expect("read TogetherAI image runtime");
+    let provider_facade =
+        fs::read_to_string(crate_root().join("../siumai/src/provider_ext/togetherai.rs"))
+            .expect("read TogetherAI facade provider extension");
+
+    assert!(
+        provider_mod.contains("mod image;")
+            && provider_mod.contains("pub use image::TogetherAiImageClient;"),
+        "TogetherAI provider crate should expose provider-owned image client from its image Module"
+    );
+    assert!(
+        provider_image.contains("pub struct TogetherAiImageClient")
+            && provider_image.contains("impl ImageGenerationCapability for TogetherAiImageClient")
+            && provider_image.contains("impl ImageExtras for TogetherAiImageClient")
+            && provider_image.contains("build_generation_body(")
+            && provider_image.contains("build_edit_body(")
+            && provider_image.contains("execute_json_request("),
+        "TogetherAI provider crate should own image runtime, request mapping, response parsing, and HTTP execution"
+    );
+    assert!(
+        provider_facade.contains("TogetherAiImageClient"),
+        "facade provider_ext::togetherai should expose the provider-owned image client"
+    );
+    for forbidden in [
+        "struct TogetherAiImageClient",
+        "impl ImageGenerationCapability for TogetherAiImageClient",
+        "impl ImageExtras for TogetherAiImageClient",
+        "build_generation_body(",
+        "build_edit_body(",
+        "execute_json_request(",
+        "struct TogetherAiImageResponse",
+        "generated_image_from_together_item(",
+    ] {
+        assert!(
+            !factory_source.contains(forbidden),
+            "TogetherAI registry factory should not own image runtime detail `{forbidden}`"
+        );
+    }
+    assert!(
+        factory_source.contains("TogetherAiImageClient::from_config(")
+            && factory_source.contains("TogetherAiImageClient::with_http_client(")
+            && factory_source.contains("build_image_client_arc(model_id, ctx)?"),
+        "TogetherAI registry factory should only build/project provider-owned image clients"
+    );
+}
+
+#[test]
+fn builtin_provider_factories_centralize_typed_client_arc_projection() {
+    struct Case<'a> {
+        file_name: &'a str,
+        helper_decl: &'a str,
+        helper_call: &'a str,
+        forbidden_builder_call: &'a str,
+        methods: &'a [&'a str],
+    }
+
+    let cases = [
+        Case {
+            file_name: "azure.rs",
+            helper_decl: "async fn build_family_model_arc(",
+            helper_call: "self.build_family_model_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_family_model_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+                "compat_completion_client_with_ctx",
+                "completion_model_family_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "embedding_model_family_with_ctx",
+                "compat_image_client_with_ctx",
+                "image_model_family_with_ctx",
+                "compat_speech_client_with_ctx",
+                "speech_model_family_with_ctx",
+                "compat_transcription_client_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "anthropic.rs",
+            helper_decl: "async fn build_text_family_model_arc(",
+            helper_call: "self.build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_text_family_model_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "gemini.rs",
+            helper_decl: "async fn build_text_family_model_arc(",
+            helper_call: "self.build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_text_family_model_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "embedding_model_family_with_ctx",
+                "compat_image_client_with_ctx",
+                "image_model_family_with_ctx",
+                "compat_video_client_with_ctx",
+                "video_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "xai.rs",
+            helper_decl: "async fn build_text_family_model_arc(",
+            helper_call: "self.build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_text_family_model_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+                "compat_image_client_with_ctx",
+                "image_model_family_with_ctx",
+                "compat_speech_client_with_ctx",
+                "speech_model_family_with_ctx",
+                "compat_video_client_with_ctx",
+                "video_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "groq.rs",
+            helper_decl: "async fn build_text_family_model_arc(",
+            helper_call: "self.build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_text_family_model_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+                "compat_speech_client_with_ctx",
+                "speech_model_family_with_ctx",
+                "compat_transcription_client_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "deepseek.rs",
+            helper_decl: "async fn build_text_family_model_arc(",
+            helper_call: "self.build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_text_family_model_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "bedrock.rs",
+            helper_decl: "fn build_typed_client_arc(",
+            helper_call: "build_typed_client_arc(model_id, ctx)?",
+            forbidden_builder_call: "build_typed_client_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "compat_reranking_client_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "compat_image_client_with_ctx",
+                "language_model_text_with_ctx",
+                "embedding_model_family_with_ctx",
+                "image_model_family_with_ctx",
+                "reranking_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "cohere.rs",
+            helper_decl: "fn build_typed_client_arc(",
+            helper_call: "build_typed_client_arc(model_id, ctx)?",
+            forbidden_builder_call: "build_typed_client_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "compat_reranking_client_with_ctx",
+                "language_model_text_with_ctx",
+                "embedding_model_family_with_ctx",
+                "reranking_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "google_vertex.rs",
+            helper_decl: "async fn build_typed_client_arc(",
+            helper_call: "self.build_typed_client_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_typed_client_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "embedding_model_family_with_ctx",
+                "compat_image_client_with_ctx",
+                "image_model_family_with_ctx",
+                "compat_video_client_with_ctx",
+                "video_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "minimaxi.rs",
+            helper_decl: "async fn build_typed_client_arc(",
+            helper_call: "self.build_typed_client_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_typed_client_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+                "compat_image_client_with_ctx",
+                "image_model_family_with_ctx",
+                "compat_speech_client_with_ctx",
+                "speech_model_family_with_ctx",
+                "compat_video_client_with_ctx",
+                "video_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "ollama.rs",
+            helper_decl: "async fn build_text_family_model_arc(",
+            helper_call: "self.build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_text_family_model_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "embedding_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "anthropic_vertex.rs",
+            helper_decl: "async fn build_typed_client_arc(",
+            helper_call: "build_typed_client_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_typed_client_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "vertex_maas.rs",
+            helper_decl: "async fn build_text_client_arc(",
+            helper_call: "build_text_client_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_text_client_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+                "compat_completion_client_with_ctx",
+                "completion_model_family_with_ctx",
+                "compat_embedding_client_with_ctx",
+                "embedding_model_family_with_ctx",
+            ],
+        },
+        Case {
+            file_name: "google_vertex_xai.rs",
+            helper_decl: "async fn build_text_client_arc(",
+            helper_call: "build_text_client_arc(model_id, ctx).await?",
+            forbidden_builder_call: "build_text_client_with_ctx(",
+            methods: &[
+                "compat_language_client_with_ctx",
+                "language_model_text_with_ctx",
+            ],
+        },
+    ];
+
+    for case in cases {
+        let source = read_factory_source(case.file_name);
+        assert_eq!(
+            source.matches(case.helper_decl).count(),
+            1,
+            "{} should expose exactly one typed-client Arc projection helper `{}`",
+            case.file_name,
+            case.helper_decl
+        );
+        assert_eq!(
+            source.matches("Ok(Arc::new(client))").count(),
+            1,
+            "{} should keep `Arc::new(client)` projection only in the helper",
+            case.file_name
+        );
+
+        for &method_name in case.methods {
+            let method = async_method_source(&source, case.file_name, method_name);
+            assert!(
+                method.contains(case.helper_call),
+                "{}::{method_name} should delegate typed-client Arc projection to `{}`",
+                case.file_name,
+                case.helper_call
+            );
+            assert!(
+                !method.contains(case.forbidden_builder_call)
+                    && !method.contains("Arc::new(")
+                    && !method.contains("self.compat_language_client_with_ctx("),
+                "{}::{method_name} should not reintroduce local typed-client projection or compat-language delegation glue",
+                case.file_name
+            );
+        }
+    }
+}
+
+#[test]
 fn registry_root_does_not_mirror_broad_core_modules() {
     let root = crate_root();
     let lib_rs = fs::read_to_string(root.join("src/lib.rs")).expect("read siumai-registry lib.rs");
@@ -1008,7 +1592,7 @@ fn compatibility_builder_uses_registry_owned_default_model_resolution() {
         "siumai_provider_anthropic::providers::anthropic::model_constants",
         "siumai_provider_gemini::providers::gemini::model_constants",
         "siumai_provider_openai_compatible::providers::openai_compatible::default_models",
-        "crate::utils::builder_helpers::get_effective_model",
+        "crate::provider_utils::builder_helpers::get_effective_model",
         "llama3.2",
         "grok-beta",
         "MiniMax-M2",

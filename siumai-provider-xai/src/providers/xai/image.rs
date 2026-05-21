@@ -2,11 +2,11 @@ use super::XaiClient;
 use super::http::{build_http_execution_config, headers_to_map};
 use crate::error::LlmError;
 use crate::provider_options::{XaiImageOptions, XaiImageQuality, XaiImageResolution};
+use crate::provider_utils::mime::guess_mime_from_bytes;
 use crate::types::{
     GeneratedImage, HttpResponseInfo, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
     ImageGenerationResponse, ImageVariationRequest, Warning,
 };
-use crate::utils::mime::guess_mime_from_bytes;
 use base64::Engine;
 use std::collections::HashMap;
 

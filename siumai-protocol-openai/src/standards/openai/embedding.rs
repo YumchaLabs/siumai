@@ -134,7 +134,10 @@ impl ProviderSpec for OpenAiEmbeddingSpec {
             .as_ref()
             .map(|a| a.embedding_endpoint())
             .unwrap_or("/embeddings");
-        Ok(crate::utils::url::join_url(&ctx.base_url, endpoint))
+        Ok(crate::provider_utils::url::join_url(
+            &ctx.base_url,
+            endpoint,
+        ))
     }
 }
 

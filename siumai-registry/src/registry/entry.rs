@@ -62,7 +62,9 @@ pub use self::build_context::{BuildContext, ProviderBuildOverrides};
 use self::cache::{
     CacheEntry, CompletionCacheEntry, SpeechCacheEntry, TranscriptionCacheEntry, VideoCacheEntry,
 };
-pub use self::factory::ProviderFactory;
+pub use self::factory::{
+    ProviderCompatibilityFactory, ProviderExtensionFactory, ProviderFactory, ProviderFamilyFactory,
+};
 #[cfg(test)]
 use self::handles::image_model_handle_max_images_per_call;
 use self::handles::image_model_handle_supports_model;

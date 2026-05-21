@@ -61,7 +61,8 @@ fn google_vertex_request_helpers_remain_vertex_options_led() {
 #[cfg(feature = "bedrock")]
 #[test]
 fn bedrock_request_helpers_remain_bedrock_request_helper_led() {
-    use siumai::prelude::unified::{ChatMessage, ChatRequest, ContentPart, RerankRequest};
+    use siumai::compat::content::ContentPart;
+    use siumai::prelude::unified::{ChatMessage, ChatRequest, RerankRequest};
     use siumai::provider_ext::bedrock::{
         BedrockCachePoint, BedrockCacheTtl, BedrockChatOptions, BedrockChatRequestExt,
         BedrockMessageExt, BedrockReasoningConfig, BedrockReasoningEffort, BedrockReasoningType,
@@ -143,7 +144,8 @@ fn bedrock_request_helpers_remain_bedrock_request_helper_led() {
 #[cfg(feature = "bedrock")]
 #[test]
 fn bedrock_metadata_helpers_remain_bedrock_namespace_led() {
-    use siumai::prelude::unified::{ChatResponse, ContentPart, MessageContent, ProviderOptionsMap};
+    use siumai::compat::content::ContentPart;
+    use siumai::prelude::unified::{ChatResponse, MessageContent, ProviderOptionsMap};
     use siumai::provider_ext::bedrock::{
         BedrockChatResponseExt, BedrockContentPartExt, assistant_message_with_reasoning_metadata,
     };

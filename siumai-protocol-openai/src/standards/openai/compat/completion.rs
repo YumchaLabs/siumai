@@ -1,17 +1,48 @@
 use crate::error::LlmError;
 use crate::standards::openai::compat::usage::OpenAiCompatibleUsagePolicy;
 use crate::standards::openai::completion_metadata::{
-    completion_created_at, completion_stream_response_metadata,
+    completion_created_at, completion_response_metadata, completion_stream_response_metadata,
     extract_completion_provider_metadata, flatten_completion_stream_provider_metadata,
     merge_completion_provider_metadata,
 };
 use crate::standards::openai::utils::parse_provider_openai_finish_reason;
 use crate::streaming::{ChatStreamEvent, ChatStreamPart};
 use crate::types::{
-    ChatResponse, ChatStreamFinishInfo, FinishReason, MessageContent, ProviderMetadataMap,
-    ResponseMetadata, Usage, Warning,
+    ChatResponse, ChatStreamFinishInfo, CompletionResponse, FinishReason, MessageContent,
+    ProviderMetadataMap, ResponseMetadata, Usage, Warning,
 };
 use std::sync::Arc;
+
+/// Runtime configuration for OpenAI-compatible `/completions` response conversion.
+#[derive(Debug, Clone)]
+pub struct CompletionResponseConversion {
+    provider_id: String,
+    provider_metadata_key: String,
+}
+
+impl CompletionResponseConversion {
+    pub fn new(provider_id: impl Into<String>, provider_metadata_key: impl Into<String>) -> Self {
+        Self {
+            provider_id: provider_id.into(),
+            provider_metadata_key: provider_metadata_key.into(),
+        }
+    }
+
+    pub fn build_response(
+        &self,
+        raw: serde_json::Value,
+        headers: &reqwest::header::HeaderMap,
+        warnings: Vec<Warning>,
+    ) -> CompletionResponse {
+        build_completion_response(
+            &self.provider_id,
+            &self.provider_metadata_key,
+            raw,
+            headers,
+            warnings,
+        )
+    }
+}
 
 #[derive(Debug, Clone)]
 struct CompletionStreamState {
@@ -63,7 +94,7 @@ impl CompletionStreamState {
 }
 
 #[derive(Clone)]
-pub(super) struct CompletionSseConverter {
+pub struct CompletionSseConverter {
     provider_id: String,
     provider_metadata_key: String,
     include_raw_chunks: bool,
@@ -71,7 +102,7 @@ pub(super) struct CompletionSseConverter {
 }
 
 impl CompletionSseConverter {
-    pub(super) fn new(
+    pub fn new(
         provider_id: impl Into<String>,
         provider_metadata_key: impl Into<String>,
         warnings: Vec<Warning>,
@@ -99,6 +130,54 @@ impl CompletionSseConverter {
     }
 }
 
+/// Build a Siumai completion response from an OpenAI-compatible `/completions` JSON payload.
+///
+/// The provider runtime owns HTTP execution. Protocol-owned conversion keeps the OpenAI-compatible
+/// finish-reason, usage, response-metadata, and provider-metadata interpretation in one place.
+pub fn build_completion_response(
+    provider_id: &str,
+    provider_metadata_key: &str,
+    raw: serde_json::Value,
+    headers: &reqwest::header::HeaderMap,
+    warnings: Vec<Warning>,
+) -> CompletionResponse {
+    let text = raw
+        .get("choices")
+        .and_then(|value| value.as_array())
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("text"))
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    let raw_finish_reason = raw
+        .get("choices")
+        .and_then(|value| value.as_array())
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string);
+    let finish_reason = raw_finish_reason
+        .as_deref()
+        .and_then(|value| parse_provider_openai_finish_reason(provider_id, Some(value)));
+
+    CompletionResponse {
+        text,
+        finish_reason,
+        raw_finish_reason,
+        usage: raw.get("usage").and_then(|usage| {
+            OpenAiCompatibleUsagePolicy::for_provider(provider_id).convert_usage_value(usage)
+        }),
+        response_metadata: Some(completion_response_metadata(
+            provider_id.to_string(),
+            &raw,
+            headers,
+            true,
+        )),
+        warnings: (!warnings.is_empty()).then_some(warnings),
+        provider_metadata: extract_completion_provider_metadata(provider_metadata_key, &raw),
+    }
+}
+
 impl crate::streaming::SseEventConverter for CompletionSseConverter {
     fn convert_event(
         &self,
@@ -113,7 +192,7 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 Ok(raw) => raw,
                 Err(err) => {
                     let mut events = Vec::new();
-                    if include_raw_chunks {
+                    {
                         let mut state = state.lock().expect("completion stream state");
                         if !state.stream_start_emitted {
                             let metadata = state.response_metadata(&provider_id);
@@ -127,6 +206,8 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                             }));
                             state.stream_start_emitted = true;
                         }
+                    }
+                    if include_raw_chunks {
                         events.push(Ok(ChatStreamEvent::Part {
                             part: ChatStreamPart::Raw {
                                 raw_value: serde_json::Value::String(event.data.clone()),
@@ -285,5 +366,193 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
         }));
 
         events
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::streaming::SseEventConverter;
+
+    fn convert_ok(
+        converter: &CompletionSseConverter,
+        raw: serde_json::Value,
+    ) -> Vec<ChatStreamEvent> {
+        let event = eventsource_stream::Event {
+            event: String::new(),
+            data: raw.to_string(),
+            id: String::new(),
+            retry: None,
+        };
+
+        futures::executor::block_on(converter.convert_event(event))
+            .into_iter()
+            .map(|event| event.expect("event ok"))
+            .collect()
+    }
+
+    #[test]
+    fn openai_compatible_completion_sse_converter_preserves_empty_and_whitespace_text_deltas() {
+        let converter = CompletionSseConverter::new("openrouter", "openrouter", Vec::new(), false);
+
+        let events = convert_ok(
+            &converter,
+            serde_json::json!({
+                "id": "cmpl_1",
+                "model": "text-model",
+                "choices": [{ "text": "", "finish_reason": null }]
+            }),
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::TextStart { .. }
+            }
+        )));
+        assert!(
+            events
+                .iter()
+                .any(|event| event.text_delta().is_some_and(|delta| delta.is_empty()))
+        );
+
+        let events = convert_ok(
+            &converter,
+            serde_json::json!({
+                "choices": [{ "text": "   ", "finish_reason": null }]
+            }),
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.text_delta().is_some_and(|delta| delta == "   "))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_completion_sse_converter_accumulates_metadata_and_emits_finish() {
+        let converter = CompletionSseConverter::new("openrouter", "openrouter", Vec::new(), false);
+
+        let first_events = convert_ok(
+            &converter,
+            serde_json::json!({
+                "id": "cmpl_1",
+                "model": "text-model",
+                "created": 1_718_345_013,
+                "choices": [{
+                    "text": "hello",
+                    "finish_reason": null,
+                    "logprobs": {
+                        "tokens": ["hello"],
+                        "token_logprobs": [-0.2]
+                    }
+                }]
+            }),
+        );
+        assert!(first_events.iter().any(|event| matches!(
+            event,
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::ResponseMetadata(metadata)
+            } if metadata.id.as_deref() == Some("cmpl_1")
+                && metadata.model.as_deref() == Some("text-model")
+        )));
+
+        let second_events = convert_ok(
+            &converter,
+            serde_json::json!({
+                "choices": [{
+                    "text": " world",
+                    "finish_reason": "stop"
+                }],
+                "sources": [{ "url": "https://example.com/source" }],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 3,
+                    "total_tokens": 5
+                }
+            }),
+        );
+        assert!(
+            second_events
+                .iter()
+                .any(|event| event.text_delta().is_some_and(|delta| delta == " world"))
+        );
+
+        let done = eventsource_stream::Event {
+            event: String::new(),
+            data: "[DONE]".to_string(),
+            id: String::new(),
+            retry: None,
+        };
+        assert!(converter.is_stream_end_event(&done));
+
+        let end_events = converter
+            .handle_stream_end_events()
+            .into_iter()
+            .map(|event| event.expect("end event ok"))
+            .collect::<Vec<_>>();
+
+        assert!(end_events.iter().any(|event| matches!(
+            event,
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::TextEnd { .. }
+            }
+        )));
+        assert!(end_events.iter().any(|event| matches!(
+            event,
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish {
+                    finish_reason,
+                    provider_metadata,
+                    ..
+                }
+            } if matches!(finish_reason.unified, FinishReason::Stop)
+                && provider_metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("openrouter"))
+                    .and_then(|metadata| metadata.get("sources"))
+                    == Some(&serde_json::json!([{ "url": "https://example.com/source" }]))
+        )));
+        assert!(end_events.iter().any(|event| matches!(
+            event,
+            ChatStreamEvent::StreamEnd { response }
+                if response.content_text() == Some("hello world")
+                    && matches!(response.finish_reason, Some(FinishReason::Stop))
+        )));
+    }
+
+    #[test]
+    fn openai_compatible_completion_sse_converter_emits_stream_start_before_parse_error() {
+        let converter = CompletionSseConverter::new(
+            "openrouter",
+            "openrouter",
+            vec![Warning::other("warn")],
+            false,
+        );
+
+        let events =
+            futures::executor::block_on(converter.convert_event(eventsource_stream::Event {
+                event: String::new(),
+                data: "not-json".to_string(),
+                id: String::new(),
+                retry: None,
+            }));
+
+        assert_eq!(events.len(), 3);
+        assert!(matches!(
+            events.first(),
+            Some(Ok(ChatStreamEvent::StreamStart { metadata }))
+                if metadata.provider == "openrouter"
+        ));
+        assert!(matches!(
+            events.get(1),
+            Some(Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::StreamStart { warnings }
+            })) if warnings.len() == 1
+        ));
+        assert!(matches!(
+            events.get(2),
+            Some(Err(LlmError::ParseError(message)))
+                if message.contains("Failed to parse completion stream event")
+        ));
     }
 }

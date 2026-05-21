@@ -16,6 +16,9 @@
 // Protocol crates must not publicly mirror `siumai-core`; downstream code should import
 // shared core types from `siumai-core` or the top-level `siumai` facade.
 #[allow(unused_imports)]
+pub(crate) use siumai_provider_utils as provider_utils;
+
+#[allow(unused_imports)]
 pub(crate) use siumai_core::{
     LlmError, auth, client, core, defaults, encoding, error, execution, observability, retry,
     retry_api, streaming, traits, types, utils,

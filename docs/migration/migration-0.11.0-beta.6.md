@@ -257,9 +257,11 @@ miss when moving from `beta.5` to `beta.6`:
 - The new family API is primarily an invocation migration, not a request-shape migration.
   - In most cases you can keep building `ChatRequest` exactly as before and only change the call
     site from `client.chat_*` to `text::*`.
-- If you need provider-specific features that are outside the six stable model families, keep using
+- If you need provider-specific features that are outside the beta.6 stable model families, keep using
   `siumai::provider_ext::<provider>::*` (or `siumai::providers::<provider>::*`) and
   `siumai::prelude::extensions::*`.
+  - In beta.7 and later, Video is promoted to the stable family taxonomy; Music remains
+    extension-only.
 - If you are building protocol gateways or cross-provider proxies, `beta.6` also adds an
   experimental bridge surface:
   - `siumai::experimental::bridge`

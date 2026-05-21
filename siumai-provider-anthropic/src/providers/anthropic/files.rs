@@ -14,12 +14,12 @@ use crate::execution::executors::common::{
     execute_get_request, execute_multipart_request,
 };
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::provider_utils::url::join_url;
 use crate::retry_api::RetryOptions;
 use crate::traits::FileManagementCapability;
 use crate::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest, HttpConfig,
 };
-use crate::utils::url::join_url;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::Client as HttpClient;

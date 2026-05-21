@@ -10,6 +10,8 @@ construct shared structs directly, or compare serialized snapshots.
 - Normal text/chat callers: usually no source migration.
 - Model trait generics: use the canonical family traits (`TextModel`, `EmbeddingModel`,
   `ImageModel`, `RerankingModel`, `SpeechModel`, `TranscriptionModel`, `VideoModel`).
+- Stable family taxonomy: Video is part of the stable family list; music remains extension-only
+  through `siumai::extensions::*` / provider extension modules.
 - Generic `LlmClient` paths: keep them only for migration or extension-only integrations; use
   registry family handles and `*_family_with_ctx(...)` factory methods for new code.
 - Registry global handle: call `registry::global()` or
@@ -71,7 +73,9 @@ construct shared structs directly, or compare serialized snapshots.
 - Content parts: use prompt/request content types for inputs and generated-output content types for
   responses; treat `ContentPart` as a compatibility carrier. If migration code still needs it,
   import `siumai::compat::content::ContentPart`; the stable unified prelude no longer exports the
-  legacy carrier.
+  legacy carrier. Directional namespaces are available as `siumai::content::prompt` and
+  `siumai::content::output`; legacy content lives under `siumai::content::compat` or
+  `siumai::compat::content`.
 - Response parser internals: parser-local `response_content` modules are compatibility seams for
   retaining legacy `ChatResponse` payloads, not a public generated-output model. Generated-output
   projection helpers are separate and intentionally fallible.
@@ -382,6 +386,12 @@ use siumai::prelude::unified::{
 };
 ```
 
+Or import the request direction explicitly:
+
+```rust,ignore
+use siumai::content::prompt::{AssistantContentPart, ModelMessage, UserContentPart};
+```
+
 For low-level AI SDK V4 request integrations, prefer V4 prompt parts:
 
 ```rust,ignore
@@ -397,6 +407,12 @@ For generated text response output, prefer generated-output content types:
 use siumai::prelude::unified::{
     CustomOutput, FileOutput, GenerateTextContentPart, ReasoningOutput, Source, TextOutput,
 };
+```
+
+Or import the output direction explicitly:
+
+```rust,ignore
+use siumai::content::output::{GenerateTextContentPart, ReasoningOutput, TextOutput};
 ```
 
 For low-level AI SDK V4 response integrations, prefer V4 generated content parts:
@@ -419,9 +435,10 @@ There are two different response-side boundaries:
 2. Spec-owned generated-output projection helpers such as
    `project_response_content_part_to_generate_text_content_part(...)` (and the response/content
    helper variants re-exported from the unified prelude). These helpers project only lossless
-   response-side legacy parts into `GenerateTextContentPart`, preserve `providerMetadata`, ignore
+   response-side legacy parts into `GenerateTextContentPart`, preserves `providerMetadata`, ignores
    request `providerOptions`, and reject ambiguous legacy carriers rather than silently dropping
-   data.
+   data. In short: the named response adapter preserves `providerMetadata` and ignores request
+   provider options.
 
 If a response shape carries hosted tool results, approval requests, file/image/audio data, or
 provider-specific metadata without a lossless generated-output carrier, keep it as a `ChatResponse`
@@ -555,8 +572,10 @@ Advanced stream integration code can also import lower-level streaming utilities
 
 ## 9) Low-level utility helper imports
 
-The unified prelude no longer mirrors low-level utility helpers from `siumai-core::utils`. These
-helpers remain available as explicit facade root imports for advanced utility users.
+The unified prelude no longer mirrors low-level utility helpers from `siumai-core::utils`.
+Provider-utils helpers that remain available from the facade root now come from `siumai-provider-utils`,
+not the old broad core utility owner path. These helpers remain available as explicit facade root
+imports for advanced utility users.
 
 Before:
 
@@ -571,10 +590,17 @@ use siumai::{parse_json, normalize_headers, load_api_key};
 ```
 
 This applies to download helpers, header normalization, environment setting loaders, JSON
-instruction/parse helpers, provider-option/reference parsers, URL support helpers, and runtime type
-validators. Application-facing helper names such as `json_schema`, `generate_id`,
-`create_id_generator`, `has_tool_call`, `filter_active_tools`, UI part predicates,
-`SerialJobExecutor`, and `ToolNameMapping` remain in `prelude::unified`.
+instruction/parse helpers, provider-option/reference parsers, URL support helpers, base64/data
+helpers, reasoning mapping helpers, nullability/array helpers, media helpers, runtime
+user-agent/version helpers, and runtime type validators. If earlier code relied on
+`prelude::unified::*` for names such as `Arrayable`, `as_array`, `filter_nullable`,
+`is_non_nullable`, `delay`, `is_abort_error`, `convert_to_base64`, `get_text_from_data_url`,
+`map_reasoning_to_provider_effort`, `map_reasoning_to_provider_budget`, `VERSION`,
+`media_type_to_extension`, or `strip_file_extension`, import those names from `siumai::{...}`.
+
+The stable unified prelude keeps only the narrow AI SDK-style helper subset: schema helpers, `generate_id`,
+`create_id_generator`, `IdGenerator`, `IdGeneratorOptions`, `has_tool_call`, `filter_active_tools`,
+UI part predicates, `SerialJobExecutor`, and `ToolNameMapping`.
 
 ## 10) Retry API imports
 

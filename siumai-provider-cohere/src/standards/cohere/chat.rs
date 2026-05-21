@@ -11,7 +11,7 @@ use crate::streaming::EventBuilder;
 use crate::types::{
     ChatRequest, ChatResponse, ChatStreamEvent, ChatStreamFinishInfo, ChatStreamPart,
     ChatStreamToolCall, ContentPart, FinishReason, HttpResponseInfo, MessageContent,
-    ResponseFormat, SourcePart, Tool, ToolChoice, Usage, Warning,
+    ResponseFormat, Tool, ToolChoice, Usage, Warning,
 };
 use eventsource_stream::Event;
 use serde_json::{Value, json};
@@ -166,7 +166,7 @@ impl ResponseTransformer for CohereChatResponseTransformer {
                     "text" => {
                         let text = item.get("text").and_then(Value::as_str).unwrap_or_default();
                         if !text.is_empty() {
-                            parts.push(ContentPart::text(text));
+                            parts.push(super::response_content::text(text));
                         }
                     }
                     "thinking" => {
@@ -175,7 +175,7 @@ impl ResponseTransformer for CohereChatResponseTransformer {
                             .and_then(Value::as_str)
                             .unwrap_or_default();
                         if !text.is_empty() {
-                            parts.push(ContentPart::reasoning(text));
+                            parts.push(super::response_content::reasoning(text));
                         }
                     }
                     _ => {}
@@ -199,18 +199,16 @@ impl ResponseTransformer for CohereChatResponseTransformer {
                     .unwrap_or("Document")
                     .to_string();
 
-                parts.push(ContentPart::Source {
-                    id: format!("cohere-citation-{index}"),
-                    source: SourcePart::Document {
-                        media_type: "text/plain".to_string(),
-                        title,
-                        filename: None,
-                    },
-                    provider_metadata: shared::provider_metadata_entry(
+                parts.push(super::response_content::source_document(
+                    format!("cohere-citation-{index}"),
+                    "text/plain",
+                    title,
+                    None,
+                    shared::provider_metadata_entry(
                         "cohere",
                         cohere_citation_provider_metadata(citation),
                     ),
-                });
+                ));
             }
         }
 
@@ -237,11 +235,10 @@ impl ResponseTransformer for CohereChatResponseTransformer {
                     .and_then(Value::as_str)
                     .unwrap_or("{}");
 
-                parts.push(ContentPart::tool_call(
+                parts.push(super::response_content::tool_call(
                     tool_call_id,
                     tool_name,
                     parse_tool_call_input(arguments)?,
-                    None,
                 ));
             }
         }
@@ -275,7 +272,7 @@ impl ResponseTransformer for CohereChatResponseTransformer {
                 .get("generation_id")
                 .and_then(Value::as_str)
                 .map(|value| value.to_string()),
-            content: shared::message_content_from_parts(parts),
+            content: super::response_content::message_content_from_parts(parts),
             model: model.clone(),
             usage,
             finish_reason: Some(shared::map_finish_reason(
@@ -1110,6 +1107,66 @@ mod tests {
             data: value.to_string(),
             id: String::new(),
             retry: None,
+        }
+    }
+
+    #[test]
+    fn cohere_response_content_delegates_legacy_construction_to_adapter() {
+        let source = include_str!("chat.rs");
+        let section = source
+            .split_once("    fn transform_chat_response(&self, raw: &Value) -> Result<ChatResponse, LlmError> {")
+            .and_then(|(_, rest)| rest.split_once("\n#[derive(Debug, Clone)]\nstruct PendingToolCall"))
+            .map(|(section, _)| section)
+            .expect("transform_chat_response section");
+
+        assert!(
+            section.contains("super::response_content::text(")
+                && section.contains("super::response_content::reasoning(")
+                && section.contains("super::response_content::source_document(")
+                && section.contains("super::response_content::tool_call(")
+                && section.contains("super::response_content::message_content_from_parts("),
+            "Cohere response transformer must delegate legacy content construction to response_content"
+        );
+
+        for forbidden in [
+            "ContentPart::Text {",
+            "ContentPart::Reasoning {",
+            "ContentPart::Source {",
+            "ContentPart::ToolCall {",
+            "ContentPart::text(",
+            "ContentPart::reasoning(",
+            "ContentPart::tool_call(",
+            "ProviderOptionsMap::default()",
+        ] {
+            assert!(
+                !section.contains(forbidden),
+                "Cohere response transformer must not own legacy content defaults: {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn cohere_response_content_adapter_keeps_request_options_defaulted() {
+        let source = include_str!("response_content.rs");
+
+        assert!(
+            !source.contains(".provider_options"),
+            "Cohere response content adapter must not read request option fields"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "Cohere response content adapter must not read request option maps"
+        );
+
+        for line in source
+            .lines()
+            .filter(|line| line.contains("provider_options"))
+        {
+            let trimmed = line.trim();
+            assert_eq!(
+                trimmed, "provider_options: ProviderOptionsMap::default(),",
+                "Cohere response ContentPart option bags must stay empty defaults: {line}"
+            );
         }
     }
 

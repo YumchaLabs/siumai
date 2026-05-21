@@ -220,7 +220,10 @@ pub async fn build_openai_compatible_typed_client(
         let default_base = rec
             .base_url
             .unwrap_or_else(|| adapter.base_url().to_string());
-        let base = crate::utils::builder_helpers::resolve_base_url(base_url.clone(), &default_base);
+        let base = crate::provider_utils::builder_helpers::resolve_base_url(
+            base_url.clone(),
+            &default_base,
+        );
         (rec.id, adapter, base)
     };
 

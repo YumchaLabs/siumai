@@ -105,6 +105,55 @@ pub mod compat {
     }
 }
 
+/// Directional content namespaces.
+///
+/// These modules make the preferred content direction visible without removing the historical root
+/// exports during the current compatibility window:
+///
+/// - `content::prompt` is request/input oriented and carries prompt provider options.
+/// - `content::output` is response/generated-output oriented and carries provider metadata.
+/// - `content::compat` is the explicit namespace for legacy serde-facing chat payloads.
+pub mod content {
+    /// Request-side prompt and model-message content.
+    pub mod prompt {
+        pub use super::super::prompt::{
+            AssistantContent, AssistantContentPart, AssistantModelMessage, CustomPart, DataContent,
+            FilePart, ImagePart, InvalidDataContentError, MissingToolResultsError, ModelMessage,
+            ModelMessageConversionError, ModelMessageRole, Prompt, PromptExecutionError,
+            PromptInput, PromptValidationError, ReasoningFilePart, ReasoningPart,
+            StandardizedPrompt, SystemModelMessage, SystemPrompt, TextPart, ToolApprovalRequest,
+            ToolApprovalResponse, ToolCallPart, ToolContent, ToolContentPart, ToolModelMessage,
+            ToolResultPart, UserContent, UserContentPart, UserModelMessage,
+            convert_data_content_to_base64_string, convert_data_content_to_uint8_array,
+            convert_uint8_array_to_text, project_chat_message_to_prompt_message,
+            project_chat_messages_to_prompt_messages, project_prompt_message_to_chat_message,
+            project_prompt_messages_to_chat_messages,
+        };
+    }
+
+    /// Response-side generated-output content and lossless response projection helpers.
+    pub mod output {
+        pub use super::super::ai_sdk::{
+            CustomOutput, DefaultGeneratedFile, DefaultGeneratedFileWithType, DynamicToolCall,
+            DynamicToolError, DynamicToolResult, FileOutput, GenerateTextContentPart,
+            GenerateTextContentPartProjectionError, GenerateTextReasoningPart,
+            GenerateTextStepReasoningPart, GeneratedFile, ReasoningFileOutput, ReasoningOutput,
+            ResponseMessage, Source, StaticToolCall, StaticToolError, StaticToolOutputDenied,
+            StaticToolResult, TextOutput, ToolApprovalRequestOutput, ToolApprovalResponseOutput,
+            ToolCall, ToolError, ToolOutput, ToolOutputDenied, ToolResult, TypedToolCall,
+            TypedToolError, TypedToolOutputDenied, TypedToolResult,
+            project_chat_response_to_generate_text_content_parts,
+            project_response_content_part_to_generate_text_content_part,
+            project_response_content_to_generate_text_content_parts,
+        };
+    }
+
+    /// Legacy chat content carriers.
+    pub mod compat {
+        pub use super::super::compat::content::*;
+    }
+}
+
 // Re-export all types for convenience
 pub use ai_sdk::*;
 pub use audio::*;

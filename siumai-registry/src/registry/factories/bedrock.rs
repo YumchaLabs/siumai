@@ -1,6 +1,7 @@
 //! Amazon Bedrock provider factory.
 
 use super::*;
+use siumai_provider_amazon_bedrock::providers::bedrock::BedrockClient;
 
 #[cfg(feature = "bedrock")]
 fn resolve_api_key(ctx: &BuildContext) -> Option<String> {
@@ -15,7 +16,7 @@ fn resolve_api_key(ctx: &BuildContext) -> Option<String> {
 fn build_typed_client_with_ctx(
     model_id: &str,
     ctx: &BuildContext,
-) -> Result<siumai_provider_amazon_bedrock::providers::bedrock::BedrockClient, LlmError> {
+) -> Result<BedrockClient, LlmError> {
     let http_config = ctx.http_config.clone().unwrap_or_default();
     let http_client = if let Some(client) = &ctx.http_client {
         client.clone()
@@ -51,6 +52,15 @@ fn build_typed_client_with_ctx(
     Ok(client)
 }
 
+#[cfg(feature = "bedrock")]
+fn build_typed_client_arc(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<Arc<BedrockClient>, LlmError> {
+    let client = build_typed_client_with_ctx(model_id, ctx)?;
+    Ok(Arc::new(client))
+}
+
 /// Amazon Bedrock provider factory.
 #[cfg(feature = "bedrock")]
 pub struct BedrockProviderFactory;
@@ -84,7 +94,8 @@ impl ProviderFactory for BedrockProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn compat_reranking_client_with_ctx(
@@ -92,7 +103,8 @@ impl ProviderFactory for BedrockProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -100,7 +112,8 @@ impl ProviderFactory for BedrockProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn compat_image_client_with_ctx(
@@ -108,7 +121,8 @@ impl ProviderFactory for BedrockProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -116,7 +130,8 @@ impl ProviderFactory for BedrockProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::text::LanguageModel>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -124,7 +139,8 @@ impl ProviderFactory for BedrockProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::embedding::EmbeddingModel>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn image_model_family_with_ctx(
@@ -132,7 +148,8 @@ impl ProviderFactory for BedrockProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::image::ImageModel>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn reranking_model_family_with_ctx(
@@ -140,7 +157,8 @@ impl ProviderFactory for BedrockProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn siumai_core::rerank::RerankingModel>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

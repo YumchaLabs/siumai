@@ -1,6 +1,23 @@
 use crate::error::LlmError;
 #[cfg(feature = "builtins")]
 use crate::provider::ids;
+#[cfg(any(
+    feature = "openai",
+    feature = "azure",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
+    feature = "deepinfra",
+    feature = "ollama",
+    feature = "deepseek",
+    feature = "xai",
+    feature = "groq",
+    feature = "minimaxi",
+    feature = "bedrock"
+))]
+use crate::registry::entry::ProviderCompatibilityFactory;
 #[cfg(feature = "azure")]
 use crate::registry::entry::ProviderFactory;
 
@@ -28,27 +45,33 @@ async fn build_default_client_with_capabilities(
     let caps = factory.capabilities();
 
     if caps.supports("chat") {
-        return factory.compat_language_client_with_ctx(model_id, ctx).await;
+        return factory
+            .build_compat_language_client_with_ctx(model_id, ctx)
+            .await;
     }
     if caps.supports("rerank") {
         return factory
-            .compat_reranking_client_with_ctx(model_id, ctx)
+            .build_compat_reranking_client_with_ctx(model_id, ctx)
             .await;
     }
     if caps.supports("embedding") {
         return factory
-            .compat_embedding_client_with_ctx(model_id, ctx)
+            .build_compat_embedding_client_with_ctx(model_id, ctx)
             .await;
     }
     if caps.supports("image_generation") {
-        return factory.compat_image_client_with_ctx(model_id, ctx).await;
+        return factory
+            .build_compat_image_client_with_ctx(model_id, ctx)
+            .await;
     }
     if caps.supports("speech") {
-        return factory.compat_speech_client_with_ctx(model_id, ctx).await;
+        return factory
+            .build_compat_speech_client_with_ctx(model_id, ctx)
+            .await;
     }
     if caps.supports("transcription") {
         return factory
-            .compat_transcription_client_with_ctx(model_id, ctx)
+            .build_compat_transcription_client_with_ctx(model_id, ctx)
             .await;
     }
 
@@ -114,7 +137,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     .filter(|value| !value.trim().is_empty())
             })
             .map(|base_url| {
-                crate::utils::builder_helpers::resolve_base_url(
+                crate::provider_utils::builder_helpers::resolve_base_url(
                     Some(base_url),
                     "https://api.anthropic.com",
                 )

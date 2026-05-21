@@ -24,6 +24,10 @@ Workspace members:
 
 - `siumai` — facade crate
 - `siumai-core` — provider-agnostic runtime + types (protocol mapping moved out; remaining coupling is being reduced)
+- `siumai-provider-utils` — provider/protocol adapter utility seam for AI SDK-style spec-only
+  helpers such as URL composition, MIME detection, builder defaults, request normalization,
+  downloads, headers, IDs, JSON parse/instruction helpers, provider options/references, and type
+  validation
 - `siumai-registry` — registry + factories + handles (optional built-ins via feature)
 - `siumai-extras` — orchestrator + telemetry + server + MCP
 - `siumai-provider-openai` — OpenAI provider implementation (native) + OpenAI-compatible vendor wiring
@@ -67,6 +71,8 @@ siumai-registry (optional)
   └─ (future provider crates)
   ↓
 siumai-core (provider-agnostic runtime + shared types)
+  ↘
+siumai-provider-utils (adapter utilities that depend on spec contracts, not core runtime)
 ```
 
 Notes:
@@ -78,6 +84,8 @@ Notes:
 - New protocol crates follow the `siumai-protocol-*` naming convention. Existing `*-compatible` crates are
   treated as protocol crates but keep their names for compatibility.
 - `siumai-core` must not import provider-specific protocol modules.
+- `siumai-provider-utils` must not depend on `siumai-core`; it depends on `siumai-spec` so
+  `siumai-core` can keep temporary compatibility aliases without a dependency cycle.
 
 ## Ownership rules (what belongs where)
 
@@ -89,12 +97,64 @@ Owns:
 - streaming event normalization
 - retry abstractions and HTTP configuration types
 - middleware abstractions
-- request/response types for the 6 model families
+- request/response types for the 7 model families
+- temporary compatibility aliases for old utility paths while callers migrate
 
 Must NOT own:
 
 - provider protocol mapping modules (e.g., OpenAI/Gemini/Anthropic request/response schema mapping)
 - provider-specific typed option structs and provider-specific metadata types
+- high-churn provider/protocol adapter helpers once they have a home in `siumai-provider-utils`
+
+### `siumai-provider-utils`
+
+Owns:
+
+- provider/protocol URL composition helpers
+- MIME/media-type helpers used by provider request builders
+- API key, base URL, and model-default construction helpers shared by provider builders/factories
+- chat request normalization helpers used before provider dispatch
+- AI SDK-style spec-only adapter helpers: data/base64 conversion, safe downloads, header
+  normalization, ID generation, JSON instruction/parse helpers, provider option/reference parsing,
+  reasoning effort/budget mapping, runtime metadata, serial async job execution, environment
+  setting loaders, UTF-8 stream decoding, runtime type validation, and spec-level standard helpers
+  such as provider-native tool-name mapping
+
+Must NOT own:
+
+- stable family traits or user-facing model interfaces
+- provider-specific default model catalogs, aliases, or protocol wire schemas
+- bridge target dispatch or facade exports
+
+The FCAB-090/100 extracted surface is:
+
+```text
+siumai-provider-utils/src/
+  builder_helpers.rs
+  chat_request.rs
+  data.rs
+  download.rs
+  error_message.rs
+  headers.rs
+  id.rs
+  json_instruction.rs
+  json_parse.rs
+  mime.rs
+  option.rs
+  provider_options.rs
+  provider_reference.rs
+  reasoning.rs
+  runtime.rs
+  serial_job.rs
+  settings.rs
+  url.rs
+  utf8_decoder.rs
+  validate_types.rs
+```
+
+Matching `siumai-core::utils::*` modules are compatibility aliases only. Provider/protocol crates
+should import moved helpers through their internal `crate::provider_utils` alias, which points at
+`siumai-provider-utils`.
 
 ### Legacy: `siumai-providers` (umbrella)
 

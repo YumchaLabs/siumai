@@ -171,7 +171,7 @@ impl OllamaModelListingCapability {
     pub async fn show_model(&self, model_name: String) -> Result<ModelDetails, LlmError> {
         validate_model_name(&model_name)?;
 
-        let url = crate::utils::url::join_url(&self.base_url, "api/show");
+        let url = crate::provider_utils::url::join_url(&self.base_url, "api/show");
 
         let body = serde_json::json!({
             "model": model_name
@@ -207,7 +207,7 @@ impl OllamaModelListingCapability {
 
     /// List running models
     pub async fn list_running_models(&self) -> Result<Vec<RunningModelInfo>, LlmError> {
-        let url = crate::utils::url::join_url(&self.base_url, "api/ps");
+        let url = crate::provider_utils::url::join_url(&self.base_url, "api/ps");
         let ctx = self.build_context();
         let config = self.build_http_config(ctx);
         let result = execute_get_request(&config, &url, None).await?;

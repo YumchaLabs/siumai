@@ -6,6 +6,9 @@
 // Keep provider-agnostic core modules available only to this crate's implementation.
 // Provider crates must not publicly mirror `siumai-core`.
 #[allow(unused_imports)]
+pub(crate) use siumai_provider_utils as provider_utils;
+
+#[allow(unused_imports)]
 pub(crate) use siumai_core::{
     LlmError, auth, compat as core_compat, core, defaults, error, execution, observability, params,
     retry, retry_api, streaming, traits, types, utils,

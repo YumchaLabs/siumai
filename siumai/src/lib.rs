@@ -136,9 +136,11 @@ pub mod hosted_tools {
     }
 }
 
-pub use siumai_core::standards::{ToolNameMapping, create_tool_name_mapping};
 /// AI SDK-style utility helpers.
-pub use siumai_core::utils::{
+pub use siumai_core::utils::{delay, is_abort_error};
+pub use siumai_provider_utils::standards::{ToolNameMapping, create_tool_name_mapping};
+/// Provider-utils owned AI SDK-style utility helpers.
+pub use siumai_provider_utils::{
     Arrayable, DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX,
     DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE,
     DEFAULT_REASONING_BUDGET_PERCENTAGES, Download, DownloadOptions, DownloadedFile, HeaderRecord,
@@ -147,10 +149,10 @@ pub use siumai_core::utils::{
     ReasoningBudgetOptions, ReasoningLevel, ReasoningLevelConversionError, SerialJobExecutor,
     SupportedUrlMap, TypeValidationResult, UrlSupportRegex, VERSION, as_array, combine_headers,
     convert_base64_to_uint8_array, convert_image_model_file_to_data_uri, convert_to_base64,
-    convert_uint8_array_to_base64, cosine_similarity, create_download, create_id_generator, delay,
+    convert_uint8_array_to_base64, cosine_similarity, create_download, create_id_generator,
     download_url, extract_response_headers, filter_nullable, generate_id, get_error_message,
     get_runtime_environment_user_agent, get_text_from_data_url, inject_json_instruction,
-    inject_json_instruction_into_messages, is_abort_error, is_custom_reasoning, is_deep_equal_data,
+    inject_json_instruction_into_messages, is_custom_reasoning, is_deep_equal_data,
     is_non_nullable, is_parsable_json, is_provider_reference, is_url_supported, load_api_key,
     load_optional_setting, load_setting, map_reasoning_to_provider_budget,
     map_reasoning_to_provider_effort, media_type_to_extension, normalize_header_map,
@@ -367,6 +369,27 @@ pub use siumai_core::streaming::parse_json_event_stream;
 /// Compatibility surface for legacy, method-style APIs (time-bounded).
 pub mod compat;
 
+/// Directional content facade.
+///
+/// Prefer `content::prompt` for request input and `content::output` for generated response output.
+/// Legacy serde-facing chat payloads remain explicit under `content::compat` / `compat::content`.
+pub mod content {
+    /// Request-side prompt and model-message content.
+    pub mod prompt {
+        pub use siumai_core::types::content::prompt::*;
+    }
+
+    /// Response-side generated-output content and projection helpers.
+    pub mod output {
+        pub use siumai_core::types::content::output::*;
+    }
+
+    /// Legacy chat content carriers for migration and serde compatibility.
+    pub mod compat {
+        pub use crate::compat::content::*;
+    }
+}
+
 // Compatibility / internal modules (kept but hidden to reduce accidental coupling).
 //
 // NOTE: These low-level modules are intentionally NOT re-exported at the top-level.
@@ -493,7 +516,35 @@ pub mod experimental {
         pub use crate::compat::client::{ClientWrapper, LlmClient};
     }
 
-    pub use siumai_core::{defaults, execution, observability, params, retry, utils};
+    /// Runtime default configuration values.
+    pub mod defaults {
+        pub use siumai_core::defaults::*;
+    }
+
+    /// Provider-agnostic execution building blocks.
+    pub mod execution {
+        pub use siumai_core::execution::*;
+    }
+
+    /// Observability contracts and event emitters.
+    pub mod observability {
+        pub use siumai_core::observability::*;
+    }
+
+    /// Provider-agnostic parameter validation helpers.
+    pub mod params {
+        pub use siumai_core::params::*;
+    }
+
+    /// Low-level retry primitives.
+    pub mod retry {
+        pub use siumai_core::retry::*;
+    }
+
+    /// Core and provider-utils compatibility utility modules.
+    pub mod utils {
+        pub use siumai_core::utils::*;
+    }
 }
 
 pub use siumai_registry::registry;
@@ -511,8 +562,10 @@ pub mod provider_ext;
 
 /// Extension capabilities (non-unified surface).
 ///
-/// These are intentionally *not* part of the Vercel-aligned unified model families.
-/// Prefer `siumai::prelude::unified` for the stable unified surface.
+/// These are capability/adapter-level traits and payloads rather than the stable family-model
+/// entrypoints. Prefer `siumai::prelude::unified` for stable family execution. Video's stable
+/// surface is `siumai::video::*` / `VideoModel`; the low-level `VideoGenerationCapability`
+/// remains here for provider adapters and compatibility code. Music remains extension-only.
 pub mod extensions {
     pub use siumai_core::traits::{
         AudioCapability, EmbeddingCapability, FileManagementCapability, ImageExtras,
@@ -550,12 +603,17 @@ pub mod prelude {
 
     /// Vercel-aligned unified surface (recommended for new code).
     ///
-    /// This module centers the six stable model families:
-    /// Language/Embedding/Image/Reranking/Speech/Transcription.
+    /// This module centers the seven stable model families:
+    /// Language/Embedding/Image/Reranking/Speech/Transcription/Video.
     ///
     /// Compatibility-oriented construction aliases remain source-compatible under
     /// `siumai::compat` and `prelude::compat`, not through this stable prelude.
     pub mod unified {
+        /// Directional generated-output content namespace.
+        pub use crate::content::output;
+        /// Directional request content namespace.
+        pub use crate::content::prompt;
+
         pub use crate::structured_output::{
             GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema,
             PartialJsonParseResult, PartialJsonParseState, PartialJsonValueStream,
@@ -565,18 +623,6 @@ pub mod prelude {
         };
         pub use crate::tools;
         pub use crate::{
-            Arrayable, DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_REASONING_BUDGET_PERCENTAGES,
-            IdGenerator, IdGeneratorOptions, ReasoningBudgetOptions, ReasoningLevel,
-            ReasoningLevelConversionError, SerialJobExecutor, ToolNameMapping, VERSION, as_array,
-            convert_base64_to_uint8_array, convert_image_model_file_to_data_uri, convert_to_base64,
-            convert_uint8_array_to_base64, cosine_similarity, create_id_generator,
-            create_tool_name_mapping, delay, filter_nullable, generate_id, get_error_message,
-            get_runtime_environment_user_agent, get_text_from_data_url, is_abort_error,
-            is_custom_reasoning, is_deep_equal_data, is_non_nullable,
-            map_reasoning_to_provider_budget, map_reasoning_to_provider_effort,
-            media_type_to_extension, remove_undefined_entries, strip_file_extension,
-        };
-        pub use crate::{
             ExecutableTool, ExecutableTools, ProviderDefinedToolFactory,
             ProviderDefinedToolFactoryWithOutputSchema, ProviderExecutedToolFactory,
             ToolExecuteFunction, ToolExecutionOptions, ToolExecutionResult, ToolExecutionStream,
@@ -584,6 +630,10 @@ pub mod prelude {
             create_provider_defined_tool_factory_with_output_schema,
             create_provider_executed_tool_factory, dynamic_tool, execute_tool, is_executable_tool,
             model_messages_from_chat_messages,
+        };
+        pub use crate::{
+            IdGenerator, IdGeneratorOptions, SerialJobExecutor, ToolNameMapping,
+            create_id_generator, create_tool_name_mapping, generate_id,
         };
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
         pub use crate::{
@@ -616,7 +666,7 @@ pub mod prelude {
         pub use siumai_core::video::{VideoModel, VideoModelV4};
 
         pub use siumai_core::embedding::EmbeddingModel;
-        // Core request/response types for the six stable model families.
+        // Core request/response types for the seven stable model families.
         #[allow(deprecated)]
         pub use siumai_core::types::{
             AISDKError, APICallError, AssistantContent, AssistantContentPart,

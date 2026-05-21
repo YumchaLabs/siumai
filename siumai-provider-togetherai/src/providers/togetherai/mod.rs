@@ -8,6 +8,7 @@ pub mod builder;
 pub mod client;
 pub mod config;
 pub mod ext;
+mod image;
 pub mod models;
 pub mod settings;
 
@@ -15,6 +16,7 @@ pub use builder::TogetherAiBuilder;
 pub use client::TogetherAiClient;
 pub use config::TogetherAiConfig;
 pub use ext::{TogetherAiImageRequestExt, TogetherAiRerankRequestExt};
+pub use image::TogetherAiImageClient;
 pub use settings::TogetherAIProviderSettings;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

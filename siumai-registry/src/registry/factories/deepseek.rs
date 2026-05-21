@@ -17,7 +17,7 @@ impl DeepSeekProviderFactory {
         ctx: &BuildContext,
     ) -> Result<DeepSeekClient, LlmError> {
         let http_config = ctx.http_config.clone().unwrap_or_default();
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
+        let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
@@ -70,6 +70,15 @@ impl DeepSeekProviderFactory {
 
         builder.build().await
     }
+
+    async fn build_text_family_model_arc(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<DeepSeekClient>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 }
 
 #[cfg(feature = "deepseek")]
@@ -94,8 +103,8 @@ impl ProviderFactory for DeepSeekProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -103,8 +112,8 @@ impl ProviderFactory for DeepSeekProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(

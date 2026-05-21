@@ -1,4 +1,5 @@
 use super::*;
+use siumai::compat::content::ContentPart;
 use siumai::experimental::client::LlmClient;
 use siumai::extensions::{SpeechExtras, TranscriptionExtras};
 use siumai::prelude::unified::{
@@ -337,12 +338,7 @@ fn assert_openai_reasoning_response(response: &siumai::prelude::unified::ChatRes
         .expect("expected multimodal content");
     let reasoning_part = parts
         .iter()
-        .find(|part| {
-            matches!(
-                part,
-                siumai::prelude::unified::ContentPart::Reasoning { .. }
-            )
-        })
+        .find(|part| matches!(part, ContentPart::Reasoning { .. }))
         .expect("expected reasoning content part");
     let part_meta = reasoning_part
         .openai_metadata()
@@ -2065,7 +2061,7 @@ async fn openai_chat_public_paths_use_canonical_image_detail_provider_options() 
         .language_model("openai-chat:gpt-4o-mini")
         .expect("build registry language model");
 
-    let canonical_part = siumai::prelude::unified::ContentPart::File {
+    let canonical_part = ContentPart::File {
         source: siumai::prelude::unified::FilePartSource::base64("AAEC"),
         media_type: "image/png".to_string(),
         filename: None,
@@ -2087,7 +2083,7 @@ async fn openai_chat_public_paths_use_canonical_image_detail_provider_options() 
         )])),
     };
 
-    let legacy_only_part = siumai::prelude::unified::ContentPart::File {
+    let legacy_only_part = ContentPart::File {
         source: siumai::prelude::unified::FilePartSource::base64("AQID"),
         media_type: "image/png".to_string(),
         filename: None,

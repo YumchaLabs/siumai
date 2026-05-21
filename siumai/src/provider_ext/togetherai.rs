@@ -1,6 +1,6 @@
 pub use siumai_provider_togetherai::providers::togetherai::{
     TogetherAIErrorData, TogetherAIProviderSettings, TogetherAiBuilder, TogetherAiClient,
-    TogetherAiConfig, VERSION,
+    TogetherAiConfig, TogetherAiImageClient, VERSION,
 };
 use siumai_registry::provider::SiumaiBuilder;
 

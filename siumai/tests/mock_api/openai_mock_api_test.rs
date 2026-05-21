@@ -5,6 +5,7 @@
 //! https://platform.openai.com/docs/api-reference/chat/create
 
 use serde_json::json;
+use siumai::compat::content::ContentPart;
 use siumai::prelude::*;
 use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 use wiremock::matchers::{header, method, path};

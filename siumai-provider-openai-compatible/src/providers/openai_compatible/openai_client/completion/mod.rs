@@ -2,25 +2,20 @@ use super::{DEPRECATED_OPENAI_COMPATIBLE_KEY_WARNING, OpenAiCompatibleClient};
 use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::execution::executors::common::{HttpBody, HttpExecutionConfig};
-use crate::standards::openai::compat::usage::OpenAiCompatibleUsagePolicy;
-use crate::standards::openai::completion_metadata::{
-    completion_response_metadata, extract_completion_provider_metadata,
-};
 use crate::standards::openai::completion_request::{self, CompletionBodyOptions};
-use crate::standards::openai::utils::parse_provider_openai_finish_reason;
 use crate::streaming::ChatStream;
 use crate::traits::CompletionCapability;
 use crate::types::{CompletionRequest, CompletionResponse, Warning};
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use siumai_protocol_openai::standards::openai::compat::completion::{
+    CompletionResponseConversion, CompletionSseConverter,
+};
+
 fn completion_provider_options_key(provider_id: &str) -> String {
     siumai_protocol_openai::standards::openai::compat::metadata::provider_options_key(provider_id)
 }
-
-mod streaming;
-
-use streaming::CompletionSseConverter;
 
 impl OpenAiCompatibleClient {
     fn prepare_completion_request(
@@ -28,7 +23,7 @@ impl OpenAiCompatibleClient {
         mut request: CompletionRequest,
     ) -> Result<CompletionRequest, LlmError> {
         self.ensure_completion_surface(false)?;
-        request.common_params = crate::utils::chat_request::merge_common_params(
+        request.common_params = crate::provider_utils::chat_request::merge_common_params(
             &self.config.common_params,
             request.common_params,
         );
@@ -65,7 +60,7 @@ impl OpenAiCompatibleClient {
             &self.config.base_url,
             crate::providers::openai_compatible::RequestType::Completion,
         );
-        crate::utils::url::with_query_params(&base_url, &self.config.query_params)
+        crate::provider_utils::url::with_query_params(&base_url, &self.config.query_params)
     }
 
     fn completion_provider_options(
@@ -135,42 +130,8 @@ impl OpenAiCompatibleClient {
         warnings: Vec<Warning>,
     ) -> CompletionResponse {
         let provider_metadata_key = completion_provider_options_key(&self.config.provider_id);
-        let text = raw
-            .get("choices")
-            .and_then(|value| value.as_array())
-            .and_then(|choices| choices.first())
-            .and_then(|choice| choice.get("text"))
-            .and_then(|value| value.as_str())
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        let raw_finish_reason = raw
-            .get("choices")
-            .and_then(|value| value.as_array())
-            .and_then(|choices| choices.first())
-            .and_then(|choice| choice.get("finish_reason"))
-            .and_then(|value| value.as_str())
-            .map(ToString::to_string);
-        let finish_reason = raw_finish_reason.as_deref().and_then(|value| {
-            parse_provider_openai_finish_reason(self.config.provider_id.as_str(), Some(value))
-        });
-
-        CompletionResponse {
-            text,
-            finish_reason,
-            raw_finish_reason,
-            usage: raw.get("usage").and_then(|usage| {
-                OpenAiCompatibleUsagePolicy::for_provider(self.config.provider_id.as_str())
-                    .convert_usage_value(usage)
-            }),
-            response_metadata: Some(completion_response_metadata(
-                self.config.provider_id.clone(),
-                &raw,
-                headers,
-                true,
-            )),
-            warnings: (!warnings.is_empty()).then_some(warnings),
-            provider_metadata: extract_completion_provider_metadata(&provider_metadata_key, &raw),
-        }
+        CompletionResponseConversion::new(&self.config.provider_id, provider_metadata_key)
+            .build_response(raw, headers, warnings)
     }
 
     async fn completion_request_via_spec(

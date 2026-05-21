@@ -207,9 +207,11 @@ impl BedrockClient {
         mut request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
-        request = crate::utils::chat_request::normalize_chat_request(
+        request = crate::provider_utils::chat_request::normalize_chat_request(
             request,
-            crate::utils::chat_request::ChatRequestDefaults::new(&self.config.common_params),
+            crate::provider_utils::chat_request::ChatRequestDefaults::new(
+                &self.config.common_params,
+            ),
             stream,
         );
         if request.common_params.model.trim().is_empty() {

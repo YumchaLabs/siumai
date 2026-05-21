@@ -43,7 +43,7 @@ At the same time, we are in Rust (not JS/TS), so we must optimize for:
 Adopt a **Vercel-aligned layered architecture**, adapted for Rust:
 
 1. **Interface & shared types (thin, stable)**
-   - Keep the stable “6 model families” surface small and explicit.
+   - Keep the stable model-family surface small and explicit.
    - Treat provider-specific features as extensions (hosted tools, provider options, provider_ext modules).
    - Replace “closed provider options enum” with an **open, provider-id keyed options map** (pass-through).
 
@@ -78,6 +78,13 @@ This crate owns the OpenAI-like “standard” (request/response mapping + strea
 
 OpenAI-compatible vendors are treated as configuration entries (base URL / headers / error structure),
 not as first-class provider crates, mirroring the Vercel AI SDK approach.
+
+### Amendment — 2026-05-21 (FCAB-130)
+
+The stable model-family taxonomy is now seven families:
+Language, Embedding, Image, Rerank, Speech, Transcription, and Video. Video is a stable
+task-oriented family. Music remains extension-only and must not grow a `MusicModel` family or
+registry `music_model(...)` handle without a future ADR.
 
 ## Options considered
 

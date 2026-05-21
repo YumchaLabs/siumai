@@ -3,6 +3,7 @@
 //! Alignment tests for Vercel `@ai-sdk/deepseek` Chat Completions response fixtures.
 
 use serde_json::Value;
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::*;
 use siumai_core::execution::transformers::response::ResponseTransformer;
 use siumai_provider_openai_compatible::providers::openai_compatible::transformers::CompatResponseTransformer;

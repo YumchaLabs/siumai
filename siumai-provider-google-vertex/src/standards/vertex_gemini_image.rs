@@ -145,7 +145,7 @@ fn image_input_media_type(input: &ImageEditInput) -> String {
     if let Some(file_data) = input.file_data()
         && let Ok(bytes) = file_data.as_bytes()
     {
-        return crate::utils::guess_mime(Some(bytes.as_slice()), None);
+        return crate::provider_utils::guess_mime(Some(bytes.as_slice()), None);
     }
 
     "image/jpeg".to_string()

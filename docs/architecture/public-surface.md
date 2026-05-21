@@ -24,8 +24,8 @@ Use the Vercel-aligned unified surface as the default:
 use siumai::prelude::unified::*;
 ```
 
-This is the most stable entrypoint and is designed to cover the 6 stable model families:
-Language / Embedding / Image / Rerank / Speech (TTS) / Transcription (STT).
+This is the most stable entrypoint and is designed to cover the 7 stable model families:
+Language / Embedding / Image / Rerank / Speech (TTS) / Transcription (STT) / Video.
 
 `prelude::unified` intentionally does **not** export compatibility construction aliases such as
 `Siumai`, root `Provider`, or deprecated experimental helper aliases. New examples should resolve
@@ -43,6 +43,20 @@ Legacy `ContentPart` is not part of this stable unified prelude. It remains avai
 Use request-directional prompt parts (`UserContentPart`, `AssistantContentPart`, `ToolContentPart`)
 or response-directional generated output parts (`GenerateTextContentPart`, `TextOutput`,
 `ReasoningOutput`, `FileOutput`, `Source`) for new examples.
+
+The facade also exposes directional content namespaces for code that wants imports to describe the
+data flow explicitly:
+
+```rust
+use siumai::content::prompt::*;
+use siumai::content::output::*;
+use siumai::content::compat::*;
+```
+
+`prelude::unified` keeps the `prompt` and `output` navigation modules available as
+`siumai::prelude::unified::{prompt, output}`. It intentionally does not expose
+`content::compat` there; migration code should import legacy payloads from `siumai::compat::content`
+or `siumai::content::compat`.
 
 #### Response parsing, compatibility payloads, and generated output
 
@@ -136,7 +150,11 @@ use siumai::extensions::types::*;
 ```
 
 This is where non-unified request types live, e.g. `ImageEditRequest` / `ImageVariationRequest`
-(used by `ImageExtras`), moderation/file APIs, and provider-specific task types.
+(used by `ImageExtras`), moderation/file APIs, and provider-specific task types. Video's stable
+family surface is `siumai::video::*` / `VideoModel`; the low-level `VideoGenerationCapability`
+and its task payloads remain here only for provider adapters and compatibility code.
+Music generation remains extension-only: use `siumai::extensions::MusicGenerationCapability` or
+provider extension modules, not a stable `MusicModel` family.
 
 File and skill upload helpers are stable explicit modules, not top-level unified prelude names:
 
@@ -178,6 +196,10 @@ compatibility-only and should stay behind explicit `compat_*_client(...)` /
 `compat_*_client_with_ctx(...)` methods. Downstream code that still needs the generic client types
 should import them from `siumai::compat::client::{LlmClient, ClientWrapper}`; the old
 `siumai::experimental::client` path remains an advanced alias during migration.
+Registry execution now uses narrower facets derived from that custom-provider contract:
+`ProviderFamilyFactory` for stable family handles, `ProviderCompatibilityFactory` for legacy
+generic-client entry points, and `ProviderExtensionFactory` for non-family extension capabilities.
+These facets prevent the stable registry handles from depending on the wide compatibility surface.
 Custom registry/factory code that must name the generic client trait should use
 `siumai_registry::compat::client::LlmClient`; the old `siumai_registry::LlmClient` root import is
 no longer part of the small registry root surface.
@@ -187,6 +209,10 @@ provider-owned config builders instead of calling those broad generic-client con
 OpenAI-compatible vendor or dynamic provider ids should use
 `openai_compatible_provider_factory(...)` instead of concrete OpenAI-compatible factory
 construction.
+Built-in provider factories should keep typed-client construction and typed-client `Arc` projection
+as local helpers. Stable family and explicit compatibility methods can share those helpers, but the
+public surface should not grow new broad generic-client aliases to compensate for duplicated factory
+glue.
 Azure's deployment-based URL mode is the current provider-specific exception; use the registry
 helper `azure_provider_factory_with_options(...)` instead of concrete Azure factory construction.
 
@@ -209,18 +235,38 @@ such as `ChatStream`, `ChatStreamEvent`, `ChatStreamPart`, and `ChatStreamHandle
 The root helper `siumai::parse_json_event_stream(...)` remains available for explicit JSON/SSE
 parsing, but it is not a top-level `prelude::unified::*` name.
 
-Low-level utility helpers are explicit root imports, not default unified-prelude names. Helpers such
-as download helpers, header normalization, environment setting loaders, JSON parsing/instruction
-helpers, provider-option/reference parsers, URL support maps, and runtime type validators remain
-available for opt-in utility users:
+Low-level utility helpers are explicit root imports, not default unified-prelude names.
+Provider-utils helpers that remain at the root are backed by `siumai-provider-utils`, not the old
+`siumai-core::utils` owner path. Helpers such as download helpers, header normalization,
+environment setting loaders, JSON parsing/instruction helpers, provider-option/reference parsers,
+URL support maps, base64/data helpers, reasoning mapping helpers, media helpers, and runtime type
+validators remain available for opt-in utility users:
 
 ```rust
 use siumai::{parse_json, normalize_headers};
 ```
 
-`prelude::unified` keeps the application-facing AI SDK helper layer, including schema helpers,
+`prelude::unified` does not export broad provider-utils helper groups. It keeps the
+application-facing AI SDK helper layer, including schema helpers,
 ID generation helpers, stop-condition helpers, UI part predicates, `SerialJobExecutor`, and
-`ToolNameMapping`, without mirroring the whole `siumai-core::utils` module.
+`ToolNameMapping`, without mirroring the whole `siumai-provider-utils` helper set or the historical
+`siumai-core::utils` compatibility module. The stable prelude intentionally does not export broad
+utility groups such as `Arrayable`/nullability helpers, base64/data helpers, download/header/settings
+helpers, JSON parse/instruction helpers, reasoning mapping helpers, runtime user-agent/version
+helpers, URL support helpers, or media helpers; import those from the root facade explicitly.
+
+Retained broad exports are limited to explicit namespaces where the namespace itself states the
+boundary and avoids accidental root/prelude coupling:
+
+- `siumai::protocol::<provider>::*` is the stable protocol-mapping facade for adapters, fixtures,
+  and custom providers.
+- `siumai::hosted_tools::<provider>::*` is the stable provider-hosted tool namespace.
+- `siumai::content::{prompt,output,compat}::*` is directional content navigation; `compat` remains
+  explicit because legacy chat payloads are migration-only.
+- `siumai::prelude::compat::{types,content}::*` is the time-bounded compatibility namespace for
+  historical broad imports.
+- `siumai::experimental::{streaming,execution,providers,standards,...}::*` remains advanced and
+  unstable; use it only when implementing providers, gateways, or migration tooling.
 
 Generic `ClientWrapper` construction is provider-agnostic. Use
 `siumai::compat::client::ClientWrapper::new(...)` for boxed advanced clients; provider-named wrapper
@@ -333,7 +379,9 @@ the serde-compatible `ContentPart` / `MessageContent` payload should import
 this is an intentional namespace break so new code does not see the dual request/response carrier
 as the canonical content model. New request examples should use `ModelMessage`, `UserContentPart`,
 `AssistantContentPart`, and `ToolContentPart`; new response examples should use
-`GenerateTextContentPart` and output-part carriers.
+`GenerateTextContentPart` and output-part carriers. Prefer `siumai::content::prompt::*` and
+`siumai::content::output::*` when you want directionally named imports; use
+`siumai::content::compat::*` only for compatibility payloads.
 
 ## Explicitly *not* stable
 

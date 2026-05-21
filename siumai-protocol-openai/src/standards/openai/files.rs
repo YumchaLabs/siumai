@@ -55,10 +55,9 @@ fn build_upload_body_impl(
     req: &crate::types::FileUploadRequest,
     provider_id: &str,
 ) -> Result<FilesHttpBody, LlmError> {
-    let detected = req
-        .mime_type
-        .clone()
-        .unwrap_or_else(|| crate::utils::guess_mime(Some(&req.content), req.filename.as_deref()));
+    let detected = req.mime_type.clone().unwrap_or_else(|| {
+        crate::provider_utils::guess_mime(Some(&req.content), req.filename.as_deref())
+    });
     let mut part = reqwest::multipart::Part::bytes(req.content.clone());
     if let Some(filename) = req.filename.clone() {
         part = part.file_name(filename);

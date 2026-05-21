@@ -260,10 +260,12 @@ impl AzureOpenAiClient {
         mut request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
-        request = crate::utils::chat_request::normalize_chat_request(
+        request = crate::provider_utils::chat_request::normalize_chat_request(
             request,
-            crate::utils::chat_request::ChatRequestDefaults::new(&self.config.common_params)
-                .with_provider_options_map(&self.config.provider_options_map),
+            crate::provider_utils::chat_request::ChatRequestDefaults::new(
+                &self.config.common_params,
+            )
+            .with_provider_options_map(&self.config.provider_options_map),
             stream,
         );
         if request.common_params.model.trim().is_empty() {

@@ -3,6 +3,7 @@
 use super::{
     client::TogetherAiClient,
     config::{TogetherAiConfig, resolve_api_key_from_env},
+    image::TogetherAiImageClient,
 };
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::error::LlmError;
@@ -152,6 +153,33 @@ impl TogetherAiBuilder {
             TogetherAiClient::with_http_client(config, http_client)?
         } else {
             TogetherAiClient::from_config(config)?
+        };
+
+        if let Some(retry_options) = retry_options {
+            client = client.with_retry_options(retry_options);
+        }
+
+        Ok(client)
+    }
+
+    /// Build a provider-owned TogetherAI image client from the same package settings.
+    pub fn build_image_model(self) -> Result<TogetherAiImageClient, LlmError> {
+        let http_client_override = self.core.base.http_client.clone();
+        let retry_options = self.core.retry_options.clone();
+        let config = self.into_config()?;
+        let image_model = if config.common_params.model.trim().is_empty()
+            || config.common_params.model == TogetherAiConfig::DEFAULT_MODEL
+        {
+            TogetherAiConfig::DEFAULT_IMAGE_MODEL
+        } else {
+            config.common_params.model.as_str()
+        };
+        let image_config = config.image_config_for_model(image_model);
+
+        let mut client = if let Some(http_client) = http_client_override {
+            TogetherAiImageClient::with_http_client(image_config, http_client)?
+        } else {
+            TogetherAiImageClient::from_config(image_config)?
         };
 
         if let Some(retry_options) = retry_options {

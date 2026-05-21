@@ -486,7 +486,7 @@ impl BedrockImageResponse {
 }
 
 fn build_bedrock_invoke_url(base_url: &str, model_id: &str) -> String {
-    crate::utils::url::join_url(
+    crate::provider_utils::url::join_url(
         base_url,
         &format!("/model/{}/invoke", urlencoding::encode(model_id)),
     )

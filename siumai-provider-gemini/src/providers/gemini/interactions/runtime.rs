@@ -149,11 +149,11 @@ async fn poll_interaction_until_terminal(
 }
 
 pub(super) fn interactions_url(base_url: &str) -> String {
-    crate::utils::url::join_url(base_url.trim_end_matches('/'), "interactions")
+    crate::provider_utils::url::join_url(base_url.trim_end_matches('/'), "interactions")
 }
 
 pub(super) fn interaction_get_url(base_url: &str, interaction_id: &str) -> String {
-    crate::utils::url::join_url(
+    crate::provider_utils::url::join_url(
         base_url.trim_end_matches('/'),
         &format!("interactions/{}", urlencoding::encode(interaction_id)),
     )
@@ -176,7 +176,7 @@ pub(super) fn interaction_stream_url(
 }
 
 pub(super) fn interaction_cancel_url(base_url: &str, interaction_id: &str) -> String {
-    crate::utils::url::join_url(
+    crate::provider_utils::url::join_url(
         base_url.trim_end_matches('/'),
         &format!(
             "interactions/{}/cancel",

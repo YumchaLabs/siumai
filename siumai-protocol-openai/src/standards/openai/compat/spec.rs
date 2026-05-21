@@ -1016,7 +1016,7 @@ fn chat_request_settings_hook(
 }
 
 fn apply_url_settings(url: String, settings: &OpenAiCompatibleRequestSettings) -> String {
-    crate::utils::url::with_query_params(&url, &settings.query_params)
+    crate::provider_utils::url::with_query_params(&url, &settings.query_params)
 }
 
 fn default_request_settings_for_provider(provider_id: &str) -> OpenAiCompatibleRequestSettings {

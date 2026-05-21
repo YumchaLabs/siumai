@@ -8,6 +8,7 @@ use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
+use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
 use std::borrow::Cow;
 
 const DEFAULT_LOCATION: &str = "global";
@@ -124,18 +125,17 @@ fn resolve_auth(
 async fn build_text_client_with_ctx(
     model_id: &str,
     ctx: &BuildContext,
-) -> Result<
-    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
-    LlmError,
-> {
+) -> Result<OpenAiCompatibleClient, LlmError> {
     let http_config = ctx.http_config.clone().unwrap_or_default();
     let http_client = if let Some(client) = &ctx.http_client {
         client.clone()
     } else {
         build_http_client_from_config(&http_config)?
     };
-    let common_params =
-        crate::utils::builder_helpers::resolve_common_params(ctx.common_params.clone(), model_id);
+    let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
+        ctx.common_params.clone(),
+        model_id,
+    );
     let (api_key, token_provider) = resolve_auth(ctx, &http_config)?;
 
     crate::registry::factory::build_openai_compatible_typed_client(
@@ -156,6 +156,15 @@ async fn build_text_client_with_ctx(
         ctx.http_transport.clone(),
     )
     .await
+}
+
+#[cfg(feature = "google-vertex")]
+async fn build_text_client_arc(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<Arc<OpenAiCompatibleClient>, LlmError> {
+    let client = build_text_client_with_ctx(model_id, ctx).await?;
+    Ok(Arc::new(client))
 }
 
 /// Google Vertex MaaS provider factory.
@@ -179,8 +188,8 @@ impl ProviderFactory for VertexMaasProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -188,8 +197,8 @@ impl ProviderFactory for VertexMaasProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_completion_client_with_ctx(
@@ -197,8 +206,8 @@ impl ProviderFactory for VertexMaasProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn completion_model_family_with_ctx(
@@ -206,8 +215,8 @@ impl ProviderFactory for VertexMaasProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -215,8 +224,8 @@ impl ProviderFactory for VertexMaasProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -224,8 +233,8 @@ impl ProviderFactory for VertexMaasProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> Cow<'static, str> {

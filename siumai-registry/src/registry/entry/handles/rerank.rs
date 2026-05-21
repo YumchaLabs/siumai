@@ -8,6 +8,7 @@ use crate::types::{RerankRequest, RerankResponse};
 
 use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
+use super::super::factory::ProviderFamilyFactory;
 
 /// Reranking model handle - delegates to factory for client creation
 #[derive(Clone)]
@@ -53,7 +54,7 @@ impl RerankCapability for RerankingModelHandle {
         );
         let model = self
             .factory
-            .reranking_model_family_with_ctx(&self.model_id, &ctx)
+            .build_reranking_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
 
         model.rerank(request).await

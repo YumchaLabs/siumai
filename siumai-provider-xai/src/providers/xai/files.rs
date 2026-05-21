@@ -120,7 +120,7 @@ impl XaiFiles {
         options: Option<&XaiFilesOptions>,
     ) -> Result<reqwest::multipart::Form, LlmError> {
         let mime_type = request.mime_type.clone().unwrap_or_else(|| {
-            crate::utils::guess_mime(Some(&request.content), request.filename.as_deref())
+            crate::provider_utils::guess_mime(Some(&request.content), request.filename.as_deref())
         });
 
         let mut part = reqwest::multipart::Part::bytes(request.content.clone());
@@ -149,7 +149,7 @@ impl XaiFiles {
 impl FileManagementCapability for XaiFiles {
     async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
         let config = self.build_http_config();
-        let url = crate::utils::url::join_url(&self.base_url(), "files");
+        let url = crate::provider_utils::url::join_url(&self.base_url(), "files");
         let options = self.parse_upload_options(&request)?;
         let request_clone = request.clone();
 
@@ -166,8 +166,11 @@ impl FileManagementCapability for XaiFiles {
 
     async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
         let config = self.build_http_config();
-        let mut url = reqwest::Url::parse(&crate::utils::url::join_url(&self.base_url(), "files"))
-            .map_err(|err| LlmError::InvalidInput(format!("Invalid xAI files URL: {err}")))?;
+        let mut url = reqwest::Url::parse(&crate::provider_utils::url::join_url(
+            &self.base_url(),
+            "files",
+        ))
+        .map_err(|err| LlmError::InvalidInput(format!("Invalid xAI files URL: {err}")))?;
 
         if let Some(query) = &query {
             let mut pairs = url.query_pairs_mut();
@@ -197,22 +200,26 @@ impl FileManagementCapability for XaiFiles {
 
     async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
         let config = self.build_http_config();
-        let url = crate::utils::url::join_url(&self.base_url(), &format!("files/{file_id}"));
+        let url =
+            crate::provider_utils::url::join_url(&self.base_url(), &format!("files/{file_id}"));
         let response = execute_get_request(&config, &url, None).await?;
         map_xai_file_object(&response.json, None)
     }
 
     async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
         let config = self.build_http_config();
-        let url = crate::utils::url::join_url(&self.base_url(), &format!("files/{file_id}"));
+        let url =
+            crate::provider_utils::url::join_url(&self.base_url(), &format!("files/{file_id}"));
         let response = execute_delete_request(&config, &url, None).await?;
         Ok(map_xai_file_delete_response(&response.json, &file_id))
     }
 
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
         let config = self.build_http_config();
-        let url =
-            crate::utils::url::join_url(&self.base_url(), &format!("files/{file_id}/content"));
+        let url = crate::provider_utils::url::join_url(
+            &self.base_url(),
+            &format!("files/{file_id}/content"),
+        );
         let response = execute_get_binary(&config, &url, None).await?;
         Ok(response.bytes)
     }

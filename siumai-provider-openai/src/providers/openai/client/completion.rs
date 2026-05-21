@@ -310,7 +310,7 @@ impl OpenAiClient {
         &self,
         mut request: CompletionRequest,
     ) -> Result<CompletionRequest, LlmError> {
-        request.common_params = crate::utils::chat_request::merge_common_params(
+        request.common_params = crate::provider_utils::chat_request::merge_common_params(
             &self.common_params,
             request.common_params,
         );

@@ -17,6 +17,7 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
+siumai-provider-utils = { workspace = true, default-features = false }
 
 async-trait.workspace = true
 serde.workspace = true

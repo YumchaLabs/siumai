@@ -8,7 +8,7 @@ features to evolve quickly.
 
 ## Stable Surface (Recommended)
 
-The stable surface is intentionally limited to **six model families**:
+The stable surface is intentionally limited to **seven model families**:
 
 1. Language (chat + streaming)
 2. Embedding
@@ -16,8 +16,11 @@ The stable surface is intentionally limited to **six model families**:
 4. Reranking
 5. Speech (TTS)
 6. Transcription (STT)
+7. Video generation
 
 These are exposed via `siumai::prelude::unified::*` and corresponding traits/handles.
+Video is a stable Rust family, but it remains task-oriented (`create_task` / `query_task`) instead
+of pretending that every provider has a single synchronous generated-video response shape.
 
 ### Design principles
 
@@ -63,6 +66,11 @@ Provider-specific endpoints/resources that do not fit the stable model families 
 - `siumai::provider_ext::<provider>::*`
 
 Examples include provider-specific streaming formats, special endpoints, and non-family resources.
+
+Music generation remains extension-only in this release line. Use
+`siumai::extensions::MusicGenerationCapability`, `siumai::prelude::extensions::*`, or
+provider-specific extension modules for music workflows. There is intentionally no stable
+`MusicModel` family or registry `music_model(...)` handle until a future ADR promotes it.
 
 ## Experimental (Unstable)
 

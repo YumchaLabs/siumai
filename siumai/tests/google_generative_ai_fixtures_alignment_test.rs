@@ -130,7 +130,7 @@ fn google_generative_ai_fixtures_match() {
 
 #[test]
 fn google_code_execution_response_emits_tool_call_and_result() {
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::{ContentPart, MessageContent};
     use siumai_core::types::ToolResultOutput;
 
     let root = fixtures_dir().join("google-code-execution.1");
@@ -203,7 +203,7 @@ fn google_code_execution_response_emits_tool_call_and_result() {
     assert!(has_result, "expected code_execution tool result");
 }
 
-fn assert_google_thought_signature(part: &siumai::prelude::unified::ContentPart, expected: &str) {
+fn assert_google_thought_signature(part: &siumai::compat::content::ContentPart, expected: &str) {
     let sig = part
         .gemini_metadata()
         .and_then(|meta| meta.thought_signature)
@@ -211,7 +211,7 @@ fn assert_google_thought_signature(part: &siumai::prelude::unified::ContentPart,
     assert_eq!(sig, expected);
 }
 
-fn assert_vertex_thought_signature(part: &siumai::prelude::unified::ContentPart, expected: &str) {
+fn assert_vertex_thought_signature(part: &siumai::compat::content::ContentPart, expected: &str) {
     let sig = part
         .gemini_metadata()
         .and_then(|meta| meta.thought_signature)
@@ -225,7 +225,7 @@ fn assert_response_metadata_is_parsed(resp: &siumai::prelude::unified::ChatRespo
 
 #[test]
 fn google_response_thought_signatures_are_exposed_on_text_and_reasoning_parts() {
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::{ContentPart, MessageContent};
 
     let root = fixtures_dir().join("google-thought-signature-text-and-reasoning.1");
     let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
@@ -280,7 +280,7 @@ fn google_response_thought_signatures_are_exposed_on_text_and_reasoning_parts() 
 
 #[test]
 fn google_response_thought_signatures_are_exposed_on_tool_calls() {
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::{ContentPart, MessageContent};
 
     let root = fixtures_dir().join("google-thought-signature-tool-call.1");
     let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
@@ -316,7 +316,7 @@ fn google_response_thought_signatures_are_exposed_on_tool_calls() {
 
 #[test]
 fn vertex_provider_id_uses_vertex_key_for_thought_signature_parts_and_response_metadata() {
-    use siumai::prelude::unified::{ContentPart, MessageContent};
+    use siumai::compat::content::{ContentPart, MessageContent};
 
     let root = fixtures_dir().join("google-thought-signature-text-and-reasoning.1");
     let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));

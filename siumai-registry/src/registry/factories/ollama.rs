@@ -24,11 +24,11 @@ impl OllamaProviderFactory {
             build_http_client_from_config(&http_config)?
         };
 
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
+        let base_url = crate::provider_utils::builder_helpers::resolve_base_url(
             ctx.base_url.clone(),
             "http://localhost:11434",
         );
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
+        let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
@@ -60,6 +60,15 @@ impl OllamaProviderFactory {
 
         Ok(client)
     }
+
+    async fn build_text_family_model_arc(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<OllamaClient>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 }
 
 #[cfg(feature = "ollama")]
@@ -83,8 +92,8 @@ impl ProviderFactory for OllamaProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -92,8 +101,8 @@ impl ProviderFactory for OllamaProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -101,7 +110,8 @@ impl ProviderFactory for OllamaProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.compat_language_client_with_ctx(model_id, ctx).await
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -109,8 +119,8 @@ impl ProviderFactory for OllamaProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_image_client_with_ctx(

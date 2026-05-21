@@ -10,6 +10,7 @@
 
 use futures::Stream;
 use serde::de::DeserializeOwned;
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::*;
 #[cfg(feature = "anthropic")]
 use siumai::provider_ext::anthropic::AnthropicChatRequestExt;

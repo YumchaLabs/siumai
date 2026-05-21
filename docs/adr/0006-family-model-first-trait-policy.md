@@ -25,7 +25,7 @@ We adopt a family-model-first trait policy for V4.
 That means:
 
 1. Family model traits become the primary execution contracts.
-2. `text`, `embedding`, `image`, `rerank`, `speech`, and `transcription` are the preferred public families.
+2. `text`, `embedding`, `image`, `rerank`, `speech`, `transcription`, and `video` are the preferred public families.
 3. Shared model identity belongs in a lightweight metadata trait rather than being repeated across every family trait.
 4. Legacy capability traits remain as migration shims, not as the long-term architectural center.
 5. New provider work should target family-model-native implementations first.
@@ -38,6 +38,27 @@ The current minimum shared metadata contract is:
 The current first landed family contract is:
 
 - `LanguageModel`
+
+## Amendment — 2026-05-21 (FCAB-130)
+
+Video is promoted into the stable family taxonomy. The stable family list is now:
+
+- `text` / language
+- `embedding`
+- `image`
+- `rerank`
+- `speech`
+- `transcription`
+- `video`
+
+Video stays Rust-first and task-oriented: `VideoModel` owns task submission and task-status query
+operations, while high-level facade helpers can create, poll, and materialize generated videos.
+The low-level `VideoGenerationCapability` remains available for provider adapters and compatibility
+paths, but it is not the primary application-facing family contract.
+
+Music remains extension-only. Do not add `MusicModel`, a registry `music_model(...)` handle, or a
+top-level stable music family without a future ADR that defines the public contract and migration
+plan.
 
 ## Consequences
 

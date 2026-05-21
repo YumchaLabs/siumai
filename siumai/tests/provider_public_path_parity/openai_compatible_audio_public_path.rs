@@ -1,5 +1,6 @@
 use super::*;
 use futures_util::StreamExt;
+use siumai::compat::content::ContentPart;
 use siumai::experimental::client::LlmClient;
 use siumai::extensions::TranscriptionExtras;
 use siumai::prelude::unified::{
@@ -5987,28 +5988,26 @@ async fn openrouter_public_paths_use_canonical_openai_compatible_provider_option
 
     let user = siumai::prelude::unified::ChatMessage {
         role: siumai::prelude::unified::MessageRole::User,
-        content: siumai::prelude::unified::MessageContent::MultiModal(vec![
-            siumai::prelude::unified::ContentPart::Text {
-                text: "hello".to_string(),
-                provider_options: {
-                    let mut options = siumai::prelude::unified::ProviderOptionsMap::default();
-                    options.insert(
-                        "openaiCompatible",
-                        serde_json::json!({
-                            "userTag": "canonical-user-part"
-                        }),
-                    );
-                    options
-                },
-                provider_metadata: Some(std::collections::HashMap::from([(
-                    "openaiCompatible".to_string(),
+        content: siumai::prelude::unified::MessageContent::MultiModal(vec![ContentPart::Text {
+            text: "hello".to_string(),
+            provider_options: {
+                let mut options = siumai::prelude::unified::ProviderOptionsMap::default();
+                options.insert(
+                    "openaiCompatible",
                     serde_json::json!({
-                        "legacyOnlyUserPart": true,
-                        "userTag": "legacy-user-part"
+                        "userTag": "canonical-user-part"
                     }),
-                )])),
+                );
+                options
             },
-        ]),
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "openaiCompatible".to_string(),
+                serde_json::json!({
+                    "legacyOnlyUserPart": true,
+                    "userTag": "legacy-user-part"
+                }),
+            )])),
+        }]),
         provider_options: {
             let mut options = siumai::prelude::unified::ProviderOptionsMap::default();
             options.insert(
@@ -6031,7 +6030,7 @@ async fn openrouter_public_paths_use_canonical_openai_compatible_provider_option
         },
     };
 
-    let tool_call = siumai::prelude::unified::ContentPart::tool_call(
+    let tool_call = ContentPart::tool_call(
         "call_1",
         "get_weather",
         serde_json::json!({
@@ -6047,8 +6046,8 @@ async fn openrouter_public_paths_use_canonical_openai_compatible_provider_option
     );
 
     let mut assistant = ChatMessage::assistant_with_content(vec![
-        siumai::prelude::unified::ContentPart::reasoning("Count carefully. "),
-        siumai::prelude::unified::ContentPart::text("There are three r characters."),
+        ContentPart::reasoning("Count carefully. "),
+        ContentPart::text("There are three r characters."),
         tool_call,
     ])
     .with_provider_option(
@@ -6086,7 +6085,7 @@ async fn openrouter_public_paths_use_canonical_openai_compatible_provider_option
                 }),
             );
 
-        if let siumai::prelude::unified::ContentPart::ToolResult {
+        if let ContentPart::ToolResult {
             provider_metadata, ..
         } = part
         {

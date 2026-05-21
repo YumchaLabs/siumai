@@ -2558,19 +2558,35 @@ fn gemini_generate_content_request_normalization_is_protocol_adapter_backed() {
     use std::fs;
     use std::path::Path;
 
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let monolith =
-        fs::read_to_string(root.join("src/request/normalize.rs")).expect("read normalize.rs");
-    let adapter = fs::read_to_string(root.join("src/request/normalize/gemini_generate_content.rs"))
-        .expect("read Gemini GenerateContent request adapter");
+    let bridge_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = bridge_root
+        .parent()
+        .expect("siumai-bridge should live under workspace root");
+    let monolith = fs::read_to_string(bridge_root.join("src/request/normalize.rs"))
+        .expect("read normalize.rs");
+    let shim =
+        fs::read_to_string(bridge_root.join("src/request/normalize/gemini_generate_content.rs"))
+            .expect("read Gemini GenerateContent request shim");
+    let protocol_adapter = fs::read_to_string(
+        workspace_root
+            .join("siumai-protocol-gemini")
+            .join("src/standards/gemini/request_bridge.rs"),
+    )
+    .expect("read protocol-owned Gemini request bridge adapter");
 
     assert!(
         monolith.contains("mod gemini_generate_content;"),
-        "Gemini GenerateContent request normalization should be delegated to a narrow adapter module"
+        "Gemini GenerateContent request normalization should keep a narrow bridge shim"
     );
     assert!(
         monolith.contains("gemini_generate_content::parse_json_to_chat_request"),
         "normalize.rs should keep only the public wrapper and delegate the Gemini parser"
+    );
+    assert!(
+        shim.contains(
+            "siumai_protocol_gemini::standards::gemini::request_bridge::parse_json_to_chat_request"
+        ),
+        "Gemini bridge shim should delegate protocol wire parsing to siumai-protocol-gemini"
     );
 
     for forbidden in [
@@ -2587,14 +2603,14 @@ fn gemini_generate_content_request_normalization_is_protocol_adapter_backed() {
     }
 
     for required in [
-        "pub(super) fn parse_json_to_chat_request",
+        "pub fn parse_json_to_chat_request",
         "GeminiGenerateContentRequest",
         "fn parse_gemini_content(",
         "fn parse_gemini_tools(",
     ] {
         assert!(
-            adapter.contains(required),
-            "Gemini GenerateContent adapter should own `{required}`"
+            protocol_adapter.contains(required),
+            "protocol-owned Gemini GenerateContent adapter should own `{required}`"
         );
     }
 }
@@ -2602,10 +2618,17 @@ fn gemini_generate_content_request_normalization_is_protocol_adapter_backed() {
 #[cfg(feature = "google")]
 #[test]
 fn gemini_request_normalization_source_uses_provider_options_for_thought_signature() {
-    let source = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/request/normalize/gemini_generate_content.rs"
-    ));
+    use std::path::Path;
+
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("siumai-bridge should live under workspace root");
+    let source = std::fs::read_to_string(
+        workspace_root
+            .join("siumai-protocol-gemini")
+            .join("src/standards/gemini/request_bridge.rs"),
+    )
+    .expect("read protocol-owned Gemini request bridge adapter");
 
     assert!(source.contains("fn gemini_thought_signature_provider_options"));
     for forbidden in [

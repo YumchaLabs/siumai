@@ -489,6 +489,9 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         );
         insert_builtin_provider_factory(&mut providers, ids::VERTEX)
             .expect("Vertex factory should be available when the google-vertex feature is enabled");
+        insert_builtin_provider_factory(&mut providers, ids::VERTEX_MAAS).expect(
+            "Vertex MaaS factory should be available when the google-vertex feature is enabled",
+        );
         insert_builtin_provider_factory(&mut providers, ids::GOOGLE_VERTEX_XAI).expect(
             "Google Vertex xAI factory should be available when the google-vertex feature is enabled",
         );
@@ -562,8 +565,16 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
             );
         for (_id, cfg) in builtin {
             let id_str = cfg.id.clone();
-            // Skip providers that already have dedicated factories registered (e.g., deepseek, groq, minimaxi).
+            // Skip providers that already have dedicated factories registered (e.g., Vertex MaaS,
+            // Google Vertex xAI, deepseek, groq, minimaxi).
             if providers.contains_key(&id_str) {
+                continue;
+            }
+            let built_in_requires_disabled_feature = matches!(
+                ids::BuiltinProviderId::parse(&id_str),
+                Some(ids::BuiltinProviderId::VertexMaas | ids::BuiltinProviderId::GoogleVertexXai)
+            );
+            if built_in_requires_disabled_feature {
                 continue;
             }
             insert_builtin_provider_factory(&mut providers, &id_str).unwrap_or_else(|err| {

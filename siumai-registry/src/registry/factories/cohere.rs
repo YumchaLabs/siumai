@@ -1,6 +1,7 @@
 //! Cohere provider factory.
 
 use super::*;
+use siumai_provider_cohere::providers::cohere::CohereClient;
 
 #[cfg(feature = "cohere")]
 fn resolve_api_key(ctx: &BuildContext) -> Result<String, LlmError> {
@@ -19,7 +20,7 @@ fn resolve_api_key(ctx: &BuildContext) -> Result<String, LlmError> {
 fn build_typed_client_with_ctx(
     model_id: &str,
     ctx: &BuildContext,
-) -> Result<siumai_provider_cohere::providers::cohere::CohereClient, LlmError> {
+) -> Result<CohereClient, LlmError> {
     let http_config = ctx.http_config.clone().unwrap_or_default();
     let http_client = if let Some(client) = &ctx.http_client {
         client.clone()
@@ -29,7 +30,7 @@ fn build_typed_client_with_ctx(
 
     let mut cfg =
         siumai_provider_cohere::providers::cohere::CohereConfig::new(resolve_api_key(ctx)?)
-            .with_base_url(crate::utils::builder_helpers::resolve_base_url(
+            .with_base_url(crate::provider_utils::builder_helpers::resolve_base_url(
                 ctx.base_url.clone(),
                 siumai_provider_cohere::providers::cohere::CohereConfig::DEFAULT_BASE_URL,
             ))
@@ -51,6 +52,15 @@ fn build_typed_client_with_ctx(
     }
 
     Ok(client)
+}
+
+#[cfg(feature = "cohere")]
+fn build_typed_client_arc(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<Arc<CohereClient>, LlmError> {
+    let client = build_typed_client_with_ctx(model_id, ctx)?;
+    Ok(Arc::new(client))
 }
 
 /// Cohere provider factory.
@@ -85,7 +95,8 @@ impl ProviderFactory for CohereProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -93,7 +104,8 @@ impl ProviderFactory for CohereProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn compat_reranking_client_with_ctx(
@@ -101,7 +113,8 @@ impl ProviderFactory for CohereProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -109,7 +122,8 @@ impl ProviderFactory for CohereProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::text::LanguageModel>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -117,7 +131,8 @@ impl ProviderFactory for CohereProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::embedding::EmbeddingModel>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     async fn reranking_model_family_with_ctx(
@@ -125,7 +140,8 @@ impl ProviderFactory for CohereProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn siumai_core::rerank::RerankingModel>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+        let client = build_typed_client_arc(model_id, ctx)?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

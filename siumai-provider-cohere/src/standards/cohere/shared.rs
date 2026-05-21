@@ -1,8 +1,8 @@
 use crate::core::ProviderContext;
 use crate::error::LlmError;
 use crate::types::{
-    ChatResponse, ContentPart, FilePartSource, FinishReason, MediaSource, MessageContent,
-    ProviderOptionsMap, ResponseMetadata, Usage,
+    ChatResponse, FilePartSource, FinishReason, MediaSource, ProviderOptionsMap, ResponseMetadata,
+    Usage,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
@@ -101,19 +101,6 @@ pub fn response_metadata(
         request_id: None,
         headers: None,
         body: None,
-    }
-}
-
-pub fn message_content_from_parts(parts: Vec<ContentPart>) -> MessageContent {
-    if parts.is_empty() {
-        MessageContent::Text(String::new())
-    } else if parts.len() == 1 {
-        match &parts[0] {
-            ContentPart::Text { text, .. } => MessageContent::Text(text.clone()),
-            _ => MessageContent::MultiModal(parts),
-        }
-    } else {
-        MessageContent::MultiModal(parts)
     }
 }
 

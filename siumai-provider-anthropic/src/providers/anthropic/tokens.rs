@@ -5,8 +5,8 @@
 use crate::error::LlmError;
 use crate::execution::executors::common::{HttpBody, HttpExecutionConfig, execute_json_request};
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::provider_utils::url::join_url;
 use crate::retry_api::RetryOptions;
-use crate::utils::url::join_url;
 use crate::{core::ProviderSpec, types::ChatRequest};
 use reqwest::Client as HttpClient;
 use secrecy::{ExposeSecret, SecretString};

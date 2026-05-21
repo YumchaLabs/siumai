@@ -9,13 +9,13 @@ use crate::execution::executors::common::{
     HttpExecutionConfig, execute_get_request, execute_multipart_request,
 };
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::provider_utils::url::join_url;
 use crate::retry_api::RetryOptions;
 use crate::traits::SkillsCapability;
 use crate::types::{
     HttpConfig, ProviderReference, SkillFileContent, SkillProviderMetadata, SkillUploadFile,
     SkillUploadRequest, SkillUploadResult, Warning,
 };
-use crate::utils::url::join_url;
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::Client as HttpClient;

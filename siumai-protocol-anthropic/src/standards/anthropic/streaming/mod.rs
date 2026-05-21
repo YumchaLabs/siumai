@@ -14,7 +14,7 @@ use crate::streaming::{
 };
 use crate::types::{
     ChatResponse, ChatStreamFinishInfo, ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult,
-    ContentPart, FinishReason, MessageContent, ResponseMetadata, SourcePart, Usage,
+    FinishReason, MessageContent, ResponseMetadata, SourcePart, Usage,
 };
 use eventsource_stream::Event;
 use serde::Deserialize;
@@ -24,6 +24,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+
+mod response_content;
 
 #[derive(Debug, Default, Clone)]
 struct AnthropicSerializeState {
@@ -606,29 +608,21 @@ impl AnthropicEventConverter {
                         && !text.is_empty()
                     {
                         text_buffer.push_str(text);
-                        parts.push(ContentPart::text(text.clone()));
+                        parts.push(response_content::text(text.clone()));
                     }
                 }
                 "thinking" => {
                     if let Some(thinking) = thinking_blocks.get(&idx)
                         && !thinking.is_empty()
                     {
-                        parts.push(ContentPart::reasoning(thinking.clone()));
+                        parts.push(response_content::reasoning(thinking.clone()));
                     }
                 }
                 _ => {}
             }
         }
 
-        if parts.len() == 1 && parts[0].is_text() {
-            MessageContent::Text(text_buffer)
-        } else if !parts.is_empty() {
-            MessageContent::MultiModal(parts)
-        } else if !text_buffer.is_empty() {
-            MessageContent::Text(text_buffer)
-        } else {
-            MessageContent::Text(String::new())
-        }
+        response_content::message_content_from_parts(parts, text_buffer)
     }
 
     fn current_vercel_usage(&self) -> Option<serde_json::Value> {

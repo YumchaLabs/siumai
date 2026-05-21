@@ -26,6 +26,7 @@ use siumai_core::video::VideoModel as FamilyVideoModel;
 use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::cache::CacheEntry;
+use super::super::factory::{ProviderExtensionFactory, ProviderFamilyFactory};
 use super::video_support::{
     apply_video_handle_default_model, video_model_handle_max_videos_per_call,
 };
@@ -132,7 +133,7 @@ impl LanguageModelHandle {
         );
         let model = self
             .factory
-            .language_model_text_with_ctx(model_id, &ctx)
+            .build_language_model_text_with_ctx(model_id, &ctx)
             .await?;
 
         let mut cache = self.cache.lock().await;
@@ -159,7 +160,7 @@ impl LanguageModelHandle {
         );
 
         self.factory
-            .file_management_capability_with_ctx(model_id, &ctx)
+            .build_file_management_capability_with_ctx(model_id, &ctx)
             .await
     }
 
@@ -181,7 +182,7 @@ impl LanguageModelHandle {
         );
 
         self.factory
-            .skills_capability_with_ctx(model_id, &ctx)
+            .build_skills_capability_with_ctx(model_id, &ctx)
             .await
     }
 
@@ -203,7 +204,7 @@ impl LanguageModelHandle {
         );
 
         self.factory
-            .music_generation_capability_with_ctx(model_id, &ctx)
+            .build_music_generation_capability_with_ctx(model_id, &ctx)
             .await
     }
 
@@ -225,7 +226,7 @@ impl LanguageModelHandle {
         );
 
         self.factory
-            .video_model_family_with_ctx(model_id, &ctx)
+            .build_video_model_family_with_ctx(model_id, &ctx)
             .await
     }
 }

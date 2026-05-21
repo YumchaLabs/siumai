@@ -81,6 +81,61 @@ fn anthropic_streaming_parser_source_does_not_read_request_provider_options() {
 }
 
 #[test]
+fn anthropic_streaming_response_content_delegates_legacy_construction_to_adapter() {
+    let source = include_str!("mod.rs");
+    let section = source
+        .split_once("    fn build_stream_content(&self) -> MessageContent {")
+        .and_then(|(_, rest)| rest.split_once("    fn current_vercel_usage(&self)"))
+        .map(|(section, _)| section)
+        .expect("build_stream_content section");
+
+    assert!(
+        section.contains("response_content::text(")
+            && section.contains("response_content::reasoning(")
+            && section.contains("response_content::message_content_from_parts("),
+        "Anthropic streaming response aggregation must delegate legacy content construction to response_content"
+    );
+
+    for forbidden in [
+        "ContentPart::Text {",
+        "ContentPart::Reasoning {",
+        "ContentPart::text(",
+        "ContentPart::reasoning(",
+        "ProviderOptionsMap::default()",
+    ] {
+        assert!(
+            !section.contains(forbidden),
+            "Anthropic streaming response aggregation must not own legacy content defaults: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn anthropic_streaming_response_content_adapter_keeps_request_options_defaulted() {
+    let source = include_str!("response_content.rs");
+
+    assert!(
+        !source.contains(".provider_options"),
+        "Anthropic streaming response content adapter must not read request option fields"
+    );
+    assert!(
+        !source.contains("provider_options_map"),
+        "Anthropic streaming response content adapter must not read request option maps"
+    );
+
+    for line in source
+        .lines()
+        .filter(|line| line.contains("provider_options"))
+    {
+        let trimmed = line.trim();
+        assert_eq!(
+            trimmed, "provider_options: ProviderOptionsMap::default(),",
+            "Anthropic streaming response ContentPart option bags must stay empty defaults: {line}"
+        );
+    }
+}
+
+#[test]
 fn anthropic_streaming_serializer_custom_inputs_are_compat_or_provider_native_only() {
     let source = include_str!("tests.rs");
     let custom_serialize = format!("{}{}{}", "serialize_event(&", "ChatStreamEvent::", "Custom");

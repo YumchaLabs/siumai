@@ -19,6 +19,7 @@ use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::cache::{SpeechCacheEntry, TranscriptionCacheEntry};
+use super::super::factory::{ProviderCompatibilityFactory, ProviderFamilyFactory};
 
 fn request_model_missing(slot: Option<&str>) -> bool {
     match slot {
@@ -147,7 +148,7 @@ impl SpeechModelHandle {
             None,
         );
         self.factory
-            .compat_speech_client_with_ctx(model_id, &ctx)
+            .build_compat_speech_client_with_ctx(model_id, &ctx)
             .await
     }
 
@@ -180,7 +181,7 @@ impl SpeechModelHandle {
         );
         let model = self
             .factory
-            .speech_model_family_with_ctx(model_id, &ctx)
+            .build_speech_model_family_with_ctx(model_id, &ctx)
             .await?;
 
         let mut cache = self.cache.lock().await;
@@ -318,7 +319,7 @@ impl TranscriptionModelHandle {
             None,
         );
         self.factory
-            .compat_transcription_client_with_ctx(model_id, &ctx)
+            .build_compat_transcription_client_with_ctx(model_id, &ctx)
             .await
     }
 
@@ -351,7 +352,7 @@ impl TranscriptionModelHandle {
         );
         let model = self
             .factory
-            .transcription_model_family_with_ctx(model_id, &ctx)
+            .build_transcription_model_family_with_ctx(model_id, &ctx)
             .await?;
 
         let mut cache = self.cache.lock().await;

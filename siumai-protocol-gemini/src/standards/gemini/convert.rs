@@ -352,7 +352,7 @@ fn parse_data_url(data_url: &str) -> Option<(String, String)> {
 
 /// Guess MIME type by URL/extension via mime_guess; fallback to octet-stream
 fn guess_mime_type(url: &str) -> String {
-    crate::utils::guess_mime_from_path_or_url(url)
+    crate::provider_utils::guess_mime_from_path_or_url(url)
         .unwrap_or_else(|| "application/octet-stream".to_string())
 }
 

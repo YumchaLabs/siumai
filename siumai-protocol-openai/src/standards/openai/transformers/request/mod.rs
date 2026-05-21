@@ -30,7 +30,7 @@ fn openai_image_edit_part(input: &ImageEditInput, file_name: &str) -> Result<Par
             })?;
             let mime = media_type
                 .clone()
-                .unwrap_or_else(|| crate::utils::guess_mime(Some(bytes.as_slice()), None));
+                .unwrap_or_else(|| crate::provider_utils::guess_mime(Some(bytes.as_slice()), None));
             Part::bytes(bytes)
                 .file_name(file_name.to_string())
                 .mime_str(&mime)
@@ -60,7 +60,7 @@ fn openai_image_variation_part(input: &ImageEditInput) -> Result<Part, LlmError>
             })?;
             let mime = media_type
                 .clone()
-                .unwrap_or_else(|| crate::utils::guess_mime(Some(bytes.as_slice()), None));
+                .unwrap_or_else(|| crate::provider_utils::guess_mime(Some(bytes.as_slice()), None));
             Part::bytes(bytes)
                 .file_name("image")
                 .mime_str(&mime)

@@ -6,6 +6,7 @@ use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::video::VideoModel as FamilyVideoModel;
+use siumai_provider_minimaxi::providers::minimaxi::client::MinimaxiClient;
 
 /// MiniMaxi provider factory
 #[cfg(feature = "minimaxi")]
@@ -17,9 +18,7 @@ impl MiniMaxiProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<siumai_provider_minimaxi::providers::minimaxi::client::MinimaxiClient, LlmError>
-    {
-        use siumai_provider_minimaxi::providers::minimaxi::client::MinimaxiClient;
+    ) -> Result<MinimaxiClient, LlmError> {
         use siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig;
 
         let http_config = ctx.http_config.clone().unwrap_or_default();
@@ -39,12 +38,12 @@ impl MiniMaxiProviderFactory {
             })?
         };
 
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
+        let base_url = crate::provider_utils::builder_helpers::resolve_base_url(
             ctx.base_url.clone(),
             MinimaxiConfig::DEFAULT_BASE_URL,
         );
 
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
+        let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
@@ -75,6 +74,15 @@ impl MiniMaxiProviderFactory {
 
         Ok(client)
     }
+
+    async fn build_typed_client_arc(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<MinimaxiClient>, LlmError> {
+        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 }
 
 #[cfg(feature = "minimaxi")]
@@ -98,8 +106,8 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -107,8 +115,8 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -126,7 +134,8 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.compat_language_client_with_ctx(model_id, ctx).await
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn image_model_family_with_ctx(
@@ -134,8 +143,8 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_speech_client_with_ctx(
@@ -143,8 +152,8 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn speech_model_family_with_ctx(
@@ -152,8 +161,8 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilySpeechModel>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_transcription_client_with_ctx(
@@ -172,8 +181,8 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn video_model_family_with_ctx(
@@ -181,8 +190,8 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyVideoModel>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_reranking_client_with_ctx(

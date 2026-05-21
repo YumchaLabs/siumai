@@ -4,6 +4,7 @@ pub mod chat;
 pub mod embedding;
 pub mod errors;
 pub mod rerank;
+mod response_content;
 mod shared;
 
 use crate::core::{
@@ -56,7 +57,7 @@ impl ProviderSpec for CohereSpec {
         _req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> Result<String, LlmError> {
-        Ok(crate::utils::url::join_url(&ctx.base_url, "/chat"))
+        Ok(crate::provider_utils::url::join_url(&ctx.base_url, "/chat"))
     }
 
     fn choose_chat_transformers(
@@ -72,7 +73,10 @@ impl ProviderSpec for CohereSpec {
         _req: &EmbeddingRequest,
         ctx: &ProviderContext,
     ) -> Result<String, LlmError> {
-        Ok(crate::utils::url::join_url(&ctx.base_url, "/embed"))
+        Ok(crate::provider_utils::url::join_url(
+            &ctx.base_url,
+            "/embed",
+        ))
     }
 
     fn choose_embedding_transformers(
@@ -88,7 +92,10 @@ impl ProviderSpec for CohereSpec {
         _req: &RerankRequest,
         ctx: &ProviderContext,
     ) -> Result<String, LlmError> {
-        Ok(crate::utils::url::join_url(&ctx.base_url, "/rerank"))
+        Ok(crate::provider_utils::url::join_url(
+            &ctx.base_url,
+            "/rerank",
+        ))
     }
 
     fn choose_rerank_transformers(

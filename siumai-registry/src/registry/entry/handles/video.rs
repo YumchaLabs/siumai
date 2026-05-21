@@ -17,6 +17,7 @@ use siumai_core::video::VideoModel as FamilyVideoModel;
 use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::cache::VideoCacheEntry;
+use super::super::factory::ProviderFamilyFactory;
 use super::video_support::{
     apply_video_handle_default_model, video_model_handle_max_videos_per_call,
 };
@@ -134,7 +135,7 @@ impl VideoModelHandle {
         );
         let model = self
             .factory
-            .video_model_family_with_ctx(model_id, &ctx)
+            .build_video_model_family_with_ctx(model_id, &ctx)
             .await?;
 
         let mut cache = self.cache.lock().await;

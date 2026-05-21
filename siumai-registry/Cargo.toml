@@ -22,6 +22,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
+siumai-provider-utils = { workspace = true, default-features = false }
 siumai-provider-openai = { version = "0.11.0-beta.8", path = "../siumai-provider-openai", default-features = false, optional = true }
 siumai-provider-openai-compatible = { version = "0.11.0-beta.8", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
 siumai-protocol-openai = { version = "0.11.0-beta.8", path = "../siumai-protocol-openai", default-features = false, optional = true }
@@ -64,6 +65,7 @@ default = []
 builtins = []
 
 structured-messages = [
+    "siumai-provider-utils/structured-messages",
     "siumai-core/structured-messages",
     "siumai-protocol-openai?/structured-messages",
     "siumai-provider-openai?/structured-messages",

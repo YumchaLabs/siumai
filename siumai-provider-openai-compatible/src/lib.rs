@@ -16,6 +16,9 @@ pub use siumai_protocol_openai::*;
 // Internal core aliases used by the compatibility provider implementation.
 // They are intentionally not part of this legacy crate's public compatibility surface.
 #[allow(unused_imports)]
+pub(crate) use siumai_provider_utils as provider_utils;
+
+#[allow(unused_imports)]
 pub(crate) use siumai_core::{
     LlmError, auth, compat as core_compat, core, defaults, encoding, error, execution,
     observability, retry, retry_api, streaming, traits, types, utils,

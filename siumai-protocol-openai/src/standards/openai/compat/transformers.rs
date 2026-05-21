@@ -9,6 +9,7 @@ use super::metadata::{
     resolve_provider_metadata_key,
 };
 use super::openai_config::OpenAiCompatibleConfig;
+use super::response_content;
 use super::types::RequestType;
 use crate::error::LlmError;
 use crate::execution::transformers::{
@@ -22,7 +23,7 @@ use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
 use crate::types::{
     ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, GeneratedImage,
-    HttpResponseInfo, ImageGenerationRequest, ImageGenerationResponse, MessageContent, SourcePart,
+    HttpResponseInfo, ImageGenerationRequest, ImageGenerationResponse, MessageContent,
 };
 use eventsource_stream::Event;
 use std::future::Future;
@@ -305,11 +306,7 @@ impl ResponseTransformer for CompatResponseTransformer {
                     let mut out = vec![];
                     for p in parts {
                         if let Some(text) = p.get("text").and_then(|t| t.as_str()) {
-                            out.push(crate::types::ContentPart::Text {
-                                text: text.to_string(),
-                                provider_options: crate::types::ProviderOptionsMap::default(),
-                                provider_metadata: None,
-                            });
+                            out.push(response_content::text(text));
                         }
                     }
                     MessageContent::MultiModal(out)
@@ -321,12 +318,7 @@ impl ResponseTransformer for CompatResponseTransformer {
         };
 
         // Add tool calls and thinking to content if present
-        let mut final_content = content;
-        let mut parts = match final_content {
-            MessageContent::Text(ref text) if !text.is_empty() => vec![ContentPart::text(text)],
-            MessageContent::MultiModal(ref parts) => parts.clone(),
-            _ => Vec::new(),
-        };
+        let mut parts = response_content::parts_from_message_content(content);
 
         // Add tool calls
         let provider_metadata_key = self.resolved_provider_metadata_key();
@@ -345,17 +337,18 @@ impl ResponseTransformer for CompatResponseTransformer {
                         .map(str::trim)
                         .filter(|value| !value.is_empty())
                         .map(ToString::to_string);
-                    let mut part = ContentPart::tool_call(call.id, function.name, arguments, None);
-                    if let Some(thought_signature) = thought_signature
-                        && let ContentPart::ToolCall {
-                            provider_metadata, ..
-                        } = &mut part
-                    {
-                        *provider_metadata = Some(std::collections::HashMap::from([(
+                    let provider_metadata = thought_signature.map(|thought_signature| {
+                        std::collections::HashMap::from([(
                             provider_metadata_key.clone(),
                             serde_json::json!({ "thoughtSignature": thought_signature }),
-                        )]));
-                    }
+                        )])
+                    });
+                    let part = response_content::tool_call(
+                        call.id,
+                        function.name,
+                        arguments,
+                        provider_metadata,
+                    );
                     parts.push(part);
                 }
             }
@@ -363,7 +356,7 @@ impl ResponseTransformer for CompatResponseTransformer {
             // Legacy OpenAI-compatible field: `message.function_call`.
             let arguments = serde_json::from_str(&function.arguments)
                 .unwrap_or_else(|_| serde_json::Value::String(function.arguments.clone()));
-            parts.push(ContentPart::tool_call(
+            parts.push(response_content::tool_call(
                 "call_0".to_string(),
                 function.name,
                 arguments,
@@ -393,7 +386,7 @@ impl ResponseTransformer for CompatResponseTransformer {
 
                 // Replace the raw JSON text with a structured tool call.
                 parts.clear();
-                parts.push(ContentPart::tool_call(
+                parts.push(response_content::tool_call(
                     "call_0".to_string(),
                     name.to_string(),
                     args,
@@ -422,17 +415,14 @@ impl ResponseTransformer for CompatResponseTransformer {
                     continue;
                 }
 
-                parts.push(ContentPart::Source {
-                    id: compat_source_part_id(Some(response_id.as_str()), next_source_part_index),
-                    source: SourcePart::Url {
-                        url: url_citation.url,
-                        title: url_citation
-                            .title
-                            .map(|title| title.trim().to_string())
-                            .filter(|title| !title.is_empty()),
-                    },
-                    provider_metadata: None,
-                });
+                parts.push(response_content::source_url(
+                    compat_source_part_id(Some(response_id.as_str()), next_source_part_index),
+                    url_citation.url,
+                    url_citation
+                        .title
+                        .map(|title| title.trim().to_string())
+                        .filter(|title| !title.is_empty()),
+                ));
                 next_source_part_index += 1;
             }
         }
@@ -450,16 +440,10 @@ impl ResponseTransformer for CompatResponseTransformer {
         if let Some(thinking) = thinking_content
             && !thinking.is_empty()
         {
-            parts.push(ContentPart::reasoning(&thinking));
+            parts.push(response_content::reasoning(&thinking));
         }
 
-        final_content = if parts.len() == 1 && parts[0].is_text() {
-            MessageContent::Text(parts[0].as_text().unwrap_or_default().to_string())
-        } else if !parts.is_empty() {
-            MessageContent::MultiModal(parts)
-        } else {
-            MessageContent::Text(String::new())
-        };
+        let final_content = response_content::message_content_from_parts(parts);
 
         let usage =
             crate::standards::openai::compat::usage::OpenAiCompatibleUsagePolicy::for_provider(
@@ -731,10 +715,7 @@ fn append_perplexity_citation_source_parts(
     let mut seen_urls = parts
         .iter()
         .filter_map(|part| match part {
-            ContentPart::Source {
-                source: SourcePart::Url { url, .. },
-                ..
-            } => Some(url.trim().to_string()),
+            ContentPart::Source { source, .. } => source.url().map(|url| url.trim().to_string()),
             _ => None,
         })
         .collect::<std::collections::HashSet<_>>();
@@ -752,14 +733,11 @@ fn append_perplexity_citation_source_parts(
             continue;
         }
 
-        parts.push(ContentPart::Source {
-            id: compat_source_part_id(response_id, *next_source_part_index),
-            source: SourcePart::Url {
-                url: url.to_string(),
-                title: None,
-            },
-            provider_metadata: None,
-        });
+        parts.push(response_content::source_url(
+            compat_source_part_id(response_id, *next_source_part_index),
+            url.to_string(),
+            None,
+        ));
         *next_source_part_index += 1;
     }
 }
@@ -773,7 +751,9 @@ mod tests {
     use super::super::types as compat_types;
     use super::super::types::RequestType;
     use super::*;
-    use crate::types::{FinishReason, MessageMetadata, MessageRole, ProviderOptionsMap};
+    use crate::types::{
+        FinishReason, MessageMetadata, MessageRole, ProviderOptionsMap, SourcePart,
+    };
 
     fn source_between(start_marker: &str, end_marker: &str) -> &'static str {
         let source = include_str!("transformers.rs");
@@ -810,6 +790,7 @@ mod tests {
             "fn transform_chat_response(&self, raw: &serde_json::Value)",
             "fn transform_embedding_response(",
         );
+        let adapter_source = include_str!("response_content.rs");
 
         assert!(
             !source.contains("providerOptions"),
@@ -820,13 +801,47 @@ mod tests {
             "OpenAI-compatible chat response parsing must not read request provider_options fields"
         );
 
-        for line in source
+        for line in adapter_source
             .lines()
             .filter(|line| line.contains("provider_options"))
         {
-            assert!(
-                line.contains("ProviderOptionsMap::default()"),
+            let trimmed = line.trim();
+            assert_eq!(
+                trimmed, "provider_options: ProviderOptionsMap::default(),",
                 "OpenAI-compatible response ContentPart provider_options must stay empty defaults: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn openai_compatible_chat_response_delegates_legacy_construction_to_adapter() {
+        let source = source_between(
+            "fn transform_chat_response(&self, raw: &serde_json::Value)",
+            "fn transform_embedding_response(",
+        );
+
+        assert!(
+            source.contains("response_content::text(")
+                && source.contains("response_content::tool_call(")
+                && source.contains("response_content::source_url(")
+                && source.contains("response_content::reasoning(")
+                && source.contains("response_content::message_content_from_parts("),
+            "OpenAI-compatible chat response transformer must delegate legacy content construction to response_content"
+        );
+
+        for forbidden in [
+            "ContentPart::Text {",
+            "ContentPart::ToolCall {",
+            "ContentPart::Source {",
+            "ContentPart::Reasoning {",
+            "ContentPart::text(",
+            "ContentPart::tool_call(",
+            "ContentPart::reasoning(",
+            "ProviderOptionsMap::default()",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "OpenAI-compatible chat response transformer must not own legacy content defaults: {forbidden}"
             );
         }
     }

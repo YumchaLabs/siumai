@@ -282,7 +282,7 @@ fn image_input_to_vertex_payload(
                         )),
                     )
                 })?;
-                crate::utils::mime::guess_mime_from_bytes(&bytes)
+                crate::provider_utils::mime::guess_mime_from_bytes(&bytes)
                     .unwrap_or_else(|| "image/png".to_string())
             };
 

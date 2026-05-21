@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "slug": "fearless-clean-architecture-boundaries",
+  "title": "Fearless Clean Architecture Boundaries",
+  "status": "closed",
+  "updated": "2026-05-21",
+  "scope_kind": "execution",
+  "problem": "Siumai's Vercel-aligned refactor still has shallow seams across registry compatibility, OpenAI-compatible runtime, legacy content carriers, core utilities, bridge adapters, and facade exports.",
+  "objective": "Create the cleanest maintainable architecture by narrowing primary family interfaces, isolating compatibility and provider-utils seams, deepening OpenAI-compatible and content boundaries, moving target protocol adapters to owners, and tightening the facade.",
+  "active_task": null,
+  "next_task": null,
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/fearless-clean-architecture-boundaries/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/fearless-clean-architecture-boundaries/TODO.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/fearless-clean-architecture-boundaries/MILESTONES.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/fearless-clean-architecture-boundaries/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "inventory",
+      "path": "docs/workstreams/fearless-clean-architecture-boundaries/seam-inventory.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/fearless-clean-architecture-boundaries/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "cargo nextest run -p siumai-registry stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_execution --no-fail-fast",
+    "cargo nextest run -p siumai-core --no-fail-fast",
+    "cargo nextest run -p siumai-bridge --features openai,anthropic,google --no-fail-fast",
+    "cargo nextest run -p siumai --all-features --test public_surface_imports_test --no-fail-fast",
+    "./scripts/test-smoke.sh"
+  ],
+  "evidence": [
+    "docs/workstreams/fearless-clean-architecture-boundaries/EVIDENCE_AND_GATES.md"
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0002-provider-crates-by-provider.md",
+    "docs/adr/0006-family-model-first-trait-policy.md",
+    "docs/adr/0007-llmclient-demotion-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
+  ],
+  "continue_policy": {
+    "default_action": "closed",
+    "notes": "Workstream closed. Do not reopen this umbrella lane for mechanical cleanup. Open a narrower follow-on only for a concrete behavior, provider, public contract, compatibility-window deletion, bridge-target-adapter move, or family-taxonomy ADR."
+  }
+}

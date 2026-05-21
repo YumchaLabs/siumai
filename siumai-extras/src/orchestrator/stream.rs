@@ -19,6 +19,7 @@ use super::types::{
     StepResult, ToolApproval, ToolResolver,
 };
 use super::validation::validate_args_with_schema;
+use siumai::compat::content::ContentPart;
 use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai::prelude::unified::*;
 use siumai::tooling::{

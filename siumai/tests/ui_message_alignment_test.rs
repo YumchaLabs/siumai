@@ -1,7 +1,8 @@
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::{
-    ContentPart, MessageContent, Tool, ToolResultContentPart, ToolResultOutput, UiMessage,
-    UiMessagePart, UiToolApproval, UiToolApprovedApproval, UiToolInvocation, UiToolInvocationState,
-    UiToolKind, UiToolPart, UiToolPartState,
+    MessageContent, Tool, ToolResultContentPart, ToolResultOutput, UiMessage, UiMessagePart,
+    UiToolApproval, UiToolApprovedApproval, UiToolInvocation, UiToolInvocationState, UiToolKind,
+    UiToolPart, UiToolPartState,
 };
 use siumai::tooling::{ExecutableTool, ExecutableTools};
 use siumai::ui::{

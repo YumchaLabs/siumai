@@ -2,8 +2,9 @@
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use siumai::compat::content::ContentPart;
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
-use siumai_core::types::{ContentPart, MessageContent};
+use siumai_core::types::MessageContent;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

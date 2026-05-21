@@ -1,6 +1,6 @@
 # Workstream Index
 
-Last updated: 2026-05-18
+Last updated: 2026-05-21
 
 This index is the navigation surface for `docs/workstreams/`. It records what can be inferred from existing workstream files; it does not rewrite historical status by assumption.
 
@@ -18,9 +18,9 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 ## Summary
 
-- Total workstream directories: 71
-- Machine-readable status files: 71
-- Closed or closed-like lanes: 69
+- Total workstream directories: 72
+- Machine-readable status files: 72
+- Closed or closed-like lanes: 70
 - Active-like lanes: 0
 - Deferred lanes: 2
 - Unknown legacy lanes: 0
@@ -46,6 +46,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/deepseek-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-architecture-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-boundary-hardening` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-clean-architecture-boundaries` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-content-part-boundary-split` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-core-provider-alias-extraction` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-language-extension-handle-isolation` | closed | `WORKSTREAM.json` | yes |

@@ -521,22 +521,15 @@ data: [DONE]
 
 #[tokio::test]
 async fn completion_response_preserves_raw_logprobs_metadata() {
-    let client = OpenAiCompatibleClient::new(
-        OpenAiCompatibleConfig::new(
-            "openrouter",
-            "test-key",
-            "https://openrouter.ai/api/v1",
-            make_completion_adapter(),
-        )
-        .with_model("openai/gpt-3.5-turbo-instruct"),
-    )
-    .await
-    .expect("build completion client");
+    let conversion = siumai_protocol_openai::standards::openai::compat::completion::CompletionResponseConversion::new(
+        "openrouter",
+        "openrouter",
+    );
 
     let mut headers = HeaderMap::new();
     headers.insert("request-id", "req_compat_completion".parse().unwrap());
 
-    let response = client.build_completion_response(
+    let response = conversion.build_response(
         serde_json::json!({
             "id": "cmpl_compat_1",
             "object": "text_completion",
@@ -617,27 +610,32 @@ fn completion_logic_stays_out_of_monolithic_client_module() {
 }
 
 #[test]
-fn completion_shell_keeps_streaming_converter_split() {
+fn completion_shell_uses_protocol_owned_streaming_converter() {
     let source = include_str!("mod.rs")
         .split("#[cfg(test)]")
         .next()
         .unwrap_or_default();
 
-    for marker in ["mod streaming;", "use streaming::CompletionSseConverter;"] {
-        assert!(
-            source.contains(marker),
-            "OpenAI-compatible completion shell should keep `{marker}`"
-        );
-    }
+    assert!(
+        source.contains("siumai_protocol_openai::standards::openai::compat::completion")
+            && source.contains("CompletionSseConverter")
+            && source.contains("CompletionResponseConversion"),
+        "OpenAI-compatible provider runtime should import protocol-owned completion conversion"
+    );
 
     for forbidden in [
+        "mod streaming;",
+        "use streaming::CompletionSseConverter;",
         "struct CompletionStreamState",
         "struct CompletionSseConverter",
         "impl crate::streaming::SseEventConverter for CompletionSseConverter",
+        "parse_provider_openai_finish_reason",
+        "OpenAiCompatibleUsagePolicy::for_provider",
+        "pub fn build_completion_response(",
     ] {
         assert!(
             !source.contains(forbidden),
-            "OpenAI-compatible completion streaming state should live in completion/streaming.rs"
+            "OpenAI-compatible provider runtime should not own completion streaming parser state"
         );
     }
 }

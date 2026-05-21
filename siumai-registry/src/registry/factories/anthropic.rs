@@ -3,6 +3,7 @@
 use super::*;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
+use siumai_provider_anthropic::providers::anthropic::AnthropicClient;
 
 /// Anthropic provider factory
 #[cfg(feature = "anthropic")]
@@ -14,7 +15,7 @@ impl AnthropicProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<siumai_provider_anthropic::providers::anthropic::AnthropicClient, LlmError> {
+    ) -> Result<AnthropicClient, LlmError> {
         let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
@@ -32,13 +33,13 @@ impl AnthropicProviderFactory {
             })?
         };
 
-        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
+        let base_url = crate::provider_utils::builder_helpers::resolve_base_url_with_env(
             ctx.base_url.clone(),
             Some("ANTHROPIC_BASE_URL"),
             "https://api.anthropic.com",
         );
 
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
+        let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
@@ -76,6 +77,15 @@ impl AnthropicProviderFactory {
 
         Ok(client)
     }
+
+    async fn build_text_family_model_arc(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<AnthropicClient>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 }
 
 #[cfg(feature = "anthropic")]
@@ -100,8 +110,8 @@ impl ProviderFactory for AnthropicProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -109,8 +119,8 @@ impl ProviderFactory for AnthropicProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(

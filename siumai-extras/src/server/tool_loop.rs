@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use serde_json::Value;
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::*;
 use siumai::text::TextModel;
 use tokio::sync::mpsc;

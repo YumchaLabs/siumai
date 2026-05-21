@@ -3,6 +3,7 @@
 //! Common utility functions for building Ollama request/response payloads.
 
 use super::params::OllamaParams;
+use super::response_content;
 use super::types::*;
 use crate::error::LlmError;
 use crate::execution::http::headers::HttpHeaderBuilder;
@@ -354,53 +355,36 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
         _ => crate::types::MessageRole::Assistant, // Default fallback
     };
 
-    let mut parts: Vec<crate::types::ContentPart> = Vec::new();
+    let mut parts = Vec::new();
     if !message.content.is_empty() {
-        parts.push(crate::types::ContentPart::Text {
-            text: message.content.clone(),
-            provider_options: crate::types::ProviderOptionsMap::default(),
-            provider_metadata: None,
-        });
+        parts.push(response_content::text(message.content.clone()));
     }
 
     // Add images if present
     if let Some(images) = &message.images {
         for data in images {
-            parts.push(crate::types::ContentPart::Image {
-                source: crate::types::chat::FilePartSource::base64(data.clone()),
-                media_type: None,
-                detail: None,
-                provider_options: crate::types::ProviderOptionsMap::default(),
-                provider_metadata: None,
-            });
+            parts.push(response_content::image_base64(data.clone()));
         }
     }
 
     // Add tool calls if present
     if let Some(tool_calls) = &message.tool_calls {
         for (idx, tc) in tool_calls.iter().enumerate() {
-            parts.push(crate::types::ContentPart::tool_call(
+            parts.push(response_content::tool_call(
                 format!("call_{idx}"),
                 tc.function.name.clone(),
                 tc.function.arguments.clone(),
-                None,
             ));
         }
     }
 
     // Add thinking content if present
     if let Some(thinking) = &message.thinking {
-        parts.push(crate::types::ContentPart::reasoning(thinking));
+        parts.push(response_content::reasoning(thinking));
     }
 
     // Determine final content
-    let content = if parts.is_empty() {
-        crate::types::MessageContent::Text(String::new())
-    } else if parts.len() == 1 && parts[0].is_text() {
-        crate::types::MessageContent::Text(message.content.clone())
-    } else {
-        crate::types::MessageContent::MultiModal(parts)
-    };
+    let content = response_content::message_content_from_parts(parts, message.content.clone());
 
     ChatMessage {
         role,
@@ -1141,6 +1125,67 @@ mod tests {
 
         assert!(headers.contains_key(CONTENT_TYPE));
         assert!(headers.contains_key(USER_AGENT));
+    }
+
+    #[test]
+    fn ollama_response_content_delegates_legacy_construction_to_adapter() {
+        let source = include_str!("utils.rs");
+        let section = source
+            .split_once(
+                "pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {",
+            )
+            .and_then(|(_, rest)| rest.split_once("/// Parse streaming response line"))
+            .map(|(section, _)| section)
+            .expect("convert_from_ollama_message section");
+
+        assert!(
+            section.contains("response_content::text(")
+                && section.contains("response_content::image_base64(")
+                && section.contains("response_content::tool_call(")
+                && section.contains("response_content::reasoning(")
+                && section.contains("response_content::message_content_from_parts("),
+            "Ollama response conversion must delegate legacy content construction to response_content"
+        );
+
+        for forbidden in [
+            "ContentPart::Text {",
+            "ContentPart::Image {",
+            "ContentPart::ToolCall {",
+            "ContentPart::Reasoning {",
+            "ContentPart::tool_call(",
+            "ContentPart::reasoning(",
+            "FilePartSource::base64(",
+        ] {
+            assert!(
+                !section.contains(forbidden),
+                "Ollama response conversion must not own legacy content defaults: {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn ollama_response_content_adapter_keeps_request_options_defaulted() {
+        let source = include_str!("response_content.rs");
+
+        assert!(
+            !source.contains(".provider_options"),
+            "Ollama response content adapter must not read request option fields"
+        );
+        assert!(
+            !source.contains("provider_options_map"),
+            "Ollama response content adapter must not read request option maps"
+        );
+
+        for line in source
+            .lines()
+            .filter(|line| line.contains("provider_options"))
+        {
+            let trimmed = line.trim();
+            assert_eq!(
+                trimmed, "provider_options: ProviderOptionsMap::default(),",
+                "Ollama response ContentPart option bags must stay empty defaults: {line}"
+            );
+        }
     }
 
     #[test]

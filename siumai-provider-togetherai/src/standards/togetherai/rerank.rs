@@ -54,33 +54,7 @@ impl ProviderSpec for TogetherAiRerankSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let api_key = ctx.api_key.as_deref().ok_or_else(|| {
-            LlmError::ConfigurationError("TogetherAI API key is required".to_string())
-        })?;
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {api_key}").parse().map_err(|e| {
-                LlmError::ConfigurationError(format!("Invalid TogetherAI API key: {e}"))
-            })?,
-        );
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            "application/json".parse().expect("static header"),
-        );
-
-        // Preserve custom headers (Vercel-aligned: user headers override defaults).
-        for (k, v) in &ctx.http_extra_headers {
-            if let (Ok(name), Ok(value)) = (
-                reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                reqwest::header::HeaderValue::from_str(v),
-            ) {
-                headers.insert(name, value);
-            }
-        }
-
-        Ok(headers)
+        crate::standards::togetherai::build_togetherai_json_headers(ctx)
     }
 
     fn classify_http_error(
@@ -102,7 +76,10 @@ impl ProviderSpec for TogetherAiRerankSpec {
         _req: &RerankRequest,
         ctx: &ProviderContext,
     ) -> Result<String, LlmError> {
-        Ok(crate::utils::url::join_url(&ctx.base_url, "/rerank"))
+        Ok(crate::provider_utils::url::join_url(
+            &ctx.base_url,
+            "/rerank",
+        ))
     }
 
     fn choose_rerank_transformers(

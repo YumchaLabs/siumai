@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::provider::ids;
+use siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient;
 
 fn normalize_non_empty(value: impl Into<String>) -> Option<String> {
     let value = value.into();
@@ -21,10 +22,7 @@ fn load_optional_env_var(name: &str) -> Option<String> {
 async fn build_typed_client_with_ctx(
     model_id: &str,
     ctx: &BuildContext,
-) -> Result<
-    siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient,
-    LlmError,
-> {
+) -> Result<VertexAnthropicClient, LlmError> {
     let http_config = ctx.http_config.clone().unwrap_or_default();
     let http_client = if let Some(client) = &ctx.http_client {
         client.clone()
@@ -32,8 +30,10 @@ async fn build_typed_client_with_ctx(
         build_http_client_from_config(&http_config)?
     };
 
-    let common_params =
-        crate::utils::builder_helpers::resolve_common_params(ctx.common_params.clone(), model_id);
+    let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
+        ctx.common_params.clone(),
+        model_id,
+    );
 
     let base_url = if let Some(base_url) = ctx.base_url.clone().and_then(normalize_non_empty) {
         base_url.trim_end_matches('/').to_string()
@@ -78,6 +78,15 @@ async fn build_typed_client_with_ctx(
     .await
 }
 
+#[cfg(feature = "google-vertex")]
+async fn build_typed_client_arc(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<Arc<VertexAnthropicClient>, LlmError> {
+    let client = build_typed_client_with_ctx(model_id, ctx).await?;
+    Ok(Arc::new(client))
+}
+
 /// Anthropic on Vertex AI provider factory
 ///
 /// This factory builds `anthropic-vertex` clients that communicate with
@@ -108,7 +117,8 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx).await?))
+        let client = build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -116,7 +126,8 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::text::LanguageModel>, LlmError> {
-        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx).await?))
+        let client = build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(

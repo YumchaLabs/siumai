@@ -56,5 +56,15 @@ cargo run -p siumai-registry --example no_builtins_custom_factory
   that do not yet have a first-class family model. New registry execution should resolve family
   handles through methods such as `language_model_text_with_ctx` instead of constructing
   `Arc<dyn LlmClient>`.
+- Built-in factories should centralize typed-client `Arc` projection in a small helper such as
+  `build_*_arc(...)`. Family and compatibility methods may both reuse that helper, but they should
+  not repeat `build_*_with_ctx(...)` + `Arc::new(...)` glue or route same-family construction
+  through `compat_language_client_with_ctx(...)`.
+- Registry execution is split into narrower facets:
+  - `ProviderFamilyFactory` for stable family-model construction;
+  - `ProviderCompatibilityFactory` for legacy generic-client construction;
+  - `ProviderExtensionFactory` for non-family extension capabilities.
+  Custom providers still implement `ProviderFactory`; these facets are blanket-implemented from
+  that source-compatible trait so registry handles can depend on the narrower boundary.
 - If you _do_ want built-in providers, enable `siumai-registry` features like `openai` / `ollama`
   (these imply `builtins`).

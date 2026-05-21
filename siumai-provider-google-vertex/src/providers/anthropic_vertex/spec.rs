@@ -323,7 +323,7 @@ impl ProviderSpec for VertexAnthropicSpec {
         _req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Result<String, LlmError> {
-        Ok(crate::utils::url::join_url(
+        Ok(crate::provider_utils::url::join_url(
             &self.base_url,
             &self.chat_path(stream),
         ))

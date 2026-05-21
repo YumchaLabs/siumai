@@ -376,7 +376,7 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     /// Centralizes base-url/path joining so provider specs don't need to manually
     /// format URLs.
     fn url_for(&self, base_url: &str, req: super::types::RequestType) -> String {
-        crate::utils::url::join_url(base_url, self.route_for(req))
+        crate::provider_utils::url::join_url(base_url, self.route_for(req))
     }
 }
 

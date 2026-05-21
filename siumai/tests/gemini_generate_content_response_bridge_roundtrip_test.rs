@@ -1,12 +1,13 @@
 #![cfg(feature = "google")]
 
+use siumai::compat::content::ContentPart;
 use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_response_to_gemini_generate_content_json_value,
 };
 use siumai::experimental::encoding::JsonEncodeOptions;
 use siumai::experimental::execution::transformers::response::ResponseTransformer;
 use siumai::experimental::standards::gemini::transformers::GeminiResponseTransformer;
-use siumai::prelude::unified::{ContentPart, FinishReason, MessageContent};
+use siumai::prelude::unified::{FinishReason, MessageContent};
 
 fn count_reasoning_parts(content: &MessageContent) -> usize {
     match content {

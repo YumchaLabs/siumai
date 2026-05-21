@@ -24,6 +24,7 @@ use serde_json::{Map, Value};
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use siumai_core::image::ImageModel as FamilyImageModel;
+use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -66,7 +67,7 @@ fn normalize_root_base_url(base_url: &str) -> String {
 }
 
 fn resolve_root_base_url(ctx: &BuildContext) -> String {
-    normalize_root_base_url(&crate::utils::builder_helpers::resolve_base_url(
+    normalize_root_base_url(&crate::provider_utils::builder_helpers::resolve_base_url(
         ctx.base_url.clone(),
         DEFAULT_ROOT_BASE_URL,
     ))
@@ -111,10 +112,7 @@ fn resolve_image_model(request_model: Option<&str>, fallback_model: &str) -> Str
 async fn build_text_client_with_ctx(
     model_id: &str,
     ctx: &BuildContext,
-) -> Result<
-    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
-    LlmError,
-> {
+) -> Result<OpenAiCompatibleClient, LlmError> {
     let http_config = ctx.http_config.clone().unwrap_or_default();
     let http_client = if let Some(client) = &ctx.http_client {
         client.clone()
@@ -122,8 +120,10 @@ async fn build_text_client_with_ctx(
         build_http_client_from_config(&http_config)?
     };
 
-    let common_params =
-        crate::utils::builder_helpers::resolve_common_params(ctx.common_params.clone(), model_id);
+    let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
+        ctx.common_params.clone(),
+        model_id,
+    );
     let root_base_url = resolve_root_base_url(ctx);
 
     crate::registry::factory::build_openai_compatible_typed_client(
@@ -144,6 +144,24 @@ async fn build_text_client_with_ctx(
         ctx.http_transport.clone(),
     )
     .await
+}
+
+async fn build_text_client_arc(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<Arc<OpenAiCompatibleClient>, LlmError> {
+    let client = build_text_client_with_ctx(model_id, ctx).await?;
+    Ok(Arc::new(client))
+}
+
+async fn build_image_client_arc(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<Arc<DeepInfraImageClient>, LlmError> {
+    let text_client = build_text_client_with_ctx(model_id, ctx).await?;
+    Ok(Arc::new(DeepInfraImageClient::from_text_client(
+        &text_client,
+    )))
 }
 
 #[derive(Clone, Copy, Default)]
@@ -759,8 +777,7 @@ impl ImageExtras for DeepInfraImageClient {
 
 #[derive(Clone)]
 struct DeepInfraCompatCompositeClient {
-    text_client:
-        siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
+    text_client: OpenAiCompatibleClient,
     image_client: DeepInfraImageClient,
 }
 
@@ -863,8 +880,8 @@ impl ProviderFactory for DeepInfraProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_completion_client_with_ctx(
@@ -872,8 +889,8 @@ impl ProviderFactory for DeepInfraProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::compat::client::LlmClient>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn completion_model_family_with_ctx(
@@ -881,8 +898,8 @@ impl ProviderFactory for DeepInfraProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -890,8 +907,8 @@ impl ProviderFactory for DeepInfraProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::compat::client::LlmClient>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -899,8 +916,8 @@ impl ProviderFactory for DeepInfraProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_image_client_with_ctx(
@@ -908,10 +925,8 @@ impl ProviderFactory for DeepInfraProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn crate::compat::client::LlmClient>, LlmError> {
-        let text_client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(DeepInfraImageClient::from_text_client(
-            &text_client,
-        )))
+        let client = build_image_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn image_model_family_with_ctx(
@@ -919,10 +934,8 @@ impl ProviderFactory for DeepInfraProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
-        let text_client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(DeepInfraImageClient::from_text_client(
-            &text_client,
-        )))
+        let client = build_image_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> Cow<'static, str> {

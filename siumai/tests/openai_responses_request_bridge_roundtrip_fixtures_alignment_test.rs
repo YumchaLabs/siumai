@@ -2,12 +2,11 @@
 
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use siumai::compat::content::ContentPart;
 use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_request_to_openai_responses_json,
 };
-use siumai::prelude::unified::{
-    ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole,
-};
+use siumai::prelude::unified::{ChatRequest, MessageContent, MessageMetadata, MessageRole};
 use std::path::{Path, PathBuf};
 
 fn fixtures_dir() -> PathBuf {

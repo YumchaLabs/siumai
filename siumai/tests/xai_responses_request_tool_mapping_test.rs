@@ -1,5 +1,6 @@
 #![cfg(feature = "xai")]
 
+use siumai::compat::content::ContentPart;
 use siumai::experimental::execution::transformers::request::RequestTransformer;
 use siumai::prelude::unified::*;
 use siumai_provider_xai::standards::openai::transformers::request::OpenAiResponsesRequestTransformer;

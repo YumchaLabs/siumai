@@ -10,6 +10,7 @@ use crate::types::{
 
 use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
+use super::super::factory::ProviderFamilyFactory;
 
 /// Embedding model handle - delegates to factory for client creation
 #[derive(Clone)]
@@ -55,7 +56,7 @@ impl EmbeddingCapability for EmbeddingModelHandle {
         );
         let model = self
             .factory
-            .embedding_model_family_with_ctx(&self.model_id, &ctx)
+            .build_embedding_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
 
         model
@@ -105,7 +106,7 @@ impl EmbeddingExtensions for EmbeddingModelHandle {
         );
         let model = self
             .factory
-            .embedding_model_family_with_ctx(&self.model_id, &ctx)
+            .build_embedding_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
         model.embed(request).await
     }
@@ -128,7 +129,7 @@ impl EmbeddingExtensions for EmbeddingModelHandle {
         );
         let model = self
             .factory
-            .embedding_model_family_with_ctx(&self.model_id, &ctx)
+            .build_embedding_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
         model.embed_many(requests).await
     }

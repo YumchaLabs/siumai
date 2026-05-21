@@ -20,7 +20,7 @@ impl GroqProviderFactory {
         ctx: &BuildContext,
     ) -> Result<GroqClient, LlmError> {
         let http_config = ctx.http_config.clone().unwrap_or_default();
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
+        let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
@@ -67,6 +67,15 @@ impl GroqProviderFactory {
 
         builder.build().await
     }
+
+    async fn build_text_family_model_arc(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<GroqClient>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 }
 
 #[cfg(feature = "groq")]
@@ -90,8 +99,8 @@ impl ProviderFactory for GroqProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -99,8 +108,8 @@ impl ProviderFactory for GroqProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -138,7 +147,8 @@ impl ProviderFactory for GroqProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.compat_language_client_with_ctx(model_id, ctx).await
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn speech_model_family_with_ctx(
@@ -146,8 +156,8 @@ impl ProviderFactory for GroqProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilySpeechModel>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_transcription_client_with_ctx(
@@ -155,7 +165,8 @@ impl ProviderFactory for GroqProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.compat_language_client_with_ctx(model_id, ctx).await
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn transcription_model_family_with_ctx(
@@ -163,8 +174,8 @@ impl ProviderFactory for GroqProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyTranscriptionModel>, LlmError> {
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

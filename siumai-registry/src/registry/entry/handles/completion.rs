@@ -17,6 +17,7 @@ use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::cache::CompletionCacheEntry;
+use super::super::factory::ProviderFamilyFactory;
 
 /// Completion model handle - delegates to factory for client creation.
 #[derive(Clone)]
@@ -100,7 +101,7 @@ impl CompletionModelHandle {
         );
         let model = self
             .factory
-            .completion_model_family_with_ctx(model_id, &ctx)
+            .build_completion_model_family_with_ctx(model_id, &ctx)
             .await?;
 
         let mut cache = self.cache.lock().await;

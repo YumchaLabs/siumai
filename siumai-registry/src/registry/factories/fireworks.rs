@@ -25,6 +25,7 @@ use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use siumai_core::image::ImageModel as FamilyImageModel;
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
+use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
 use siumai_provider_openai_compatible::providers::openai_compatible::fireworks as fireworks_models;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -110,7 +111,7 @@ fn resolve_api_key(ctx: &BuildContext) -> Result<String, LlmError> {
 }
 
 fn resolve_root_base_url(ctx: &BuildContext) -> String {
-    crate::utils::builder_helpers::resolve_base_url(ctx.base_url.clone(), DEFAULT_BASE_URL)
+    crate::provider_utils::builder_helpers::resolve_base_url(ctx.base_url.clone(), DEFAULT_BASE_URL)
 }
 
 fn known_backend_config_for_model(model_id: &str) -> Option<FireworksImageBackendConfig> {
@@ -183,10 +184,7 @@ fn resolve_edit_model(
 async fn build_text_client_with_ctx(
     model_id: &str,
     ctx: &BuildContext,
-) -> Result<
-    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
-    LlmError,
-> {
+) -> Result<OpenAiCompatibleClient, LlmError> {
     let http_config = ctx.http_config.clone().unwrap_or_default();
     let http_client = if let Some(client) = &ctx.http_client {
         client.clone()
@@ -194,8 +192,10 @@ async fn build_text_client_with_ctx(
         build_http_client_from_config(&http_config)?
     };
 
-    let common_params =
-        crate::utils::builder_helpers::resolve_common_params(ctx.common_params.clone(), model_id);
+    let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
+        ctx.common_params.clone(),
+        model_id,
+    );
 
     crate::registry::factory::build_openai_compatible_typed_client(
         ids::FIREWORKS.to_string(),
@@ -215,6 +215,24 @@ async fn build_text_client_with_ctx(
         ctx.http_transport.clone(),
     )
     .await
+}
+
+async fn build_text_client_arc(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<Arc<OpenAiCompatibleClient>, LlmError> {
+    let client = build_text_client_with_ctx(model_id, ctx).await?;
+    Ok(Arc::new(client))
+}
+
+async fn build_image_client_arc(
+    model_id: &str,
+    ctx: &BuildContext,
+) -> Result<Arc<FireworksImageClient>, LlmError> {
+    let text_client = build_text_client_with_ctx(model_id, ctx).await?;
+    Ok(Arc::new(FireworksImageClient::from_text_client(
+        &text_client,
+    )))
 }
 
 #[derive(Clone, Copy, Default)]
@@ -895,8 +913,7 @@ impl ImageExtras for FireworksImageClient {
 
 #[derive(Clone)]
 struct FireworksCompatCompositeClient {
-    text_client:
-        siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
+    text_client: OpenAiCompatibleClient,
     image_client: FireworksImageClient,
 }
 
@@ -1016,8 +1033,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_completion_client_with_ctx(
@@ -1025,8 +1042,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn completion_model_family_with_ctx(
@@ -1034,8 +1051,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -1043,8 +1060,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -1052,8 +1069,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_image_client_with_ctx(
@@ -1061,10 +1078,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let text_client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(FireworksImageClient::from_text_client(
-            &text_client,
-        )))
+        let client = build_image_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn image_model_family_with_ctx(
@@ -1072,10 +1087,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
-        let text_client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(FireworksImageClient::from_text_client(
-            &text_client,
-        )))
+        let client = build_image_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_transcription_client_with_ctx(
@@ -1083,8 +1096,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn transcription_model_family_with_ctx(
@@ -1092,8 +1105,8 @@ impl ProviderFactory for FireworksProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyTranscriptionModel>, LlmError> {
-        let client = build_text_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = build_text_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> Cow<'static, str> {

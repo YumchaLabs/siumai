@@ -4,12 +4,14 @@ set -euo pipefail
 # Guardrail: provider crates should not depend on other provider crates.
 #
 # Allowed exceptions:
+# - `siumai-provider-utils` is an intentionally shared utility seam for provider/protocol crates.
 # - Legacy protocol crate names (compatibility aliases): `siumai-provider-openai-compatible`, `siumai-provider-anthropic-compatible`.
 #
 # Preferred protocol crate names (`siumai-protocol-*`) are not matched by the guardrail regex and are
 # therefore always allowed.
 
 allowed_deps=(
+  "siumai-provider-utils"
   "siumai-provider-openai-compatible"
   "siumai-provider-anthropic-compatible"
 )

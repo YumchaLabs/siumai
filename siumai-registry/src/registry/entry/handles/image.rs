@@ -10,6 +10,7 @@ use crate::types::{
 
 use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
+use super::super::factory::{ProviderCompatibilityFactory, ProviderFamilyFactory};
 
 /// Image model handle - delegates to factory for client creation
 #[derive(Clone)]
@@ -132,7 +133,7 @@ impl ImageGenerationCapability for ImageModelHandle {
         );
         let model = self
             .factory
-            .image_model_family_with_ctx(&self.model_id, &ctx)
+            .build_image_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
 
         model.generate(request).await
@@ -163,7 +164,7 @@ impl ImageExtras for ImageModelHandle {
         );
         let client = self
             .factory
-            .compat_image_client_with_ctx(&self.model_id, &ctx)
+            .build_compat_image_client_with_ctx(&self.model_id, &ctx)
             .await?;
 
         let image_client = client.as_image_extras().ok_or_else(|| {
@@ -191,7 +192,7 @@ impl ImageExtras for ImageModelHandle {
         );
         let client = self
             .factory
-            .compat_image_client_with_ctx(&self.model_id, &ctx)
+            .build_compat_image_client_with_ctx(&self.model_id, &ctx)
             .await?;
 
         let image_client = client.as_image_extras().ok_or_else(|| {

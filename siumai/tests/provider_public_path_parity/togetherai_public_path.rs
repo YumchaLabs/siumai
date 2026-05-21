@@ -312,6 +312,69 @@ async fn togetherai_image_request_alias_options_are_equivalent_across_public_pat
 }
 
 #[tokio::test]
+async fn togetherai_provider_owned_image_client_matches_unified_public_path() {
+    let response_json = serde_json::json!({
+        "data": [
+            {
+                "b64_json": "aGVsbG8="
+            }
+        ]
+    });
+
+    let unified_transport = JsonSuccessTransport::new(response_json.clone());
+    let image_transport = JsonSuccessTransport::new(response_json);
+
+    let model = "black-forest-labs/FLUX.1-schnell";
+    let base_url = "https://example.com/together";
+
+    let unified_client = Provider::togetherai()
+        .api_key("test-key")
+        .base_url(base_url)
+        .model(model)
+        .fetch(Arc::new(unified_transport.clone()))
+        .build()
+        .await
+        .expect("build provider client");
+
+    let image_client = siumai::provider_ext::togetherai::TogetherAIProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url(base_url)
+        .with_fetch(Arc::new(image_transport.clone()))
+        .into_builder_for_model(model)
+        .build_image_model()
+        .expect("build provider-owned image client");
+
+    let request = make_image_request_with_model(model).with_togetherai_image_options(
+        TogetherAIImageModelOptions::new()
+            .with_steps(8)
+            .with_guidance(2.5),
+    );
+
+    let unified_resp = unified_client
+        .generate_images(request.clone())
+        .await
+        .expect("unified image generation ok");
+    let provider_resp = image_client
+        .generate_images(request)
+        .await
+        .expect("provider-owned image generation ok");
+
+    assert_eq!(
+        unified_resp.images[0].b64_json.as_deref(),
+        provider_resp.images[0].b64_json.as_deref()
+    );
+
+    let unified_req = unified_transport.take().expect("unified request");
+    let provider_req = image_transport.take().expect("provider image request");
+
+    assert_requests_equivalent(&unified_req, &provider_req);
+    assert_eq!(provider_req.url, format!("{base_url}/images/generations"));
+    assert_eq!(provider_req.body["model"], serde_json::json!(model));
+    assert_eq!(provider_req.body["steps"], serde_json::json!(8));
+    assert_eq!(provider_req.body["guidance"], serde_json::json!(2.5));
+}
+
+#[tokio::test]
 async fn togetherai_siumai_provider_registry_chat_request_are_equivalent() {
     let siumai_transport = CaptureTransport::default();
     let provider_transport = CaptureTransport::default();

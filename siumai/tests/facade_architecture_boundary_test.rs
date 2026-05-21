@@ -194,6 +194,41 @@ fn experimental_bridge_is_owned_by_bridge_crate_and_reexported_by_facade() {
 }
 
 #[test]
+fn fearless_clean_architecture_inventory_tracks_current_guard_surfaces() {
+    let inventory = fs::read_to_string(
+        workspace_root()
+            .join("docs/workstreams/fearless-clean-architecture-boundaries/seam-inventory.md"),
+    )
+    .expect("read FCAB seam inventory");
+
+    for required in [
+        "ProviderFactory",
+        "LlmClient",
+        "ContentPart",
+        "OpenAI-compatible",
+        "provider-utils",
+        "BridgeTarget",
+        "siumai-registry/src/registry/entry/boundary_tests.rs",
+        "siumai-core/tests/core_provider_boundary_test.rs",
+        "siumai/tests/facade_architecture_boundary_test.rs",
+        "siumai/tests/public_surface_imports_test.rs",
+        "siumai-protocol-openai/tests/openai_compat_boundary_test.rs",
+        "siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client/tests.rs",
+        "siumai-bridge/src/request/normalize.rs",
+        "siumai-core/src/utils",
+        "siumai-core/src/streaming",
+        "siumai-core/src/execution",
+        "siumai-core/src/retry",
+        "siumai-core/src/encoding",
+    ] {
+        assert!(
+            inventory.contains(required),
+            "FCAB seam inventory should track `{required}` so later refactors keep the architecture guard set discoverable"
+        );
+    }
+}
+
+#[test]
 fn generate_text_projection_delegates_content_part_mapping_to_spec() {
     let text_rs = read_source("src/text.rs");
     let spec_generate_text_rs =
@@ -377,6 +412,10 @@ fn content_part_provider_map_audit_covers_high_value_production_hits() {
             "docs/workstreams/fearless-content-part-boundary-split/direct-content-part-scan.md",
         ))
         .expect("read ContentPart boundary split scan");
+    let fcab_audit = fs::read_to_string(workspace_root.join(
+        "docs/workstreams/fearless-clean-architecture-boundaries/content-part-adapter-audit.md",
+    ))
+    .expect("read FCAB content-part adapter audit");
 
     let target_dirs = [
         "siumai-core/src",
@@ -407,7 +446,10 @@ fn content_part_provider_map_audit_covers_high_value_production_hits() {
                 continue;
             }
 
-            if audit.contains(&relative_path) || refreshed_audit.contains(&relative_path) {
+            if audit.contains(&relative_path)
+                || refreshed_audit.contains(&relative_path)
+                || fcab_audit.contains(&relative_path)
+            {
                 continue;
             }
 
@@ -553,6 +595,98 @@ fn stable_unified_prelude_does_not_export_legacy_content_part() {
 }
 
 #[test]
+fn directional_content_namespaces_are_visible_and_compat_is_explicit() {
+    let lib_rs = read_source("src/lib.rs");
+    let unified_source = prelude_unified_source(&lib_rs);
+    let spec_types_rs = fs::read_to_string(workspace_root().join("siumai-spec/src/types.rs"))
+        .expect("read spec types source");
+    let public_surface = read_source("tests/public_surface_imports_test.rs");
+    let public_surface_doc =
+        fs::read_to_string(workspace_root().join("docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+    let migration_doc =
+        fs::read_to_string(workspace_root().join("docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read migration beta.7 doc");
+
+    for source in [&spec_types_rs, &lib_rs] {
+        assert!(
+            source.contains("pub mod content")
+                && source.contains("pub mod prompt")
+                && source.contains("pub mod output")
+                && source.contains("pub mod compat"),
+            "spec/core/facade content exports should be split into prompt, output, and compat namespaces"
+        );
+    }
+
+    assert!(
+        unified_source.contains("pub use crate::content::prompt")
+            && unified_source.contains("pub use crate::content::output")
+            && !unified_source.contains("pub use crate::content::compat")
+            && !unified_source.contains("pub use crate::compat::content"),
+        "prelude::unified should expose prompt/output navigation but not legacy compat content"
+    );
+    assert!(
+        public_surface.contains("public_surface_directional_content_namespaces_compile")
+            && public_surface.contains("use siumai::content::{compat, output, prompt}")
+            && public_surface.contains(
+                "use siumai::prelude::unified::{output as prelude_output, prompt as prelude_prompt}"
+            ),
+        "public surface compile tests should exercise directional content namespaces"
+    );
+    assert!(
+        public_surface_doc.contains("siumai::content::prompt::*")
+            && public_surface_doc.contains("siumai::content::output::*")
+            && public_surface_doc.contains("siumai::content::compat::*")
+            && migration_doc.contains("siumai::content::prompt")
+            && migration_doc.contains("siumai::content::output"),
+        "public docs should teach directional content namespaces and the explicit compat namespace"
+    );
+}
+
+#[test]
+fn tests_and_examples_do_not_import_legacy_content_part_from_unified_prelude() {
+    let workspace_root = workspace_root();
+    let mut offenders = Vec::new();
+
+    for relative_dir in ["siumai/tests", "siumai/examples", "siumai-extras/src"] {
+        let root = workspace_root.join(relative_dir);
+        if !root.exists() {
+            continue;
+        }
+
+        for path in workspace_rust_sources_under(&workspace_root, relative_dir) {
+            let relative_path = normalized_workspace_path(&workspace_root, &path);
+            if relative_path == "siumai/tests/facade_architecture_boundary_test.rs" {
+                continue;
+            }
+
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+            let imports_legacy_content_part_directly =
+                source.contains("prelude::unified::ContentPart");
+            let imports_legacy_content_part_from_glob_group = source
+                .match_indices("use siumai::prelude::unified::{")
+                .any(|(start, _)| {
+                    source[start..]
+                        .find(';')
+                        .map(|end| source_identifiers(&source[start..start + end]))
+                        .is_some_and(|identifiers| identifiers.contains("ContentPart"))
+                });
+
+            if imports_legacy_content_part_directly || imports_legacy_content_part_from_glob_group {
+                offenders.push(relative_path);
+            }
+        }
+    }
+
+    offenders.sort();
+    assert!(
+        offenders.is_empty(),
+        "legacy ContentPart examples/tests should use siumai::compat::content::ContentPart, not prelude::unified::ContentPart: {offenders:#?}"
+    );
+}
+
+#[test]
 fn stable_unified_prelude_does_not_mirror_core_streaming_internals() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
@@ -620,7 +754,7 @@ fn stable_unified_prelude_scopes_low_level_utility_helpers() {
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
 
-    for utility_name in [
+    let low_level_utility_names = [
         "DEFAULT_JSON_GENERIC_SUFFIX",
         "DEFAULT_JSON_SCHEMA_PREFIX",
         "DEFAULT_JSON_SCHEMA_SUFFIX",
@@ -665,7 +799,9 @@ fn stable_unified_prelude_scopes_low_level_utility_helpers() {
         "validate_types",
         "with_user_agent_suffix",
         "without_trailing_slash",
-    ] {
+    ];
+
+    for utility_name in low_level_utility_names {
         assert!(
             !source_identifiers(unified_source).contains(utility_name),
             "prelude::unified should not export low-level utility helper `{utility_name}`"
@@ -673,6 +809,46 @@ fn stable_unified_prelude_scopes_low_level_utility_helpers() {
         assert!(
             source_identifiers(&lib_rs).contains(utility_name),
             "the explicit facade root should still export `{utility_name}` for opt-in utility users"
+        );
+    }
+
+    for demoted_utility_name in [
+        "Arrayable",
+        "DEFAULT_ID_ALPHABET",
+        "DEFAULT_ID_SIZE",
+        "DEFAULT_REASONING_BUDGET_PERCENTAGES",
+        "ReasoningBudgetOptions",
+        "ReasoningLevel",
+        "ReasoningLevelConversionError",
+        "VERSION",
+        "as_array",
+        "convert_base64_to_uint8_array",
+        "convert_image_model_file_to_data_uri",
+        "convert_to_base64",
+        "convert_uint8_array_to_base64",
+        "cosine_similarity",
+        "delay",
+        "filter_nullable",
+        "get_error_message",
+        "get_runtime_environment_user_agent",
+        "get_text_from_data_url",
+        "is_abort_error",
+        "is_custom_reasoning",
+        "is_deep_equal_data",
+        "is_non_nullable",
+        "map_reasoning_to_provider_budget",
+        "map_reasoning_to_provider_effort",
+        "media_type_to_extension",
+        "remove_undefined_entries",
+        "strip_file_extension",
+    ] {
+        assert!(
+            !source_identifiers(unified_source).contains(demoted_utility_name),
+            "prelude::unified should not export provider-utils helper `{demoted_utility_name}`; use explicit siumai:: root imports"
+        );
+        assert!(
+            source_identifiers(&lib_rs).contains(demoted_utility_name),
+            "the explicit facade root should still export `{demoted_utility_name}` for opt-in utility users"
         );
     }
 
@@ -704,7 +880,9 @@ fn stable_unified_prelude_scopes_low_level_utility_helpers() {
 
     assert!(
         public_surface_doc.contains("Low-level utility helpers are explicit root imports")
-            && public_surface_doc.contains("use siumai::{parse_json, normalize_headers};"),
+            && public_surface_doc.contains("use siumai::{parse_json, normalize_headers};")
+            && public_surface_doc.contains("Provider-utils helpers that remain at the root are backed by `siumai-provider-utils`")
+            && public_surface_doc.contains("prelude::unified` does not export broad provider-utils helper groups"),
         "public-surface.md should document scoped low-level utility helper imports"
     );
 }
@@ -817,7 +995,8 @@ fn stable_unified_prelude_does_not_export_middleware_internals() {
     }
 
     assert!(
-        lib_rs.contains("pub use siumai_core::{defaults, execution")
+        lib_rs.contains("pub mod execution {")
+            && lib_rs.contains("pub use siumai_core::execution::*;")
             && lib_rs.contains("pub mod client {")
             && lib_rs.contains("pub use crate::compat::client::{ClientWrapper, LlmClient};")
             && lib_rs.contains("pub mod experimental {"),
@@ -828,6 +1007,77 @@ fn stable_unified_prelude_does_not_export_middleware_internals() {
             && public_surface_doc
                 .contains("siumai::experimental::execution::middleware::LanguageModelMiddleware"),
         "public-surface.md should document that middleware imports live under experimental execution"
+    );
+}
+
+#[test]
+fn facade_root_and_experimental_exports_are_owner_backed_and_scoped() {
+    let lib_rs = read_source("src/lib.rs");
+    let public_surface_doc =
+        fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+    let migration_doc =
+        fs::read_to_string(crate_root().join("../docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read migration doc");
+
+    assert!(
+        lib_rs.contains("pub use siumai_provider_utils::{")
+            && lib_rs.contains("pub use siumai_provider_utils::standards::{ToolNameMapping, create_tool_name_mapping};"),
+        "facade root utility helpers should be backed by the provider-utils owner after FCAB-120"
+    );
+    let root_core_utils_reexports = lib_rs
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("pub use siumai_core::utils::"))
+        .filter(|line| !line.starts_with("pub use siumai_core::utils::*"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        root_core_utils_reexports,
+        vec!["pub use siumai_core::utils::{delay, is_abort_error};"],
+        "facade root should not teach old broad core-owned utility paths; delay/is_abort_error are the only audited core-runtime helper exception until their CancelHandle coupling is split"
+    );
+    assert!(
+        !lib_rs.contains(
+            "pub use siumai_core::standards::{ToolNameMapping, create_tool_name_mapping};"
+        ),
+        "facade root should not teach old broad core-owned standard-helper paths"
+    );
+    assert!(
+        !lib_rs.contains(
+            "pub use siumai_core::{defaults, execution, observability, params, retry, utils};"
+        ),
+        "experimental facade should not use a broad grouped core-module mirror"
+    );
+
+    for module in [
+        "defaults",
+        "execution",
+        "observability",
+        "params",
+        "retry",
+        "utils",
+    ] {
+        let module_decl = format!("pub mod {module} {{");
+        assert!(
+            lib_rs.contains(&module_decl),
+            "experimental::{module} should remain a named advanced module"
+        );
+    }
+
+    assert!(
+        public_surface_doc.contains(
+            "Provider-utils helpers that remain at the root are backed by `siumai-provider-utils`"
+        ) && public_surface_doc
+            .contains("Retained broad exports are limited to explicit namespaces")
+            && public_surface_doc.contains("`siumai::protocol::<provider>::*`")
+            && public_surface_doc.contains("`siumai::content::{prompt,output,compat}::*`")
+            && public_surface_doc.contains("`siumai::prelude::compat::{types,content}::*`"),
+        "public-surface.md should justify every retained broad namespace"
+    );
+    assert!(
+        migration_doc.contains("Provider-utils helpers that remain available from the facade root now come from `siumai-provider-utils`")
+            && migration_doc.contains("The stable unified prelude keeps only the narrow AI SDK-style helper subset"),
+        "migration doc should describe the FCAB-120 provider-utils owner-backed facade tightening"
     );
 }
 
@@ -1217,12 +1467,16 @@ fn streaming_tool_call_helpers_are_explicit_compat_only() {
 fn stable_registry_prelude_exports_factory_signature_types() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
-    let compat_prelude_source = lib_rs[lib_rs
-        .find("pub mod compat {")
-        .expect("compat prelude module")..]
+    let prelude_source = lib_rs[lib_rs.find("pub mod prelude {").expect("prelude module")..]
         .split("mod macros;")
         .next()
         .expect("prelude tail before macros");
+    let compat_prelude_source = prelude_source[prelude_source
+        .find("pub mod compat {")
+        .expect("compat prelude module")..]
+        .split("mod tests")
+        .next()
+        .expect("compat prelude tail before tests");
     let compatibility_audit = fs::read_to_string(crate_root().join(
         "../docs/workstreams/fearless-spec-core-boundary-convergence/compatibility-audit.md",
     ))
@@ -1380,6 +1634,137 @@ fn stable_unified_prelude_keeps_non_family_extension_types_scoped() {
             && public_surface_doc.contains("use siumai::extensions::types::*;")
             && public_surface_doc.contains("siumai::prelude::extensions::*"),
         "facade docs and prelude should keep non-family extension imports on explicit extension paths"
+    );
+}
+
+#[test]
+fn family_taxonomy_documents_video_as_stable_and_music_as_extension_only() {
+    let lib_rs = read_source("src/lib.rs");
+    let unified_source = prelude_unified_source(&lib_rs);
+    let public_surface_doc =
+        fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+    let capability_surface_doc =
+        fs::read_to_string(crate_root().join("../docs/architecture/capability-surface.md"))
+            .expect("read capability surface doc");
+    let module_split_doc =
+        fs::read_to_string(crate_root().join("../docs/architecture/module-split-design.md"))
+            .expect("read module split doc");
+    let adr_family_policy = fs::read_to_string(
+        crate_root().join("../docs/adr/0006-family-model-first-trait-policy.md"),
+    )
+    .expect("read family policy ADR");
+    let migration_doc =
+        fs::read_to_string(crate_root().join("../docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read migration doc");
+    let registry_entry =
+        fs::read_to_string(crate_root().join("../siumai-registry/src/registry/entry.rs"))
+            .expect("read registry entry source");
+    let registry_handles_mod = fs::read_to_string(
+        crate_root().join("../siumai-registry/src/registry/entry/handles/mod.rs"),
+    )
+    .expect("read registry handles mod source");
+    let language_handle = fs::read_to_string(
+        crate_root().join("../siumai-registry/src/registry/entry/handles/language.rs"),
+    )
+    .expect("read registry language handle source");
+    let video_handle = fs::read_to_string(
+        crate_root().join("../siumai-registry/src/registry/entry/handles/video.rs"),
+    )
+    .expect("read registry video handle source");
+    let core_video = fs::read_to_string(crate_root().join("../siumai-core/src/video.rs"))
+        .expect("read core video source");
+    let core_music_trait =
+        fs::read_to_string(crate_root().join("../siumai-core/src/traits/music.rs"))
+            .expect("read core music trait source");
+
+    assert!(
+        lib_rs.contains("seven stable model families")
+            && lib_rs.contains("Language/Embedding/Image/Reranking/Speech/Transcription/Video")
+            && lib_rs.contains("Music remains extension-only"),
+        "facade docs/comments should name seven stable families and keep music extension-only"
+    );
+    for stable_video_name in [
+        "video",
+        "VideoModel",
+        "VideoModelV4",
+        "GenerateVideoResult",
+        "VideoModelProviderMetadata",
+        "VideoModelHandle",
+    ] {
+        assert!(
+            source_identifiers(unified_source).contains(stable_video_name),
+            "prelude::unified should expose stable video family name `{stable_video_name}`"
+        );
+    }
+    for extension_only_name in ["MusicGenerationCapability", "MusicGenerationRequest"] {
+        assert!(
+            !source_identifiers(unified_source).contains(extension_only_name),
+            "prelude::unified should not expose music extension-only name `{extension_only_name}`"
+        );
+    }
+
+    assert!(
+        public_surface_doc.contains("7 stable model families")
+            && public_surface_doc.contains(
+                "Language / Embedding / Image / Rerank / Speech (TTS) / Transcription (STT) / Video"
+            )
+            && public_surface_doc.contains("Music generation remains extension-only"),
+        "public-surface.md should document Video as the seventh stable family and Music as extension-only"
+    );
+    assert!(
+        capability_surface_doc.contains("seven model families")
+            && capability_surface_doc.contains("7. Video generation")
+            && capability_surface_doc.contains("Music generation remains extension-only")
+            && capability_surface_doc.contains("no stable")
+            && capability_surface_doc.contains("`MusicModel`")
+            && capability_surface_doc.contains("`music_model(...)`"),
+        "capability-surface.md should make the stable/extension taxonomy explicit"
+    );
+    assert!(
+        module_split_doc.contains("request/response types for the 7 model families")
+            && adr_family_policy.contains("`video` are the preferred public families")
+            && adr_family_policy.contains("Amendment — 2026-05-21 (FCAB-130)")
+            && adr_family_policy.contains("Music remains extension-only")
+            && migration_doc.contains("Video is part of the stable family list")
+            && migration_doc.contains("music remains extension-only"),
+        "architecture, ADR, and migration docs should agree on the seven-family taxonomy"
+    );
+
+    assert!(
+        core_video.contains("Stable Rust interface for task-oriented video generation models")
+            && core_video.contains("pub trait VideoModel")
+            && core_video.contains("pub trait VideoModelV4")
+            && core_video.contains("impl<T> VideoModel for T"),
+        "siumai-core should own a first-class stable VideoModel family contract"
+    );
+    assert!(
+        core_music_trait.contains("pub trait MusicGenerationCapability")
+            && !core_music_trait.contains("pub trait MusicModel")
+            && !core_music_trait.contains("MusicModelV4"),
+        "music should remain a capability trait, not a stable family model"
+    );
+    assert!(
+        registry_entry.contains("pub fn video_model(&self")
+            && registry_entry.contains("VideoModelHandle")
+            && !registry_entry.contains("pub fn music_model(&self"),
+        "registry should expose a stable video_model handle and no music_model handle"
+    );
+    assert!(
+        registry_handles_mod.contains("pub use video::VideoModelHandle;")
+            && !registry_handles_mod.contains("MusicModelHandle"),
+        "registry handles should export VideoModelHandle only; no MusicModelHandle should exist"
+    );
+    assert!(
+        video_handle.contains("impl VideoGenerationCapability for VideoModelHandle")
+            && video_handle.contains("impl crate::traits::ModelMetadata for VideoModelHandle"),
+        "VideoModelHandle should be the stable video-family handle and metadata carrier"
+    );
+    assert!(
+        language_handle.contains("impl MusicGenerationCapability for LanguageModelHandle")
+            && language_handle.contains("build_music_generation_capability_with_ctx")
+            && !language_handle.contains("MusicModelHandle"),
+        "music should stay extension-only through language-handle compatibility delegation"
     );
 }
 

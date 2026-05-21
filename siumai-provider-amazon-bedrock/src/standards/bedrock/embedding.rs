@@ -82,7 +82,7 @@ impl ProviderSpec for BedrockEmbeddingSpec {
     ) -> Result<String, LlmError> {
         let model = req.model.as_deref().unwrap_or_default();
         let encoded_model = urlencoding::encode(model);
-        Ok(crate::utils::url::join_url(
+        Ok(crate::provider_utils::url::join_url(
             &ctx.base_url,
             &format!("/model/{encoded_model}/invoke"),
         ))

@@ -476,7 +476,7 @@ impl OpenAiCompatibleBuilder {
         let api_key = if allow_empty_api_key {
             self.api_key.unwrap_or_default()
         } else {
-            crate::utils::builder_helpers::get_api_key_with_envs(
+            crate::provider_utils::builder_helpers::get_api_key_with_envs(
                 self.api_key,
                 &self.provider_id,
                 provider_config.api_key_env.as_deref(),
@@ -515,7 +515,7 @@ impl OpenAiCompatibleBuilder {
             )));
         }
 
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
+        let base_url = crate::provider_utils::builder_helpers::resolve_base_url(
             self.base_url.clone(),
             adapter.base_url(),
         );
@@ -527,7 +527,7 @@ impl OpenAiCompatibleBuilder {
             adapter,
         );
 
-        let effective_model_raw = crate::utils::builder_helpers::get_effective_model(
+        let effective_model_raw = crate::provider_utils::builder_helpers::get_effective_model(
             &self.common_params.model,
             &canonical_provider_id,
         );

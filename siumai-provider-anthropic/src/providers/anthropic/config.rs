@@ -104,7 +104,7 @@ impl AnthropicConfig {
     pub fn from_env() -> Result<Self, LlmError> {
         let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
         let auth_token = std::env::var("ANTHROPIC_AUTH_TOKEN").ok();
-        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
+        let base_url = crate::provider_utils::builder_helpers::resolve_base_url_with_env(
             None,
             Some("ANTHROPIC_BASE_URL"),
             "https://api.anthropic.com",

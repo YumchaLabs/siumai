@@ -7,6 +7,7 @@ use crate::text::LanguageModel as FamilyLanguageModel;
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
+use siumai_provider_azure::providers::azure_openai::AzureOpenAiClient;
 
 /// Azure OpenAI provider factory (Responses API by default).
 ///
@@ -63,9 +64,9 @@ impl AzureOpenAiProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<siumai_provider_azure::providers::azure_openai::AzureOpenAiClient, LlmError> {
+    ) -> Result<AzureOpenAiClient, LlmError> {
         let http_config = ctx.http_config.clone().unwrap_or_default();
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
+        let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
@@ -106,6 +107,15 @@ impl AzureOpenAiProviderFactory {
 
         builder.build()
     }
+
+    async fn build_family_model_arc(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<AzureOpenAiClient>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 }
 
 #[cfg(feature = "azure")]
@@ -129,8 +139,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -138,8 +148,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_completion_client_with_ctx(
@@ -147,8 +157,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn completion_model_family_with_ctx(
@@ -156,8 +166,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -165,8 +175,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -174,8 +184,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_image_client_with_ctx(
@@ -183,8 +193,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn image_model_family_with_ctx(
@@ -192,8 +202,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_speech_client_with_ctx(
@@ -201,8 +211,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn speech_model_family_with_ctx(
@@ -210,8 +220,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilySpeechModel>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_transcription_client_with_ctx(
@@ -219,8 +229,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn transcription_model_family_with_ctx(
@@ -228,8 +238,8 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyTranscriptionModel>, LlmError> {
-        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

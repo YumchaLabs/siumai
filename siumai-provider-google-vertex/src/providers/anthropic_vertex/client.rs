@@ -357,9 +357,9 @@ impl VertexAnthropicClient {
             model: self.config.model.clone(),
             ..Default::default()
         };
-        request = crate::utils::chat_request::normalize_chat_request(
+        request = crate::provider_utils::chat_request::normalize_chat_request(
             request,
-            crate::utils::chat_request::ChatRequestDefaults::new(&defaults)
+            crate::provider_utils::chat_request::ChatRequestDefaults::new(&defaults)
                 .with_provider_options_map(&self.config.default_provider_options_map)
                 .with_http_config(&self.config.http_config),
             stream,

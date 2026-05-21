@@ -2324,25 +2324,53 @@ fn apply_anthropic_part_cache_control(part: &mut ContentPart, cache_control: &Ca
 }
 
 fn openai_provider_tool_id_from_wire_type(wire_type: &str) -> String {
+    #[cfg(feature = "openai")]
+    {
+        match wire_type {
+            "computer_use_preview" => {
+                return siumai_protocol_openai::tool_catalog::openai::COMPUTER_USE_ID.to_string();
+            }
+            "web_search" => {
+                return siumai_protocol_openai::tool_catalog::openai::WEB_SEARCH_ID.to_string();
+            }
+            "web_search_preview" => {
+                return siumai_protocol_openai::tool_catalog::openai::WEB_SEARCH_PREVIEW_ID
+                    .to_string();
+            }
+            "file_search" => {
+                return siumai_protocol_openai::tool_catalog::openai::FILE_SEARCH_ID.to_string();
+            }
+            "code_interpreter" => {
+                return siumai_protocol_openai::tool_catalog::openai::CODE_INTERPRETER_ID
+                    .to_string();
+            }
+            "image_generation" => {
+                return siumai_protocol_openai::tool_catalog::openai::IMAGE_GENERATION_ID
+                    .to_string();
+            }
+            "local_shell" => {
+                return siumai_protocol_openai::tool_catalog::openai::LOCAL_SHELL_ID.to_string();
+            }
+            "shell" => return siumai_protocol_openai::tool_catalog::openai::SHELL_ID.to_string(),
+            "mcp" => return siumai_protocol_openai::tool_catalog::openai::MCP_ID.to_string(),
+            "apply_patch" => {
+                return siumai_protocol_openai::tool_catalog::openai::APPLY_PATCH_ID.to_string();
+            }
+            _ => {}
+        }
+    }
+
     match wire_type {
-        "computer_use_preview" => {
-            siumai_protocol_openai::tool_catalog::openai::COMPUTER_USE_ID.to_string()
-        }
-        "web_search" => siumai_protocol_openai::tool_catalog::openai::WEB_SEARCH_ID.to_string(),
-        "web_search_preview" => {
-            siumai_protocol_openai::tool_catalog::openai::WEB_SEARCH_PREVIEW_ID.to_string()
-        }
-        "file_search" => siumai_protocol_openai::tool_catalog::openai::FILE_SEARCH_ID.to_string(),
-        "code_interpreter" => {
-            siumai_protocol_openai::tool_catalog::openai::CODE_INTERPRETER_ID.to_string()
-        }
-        "image_generation" => {
-            siumai_protocol_openai::tool_catalog::openai::IMAGE_GENERATION_ID.to_string()
-        }
-        "local_shell" => siumai_protocol_openai::tool_catalog::openai::LOCAL_SHELL_ID.to_string(),
-        "shell" => siumai_protocol_openai::tool_catalog::openai::SHELL_ID.to_string(),
-        "mcp" => siumai_protocol_openai::tool_catalog::openai::MCP_ID.to_string(),
-        "apply_patch" => siumai_protocol_openai::tool_catalog::openai::APPLY_PATCH_ID.to_string(),
+        "computer_use_preview" => "openai.computer_use".to_string(),
+        "web_search" => "openai.web_search".to_string(),
+        "web_search_preview" => "openai.web_search_preview".to_string(),
+        "file_search" => "openai.file_search".to_string(),
+        "code_interpreter" => "openai.code_interpreter".to_string(),
+        "image_generation" => "openai.image_generation".to_string(),
+        "local_shell" => "openai.local_shell".to_string(),
+        "shell" => "openai.shell".to_string(),
+        "mcp" => "openai.mcp".to_string(),
+        "apply_patch" => "openai.apply_patch".to_string(),
         other => format!("openai.{other}"),
     }
 }

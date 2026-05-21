@@ -11,6 +11,7 @@ use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 use siumai_protocol_openai::standards::openai::compat::provider_registry::{
     provider_config_declares_chat_surface, provider_config_declares_completion_surface,
 };
+use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
 
 /// Generic OpenAI-compatible provider factory
 #[cfg(any(feature = "openai", feature = "togetherai", feature = "deepinfra"))]
@@ -39,16 +40,13 @@ impl OpenAICompatibleProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<
-        siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
-        LlmError,
-    > {
+    ) -> Result<OpenAiCompatibleClient, LlmError> {
         let http_config = ctx.http_config.clone().unwrap_or_default();
         let provider_config =
             siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
                 &self.provider_id,
             );
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
+        let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
@@ -112,14 +110,14 @@ impl OpenAICompatibleProviderFactory {
         };
 
         let api_key = if let Some(cfg) = &provider_config {
-            crate::utils::builder_helpers::get_api_key_with_envs(
+            crate::provider_utils::builder_helpers::get_api_key_with_envs(
                 ctx.api_key.clone(),
                 &self.provider_id,
                 cfg.api_key_env.as_deref(),
                 &cfg.api_key_env_aliases,
             )?
         } else {
-            crate::utils::builder_helpers::get_api_key_with_env(
+            crate::provider_utils::builder_helpers::get_api_key_with_env(
                 ctx.api_key.clone(),
                 &self.provider_id,
             )?
@@ -143,6 +141,17 @@ impl OpenAICompatibleProviderFactory {
             ctx.http_transport.clone(),
         )
         .await
+    }
+
+    async fn build_checked_text_family_model_arc(
+        &self,
+        capability: &str,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<OpenAiCompatibleClient>, LlmError> {
+        self.ensure_capability(capability)?;
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
     }
 }
 
@@ -225,9 +234,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.ensure_capability("chat")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn LlmClient> = self
+            .build_checked_text_family_model_arc("chat", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -235,9 +245,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        self.ensure_capability("chat")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn FamilyLanguageModel> = self
+            .build_checked_text_family_model_arc("chat", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -245,9 +256,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.ensure_capability("embedding")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn LlmClient> = self
+            .build_checked_text_family_model_arc("embedding", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn compat_completion_client_with_ctx(
@@ -255,9 +267,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.ensure_capability("completion")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn LlmClient> = self
+            .build_checked_text_family_model_arc("completion", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn completion_model_family_with_ctx(
@@ -265,9 +278,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
-        self.ensure_capability("completion")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn FamilyCompletionModel> = self
+            .build_checked_text_family_model_arc("completion", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -275,9 +289,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
-        self.ensure_capability("embedding")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn FamilyEmbeddingModel> = self
+            .build_checked_text_family_model_arc("embedding", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn compat_image_client_with_ctx(
@@ -285,9 +300,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.ensure_capability("image_generation")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn LlmClient> = self
+            .build_checked_text_family_model_arc("image_generation", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn image_model_family_with_ctx(
@@ -295,9 +311,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
-        self.ensure_capability("image_generation")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn FamilyImageModel> = self
+            .build_checked_text_family_model_arc("image_generation", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn compat_reranking_client_with_ctx(
@@ -305,9 +322,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.ensure_capability("rerank")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn LlmClient> = self
+            .build_checked_text_family_model_arc("rerank", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn reranking_model_family_with_ctx(
@@ -315,9 +333,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyRerankingModel>, LlmError> {
-        self.ensure_capability("rerank")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn FamilyRerankingModel> = self
+            .build_checked_text_family_model_arc("rerank", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn compat_speech_client_with_ctx(
@@ -325,9 +344,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.ensure_capability("speech")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn LlmClient> = self
+            .build_checked_text_family_model_arc("speech", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn speech_model_family_with_ctx(
@@ -335,9 +355,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilySpeechModel>, LlmError> {
-        self.ensure_capability("speech")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn FamilySpeechModel> = self
+            .build_checked_text_family_model_arc("speech", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn compat_transcription_client_with_ctx(
@@ -345,9 +366,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.ensure_capability("transcription")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn LlmClient> = self
+            .build_checked_text_family_model_arc("transcription", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     async fn transcription_model_family_with_ctx(
@@ -355,9 +377,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyTranscriptionModel>, LlmError> {
-        self.ensure_capability("transcription")?;
-        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client: Arc<dyn FamilyTranscriptionModel> = self
+            .build_checked_text_family_model_arc("transcription", model_id, ctx)
+            .await?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

@@ -8,8 +8,8 @@ use crate::execution::executors::common::{
     execute_json_request, execute_patch_json_request,
 };
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::provider_utils::url::join_url;
 use crate::retry_api::RetryOptions;
-use crate::utils::url::join_url;
 use reqwest::Client as HttpClient;
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -1,11 +1,12 @@
 use super::*;
 #[cfg(feature = "bedrock")]
 use reqwest::header::AUTHORIZATION;
+use siumai::compat::content::ContentPart;
 use siumai::experimental::client::LlmClient;
 use siumai::extensions::VideoGenerationCapability;
 use siumai::extensions::types::{VideoGenerationInput, VideoGenerationRequest};
 use siumai::prelude::unified::{
-    ContentPart, EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
+    EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
 };
 use siumai::provider_ext::anthropic_vertex::{
     VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,

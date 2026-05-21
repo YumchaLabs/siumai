@@ -16,6 +16,9 @@ pub mod compat {
 
 // Internal aliases for registry implementation (not part of the public API).
 #[allow(unused_imports)]
+pub(crate) use siumai_provider_utils as provider_utils;
+
+#[allow(unused_imports)]
 pub(crate) use siumai_core::{
     auth, compat as core_compat, core, defaults, embedding, execution, image, observability,
     params, retry, retry_api, utils, video,

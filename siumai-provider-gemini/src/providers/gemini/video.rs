@@ -114,7 +114,7 @@ fn build_veo_image_from_input(input: &VideoGenerationInput) -> Result<Option<Veo
                         )),
                     )
                 })?;
-                crate::utils::mime::guess_mime_from_bytes(&bytes)
+                crate::provider_utils::mime::guess_mime_from_bytes(&bytes)
                     .unwrap_or_else(|| "image/png".to_string())
             };
             Ok(Some(VeoImage {
@@ -147,7 +147,7 @@ fn build_veo_video_from_input(input: &VideoGenerationInput) -> Result<Option<Veo
                         )),
                     )
                 })?;
-                crate::utils::mime::guess_mime_from_bytes(&bytes)
+                crate::provider_utils::mime::guess_mime_from_bytes(&bytes)
                     .unwrap_or_else(|| "video/mp4".to_string())
             };
             Ok(Some(VeoVideo {
@@ -308,7 +308,7 @@ fn map_operation_error_to_base(error: &OperationError) -> BaseResponse {
 fn build_predict_long_running_url(base_url: &str, model: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let model = normalize_gemini_model_id(model);
-    crate::utils::url::join_url(base, &format!("models/{model}:predictLongRunning"))
+    crate::provider_utils::url::join_url(base, &format!("models/{model}:predictLongRunning"))
 }
 
 fn build_operation_get_url(base_url: &str, op_name: &str) -> String {
@@ -316,7 +316,7 @@ fn build_operation_get_url(base_url: &str, op_name: &str) -> String {
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         return trimmed.to_string();
     }
-    crate::utils::url::join_url(base_url.trim_end_matches('/'), trimmed)
+    crate::provider_utils::url::join_url(base_url.trim_end_matches('/'), trimmed)
 }
 
 fn build_video_request_body(

@@ -78,6 +78,8 @@ siumai-bridge = { workspace = true, default-features = false }
 
 siumai-registry = { workspace = true, default-features = false }
 
+siumai-provider-utils = { workspace = true, default-features = false }
+
 
 
 # Provider crates (direct dependencies; breaking from the legacy umbrella `siumai-providers`)
@@ -241,6 +243,8 @@ structured-messages = [
     "siumai-bridge/structured-messages",
 
     "siumai-registry/structured-messages",
+
+    "siumai-provider-utils/structured-messages",
 
     "siumai-provider-openai/structured-messages",
 

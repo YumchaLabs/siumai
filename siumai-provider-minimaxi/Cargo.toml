@@ -17,6 +17,7 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
+siumai-provider-utils = { workspace = true, default-features = false }
 siumai-protocol-openai = { version = "0.11.0-beta.8", path = "../siumai-protocol-openai", default-features = false }
 siumai-protocol-anthropic = { version = "0.11.0-beta.8", path = "../siumai-protocol-anthropic", default-features = false }
 
@@ -49,6 +50,7 @@ hex = { version = "0.4.3", optional = true }
 default = []
 
 structured-messages = [
+    "siumai-provider-utils/structured-messages",
     "siumai-core/structured-messages",
     "siumai-protocol-openai/structured-messages",
     "siumai-protocol-anthropic/structured-messages",

@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn guess_image_media_type_from_bytes(bytes: &[u8]) -> String {
-    let guessed = crate::utils::mime::guess_mime_from_bytes(bytes);
+    let guessed = crate::provider_utils::mime::guess_mime_from_bytes(bytes);
     match guessed.as_deref() {
         Some(m) if m.starts_with("image/") => m.to_string(),
         _ => "image/jpeg".to_string(),

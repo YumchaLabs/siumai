@@ -30,6 +30,11 @@ documents, release process, and active workstreams for current planning.
 
 ## Workstreams
 
+- Fearless clean architecture boundaries: `docs/workstreams/fearless-clean-architecture-boundaries/`
+  - closed umbrella lane for the 2026-05-21 fearless refactor pass: isolated registry compatibility,
+    deepened OpenAI-compatible runtime/protocol/vendor seams, separated directional content
+    carriers, isolated provider-utils-like runtime helpers, moved the Gemini bridge target adapter
+    to its protocol owner, and tightened facade/family taxonomy
 - Fearless registry facade construction boundary: `docs/workstreams/fearless-registry-facade-construction-boundary/`
   - centralizes built-in provider factory selection inside `siumai-registry` and keeps facade tests
     from depending on concrete built-in factory structs for normal provider construction

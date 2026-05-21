@@ -121,6 +121,84 @@ fn responses_feature_surface_uses_stable_parts_for_tool_stream_parts() {
     }
 }
 
+#[test]
+fn openai_compatible_completion_streaming_conversion_is_protocol_owned() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let protocol_source = fs::read_to_string(
+        workspace.join("siumai-protocol-openai/src/standards/openai/compat/completion.rs"),
+    )
+    .expect("protocol completion conversion source");
+    let provider_completion_source = fs::read_to_string(workspace.join(
+        "siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client/completion/mod.rs",
+    ))
+    .expect("OpenAI-compatible provider completion runtime source");
+    let native_openai_source = fs::read_to_string(
+        workspace.join("siumai-provider-openai/src/providers/openai/client/completion.rs"),
+    )
+    .expect("native OpenAI completion runtime source");
+    let legacy_provider_streaming = workspace.join(
+        "siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client/completion/streaming.rs",
+    );
+
+    for marker in [
+        "pub struct CompletionSseConverter",
+        "struct CompletionStreamState",
+        "impl crate::streaming::SseEventConverter for CompletionSseConverter",
+        "pub struct CompletionResponseConversion",
+        "OpenAiCompatibleUsagePolicy::for_provider",
+        "parse_provider_openai_finish_reason",
+    ] {
+        assert!(
+            protocol_source.contains(marker),
+            "OpenAI-compatible completion stream conversion should live in the protocol module: missing {marker}"
+        );
+    }
+
+    assert!(
+        provider_completion_source
+            .contains("siumai_protocol_openai::standards::openai::compat::completion")
+            && provider_completion_source.contains("CompletionSseConverter"),
+        "OpenAI-compatible provider runtime should import the protocol-owned completion stream converter"
+    );
+    assert!(
+        provider_completion_source.contains("CompletionResponseConversion::new")
+            && provider_completion_source.contains(".build_response("),
+        "OpenAI-compatible provider runtime should delegate response conversion to the protocol-owned completion module"
+    );
+
+    for forbidden in [
+        "mod streaming;",
+        "use streaming::CompletionSseConverter;",
+        "struct CompletionStreamState",
+        "struct CompletionSseConverter",
+        "impl crate::streaming::SseEventConverter for CompletionSseConverter",
+        "parse_provider_openai_finish_reason",
+        "OpenAiCompatibleUsagePolicy::for_provider",
+        "pub fn build_completion_response(",
+    ] {
+        assert!(
+            !provider_completion_source.contains(forbidden),
+            "OpenAI-compatible provider runtime must not mirror protocol conversion logic: found {forbidden}"
+        );
+    }
+
+    assert!(
+        !legacy_provider_streaming.exists(),
+        "OpenAI-compatible provider must not keep a local completion/streaming.rs parser copy"
+    );
+
+    assert!(
+        native_openai_source.contains("struct CompletionSseConverter"),
+        "native OpenAI keeps its provider-specific completion converter until a native OpenAI seam task moves it"
+    );
+    assert!(
+        !native_openai_source.contains("OpenAiCompatibleUsagePolicy::for_provider"),
+        "native OpenAI completion runtime must not depend on OpenAI-compatible usage policy"
+    );
+}
+
 fn collect_forbidden_imports(root: &Path, forbidden: &str, offenders: &mut Vec<String>) {
     let mut files = Vec::new();
     collect_rs_files(root, &mut files);

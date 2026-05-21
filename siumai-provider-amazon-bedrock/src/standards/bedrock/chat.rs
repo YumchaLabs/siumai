@@ -114,7 +114,7 @@ impl ProviderSpec for BedrockChatSpec {
         } else {
             "converse"
         };
-        Ok(crate::utils::url::join_url(
+        Ok(crate::provider_utils::url::join_url(
             &ctx.base_url,
             &format!("/model/{model}/{suffix}"),
         ))

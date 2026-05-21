@@ -6,6 +6,7 @@ use crate::image::ImageModel as FamilyImageModel;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
 use siumai_core::video::VideoModel as FamilyVideoModel;
+use siumai_provider_google_vertex::providers::vertex::GoogleVertexClient;
 
 /// Google Vertex provider factory (Imagen via Vertex AI).
 #[cfg(feature = "google-vertex")]
@@ -17,8 +18,7 @@ impl GoogleVertexProviderFactory {
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient, LlmError>
-    {
+    ) -> Result<GoogleVertexClient, LlmError> {
         let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
@@ -75,7 +75,7 @@ impl GoogleVertexProviderFactory {
             siumai_provider_google_vertex::auth::vertex::google_vertex_base_url(&project, &location)
         };
 
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
+        let common_params = crate::provider_utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
@@ -94,6 +94,15 @@ impl GoogleVertexProviderFactory {
             ctx.http_transport.clone(),
         )
         .await
+    }
+
+    async fn build_typed_client_arc(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<GoogleVertexClient>, LlmError> {
+        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
     }
 }
 
@@ -118,8 +127,8 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn language_model_text_with_ctx(
@@ -127,8 +136,8 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_embedding_client_with_ctx(
@@ -136,8 +145,8 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn embedding_model_family_with_ctx(
@@ -145,8 +154,8 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_image_client_with_ctx(
@@ -154,8 +163,8 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn image_model_family_with_ctx(
@@ -163,8 +172,8 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn compat_video_client_with_ctx(
@@ -172,8 +181,8 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     async fn video_model_family_with_ctx(
@@ -181,8 +190,8 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyVideoModel>, LlmError> {
-        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
-        Ok(Arc::new(client))
+        let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

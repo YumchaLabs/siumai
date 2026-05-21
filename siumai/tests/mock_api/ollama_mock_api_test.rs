@@ -7,6 +7,7 @@
 
 use serde_json::json;
 use siumai::compat::Provider;
+use siumai::compat::content::ContentPart;
 use siumai::prelude::compat::Siumai;
 use siumai::prelude::unified::*;
 use wiremock::matchers::{header, method, path};
