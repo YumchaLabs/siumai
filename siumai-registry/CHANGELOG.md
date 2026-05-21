@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Split provider construction into family-first, compatibility, and extension factory facets.
+  Stable registry handles now call the family/extension facets directly instead of using
+  compatibility `LlmClient` paths as the primary execution route.
+- Centralized built-in provider typed-client projection helpers so registry factories share one
+  provider-owned family construction path per supported family.
+- Documented Video as a stable registry family for this release line while keeping Music available
+  only through explicit extension/capability paths.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-registry-v0.11.0-beta.7...siumai-registry-v0.11.0-beta.8) - 2026-05-18
 
 ### Added

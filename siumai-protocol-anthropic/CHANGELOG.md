@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Anthropic streaming now routes legacy response-side `ContentPart` construction through a local
+  `response_content` adapter seam instead of constructing compatibility payloads inline.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-anthropic-v0.11.0-beta.7...siumai-protocol-anthropic-v0.11.0-beta.8) - 2026-05-18
 
 ### Other

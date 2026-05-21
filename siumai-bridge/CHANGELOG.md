@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Gemini GenerateContent request normalization now delegates to the protocol-owned
+  `siumai-protocol-gemini` adapter. `siumai-bridge` keeps bridge reports, loss policy, hooks,
+  lifecycle, customization, and target dispatch.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/releases/tag/siumai-bridge-v0.11.0-beta.8) - 2026-05-18
 
 ### Other

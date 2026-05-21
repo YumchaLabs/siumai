@@ -4,7 +4,42 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- Added `siumai-provider-utils` as the canonical crate for AI SDK-style provider/protocol helpers
+  such as URL composition, MIME detection, downloads, headers, JSON parsing, provider options,
+  reasoning mapping, runtime metadata, settings, UTF-8 decoding, and validation helpers.
+- Added directional content namespaces across the public surface:
+  `siumai::content::prompt`, `siumai::content::output`, and `siumai::content::compat`.
+
+### Changed
+
+- Hardened the clean architecture boundaries across registry, core, provider-utils, protocol,
+  provider, bridge, and facade crates.
+- Split registry provider construction into family-first, compatibility, and extension facets so
+  stable family handles no longer use compatibility `LlmClient` paths as their primary execution
+  route.
+- Moved OpenAI-compatible `/completions` response conversion and SSE parser state into
+  `siumai-protocol-openai`; OpenAI-compatible provider runtime now delegates protocol conversion.
+- Moved Gemini GenerateContent request normalization into `siumai-protocol-gemini`, leaving
+  `siumai-bridge` focused on bridge reports, policy, lifecycle, customization, and dispatch.
+- Moved TogetherAI image request/response execution into the TogetherAI provider crate instead of
+  the registry factory.
+- Narrowed the stable facade and unified prelude around family-first APIs, explicit protocol paths,
+  explicit compatibility imports, and named experimental modules.
+- Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,
+  Transcription, and Video are stable families; Music remains extension-only unless a future ADR
+  promotes it.
+
+### Migration Notes
+
+- New code should prefer `siumai-provider-utils` for provider/protocol helper imports instead of
+  relying on `siumai-core::utils::*`. Existing core utility paths remain compatibility aliases for
+  the migration window.
+- If migration code still needs legacy `ContentPart`, import it from explicit compatibility paths
+  such as `siumai::compat::content::ContentPart` or `siumai::content::compat::ContentPart`.
+- Prefer registry family handles and family-first factory methods for stable model execution. Keep
+  generic `LlmClient` construction for compatibility or extension-only integration paths.
 
 ## [0.11.0-beta.8] - 2026-05-18
 

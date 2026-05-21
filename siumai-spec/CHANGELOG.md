@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added directional content namespaces for prompt/request parts, generated output parts, and legacy
+  compatibility content. New code should navigate through `content::prompt`, `content::output`, and
+  explicit `content::compat` paths instead of treating legacy `ContentPart` as the default content
+  carrier.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 
 ### Added

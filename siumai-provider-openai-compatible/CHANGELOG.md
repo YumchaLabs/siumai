@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- OpenAI-compatible completion runtime now delegates `/completions` response conversion and SSE
+  stream state to `siumai-protocol-openai`, keeping this crate focused on provider execution,
+  settings, capability routing, and promoted-vendor behavior.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-compatible-v0.11.0-beta.7...siumai-provider-openai-compatible-v0.11.0-beta.8) - 2026-05-18
 
 ### Added

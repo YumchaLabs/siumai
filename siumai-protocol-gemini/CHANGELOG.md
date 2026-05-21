@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `standards::gemini::request_bridge` as the protocol-owned GenerateContent request
+  normalization adapter used by `siumai-bridge`.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-gemini-v0.11.0-beta.7...siumai-protocol-gemini-v0.11.0-beta.8) - 2026-05-18
 
 ### Fixed

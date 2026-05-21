@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Moved OpenAI-compatible `/completions` response conversion and SSE parser state into the protocol
+  crate so provider runtimes delegate protocol conversion instead of owning local parser copies.
+- Added protocol-owned `response_content` compatibility adapters for legacy chat response payloads,
+  keeping response-side `ContentPart` construction behind named adapter seams.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.7...siumai-protocol-openai-v0.11.0-beta.8) - 2026-05-18
 
 ### Added

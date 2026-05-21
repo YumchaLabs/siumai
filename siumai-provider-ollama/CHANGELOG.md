@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Ollama response-side legacy `ContentPart` construction now goes through a named
+  `response_content` adapter, keeping compatibility payload generation separate from request
+  provider-option handling.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-ollama-v0.11.0-beta.7...siumai-provider-ollama-v0.11.0-beta.8) - 2026-05-18
 
 ### Other

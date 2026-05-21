@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added provider-owned TogetherAI image runtime support, including generation/edit body mapping,
+  provider-option merging, image edit validation, response parsing, and HTTP execution.
+- Added shared TogetherAI JSON header construction for provider-owned image and rerank paths.
+
+### Changed
+
+- The registry now composes TogetherAI provider-owned image and rerank clients plus the shared
+  OpenAI-compatible text/audio runtime; TogetherAI image execution no longer lives in the registry
+  factory.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-togetherai-v0.11.0-beta.7...siumai-provider-togetherai-v0.11.0-beta.8) - 2026-05-18
 
 ### Other
