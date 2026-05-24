@@ -16,10 +16,8 @@ use siumai_core::types::{
     HttpConfig, HttpResponseInfo, JSONValue, RequestOptions, Warning, merge_provider_metadata,
     provider_metadata_from_object,
 };
-use siumai_core::utils::{
-    download_url,
-    mime::{guess_mime_from_bytes, guess_mime_from_path_or_url},
-};
+use siumai_provider_utils::download_url;
+use siumai_provider_utils::mime::{guess_mime_from_bytes, guess_mime_from_path_or_url};
 use std::collections::HashMap;
 use std::time::Duration;
 

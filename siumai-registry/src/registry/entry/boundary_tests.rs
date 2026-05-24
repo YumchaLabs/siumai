@@ -30,6 +30,15 @@ fn read_registry_entry_source(relative_path: &str) -> String {
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
 }
 
+fn read_registry_entry_root_source() -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("registry")
+        .join("entry.rs");
+    fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+}
+
 fn source_section<'a>(source: &'a str, label: &str, start: &str, end: &str) -> &'a str {
     let start_index = source
         .find(start)
@@ -207,6 +216,63 @@ fn provider_factory_facets_split_stable_compat_and_extension_execution() {
             "ProviderFamilyFactory should expose stable family build method `{required}`"
         );
     }
+
+    assert!(
+        source.contains("struct ProviderFactoryFacets")
+            && source.contains("fn from_provider_factory(")
+            && source.contains("struct ProviderFactoryFacetAdapter")
+            && source.contains("family_factory: Arc<dyn ProviderFamilyFactory>")
+            && source.contains("compatibility_factory: Arc<dyn ProviderCompatibilityFactory>")
+            && source.contains("extension_factory: Arc<dyn ProviderExtensionFactory>"),
+        "registry internals should adapt the broad ProviderFactory implementation trait into narrow execution facets"
+    );
+}
+
+#[test]
+fn registry_handles_depend_on_narrow_factory_facets() {
+    let entry_source = read_registry_entry_root_source();
+    assert!(
+        entry_source.contains("providers: HashMap<String, ProviderFactoryFacets>")
+            && entry_source.contains("ProviderFactoryFacets::from_provider_factory(factory)"),
+        "ProviderRegistryHandle should store provider factories as internal facet containers"
+    );
+
+    for file_name in [
+        "completion.rs",
+        "embedding.rs",
+        "language.rs",
+        "rerank.rs",
+        "video.rs",
+    ] {
+        let source = read_handle_source(file_name);
+        assert!(
+            !source.contains("Arc<dyn ProviderFactory>"),
+            "{file_name} should not hold the broad ProviderFactory trait object"
+        );
+        assert!(
+            source.contains("Arc<dyn ProviderFamilyFactory>"),
+            "{file_name} should hold the family facet needed for primary execution"
+        );
+    }
+
+    for file_name in ["audio.rs", "image.rs"] {
+        let source = read_handle_source(file_name);
+        assert!(
+            !source.contains("Arc<dyn ProviderFactory>"),
+            "{file_name} should not hold the broad ProviderFactory trait object"
+        );
+        assert!(
+            source.contains("Arc<dyn ProviderFamilyFactory>")
+                && source.contains("Arc<dyn ProviderCompatibilityFactory>"),
+            "{file_name} should hold explicit family and compatibility facets"
+        );
+    }
+
+    let language_source = read_handle_source("language.rs");
+    assert!(
+        language_source.contains("Arc<dyn ProviderExtensionFactory>"),
+        "language handle should use the extension facet for non-family upload/music surfaces"
+    );
 }
 
 #[test]

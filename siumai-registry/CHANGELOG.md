@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split provider construction into family-first, compatibility, and extension factory facets.
   Stable registry handles now call the family/extension facets directly instead of using
   compatibility `LlmClient` paths as the primary execution route.
+- Adapt registered `ProviderFactory` implementations into internal facet containers so stable
+  handles hold only the family/compatibility/extension factory surface they need.
 - Centralized built-in provider typed-client projection helpers so registry factories share one
   provider-owned family construction path per supported family.
 - Documented Video as a stable registry family for this release line while keeping Music available

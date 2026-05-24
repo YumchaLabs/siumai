@@ -14,7 +14,6 @@ use crate::types::{
 };
 use siumai_core::video::VideoModel as FamilyVideoModel;
 
-use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::cache::VideoCacheEntry;
 use super::super::factory::ProviderFamilyFactory;
@@ -25,7 +24,7 @@ use super::video_support::{
 /// Video model handle - delegates to factory for client creation
 #[derive(Clone)]
 pub struct VideoModelHandle {
-    pub(in crate::registry::entry) factory: Arc<dyn ProviderFactory>,
+    pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -134,7 +133,7 @@ impl VideoModelHandle {
             None,
         );
         let model = self
-            .factory
+            .family_factory
             .build_video_model_family_with_ctx(model_id, &ctx)
             .await?;
 

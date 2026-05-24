@@ -9,6 +9,7 @@
 //! ```
 
 use serde_json::json;
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::*;
 
 #[tokio::main]

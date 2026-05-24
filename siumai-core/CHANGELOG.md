@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Moved spec-only provider/protocol helper implementations to `siumai-provider-utils`; matching
-  `siumai-core::utils::*` modules now act as compatibility aliases during the migration window.
+  `siumai-core::utils::*` alias modules for those helpers were removed.
 - Kept only core-owned utility behavior in core: cancellation/abort stream wiring remains stable
   core runtime behavior, while streaming tool-call delta helpers stay explicit compatibility helpers.
 - Moved `ToolNameMapping` implementation ownership to `siumai-provider-utils::standards`, with the

@@ -34,8 +34,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 ### Migration Notes
 
 - New code should prefer `siumai-provider-utils` for provider/protocol helper imports instead of
-  relying on `siumai-core::utils::*`. Existing core utility paths remain compatibility aliases for
-  the migration window.
+  relying on `siumai-core::utils::*`. The old core utility alias modules for spec-only helpers have
+  been removed; import those helpers from `siumai-provider-utils` or the explicit facade root.
 - If migration code still needs legacy `ContentPart`, import it from explicit compatibility paths
   such as `siumai::compat::content::ContentPart` or `siumai::content::compat::ContentPart`.
 - Prefer registry family handles and family-first factory methods for stable model execution. Keep

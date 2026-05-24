@@ -10,7 +10,7 @@ use crate::streaming::{
 };
 use crate::types::JSONValue;
 
-use super::is_parsable_json;
+use siumai_provider_utils::is_parsable_json;
 
 /// Function payload inside a provider streaming tool-call delta.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

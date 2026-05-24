@@ -56,8 +56,8 @@ async fn materialize_url_backed_image_input(
         } => {
             let (bytes, media_type) = if url.starts_with("data:") {
                 let (bytes, media_type) = parse_image_data_url(url, label)?;
-                let media_type =
-                    media_type.unwrap_or_else(|| crate::utils::guess_mime(Some(&bytes), Some(url)));
+                let media_type = media_type
+                    .unwrap_or_else(|| siumai_provider_utils::guess_mime(Some(&bytes), Some(url)));
                 (bytes, media_type)
             } else if url.starts_with("http://") || url.starts_with("https://") {
                 let response = http_client.get(url).send().await.map_err(|err| {
@@ -84,7 +84,7 @@ async fn materialize_url_backed_image_input(
                     LlmError::HttpError(format!("Failed to read {label} bytes: {err}"))
                 })?;
                 let media_type = content_type.unwrap_or_else(|| {
-                    crate::utils::guess_mime(Some(bytes.as_ref()), Some(url.as_str()))
+                    siumai_provider_utils::guess_mime(Some(bytes.as_ref()), Some(url.as_str()))
                 });
                 (bytes.to_vec(), media_type)
             } else {

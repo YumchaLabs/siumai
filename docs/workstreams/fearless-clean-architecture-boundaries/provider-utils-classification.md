@@ -6,8 +6,8 @@ Date: 2026-05-21
 
 FCAB-100 deepens the `siumai-provider-utils` crate from the first FCAB-090 slice into the canonical
 home for AI SDK-style helpers that depend only on `siumai-spec` contracts plus generic runtime
-libraries. `siumai-core::utils` keeps source-compatible aliases for this release window, but it no
-longer owns those implementations.
+libraries. `siumai-core::utils` no longer keeps source-compatible alias modules for those helpers;
+it only owns core runtime utilities and explicit compatibility helpers.
 
 The boundary rule is:
 
@@ -18,8 +18,8 @@ The boundary rule is:
 
 ## `siumai-provider-utils` Implementations
 
-These modules are implemented in `siumai-provider-utils` and re-exported from matching
-`siumai-core::utils::*` modules only as compatibility aliases:
+These modules are implemented in `siumai-provider-utils`; matching `siumai-core::utils::*` alias
+modules have been removed:
 
 | Module | Classification | Reason |
 | --- | --- | --- |

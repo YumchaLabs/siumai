@@ -8,14 +8,14 @@ use crate::types::{
     ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
 };
 
-use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::factory::{ProviderCompatibilityFactory, ProviderFamilyFactory};
 
 /// Image model handle - delegates to factory for client creation
 #[derive(Clone)]
 pub struct ImageModelHandle {
-    pub(in crate::registry::entry) factory: Arc<dyn ProviderFactory>,
+    pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
+    pub(in crate::registry::entry) compatibility_factory: Arc<dyn ProviderCompatibilityFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -132,7 +132,7 @@ impl ImageGenerationCapability for ImageModelHandle {
             None,
         );
         let model = self
-            .factory
+            .family_factory
             .build_image_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
 
@@ -163,7 +163,7 @@ impl ImageExtras for ImageModelHandle {
             None,
         );
         let client = self
-            .factory
+            .compatibility_factory
             .build_compat_image_client_with_ctx(&self.model_id, &ctx)
             .await?;
 
@@ -191,7 +191,7 @@ impl ImageExtras for ImageModelHandle {
             None,
         );
         let client = self
-            .factory
+            .compatibility_factory
             .build_compat_image_client_with_ctx(&self.model_id, &ctx)
             .await?;
 

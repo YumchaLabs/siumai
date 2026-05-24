@@ -23,7 +23,6 @@ use crate::types::{
 };
 use siumai_core::video::VideoModel as FamilyVideoModel;
 
-use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::cache::CacheEntry;
 use super::super::factory::{ProviderExtensionFactory, ProviderFamilyFactory};
@@ -40,8 +39,10 @@ use super::video_support::{
 /// Features LRU cache with TTL to avoid rebuilding clients on every call.
 #[derive(Clone)]
 pub struct LanguageModelHandle {
-    /// Provider factory for creating clients
-    pub(in crate::registry::entry) factory: Arc<dyn ProviderFactory>,
+    /// Family factory for primary model construction
+    pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
+    /// Extension factory for non-family capability construction
+    pub(in crate::registry::entry) extension_factory: Arc<dyn ProviderExtensionFactory>,
     /// Provider ID (e.g., "openai")
     pub provider_id: String,
     /// Model ID to pass to the factory (e.g., "gpt-4")
@@ -132,7 +133,7 @@ impl LanguageModelHandle {
             self.reasoning_budget,
         );
         let model = self
-            .factory
+            .family_factory
             .build_language_model_text_with_ctx(model_id, &ctx)
             .await?;
 
@@ -159,7 +160,7 @@ impl LanguageModelHandle {
             self.reasoning_budget,
         );
 
-        self.factory
+        self.extension_factory
             .build_file_management_capability_with_ctx(model_id, &ctx)
             .await
     }
@@ -181,7 +182,7 @@ impl LanguageModelHandle {
             self.reasoning_budget,
         );
 
-        self.factory
+        self.extension_factory
             .build_skills_capability_with_ctx(model_id, &ctx)
             .await
     }
@@ -203,7 +204,7 @@ impl LanguageModelHandle {
             self.reasoning_budget,
         );
 
-        self.factory
+        self.extension_factory
             .build_music_generation_capability_with_ctx(model_id, &ctx)
             .await
     }
@@ -225,7 +226,7 @@ impl LanguageModelHandle {
             self.reasoning_budget,
         );
 
-        self.factory
+        self.family_factory
             .build_video_model_family_with_ctx(model_id, &ctx)
             .await
     }

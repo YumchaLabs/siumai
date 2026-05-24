@@ -11,7 +11,7 @@ async fn load_audio_file_request(path: &str) -> Result<(Vec<u8>, String), LlmErr
     let bytes = tokio::fs::read(path)
         .await
         .map_err(|e| LlmError::IoError(format!("Failed to read audio file '{path}': {e}")))?;
-    let media_type = crate::utils::guess_mime_from_path_or_url(path).ok_or_else(|| {
+    let media_type = siumai_provider_utils::guess_mime_from_path_or_url(path).ok_or_else(|| {
         LlmError::InvalidInput(format!(
             "Could not infer audio media type from file path '{path}'; pass a request with an explicit media_type instead."
         ))

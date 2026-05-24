@@ -152,9 +152,9 @@ siumai-provider-utils/src/
   validate_types.rs
 ```
 
-Matching `siumai-core::utils::*` modules are compatibility aliases only. Provider/protocol crates
-should import moved helpers through their internal `crate::provider_utils` alias, which points at
-`siumai-provider-utils`.
+Matching `siumai-core::utils::*` alias modules for moved helpers have been removed. Provider/protocol
+crates should import moved helpers through their internal `crate::provider_utils` alias, which points
+at `siumai-provider-utils`.
 
 ### Legacy: `siumai-providers` (umbrella)
 

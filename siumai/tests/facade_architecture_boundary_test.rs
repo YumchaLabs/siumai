@@ -1025,7 +1025,13 @@ fn facade_root_and_experimental_exports_are_owner_backed_and_scoped() {
             && lib_rs.contains("pub use siumai_provider_utils::standards::{ToolNameMapping, create_tool_name_mapping};"),
         "facade root utility helpers should be backed by the provider-utils owner after FCAB-120"
     );
-    let root_core_utils_reexports = lib_rs
+    let root_utility_exports_source = lib_rs[lib_rs
+        .find("/// AI SDK-style utility helpers.")
+        .expect("root utility helper exports comment")..]
+        .split("/// Protocol mapping facade")
+        .next()
+        .expect("root utility helper exports section");
+    let root_core_utils_reexports = root_utility_exports_source
         .lines()
         .map(str::trim)
         .filter(|line| line.starts_with("pub use siumai_core::utils::"))
@@ -1047,6 +1053,22 @@ fn facade_root_and_experimental_exports_are_owner_backed_and_scoped() {
             "pub use siumai_core::{defaults, execution, observability, params, retry, utils};"
         ),
         "experimental facade should not use a broad grouped core-module mirror"
+    );
+    let experimental_utils_source = lib_rs[lib_rs
+        .find("/// Core runtime and provider-utils compatibility utility modules.")
+        .expect("experimental utils comment")..]
+        .split("pub use siumai_registry::registry;")
+        .next()
+        .expect("experimental utils module section");
+    assert!(
+        experimental_utils_source.contains("pub use siumai_provider_utils::*;")
+            && experimental_utils_source.contains("StreamingToolCallTracker")
+            && experimental_utils_source.contains("pub use siumai_core::utils::{"),
+        "experimental::utils should compose provider-utils helpers with explicit core-owned cancel/compat helpers"
+    );
+    assert!(
+        !experimental_utils_source.contains("pub use siumai_core::utils::*;"),
+        "experimental::utils must not mirror the whole siumai-core::utils module"
     );
 
     for module in [

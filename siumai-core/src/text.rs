@@ -17,7 +17,7 @@ use crate::types::{
     ChatRequest, ChatResponse, LanguageModelV4CallOptions, LanguageModelV4GenerateResult,
     LanguageModelV4StreamResult,
 };
-use crate::utils::SupportedUrlMap;
+use siumai_provider_utils::SupportedUrlMap;
 
 /// Canonical request type for the text family.
 ///
@@ -132,9 +132,9 @@ mod tests {
         ChatMessage, ChatStreamEvent, FinishReason, LanguageModelV4Text, LanguageModelV4Usage,
         MessageContent,
     };
-    use crate::utils::UrlSupportRegex;
     use async_trait::async_trait;
     use futures::StreamExt;
+    use siumai_provider_utils::UrlSupportRegex;
 
     struct FakeChat;
 

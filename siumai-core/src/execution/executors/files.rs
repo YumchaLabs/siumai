@@ -125,7 +125,7 @@ impl FilesExecutor for HttpFilesExecutor {
         // 1. Get URL
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
         let endpoint = self.transformer.upload_endpoint(&req);
-        let url = crate::utils::url::join_url(&base_url, &endpoint);
+        let url = siumai_provider_utils::url::join_url(&base_url, &endpoint);
 
         let provider_id = self.provider_id.clone();
         let http_client = self.http_client.clone();
@@ -225,7 +225,7 @@ impl FilesExecutor for HttpFilesExecutor {
         // 1. Get URL from transformer
         let endpoint = self.transformer.list_endpoint(&query);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
-        let url = crate::utils::url::join_url(&base_url, &endpoint);
+        let url = siumai_provider_utils::url::join_url(&base_url, &endpoint);
 
         let provider_id = self.provider_id.clone();
         let http_client = self.http_client.clone();
@@ -292,7 +292,7 @@ impl FilesExecutor for HttpFilesExecutor {
         // 1. Get URL from transformer
         let endpoint = self.transformer.retrieve_endpoint(&file_id);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
-        let url = crate::utils::url::join_url(&base_url, &endpoint);
+        let url = siumai_provider_utils::url::join_url(&base_url, &endpoint);
 
         let provider_id = self.provider_id.clone();
         let http_client = self.http_client.clone();
@@ -353,7 +353,7 @@ impl FilesExecutor for HttpFilesExecutor {
         // 1. Get URL from transformer
         let endpoint = self.transformer.delete_endpoint(&file_id);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
-        let url = crate::utils::url::join_url(&base_url, &endpoint);
+        let url = siumai_provider_utils::url::join_url(&base_url, &endpoint);
 
         let provider_id = self.provider_id.clone();
         let http_client = self.http_client.clone();
@@ -446,11 +446,11 @@ impl FilesExecutor for HttpFilesExecutor {
                 // Determine URL (prefer API endpoint if provided; otherwise fall back to URL from file object)
                 let url = if let Some(ep) = transformer.content_endpoint(&file_id) {
                     let base_url = provider_spec.files_base_url(&provider_context);
-                    crate::utils::url::join_url(&base_url, &ep)
+                    siumai_provider_utils::url::join_url(&base_url, &ep)
                 } else {
                     let endpoint = transformer.retrieve_endpoint(&file_id);
                     let base_url = provider_spec.files_base_url(&provider_context);
-                    let retrieve_url = crate::utils::url::join_url(&base_url, &endpoint);
+                    let retrieve_url = siumai_provider_utils::url::join_url(&base_url, &endpoint);
                     let result = crate::execution::executors::http_request::execute_get_request(
                         &config,
                         &retrieve_url,

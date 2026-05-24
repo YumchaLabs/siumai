@@ -20,6 +20,7 @@
 //! cargo run --example tool-choice-demo --features openai
 //! ```
 
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::*;
 
 #[tokio::main]

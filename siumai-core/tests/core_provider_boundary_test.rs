@@ -191,16 +191,14 @@ fn core_utils_do_not_own_provider_model_aliases() {
         "siumai-core::utils must not export a provider model alias module"
     );
 
-    let builder_helpers = std::fs::read_to_string(utils_dir.join("builder_helpers.rs"))
-        .expect("read utils/builder_helpers.rs");
     assert!(
-        !builder_helpers.contains("normalize_model_id"),
-        "siumai-core builder helpers must not expose provider-specific model normalization"
+        !utils_dir.join("builder_helpers.rs").exists(),
+        "provider builder helpers belong to siumai-provider-utils, not siumai-core::utils"
     );
 }
 
 #[test]
-fn provider_utils_crate_owns_high_churn_provider_helpers() {
+fn provider_utils_crate_owns_high_churn_provider_helpers_without_core_alias_modules() {
     let root = workspace_root();
     let core_utils_dir = crate_root().join("src").join("utils");
     let provider_utils_dir = root.join("siumai-provider-utils").join("src");
@@ -230,30 +228,15 @@ fn provider_utils_crate_owns_high_churn_provider_helpers() {
     for module in moved_modules {
         let provider_source = fs::read_to_string(provider_utils_dir.join(format!("{module}.rs")))
             .unwrap_or_else(|error| panic!("read provider-utils module {module}: {error}"));
-        let core_source = fs::read_to_string(core_utils_dir.join(format!("{module}.rs")))
-            .unwrap_or_else(|error| panic!("read core utils module {module}: {error}"));
 
         assert!(
             !provider_source.trim().is_empty(),
             "siumai-provider-utils::{module} should own the helper implementation"
         );
         assert!(
-            core_source.contains(&format!("pub use siumai_provider_utils::{module}::*;")),
-            "siumai-core::utils::{module} should be a migration alias to siumai-provider-utils"
+            !core_utils_dir.join(format!("{module}.rs")).exists(),
+            "siumai-core::utils::{module} should not keep a shallow provider-utils alias module"
         );
-        for implementation_marker in [
-            "pub fn ",
-            "pub struct ",
-            "pub enum ",
-            "pub type ",
-            "impl ",
-            "fn ",
-        ] {
-            assert!(
-                !production_non_comment_source(&core_source).contains(implementation_marker),
-                "siumai-core::utils::{module} must not keep provider-utils implementation marker `{implementation_marker}`"
-            );
-        }
     }
 
     let core_manifest =
@@ -261,7 +244,7 @@ fn provider_utils_crate_owns_high_churn_provider_helpers() {
     assert!(
         core_manifest
             .contains("siumai-provider-utils = { workspace = true, default-features = false }"),
-        "siumai-core should keep provider-utils compatibility aliases backed by the new provider-utils crate"
+        "siumai-core should depend on the generic provider-utils seam for runtime call sites that need shared helper behavior"
     );
 
     let provider_manifest =
@@ -298,27 +281,6 @@ fn core_utils_remaining_owned_modules_are_classified() {
     actual_modules.sort();
 
     let mut classified_modules = [
-        // Compatibility aliases backed by siumai-provider-utils.
-        "builder_helpers",
-        "chat_request",
-        "data",
-        "download",
-        "error_message",
-        "headers",
-        "id",
-        "json_instruction",
-        "json_parse",
-        "mime",
-        "option",
-        "provider_options",
-        "provider_reference",
-        "reasoning",
-        "runtime",
-        "serial_job",
-        "settings",
-        "url",
-        "utf8_decoder",
-        "validate_types",
         // Stable core runtime utility: depends on core CancelHandle and stream handles.
         "cancel",
         // Explicit compatibility helper: depends on core stream part types and is facade compat-only.
@@ -331,7 +293,7 @@ fn core_utils_remaining_owned_modules_are_classified() {
 
     assert_eq!(
         actual_modules, classified_modules,
-        "every siumai-core::utils module must be classified as provider-utils alias, stable core utility, or explicit compat helper"
+        "siumai-core::utils should only contain core-owned utilities and explicit compat helpers"
     );
 }
 
@@ -1088,15 +1050,6 @@ fn core_sample_streaming_middleware_only_initializes_empty_provider_metadata() {
 
 #[test]
 fn core_provider_options_parser_stays_request_only_and_provider_agnostic() {
-    let manifest_dir = crate_root();
-    let relative_path = "src/utils/provider_options.rs";
-    let core_source = fs::read_to_string(manifest_dir.join(relative_path))
-        .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
-    assert!(
-        core_source.contains("pub use siumai_provider_utils::provider_options::*;"),
-        "{relative_path} should be a compatibility alias to the provider-utils implementation"
-    );
-
     let provider_utils_path = workspace_root()
         .join("siumai-provider-utils")
         .join("src")
@@ -1111,7 +1064,7 @@ fn core_provider_options_parser_stays_request_only_and_provider_agnostic() {
     assert!(
         production_source.contains("parse_provider_options")
             && production_source.contains("ProviderOptionsMap"),
-        "{relative_path} must remain the generic request-side provider options parser"
+        "siumai-provider-utils/src/provider_options.rs must remain the generic request-side provider options parser"
     );
 
     for forbidden in [
@@ -1132,7 +1085,7 @@ fn core_provider_options_parser_stays_request_only_and_provider_agnostic() {
     ] {
         assert!(
             !production_source.contains(forbidden),
-            "{relative_path} must parse request provider options without reading response metadata or concrete provider namespaces"
+            "siumai-provider-utils/src/provider_options.rs must parse request provider options without reading response metadata or concrete provider namespaces"
         );
     }
 }

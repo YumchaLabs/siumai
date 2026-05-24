@@ -14,7 +14,6 @@ use crate::traits::{CompletionCapability, ProviderCapabilities};
 use crate::types::{CompletionRequest, CompletionResponse};
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 
-use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::cache::CompletionCacheEntry;
 use super::super::factory::ProviderFamilyFactory;
@@ -22,7 +21,7 @@ use super::super::factory::ProviderFamilyFactory;
 /// Completion model handle - delegates to factory for client creation.
 #[derive(Clone)]
 pub struct CompletionModelHandle {
-    pub(in crate::registry::entry) factory: Arc<dyn ProviderFactory>,
+    pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     pub(in crate::registry::entry) middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
@@ -100,7 +99,7 @@ impl CompletionModelHandle {
             self.reasoning_budget,
         );
         let model = self
-            .factory
+            .family_factory
             .build_completion_model_family_with_ctx(model_id, &ctx)
             .await?;
 

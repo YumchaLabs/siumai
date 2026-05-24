@@ -16,7 +16,6 @@ use crate::types::{
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 
-use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::cache::{SpeechCacheEntry, TranscriptionCacheEntry};
 use super::super::factory::{ProviderCompatibilityFactory, ProviderFamilyFactory};
@@ -55,7 +54,8 @@ fn apply_translation_handle_default_model(
 /// Speech model handle (TTS) - delegates to factory for client creation
 #[derive(Clone)]
 pub struct SpeechModelHandle {
-    pub(in crate::registry::entry) factory: Arc<dyn ProviderFactory>,
+    pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
+    pub(in crate::registry::entry) compatibility_factory: Arc<dyn ProviderCompatibilityFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -147,7 +147,7 @@ impl SpeechModelHandle {
             None,
             None,
         );
-        self.factory
+        self.compatibility_factory
             .build_compat_speech_client_with_ctx(model_id, &ctx)
             .await
     }
@@ -180,7 +180,7 @@ impl SpeechModelHandle {
             None,
         );
         let model = self
-            .factory
+            .family_factory
             .build_speech_model_family_with_ctx(model_id, &ctx)
             .await?;
 
@@ -194,7 +194,8 @@ impl SpeechModelHandle {
 /// Transcription model handle (STT) - delegates to factory for client creation
 #[derive(Clone)]
 pub struct TranscriptionModelHandle {
-    pub(in crate::registry::entry) factory: Arc<dyn ProviderFactory>,
+    pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
+    pub(in crate::registry::entry) compatibility_factory: Arc<dyn ProviderCompatibilityFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -318,7 +319,7 @@ impl TranscriptionModelHandle {
             None,
             None,
         );
-        self.factory
+        self.compatibility_factory
             .build_compat_transcription_client_with_ctx(model_id, &ctx)
             .await
     }
@@ -351,7 +352,7 @@ impl TranscriptionModelHandle {
             None,
         );
         let model = self
-            .factory
+            .family_factory
             .build_transcription_model_family_with_ctx(model_id, &ctx)
             .await?;
 

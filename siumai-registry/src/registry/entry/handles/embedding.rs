@@ -8,14 +8,13 @@ use crate::types::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingRequest, EmbeddingResponse,
 };
 
-use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::factory::ProviderFamilyFactory;
 
 /// Embedding model handle - delegates to factory for client creation
 #[derive(Clone)]
 pub struct EmbeddingModelHandle {
-    pub(in crate::registry::entry) factory: Arc<dyn ProviderFactory>,
+    pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -55,7 +54,7 @@ impl EmbeddingCapability for EmbeddingModelHandle {
             None,
         );
         let model = self
-            .factory
+            .family_factory
             .build_embedding_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
 
@@ -105,7 +104,7 @@ impl EmbeddingExtensions for EmbeddingModelHandle {
             None,
         );
         let model = self
-            .factory
+            .family_factory
             .build_embedding_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
         model.embed(request).await
@@ -128,7 +127,7 @@ impl EmbeddingExtensions for EmbeddingModelHandle {
             None,
         );
         let model = self
-            .factory
+            .family_factory
             .build_embedding_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
         model.embed_many(requests).await

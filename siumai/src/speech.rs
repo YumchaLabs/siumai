@@ -14,7 +14,7 @@ use siumai_core::types::{
     HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, RequestOptions, Warning,
     merge_provider_metadata, provider_metadata_from_object,
 };
-use siumai_core::utils::mime::guess_mime_from_bytes;
+use siumai_provider_utils::mime::guess_mime_from_bytes;
 use std::collections::HashMap;
 use std::time::Duration;
 

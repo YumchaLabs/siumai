@@ -8,7 +8,7 @@ use siumai_core::types::{
     DataContent, FileObject, FileUploadRequest, HttpConfig, InvalidDataContentError,
     ProviderMetadataMap, ProviderOptionsMap, ProviderReference, Warning,
 };
-use siumai_core::utils::mime::guess_mime_from_bytes;
+use siumai_provider_utils::mime::guess_mime_from_bytes;
 use std::borrow::Cow;
 use std::collections::HashMap;
 

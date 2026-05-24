@@ -6,14 +6,13 @@ use crate::retry_api::RetryOptions;
 use crate::traits::RerankCapability;
 use crate::types::{RerankRequest, RerankResponse};
 
-use super::super::ProviderFactory;
 use super::super::build_context::build_registry_context;
 use super::super::factory::ProviderFamilyFactory;
 
 /// Reranking model handle - delegates to factory for client creation
 #[derive(Clone)]
 pub struct RerankingModelHandle {
-    pub(in crate::registry::entry) factory: Arc<dyn ProviderFactory>,
+    pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -53,7 +52,7 @@ impl RerankCapability for RerankingModelHandle {
             None,
         );
         let model = self
-            .factory
+            .family_factory
             .build_reranking_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
 

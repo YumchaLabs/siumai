@@ -14,6 +14,7 @@
 //! cargo run --example openai-audio-multimodal --features openai
 //! ```
 
+use siumai::compat::content::ContentPart;
 use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,

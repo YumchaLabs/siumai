@@ -12,7 +12,7 @@ use siumai_core::types::{
     JSONSchema7, LanguageModelRequestMetadata, LanguageModelResponseMetadata, LanguageModelUsage,
     ProviderMetadata, ResponseFormat, Schema, ValidationResult,
 };
-use siumai_core::utils::generate_id;
+use siumai_provider_utils::generate_id;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;

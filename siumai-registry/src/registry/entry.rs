@@ -62,6 +62,7 @@ pub use self::build_context::{BuildContext, ProviderBuildOverrides};
 use self::cache::{
     CacheEntry, CompletionCacheEntry, SpeechCacheEntry, TranscriptionCacheEntry, VideoCacheEntry,
 };
+use self::factory::ProviderFactoryFacets;
 pub use self::factory::{
     ProviderCompatibilityFactory, ProviderExtensionFactory, ProviderFactory, ProviderFamilyFactory,
 };
@@ -141,7 +142,7 @@ impl Default for RegistryOptions {
 /// Features LRU cache with optional TTL to prevent unbounded growth.
 pub struct ProviderRegistryHandle {
     /// Registered provider factories (provider_id -> factory)
-    providers: HashMap<String, Arc<dyn ProviderFactory>>,
+    providers: HashMap<String, ProviderFactoryFacets>,
     /// Separator for parsing "provider:model" identifiers
     separator: char,
     /// Middlewares to apply to all language models
@@ -203,7 +204,7 @@ impl ProviderRegistryHandle {
     }
 
     /// Get a provider factory by ID
-    fn get_provider(&self, provider_id: &str) -> Result<&Arc<dyn ProviderFactory>, LlmError> {
+    fn get_provider(&self, provider_id: &str) -> Result<&ProviderFactoryFacets, LlmError> {
         self.providers.get(provider_id).ok_or_else(|| {
             LlmError::ConfigurationError(format!(
                 "No such provider: {}. Available providers: {:?}",
@@ -282,7 +283,8 @@ impl ProviderRegistryHandle {
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);
 
         Ok(LanguageModelHandle {
-            factory: factory.clone(),
+            family_factory: factory.family_factory(),
+            extension_factory: factory.extension_factory(),
             provider_id,
             model_id,
             middlewares,
@@ -338,7 +340,7 @@ impl ProviderRegistryHandle {
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);
 
         Ok(CompletionModelHandle {
-            factory: factory.clone(),
+            family_factory: factory.family_factory(),
             provider_id,
             model_id,
             middlewares,
@@ -371,7 +373,7 @@ impl ProviderRegistryHandle {
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);
 
         Ok(EmbeddingModelHandle {
-            factory: factory.clone(),
+            family_factory: factory.family_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),
@@ -404,7 +406,8 @@ impl ProviderRegistryHandle {
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);
 
         Ok(ImageModelHandle {
-            factory: factory.clone(),
+            family_factory: factory.family_factory(),
+            compatibility_factory: factory.compatibility_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),
@@ -431,7 +434,7 @@ impl ProviderRegistryHandle {
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);
 
         Ok(VideoModelHandle {
-            factory: factory.clone(),
+            family_factory: factory.family_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),
@@ -460,7 +463,8 @@ impl ProviderRegistryHandle {
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);
 
         Ok(SpeechModelHandle {
-            factory: factory.clone(),
+            family_factory: factory.family_factory(),
+            compatibility_factory: factory.compatibility_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),
@@ -489,7 +493,8 @@ impl ProviderRegistryHandle {
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);
 
         Ok(TranscriptionModelHandle {
-            factory: factory.clone(),
+            family_factory: factory.family_factory(),
+            compatibility_factory: factory.compatibility_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),
@@ -518,7 +523,7 @@ impl ProviderRegistryHandle {
         let build_overrides = self.resolve_provider_build_overrides(&provider_id);
 
         Ok(RerankingModelHandle {
-            factory: factory.clone(),
+            family_factory: factory.family_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),
@@ -600,6 +605,16 @@ pub fn create_provider_registry(
         LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
     let video_cache =
         LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
+
+    let providers = providers
+        .into_iter()
+        .map(|(provider_id, factory)| {
+            (
+                provider_id,
+                ProviderFactoryFacets::from_provider_factory(factory),
+            )
+        })
+        .collect();
 
     ProviderRegistryHandle {
         providers,

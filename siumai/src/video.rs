@@ -19,7 +19,7 @@ use siumai_core::execution::http::build_http_client_from_config;
 use siumai_core::types::{
     HttpConfig, HttpResponseInfo, ProviderReference, RequestOptions, Warning,
 };
-use siumai_core::utils::mime::{guess_mime_from_bytes, guess_mime_from_path_or_url};
+use siumai_provider_utils::mime::{guess_mime_from_bytes, guess_mime_from_path_or_url};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::{Instant, sleep};

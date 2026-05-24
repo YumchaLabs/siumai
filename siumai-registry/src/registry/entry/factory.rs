@@ -583,6 +583,235 @@ pub trait ProviderFactory: Send + Sync {
     }
 }
 
+/// Internal registry view of a provider implementation split by execution facet.
+///
+/// Public custom providers still implement `ProviderFactory`. The registry immediately adapts that
+/// broad implementation trait into narrower facet objects so handles only receive the construction
+/// surface they actually need.
+#[derive(Clone)]
+pub(in crate::registry::entry) struct ProviderFactoryFacets {
+    family_factory: Arc<dyn ProviderFamilyFactory>,
+    compatibility_factory: Arc<dyn ProviderCompatibilityFactory>,
+    extension_factory: Arc<dyn ProviderExtensionFactory>,
+}
+
+impl ProviderFactoryFacets {
+    pub(in crate::registry::entry) fn from_provider_factory(
+        factory: Arc<dyn ProviderFactory>,
+    ) -> Self {
+        let adapter = Arc::new(ProviderFactoryFacetAdapter {
+            factory: factory.clone(),
+        });
+
+        Self {
+            family_factory: adapter.clone(),
+            compatibility_factory: adapter.clone(),
+            extension_factory: adapter,
+        }
+    }
+
+    pub(in crate::registry::entry) fn capabilities(&self) -> ProviderCapabilities {
+        self.family_factory.family_capabilities()
+    }
+
+    pub(in crate::registry::entry) fn family_factory(&self) -> Arc<dyn ProviderFamilyFactory> {
+        self.family_factory.clone()
+    }
+
+    pub(in crate::registry::entry) fn compatibility_factory(
+        &self,
+    ) -> Arc<dyn ProviderCompatibilityFactory> {
+        self.compatibility_factory.clone()
+    }
+
+    pub(in crate::registry::entry) fn extension_factory(
+        &self,
+    ) -> Arc<dyn ProviderExtensionFactory> {
+        self.extension_factory.clone()
+    }
+}
+
+struct ProviderFactoryFacetAdapter {
+    factory: Arc<dyn ProviderFactory>,
+}
+
+#[async_trait::async_trait]
+impl ProviderFamilyFactory for ProviderFactoryFacetAdapter {
+    async fn build_language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
+        ProviderFactory::language_model_text_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_completion_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
+        ProviderFactory::completion_model_family_with_ctx(self.factory.as_ref(), model_id, ctx)
+            .await
+    }
+
+    async fn build_embedding_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
+        ProviderFactory::embedding_model_family_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_image_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
+        ProviderFactory::image_model_family_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_speech_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilySpeechModel>, LlmError> {
+        ProviderFactory::speech_model_family_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_transcription_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyTranscriptionModel>, LlmError> {
+        ProviderFactory::transcription_model_family_with_ctx(self.factory.as_ref(), model_id, ctx)
+            .await
+    }
+
+    async fn build_video_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyVideoModel>, LlmError> {
+        ProviderFactory::video_model_family_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_reranking_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyRerankingModel>, LlmError> {
+        ProviderFactory::reranking_model_family_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    fn family_provider_id(&self) -> std::borrow::Cow<'static, str> {
+        self.factory.provider_id()
+    }
+
+    fn family_capabilities(&self) -> ProviderCapabilities {
+        self.factory.capabilities()
+    }
+}
+
+#[async_trait::async_trait]
+impl ProviderCompatibilityFactory for ProviderFactoryFacetAdapter {
+    async fn build_compat_language_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        ProviderFactory::compat_language_client_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_compat_completion_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        ProviderFactory::compat_completion_client_with_ctx(self.factory.as_ref(), model_id, ctx)
+            .await
+    }
+
+    async fn build_compat_embedding_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        ProviderFactory::compat_embedding_client_with_ctx(self.factory.as_ref(), model_id, ctx)
+            .await
+    }
+
+    async fn build_compat_image_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        ProviderFactory::compat_image_client_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_compat_speech_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        ProviderFactory::compat_speech_client_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_compat_transcription_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        ProviderFactory::compat_transcription_client_with_ctx(self.factory.as_ref(), model_id, ctx)
+            .await
+    }
+
+    async fn build_compat_video_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        ProviderFactory::compat_video_client_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_compat_reranking_client_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        ProviderFactory::compat_reranking_client_with_ctx(self.factory.as_ref(), model_id, ctx)
+            .await
+    }
+}
+
+#[async_trait::async_trait]
+impl ProviderExtensionFactory for ProviderFactoryFacetAdapter {
+    async fn build_file_management_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FileManagementCapability>, LlmError> {
+        ProviderFactory::file_management_capability_with_ctx(self.factory.as_ref(), model_id, ctx)
+            .await
+    }
+
+    async fn build_skills_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn SkillsCapability>, LlmError> {
+        ProviderFactory::skills_capability_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_music_generation_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn MusicGenerationCapability>, LlmError> {
+        ProviderFactory::music_generation_capability_with_ctx(self.factory.as_ref(), model_id, ctx)
+            .await
+    }
+}
+
 #[async_trait::async_trait]
 impl<T> ProviderFamilyFactory for T
 where

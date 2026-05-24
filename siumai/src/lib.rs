@@ -541,9 +541,14 @@ pub mod experimental {
         pub use siumai_core::retry::*;
     }
 
-    /// Core and provider-utils compatibility utility modules.
+    /// Core runtime and provider-utils compatibility utility modules.
     pub mod utils {
-        pub use siumai_core::utils::*;
+        pub use siumai_core::utils::{
+            StreamingToolCallDelta, StreamingToolCallFunctionDelta, StreamingToolCallTracker,
+            StreamingToolCallTrackerOptions, StreamingToolCallTypeValidation, cancel, delay,
+            is_abort_error, streaming_tool_call,
+        };
+        pub use siumai_provider_utils::*;
     }
 }
 
