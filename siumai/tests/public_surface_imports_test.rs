@@ -1732,6 +1732,8 @@ fn public_surface_extensions_imports_compile() {
 #[test]
 #[allow(deprecated)]
 fn public_surface_compat_imports_compile() {
+    use siumai::compat::builder::{BuilderBase, ProviderCore};
+    use siumai::compat::client::{ClientWrapper, LlmClient};
     use siumai::compat::{
         CallSettings, Experimental_GenerateImageResult, Experimental_GeneratedImage,
         Experimental_LanguageModelStreamPart, Experimental_SpeechResult,
@@ -1756,6 +1758,10 @@ fn public_surface_compat_imports_compile() {
     let _ = size_of::<StreamingToolCallTracker>();
     let _ = size_of::<StreamingToolCallTrackerOptions>();
     let _ = size_of::<StreamingToolCallTypeValidation>();
+    let _ = size_of::<BuilderBase>();
+    let _ = size_of::<ProviderCore>();
+    let _ = size_of::<ClientWrapper>();
+    let _ = size_of::<*const dyn LlmClient>();
     let _ = experimental_filter_active_tools::<String>
         as fn(
             Option<&[siumai::compat::types::Tool]>,
@@ -1768,6 +1774,8 @@ fn public_surface_compat_imports_compile() {
 #[allow(deprecated)]
 fn public_surface_compat_prelude_imports_compile() {
     use siumai::experimental::streaming::LanguageModelV4StreamPart;
+    use siumai::prelude::compat::content as prelude_compat_content;
+    use siumai::prelude::compat::types as prelude_compat_types;
     use siumai::prelude::compat::{
         CallSettings, Experimental_GenerateImageResult, Experimental_GeneratedImage,
         Experimental_LanguageModelStreamPart, Experimental_SpeechResult,
@@ -1792,6 +1800,8 @@ fn public_surface_compat_prelude_imports_compile() {
     let _ = size_of::<StreamingToolCallTracker>();
     let _ = size_of::<StreamingToolCallTrackerOptions>();
     let _ = size_of::<StreamingToolCallTypeValidation>();
+    let _ = size_of::<prelude_compat_content::ContentPart>();
+    let _ = size_of::<prelude_compat_types::ChatMessage>();
     let _ = experimental_filter_active_tools::<String>
         as fn(
             Option<&[siumai::prelude::compat::types::Tool]>,

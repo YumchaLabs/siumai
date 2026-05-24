@@ -16,14 +16,12 @@ the next public-surface and runtime deepening queue:
 
 ## Active Task
 
-- Task ID: FPSD-070
-- Owner: codex
-- Files: `siumai-core`, `siumai`, `docs/architecture`, `docs/migration`, source guards,
-  workstream evidence.
-- Validation: compatibility shim audit document, source guards for retained shims, public compile
-  tests for kept compatibility paths.
+- Task ID: FPSD-080
+- Owner: planner
+- Files: `docs/workstreams/fearless-public-surface-deepening`
+- Validation: final gate matrix in `EVIDENCE_AND_GATES.md`; workstream docs agree.
 - Status: READY
-- Review: self-review
+- Review: final self-review
 - Evidence: `EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Last Update
@@ -53,6 +51,10 @@ the next public-surface and runtime deepening queue:
 - Completed FPSD-060 by moving `StreamProcessor` final response assembly into
   `siumai-core/src/streaming/processor/response_assembly.rs`, keeping stream processing behavior and
   provider-map neutrality guarded.
+- Completed FPSD-070 by adding `compatibility-shim-audit.md`, classifying remaining compatibility
+  shims against ADR-0007 and ADR-0008, adding an audit coverage guard, and extending public compat
+  import coverage for retained client/builder/content/type paths. No shim is safe to delete in this
+  lane; future removals are breaking-lane candidates.
 
 ## Blockers
 
@@ -60,6 +62,6 @@ the next public-surface and runtime deepening queue:
 
 ## Next Recommended Action
 
-1. Start FPSD-070 by reading ADR-0007 and ADR-0008, then inventory remaining compatibility shims.
-2. Classify each shim as keep, delete now, or split into a future breaking-change lane before
-   changing any public compatibility path.
+1. Start FPSD-080 closeout by recording the final gate matrix and residual breaking-lane
+   candidates.
+2. Mark the workstream complete if the final docs agree and no uncommitted source work remains.

@@ -1852,6 +1852,62 @@ fn streaming_tool_call_helpers_are_explicit_compat_only() {
 }
 
 #[test]
+fn public_surface_deepening_compatibility_audit_classifies_remaining_shims() {
+    let audit =
+        fs::read_to_string(crate_root().join(
+            "../docs/workstreams/fearless-public-surface-deepening/compatibility-shim-audit.md",
+        ))
+        .expect("read public surface deepening compatibility audit");
+
+    for required in [
+        "`siumai::compat::{Siumai, SiumaiBuilder, Provider}`",
+        "`siumai::prelude::compat::{Siumai, SiumaiBuilder, Provider}`",
+        "`siumai::compat::builder::*`",
+        "`siumai::compat::builder::BuilderBase`",
+        "`siumai_core::compat::client::{LlmClient, ClientWrapper}`",
+        "`siumai::compat::client::{LlmClient, ClientWrapper}`",
+        "`siumai::experimental::client::{LlmClient, ClientWrapper}`",
+        "`siumai_registry::compat::client::{LlmClient, ClientWrapper}`",
+        "`siumai_core::client`",
+        "`siumai_core::core::client`",
+        "`ProviderCompatibilityFactory`",
+        "`ProviderFactory::compat_*_client(...)`",
+        "`siumai_core::compat::content::*`",
+        "`siumai::compat::content::*`",
+        "`siumai::content::compat::*`",
+        "`siumai::prelude::compat::content::*`",
+        "`siumai::compat::types::*`",
+        "`siumai::prelude::compat::types::*`",
+        "`siumai_core::utils::streaming_tool_call::*`",
+        "`siumai::provider_ext::<provider>::legacy_params::*`",
+        "`siumai::protocol::openai::compat::*`",
+    ] {
+        assert!(
+            audit.contains(required),
+            "public surface deepening compatibility audit should classify `{required}`"
+        );
+    }
+
+    for required in [
+        "ADR-0007",
+        "ADR-0008",
+        "keep now",
+        "future breaking lane",
+        "delete now: none",
+        "`siumai::Provider`",
+        "`siumai::provider::*`",
+        "`siumai::builder::*`",
+        "`siumai::types::*`",
+        "`siumai_registry::LlmClient`",
+    ] {
+        assert!(
+            audit.contains(required),
+            "public surface deepening compatibility audit should preserve decision marker `{required}`"
+        );
+    }
+}
+
+#[test]
 fn stable_registry_prelude_exports_factory_signature_types() {
     let lib_rs = read_source("src/lib.rs");
     let prelude_rs = prelude_source();

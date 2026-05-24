@@ -84,7 +84,7 @@ Status legend:
 
 ## M4 — Compatibility Shim Audit
 
-- [ ] FPSD-070 [owner=codex] [deps=FPSD-020] [scope=siumai-core,siumai,docs/architecture,docs/migration]
+- [x] FPSD-070 [owner=codex] [deps=FPSD-020] [scope=siumai-core,siumai,docs/architecture,docs/migration]
   Goal: Audit remaining compatibility shims and classify each as keep, delete now, or split into a
   future breaking-change lane.
   Validation:
@@ -93,7 +93,9 @@ Status legend:
   - migration docs for any removal.
   Review: check ADR-0007 and ADR-0008 before deleting.
   Evidence: compatibility shim audit document and tests.
-  Handoff: FPSD-080 closes or splits deletion work.
+  Handoff: DONE. Added `compatibility-shim-audit.md`; no remaining shim is safe to delete in this
+  lane because ADR-0007 / ADR-0008 and migration docs require explicit compatibility retention.
+  Future removals are split to breaking-change follow-up candidates.
 
 ## M5 — Integration And Closeout
 
