@@ -158,6 +158,57 @@ fn gemini_model_catalog_stays_out_of_provider_reexport_glue() {
 }
 
 #[test]
+fn provider_ext_legacy_params_are_explicitly_scoped() {
+    let provider_modules = [
+        (
+            "openai",
+            [
+                "OpenAiParams",
+                "OpenAiParamsBuilder",
+                "FunctionChoice",
+                "ResponseFormat",
+                "ToolChoice",
+            ]
+            .as_slice(),
+        ),
+        ("anthropic", ["AnthropicParams", "CacheControl"].as_slice()),
+        (
+            "gemini",
+            [
+                "GeminiParams",
+                "GeminiParamsBuilder",
+                "GenerationConfig",
+                "SafetyCategory",
+                "SafetySetting",
+                "SafetyThreshold",
+            ]
+            .as_slice(),
+        ),
+    ];
+
+    for (provider, legacy_names) in provider_modules {
+        let source = read_source(&format!("src/provider_ext/{provider}.rs"));
+        let legacy_start = source
+            .find("pub mod legacy_params")
+            .unwrap_or_else(|| panic!("provider_ext::{provider} should expose legacy_params"));
+        let legacy_source = &source[legacy_start..];
+        let root_source = &source[..legacy_start];
+        let root_identifiers = source_identifiers(root_source);
+
+        for legacy_name in legacy_names {
+            assert!(
+                source_identifiers(legacy_source).contains(*legacy_name),
+                "provider_ext::{provider} should keep legacy parameter `{legacy_name}` inside legacy_params"
+            );
+            assert!(
+                !root_identifiers.contains(*legacy_name),
+                "provider_ext::{provider} must not flatten legacy parameter `{legacy_name}` at the provider root"
+            );
+        }
+    }
+}
+
+#[test]
 fn experimental_bridge_is_owned_by_bridge_crate_and_reexported_by_facade() {
     let lib_rs = read_source("src/lib.rs");
     let bridge_crate_lib = fs::read_to_string(crate_root().join("../siumai-bridge/src/lib.rs"))

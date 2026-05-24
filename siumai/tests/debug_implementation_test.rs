@@ -62,7 +62,7 @@ mod debug_tests {
     fn test_anthropic_client_debug() {
         use siumai::prelude::unified::{CommonParams, HttpConfig};
         use siumai::provider_ext::anthropic::AnthropicClient;
-        use siumai::provider_ext::anthropic::AnthropicParams;
+        use siumai::provider_ext::anthropic::legacy_params::AnthropicParams;
 
         let common_params = CommonParams {
             model: "claude-3-5-sonnet-20241022".to_string(),

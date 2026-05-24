@@ -104,8 +104,12 @@ pub mod resources {
     };
 }
 
-// Legacy Gemini parameter structs (provider-owned).
-pub use siumai_provider_gemini::params::gemini::{
-    GeminiParams, GeminiParamsBuilder, GenerationConfig, SafetyCategory, SafetySetting,
-    SafetyThreshold,
-};
+/// Legacy Gemini parameter structs (client-level defaults).
+///
+/// Prefer request-level provider options (`GeminiOptions`) for new code.
+pub mod legacy_params {
+    pub use siumai_provider_gemini::params::gemini::{
+        GeminiParams, GeminiParamsBuilder, GenerationConfig, SafetyCategory, SafetySetting,
+        SafetyThreshold,
+    };
+}

@@ -66,6 +66,11 @@ construct shared structs directly, or compare serialized snapshots.
 - Anthropic prompt-cache and document-part message helpers: prefer the provider-owned
   `AnthropicChatMessageExt` trait from `siumai::provider_ext::anthropic::options`.
   Historical `ChatMessageBuilder` Anthropic helper methods were removed from `siumai-spec`.
+- Legacy provider parameter structs: import old client-level default carriers from explicit
+  `legacy_params` submodules, for example
+  `siumai::provider_ext::anthropic::legacy_params::AnthropicParams` or
+  `siumai::provider_ext::gemini::legacy_params::GeminiParams`. New code should prefer
+  request-level typed provider options from `provider_ext::<provider>::options::*`.
 - `HttpConfig` defaults: `siumai-spec` no longer reads process environment variables. Runtime
   builder/config-first paths still resolve the `SIUMAI_STREAM_DISABLE_COMPRESSION` default in
   `siumai-core`; direct `HttpConfig::default()` construction is now a deterministic data default.

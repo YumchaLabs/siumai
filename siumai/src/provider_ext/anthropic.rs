@@ -106,5 +106,9 @@ pub mod resources {
     };
 }
 
-// Legacy Anthropic parameter structs (provider-owned).
-pub use siumai_provider_anthropic::params::anthropic::{AnthropicParams, CacheControl};
+/// Legacy Anthropic parameter structs (client-level defaults).
+///
+/// Prefer request-level provider options (`AnthropicOptions`) for new code.
+pub mod legacy_params {
+    pub use siumai_provider_anthropic::params::anthropic::{AnthropicParams, CacheControl};
+}

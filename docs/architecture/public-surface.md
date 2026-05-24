@@ -108,7 +108,13 @@ For navigation/discoverability, each provider extension module may also expose s
 
 - `siumai::provider_ext::<provider>::options::*`
 - `siumai::provider_ext::<provider>::metadata::*`
+- `siumai::provider_ext::<provider>::legacy_params::*` (migration-only client-level defaults)
 - `siumai::provider_ext::<provider>::ext::*`
+
+Legacy provider parameter structs such as `OpenAiParams`, `AnthropicParams`, and `GeminiParams`
+are client-level default carriers from older APIs. Keep them out of the flattened provider
+extension root and import them through `legacy_params::*` only when migrating code that still calls
+provider constructors requiring those parameter structs.
 
 Provider package helper constructors that return `SiumaiBuilder` bind to the registry-owned builder
 type directly; provider extension helpers should not route through the historical

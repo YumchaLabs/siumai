@@ -30,6 +30,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Moved prompt `DataContent` projection helpers out of `prelude::unified::*`; import
   `convert_data_content_to_base64_string`, `convert_data_content_to_uint8_array`, and
   `convert_uint8_array_to_text` from the explicit `siumai::{...}` facade root.
+- Scoped legacy OpenAI/Anthropic/Gemini provider parameter structs under
+  `siumai::provider_ext::<provider>::legacy_params::*` so provider extension roots keep typed
+  request options and metadata separate from migration-only client defaults.
 - Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,
   Transcription, and Video are stable families; Music remains extension-only unless a future ADR
   promotes it.

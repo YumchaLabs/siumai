@@ -1858,6 +1858,11 @@ fn public_surface_openai_provider_ext_compiles() {
             OpenAiResponsesEventConverter, moderation, responses, speech_streaming,
             transcription_streaming,
         },
+        legacy_params::{
+            FunctionChoice as OpenAiLegacyFunctionChoice, OpenAiParams as OpenAiLegacyParams,
+            OpenAiParamsBuilder as OpenAiLegacyParamsBuilder,
+            ResponseFormat as OpenAiLegacyResponseFormat, ToolChoice as OpenAiLegacyToolChoice,
+        },
         metadata::*,
         openai as openai_builder,
         options::*,
@@ -1868,6 +1873,11 @@ fn public_surface_openai_provider_ext_compiles() {
     let _ = size_of::<OpenAiClient>();
     let _ = size_of::<OpenAiConfig>();
     let _ = size_of::<OpenAIProviderSettings>();
+    let _ = size_of::<OpenAiLegacyParams>();
+    let _ = size_of::<OpenAiLegacyParamsBuilder>();
+    let _ = size_of::<OpenAiLegacyFunctionChoice>();
+    let _ = size_of::<OpenAiLegacyResponseFormat>();
+    let _ = size_of::<OpenAiLegacyToolChoice>();
     let _ = size_of::<OpenAIContextManagementConfig>();
     let _ = size_of::<OpenAIContextManagementType>();
     let _ = size_of::<OpenAILanguageModelChatOptions>();
@@ -2292,6 +2302,9 @@ fn public_surface_anthropic_provider_ext_compiles() {
         anthropic as anthropic_builder, create_anthropic,
         ext::{structured_output, thinking, tools},
         find_anthropic_container_id_from_last_step, forward_anthropic_container_id_from_last_step,
+        legacy_params::{
+            AnthropicParams as AnthropicLegacyParams, CacheControl as AnthropicLegacyCacheControl,
+        },
         metadata::*,
         options::*,
         resources::{AnthropicFiles, AnthropicMessageBatches, AnthropicTokens},
@@ -2303,6 +2316,8 @@ fn public_surface_anthropic_provider_ext_compiles() {
     let _ = size_of::<AnthropicConfig>();
     let _ = size_of::<AnthropicProviderSettings>();
     let _ = VERSION;
+    let _ = size_of::<AnthropicLegacyParams>();
+    let _ = size_of::<AnthropicLegacyCacheControl>();
     let _ = size_of::<AnthropicOptions>();
     let _ = size_of::<AnthropicLanguageModelOptions>();
     let _ = size_of::<AnthropicProviderOptions>();
@@ -2476,6 +2491,13 @@ fn public_surface_gemini_provider_ext_compiles() {
         GeminiBuilder, GeminiClient, chat, embedding,
         ext::{code_execution, file_search_stores, tools},
         image,
+        legacy_params::{
+            GeminiParams as GeminiLegacyParams, GeminiParamsBuilder as GeminiLegacyParamsBuilder,
+            GenerationConfig as GeminiLegacyGenerationConfig,
+            SafetyCategory as GeminiLegacySafetyCategory,
+            SafetySetting as GeminiLegacySafetySetting,
+            SafetyThreshold as GeminiLegacySafetyThreshold,
+        },
         metadata::*,
         model_sets,
         options::*,
@@ -2488,6 +2510,12 @@ fn public_surface_gemini_provider_ext_compiles() {
 
     let _ = size_of::<GeminiBuilder>();
     let _ = size_of::<GeminiClient>();
+    let _ = size_of::<GeminiLegacyParams>();
+    let _ = size_of::<GeminiLegacyParamsBuilder>();
+    let _ = size_of::<GeminiLegacyGenerationConfig>();
+    let _ = size_of::<GeminiLegacySafetyCategory>();
+    let _ = size_of::<GeminiLegacySafetySetting>();
+    let _ = size_of::<GeminiLegacySafetyThreshold>();
     let _ = size_of::<GeminiImageOptions>();
     let _ = size_of::<GoogleImageModelOptions>();
     let _ = size_of::<GoogleLanguageModelOptions>();
