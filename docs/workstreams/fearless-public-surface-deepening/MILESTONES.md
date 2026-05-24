@@ -1,6 +1,6 @@
 # Fearless Public Surface Deepening — Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## M0 — Scope And Evidence Freeze
@@ -77,3 +77,10 @@ Exit criteria:
 - Evidence is recorded for all completed slices.
 - Deferred work is explicit.
 - `WORKSTREAM.json`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`, and `HANDOFF.md` agree.
+
+Result:
+
+- Complete. All task ledger items are marked done.
+- No implementation task remains open in this lane.
+- Future compatibility removals are explicitly deferred to breaking-change follow-ons rather than
+  hidden as unfinished work.

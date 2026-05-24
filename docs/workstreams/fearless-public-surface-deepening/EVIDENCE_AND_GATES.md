@@ -1,7 +1,10 @@
 # Fearless Public Surface Deepening — Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
+
+Closeout: all task ledger items are complete. The final verification is the focused gate matrix
+below plus the FPSD-080 documentation consistency check.
 
 ## Smallest Current Repro
 
@@ -118,3 +121,4 @@ Before accepting a major task or lane closeout, run or perform a review focused 
 | 2026-05-25 | FPSD-070 | `cargo nextest run -p siumai --test public_surface_imports_test public_surface_compat_imports_compile public_surface_compat_prelude_imports_compile public_surface_legacy_content_part_uses_explicit_compat_namespace public_surface_directional_content_namespaces_compile --no-default-features --features openai --no-fail-fast`. | Pass: 4 tests run, 4 passed. | Proves retained facade compatibility imports still compile through explicit compat paths. |
 | 2026-05-25 | FPSD-070 | `cargo check -p siumai-core --tests --no-default-features`. | Pass | Proves core compatibility aliases and utility classifications still compile. |
 | 2026-05-25 | FPSD-070 | `cargo nextest run -p siumai-core --test core_provider_boundary_test llm_client_is_physically_scoped_under_compat_module core_utils_remaining_owned_modules_are_classified --no-default-features --no-fail-fast`. | Pass: 2 tests run, 2 passed. | Rechecks core-owned compatibility boundaries for generic client and streaming tool-call helpers. |
+| 2026-05-25 | FPSD-080 | Workstream docs updated to closed status and residual compatibility removals listed as follow-on candidates. | Pass | Proves the lane has no hidden open implementation task after FPSD-070. |

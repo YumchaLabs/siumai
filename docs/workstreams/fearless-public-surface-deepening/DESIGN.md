@@ -1,6 +1,6 @@
 # Fearless Public Surface Deepening
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Why This Lane Exists
@@ -103,3 +103,19 @@ This lane can close when:
 - compatibility shims are audited with keep/delete decisions,
 - evidence gates pass, and
 - follow-on work is either completed, deferred, or split into a new workstream.
+
+## Closeout Result
+
+Closed on 2026-05-25.
+
+The lane met its target state:
+
+- `siumai::tooling` now exposes a curated facade surface instead of wildcard-mirroring core.
+- `siumai/src/lib.rs` no longer owns the large hosted-tools, protocol, content, extensions,
+  experimental, or prelude bodies inline.
+- `siumai::image` and `siumai::video` now keep stable public roots over named helper modules.
+- `StreamProcessor` final response assembly moved behind a named core streaming helper module.
+- Remaining compatibility shims are classified in `compatibility-shim-audit.md`.
+
+No compatibility shim was deleted in the final audit slice because the remaining shims are either
+explicit migration namespaces or future breaking-lane candidates governed by ADR-0007 / ADR-0008.

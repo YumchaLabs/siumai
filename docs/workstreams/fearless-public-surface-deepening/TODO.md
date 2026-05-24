@@ -1,6 +1,6 @@
 # Fearless Public Surface Deepening — TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 Status legend:
@@ -99,7 +99,7 @@ Status legend:
 
 ## M5 — Integration And Closeout
 
-- [ ] FPSD-080 [owner=planner] [deps=FPSD-020,FPSD-030,FPSD-040,FPSD-050,FPSD-060,FPSD-070] [scope=docs/workstreams/fearless-public-surface-deepening]
+- [x] FPSD-080 [owner=planner] [deps=FPSD-020,FPSD-030,FPSD-040,FPSD-050,FPSD-060,FPSD-070] [scope=docs/workstreams/fearless-public-surface-deepening]
   Goal: Close the lane or split unresolved work into narrower follow-ons.
   Validation:
   - documented final gate matrix in `EVIDENCE_AND_GATES.md`
@@ -107,4 +107,5 @@ Status legend:
   Review: final self-review or `review-workstream`.
   Evidence: updated `WORKSTREAM.json`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`, and
   `HANDOFF.md`.
-  Handoff: Summarize residual risks and next lane if any.
+  Handoff: DONE. Lane closed with all executable tasks complete. Residual compatibility removals
+  are future breaking-lane candidates recorded in `compatibility-shim-audit.md`.

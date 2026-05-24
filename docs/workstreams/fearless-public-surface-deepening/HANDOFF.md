@@ -1,12 +1,12 @@
 # Fearless Public Surface Deepening — Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Current State
 
-This workstream is active as a follow-on to the closed FCAB and module-deepening lanes. It tracks
-the next public-surface and runtime deepening queue:
+This workstream is closed as a follow-on to the closed FCAB and module-deepening lanes. It completed
+the public-surface and runtime deepening queue:
 
 - narrow `siumai::tooling` (done),
 - split facade aggregation in `siumai/src/lib.rs`,
@@ -16,13 +16,7 @@ the next public-surface and runtime deepening queue:
 
 ## Active Task
 
-- Task ID: FPSD-080
-- Owner: planner
-- Files: `docs/workstreams/fearless-public-surface-deepening`
-- Validation: final gate matrix in `EVIDENCE_AND_GATES.md`; workstream docs agree.
-- Status: READY
-- Review: final self-review
-- Evidence: `EVIDENCE_AND_GATES.md`
+None. The lane is closed.
 
 ## Decisions Since Last Update
 
@@ -55,13 +49,23 @@ the next public-surface and runtime deepening queue:
   shims against ADR-0007 and ADR-0008, adding an audit coverage guard, and extending public compat
   import coverage for retained client/builder/content/type paths. No shim is safe to delete in this
   lane; future removals are breaking-lane candidates.
+- Completed FPSD-080 by recording final evidence, marking the lane closed, and leaving future
+  compatibility removals as explicit breaking-lane candidates rather than open work in this lane.
 
 ## Blockers
 
 - No blocker currently.
 
-## Next Recommended Action
+## Follow-On Candidates
 
-1. Start FPSD-080 closeout by recording the final gate matrix and residual breaking-lane
-   candidates.
-2. Mark the workstream complete if the final docs agree and no uncommitted source work remains.
+1. Open a narrow compatibility-breaking lane for method-style facade construction removal when
+   public examples and downstream migration no longer require `siumai::compat::{Siumai,
+   SiumaiBuilder, Provider}`.
+2. Open a core compatibility alias removal lane for `siumai_core::client` and
+   `siumai_core::core::client` after generic-client users migrate to `siumai_core::compat::client`.
+3. Open a broad compat namespace narrowing lane for `siumai::compat::types::*` and
+   `siumai::prelude::compat::types::*`.
+4. Open a future ADR-0008 breaking slice for legacy `ContentPart` namespace movement once
+   directional adapters and fixture parity satisfy the ADR conditions.
+5. Open a registry compatibility-factory retirement lane after method-style `Siumai` and
+   extension-only generic-client adapters have native family or extension factories.

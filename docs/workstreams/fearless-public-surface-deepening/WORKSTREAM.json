@@ -2,13 +2,13 @@
   "schema_version": 1,
   "slug": "fearless-public-surface-deepening",
   "title": "Fearless Public Surface Deepening",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-25",
   "scope_kind": "architecture-refactor",
   "problem": "Several post-FCAB facade and runtime Modules still expose shallow wildcard surfaces or large mixed-purpose implementation files that reduce locality and make future public-surface changes harder to review.",
   "objective": "Deepen public facade and core runtime Modules by replacing shallow wildcard mirrors with explicit surfaces, splitting large implementation files behind stable roots, and auditing remaining compatibility shims.",
   "active_task": null,
-  "next_task": "FPSD-080",
+  "next_task": null,
   "authoritative_docs": [
     {
       "role": "design",
@@ -38,7 +38,8 @@
     "cargo check -p siumai-core --tests --no-default-features"
   ],
   "evidence": [
-    "docs/workstreams/fearless-public-surface-deepening/EVIDENCE_AND_GATES.md"
+    "docs/workstreams/fearless-public-surface-deepening/EVIDENCE_AND_GATES.md",
+    "docs/workstreams/fearless-public-surface-deepening/compatibility-shim-audit.md"
   ],
   "adr_refs": [
     "docs/adr/0001-vercel-aligned-modular-split.md",
@@ -47,7 +48,7 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue while slices preserve public paths and have focused gates. Split a child lane for compatibility removals or deep streaming behavior changes."
+    "default_action": "closed",
+    "notes": "Workstream closed. Shipped explicit tooling facade exports, split facade root/prelude/experimental/image/video helpers, split StreamProcessor response assembly, and classified remaining compatibility shims. Future compatibility removals require narrower breaking-change lanes."
   }
 }
