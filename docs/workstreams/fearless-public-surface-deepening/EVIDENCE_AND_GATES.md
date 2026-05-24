@@ -40,6 +40,14 @@ cargo nextest run -p siumai --test public_surface_imports_test --no-default-feat
 
 Use narrower filters during iteration and record the exact filter.
 
+### Facade Root Namespace Gate
+
+```powershell
+cargo nextest run -p siumai --test facade_architecture_boundary_test facade_root_splits_public_namespace_modules --no-default-features --features openai --no-fail-fast
+```
+
+Use this when splitting public namespace modules out of `siumai/src/lib.rs`.
+
 ### Broader Closeout Gate
 
 Prefer a focused package matrix over full workspace commands in this Windows terminal when full
@@ -74,3 +82,9 @@ Before accepting a major task or lane closeout, run or perform a review focused 
 | 2026-05-25 | FPSD-020 | `cargo nextest run -p siumai --test tooling_runtime_public_surface_test public_surface_tooling_runtime_contract_compiles --no-default-features --features openai --no-fail-fast`. | Pass: 1 test run, 1 passed. | Proves the broader runtime tooling contract still compiles from the public facade. |
 | 2026-05-25 | FPSD-020 | `cargo nextest run -p siumai --test public_surface_imports_test public_surface_tooling_imports_compile --no-default-features --features openai --no-fail-fast`. | Pass: 1 test run, 1 passed. | Proves documented `siumai::tooling` imports still work. |
 | 2026-05-25 | FPSD-020 | `git diff --check`. | Pass; Git reported expected LF-to-CRLF working-copy warnings only. | Proves touched source/docs have no whitespace-error diff. |
+| 2026-05-25 | FPSD-030 | Split `siumai::{hosted_tools,protocol,content,extensions}` from `siumai/src/lib.rs` into named source files. | In progress | Reduces facade root coupling while preserving existing public paths; `prelude` and `experimental` remain in `lib.rs` for follow-up slices. |
+| 2026-05-25 | FPSD-030 | `cargo nextest run -p siumai --test facade_architecture_boundary_test facade_root_splits_public_namespace_modules legacy_content_part_has_explicit_compat_namespace directional_content_namespaces_are_visible_and_compat_is_explicit stable_unified_prelude_keeps_non_family_extension_types_scoped hosted_tools_facade_reexports_protocol_owned_constructors facade_root_and_experimental_exports_are_owner_backed_and_scoped --no-default-features --features openai --no-fail-fast`. | Pass: 6 tests run, 6 passed. | Proves the split root namespace files keep owner-backed exports and existing facade architecture guards still apply. |
+| 2026-05-25 | FPSD-030 | `cargo check -p siumai --tests --no-default-features --features openai`. | Pass | Proves the facade crate and tests compile after the namespace split. |
+| 2026-05-25 | FPSD-030 | `cargo nextest run -p siumai --test public_surface_imports_test public_surface_directional_content_namespaces_compile public_surface_extensions_imports_compile public_surface_openai_provider_ext_compiles --no-default-features --features openai --no-fail-fast`. | Pass: 3 tests run, 3 passed. | Proves `siumai::content`, `siumai::extensions`, and OpenAI hosted-tool imports still compile through public paths. |
+| 2026-05-25 | FPSD-030 | `cargo nextest run -p siumai --test public_surface_imports_test public_surface_protocol_openai_compiles --no-default-features --features openai,protocol-openai --no-fail-fast`. | Pass: 1 test run, 1 passed. | Proves the split `siumai::protocol::openai` facade still compiles with the required provider feature enabled. |
+| 2026-05-25 | FPSD-030 | `cargo nextest run -p siumai --test public_surface_imports_test public_surface_protocol_openai_compiles --no-default-features --features protocol-openai --no-fail-fast`. | Expected fail: `build.rs` requires at least one provider feature. | Documents the pre-existing facade feature constraint; use `openai,protocol-openai` for this gate. |

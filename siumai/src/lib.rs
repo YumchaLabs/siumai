@@ -115,27 +115,7 @@ pub mod __private {
 }
 
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).
-pub mod hosted_tools {
-    #[cfg(any(feature = "openai", feature = "protocol-openai"))]
-    pub mod openai {
-        pub use siumai_protocol_openai::hosted_tools::openai::*;
-    }
-
-    #[cfg(any(feature = "anthropic", feature = "protocol-anthropic"))]
-    pub mod anthropic {
-        pub use siumai_protocol_anthropic::hosted_tools::anthropic::*;
-    }
-
-    #[cfg(any(
-        feature = "google",
-        feature = "google-vertex",
-        feature = "protocol-gemini"
-    ))]
-    pub mod google {
-        pub use siumai_protocol_gemini::hosted_tools::google::*;
-    }
-}
-
+pub mod hosted_tools;
 pub use siumai_core::types::{
     convert_data_content_to_base64_string, convert_data_content_to_uint8_array,
     convert_uint8_array_to_text,
@@ -168,36 +148,7 @@ pub use siumai_provider_utils::{
 };
 
 /// Protocol mapping facade (stable imports for protocol standards).
-///
-/// This module exists to decouple downstream code from internal crate names.
-/// Over time we may rename protocol crates (e.g. move away from `*-compatible` naming),
-/// but `siumai::protocol::*` should remain stable.
-pub mod protocol {
-    /// OpenAI-like protocol standard mapping (Chat/Embedding/Image/Rerank).
-    ///
-    /// Backed by `siumai-protocol-openai` (preferred; wraps the legacy `*-compatible` crate name).
-    #[cfg(any(feature = "openai", feature = "protocol-openai"))]
-    pub mod openai {
-        pub use siumai_protocol_openai::standards::openai::*;
-    }
-
-    /// Anthropic Messages protocol standard mapping (Chat + streaming).
-    ///
-    /// Backed by `siumai-protocol-anthropic` (preferred; wraps the legacy `*-compatible` crate name).
-    #[cfg(any(feature = "anthropic", feature = "protocol-anthropic"))]
-    pub mod anthropic {
-        pub use siumai_protocol_anthropic::standards::anthropic::*;
-    }
-
-    /// Google Gemini protocol standard mapping (GenerateContent + streaming).
-    ///
-    /// Backed by `siumai-protocol-gemini`.
-    #[cfg(any(feature = "google", feature = "protocol-gemini"))]
-    pub mod gemini {
-        pub use siumai_protocol_gemini::standards::gemini::*;
-    }
-}
-
+pub mod protocol;
 /// Provider-defined tool factories (Vercel-aligned).
 pub mod tools;
 
@@ -377,23 +328,7 @@ pub mod compat;
 ///
 /// Prefer `content::prompt` for request input and `content::output` for generated response output.
 /// Legacy serde-facing chat payloads remain explicit under `content::compat` / `compat::content`.
-pub mod content {
-    /// Request-side prompt and model-message content.
-    pub mod prompt {
-        pub use siumai_core::types::content::prompt::*;
-    }
-
-    /// Response-side generated-output content and projection helpers.
-    pub mod output {
-        pub use siumai_core::types::content::output::*;
-    }
-
-    /// Legacy chat content carriers for migration and serde compatibility.
-    pub mod compat {
-        pub use crate::compat::content::*;
-    }
-}
-
+pub mod content;
 // Compatibility / internal modules (kept but hidden to reduce accidental coupling).
 //
 // NOTE: These low-level modules are intentionally NOT re-exported at the top-level.
@@ -564,37 +499,17 @@ pub use siumai_registry::registry;
 /// provider-owned helpers (tools/options/metadata) under a `providers::*` namespace.
 pub use crate::provider_ext as providers;
 
-/// Provider extension APIs (non-unified surface).
-///
-/// These are stable module paths for provider-specific endpoints/resources.
-pub mod provider_ext;
-
 /// Extension capabilities (non-unified surface).
 ///
 /// These are capability/adapter-level traits and payloads rather than the stable family-model
 /// entrypoints. Prefer `siumai::prelude::unified` for stable family execution. Video's stable
 /// surface is `siumai::video::*` / `VideoModel`; the low-level `VideoGenerationCapability`
 /// remains here for provider adapters and compatibility code. Music remains extension-only.
-pub mod extensions {
-    pub use siumai_core::traits::{
-        AudioCapability, EmbeddingCapability, FileManagementCapability, ImageExtras,
-        ModelListingCapability, ModerationCapability, MusicGenerationCapability, RerankCapability,
-        SkillsCapability, SpeechExtras, TimeoutCapability, TranscriptionExtras,
-        VideoGenerationCapability,
-    };
-
-    /// Types used by non-unified extension capabilities.
-    pub mod types {
-        pub use siumai_core::types::{
-            FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
-            ImageEditInput, ImageEditRequest, ImageVariationRequest, ModerationRequest,
-            ModerationResponse, SkillFileContent, SkillProviderMetadata, SkillUploadFile,
-            SkillUploadRequest, SkillUploadResult, VideoGenerationInput, VideoGenerationRequest,
-            VideoGenerationResponse, VideoTaskStatus, VideoTaskStatusResponse,
-        };
-    }
-}
-
+pub mod extensions;
+/// Provider extension APIs (non-unified surface).
+///
+/// These are stable module paths for provider-specific endpoints/resources.
+pub mod provider_ext;
 // Model constants (simplified access)
 pub use model_catalog::model_constants as models;
 

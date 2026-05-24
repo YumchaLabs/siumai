@@ -16,11 +16,14 @@ the next public-surface and runtime deepening queue:
 
 ## Active Task
 
-- Task ID: none
-- Owner: n/a
-- Files: n/a
-- Validation: n/a
-- Status: DONE for FPSD-020
+- Task ID: FPSD-030
+- Owner: codex
+- Files: `siumai/src/lib.rs`, `siumai/src/{hosted_tools,protocol,content,extensions}.rs`,
+  facade architecture/public-surface tests, workstream evidence.
+- Validation: focused facade architecture gates, `cargo check -p siumai --tests
+  --no-default-features --features openai`, and focused public-surface import gates.
+- Status: IN PROGRESS. First slice split `hosted_tools`, `protocol`, `content`, and `extensions`
+  out of `lib.rs`; `prelude` and `experimental` remain follow-up slices.
 - Review: self-review
 - Evidence: `EVIDENCE_AND_GATES.md`
 
@@ -35,6 +38,8 @@ the next public-surface and runtime deepening queue:
 - Completed FPSD-010 by opening and committing the workstream docs.
 - Completed FPSD-020 by replacing the `siumai::tooling` wildcard mirror with explicit re-exports
   and adding `facade_tooling_module_exports_an_explicit_runtime_surface`.
+- Started FPSD-030 by moving four pure public namespace modules out of `siumai/src/lib.rs` while
+  keeping the same `siumai::{hosted_tools,protocol,content,extensions}` paths.
 
 ## Blockers
 
@@ -42,5 +47,6 @@ the next public-surface and runtime deepening queue:
 
 ## Next Recommended Action
 
-1. Commit the explicit `siumai::tooling` facade surface.
-2. Start FPSD-030 by splitting `siumai/src/lib.rs` facade policy into named modules.
+1. Finish and commit the first FPSD-030 namespace split after the package/public-surface gates pass.
+2. Continue FPSD-030 by extracting either `experimental` or `prelude` into a named module, keeping
+   public paths stable and adding a focused guard.

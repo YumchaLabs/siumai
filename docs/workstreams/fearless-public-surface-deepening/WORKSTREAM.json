@@ -7,7 +7,7 @@
   "scope_kind": "architecture-refactor",
   "problem": "Several post-FCAB facade and runtime Modules still expose shallow wildcard surfaces or large mixed-purpose implementation files that reduce locality and make future public-surface changes harder to review.",
   "objective": "Deepen public facade and core runtime Modules by replacing shallow wildcard mirrors with explicit surfaces, splitting large implementation files behind stable roots, and auditing remaining compatibility shims.",
-  "active_task": null,
+  "active_task": "FPSD-030",
   "next_task": "FPSD-030",
   "authoritative_docs": [
     {

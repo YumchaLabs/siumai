@@ -74,6 +74,25 @@ fn prelude_unified_source(lib_rs: &str) -> &str {
     &lib_rs[unified_start..unified_start + compat_start]
 }
 
+fn public_namespace_module_source(module: &str) -> String {
+    let lib_rs = read_source("src/lib.rs");
+    let prelude_start = lib_rs.find("pub mod prelude {").expect("prelude module");
+    let root_source = &lib_rs[..prelude_start];
+    assert!(
+        root_source
+            .lines()
+            .map(str::trim)
+            .any(|line| line == format!("pub mod {module};")),
+        "facade root should declare `siumai::{module}` as a named module"
+    );
+    assert!(
+        !root_source.contains(&format!("pub mod {module} {{")),
+        "facade root should not inline `siumai::{module}` implementation"
+    );
+
+    read_source(&format!("src/{module}.rs"))
+}
+
 fn source_identifiers(source: &str) -> BTreeSet<String> {
     source
         .split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
@@ -663,6 +682,7 @@ fn stable_unified_prelude_excludes_compatibility_construction_aliases() {
 #[test]
 fn legacy_content_part_has_explicit_compat_namespace() {
     let lib_rs = read_source("src/lib.rs");
+    let content_rs = public_namespace_module_source("content");
     let compat_rs = read_source("src/compat.rs");
     let public_surface = read_source("tests/public_surface_imports_test.rs");
     let migration_doc =
@@ -675,7 +695,8 @@ fn legacy_content_part_has_explicit_compat_namespace() {
         "siumai::compat::content should be the facade compatibility namespace for legacy ContentPart"
     );
     assert!(
-        lib_rs.contains("pub mod content") && lib_rs.contains("pub use crate::compat::content::*"),
+        lib_rs.contains("pub mod content;")
+            && content_rs.contains("pub use crate::compat::content::*"),
         "siumai::prelude::compat::content should re-export the legacy content compatibility namespace"
     );
     assert!(
@@ -732,6 +753,7 @@ fn stable_unified_prelude_does_not_export_legacy_content_part() {
 #[test]
 fn directional_content_namespaces_are_visible_and_compat_is_explicit() {
     let lib_rs = read_source("src/lib.rs");
+    let content_rs = public_namespace_module_source("content");
     let unified_source = prelude_unified_source(&lib_rs);
     let spec_types_rs = fs::read_to_string(workspace_root().join("siumai-spec/src/types.rs"))
         .expect("read spec types source");
@@ -743,15 +765,20 @@ fn directional_content_namespaces_are_visible_and_compat_is_explicit() {
         fs::read_to_string(workspace_root().join("docs/migration/migration-0.11.0-beta.7.md"))
             .expect("read migration beta.7 doc");
 
-    for source in [&spec_types_rs, &lib_rs] {
-        assert!(
-            source.contains("pub mod content")
-                && source.contains("pub mod prompt")
-                && source.contains("pub mod output")
-                && source.contains("pub mod compat"),
-            "spec/core/facade content exports should be split into prompt, output, and compat namespaces"
-        );
-    }
+    assert!(
+        spec_types_rs.contains("pub mod content")
+            && spec_types_rs.contains("pub mod prompt")
+            && spec_types_rs.contains("pub mod output")
+            && spec_types_rs.contains("pub mod compat"),
+        "spec/core content exports should be split into prompt, output, and compat namespaces"
+    );
+    assert!(
+        lib_rs.contains("pub mod content;")
+            && content_rs.contains("pub mod prompt")
+            && content_rs.contains("pub mod output")
+            && content_rs.contains("pub mod compat"),
+        "facade content exports should be split into a named module with prompt, output, and compat namespaces"
+    );
 
     assert!(
         unified_source.contains("pub use crate::content::prompt")
@@ -1379,6 +1406,39 @@ fn facade_root_and_experimental_exports_are_owner_backed_and_scoped() {
 }
 
 #[test]
+fn facade_root_splits_public_namespace_modules() {
+    let lib_rs = read_source("src/lib.rs");
+
+    for (module, owner_marker) in [
+        (
+            "hosted_tools",
+            "siumai_protocol_openai::hosted_tools::openai::*",
+        ),
+        ("protocol", "siumai_protocol_openai::standards::openai::*"),
+        ("content", "siumai_core::types::content::prompt::*"),
+        ("extensions", "VideoGenerationCapability"),
+    ] {
+        let source = public_namespace_module_source(module);
+        assert!(
+            source.contains(owner_marker),
+            "siumai::{module} should retain its owner-backed public re-export marker `{owner_marker}`"
+        );
+    }
+
+    let prelude_start = lib_rs.find("pub mod prelude {").expect("prelude module");
+    for module in ["hosted_tools", "protocol", "content", "extensions"] {
+        let declaration = format!("pub mod {module};");
+        assert!(
+            lib_rs[..prelude_start]
+                .lines()
+                .map(str::trim)
+                .any(|line| line == declaration),
+            "facade root should declare `siumai::{module}` before the prelude instead of hiding it inside another module"
+        );
+    }
+}
+
+#[test]
 fn stable_unified_prelude_keeps_only_audited_compatibility_and_runtime_aliases() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
@@ -1877,6 +1937,7 @@ fn stable_unified_prelude_scopes_non_family_upload_helpers() {
 #[test]
 fn stable_unified_prelude_keeps_non_family_extension_types_scoped() {
     let lib_rs = read_source("src/lib.rs");
+    let extensions_rs = public_namespace_module_source("extensions");
     let unified_source = prelude_unified_source(&lib_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
@@ -1925,7 +1986,9 @@ fn stable_unified_prelude_keeps_non_family_extension_types_scoped() {
     }
 
     assert!(
-        lib_rs.contains("pub mod extensions {")
+        lib_rs.contains("pub mod extensions;")
+            && extensions_rs.contains("pub use siumai_core::traits::{")
+            && extensions_rs.contains("pub mod types")
             && lib_rs.contains("pub use crate::extensions::*;")
             && public_surface_doc.contains("use siumai::extensions::*;")
             && public_surface_doc.contains("use siumai::extensions::types::*;")
@@ -2103,6 +2166,7 @@ fn legacy_core_root_modules_do_not_return_to_facade() {
 #[test]
 fn hosted_tools_facade_reexports_protocol_owned_constructors() {
     let lib_rs = read_source("src/lib.rs");
+    let hosted_tools_rs = public_namespace_module_source("hosted_tools");
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -2123,7 +2187,7 @@ fn hosted_tools_facade_reexports_protocol_owned_constructors() {
         "siumai_protocol_gemini::hosted_tools::google::*",
     ] {
         assert!(
-            lib_rs.contains(expected),
+            hosted_tools_rs.contains(expected),
             "facade hosted_tools should re-export protocol-owned constructor surface `{expected}`"
         );
     }
