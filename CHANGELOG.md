@@ -41,6 +41,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   retry defaults facade-owned.
 - Split `siumai-core::ui` into named type, validation, conversion, and test modules while keeping
   the public `siumai_core::ui::*` surface unchanged.
+- Split `siumai-core::tooling` into named context, factory, runtime, collection, and test modules
+  while keeping the public `siumai_core::tooling::*` surface unchanged.
 - Guarded OpenAI-compatible provider extension `*Client` / `*Config` exports as lower-level compat
   aliases beside the package-level `provider()` / `create_provider()` builder helpers.
 - Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,

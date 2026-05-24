@@ -971,6 +971,10 @@ fn core_family_contract_and_tooling_sources_do_not_handle_provider_maps() {
         "src/speech.rs",
         "src/transcription.rs",
         "src/tooling.rs",
+        "src/tooling/context.rs",
+        "src/tooling/factories.rs",
+        "src/tooling/runtime.rs",
+        "src/tooling/set.rs",
         "src/traits.rs",
         "src/traits/audio.rs",
         "src/traits/speech.rs",
@@ -1017,6 +1021,38 @@ fn core_ui_surface_is_split_across_named_modules() {
             && !source.contains("pub fn convert_to_model_messages(")
             && !source.contains("pub enum UiMessageError"),
         "siumai-core::ui should not inline the implementation back into the module root"
+    );
+}
+
+#[test]
+fn core_tooling_surface_is_split_across_named_modules() {
+    let source = fs::read_to_string(crate_root().join("src/tooling.rs"))
+        .expect("read siumai-core tooling.rs");
+    let tooling_dir = crate_root().join("src").join("tooling");
+
+    for module in ["context", "factories", "runtime", "set"] {
+        assert!(
+            source.contains(&format!("mod {module};")),
+            "siumai-core::tooling should declare the `{module}` implementation module"
+        );
+        assert!(
+            tooling_dir.join(format!("{module}.rs")).exists(),
+            "siumai-core::tooling::{module} should live in a named source file"
+        );
+    }
+    assert!(
+        source.contains("pub use context::{")
+            && source.contains("pub use factories::{")
+            && source.contains("pub use runtime::{")
+            && source.contains("pub use set::{"),
+        "siumai-core::tooling should keep the root as a curated re-export surface"
+    );
+    assert!(
+        !source.contains("pub struct ExecutableTool")
+            && !source.contains("pub struct ExecutableTools")
+            && !source.contains("pub struct ToolExecutionOptions")
+            && !source.contains("pub fn create_provider_defined_tool_factory"),
+        "siumai-core::tooling should not inline runtime, set, context, or factory implementation back into the module root"
     );
 }
 
