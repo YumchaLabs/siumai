@@ -116,6 +116,12 @@ are client-level default carriers from older APIs. Keep them out of the flattene
 extension root and import them through `legacy_params::*` only when migrating code that still calls
 provider constructors requiring those parameter structs.
 
+`siumai::provider_ext::google` is the Google package facade over the Gemini runtime. It intentionally
+mirrors the audited `provider_ext::gemini` surface while owning Google-named builder helpers such as
+`google()` and `create_google()`. Migration code that imports Gemini-era parameter structs through
+the Google package path should use `siumai::provider_ext::google::legacy_params::*`; do not flatten
+those legacy parameters into the Google extension root.
+
 Provider package helper constructors that return `SiumaiBuilder` bind to the registry-owned builder
 type directly; provider extension helpers should not route through the historical
 `siumai::provider::*` shim or the removed root `siumai::Provider` alias.

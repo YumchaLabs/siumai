@@ -33,6 +33,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Scoped legacy OpenAI/Anthropic/Gemini provider parameter structs under
   `siumai::provider_ext::<provider>::legacy_params::*` so provider extension roots keep typed
   request options and metadata separate from migration-only client defaults.
+- Documented and guarded `siumai::provider_ext::google` as the Google package facade over the
+  Gemini runtime, including the mirrored `google::legacy_params::*` migration path.
 - Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,
   Transcription, and Video are stable families; Music remains extension-only unless a future ADR
   promotes it.

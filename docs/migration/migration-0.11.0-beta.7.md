@@ -69,7 +69,8 @@ construct shared structs directly, or compare serialized snapshots.
 - Legacy provider parameter structs: import old client-level default carriers from explicit
   `legacy_params` submodules, for example
   `siumai::provider_ext::anthropic::legacy_params::AnthropicParams` or
-  `siumai::provider_ext::gemini::legacy_params::GeminiParams`. New code should prefer
+  `siumai::provider_ext::gemini::legacy_params::GeminiParams`. The Google package alias mirrors this
+  path as `siumai::provider_ext::google::legacy_params::GeminiParams`. New code should prefer
   request-level typed provider options from `provider_ext::<provider>::options::*`.
 - `HttpConfig` defaults: `siumai-spec` no longer reads process environment variables. Runtime
   builder/config-first paths still resolve the `SIUMAI_STREAM_DISABLE_COMPRESSION` default in

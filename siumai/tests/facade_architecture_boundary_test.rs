@@ -209,6 +209,32 @@ fn provider_ext_legacy_params_are_explicitly_scoped() {
 }
 
 #[test]
+fn google_provider_ext_remains_the_google_package_alias() {
+    let google_rs = read_source("src/provider_ext/google.rs");
+    let public_surface_doc =
+        fs::read_to_string(workspace_root().join("docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+
+    assert!(
+        google_rs.contains("pub fn google() -> super::gemini::GeminiBuilder")
+            && google_rs.contains("pub fn create_google() -> super::gemini::GeminiBuilder")
+            && google_rs
+                .contains("pub fn create_google_generative_ai() -> super::gemini::GeminiBuilder"),
+        "provider_ext::google should own Google-named builder helpers over the Gemini runtime"
+    );
+    assert!(
+        google_rs.contains("pub use super::gemini::*;"),
+        "provider_ext::google should stay a package-level alias of the audited Gemini/Google surface instead of duplicating every re-export"
+    );
+    assert!(
+        public_surface_doc.contains(
+            "`siumai::provider_ext::google` is the Google package facade over the Gemini runtime"
+        ) && public_surface_doc.contains("`siumai::provider_ext::google::legacy_params::*`"),
+        "public-surface.md should document the Google alias relationship and its legacy_params path"
+    );
+}
+
+#[test]
 fn experimental_bridge_is_owned_by_bridge_crate_and_reexported_by_facade() {
     let lib_rs = read_source("src/lib.rs");
     let bridge_crate_lib = fs::read_to_string(crate_root().join("../siumai-bridge/src/lib.rs"))

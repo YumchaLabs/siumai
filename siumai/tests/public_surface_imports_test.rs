@@ -2616,6 +2616,14 @@ fn public_surface_google_provider_ext_compiles() {
         embedding,
         ext::{code_execution, file_search_stores, tools},
         google as google_builder, image, interactions,
+        legacy_params::{
+            GeminiParams as GoogleLegacyGeminiParams,
+            GeminiParamsBuilder as GoogleLegacyGeminiParamsBuilder,
+            GenerationConfig as GoogleLegacyGenerationConfig,
+            SafetyCategory as GoogleLegacySafetyCategory,
+            SafetySetting as GoogleLegacySafetySetting,
+            SafetyThreshold as GoogleLegacySafetyThreshold,
+        },
         metadata::*,
         model_sets,
         options::*,
@@ -2630,6 +2638,12 @@ fn public_surface_google_provider_ext_compiles() {
     let _ = size_of::<GeminiClient>();
     let _ = size_of::<GeminiConfig>();
     let _ = size_of::<SharedIdGenerator>();
+    let _ = size_of::<GoogleLegacyGeminiParams>();
+    let _ = size_of::<GoogleLegacyGeminiParamsBuilder>();
+    let _ = size_of::<GoogleLegacyGenerationConfig>();
+    let _ = size_of::<GoogleLegacySafetyCategory>();
+    let _ = size_of::<GoogleLegacySafetySetting>();
+    let _ = size_of::<GoogleLegacySafetyThreshold>();
     let _ = size_of::<GoogleProviderSettings>();
     let _ = size_of::<GoogleInteractionsLanguageModel>();
     let _ = size_of::<GoogleInteractionsModelInput>();
