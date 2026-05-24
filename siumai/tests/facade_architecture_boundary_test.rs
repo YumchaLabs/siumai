@@ -235,6 +235,64 @@ fn google_provider_ext_remains_the_google_package_alias() {
 }
 
 #[test]
+fn openai_compatible_provider_ext_low_level_aliases_are_documented() {
+    let cases = [
+        ("deepinfra", "DeepInfraClient", "DeepInfraConfig"),
+        ("fireworks", "FireworksClient", "FireworksConfig"),
+        ("mistral", "MistralClient", "MistralConfig"),
+        ("moonshotai", "MoonshotAIClient", "MoonshotAIConfig"),
+        ("perplexity", "PerplexityClient", "PerplexityConfig"),
+        (
+            "google_vertex_xai",
+            "GoogleVertexXaiClient",
+            "GoogleVertexXaiConfig",
+        ),
+        (
+            "vertex_maas",
+            "GoogleVertexMaasClient",
+            "GoogleVertexMaasConfig",
+        ),
+    ];
+    let public_surface_doc =
+        fs::read_to_string(workspace_root().join("docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+    let normalized_public_surface_doc = public_surface_doc
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    for (provider, client_name, config_name) in cases {
+        let source = read_source(&format!("src/provider_ext/{provider}.rs"));
+        let builder_name = provider;
+        let create_name = format!("create_{provider}");
+
+        assert!(
+            source.contains("Lower-level") && source.contains("compat client/config aliases"),
+            "provider_ext::{provider} should label {client_name}/{config_name} as lower-level compat aliases"
+        );
+        assert!(
+            source.contains(client_name) && source.contains(config_name),
+            "provider_ext::{provider} should expose audited low-level compat names for migration"
+        );
+        assert!(
+            source.contains(&format!("pub fn {builder_name}()"))
+                && source.contains(&format!("pub fn {create_name}()"))
+                && source.contains("SiumaiBuilder::new()"),
+            "provider_ext::{provider} should keep package-level builder helpers next to compat aliases"
+        );
+    }
+
+    assert!(
+        normalized_public_surface_doc
+            .contains("OpenAI-compatible provider extension modules may expose")
+            && normalized_public_surface_doc.contains("`*Client` / `*Config` compat aliases")
+            && normalized_public_surface_doc
+                .contains("`provider()` and `create_provider()` builder helpers"),
+        "public-surface.md should document why these low-level aliases remain visible"
+    );
+}
+
+#[test]
 fn experimental_bridge_is_owned_by_bridge_crate_and_reexported_by_facade() {
     let lib_rs = read_source("src/lib.rs");
     let bridge_crate_lib = fs::read_to_string(crate_root().join("../siumai-bridge/src/lib.rs"))
