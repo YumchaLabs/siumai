@@ -289,6 +289,16 @@ Generic `ClientWrapper` construction is provider-agnostic. Use
 `siumai::compat::client::ClientWrapper::new(...)` for boxed advanced clients; provider-named wrapper
 constructors do not belong in `siumai-core`.
 
+UI message validation and conversion helpers live under the explicit facade module:
+
+```rust
+use siumai::ui::*;
+```
+
+`siumai::ui` exports the stable conversion/validation surface only. It should not mirror the entire
+`siumai-core::ui` module by wildcard; new core-local UI helpers need an intentional facade export
+decision before becoming public through `siumai`.
+
 Execution middleware is also an advanced integration API. Import middleware contracts and builders
 from `siumai::experimental::execution::middleware::*`, for example
 `siumai::experimental::execution::middleware::LanguageModelMiddleware`. `prelude::unified` should

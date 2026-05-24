@@ -35,6 +35,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   request options and metadata separate from migration-only client defaults.
 - Documented and guarded `siumai::provider_ext::google` as the Google package facade over the
   Gemini runtime, including the mirrored `google::legacy_params::*` migration path.
+- Narrowed `siumai::ui` to an explicit UI message validation/conversion facade instead of
+  wildcard-mirroring every `siumai-core::ui` helper.
 - Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,
   Transcription, and Video are stable families; Music remains extension-only unless a future ADR
   promotes it.

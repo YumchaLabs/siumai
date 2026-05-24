@@ -1056,6 +1056,49 @@ fn stable_unified_prelude_does_not_mirror_tooling_runtime_module() {
 }
 
 #[test]
+fn facade_ui_module_exports_an_explicit_conversion_surface() {
+    let ui_rs = read_source("src/ui.rs");
+    let public_surface_doc =
+        fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+
+    assert!(
+        !ui_rs.contains("pub use siumai_core::ui::*;"),
+        "siumai::ui should not mirror every future core UI helper through a wildcard re-export"
+    );
+
+    for stable_ui_name in [
+        "ConvertUiMessagesOptions",
+        "SafeValidateUiMessagesResult",
+        "SafeValidateUIMessagesResult",
+        "UiMessageError",
+        "UiSchemaValidator",
+        "ValidateUiMessagesSchemaOptions",
+        "convert_to_chat_request",
+        "convert_to_chat_request_with",
+        "convert_to_chat_request_with_tooling",
+        "convert_to_model_messages",
+        "convert_to_model_messages_with",
+        "convert_to_model_messages_with_tooling",
+        "safe_validate_ui_messages",
+        "safe_validate_ui_messages_with_schemas",
+        "validate_ui_messages",
+        "validate_ui_messages_with_schemas",
+    ] {
+        assert!(
+            source_identifiers(&ui_rs).contains(stable_ui_name),
+            "siumai::ui should explicitly export stable UI conversion helper `{stable_ui_name}`"
+        );
+    }
+
+    assert!(
+        public_surface_doc.contains("use siumai::ui::*;")
+            && public_surface_doc.contains("UI message validation and conversion helpers"),
+        "public-surface.md should document the explicit UI conversion module path"
+    );
+}
+
+#[test]
 fn stable_unified_prelude_does_not_export_middleware_internals() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);

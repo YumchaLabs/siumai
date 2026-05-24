@@ -60,6 +60,8 @@ construct shared structs directly, or compare serialized snapshots.
   `prelude::unified::*`.
 - Retry API controls: import `RetryOptions`, `RetryPolicy`, `retry_with`, and related helpers from
   `siumai::retry_api`, not from `prelude::unified::*`.
+- UI message conversion helpers: import `validate_ui_messages`, `convert_to_model_messages`, and
+  related helpers from the explicit `siumai::ui::*` module.
 - Error policy helpers: if you call `is_retryable()`, `status_code()`, `category()`,
   `user_message()`, or retry-delay helpers on `LlmError`, import the core-owned extension trait
   `siumai::prelude::unified::LlmErrorExt` or `siumai_core::error::LlmErrorExt`.
