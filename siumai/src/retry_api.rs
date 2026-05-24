@@ -3,7 +3,10 @@
 //! This module re-exports the provider-agnostic retry API from `siumai-core`, and adds
 //! provider-aware convenience defaults at the facade layer (not in `siumai-core`).
 
-pub use siumai_core::retry_api::*;
+pub use siumai_core::retry_api::{
+    BackoffRetryExecutor, RetryBackend, RetryOptions, RetryPolicy, classify_http_error,
+    maybe_retry, retry, retry_with,
+};
 
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use siumai_core::error::LlmError;

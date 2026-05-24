@@ -329,6 +329,10 @@ model-family prelude names. Import them from the scoped retry module:
 use siumai::retry_api::*;
 ```
 
+`siumai::retry_api` is the explicit stable retry control surface. It re-exports the selected
+provider-agnostic retry controls from `siumai-core` and adds facade-owned provider-aware backoff
+defaults; it should not wildcard-mirror the entire core retry module.
+
 `prelude::unified` should not directly export `RetryOptions`, `RetryPolicy`, `RetryBackend`,
 `BackoffRetryExecutor`, `retry`, `retry_with`, `maybe_retry`, `classify_http_error`,
 `backoff_executor_for_provider`, `backoff_options_for_provider`, or `retry_for_provider`.

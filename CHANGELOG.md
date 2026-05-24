@@ -37,6 +37,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   Gemini runtime, including the mirrored `google::legacy_params::*` migration path.
 - Narrowed `siumai::ui` to an explicit UI message validation/conversion facade instead of
   wildcard-mirroring every `siumai-core::ui` helper.
+- Narrowed `siumai::retry_api` to an explicit retry control facade while keeping provider-aware
+  retry defaults facade-owned.
 - Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,
   Transcription, and Video are stable families; Music remains extension-only unless a future ADR
   promotes it.

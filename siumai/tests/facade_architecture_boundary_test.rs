@@ -1014,6 +1014,44 @@ fn stable_unified_prelude_scopes_retry_api() {
 }
 
 #[test]
+fn facade_retry_api_exports_an_explicit_control_surface() {
+    let retry_api_rs = read_source("src/retry_api.rs");
+    let public_surface_doc =
+        fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+
+    assert!(
+        !retry_api_rs.contains("pub use siumai_core::retry_api::*;"),
+        "siumai::retry_api should not mirror every future core retry helper through a wildcard re-export"
+    );
+
+    for retry_name in [
+        "BackoffRetryExecutor",
+        "RetryBackend",
+        "RetryOptions",
+        "RetryPolicy",
+        "classify_http_error",
+        "maybe_retry",
+        "retry",
+        "retry_with",
+        "backoff_executor_for_provider",
+        "backoff_options_for_provider",
+        "retry_for_provider",
+    ] {
+        assert!(
+            source_identifiers(&retry_api_rs).contains(retry_name),
+            "siumai::retry_api should explicitly export stable retry helper `{retry_name}`"
+        );
+    }
+
+    assert!(
+        public_surface_doc.contains("use siumai::retry_api::*;")
+            && public_surface_doc.contains("stable retry control surface"),
+        "public-surface.md should document retry_api as an explicit stable control surface"
+    );
+}
+
+#[test]
 fn stable_unified_prelude_does_not_mirror_tooling_runtime_module() {
     let lib_rs = read_source("src/lib.rs");
     let unified_source = prelude_unified_source(&lib_rs);
