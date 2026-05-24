@@ -2195,6 +2195,60 @@ fn legacy_core_root_modules_do_not_return_to_facade() {
 }
 
 #[test]
+fn image_facade_splits_workflow_and_projection_helpers() {
+    let image_rs = read_source("src/image.rs");
+    let workflow_rs = read_source("src/image/workflow.rs");
+    let projection_rs = read_source("src/image/projection.rs");
+    let public_surface = read_source("tests/public_surface_imports_test.rs");
+
+    for module in ["workflow", "projection"] {
+        assert!(
+            image_rs
+                .lines()
+                .map(str::trim)
+                .any(|line| line == format!("mod {module};")),
+            "siumai::image should keep `{module}` in a named helper module"
+        );
+    }
+
+    for forbidden_root_helper in [
+        "fn merge_http_config",
+        "fn merge_batched_image_responses",
+        "fn classify_generate_image_request",
+        "fn into_generation_request",
+        "fn normalize_image_media_type",
+        "fn image_usage_from_metadata",
+        "fn project_generate_image_response",
+    ] {
+        assert!(
+            !image_rs.contains(forbidden_root_helper),
+            "siumai/src/image.rs should not own helper implementation `{forbidden_root_helper}`"
+        );
+    }
+
+    assert!(
+        workflow_rs.contains("pub(super) fn apply_generation_call_options")
+            && workflow_rs.contains("pub(super) fn split_call_image_counts")
+            && workflow_rs.contains("pub(super) async fn dispatch_generate_image"),
+        "image workflow helper module should own call options, batching, and unified dispatch"
+    );
+    assert!(
+        projection_rs.contains("pub(super) async fn project_generate_image_response")
+            && projection_rs.contains("fn generated_image_to_file")
+            && projection_rs.contains("fn image_usage_from_metadata"),
+        "image projection helper module should own generated-file and AI SDK result projection"
+    );
+    assert!(
+        public_surface.contains("image::generate(")
+            && public_surface.contains("image::generate_image(")
+            && public_surface.contains("image::generate_image_result(")
+            && public_surface.contains("image::edit(")
+            && public_surface.contains("image::variation("),
+        "public-surface tests should continue exercising the stable image facade functions"
+    );
+}
+
+#[test]
 fn hosted_tools_facade_reexports_protocol_owned_constructors() {
     let lib_rs = read_source("src/lib.rs");
     let hosted_tools_rs = public_namespace_module_source("hosted_tools");

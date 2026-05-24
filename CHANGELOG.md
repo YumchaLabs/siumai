@@ -51,6 +51,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   execution, provider, and utility facade paths.
 - Split the `siumai::prelude` facade into a named source file while preserving unified,
   compatibility, and extension prelude imports.
+- Split `siumai::image` workflow and projection helpers into named private modules while
+  preserving the stable `siumai::image::*` facade.
 - Guarded OpenAI-compatible provider extension `*Client` / `*Config` exports as lower-level compat
   aliases beside the package-level `provider()` / `create_provider()` builder helpers.
 - Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,

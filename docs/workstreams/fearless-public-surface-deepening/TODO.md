@@ -48,14 +48,15 @@ Status legend:
 
 ## M2 — Large Facade Module Deepening
 
-- [ ] FPSD-040 [owner=codex] [deps=FPSD-030] [scope=siumai/src/image.rs,siumai/src/image/**,siumai/tests,docs]
+- [x] FPSD-040 [owner=codex] [deps=FPSD-030] [scope=siumai/src/image.rs,siumai/src/image/**,siumai/tests,docs]
   Goal: Split `siumai::image` implementation by public workflow or helper role while preserving the
   stable `siumai::image::*` surface.
   Validation:
   - focused image facade compile/runtime tests selected from current public surface coverage.
   Review: verify no provider-owned runtime logic moves into the facade.
   Evidence: image module split guard and public import coverage.
-  Handoff: FPSD-050 can reuse the same pattern for video.
+  Handoff: DONE. Split image workflow and projection helpers into named private submodules while
+  keeping `siumai::image::*` stable; FPSD-050 can reuse the same root-plus-helper pattern for video.
 
 - [ ] FPSD-050 [owner=codex] [deps=FPSD-030] [scope=siumai/src/video.rs,siumai/src/video/**,siumai/tests,docs]
   Goal: Split `siumai::video` implementation by request/result/materialization helpers while

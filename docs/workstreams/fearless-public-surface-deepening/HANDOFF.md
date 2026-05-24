@@ -20,7 +20,7 @@ the next public-surface and runtime deepening queue:
 - Owner: n/a
 - Files: n/a
 - Validation: n/a
-- Status: DONE for FPSD-030
+- Status: DONE for FPSD-040
 - Review: self-review
 - Evidence: `EVIDENCE_AND_GATES.md`
 
@@ -41,6 +41,9 @@ the next public-surface and runtime deepening queue:
   preserving advanced bridge, streaming, execution, provider, and client paths.
 - Completed FPSD-030 by moving `siumai::prelude` into `siumai/src/prelude.rs` while preserving
   unified, compatibility, extension, and registry prelude imports.
+- Completed FPSD-040 by moving `siumai::image` workflow helpers into
+  `siumai/src/image/workflow.rs` and result projection helpers into
+  `siumai/src/image/projection.rs`, keeping the root public functions stable.
 
 ## Blockers
 
@@ -48,6 +51,5 @@ the next public-surface and runtime deepening queue:
 
 ## Next Recommended Action
 
-1. Start FPSD-040 by splitting `siumai/src/image.rs` by public workflow/helper role while keeping
-   `siumai::image::*` stable.
-2. Add focused image facade architecture/public-surface guards before touching video.
+1. Start FPSD-050 by applying the same root-plus-helper split to `siumai/src/video.rs`.
+2. Reuse the image guard shape for video request/result/materialization helpers.
