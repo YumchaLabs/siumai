@@ -1002,6 +1002,25 @@ fn core_family_contract_and_tooling_sources_do_not_handle_provider_maps() {
 }
 
 #[test]
+fn core_ui_surface_is_split_across_named_modules() {
+    let source =
+        fs::read_to_string(crate_root().join("src/ui.rs")).expect("read siumai-core ui.rs");
+
+    assert!(
+        source.contains("mod conversion;")
+            && source.contains("mod types;")
+            && source.contains("mod validation;"),
+        "siumai-core::ui should stay split into named modules"
+    );
+    assert!(
+        !source.contains("pub fn validate_ui_messages(")
+            && !source.contains("pub fn convert_to_model_messages(")
+            && !source.contains("pub enum UiMessageError"),
+        "siumai-core::ui should not inline the implementation back into the module root"
+    );
+}
+
+#[test]
 fn core_sample_streaming_middleware_only_initializes_empty_provider_metadata() {
     let manifest_dir = crate_root();
     let relative_path = "src/execution/middleware/samples.rs";
