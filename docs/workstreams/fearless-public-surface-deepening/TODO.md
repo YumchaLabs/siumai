@@ -58,14 +58,15 @@ Status legend:
   Handoff: DONE. Split image workflow and projection helpers into named private submodules while
   keeping `siumai::image::*` stable; FPSD-050 can reuse the same root-plus-helper pattern for video.
 
-- [ ] FPSD-050 [owner=codex] [deps=FPSD-030] [scope=siumai/src/video.rs,siumai/src/video/**,siumai/tests,docs]
+- [x] FPSD-050 [owner=codex] [deps=FPSD-030] [scope=siumai/src/video.rs,siumai/src/video/**,siumai/tests,docs]
   Goal: Split `siumai::video` implementation by request/result/materialization helpers while
   preserving the stable `siumai::video::*` surface.
   Validation:
   - focused video facade and family import tests.
   Review: verify task-oriented video family semantics remain unchanged.
   Evidence: video module split guard and public import coverage.
-  Handoff: FPSD-060 can start after large facade surface splits are stable.
+  Handoff: DONE. Split video workflow, materialization, and projection helpers into named private
+  submodules while keeping `siumai::video::*` stable; FPSD-060 can move into core streaming.
 
 ## M3 — Core Streaming Deepening
 

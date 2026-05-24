@@ -2249,6 +2249,84 @@ fn image_facade_splits_workflow_and_projection_helpers() {
 }
 
 #[test]
+fn video_facade_splits_workflow_materialization_and_projection_helpers() {
+    let video_rs = read_source("src/video.rs");
+    let workflow_rs = read_source("src/video/workflow.rs");
+    let materialization_rs = read_source("src/video/materialization.rs");
+    let projection_rs = read_source("src/video/projection.rs");
+    let public_surface = read_source("tests/public_surface_imports_test.rs");
+
+    for module in ["workflow", "materialization", "projection"] {
+        assert!(
+            video_rs
+                .lines()
+                .map(str::trim)
+                .any(|line| line == format!("mod {module};")),
+            "siumai::video should keep `{module}` in a named helper module"
+        );
+    }
+
+    let production_video_rs = video_rs
+        .split("#[cfg(test)]")
+        .next()
+        .expect("video source should contain production section");
+    let root_lines = production_video_rs
+        .lines()
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    for forbidden_root_helper in [
+        "fn apply_video_call_options",
+        "fn resolve_effective_max_videos_per_call",
+        "fn split_generate_requests",
+        "fn generated_video_media_type",
+        "fn parse_video_data_url",
+        "fn extract_generated_videos",
+        "fn materialize_url_backed_generated_videos",
+        "fn build_call_provider_metadata",
+        "fn project_generate_video_result",
+    ] {
+        assert!(
+            !root_lines
+                .iter()
+                .any(|line| line.starts_with(forbidden_root_helper)),
+            "siumai/src/video.rs should not own helper implementation `{forbidden_root_helper}`"
+        );
+    }
+
+    assert!(
+        workflow_rs.contains("pub async fn create_task")
+            && workflow_rs.contains("pub async fn query_task")
+            && workflow_rs.contains("pub(super) fn split_generate_requests")
+            && workflow_rs.contains("pub(super) fn resolve_generate_polling_options"),
+        "video workflow helper module should own task calls, batching, and polling options"
+    );
+    assert!(
+        materialization_rs.contains("pub(super) async fn download_generated_video_url")
+            && materialization_rs.contains("pub(super) fn extract_generated_videos")
+            && materialization_rs
+                .contains("pub(super) async fn materialize_url_backed_generated_videos")
+            && materialization_rs.contains(
+                "pub(super) async fn materialize_provider_reference_backed_generated_videos"
+            ),
+        "video materialization helper module should own generated-video extraction and asset materialization"
+    );
+    assert!(
+        projection_rs.contains("pub(super) fn project_generate_video_result")
+            && projection_rs.contains("pub(super) fn build_call_provider_metadata")
+            && projection_rs.contains("pub(super) fn merge_provider_metadata"),
+        "video projection helper module should own AI SDK projection and provider metadata merging"
+    );
+    assert!(
+        public_surface.contains("video::create_task(")
+            && public_surface.contains("video::query_task(")
+            && public_surface.contains("video::wait_for_task(")
+            && public_surface.contains("video::generate(")
+            && public_surface.contains("video::experimental_generate_video_result("),
+        "public-surface tests should continue exercising the stable video facade functions"
+    );
+}
+
+#[test]
 fn hosted_tools_facade_reexports_protocol_owned_constructors() {
     let lib_rs = read_source("src/lib.rs");
     let hosted_tools_rs = public_namespace_module_source("hosted_tools");
