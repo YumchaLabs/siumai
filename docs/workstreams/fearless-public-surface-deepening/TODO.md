@@ -1,0 +1,102 @@
+# Fearless Public Surface Deepening — TODO
+
+Status: Active
+Last updated: 2026-05-25
+
+Status legend:
+
+- `[ ]` pending
+- `[~]` in progress
+- `[x]` complete
+- `[-]` intentionally deferred or split
+
+## M0 — Scope And Evidence Freeze
+
+- [~] FPSD-010 [owner=planner] [deps=none] [scope=docs/workstreams/fearless-public-surface-deepening]
+  Goal: Freeze problem, target state, non-goals, task order, and evidence anchors for the public
+  surface deepening lane.
+  Validation: `DESIGN.md`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`,
+  `WORKSTREAM.json`, and `HANDOFF.md` exist and agree.
+  Review: planner self-review.
+  Evidence: workstream docs.
+  Handoff: FPSD-020 is the first executable coding task.
+
+## M1 — Facade Surface Tightening
+
+- [ ] FPSD-020 [owner=codex] [deps=FPSD-010] [scope=siumai/src/tooling.rs,siumai/tests,docs/architecture,docs/migration]
+  Goal: Narrow `siumai::tooling` to an explicit curated re-export surface over
+  `siumai_core::tooling` after the core tooling implementation split.
+  Validation:
+  - `cargo check -p siumai --tests --no-default-features --features openai`
+  - `cargo nextest run -p siumai --test tooling_runtime_public_surface_test public_surface_tooling_runtime_contract_compiles --no-default-features --features openai --no-fail-fast`
+  - `cargo nextest run -p siumai --test public_surface_imports_test public_surface_tooling_imports_compile --no-default-features --features openai --no-fail-fast`
+  Review: self-review plus source guard update.
+  Evidence: facade explicit export source and public compile guards.
+  Handoff: FPSD-030 can start once the tooling facade no longer wildcard-mirrors core.
+
+- [ ] FPSD-030 [owner=codex] [deps=FPSD-020] [scope=siumai/src/lib.rs,siumai/src/*.rs,siumai/tests,docs/architecture]
+  Goal: Split `siumai/src/lib.rs` policy-heavy facade sections into named modules while preserving
+  current public paths and prelude behavior.
+  Validation:
+  - `cargo check -p siumai --tests --no-default-features --features openai`
+  - focused facade architecture and public-surface import guards.
+  Review: source review for public path preservation.
+  Evidence: named facade modules and root export guards.
+  Handoff: large image/video facade Modules can be split after root aggregation is clearer.
+
+## M2 — Large Facade Module Deepening
+
+- [ ] FPSD-040 [owner=codex] [deps=FPSD-030] [scope=siumai/src/image.rs,siumai/src/image/**,siumai/tests,docs]
+  Goal: Split `siumai::image` implementation by public workflow or helper role while preserving the
+  stable `siumai::image::*` surface.
+  Validation:
+  - focused image facade compile/runtime tests selected from current public surface coverage.
+  Review: verify no provider-owned runtime logic moves into the facade.
+  Evidence: image module split guard and public import coverage.
+  Handoff: FPSD-050 can reuse the same pattern for video.
+
+- [ ] FPSD-050 [owner=codex] [deps=FPSD-030] [scope=siumai/src/video.rs,siumai/src/video/**,siumai/tests,docs]
+  Goal: Split `siumai::video` implementation by request/result/materialization helpers while
+  preserving the stable `siumai::video::*` surface.
+  Validation:
+  - focused video facade and family import tests.
+  Review: verify task-oriented video family semantics remain unchanged.
+  Evidence: video module split guard and public import coverage.
+  Handoff: FPSD-060 can start after large facade surface splits are stable.
+
+## M3 — Core Streaming Deepening
+
+- [ ] FPSD-060 [owner=codex] [deps=FPSD-020] [scope=siumai-core/src/streaming,siumai-core/tests,docs]
+  Goal: Split one high-value core streaming Module slice into named submodules without changing
+  stream behavior or provider-map neutrality.
+  Validation:
+  - `cargo check -p siumai-core --tests --no-default-features`
+  - focused streaming tests for the touched Module.
+  Review: stronger review required because this is runtime behavior surface.
+  Evidence: stream split source guard and focused nextest results.
+  Handoff: Split further streaming work into additional tasks if the first slice is successful.
+
+## M4 — Compatibility Shim Audit
+
+- [ ] FPSD-070 [owner=codex] [deps=FPSD-020] [scope=siumai-core,siumai,docs/architecture,docs/migration]
+  Goal: Audit remaining compatibility shims and classify each as keep, delete now, or split into a
+  future breaking-change lane.
+  Validation:
+  - source guards for retained shims;
+  - public compile tests for kept compatibility paths;
+  - migration docs for any removal.
+  Review: check ADR-0007 and ADR-0008 before deleting.
+  Evidence: compatibility shim audit document and tests.
+  Handoff: FPSD-080 closes or splits deletion work.
+
+## M5 — Integration And Closeout
+
+- [ ] FPSD-080 [owner=planner] [deps=FPSD-020,FPSD-030,FPSD-040,FPSD-050,FPSD-060,FPSD-070] [scope=docs/workstreams/fearless-public-surface-deepening]
+  Goal: Close the lane or split unresolved work into narrower follow-ons.
+  Validation:
+  - documented final gate matrix in `EVIDENCE_AND_GATES.md`
+  - `git diff --check -- docs/workstreams/fearless-public-surface-deepening`
+  Review: final self-review or `review-workstream`.
+  Evidence: updated `WORKSTREAM.json`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`, and
+  `HANDOFF.md`.
+  Handoff: Summarize residual risks and next lane if any.

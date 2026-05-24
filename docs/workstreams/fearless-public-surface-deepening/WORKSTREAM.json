@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "slug": "fearless-public-surface-deepening",
+  "title": "Fearless Public Surface Deepening",
+  "status": "active",
+  "updated": "2026-05-25",
+  "scope_kind": "architecture-refactor",
+  "problem": "Several post-FCAB facade and runtime Modules still expose shallow wildcard surfaces or large mixed-purpose implementation files that reduce locality and make future public-surface changes harder to review.",
+  "objective": "Deepen public facade and core runtime Modules by replacing shallow wildcard mirrors with explicit surfaces, splitting large implementation files behind stable roots, and auditing remaining compatibility shims.",
+  "active_task": "FPSD-010",
+  "next_task": "FPSD-020",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/fearless-public-surface-deepening/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/fearless-public-surface-deepening/TODO.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/fearless-public-surface-deepening/MILESTONES.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/fearless-public-surface-deepening/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/fearless-public-surface-deepening/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "cargo check -p siumai --tests --no-default-features --features openai",
+    "cargo nextest run -p siumai --test tooling_runtime_public_surface_test public_surface_tooling_runtime_contract_compiles --no-default-features --features openai --no-fail-fast",
+    "cargo nextest run -p siumai --test public_surface_imports_test public_surface_tooling_imports_compile --no-default-features --features openai --no-fail-fast",
+    "cargo check -p siumai-core --tests --no-default-features"
+  ],
+  "evidence": [
+    "docs/workstreams/fearless-public-surface-deepening/EVIDENCE_AND_GATES.md"
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0006-family-model-first-trait-policy.md",
+    "docs/adr/0007-llmclient-demotion-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
+  ],
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue while slices preserve public paths and have focused gates. Split a child lane for compatibility removals or deep streaming behavior changes."
+  }
+}
