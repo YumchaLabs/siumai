@@ -38,46 +38,45 @@ use crate::registry::entry::ProviderFactory;
     feature = "bedrock"
 ))]
 async fn build_default_client_with_capabilities(
-    factory: &std::sync::Arc<dyn crate::registry::entry::ProviderFactory>,
+    compatibility_factory: &std::sync::Arc<dyn ProviderCompatibilityFactory>,
+    capabilities: &crate::traits::ProviderCapabilities,
+    provider_id: &str,
     model_id: &str,
     ctx: &crate::registry::entry::BuildContext,
 ) -> Result<std::sync::Arc<dyn crate::compat::client::LlmClient>, LlmError> {
-    let caps = factory.capabilities();
-
-    if caps.supports("chat") {
-        return factory
+    if capabilities.supports("chat") {
+        return compatibility_factory
             .build_compat_language_client_with_ctx(model_id, ctx)
             .await;
     }
-    if caps.supports("rerank") {
-        return factory
+    if capabilities.supports("rerank") {
+        return compatibility_factory
             .build_compat_reranking_client_with_ctx(model_id, ctx)
             .await;
     }
-    if caps.supports("embedding") {
-        return factory
+    if capabilities.supports("embedding") {
+        return compatibility_factory
             .build_compat_embedding_client_with_ctx(model_id, ctx)
             .await;
     }
-    if caps.supports("image_generation") {
-        return factory
+    if capabilities.supports("image_generation") {
+        return compatibility_factory
             .build_compat_image_client_with_ctx(model_id, ctx)
             .await;
     }
-    if caps.supports("speech") {
-        return factory
+    if capabilities.supports("speech") {
+        return compatibility_factory
             .build_compat_speech_client_with_ctx(model_id, ctx)
             .await;
     }
-    if caps.supports("transcription") {
-        return factory
+    if capabilities.supports("transcription") {
+        return compatibility_factory
             .build_compat_transcription_client_with_ctx(model_id, ctx)
             .await;
     }
 
     Err(LlmError::UnsupportedOperation(format!(
-        "Provider '{}' does not expose a default public family entry point",
-        factory.provider_id()
+        "Provider '{provider_id}' does not expose a default public family entry point"
     )))
 }
 
@@ -257,10 +256,21 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     };
     #[cfg(not(feature = "azure"))]
     let factory = crate::registry::helpers::builtin_provider_factory(&effective_provider_id)?;
+    let provider_capabilities = factory.capabilities();
+    let compatibility_factory =
+        crate::registry::entry::compatibility_facet_from_provider_factory(factory);
     let mut ctx = base_ctx.clone();
     ctx.provider_id = Some(effective_provider_id);
-    let client: Arc<dyn LlmClient> =
-        build_default_client_with_capabilities(&factory, &common_params.model, &ctx).await?;
+    let client: Arc<dyn LlmClient> = build_default_client_with_capabilities(
+        &compatibility_factory,
+        &provider_capabilities,
+        ctx.provider_id
+            .as_deref()
+            .expect("provider_id set before compatibility construction"),
+        &common_params.model,
+        &ctx,
+    )
+    .await?;
 
     // Retry options are now applied directly to underlying provider clients via
     // BuildContext and ProviderFactory. The outer Siumai wrapper keeps a
@@ -305,6 +315,10 @@ mod tests {
                 .join("build.rs"),
         )
         .unwrap();
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source before tests");
 
         for family in [
             "language",
@@ -316,16 +330,27 @@ mod tests {
         ] {
             let compat_call = format!("compat_{family}_client_with_ctx");
             assert!(
-                source.contains(&compat_call),
+                production_source.contains(&compat_call),
                 "SiumaiBuilder compatibility construction should call {compat_call}"
             );
 
             let legacy_call = format!("factory.{family}_model_with_ctx");
             assert!(
-                !source.contains(&legacy_call),
+                !production_source.contains(&legacy_call),
                 "SiumaiBuilder compatibility construction must not call legacy {legacy_call}"
             );
         }
+
+        assert!(
+            production_source.contains("Arc<dyn ProviderCompatibilityFactory>")
+                && production_source.contains("compatibility_facet_from_provider_factory(factory)"),
+            "SiumaiBuilder compatibility construction should adapt ProviderFactory into the narrow compatibility facet before building generic clients"
+        );
+        assert!(
+            !production_source
+                .contains("factory: &std::sync::Arc<dyn crate::registry::entry::ProviderFactory>"),
+            "SiumaiBuilder compatibility construction should not pass the broad ProviderFactory trait object into default generic-client selection"
+        );
     }
 
     #[test]

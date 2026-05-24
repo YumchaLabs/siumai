@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatibility `LlmClient` paths as the primary execution route.
 - Adapt registered `ProviderFactory` implementations into internal facet containers so stable
   handles hold only the family/compatibility/extension factory surface they need.
+- Adapt legacy `SiumaiBuilder` compatibility construction through the compatibility factory facet
+  instead of passing the broad `ProviderFactory` trait object into generic-client selection.
 - Centralized built-in provider typed-client projection helpers so registry factories share one
   provider-owned family construction path per supported family.
 - Documented Video as a stable registry family for this release line while keeping Music available

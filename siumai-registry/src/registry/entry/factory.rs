@@ -631,6 +631,12 @@ impl ProviderFactoryFacets {
     }
 }
 
+pub(crate) fn compatibility_facet_from_provider_factory(
+    factory: Arc<dyn ProviderFactory>,
+) -> Arc<dyn ProviderCompatibilityFactory> {
+    Arc::new(ProviderFactoryFacetAdapter { factory })
+}
+
 struct ProviderFactoryFacetAdapter {
     factory: Arc<dyn ProviderFactory>,
 }

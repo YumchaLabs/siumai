@@ -63,6 +63,7 @@ use self::cache::{
     CacheEntry, CompletionCacheEntry, SpeechCacheEntry, TranscriptionCacheEntry, VideoCacheEntry,
 };
 use self::factory::ProviderFactoryFacets;
+pub(crate) use self::factory::compatibility_facet_from_provider_factory;
 pub use self::factory::{
     ProviderCompatibilityFactory, ProviderExtensionFactory, ProviderFactory, ProviderFamilyFactory,
 };

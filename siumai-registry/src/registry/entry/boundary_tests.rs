@@ -276,6 +276,42 @@ fn registry_handles_depend_on_narrow_factory_facets() {
 }
 
 #[test]
+fn siumai_builder_compat_construction_uses_compatibility_facet() {
+    let provider_build_source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("provider")
+            .join("build.rs"),
+    )
+    .expect("read provider build source");
+    let provider_build_production_source = provider_build_source
+        .split("#[cfg(test)]")
+        .next()
+        .expect("provider build production source");
+    let factory_source = read_registry_entry_source("factory.rs");
+    let entry_source = read_registry_entry_root_source();
+
+    assert!(
+        factory_source.contains("pub(crate) fn compatibility_facet_from_provider_factory")
+            && entry_source.contains(
+                "pub(crate) use self::factory::compatibility_facet_from_provider_factory;"
+            ),
+        "registry should expose an internal adapter from broad ProviderFactory implementations to the compatibility facet"
+    );
+    assert!(
+        provider_build_production_source.contains("Arc<dyn ProviderCompatibilityFactory>")
+            && provider_build_production_source
+                .contains("compatibility_facet_from_provider_factory(factory)"),
+        "SiumaiBuilder compatibility construction should adapt broad ProviderFactory values into the narrow compatibility facet"
+    );
+    assert!(
+        !provider_build_production_source
+            .contains("factory: &std::sync::Arc<dyn crate::registry::entry::ProviderFactory>"),
+        "SiumaiBuilder generic-client selection should not receive the broad ProviderFactory trait object"
+    );
+}
+
+#[test]
 fn stable_registry_handles_do_not_use_compat_client_paths_for_primary_family_execution() {
     for (label, file_name) in [
         ("completion handle", "completion.rs"),
