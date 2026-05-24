@@ -8,47 +8,11 @@ use crate::error::LlmError;
 use crate::execution::http::interceptor::{HttpRequestContext, generate_request_id};
 use crate::types::SttRequest;
 use futures_util::StreamExt;
-use std::pin::Pin;
 use std::sync::Arc;
 
-/// OpenAI transcription streaming event (SSE).
-///
-/// This mirrors OpenAI's `CreateTranscriptionResponseStreamEvent` schema at a pragmatic level:
-/// - `transcript.text.delta`
-/// - `transcript.text.segment` (only when `response_format=diarized_json`)
-/// - `transcript.text.done`
-#[derive(Debug, Clone)]
-pub enum OpenAiTranscriptionStreamEvent {
-    TextDelta {
-        delta: String,
-        logprobs: Option<serde_json::Value>,
-    },
-    Segment {
-        id: String,
-        start: f32,
-        end: f32,
-        text: String,
-        speaker: Option<String>,
-    },
-    Done {
-        text: Option<String>,
-        usage: Option<serde_json::Value>,
-        logprobs: Option<serde_json::Value>,
-    },
-    /// Forward-compatible custom event (raw JSON).
-    Custom {
-        event_type: String,
-        data: serde_json::Value,
-    },
-}
-
-pub type OpenAiTranscriptionStream = Pin<
-    Box<
-        dyn futures_util::Stream<Item = Result<OpenAiTranscriptionStreamEvent, LlmError>>
-            + Send
-            + Sync,
-    >,
->;
+pub use crate::standards::openai::audio::{
+    OpenAiTranscriptionStream, OpenAiTranscriptionStreamEvent,
+};
 
 impl OpenAiClient {
     /// Stream OpenAI STT transcript using SSE (`stream=true`).

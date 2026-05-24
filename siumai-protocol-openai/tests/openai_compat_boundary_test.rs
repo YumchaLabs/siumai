@@ -199,6 +199,62 @@ fn openai_compatible_completion_streaming_conversion_is_protocol_owned() {
     );
 }
 
+#[test]
+fn openai_audio_sse_wire_format_helpers_are_protocol_owned() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let protocol_audio_source =
+        fs::read_to_string(workspace.join("siumai-protocol-openai/src/standards/openai/audio.rs"))
+            .expect("protocol OpenAI audio source");
+    let provider_sse_helpers_source = fs::read_to_string(
+        workspace.join("siumai-provider-openai/src/providers/openai/client/sse_helpers.rs"),
+    )
+    .expect("provider OpenAI SSE helper source");
+    let provider_transcription_source = fs::read_to_string(
+        workspace
+            .join("siumai-provider-openai/src/providers/openai/client/transcription_streaming.rs"),
+    )
+    .expect("provider OpenAI transcription streaming source");
+
+    for marker in [
+        "pub enum OpenAiTranscriptionStreamEvent",
+        "pub type OpenAiTranscriptionStream",
+        "pub fn openai_speech_audio_delta",
+        "pub fn openai_speech_audio_done",
+        "pub fn openai_transcript_text_delta",
+        "pub fn openai_transcript_text_segment",
+        "pub fn openai_transcript_text_done",
+        "pub fn ensure_openai_sse_content_type",
+    ] {
+        assert!(
+            protocol_audio_source.contains(marker),
+            "OpenAI audio SSE wire-format helper should live in protocol audio module: missing {marker}"
+        );
+    }
+
+    assert!(
+        provider_sse_helpers_source.contains("pub(crate) use crate::standards::openai::audio::{")
+            && provider_sse_helpers_source.lines().count() <= 12,
+        "provider OpenAI SSE helper module should stay a thin protocol-owned helper re-export"
+    );
+
+    for forbidden in [
+        "use base64::Engine",
+        "Missing 'audio' field",
+        "Missing 'delta' field",
+        "Missing 'id' field",
+        "Expected 'text/event-stream'",
+        "pub enum OpenAiTranscriptionStreamEvent",
+    ] {
+        assert!(
+            !provider_sse_helpers_source.contains(forbidden)
+                && !provider_transcription_source.contains(forbidden),
+            "provider OpenAI streaming modules must not own protocol SSE wire-format parsing: found {forbidden}"
+        );
+    }
+}
+
 fn collect_forbidden_imports(root: &Path, forbidden: &str, offenders: &mut Vec<String>) {
     let mut files = Vec::new();
     collect_rs_files(root, &mut files);

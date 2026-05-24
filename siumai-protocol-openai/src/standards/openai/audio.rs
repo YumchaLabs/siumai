@@ -7,8 +7,9 @@
 
 use crate::error::LlmError;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
-use crate::types::{ProviderOptionsMap, SttRequest, TtsRequest};
+use crate::types::{AudioStreamEvent, ProviderOptionsMap, SttRequest, TtsRequest};
 use std::borrow::Cow;
+use std::pin::Pin;
 
 #[derive(Debug, Clone)]
 pub struct OpenAiAudioDefaults {
@@ -24,6 +25,45 @@ pub struct OpenAiAudioDefaults {
     pub stt_include_language: bool,
     pub stt_include_timestamp_granularities: bool,
 }
+
+/// OpenAI transcription streaming event (SSE).
+///
+/// This mirrors OpenAI's `CreateTranscriptionResponseStreamEvent` schema at a pragmatic level:
+/// - `transcript.text.delta`
+/// - `transcript.text.segment` (only when `response_format=diarized_json`)
+/// - `transcript.text.done`
+#[derive(Debug, Clone)]
+pub enum OpenAiTranscriptionStreamEvent {
+    TextDelta {
+        delta: String,
+        logprobs: Option<serde_json::Value>,
+    },
+    Segment {
+        id: String,
+        start: f32,
+        end: f32,
+        text: String,
+        speaker: Option<String>,
+    },
+    Done {
+        text: Option<String>,
+        usage: Option<serde_json::Value>,
+        logprobs: Option<serde_json::Value>,
+    },
+    /// Forward-compatible custom event (raw JSON).
+    Custom {
+        event_type: String,
+        data: serde_json::Value,
+    },
+}
+
+pub type OpenAiTranscriptionStream = Pin<
+    Box<
+        dyn futures_util::Stream<Item = Result<OpenAiTranscriptionStreamEvent, LlmError>>
+            + Send
+            + Sync,
+    >,
+>;
 
 impl Default for OpenAiAudioDefaults {
     fn default() -> Self {
@@ -49,6 +89,172 @@ fn lookup_extra<'a>(
     key: &str,
 ) -> Option<&'a serde_json::Value> {
     lookup_extra_any(provider_id, provider_options_map, extra_params, &[key])
+}
+
+pub fn openai_sse_error_event(label: &str, payload: &serde_json::Value) -> Option<LlmError> {
+    let err = payload.get("error")?;
+    Some(LlmError::ApiError {
+        code: 200,
+        message: format!("OpenAI {label} SSE error event"),
+        details: Some(err.clone()),
+    })
+}
+
+pub fn openai_sse_json_config(label: &str) -> crate::streaming::SseJsonStreamConfig {
+    openai_sse_json_config_with_done_markers(label, &["[DONE]"])
+}
+
+pub fn openai_sse_json_config_with_done_markers(
+    label: &str,
+    done_markers: &[&str],
+) -> crate::streaming::SseJsonStreamConfig {
+    crate::streaming::SseJsonStreamConfig::new(format!("openai {label}"))
+        .with_done_markers(done_markers.iter().copied())
+}
+
+pub fn openai_sse_event_type(payload: &serde_json::Value) -> Option<&str> {
+    payload.get("type").and_then(|v| v.as_str())
+}
+
+pub fn openai_sse_should_ignore_event_type(kind: &str, allowed_prefixes: &[&str]) -> bool {
+    if kind.is_empty() {
+        return true;
+    }
+    !allowed_prefixes.iter().any(|p| kind.starts_with(p))
+}
+
+pub fn openai_speech_audio_delta(
+    payload: &serde_json::Value,
+    format: &str,
+) -> Result<AudioStreamEvent, LlmError> {
+    use base64::Engine;
+
+    let Some(b64) = payload.get("audio").and_then(|v| v.as_str()) else {
+        return Err(LlmError::ParseError(
+            "Missing 'audio' field in speech.audio.delta event".to_string(),
+        ));
+    };
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| LlmError::ParseError(format!("Invalid base64 audio chunk: {e}")))?;
+
+    Ok(AudioStreamEvent::AudioDelta {
+        data: decoded,
+        format: format.to_string(),
+    })
+}
+
+pub fn openai_speech_audio_done(payload: &serde_json::Value) -> Result<AudioStreamEvent, LlmError> {
+    let mut metadata: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+    if let Some(usage) = payload.get("usage") {
+        metadata.insert("usage".to_string(), usage.clone());
+    }
+    metadata.insert("provider".to_string(), serde_json::json!("openai"));
+    metadata.insert("event".to_string(), payload.clone());
+
+    Ok(AudioStreamEvent::Done {
+        duration: None,
+        metadata,
+    })
+}
+
+pub fn openai_transcript_text_delta(
+    payload: &serde_json::Value,
+) -> Result<OpenAiTranscriptionStreamEvent, LlmError> {
+    let Some(delta) = payload.get("delta").and_then(|v| v.as_str()) else {
+        return Err(LlmError::ParseError(
+            "Missing 'delta' field in transcript.text.delta event".to_string(),
+        ));
+    };
+    let logprobs = payload.get("logprobs").cloned();
+    Ok(OpenAiTranscriptionStreamEvent::TextDelta {
+        delta: delta.to_string(),
+        logprobs,
+    })
+}
+
+pub fn openai_transcript_text_segment(
+    payload: &serde_json::Value,
+) -> Result<OpenAiTranscriptionStreamEvent, LlmError> {
+    let Some(id) = payload.get("id").and_then(|v| v.as_str()) else {
+        return Err(LlmError::ParseError(
+            "Missing 'id' field in transcript.text.segment event".to_string(),
+        ));
+    };
+    let Some(start) = payload.get("start").and_then(|v| v.as_f64()) else {
+        return Err(LlmError::ParseError(
+            "Missing 'start' field in transcript.text.segment event".to_string(),
+        ));
+    };
+    let Some(end) = payload.get("end").and_then(|v| v.as_f64()) else {
+        return Err(LlmError::ParseError(
+            "Missing 'end' field in transcript.text.segment event".to_string(),
+        ));
+    };
+    let Some(text) = payload.get("text").and_then(|v| v.as_str()) else {
+        return Err(LlmError::ParseError(
+            "Missing 'text' field in transcript.text.segment event".to_string(),
+        ));
+    };
+    let speaker = payload
+        .get("speaker")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Ok(OpenAiTranscriptionStreamEvent::Segment {
+        id: id.to_string(),
+        start: start as f32,
+        end: end as f32,
+        text: text.to_string(),
+        speaker,
+    })
+}
+
+pub fn openai_transcript_text_done(
+    payload: &serde_json::Value,
+) -> Result<OpenAiTranscriptionStreamEvent, LlmError> {
+    let text = payload
+        .get("text")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let usage = payload.get("usage").cloned();
+    let logprobs = payload.get("logprobs").cloned();
+    Ok(OpenAiTranscriptionStreamEvent::Done {
+        text,
+        usage,
+        logprobs,
+    })
+}
+
+pub fn openai_tts_force_stream_format_sse(body: &mut serde_json::Value) {
+    body["stream_format"] = serde_json::Value::String("sse".to_string());
+}
+
+pub fn openai_stt_force_stream_true(form: reqwest::multipart::Form) -> reqwest::multipart::Form {
+    form.text("stream", "true")
+}
+
+pub fn ensure_openai_sse_content_type(
+    label: &str,
+    headers: &reqwest::header::HeaderMap,
+) -> Result<(), LlmError> {
+    let is_sse = headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.to_ascii_lowercase().contains("text/event-stream"))
+        .unwrap_or(false);
+    if is_sse {
+        return Ok(());
+    }
+
+    let ct = headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("<missing>");
+    Err(LlmError::ParseError(format!(
+        "Expected 'text/event-stream' for OpenAI {label} SSE streaming, got '{ct}'."
+    )))
 }
 
 fn lookup_extra_any<'a>(
@@ -429,6 +635,91 @@ mod tests {
         let tx = OpenAiAudioTransformer;
         let json = serde_json::json!({ "text": "hi" });
         assert_eq!(tx.parse_stt_response(&json).unwrap(), "hi");
+    }
+
+    #[test]
+    fn openai_speech_sse_helpers_parse_audio_delta_and_done() {
+        let delta = openai_speech_audio_delta(
+            &serde_json::json!({
+                "type": "speech.audio.delta",
+                "audio": "YWJj"
+            }),
+            "mp3",
+        )
+        .expect("audio delta");
+        match delta {
+            AudioStreamEvent::AudioDelta { data, format } => {
+                assert_eq!(data, b"abc");
+                assert_eq!(format, "mp3");
+            }
+            other => panic!("expected audio delta, got {other:?}"),
+        }
+
+        let done = openai_speech_audio_done(&serde_json::json!({
+            "type": "speech.audio.done",
+            "usage": { "total_tokens": 3 }
+        }))
+        .expect("audio done");
+        match done {
+            AudioStreamEvent::Done { metadata, .. } => {
+                assert_eq!(metadata.get("provider"), Some(&serde_json::json!("openai")));
+                assert_eq!(metadata["usage"]["total_tokens"], serde_json::json!(3));
+            }
+            other => panic!("expected done, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn openai_transcription_sse_helpers_parse_text_events() {
+        let delta = openai_transcript_text_delta(&serde_json::json!({
+            "type": "transcript.text.delta",
+            "delta": "hel"
+        }))
+        .expect("text delta");
+        assert!(matches!(
+            delta,
+            OpenAiTranscriptionStreamEvent::TextDelta { ref delta, .. } if delta == "hel"
+        ));
+
+        let segment = openai_transcript_text_segment(&serde_json::json!({
+            "type": "transcript.text.segment",
+            "id": "seg_1",
+            "start": 0.5,
+            "end": 1.25,
+            "text": "hello",
+            "speaker": "A"
+        }))
+        .expect("text segment");
+        assert!(matches!(
+            segment,
+            OpenAiTranscriptionStreamEvent::Segment {
+                ref id,
+                start,
+                end,
+                ref text,
+                ref speaker,
+            } if id == "seg_1"
+                && (start - 0.5).abs() < f32::EPSILON
+                && (end - 1.25).abs() < f32::EPSILON
+                && text == "hello"
+                && speaker.as_deref() == Some("A")
+        ));
+
+        let done = openai_transcript_text_done(&serde_json::json!({
+            "type": "transcript.text.done",
+            "text": "hello",
+            "usage": { "total_tokens": 3 }
+        }))
+        .expect("text done");
+        assert!(matches!(
+            done,
+            OpenAiTranscriptionStreamEvent::Done {
+                ref text,
+                ref usage,
+                ..
+            } if text.as_deref() == Some("hello")
+                && usage.as_ref().and_then(|u| u.get("total_tokens")) == Some(&serde_json::json!(3))
+        ));
     }
 
     #[test]

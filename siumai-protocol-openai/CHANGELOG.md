@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Moved OpenAI speech/transcription SSE wire-format helpers and transcription stream event types
+  into the protocol crate; provider crates now re-export or call the protocol-owned helpers.
 - Moved OpenAI-compatible `/completions` response conversion and SSE parser state into the protocol
   crate so provider runtimes delegate protocol conversion instead of owning local parser copies.
 - Added protocol-owned `response_content` compatibility adapters for legacy chat response payloads,

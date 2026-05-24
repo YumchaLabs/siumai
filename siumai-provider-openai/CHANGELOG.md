@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Delegated OpenAI speech/transcription SSE wire-format parsing to `siumai-protocol-openai` while
+  preserving the provider extension import paths.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-v0.11.0-beta.7...siumai-provider-openai-v0.11.0-beta.8) - 2026-05-18
 
 ### Added
