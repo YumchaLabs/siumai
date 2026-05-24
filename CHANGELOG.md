@@ -43,6 +43,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   the public `siumai_core::ui::*` surface unchanged.
 - Split `siumai-core::tooling` into named context, factory, runtime, collection, and test modules
   while keeping the public `siumai_core::tooling::*` surface unchanged.
+- Split `siumai-core::streaming::StreamProcessor` final response assembly into a named helper
+  module while keeping stream processing behavior unchanged.
 - Narrowed `siumai::tooling` to an explicit runtime-tool facade instead of wildcard-mirroring every
   future `siumai-core::tooling` helper.
 - Split facade root namespace modules (`hosted_tools`, `protocol`, `content`, and `extensions`)

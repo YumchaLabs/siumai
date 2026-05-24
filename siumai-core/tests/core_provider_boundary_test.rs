@@ -1283,6 +1283,49 @@ fn core_streaming_runtime_tests_do_not_use_provider_model_fixtures() {
 }
 
 #[test]
+fn stream_processor_response_assembly_lives_in_named_helper_module() {
+    let root = crate_root();
+    let processor = fs::read_to_string(root.join("src").join("streaming").join("processor.rs"))
+        .expect("read streaming processor");
+    let response_assembly = fs::read_to_string(
+        root.join("src")
+            .join("streaming")
+            .join("processor")
+            .join("response_assembly.rs"),
+    )
+    .expect("read streaming processor response assembly");
+    let production_processor = processor
+        .split("#[cfg(test)]")
+        .next()
+        .expect("processor production source");
+
+    assert!(
+        production_processor.contains("mod response_assembly;"),
+        "StreamProcessor should keep final response assembly in a named helper module"
+    );
+
+    for forbidden_root_helper in [
+        "fn build_final_content",
+        "fn build_accumulated_tool_call_parts",
+        "fn response_text_part",
+        "fn final_http_response_info",
+    ] {
+        assert!(
+            !production_processor.contains(forbidden_root_helper),
+            "streaming/processor.rs should not own response assembly helper `{forbidden_root_helper}`"
+        );
+    }
+
+    assert!(
+        response_assembly.contains("pub fn build_final_response")
+            && response_assembly.contains("fn build_final_content")
+            && response_assembly.contains("fn response_text_part")
+            && response_assembly.contains("fn final_http_response_info"),
+        "response assembly helper should own final ChatResponse and MessageContent projection"
+    );
+}
+
+#[test]
 fn core_source_does_not_use_provider_model_fixture_literals() {
     let root = crate_root();
     let src_dir = root.join("src");

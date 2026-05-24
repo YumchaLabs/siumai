@@ -16,11 +16,12 @@ the next public-surface and runtime deepening queue:
 
 ## Active Task
 
-- Task ID: FPSD-060
+- Task ID: FPSD-070
 - Owner: codex
-- Files: `siumai-core/src/streaming`, `siumai-core/tests`, source guards, workstream evidence.
-- Validation: `cargo check -p siumai-core --tests --no-default-features` plus focused streaming
-  tests for the touched Module.
+- Files: `siumai-core`, `siumai`, `docs/architecture`, `docs/migration`, source guards,
+  workstream evidence.
+- Validation: compatibility shim audit document, source guards for retained shims, public compile
+  tests for kept compatibility paths.
 - Status: READY
 - Review: self-review
 - Evidence: `EVIDENCE_AND_GATES.md`
@@ -49,6 +50,9 @@ the next public-surface and runtime deepening queue:
   `siumai/src/video/workflow.rs`, generated-video extraction/materialization helpers into
   `siumai/src/video/materialization.rs`, and AI SDK result/provider-metadata projection helpers
   into `siumai/src/video/projection.rs`, keeping the root public functions stable.
+- Completed FPSD-060 by moving `StreamProcessor` final response assembly into
+  `siumai-core/src/streaming/processor/response_assembly.rs`, keeping stream processing behavior and
+  provider-map neutrality guarded.
 
 ## Blockers
 
@@ -56,6 +60,6 @@ the next public-surface and runtime deepening queue:
 
 ## Next Recommended Action
 
-1. Start FPSD-060 by auditing `siumai-core/src/streaming` for the highest-locality split.
-2. Keep the first streaming slice behavior-preserving and guard provider-map neutrality before
-   expanding the lane.
+1. Start FPSD-070 by reading ADR-0007 and ADR-0008, then inventory remaining compatibility shims.
+2. Classify each shim as keep, delete now, or split into a future breaking-change lane before
+   changing any public compatibility path.

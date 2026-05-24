@@ -70,7 +70,7 @@ Status legend:
 
 ## M3 — Core Streaming Deepening
 
-- [ ] FPSD-060 [owner=codex] [deps=FPSD-020] [scope=siumai-core/src/streaming,siumai-core/tests,docs]
+- [x] FPSD-060 [owner=codex] [deps=FPSD-020] [scope=siumai-core/src/streaming,siumai-core/tests,docs]
   Goal: Split one high-value core streaming Module slice into named submodules without changing
   stream behavior or provider-map neutrality.
   Validation:
@@ -78,7 +78,9 @@ Status legend:
   - focused streaming tests for the touched Module.
   Review: stronger review required because this is runtime behavior surface.
   Evidence: stream split source guard and focused nextest results.
-  Handoff: Split further streaming work into additional tasks if the first slice is successful.
+  Handoff: DONE. Split `StreamProcessor` final response assembly into
+  `siumai-core/src/streaming/processor/response_assembly.rs` while preserving stream behavior and
+  provider-map neutrality; FPSD-070 can audit compatibility shims next.
 
 ## M4 — Compatibility Shim Audit
 

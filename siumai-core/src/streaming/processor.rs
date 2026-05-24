@@ -3,11 +3,18 @@
 //! Processes and transforms streaming events, accumulating content, tool calls,
 //! and thinking buffers with configurable limits and overflow handling.
 
+mod response_assembly;
+
 use crate::error::LlmError;
+#[cfg(test)]
+use crate::streaming::processor::response_assembly::extract_terminal_text_parts;
+use crate::streaming::processor::response_assembly::stream_file_part_to_content_part;
+use crate::streaming::processor::response_assembly::tool_input_from_builder;
+#[cfg(test)]
+use crate::types::MessageContent;
 use crate::types::{
-    ChatResponse, ChatStreamEvent, ChatStreamFileData, ChatStreamPart, ContentPart, FinishReason,
-    MessageContent, ProviderMetadataMap, ResponseMetadata, Usage, Warning, merge_provider_metadata,
-    provider_metadata_from_object,
+    ChatResponse, ChatStreamEvent, ChatStreamPart, ContentPart, FinishReason, ProviderMetadataMap,
+    ResponseMetadata, Usage, Warning, merge_provider_metadata,
 };
 use std::collections::HashMap;
 
@@ -69,18 +76,18 @@ impl Default for StreamProcessorConfig {
 /// Processes streaming events and accumulates content, tool calls, and thinking buffers.
 /// Provides buffer overflow protection and incremental state tracking.
 pub struct StreamProcessor {
-    buffer: String,
-    tool_calls: HashMap<String, ToolCallBuilder>, // Use ID as key to handle duplicate indices
-    tool_call_order: Vec<String>,                 // Track order of tool calls for consistent output
-    thinking_buffer: String,
-    stream_parts: Vec<ContentPart>,
-    stream_warnings: Vec<Warning>,
-    start_metadata: Option<ResponseMetadata>,
-    terminal_response: Option<ChatResponse>,
-    current_usage: Option<Usage>,
-    stream_finish_reason: Option<FinishReason>,
-    stream_raw_finish_reason: Option<String>,
-    final_provider_metadata: Option<ProviderMetadataMap>,
+    pub(super) buffer: String,
+    pub(super) tool_calls: HashMap<String, ToolCallBuilder>, // Use ID as key to handle duplicate indices
+    pub(super) tool_call_order: Vec<String>, // Track order of tool calls for consistent output
+    pub(super) thinking_buffer: String,
+    pub(super) stream_parts: Vec<ContentPart>,
+    pub(super) stream_warnings: Vec<Warning>,
+    pub(super) start_metadata: Option<ResponseMetadata>,
+    pub(super) terminal_response: Option<ChatResponse>,
+    pub(super) current_usage: Option<Usage>,
+    pub(super) stream_finish_reason: Option<FinishReason>,
+    pub(super) stream_raw_finish_reason: Option<String>,
+    pub(super) final_provider_metadata: Option<ProviderMetadataMap>,
     config: StreamProcessorConfig,
 }
 
@@ -524,443 +531,6 @@ impl StreamProcessor {
             self.final_provider_metadata = Some(source);
         }
     }
-
-    /// Build the final response
-    pub fn build_final_response(&self) -> ChatResponse {
-        self.build_final_response_with_finish_reason(None)
-    }
-
-    /// Build the final response with finish reason
-    pub fn build_final_response_with_finish_reason(
-        &self,
-        finish_reason: Option<FinishReason>,
-    ) -> ChatResponse {
-        let terminal_response = self.terminal_response.as_ref();
-        let mut stream_metadata = HashMap::new();
-
-        if !self.thinking_buffer.is_empty() {
-            stream_metadata.insert(
-                "thinking".to_string(),
-                serde_json::Value::String(self.thinking_buffer.clone()),
-            );
-        }
-
-        let content = self.build_final_content(terminal_response);
-
-        // Convert to nested provider_metadata structure
-        let mut provider_metadata = self.final_provider_metadata.clone().unwrap_or_default();
-        if !stream_metadata.is_empty() {
-            merge_provider_metadata(
-                &mut provider_metadata,
-                provider_metadata_from_object("stream", stream_metadata),
-            );
-        }
-        let provider_metadata = if provider_metadata.is_empty() {
-            None
-        } else {
-            Some(provider_metadata)
-        };
-
-        ChatResponse {
-            id: terminal_response
-                .and_then(|response| response.id.clone())
-                .or_else(|| {
-                    self.start_metadata
-                        .as_ref()
-                        .and_then(|metadata| metadata.id.clone())
-                }),
-            content,
-            model: terminal_response
-                .and_then(|response| response.model.clone())
-                .or_else(|| {
-                    self.start_metadata
-                        .as_ref()
-                        .and_then(|metadata| metadata.model.clone())
-                }),
-            usage: self
-                .current_usage
-                .clone()
-                .or_else(|| terminal_response.and_then(|response| response.usage.clone())),
-            finish_reason: finish_reason
-                .or_else(|| self.stream_finish_reason.clone())
-                .or_else(|| terminal_response.and_then(|response| response.finish_reason.clone())),
-            raw_finish_reason: terminal_response
-                .and_then(|response| response.raw_finish_reason.clone())
-                .or_else(|| self.stream_raw_finish_reason.clone()),
-            audio: terminal_response.and_then(|response| response.audio.clone()),
-            system_fingerprint: terminal_response
-                .and_then(|response| response.system_fingerprint.clone()),
-            service_tier: terminal_response.and_then(|response| response.service_tier.clone()),
-            warnings: terminal_response
-                .and_then(|response| response.warnings.clone())
-                .or_else(|| {
-                    (!self.stream_warnings.is_empty()).then(|| self.stream_warnings.clone())
-                }),
-            request: terminal_response.and_then(|response| response.request.clone()),
-            response: final_http_response_info(
-                terminal_response.and_then(|response| response.response.clone()),
-                self.start_metadata.as_ref(),
-            ),
-            provider_metadata,
-        }
-    }
-
-    fn build_final_content(&self, terminal_response: Option<&ChatResponse>) -> MessageContent {
-        let has_accumulated_content = !self.buffer.is_empty()
-            || !self.tool_calls.is_empty()
-            || !self.thinking_buffer.is_empty()
-            || !self.stream_parts.is_empty();
-
-        if !has_accumulated_content {
-            return terminal_response
-                .map(|response| response.content.clone())
-                .unwrap_or_else(|| MessageContent::Text(String::new()));
-        }
-
-        #[cfg(feature = "structured-messages")]
-        if matches!(
-            terminal_response.map(|response| &response.content),
-            Some(MessageContent::Json(_))
-        ) {
-            return terminal_response
-                .map(|response| response.content.clone())
-                .unwrap_or_else(|| MessageContent::Text(String::new()));
-        }
-
-        let mut parts = if !self.buffer.is_empty() {
-            vec![build_text_part(&self.buffer, terminal_response)]
-        } else {
-            terminal_response
-                .map(|response| extract_terminal_text_parts(&response.content))
-                .unwrap_or_default()
-        };
-
-        if !self.tool_calls.is_empty() {
-            parts.extend(self.build_accumulated_tool_call_parts(terminal_response));
-        } else if let Some(response) = terminal_response {
-            parts.extend(extract_terminal_tool_call_parts(&response.content));
-        }
-
-        if !self.thinking_buffer.is_empty() {
-            parts.push(build_reasoning_part(
-                &self.thinking_buffer,
-                terminal_response,
-            ));
-        } else if let Some(response) = terminal_response {
-            parts.extend(extract_terminal_reasoning_parts(&response.content));
-        }
-
-        if let Some(response) = terminal_response {
-            parts.extend(extract_terminal_extra_parts(&response.content));
-        }
-
-        parts.extend(extract_stream_tool_call_parts(
-            &self.stream_parts,
-            &self.tool_call_order,
-        ));
-        parts.extend(extract_stream_reasoning_extra_parts(&self.stream_parts));
-        parts.extend(extract_stream_extra_parts(&self.stream_parts));
-
-        message_content_from_parts(parts)
-    }
-
-    fn build_accumulated_tool_call_parts(
-        &self,
-        terminal_response: Option<&ChatResponse>,
-    ) -> Vec<ContentPart> {
-        let mut parts = Vec::new();
-
-        for (tool_index, id) in self.tool_call_order.iter().enumerate() {
-            if self
-                .stream_parts
-                .iter()
-                .any(|part| matches!(part, ContentPart::ToolCall { tool_call_id, .. } if tool_call_id == id))
-            {
-                continue;
-            }
-
-            if let Some(builder) = self.tool_calls.get(id)
-                && !builder.name.is_empty()
-            {
-                let arguments = serde_json::from_str(&builder.arguments)
-                    .unwrap_or_else(|_| serde_json::Value::String(builder.arguments.clone()));
-
-                let terminal_match = terminal_response.and_then(|response| {
-                    find_terminal_tool_call_part(&response.content, builder, tool_index)
-                });
-
-                parts.push(build_tool_call_part(builder, arguments, terminal_match));
-            }
-        }
-
-        parts
-    }
-}
-
-fn stream_file_part_to_content_part(
-    file: &crate::types::ChatStreamFilePart,
-    reasoning: bool,
-) -> ContentPart {
-    let source = match &file.data {
-        ChatStreamFileData::Base64(data) => crate::types::MediaSource::base64(data.clone()),
-        ChatStreamFileData::Bytes(data) => crate::types::MediaSource::binary(data.clone()),
-    };
-
-    if reasoning {
-        ContentPart::ReasoningFile {
-            source,
-            media_type: file.media_type.clone(),
-            provider_options: crate::types::ProviderOptionsMap::default(),
-            provider_metadata: file.provider_metadata.clone(),
-        }
-    } else {
-        ContentPart::File {
-            source: crate::types::FilePartSource::from(source),
-            media_type: file.media_type.clone(),
-            filename: None,
-            provider_options: crate::types::ProviderOptionsMap::default(),
-            provider_metadata: file.provider_metadata.clone(),
-        }
-    }
-}
-
-fn response_text_part(
-    text: impl Into<String>,
-    provider_metadata: Option<ProviderMetadataMap>,
-) -> ContentPart {
-    ContentPart::Text {
-        text: text.into(),
-        provider_options: crate::types::ProviderOptionsMap::default(),
-        provider_metadata,
-    }
-}
-
-fn build_text_part(text: &str, terminal_response: Option<&ChatResponse>) -> ContentPart {
-    let provider_metadata =
-        terminal_response.and_then(|response| first_terminal_text_metadata(&response.content));
-
-    response_text_part(text, provider_metadata)
-}
-
-fn build_reasoning_part(text: &str, terminal_response: Option<&ChatResponse>) -> ContentPart {
-    let provider_metadata =
-        terminal_response.and_then(|response| first_terminal_reasoning_metadata(&response.content));
-
-    ContentPart::Reasoning {
-        text: text.to_string(),
-        provider_options: crate::types::ProviderOptionsMap::default(),
-        provider_metadata,
-    }
-}
-
-fn build_tool_call_part(
-    builder: &ToolCallBuilder,
-    arguments: serde_json::Value,
-    terminal_part: Option<&ContentPart>,
-) -> ContentPart {
-    let (provider_executed, dynamic, title, provider_metadata) = match terminal_part {
-        Some(ContentPart::ToolCall {
-            provider_executed,
-            dynamic,
-            title,
-            provider_metadata,
-            ..
-        }) => (
-            *provider_executed,
-            *dynamic,
-            title.clone(),
-            provider_metadata.clone(),
-        ),
-        _ => (None, None, None, None),
-    };
-
-    ContentPart::ToolCall {
-        tool_call_id: builder.id.clone(),
-        tool_name: builder.name.clone(),
-        arguments,
-        provider_executed: builder.provider_executed.or(provider_executed),
-        dynamic: builder.dynamic.or(dynamic),
-        invalid: None,
-        error: None,
-        title: builder.title.clone().or(title),
-        provider_options: crate::types::ProviderOptionsMap::default(),
-        provider_metadata: builder.provider_metadata.clone().or(provider_metadata),
-    }
-}
-
-fn tool_input_from_builder(builder: &ToolCallBuilder) -> serde_json::Value {
-    serde_json::from_str(&builder.arguments)
-        .unwrap_or_else(|_| serde_json::Value::String(builder.arguments.clone()))
-}
-
-fn find_terminal_tool_call_part<'a>(
-    content: &'a MessageContent,
-    builder: &ToolCallBuilder,
-    tool_index: usize,
-) -> Option<&'a ContentPart> {
-    let terminal_parts = match content {
-        MessageContent::MultiModal(parts) => parts,
-        _ => return None,
-    };
-
-    terminal_parts
-        .iter()
-        .find(|part| matches!(part, ContentPart::ToolCall { tool_call_id, .. } if tool_call_id == &builder.id))
-        .or_else(|| {
-            terminal_parts
-                .iter()
-                .filter(|part| part.is_tool_call())
-                .nth(tool_index)
-        })
-}
-
-fn first_terminal_text_metadata(content: &MessageContent) -> Option<ProviderMetadataMap> {
-    match content {
-        MessageContent::MultiModal(parts) => parts.iter().find_map(|part| match part {
-            ContentPart::Text {
-                provider_metadata, ..
-            } => provider_metadata.clone(),
-            _ => None,
-        }),
-        _ => None,
-    }
-}
-
-fn first_terminal_reasoning_metadata(content: &MessageContent) -> Option<ProviderMetadataMap> {
-    match content {
-        MessageContent::MultiModal(parts) => parts.iter().find_map(|part| match part {
-            ContentPart::Reasoning {
-                provider_metadata, ..
-            } => provider_metadata.clone(),
-            _ => None,
-        }),
-        _ => None,
-    }
-}
-
-fn extract_terminal_text_parts(content: &MessageContent) -> Vec<ContentPart> {
-    match content {
-        MessageContent::Text(text) if !text.is_empty() => {
-            vec![response_text_part(text.as_str(), None)]
-        }
-        MessageContent::MultiModal(parts) => parts
-            .iter()
-            .filter(|part| part.is_text())
-            .cloned()
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn extract_terminal_tool_call_parts(content: &MessageContent) -> Vec<ContentPart> {
-    match content {
-        MessageContent::MultiModal(parts) => parts
-            .iter()
-            .filter(|part| part.is_tool_call())
-            .cloned()
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn extract_terminal_reasoning_parts(content: &MessageContent) -> Vec<ContentPart> {
-    match content {
-        MessageContent::MultiModal(parts) => parts
-            .iter()
-            .filter(|part| part.is_reasoning())
-            .cloned()
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn extract_terminal_extra_parts(content: &MessageContent) -> Vec<ContentPart> {
-    match content {
-        MessageContent::MultiModal(parts) => parts
-            .iter()
-            .filter(|part| !part.is_text() && !part.is_tool_call() && !part.is_reasoning())
-            .cloned()
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn extract_stream_tool_call_parts(
-    parts: &[ContentPart],
-    _accumulated_tool_call_ids: &[String],
-) -> Vec<ContentPart> {
-    parts
-        .iter()
-        .filter(|part| matches!(part, ContentPart::ToolCall { .. }))
-        .cloned()
-        .collect()
-}
-
-fn extract_stream_reasoning_extra_parts(parts: &[ContentPart]) -> Vec<ContentPart> {
-    parts
-        .iter()
-        .filter(|part| matches!(part, ContentPart::ReasoningFile { .. }))
-        .cloned()
-        .collect()
-}
-
-fn extract_stream_extra_parts(parts: &[ContentPart]) -> Vec<ContentPart> {
-    parts
-        .iter()
-        .filter(|part| !part.is_text() && !part.is_reasoning() && !part.is_tool_call())
-        .cloned()
-        .collect()
-}
-
-fn message_content_from_parts(parts: Vec<ContentPart>) -> MessageContent {
-    match parts.as_slice() {
-        [
-            ContentPart::Text {
-                text,
-                provider_options,
-                provider_metadata: None,
-            },
-        ] if provider_options.is_empty() => MessageContent::Text(text.clone()),
-        [] => MessageContent::Text(String::new()),
-        _ => MessageContent::MultiModal(parts),
-    }
-}
-
-fn final_http_response_info(
-    terminal: Option<crate::types::HttpResponseInfo>,
-    start_metadata: Option<&ResponseMetadata>,
-) -> Option<crate::types::HttpResponseInfo> {
-    let Some(metadata) = start_metadata else {
-        return terminal;
-    };
-
-    let headers = metadata
-        .headers
-        .as_ref()
-        .filter(|headers| !headers.is_empty());
-    if headers.is_none() && metadata.body.is_none() {
-        return terminal;
-    }
-
-    match terminal {
-        Some(mut response) => {
-            if response.headers.is_empty()
-                && let Some(headers) = headers
-            {
-                response.headers = headers.clone();
-            }
-            if response.body.is_none() {
-                response.body = metadata.body.clone();
-            }
-            Some(response)
-        }
-        None => Some(crate::types::HttpResponseInfo {
-            timestamp: metadata.created.unwrap_or_else(chrono::Utc::now),
-            model_id: metadata.model.clone(),
-            headers: headers.cloned().unwrap_or_default(),
-            body: metadata.body.clone(),
-        }),
-    }
 }
 
 /// Processed Event
@@ -1059,6 +629,10 @@ mod tests {
             .0
     }
 
+    fn response_assembly_source() -> &'static str {
+        include_str!("processor/response_assembly.rs")
+    }
+
     #[test]
     fn stream_processor_source_does_not_read_request_provider_options() {
         let source = production_source();
@@ -1075,15 +649,15 @@ mod tests {
 
     #[test]
     fn stream_processor_routes_text_response_parts_through_response_adapter() {
-        let source = production_source();
+        let source = response_assembly_source();
 
         assert!(
             source.contains("fn response_text_part"),
-            "StreamProcessor should have an explicit response text adapter"
+            "StreamProcessor response assembly should have an explicit response text adapter"
         );
         assert!(
             !source.contains("ContentPart::text("),
-            "StreamProcessor response consolidation should not call legacy ContentPart::text directly"
+            "StreamProcessor response assembly should not call legacy ContentPart::text directly"
         );
     }
 
