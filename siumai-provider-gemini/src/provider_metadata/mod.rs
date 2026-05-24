@@ -1,7 +1,8 @@
-//! Provider-owned typed response metadata.
+//! Typed response metadata re-exported from the Gemini protocol crate.
 //!
-//! This module contains typed views over `ChatResponse.provider_metadata` that are owned by the
-//! provider crate to avoid coupling `siumai-core` to provider-specific response shapes.
+//! The protocol crate owns Gemini response metadata shapes because they are part of the
+//! GenerateContent protocol mapping. The provider crate keeps this module as the stable
+//! provider-facing import path.
 
 #[cfg(feature = "google")]
 pub mod gemini;

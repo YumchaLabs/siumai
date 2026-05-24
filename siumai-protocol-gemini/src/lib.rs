@@ -17,6 +17,9 @@ pub(crate) use siumai_core::{
 
 pub mod hosted_tools;
 
+/// Typed response metadata owned by the Google/Gemini protocol family.
+pub mod provider_metadata;
+
 /// Provider-defined tool catalog owned by the Google/Gemini protocol family.
 pub mod tool_catalog;
 

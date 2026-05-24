@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Re-export Gemini typed provider metadata from `siumai-protocol-gemini` so the provider crate no
+  longer owns GenerateContent response metadata shapes.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-gemini-v0.11.0-beta.7...siumai-provider-gemini-v0.11.0-beta.8) - 2026-05-18
 
 ### Added
