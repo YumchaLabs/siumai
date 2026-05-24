@@ -136,6 +136,10 @@ pub mod hosted_tools {
     }
 }
 
+pub use siumai_core::types::{
+    convert_data_content_to_base64_string, convert_data_content_to_uint8_array,
+    convert_uint8_array_to_text,
+};
 /// AI SDK-style utility helpers.
 pub use siumai_core::utils::{delay, is_abort_error};
 pub use siumai_provider_utils::standards::{ToolNameMapping, create_tool_name_mapping};
@@ -802,15 +806,13 @@ pub mod prelude {
             UseCompletionOptions, UserContent, UserContentPart, UserModelMessage, ValidationResult,
             VideoModelProviderMetadata, VideoModelResponseMetadata, Warning, add_image_model_usage,
             add_language_model_usage, as_language_model_usage, as_schema, as_schema_or_empty,
-            convert_data_content_to_base64_string, convert_data_content_to_uint8_array,
-            convert_uint8_array_to_text, create_null_language_model_usage, empty_json_schema,
-            filter_active_tools, get_chunk_timeout_ms, get_static_tool_name, get_step_timeout_ms,
-            get_tool_name, get_tool_or_dynamic_tool_name, get_tool_timeout_ms,
-            get_total_timeout_ms, has_tool_call, is_custom_content_ui_part,
-            is_data_ui_message_chunk, is_data_ui_part, is_dynamic_tool_ui_part, is_file_ui_part,
-            is_loop_finished, is_reasoning_file_ui_part, is_reasoning_ui_part,
-            is_static_tool_ui_part, is_step_count, is_stop_condition_met, is_text_ui_part,
-            is_tool_ui_part, json_schema, json_schema_with_validator,
+            create_null_language_model_usage, empty_json_schema, filter_active_tools,
+            get_chunk_timeout_ms, get_static_tool_name, get_step_timeout_ms, get_tool_name,
+            get_tool_or_dynamic_tool_name, get_tool_timeout_ms, get_total_timeout_ms,
+            has_tool_call, is_custom_content_ui_part, is_data_ui_message_chunk, is_data_ui_part,
+            is_dynamic_tool_ui_part, is_file_ui_part, is_loop_finished, is_reasoning_file_ui_part,
+            is_reasoning_ui_part, is_static_tool_ui_part, is_step_count, is_stop_condition_met,
+            is_text_ui_part, is_tool_ui_part, json_schema, json_schema_with_validator,
             last_assistant_message_is_complete_with_approval_responses,
             last_assistant_message_is_complete_with_tool_calls, lazy_schema,
             prepare_language_model_v4_prompt, prepare_tool_choice, prune_messages,

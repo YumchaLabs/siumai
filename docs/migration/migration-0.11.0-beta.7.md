@@ -591,12 +591,15 @@ use siumai::{parse_json, normalize_headers, load_api_key};
 
 This applies to download helpers, header normalization, environment setting loaders, JSON
 instruction/parse helpers, provider-option/reference parsers, URL support helpers, base64/data
-helpers, reasoning mapping helpers, nullability/array helpers, media helpers, runtime
-user-agent/version helpers, and runtime type validators. If earlier code relied on
+helpers, prompt `DataContent` projection helpers, reasoning mapping helpers,
+nullability/array helpers, media helpers, runtime user-agent/version helpers, and runtime type
+validators. If earlier code relied on
 `prelude::unified::*` for names such as `Arrayable`, `as_array`, `filter_nullable`,
 `is_non_nullable`, `delay`, `is_abort_error`, `convert_to_base64`, `get_text_from_data_url`,
 `map_reasoning_to_provider_effort`, `map_reasoning_to_provider_budget`, `VERSION`,
-`media_type_to_extension`, or `strip_file_extension`, import those names from `siumai::{...}`.
+`media_type_to_extension`, `strip_file_extension`,
+`convert_data_content_to_base64_string`, `convert_data_content_to_uint8_array`, or
+`convert_uint8_array_to_text`, import those names from `siumai::{...}`.
 
 The stable unified prelude keeps only the narrow AI SDK-style helper subset: schema helpers, `generate_id`,
 `create_id_generator`, `IdGenerator`, `IdGeneratorOptions`, `has_tool_call`, `filter_active_tools`,

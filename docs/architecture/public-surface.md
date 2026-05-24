@@ -251,9 +251,10 @@ application-facing AI SDK helper layer, including schema helpers,
 ID generation helpers, stop-condition helpers, UI part predicates, `SerialJobExecutor`, and
 `ToolNameMapping`, without mirroring the whole `siumai-provider-utils` helper set or the historical
 `siumai-core::utils` compatibility module. The stable prelude intentionally does not export broad
-utility groups such as `Arrayable`/nullability helpers, base64/data helpers, download/header/settings
-helpers, JSON parse/instruction helpers, reasoning mapping helpers, runtime user-agent/version
-helpers, URL support helpers, or media helpers; import those from the root facade explicitly.
+utility groups such as `Arrayable`/nullability helpers, base64/data helpers, prompt `DataContent`
+projection helpers, download/header/settings helpers, JSON parse/instruction helpers, reasoning
+mapping helpers, runtime user-agent/version helpers, URL support helpers, or media helpers; import
+those from the root facade explicitly.
 
 Retained broad exports are limited to explicit namespaces where the namespace itself states the
 boundary and avoids accidental root/prelude coupling:

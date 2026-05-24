@@ -27,6 +27,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   the registry factory.
 - Narrowed the stable facade and unified prelude around family-first APIs, explicit protocol paths,
   explicit compatibility imports, and named experimental modules.
+- Moved prompt `DataContent` projection helpers out of `prelude::unified::*`; import
+  `convert_data_content_to_base64_string`, `convert_data_content_to_uint8_array`, and
+  `convert_uint8_array_to_text` from the explicit `siumai::{...}` facade root.
 - Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,
   Transcription, and Video are stable families; Music remains extension-only unless a future ADR
   promotes it.
