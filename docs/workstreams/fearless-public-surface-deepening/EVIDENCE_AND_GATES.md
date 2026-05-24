@@ -68,4 +68,9 @@ Before accepting a major task or lane closeout, run or perform a review focused 
 
 | Date | Task | Command / Evidence | Result | What it proves |
 | --- | --- | --- | --- | --- |
-| 2026-05-25 | FPSD-010 | Workstream docs opened. | Pending verification | Establishes the durable lane and first executable target. |
+| 2026-05-25 | FPSD-010 | Workstream docs opened; `git diff --check -- docs/workstreams/fearless-public-surface-deepening docs/workstreams/INDEX.md`. | Pass | Establishes the durable lane and first executable target. |
+| 2026-05-25 | FPSD-020 | `cargo check -p siumai --tests --no-default-features --features openai`. | Pass | Proves the facade crate and tests compile after replacing the tooling wildcard mirror with explicit re-exports. |
+| 2026-05-25 | FPSD-020 | `cargo nextest run -p siumai --test facade_architecture_boundary_test facade_tooling_module_exports_an_explicit_runtime_surface stable_unified_prelude_does_not_mirror_tooling_runtime_module --no-default-features --features openai --no-fail-fast`. | Pass: 2 tests run, 2 passed. | Proves `siumai::tooling` stays explicit and `prelude::unified` does not mirror the full runtime tooling module. |
+| 2026-05-25 | FPSD-020 | `cargo nextest run -p siumai --test tooling_runtime_public_surface_test public_surface_tooling_runtime_contract_compiles --no-default-features --features openai --no-fail-fast`. | Pass: 1 test run, 1 passed. | Proves the broader runtime tooling contract still compiles from the public facade. |
+| 2026-05-25 | FPSD-020 | `cargo nextest run -p siumai --test public_surface_imports_test public_surface_tooling_imports_compile --no-default-features --features openai --no-fail-fast`. | Pass: 1 test run, 1 passed. | Proves documented `siumai::tooling` imports still work. |
+| 2026-05-25 | FPSD-020 | `git diff --check`. | Pass; Git reported expected LF-to-CRLF working-copy warnings only. | Proves touched source/docs have no whitespace-error diff. |

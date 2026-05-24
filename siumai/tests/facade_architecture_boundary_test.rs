@@ -1152,6 +1152,62 @@ fn stable_unified_prelude_does_not_mirror_tooling_runtime_module() {
 }
 
 #[test]
+fn facade_tooling_module_exports_an_explicit_runtime_surface() {
+    let tooling_rs = read_source("src/tooling.rs");
+
+    assert!(
+        !tooling_rs.contains("pub use siumai_core::tooling::*;"),
+        "siumai::tooling should not wildcard-mirror every future core tooling helper"
+    );
+    assert!(
+        tooling_rs.contains("pub use siumai_core::tooling::{"),
+        "siumai::tooling should remain a curated facade re-export surface"
+    );
+
+    for stable_tooling_name in [
+        "ExecutableTool",
+        "ExecutableTools",
+        "ProviderDefinedToolFactory",
+        "ProviderDefinedToolFactoryWithOutputSchema",
+        "ProviderExecutedToolFactory",
+        "ToolExecuteFn",
+        "ToolExecuteFunction",
+        "ToolExecuteStreamFn",
+        "ToolExecuteValueStream",
+        "ToolExecuteWithOptionsFn",
+        "ToolExecutionOptions",
+        "ToolExecutionResult",
+        "ToolExecutionStream",
+        "ToolInputAvailableContext",
+        "ToolInputAvailableFn",
+        "ToolInputDeltaContext",
+        "ToolInputDeltaFn",
+        "ToolInputStartFn",
+        "ToolModelOutputContext",
+        "ToolModelOutputFn",
+        "ToolNeedsApproval",
+        "ToolNeedsApprovalContext",
+        "ToolNeedsApprovalFn",
+        "ToolRuntimeContext",
+        "ToolRuntimeMetadata",
+        "ToolSet",
+        "create_provider_defined_tool_factory",
+        "create_provider_defined_tool_factory_with_output_schema",
+        "create_provider_executed_tool_factory",
+        "dynamic_tool",
+        "execute_tool",
+        "is_executable_tool",
+        "model_messages_from_chat_messages",
+        "tool",
+    ] {
+        assert!(
+            source_identifiers(&tooling_rs).contains(stable_tooling_name),
+            "siumai::tooling should explicitly export runtime helper `{stable_tooling_name}`"
+        );
+    }
+}
+
+#[test]
 fn facade_ui_module_exports_an_explicit_conversion_surface() {
     let ui_rs = read_source("src/ui.rs");
     let public_surface_doc =

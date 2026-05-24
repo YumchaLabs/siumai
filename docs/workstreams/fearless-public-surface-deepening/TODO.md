@@ -12,18 +12,18 @@ Status legend:
 
 ## M0 — Scope And Evidence Freeze
 
-- [~] FPSD-010 [owner=planner] [deps=none] [scope=docs/workstreams/fearless-public-surface-deepening]
+- [x] FPSD-010 [owner=planner] [deps=none] [scope=docs/workstreams/fearless-public-surface-deepening]
   Goal: Freeze problem, target state, non-goals, task order, and evidence anchors for the public
   surface deepening lane.
   Validation: `DESIGN.md`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`,
   `WORKSTREAM.json`, and `HANDOFF.md` exist and agree.
   Review: planner self-review.
   Evidence: workstream docs.
-  Handoff: FPSD-020 is the first executable coding task.
+  Handoff: DONE. FPSD-020 is the first executable coding task.
 
 ## M1 — Facade Surface Tightening
 
-- [ ] FPSD-020 [owner=codex] [deps=FPSD-010] [scope=siumai/src/tooling.rs,siumai/tests,docs/architecture,docs/migration]
+- [x] FPSD-020 [owner=codex] [deps=FPSD-010] [scope=siumai/src/tooling.rs,siumai/tests,docs/architecture,docs/migration]
   Goal: Narrow `siumai::tooling` to an explicit curated re-export surface over
   `siumai_core::tooling` after the core tooling implementation split.
   Validation:
@@ -32,7 +32,8 @@ Status legend:
   - `cargo nextest run -p siumai --test public_surface_imports_test public_surface_tooling_imports_compile --no-default-features --features openai --no-fail-fast`
   Review: self-review plus source guard update.
   Evidence: facade explicit export source and public compile guards.
-  Handoff: FPSD-030 can start once the tooling facade no longer wildcard-mirrors core.
+  Handoff: DONE. `siumai::tooling` no longer wildcard-mirrors core and is guarded by facade
+  architecture tests. FPSD-030 can split `siumai/src/lib.rs`.
 
 - [ ] FPSD-030 [owner=codex] [deps=FPSD-020] [scope=siumai/src/lib.rs,siumai/src/*.rs,siumai/tests,docs/architecture]
   Goal: Split `siumai/src/lib.rs` policy-heavy facade sections into named modules while preserving
