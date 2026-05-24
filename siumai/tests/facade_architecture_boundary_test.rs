@@ -64,20 +64,26 @@ fn workspace_rust_sources_under(workspace_root: &Path, relative_path: &str) -> V
     sources
 }
 
-fn prelude_unified_source(lib_rs: &str) -> &str {
-    let unified_start = lib_rs
+fn prelude_source() -> String {
+    public_namespace_module_source("prelude")
+}
+
+fn prelude_unified_source(prelude_rs: &str) -> &str {
+    let unified_start = prelude_rs
         .find("pub mod unified {")
         .expect("unified prelude module");
-    let compat_start = lib_rs[unified_start..]
+    let compat_start = prelude_rs[unified_start..]
         .find("pub mod compat {")
         .expect("compat prelude module");
-    &lib_rs[unified_start..unified_start + compat_start]
+    &prelude_rs[unified_start..unified_start + compat_start]
 }
 
 fn public_namespace_module_source(module: &str) -> String {
     let lib_rs = read_source("src/lib.rs");
-    let prelude_start = lib_rs.find("pub mod prelude {").expect("prelude module");
-    let root_source = &lib_rs[..prelude_start];
+    let macros_start = lib_rs
+        .find("// Macros moved to a dedicated module for cleanliness")
+        .expect("macros module marker");
+    let root_source = &lib_rs[..macros_start];
     assert!(
         root_source
             .lines()
@@ -628,7 +634,8 @@ fn content_part_provider_map_audit_covers_high_value_production_hits() {
 #[test]
 fn stable_unified_prelude_excludes_compatibility_construction_aliases() {
     let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let architecture_audit = fs::read_to_string(
         workspace_root()
             .join("docs/workstreams/fearless-architecture-convergence/compatibility-audit.md"),
@@ -665,13 +672,14 @@ fn stable_unified_prelude_excludes_compatibility_construction_aliases() {
     }
 
     assert!(
-        lib_rs.contains("pub mod compat {")
-            && lib_rs.contains("pub use crate::compat::{")
-            && lib_rs.contains("StreamingToolCallTracker")
-            && lib_rs.contains("Experimental_GenerateImageResult")
-            && lib_rs.contains("pub mod content")
-            && lib_rs.contains("pub use crate::compat::content::*")
-            && lib_rs.contains("step_count_is"),
+        lib_rs.contains("pub mod prelude;")
+            && prelude_rs.contains("pub mod compat {")
+            && prelude_rs.contains("pub use crate::compat::{")
+            && prelude_rs.contains("StreamingToolCallTracker")
+            && prelude_rs.contains("Experimental_GenerateImageResult")
+            && prelude_rs.contains("pub mod content")
+            && prelude_rs.contains("pub use crate::compat::content::*")
+            && prelude_rs.contains("step_count_is"),
         "compatibility construction and legacy helper aliases should remain explicit under prelude::compat"
     );
     assert!(
@@ -723,8 +731,8 @@ fn legacy_content_part_has_explicit_compat_namespace() {
 
 #[test]
 fn stable_unified_prelude_does_not_export_legacy_content_part() {
-    let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface = read_source("tests/public_surface_imports_test.rs");
     let public_surface_doc =
         fs::read_to_string(workspace_root().join("docs/architecture/public-surface.md"))
@@ -759,7 +767,8 @@ fn stable_unified_prelude_does_not_export_legacy_content_part() {
 fn directional_content_namespaces_are_visible_and_compat_is_explicit() {
     let lib_rs = read_source("src/lib.rs");
     let content_rs = public_namespace_module_source("content");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let spec_types_rs = fs::read_to_string(workspace_root().join("siumai-spec/src/types.rs"))
         .expect("read spec types source");
     let public_surface = read_source("tests/public_surface_imports_test.rs");
@@ -855,9 +864,9 @@ fn tests_and_examples_do_not_import_legacy_content_part_from_unified_prelude() {
 
 #[test]
 fn stable_unified_prelude_does_not_mirror_core_streaming_internals() {
-    let lib_rs = read_source("src/lib.rs");
     let experimental_rs = experimental_source();
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -917,7 +926,8 @@ fn stable_unified_prelude_does_not_mirror_core_streaming_internals() {
 #[test]
 fn stable_unified_prelude_scopes_low_level_utility_helpers() {
     let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -1060,8 +1070,8 @@ fn stable_unified_prelude_scopes_low_level_utility_helpers() {
 
 #[test]
 fn stable_unified_prelude_scopes_retry_api() {
-    let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -1144,8 +1154,8 @@ fn facade_retry_api_exports_an_explicit_control_surface() {
 
 #[test]
 fn stable_unified_prelude_does_not_mirror_tooling_runtime_module() {
-    let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -1287,7 +1297,8 @@ fn facade_ui_module_exports_an_explicit_conversion_surface() {
 fn stable_unified_prelude_does_not_export_middleware_internals() {
     let lib_rs = read_source("src/lib.rs");
     let experimental_rs = experimental_source();
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -1434,29 +1445,32 @@ fn facade_root_splits_public_namespace_modules() {
         );
     }
 
-    let prelude_start = lib_rs.find("pub mod prelude {").expect("prelude module");
+    let macros_start = lib_rs
+        .find("// Macros moved to a dedicated module for cleanliness")
+        .expect("macros module marker");
     for module in [
         "hosted_tools",
         "protocol",
         "content",
         "experimental",
         "extensions",
+        "prelude",
     ] {
         let declaration = format!("pub mod {module};");
         assert!(
-            lib_rs[..prelude_start]
+            lib_rs[..macros_start]
                 .lines()
                 .map(str::trim)
                 .any(|line| line == declaration),
-            "facade root should declare `siumai::{module}` before the prelude instead of hiding it inside another module"
+            "facade root should declare `siumai::{module}` before private modules instead of hiding it inside another module"
         );
     }
 }
 
 #[test]
 fn stable_unified_prelude_keeps_only_audited_compatibility_and_runtime_aliases() {
-    let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let compatibility_audit = fs::read_to_string(crate_root().join(
         "../docs/workstreams/fearless-spec-core-boundary-convergence/compatibility-audit.md",
     ))
@@ -1488,7 +1502,8 @@ fn stable_unified_prelude_keeps_only_audited_compatibility_and_runtime_aliases()
 fn broad_facade_types_path_is_explicit_compat_only() {
     let lib_rs = read_source("src/lib.rs");
     let compat_rs = read_source("src/compat.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let root_types_path = ["siumai", "types"].join("::");
     let root_types_glob = format!("`{root_types_path}::*`");
     let compat_types_glob = "`siumai::compat::types::*`";
@@ -1518,7 +1533,8 @@ fn broad_facade_types_path_is_explicit_compat_only() {
         "siumai::compat should own the broad type namespace for migration-only imports"
     );
     assert!(
-        lib_rs.contains("pub mod types {") && lib_rs.contains("pub use crate::compat::types::*;"),
+        prelude_rs.contains("pub mod types {")
+            && prelude_rs.contains("pub use crate::compat::types::*;"),
         "prelude::compat should expose compat::types without restoring a root facade type module"
     );
     assert!(
@@ -1838,17 +1854,14 @@ fn streaming_tool_call_helpers_are_explicit_compat_only() {
 #[test]
 fn stable_registry_prelude_exports_factory_signature_types() {
     let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
-    let prelude_source = lib_rs[lib_rs.find("pub mod prelude {").expect("prelude module")..]
-        .split("mod macros;")
-        .next()
-        .expect("prelude tail before macros");
-    let compat_prelude_source = prelude_source[prelude_source
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
+    let compat_prelude_source = prelude_rs[prelude_rs
         .find("pub mod compat {")
         .expect("compat prelude module")..]
-        .split("mod tests")
+        .split("pub mod extensions")
         .next()
-        .expect("compat prelude tail before tests");
+        .expect("compat prelude tail before extensions");
     let compatibility_audit = fs::read_to_string(crate_root().join(
         "../docs/workstreams/fearless-spec-core-boundary-convergence/compatibility-audit.md",
     ))
@@ -1881,10 +1894,10 @@ fn stable_registry_prelude_exports_factory_signature_types() {
         "facade should not keep a historical prelude::registry mirror; use prelude::unified::registry::* or siumai::registry::*"
     );
     assert!(
-        lib_rs.contains("pub mod registry {")
-            && lib_rs.contains("ProviderFactory")
-            && lib_rs.contains("BuildContext")
-            && lib_rs.contains("ProviderBuildOverrides"),
+        unified_source.contains("pub mod registry {")
+            && unified_source.contains("ProviderFactory")
+            && unified_source.contains("BuildContext")
+            && unified_source.contains("ProviderBuildOverrides"),
         "prelude::unified::registry should export ProviderFactory plus the context types required by family-first factory method signatures"
     );
     assert!(
@@ -1918,7 +1931,8 @@ fn stable_registry_prelude_exports_factory_signature_types() {
 #[test]
 fn stable_unified_prelude_scopes_non_family_upload_helpers() {
     let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -1953,7 +1967,8 @@ fn stable_unified_prelude_scopes_non_family_upload_helpers() {
 fn stable_unified_prelude_keeps_non_family_extension_types_scoped() {
     let lib_rs = read_source("src/lib.rs");
     let extensions_rs = public_namespace_module_source("extensions");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -2004,7 +2019,7 @@ fn stable_unified_prelude_keeps_non_family_extension_types_scoped() {
         lib_rs.contains("pub mod extensions;")
             && extensions_rs.contains("pub use siumai_core::traits::{")
             && extensions_rs.contains("pub mod types")
-            && lib_rs.contains("pub use crate::extensions::*;")
+            && prelude_rs.contains("pub use crate::extensions::*;")
             && public_surface_doc.contains("use siumai::extensions::*;")
             && public_surface_doc.contains("use siumai::extensions::types::*;")
             && public_surface_doc.contains("siumai::prelude::extensions::*"),
@@ -2015,7 +2030,8 @@ fn stable_unified_prelude_keeps_non_family_extension_types_scoped() {
 #[test]
 fn family_taxonomy_documents_video_as_stable_and_music_as_extension_only() {
     let lib_rs = read_source("src/lib.rs");
-    let unified_source = prelude_unified_source(&lib_rs);
+    let prelude_rs = prelude_source();
+    let unified_source = prelude_unified_source(&prelude_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -2054,8 +2070,8 @@ fn family_taxonomy_documents_video_as_stable_and_music_as_extension_only() {
             .expect("read core music trait source");
 
     assert!(
-        lib_rs.contains("seven stable model families")
-            && lib_rs.contains("Language/Embedding/Image/Reranking/Speech/Transcription/Video")
+        prelude_rs.contains("seven stable model families")
+            && prelude_rs.contains("Language/Embedding/Image/Reranking/Speech/Transcription/Video")
             && lib_rs.contains("Music remains extension-only"),
         "facade docs/comments should name seven stable families and keep music extension-only"
     );

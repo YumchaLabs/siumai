@@ -49,6 +49,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   into named source files while preserving the existing `siumai::*` public paths.
 - Split `siumai::experimental` into a named source file while preserving the advanced bridge,
   execution, provider, and utility facade paths.
+- Split the `siumai::prelude` facade into a named source file while preserving unified,
+  compatibility, and extension prelude imports.
 - Guarded OpenAI-compatible provider extension `*Client` / `*Config` exports as lower-level compat
   aliases beside the package-level `provider()` / `create_provider()` builder helpers.
 - Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,

@@ -16,15 +16,11 @@ the next public-surface and runtime deepening queue:
 
 ## Active Task
 
-- Task ID: FPSD-030
-- Owner: codex
-- Files: `siumai/src/lib.rs`,
-  `siumai/src/{hosted_tools,protocol,content,extensions,experimental}.rs`, facade
-  architecture/public-surface tests, workstream evidence.
-- Validation: focused facade architecture gates, `cargo check -p siumai --tests
-  --no-default-features --features openai`, and focused public-surface import gates.
-- Status: IN PROGRESS. First slices split `hosted_tools`, `protocol`, `content`, `extensions`, and
-  `experimental` out of `lib.rs`; `prelude` remains a follow-up slice.
+- Task ID: none
+- Owner: n/a
+- Files: n/a
+- Validation: n/a
+- Status: DONE for FPSD-030
 - Review: self-review
 - Evidence: `EVIDENCE_AND_GATES.md`
 
@@ -43,6 +39,8 @@ the next public-surface and runtime deepening queue:
   keeping the same `siumai::{hosted_tools,protocol,content,extensions}` paths.
 - Continued FPSD-030 by moving `siumai::experimental` into `siumai/src/experimental.rs` while
   preserving advanced bridge, streaming, execution, provider, and client paths.
+- Completed FPSD-030 by moving `siumai::prelude` into `siumai/src/prelude.rs` while preserving
+  unified, compatibility, extension, and registry prelude imports.
 
 ## Blockers
 
@@ -50,6 +48,6 @@ the next public-surface and runtime deepening queue:
 
 ## Next Recommended Action
 
-1. Finish and commit the `experimental` namespace split after package/public-surface gates pass.
-2. Continue FPSD-030 by extracting `prelude` into a named module, keeping public paths stable and
-   adding a focused guard.
+1. Start FPSD-040 by splitting `siumai/src/image.rs` by public workflow/helper role while keeping
+   `siumai::image::*` stable.
+2. Add focused image facade architecture/public-surface guards before touching video.

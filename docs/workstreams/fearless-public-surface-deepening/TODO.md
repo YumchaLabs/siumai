@@ -35,7 +35,7 @@ Status legend:
   Handoff: DONE. `siumai::tooling` no longer wildcard-mirrors core and is guarded by facade
   architecture tests. FPSD-030 can split `siumai/src/lib.rs`.
 
-- [~] FPSD-030 [owner=codex] [deps=FPSD-020] [scope=siumai/src/lib.rs,siumai/src/*.rs,siumai/tests,docs/architecture]
+- [x] FPSD-030 [owner=codex] [deps=FPSD-020] [scope=siumai/src/lib.rs,siumai/src/*.rs,siumai/tests,docs/architecture]
   Goal: Split `siumai/src/lib.rs` policy-heavy facade sections into named modules while preserving
   current public paths and prelude behavior.
   Validation:
@@ -43,9 +43,8 @@ Status legend:
   - focused facade architecture and public-surface import guards.
   Review: source review for public path preservation.
   Evidence: named facade modules and root export guards.
-  Handoff: IN PROGRESS. First slices split `hosted_tools`, `protocol`, `content`, `extensions`,
-  and `experimental` out of `lib.rs`; `prelude` is still a follow-up slice before large image/video
-  facade Modules.
+  Handoff: DONE. Split `hosted_tools`, `protocol`, `content`, `extensions`, `experimental`, and
+  `prelude` out of `lib.rs`; large image/video facade Modules can be split next.
 
 ## M2 — Large Facade Module Deepening
 
