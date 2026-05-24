@@ -43,9 +43,9 @@ Status legend:
   - focused facade architecture and public-surface import guards.
   Review: source review for public path preservation.
   Evidence: named facade modules and root export guards.
-  Handoff: IN PROGRESS. First slice split `hosted_tools`, `protocol`, `content`, and `extensions`
-  out of `lib.rs`; `experimental` and `prelude` are still follow-up slices before large
-  image/video facade Modules.
+  Handoff: IN PROGRESS. First slices split `hosted_tools`, `protocol`, `content`, `extensions`,
+  and `experimental` out of `lib.rs`; `prelude` is still a follow-up slice before large image/video
+  facade Modules.
 
 ## M2 — Large Facade Module Deepening
 

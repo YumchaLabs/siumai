@@ -18,12 +18,13 @@ the next public-surface and runtime deepening queue:
 
 - Task ID: FPSD-030
 - Owner: codex
-- Files: `siumai/src/lib.rs`, `siumai/src/{hosted_tools,protocol,content,extensions}.rs`,
-  facade architecture/public-surface tests, workstream evidence.
+- Files: `siumai/src/lib.rs`,
+  `siumai/src/{hosted_tools,protocol,content,extensions,experimental}.rs`, facade
+  architecture/public-surface tests, workstream evidence.
 - Validation: focused facade architecture gates, `cargo check -p siumai --tests
   --no-default-features --features openai`, and focused public-surface import gates.
-- Status: IN PROGRESS. First slice split `hosted_tools`, `protocol`, `content`, and `extensions`
-  out of `lib.rs`; `prelude` and `experimental` remain follow-up slices.
+- Status: IN PROGRESS. First slices split `hosted_tools`, `protocol`, `content`, `extensions`, and
+  `experimental` out of `lib.rs`; `prelude` remains a follow-up slice.
 - Review: self-review
 - Evidence: `EVIDENCE_AND_GATES.md`
 
@@ -40,6 +41,8 @@ the next public-surface and runtime deepening queue:
   and adding `facade_tooling_module_exports_an_explicit_runtime_surface`.
 - Started FPSD-030 by moving four pure public namespace modules out of `siumai/src/lib.rs` while
   keeping the same `siumai::{hosted_tools,protocol,content,extensions}` paths.
+- Continued FPSD-030 by moving `siumai::experimental` into `siumai/src/experimental.rs` while
+  preserving advanced bridge, streaming, execution, provider, and client paths.
 
 ## Blockers
 
@@ -47,6 +50,6 @@ the next public-surface and runtime deepening queue:
 
 ## Next Recommended Action
 
-1. Finish and commit the first FPSD-030 namespace split after the package/public-surface gates pass.
-2. Continue FPSD-030 by extracting either `experimental` or `prelude` into a named module, keeping
-   public paths stable and adding a focused guard.
+1. Finish and commit the `experimental` namespace split after package/public-surface gates pass.
+2. Continue FPSD-030 by extracting `prelude` into a named module, keeping public paths stable and
+   adding a focused guard.

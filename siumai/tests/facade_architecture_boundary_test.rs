@@ -93,6 +93,10 @@ fn public_namespace_module_source(module: &str) -> String {
     read_source(&format!("src/{module}.rs"))
 }
 
+fn experimental_source() -> String {
+    public_namespace_module_source("experimental")
+}
+
 fn source_identifiers(source: &str) -> BTreeSet<String> {
     source
         .split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
@@ -314,6 +318,7 @@ fn openai_compatible_provider_ext_low_level_aliases_are_documented() {
 #[test]
 fn experimental_bridge_is_owned_by_bridge_crate_and_reexported_by_facade() {
     let lib_rs = read_source("src/lib.rs");
+    let experimental_rs = experimental_source();
     let bridge_crate_lib = fs::read_to_string(crate_root().join("../siumai-bridge/src/lib.rs"))
         .expect("read siumai-bridge lib.rs");
 
@@ -326,7 +331,7 @@ fn experimental_bridge_is_owned_by_bridge_crate_and_reexported_by_facade() {
         "experimental_bridge should not become a top-level public facade module"
     );
     assert!(
-        lib_rs.contains("pub use siumai_bridge::*;"),
+        experimental_rs.contains("pub use siumai_bridge::*;"),
         "siumai::experimental::bridge should re-export the dedicated bridge crate"
     );
 
@@ -851,6 +856,7 @@ fn tests_and_examples_do_not_import_legacy_content_part_from_unified_prelude() {
 #[test]
 fn stable_unified_prelude_does_not_mirror_core_streaming_internals() {
     let lib_rs = read_source("src/lib.rs");
+    let experimental_rs = experimental_source();
     let unified_source = prelude_unified_source(&lib_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
@@ -865,8 +871,8 @@ fn stable_unified_prelude_does_not_mirror_core_streaming_internals() {
         "prelude::unified should not directly export low-level JSON/SSE parser helpers"
     );
     assert!(
-        lib_rs.contains("pub mod streaming {")
-            && lib_rs.contains("pub use siumai_core::streaming::*;"),
+        experimental_rs.contains("pub mod streaming {")
+            && experimental_rs.contains("pub use siumai_core::streaming::*;"),
         "siumai::experimental::streaming should remain the explicit advanced facade path for core streaming internals"
     );
 
@@ -1280,6 +1286,7 @@ fn facade_ui_module_exports_an_explicit_conversion_surface() {
 #[test]
 fn stable_unified_prelude_does_not_export_middleware_internals() {
     let lib_rs = read_source("src/lib.rs");
+    let experimental_rs = experimental_source();
     let unified_source = prelude_unified_source(&lib_rs);
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
@@ -1297,11 +1304,12 @@ fn stable_unified_prelude_does_not_export_middleware_internals() {
     }
 
     assert!(
-        lib_rs.contains("pub mod execution {")
-            && lib_rs.contains("pub use siumai_core::execution::*;")
-            && lib_rs.contains("pub mod client {")
-            && lib_rs.contains("pub use crate::compat::client::{ClientWrapper, LlmClient};")
-            && lib_rs.contains("pub mod experimental {"),
+        lib_rs.contains("pub mod experimental;")
+            && experimental_rs.contains("pub mod execution {")
+            && experimental_rs.contains("pub use siumai_core::execution::*;")
+            && experimental_rs.contains("pub mod client {")
+            && experimental_rs
+                .contains("pub use crate::compat::client::{ClientWrapper, LlmClient};"),
         "siumai::experimental::execution should remain the explicit advanced facade path for middleware internals"
     );
     assert!(
@@ -1315,6 +1323,7 @@ fn stable_unified_prelude_does_not_export_middleware_internals() {
 #[test]
 fn facade_root_and_experimental_exports_are_owner_backed_and_scoped() {
     let lib_rs = read_source("src/lib.rs");
+    let experimental_rs = experimental_source();
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -1353,15 +1362,15 @@ fn facade_root_and_experimental_exports_are_owner_backed_and_scoped() {
     assert!(
         !lib_rs.contains(
             "pub use siumai_core::{defaults, execution, observability, params, retry, utils};"
+        ) && !experimental_rs.contains(
+            "pub use siumai_core::{defaults, execution, observability, params, retry, utils};"
         ),
         "experimental facade should not use a broad grouped core-module mirror"
     );
-    let experimental_utils_source = lib_rs[lib_rs
+    let experimental_utils_source = experimental_rs[experimental_rs
         .find("/// Core runtime and provider-utils compatibility utility modules.")
         .expect("experimental utils comment")..]
-        .split("pub use siumai_registry::registry;")
-        .next()
-        .expect("experimental utils module section");
+        .trim();
     assert!(
         experimental_utils_source.contains("pub use siumai_provider_utils::*;")
             && experimental_utils_source.contains("StreamingToolCallTracker")
@@ -1383,7 +1392,7 @@ fn facade_root_and_experimental_exports_are_owner_backed_and_scoped() {
     ] {
         let module_decl = format!("pub mod {module} {{");
         assert!(
-            lib_rs.contains(&module_decl),
+            experimental_rs.contains(&module_decl),
             "experimental::{module} should remain a named advanced module"
         );
     }
@@ -1426,7 +1435,13 @@ fn facade_root_splits_public_namespace_modules() {
     }
 
     let prelude_start = lib_rs.find("pub mod prelude {").expect("prelude module");
-    for module in ["hosted_tools", "protocol", "content", "extensions"] {
+    for module in [
+        "hosted_tools",
+        "protocol",
+        "content",
+        "experimental",
+        "extensions",
+    ] {
         let declaration = format!("pub mod {module};");
         assert!(
             lib_rs[..prelude_start]
@@ -2215,6 +2230,7 @@ fn hosted_tools_facade_reexports_protocol_owned_constructors() {
 #[test]
 fn facade_generic_client_paths_are_explicit_compatibility_exports() {
     let lib_rs = read_source("src/lib.rs");
+    let experimental_rs = experimental_source();
     let compat_rs = read_source("src/compat.rs");
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
@@ -2230,13 +2246,18 @@ fn facade_generic_client_paths_are_explicit_compatibility_exports() {
         "siumai::compat::client should be the explicit facade migration path for generic clients"
     );
     assert!(
-        lib_rs.contains("pub mod client {")
-            && lib_rs.contains("pub use crate::compat::client::{ClientWrapper, LlmClient};"),
+        lib_rs.contains("pub mod experimental;")
+            && experimental_rs.contains("pub mod client {")
+            && experimental_rs
+                .contains("pub use crate::compat::client::{ClientWrapper, LlmClient};"),
         "siumai::experimental::client should remain as an advanced alias to compat::client"
     );
     assert!(
         !lib_rs.contains("pub use siumai_core::client::{ClientWrapper, LlmClient};")
-            && !lib_rs.contains("pub use siumai_core::client::*;"),
+            && !lib_rs.contains("pub use siumai_core::client::*;")
+            && !experimental_rs
+                .contains("pub use siumai_core::client::{ClientWrapper, LlmClient};")
+            && !experimental_rs.contains("pub use siumai_core::client::*;"),
         "facade root/experimental code should not point directly at siumai_core::client; route through explicit compat::client"
     );
     assert!(
