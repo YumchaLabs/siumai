@@ -100,6 +100,10 @@ use siumai::provider_ext::openai::{metadata::*, options::*};
 use siumai::provider_ext::anthropic::{metadata::*, options::*};
 ```
 
+Typed request options are provider-owned. Typed response metadata may be protocol-owned when it is a
+projection of provider wire-format semantics; provider extension modules keep stable re-export paths
+so application imports do not need to distinguish the internal owner crate.
+
 For navigation/discoverability, each provider extension module may also expose structured submodules:
 
 - `siumai::provider_ext::<provider>::options::*`

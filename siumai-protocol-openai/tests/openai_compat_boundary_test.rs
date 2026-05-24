@@ -255,6 +255,62 @@ fn openai_audio_sse_wire_format_helpers_are_protocol_owned() {
     }
 }
 
+#[test]
+fn openai_typed_provider_metadata_is_protocol_owned() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let protocol_metadata = fs::read_to_string(
+        workspace.join("siumai-protocol-openai/src/provider_metadata/openai.rs"),
+    )
+    .expect("read protocol OpenAI provider metadata source");
+    let protocol_mod =
+        fs::read_to_string(workspace.join("siumai-protocol-openai/src/provider_metadata/mod.rs"))
+            .expect("read protocol OpenAI provider metadata mod");
+    let protocol_lib = fs::read_to_string(workspace.join("siumai-protocol-openai/src/lib.rs"))
+        .expect("read protocol OpenAI lib");
+    let provider_metadata =
+        fs::read_to_string(workspace.join("siumai-provider-openai/src/provider_metadata/mod.rs"))
+            .expect("read provider OpenAI provider metadata module");
+
+    for marker in [
+        "pub struct OpenAiMetadata",
+        "pub struct OpenAiContentPartMetadata",
+        "pub struct OpenaiResponsesProviderMetadata",
+        "pub trait OpenAiChatResponseExt",
+        "pub trait OpenAiContentPartExt",
+    ] {
+        assert!(
+            protocol_metadata.contains(marker),
+            "OpenAI typed provider metadata should live in the protocol crate: missing {marker}"
+        );
+    }
+
+    assert!(
+        protocol_mod.contains("pub mod openai;")
+            && protocol_lib.contains("pub mod provider_metadata;"),
+        "siumai-protocol-openai should expose the protocol-owned provider metadata module"
+    );
+    assert!(
+        provider_metadata.contains("pub use siumai_protocol_openai::provider_metadata::openai::*;")
+            && provider_metadata.lines().count() <= 8,
+        "siumai-provider-openai provider_metadata should stay a thin protocol re-export"
+    );
+
+    for forbidden in [
+        "pub struct OpenAiMetadata",
+        "pub struct OpenAiContentPartMetadata",
+        "impl OpenAiChatResponseExt",
+        "impl OpenAiContentPartExt",
+        "provider-owned",
+    ] {
+        assert!(
+            !provider_metadata.contains(forbidden),
+            "provider crate must not own OpenAI typed provider metadata implementation: found {forbidden}"
+        );
+    }
+}
+
 fn collect_forbidden_imports(root: &Path, forbidden: &str, offenders: &mut Vec<String>) {
     let mut files = Vec::new();
     collect_rs_files(root, &mut files);

@@ -20,8 +20,11 @@ However, coupling remains high because `siumai-core` still contains provider-spe
 - (historical) provider-specific option structs and metadata types under `siumai-core/src/types/provider_options/*` and `siumai-core/src/types/provider_metadata/*`
 - (historical) a closed `ProviderOptions` enum transport that forced core changes when providers/features evolved
 
-In beta.5, typed `providerOptions`/`providerMetadata` were moved to provider crates and the legacy closed
-`ProviderOptions` enum transport was removed in favor of an open `provider_options_map`.
+In beta.5, typed `providerOptions`/`providerMetadata` were moved out of core and the legacy closed
+`ProviderOptions` enum transport was removed in favor of an open `provider_options_map`. As protocol
+crates matured, typed response metadata that represents provider wire-format semantics moved from
+provider implementation crates into protocol crates, while provider crates kept stable re-export
+paths.
 
 This makes compilation heavier, blurs ownership, and increases the cost of adding or evolving providers.
 
@@ -51,9 +54,11 @@ Adopt a **Vercel-aligned layered architecture**, adapted for Rust:
    - Move protocol mapping and reusable parsing helpers out of the provider-agnostic “core types” layer.
    - Consolidate SSE parsing, retry, error mapping scaffolding, tool-call streaming helpers, etc. into a shared layer.
 
-3. **Provider implementations own provider-specific details**
-   - Provider-specific option structs (typed) live with the provider.
-   - Provider-specific metadata types live with the provider.
+3. **Provider implementations own provider-specific runtime details**
+   - Provider-specific request option structs (typed) live with the provider.
+   - Typed response metadata that projects provider wire-format semantics lives with the protocol
+     crate; provider crates may keep stable re-export paths for ergonomics.
+   - Provider-only operational metadata that is not protocol wire mapping remains provider-owned.
    - “OpenAI-like” protocol support is shared (as a dedicated *family* crate, used by multiple providers).
 
 4. **Registry stays optional for built-ins**
@@ -138,7 +143,8 @@ Cons:
 
 - Reduced coupling: provider-specific logic no longer lives in the provider-agnostic core layer.
 - Faster iteration: adding provider-specific features does not require modifying core enums/types.
-- Better ownership: each provider owns its typed options, metadata, and protocol mapping.
+- Better ownership: providers own typed request options and runtime quirks, while protocol crates
+  own wire-format mapping and typed response metadata projections.
 - Clearer extensibility: openai-compatible vendors reuse a shared OpenAI-like adapter.
 
 ### Negative / costs

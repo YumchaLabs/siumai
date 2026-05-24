@@ -1,7 +1,7 @@
-//! Provider-owned typed response metadata.
+//! Typed response metadata re-exported from the Anthropic protocol crate.
 //!
-//! This module contains typed views over `ChatResponse.provider_metadata` that are owned by the
-//! provider crate to avoid coupling `siumai-core` to provider-specific response shapes.
+//! The protocol crate owns Anthropic Messages response metadata shapes. This provider crate keeps
+//! this module as the stable provider-facing import path.
 
 pub mod anthropic {
     pub use siumai_protocol_anthropic::provider_metadata::anthropic::*;

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Clarified that typed OpenAI response metadata is protocol-owned and kept here only as a stable
+  provider-facing re-export path.
 - Delegated OpenAI speech/transcription SSE wire-format parsing to `siumai-protocol-openai` while
   preserving the provider extension import paths.
 

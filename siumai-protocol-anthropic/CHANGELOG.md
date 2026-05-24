@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Guarded typed Anthropic response metadata as protocol-owned while provider packages keep only
+  stable re-export paths.
 - Anthropic streaming now routes legacy response-side `ContentPart` construction through a local
   `response_content` adapter seam instead of constructing compatibility payloads inline.
 

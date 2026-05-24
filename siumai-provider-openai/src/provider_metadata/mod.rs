@@ -1,9 +1,7 @@
-//! Provider-specific metadata (provider-owned).
+//! Typed response metadata re-exported from the OpenAI protocol crate.
 //!
-//! The unified response surface stores metadata as a nested map:
-//! `{ "provider_id": { "key": value, ... }, ... }`.
-//!
-//! Provider crates may define typed views over those maps for ergonomics.
+//! The protocol crate owns OpenAI/OpenAI-compatible response metadata shapes. This provider crate
+//! keeps this module as the stable provider-facing import path.
 
 pub mod openai {
     pub use siumai_protocol_openai::provider_metadata::openai::*;

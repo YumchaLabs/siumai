@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Clarified that typed Anthropic response metadata is protocol-owned and kept here only as a stable
+  provider-facing re-export path.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-anthropic-v0.11.0-beta.7...siumai-provider-anthropic-v0.11.0-beta.8) - 2026-05-18
 
 ### Fixed
