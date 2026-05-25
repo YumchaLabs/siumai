@@ -47,8 +47,8 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "DGA-040",
-  "next_task": "Expose Deepgram facade/provider extension paths and public import tests without widening prelude::unified.",
+  "current_task": "DGA-050",
+  "next_task": "Close the Deepgram lane or split residual option/model gaps into narrow follow-ons.",
   "follow_on": [
     "elevenlabs-audio-provider",
     "media-task-polling-foundation"

@@ -42,13 +42,16 @@ Last updated: 2026-05-26
 
 ## DGA-040 — Facade, Public Surface, And Examples
 
-- [ ] DGA-040 [owner=worker] [deps=DGA-030] [scope=siumai,siumai/tests,examples]
+- [x] DGA-040 [owner=worker] [deps=DGA-030] [scope=siumai,siumai/tests,examples]
   Goal: Expose `provider_ext::deepgram`, `providers::deepgram`, builder/compat helpers, and optional examples
   without widening `prelude::unified`.
   Validation: `cargo nextest run -p siumai --features deepgram deepgram --no-fail-fast`; targeted public-surface import test; `cargo fmt --check -p siumai`.
   Review: review-workstream for public API shape and export policy.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Public paths should mirror package intent while staying Rust-native.
+  Handoff: DONE. The facade now exposes `provider_ext::deepgram`, `providers::deepgram`, model
+  constants through `siumai::models::deepgram` and `siumai::constants::deepgram`, and
+  `Provider::deepgram()`/`create_deepgram()` helper paths without widening `prelude::unified`.
+  No optional example was added in this slice; the public import test covers the new surface.
 
 ## DGA-050 — Closeout
 

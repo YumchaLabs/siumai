@@ -44,6 +44,10 @@ pub mod constants {
     /// Re-export DeepSeek model constants (detailed structure).
     #[cfg(feature = "deepseek")]
     pub use siumai_provider_deepseek::providers::deepseek::models as deepseek;
+
+    /// Re-export Deepgram model constants (detailed structure).
+    #[cfg(feature = "deepgram")]
+    pub use siumai_provider_deepgram::providers::deepgram::models as deepgram;
 }
 
 /// Simplified model constants for easy access across providers.
@@ -279,5 +283,11 @@ pub mod model_constants {
         // Images
         pub const IMAGE_01: &str = c::image::IMAGE_01;
         pub const IMAGE_01_LIVE: &str = c::image::IMAGE_01_LIVE;
+    }
+
+    /// Deepgram speech and transcription models.
+    #[cfg(feature = "deepgram")]
+    pub mod deepgram {
+        pub use siumai_provider_deepgram::providers::deepgram::models::*;
     }
 }

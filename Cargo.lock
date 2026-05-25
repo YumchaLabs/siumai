@@ -2897,6 +2897,7 @@ dependencies = [
  "siumai-provider-anthropic",
  "siumai-provider-azure",
  "siumai-provider-cohere",
+ "siumai-provider-deepgram",
  "siumai-provider-deepseek",
  "siumai-provider-gateway",
  "siumai-provider-gemini",

@@ -99,6 +99,15 @@ impl Provider {
         siumai_provider_gateway::providers::gateway::GatewayBuilder::new(BuilderBase::default())
     }
 
+    /// Create a Deepgram unified builder.
+    ///
+    /// Deepgram is a native audio provider. Known speech models build speech handles; known
+    /// transcription models build transcription handles through the registry factory.
+    #[cfg(feature = "deepgram")]
+    pub fn deepgram() -> siumai_registry::provider::SiumaiBuilder {
+        siumai_registry::provider::SiumaiBuilder::new().deepgram()
+    }
+
     /// Create a Cohere client builder
     #[cfg(feature = "cohere")]
     pub fn cohere() -> siumai_provider_cohere::providers::cohere::CohereBuilder {

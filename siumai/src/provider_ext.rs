@@ -38,6 +38,9 @@ pub mod bedrock;
 #[cfg(feature = "gateway")]
 pub mod gateway;
 
+#[cfg(feature = "deepgram")]
+pub mod deepgram;
+
 #[cfg(feature = "cohere")]
 pub mod cohere;
 

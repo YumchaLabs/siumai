@@ -7,22 +7,21 @@ Last updated: 2026-05-26
 
 The workstream is open. DGA-010 froze the execution lane from the closed AI SDK provider market expansion
 decision. DGA-020 added the native Deepgram provider crate and passed focused provider-crate gates.
-DGA-030 wired Deepgram into the registry and passed focused registry gates.
+DGA-030 wired Deepgram into the registry and passed focused registry gates. DGA-040 exposed the
+Deepgram facade/public surface and passed focused facade gates.
 
 ## Active Task
 
-- Task ID: DGA-040
-- Owner: worker
+- Task ID: DGA-050
+- Owner: planner
 - Files:
-  - `siumai/*`
-  - `siumai/tests/*`
-  - `examples/*`
+  - `docs/workstreams/deepgram-audio-provider/*`
 - Validation:
-  - `cargo nextest run -p siumai --features deepgram deepgram --no-fail-fast`
-  - targeted public-surface import test
-  - `cargo fmt --check -p siumai`
-- Status: READY_TO_IMPLEMENT
-- Review: Pending after implementation
+  - verify-rust-workstream records fresh final gate evidence
+  - `python -m json.tool docs\workstreams\deepgram-audio-provider\WORKSTREAM.json`
+  - `git diff --check`
+- Status: READY_TO_CLOSE
+- Review: Pending closeout review
 - Evidence: `docs/workstreams/deepgram-audio-provider/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Last Update
@@ -45,6 +44,11 @@ DGA-030 wired Deepgram into the registry and passed focused registry gates.
   avoid ambiguity between speech and transcription defaults on compatibility construction.
 - The compatibility builder now routes known Deepgram transcription models (for example `nova-3`)
   through the transcription client before the generic audio speech-first fallback.
+- DGA-040 added the facade `deepgram` feature/dependency, build-time provider accounting,
+  `provider_ext::deepgram`, `providers::deepgram`, `Provider::deepgram()`, model catalog re-exports,
+  and focused public-surface tests. The unified prelude remains unchanged.
+- No optional example was added for DGA-040; the slice stayed focused on stable public paths and
+  compile-time import coverage.
 
 ## Blockers
 
@@ -52,5 +56,5 @@ DGA-030 wired Deepgram into the registry and passed focused registry gates.
 
 ## Next Recommended Action
 
-- Start DGA-040 by adding facade/provider extension exports and public import tests without widening
-  `prelude::unified`.
+- Run DGA-050 closeout: review the shipped provider/registry/facade evidence, run final JSON and
+  whitespace gates, then close the Deepgram lane or split narrow follow-ons.
