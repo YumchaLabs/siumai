@@ -4,6 +4,7 @@
 pub mod chat {
     pub const COMMAND_A_03_2025: &str = "command-a-03-2025";
     pub const COMMAND_A_REASONING_08_2025: &str = "command-a-reasoning-08-2025";
+    pub const COMMAND_A_VISION_07_2025: &str = "command-a-vision-07-2025";
     pub const COMMAND_R7B_12_2024: &str = "command-r7b-12-2024";
     pub const COMMAND_R_PLUS_04_2024: &str = "command-r-plus-04-2024";
     pub const COMMAND_R_PLUS: &str = "command-r-plus";
@@ -22,6 +23,9 @@ pub mod embedding {
     pub const EMBED_MULTILINGUAL_V3: &str = "embed-multilingual-v3.0";
     pub const EMBED_ENGLISH_LIGHT_V3: &str = "embed-english-light-v3.0";
     pub const EMBED_MULTILINGUAL_LIGHT_V3: &str = "embed-multilingual-light-v3.0";
+    pub const EMBED_ENGLISH_V2: &str = "embed-english-v2.0";
+    pub const EMBED_ENGLISH_LIGHT_V2: &str = "embed-english-light-v2.0";
+    pub const EMBED_MULTILINGUAL_V2: &str = "embed-multilingual-v2.0";
     pub const EMBED_V4: &str = "embed-v4.0";
 }
 
@@ -39,6 +43,7 @@ pub const RERANK: &str = rerank::RERANK_V3_5;
 pub const ALL_CHAT: &[&str] = &[
     chat::COMMAND_A_03_2025,
     chat::COMMAND_A_REASONING_08_2025,
+    chat::COMMAND_A_VISION_07_2025,
     chat::COMMAND_R7B_12_2024,
     chat::COMMAND_R_PLUS_04_2024,
     chat::COMMAND_R_PLUS,
@@ -56,6 +61,9 @@ pub const ALL_EMBEDDING: &[&str] = &[
     embedding::EMBED_MULTILINGUAL_V3,
     embedding::EMBED_ENGLISH_LIGHT_V3,
     embedding::EMBED_MULTILINGUAL_LIGHT_V3,
+    embedding::EMBED_ENGLISH_V2,
+    embedding::EMBED_ENGLISH_LIGHT_V2,
+    embedding::EMBED_MULTILINGUAL_V2,
     embedding::EMBED_V4,
 ];
 
@@ -81,5 +89,13 @@ mod tests {
         assert!(ALL_CHAT.contains(&CHAT));
         assert!(ALL_EMBEDDING.contains(&EMBEDDING));
         assert!(ALL_RERANK.contains(&RERANK));
+    }
+
+    #[test]
+    fn curated_lists_cover_current_audited_package_ids() {
+        assert!(ALL_CHAT.contains(&chat::COMMAND_A_VISION_07_2025));
+        assert!(ALL_EMBEDDING.contains(&embedding::EMBED_ENGLISH_V2));
+        assert!(ALL_EMBEDDING.contains(&embedding::EMBED_ENGLISH_LIGHT_V2));
+        assert!(ALL_EMBEDDING.contains(&embedding::EMBED_MULTILINGUAL_V2));
     }
 }

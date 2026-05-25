@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "slug": "provider-model-catalog-ai-sdk-refresh",
+  "title": "Provider Model Catalog AI SDK Refresh",
+  "status": "closed",
+  "updated": "2026-05-25",
+  "scope_kind": "execution",
+  "problem": "Siumai provider model catalogs drifted from local Vercel AI SDK model-id unions.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/provider-model-catalog-ai-sdk-refresh/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/provider-model-catalog-ai-sdk-refresh/TODO.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/provider-model-catalog-ai-sdk-refresh/EVIDENCE_AND_GATES.md"
+    }
+  ],
+  "gates": [
+    "python .agents/skills/siumai-ai-sdk-maintenance/scripts/audit_model_catalogs.py --include-green --show-skipped --defer deepinfra",
+    "focused cargo nextest for edited provider/registry tests",
+    "cargo fmt --check for touched packages"
+  ],
+  "evidence": [
+    ".agents/skills/siumai-ai-sdk-maintenance/scripts/audit_model_catalogs.py",
+    "docs/workstreams/provider-model-catalog-ai-sdk-refresh/EVIDENCE_AND_GATES.md"
+  ],
+  "adr_refs": [],
+  "current_task": "closed",
+  "next_task": "Open a dedicated DeepInfra model catalog policy workstream only if full AI SDK upstream catalog parity is desired.",
+  "follow_on": [
+    "deepinfra-model-catalog-policy"
+  ],
+  "continue_policy": {
+    "default_action": "closed",
+    "notes": "Low-risk additive catalog refresh is complete. DeepInfra remains an explicit deferred policy decision outside this lane."
+  }
+}

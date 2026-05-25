@@ -121,6 +121,24 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 use siumai_provider_anthropic::providers::anthropic::model_constants as anthropic;
                 let mut models: Vec<Cow<'static, str>> = Vec::new();
                 models.extend(
+                    anthropic::claude_opus_4_7::ALL
+                        .iter()
+                        .copied()
+                        .map(Cow::Borrowed),
+                );
+                models.extend(
+                    anthropic::claude_opus_4_6::ALL
+                        .iter()
+                        .copied()
+                        .map(Cow::Borrowed),
+                );
+                models.extend(
+                    anthropic::claude_opus_4_5::ALL
+                        .iter()
+                        .copied()
+                        .map(Cow::Borrowed),
+                );
+                models.extend(
                     anthropic::claude_opus_4_1::ALL
                         .iter()
                         .copied()
@@ -133,7 +151,25 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         .map(Cow::Borrowed),
                 );
                 models.extend(
+                    anthropic::claude_sonnet_4_6::ALL
+                        .iter()
+                        .copied()
+                        .map(Cow::Borrowed),
+                );
+                models.extend(
+                    anthropic::claude_sonnet_4_5::ALL
+                        .iter()
+                        .copied()
+                        .map(Cow::Borrowed),
+                );
+                models.extend(
                     anthropic::claude_sonnet_4::ALL
+                        .iter()
+                        .copied()
+                        .map(Cow::Borrowed),
+                );
+                models.extend(
+                    anthropic::claude_haiku_4_5::ALL
                         .iter()
                         .copied()
                         .map(Cow::Borrowed),
@@ -196,6 +232,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     .expect("Gemini metadata should be registered");
                 use siumai_provider_gemini::providers::gemini::model_constants as gemini;
                 let mut models: Vec<Cow<'static, str>> = Vec::new();
+                models.extend(gemini::gemini_3::ALL.iter().copied().map(Cow::Borrowed));
                 models.extend(
                     gemini::gemini_2_5_pro::ALL
                         .iter()
@@ -1165,7 +1202,19 @@ mod tests {
             info.supported_models
                 .iter()
                 .any(|m| m.as_ref() == "claude-3-5-sonnet-20241022"),
+            "expected Anthropic existing Claude 3.5 models to remain listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "claude-opus-4-7"),
             "expected Anthropic curated chat models to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "claude-sonnet-4-6"),
+            "expected Anthropic latest Sonnet models to be listed"
         );
     }
 
@@ -1208,7 +1257,25 @@ mod tests {
             info.supported_models
                 .iter()
                 .any(|m| m.as_ref() == models::grok_4::GROK_4),
+            "expected xAI existing Grok 4 models to remain listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::grok_4::GROK_4_LATEST),
+            "expected xAI existing latest alias to remain listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::grok_4::GROK_4_3),
             "expected xAI chat/responses models to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::grok_4::GROK_LATEST),
+            "expected xAI latest alias to be listed"
         );
         assert!(
             info.supported_models
@@ -1364,6 +1431,12 @@ mod tests {
         assert!(
             info.supported_models
                 .iter()
+                .any(|model| model.as_ref() == "mistral-medium-3.5"),
+            "expected refreshed mistral reasoning-capable model to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
                 .any(|model| model.as_ref() == "mistral-embed"),
             "expected mistral embedding default to be listed"
         );
@@ -1460,6 +1533,12 @@ mod tests {
                 .iter()
                 .any(|m| m.as_ref() == "gemini-2.5-flash"),
             "expected vertex chat model ids to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "gemini-3.5-flash"),
+            "expected refreshed vertex chat model ids to be listed"
         );
         assert!(
             info.supported_models
@@ -1637,6 +1716,18 @@ mod tests {
             info.supported_models
                 .iter()
                 .any(|m| m.as_ref() == "embed-v4.0"),
+            "expected cohere existing embedding model to remain listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "command-a-vision-07-2025"),
+            "expected cohere vision chat models to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "embed-english-v2.0"),
             "expected cohere embedding models to be listed"
         );
         assert!(

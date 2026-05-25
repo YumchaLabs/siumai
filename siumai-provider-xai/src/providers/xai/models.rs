@@ -13,6 +13,14 @@
 
 /// Grok 4 model family constants (latest flagship)
 pub mod grok_4 {
+    /// Grok 4.20 Non-Reasoning - AI SDK current model id
+    pub const GROK_4_20_NON_REASONING: &str = "grok-4.20-non-reasoning";
+    /// Grok 4.20 Reasoning - AI SDK current model id
+    pub const GROK_4_20_REASONING: &str = "grok-4.20-reasoning";
+    /// Grok 4.3 - AI SDK current model id
+    pub const GROK_4_3: &str = "grok-4.3";
+    /// Grok Latest - AI SDK current latest alias
+    pub const GROK_LATEST: &str = "grok-latest";
     /// Grok 4.1 Fast Reasoning - Fast reasoning-tuned Grok 4.1 variant
     pub const GROK_4_1_FAST_REASONING: &str = "grok-4-1-fast-reasoning";
     /// Grok 4.1 Fast Non-Reasoning - Fast non-reasoning Grok 4.1 variant
@@ -36,6 +44,10 @@ pub mod grok_4 {
 
     /// All Grok 4 models
     pub const ALL: &[&str] = &[
+        GROK_4_20_NON_REASONING,
+        GROK_4_20_REASONING,
+        GROK_4_3,
+        GROK_LATEST,
         GROK_4_1_FAST_REASONING,
         GROK_4_1_FAST_NON_REASONING,
         GROK_4_FAST_NON_REASONING,
@@ -184,6 +196,9 @@ pub mod by_capability {
     /// Models that support reasoning
     pub const REASONING: &[&str] = &[
         grok_4::GROK_4_1_FAST_REASONING,
+        grok_4::GROK_4_20_REASONING,
+        grok_4::GROK_4_3,
+        grok_4::GROK_LATEST,
         grok_4::GROK_4_FAST_REASONING,
         grok_4::GROK_4_20_0309_REASONING,
         grok_4::GROK_4,
@@ -195,6 +210,10 @@ pub mod by_capability {
     pub const VISION: &[&str] = &[
         grok_4::GROK_4_1_FAST_REASONING,
         grok_4::GROK_4_1_FAST_NON_REASONING,
+        grok_4::GROK_4_20_NON_REASONING,
+        grok_4::GROK_4_20_REASONING,
+        grok_4::GROK_4_3,
+        grok_4::GROK_LATEST,
         grok_4::GROK_4_FAST_NON_REASONING,
         grok_4::GROK_4_FAST_REASONING,
         grok_4::GROK_4_20_0309_NON_REASONING,
@@ -246,6 +265,10 @@ mod tests {
         let models = all_models();
         assert!(!models.is_empty());
         assert!(models.contains(&grok_4::GROK_4));
+        assert!(models.contains(&grok_4::GROK_4_20_REASONING));
+        assert!(models.contains(&grok_4::GROK_4_3));
+        assert!(models.contains(&grok_4::GROK_LATEST));
+        assert!(models.contains(&grok_4::GROK_4_LATEST));
         assert!(models.contains(&grok_3::GROK_3));
         assert!(models.contains(&grok_4::GROK_4_1_FAST_REASONING));
         assert!(models.contains(&grok_3::GROK_3_MINI_LATEST));
@@ -255,9 +278,10 @@ mod tests {
     #[test]
     #[allow(clippy::const_is_empty)]
     fn test_popular_recommendations() {
-        assert!(!popular::FLAGSHIP.is_empty());
-        assert!(!popular::BALANCED.is_empty());
-        assert!(!popular::REASONING.is_empty());
+        assert_eq!(popular::FLAGSHIP, grok_4::GROK_4);
+        assert_eq!(popular::BALANCED, grok_3::GROK_3);
+        assert_eq!(popular::REASONING, grok_4::GROK_4_1_FAST_REASONING);
+        assert_eq!(popular::LATEST, grok_4::GROK_4_LATEST);
     }
 
     #[test]

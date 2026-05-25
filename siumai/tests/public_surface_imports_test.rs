@@ -1992,9 +1992,9 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
         OpenAiCompatibleConfig, OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
         OpenAiCompatibleImageModelId, OpenAiCompatibleRequestSettings, ProviderAdapter,
         ProviderCompatibility, ProviderConfig, ProviderErrorStructure, RequestBodyTransformer,
-        ResponseMetadataExtractor, VERSION, deepinfra, fireworks, generic_provider_config,
-        get_provider_config, groq, list_provider_ids, moonshot, moonshotai, openrouter, options::*,
-        provider_supports_capability, siliconflow, xai,
+        ResponseMetadataExtractor, VERSION, alibaba, deepinfra, fireworks, generic_provider_config,
+        get_provider_config, groq, list_provider_ids, mistral, moonshot, moonshotai, openrouter,
+        options::*, provider_supports_capability, qwen, siliconflow, xai,
     };
     use std::sync::Arc;
 
@@ -2038,6 +2038,10 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     let _ = size_of::<ConfigurableAdapter>();
     let _ = size_of::<ProviderCompatibility>();
     let _ = size_of::<ProviderConfig>();
+    let _ = alibaba::QWEN3_7_MAX;
+    let _ = qwen::QWEN3_7_MAX;
+    let _ = mistral::chat::MISTRAL_MEDIUM_3_5;
+    let _ = xai::grok_4::GROK_LATEST;
 
     struct NoopRequestBodyTransformer;
     impl RequestBodyTransformer for NoopRequestBodyTransformer {
@@ -2566,6 +2570,7 @@ fn public_surface_gemini_provider_ext_compiles() {
     let _ = size_of::<tools::GeminiCustomEvent>();
     let _ = size_of::<tools::GeminiSourceEvent>();
     let _ = chat::GEMINI_2_5_FLASH;
+    let _ = chat::GEMINI_3_5_FLASH;
     let _ = embedding::GEMINI_EMBEDDING_001;
     let _ = image::IMAGEN_4_0_GENERATE_001;
     let _ = video::VEO_3_1_GENERATE_PREVIEW;
@@ -2707,6 +2712,7 @@ fn public_surface_google_provider_ext_compiles() {
     let _ = size_of::<tools::GeminiCustomEvent>();
     let _ = size_of::<tools::GeminiSourceEvent>();
     let _ = chat::GEMINI_2_5_FLASH;
+    let _ = chat::GEMINI_3_5_FLASH;
     let _ = embedding::GEMINI_EMBEDDING_001;
     let _ = image::IMAGEN_4_0_GENERATE_001;
     let _ = video::VEO_3_1_GENERATE_PREVIEW;
@@ -2913,6 +2919,8 @@ fn public_surface_cohere_provider_ext_compiles() {
     let _ = CohereClient::http_transport;
     let _ = CohereClient::set_retry_options;
     let _ = chat::COMMAND_A_03_2025;
+    let _ = chat::COMMAND_A_VISION_07_2025;
+    let _ = embedding::EMBED_ENGLISH_V2;
     let _ = embedding::EMBED_V4;
     let _ = rerank::RERANK_V3_5;
     let _ = model_sets::ALL_CHAT;
@@ -3417,6 +3425,7 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
     let _ = size_of::<PerplexityOptions>();
 
     let _ = mistral_chat::MISTRAL_LARGE_LATEST;
+    let _ = mistral_chat::MISTRAL_MEDIUM_3_5;
     let _ = mistral_embedding::MISTRAL_EMBED;
     let _ = fireworks_chat::LLAMA_V3P1_8B_INSTRUCT;
     let _ = perplexity_chat::SONAR;
@@ -3487,6 +3496,7 @@ fn public_surface_google_vertex_provider_ext_compiles() {
     let _ = VERSION;
     let _ = GoogleVertexClient::base_url;
     let _ = chat::GEMINI_2_5_FLASH;
+    let _ = chat::GEMINI_3_5_FLASH;
     let _ = embedding::TEXT_EMBEDDING_005;
     let _ = image::IMAGEN_3_0_EDIT_001;
     let _ = image::IMAGEN_4_0_ULTRA_GENERATE_001;

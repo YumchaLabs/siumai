@@ -74,6 +74,41 @@ pub mod gemini_2_5_tts {
     pub const ALL: &[&str] = &[GEMINI_2_5_FLASH_PREVIEW_TTS, GEMINI_2_5_PRO_PREVIEW_TTS];
 }
 
+/// Gemini 3.x model family constants.
+pub mod gemini_3 {
+    /// Gemini 3.5 Flash - Stable Gemini 3.5 Flash model
+    pub const GEMINI_3_5_FLASH: &str = "gemini-3.5-flash";
+    /// Gemini 3 Pro Preview
+    pub const GEMINI_3_PRO_PREVIEW: &str = "gemini-3-pro-preview";
+    /// Gemini 3 Pro Image Preview
+    pub const GEMINI_3_PRO_IMAGE_PREVIEW: &str = "gemini-3-pro-image-preview";
+    /// Gemini 3 Flash Preview
+    pub const GEMINI_3_FLASH_PREVIEW: &str = "gemini-3-flash-preview";
+    /// Gemini 3.1 Pro Preview
+    pub const GEMINI_3_1_PRO_PREVIEW: &str = "gemini-3.1-pro-preview";
+    /// Gemini 3.1 Pro Preview with custom tools
+    pub const GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS: &str = "gemini-3.1-pro-preview-customtools";
+    /// Gemini 3.1 Flash Image Preview
+    pub const GEMINI_3_1_FLASH_IMAGE_PREVIEW: &str = "gemini-3.1-flash-image-preview";
+    /// Gemini 3.1 Flash-Lite Preview
+    pub const GEMINI_3_1_FLASH_LITE_PREVIEW: &str = "gemini-3.1-flash-lite-preview";
+    /// Gemini 3.1 Flash TTS Preview
+    pub const GEMINI_3_1_FLASH_TTS_PREVIEW: &str = "gemini-3.1-flash-tts-preview";
+
+    /// All Gemini 3.x models
+    pub const ALL: &[&str] = &[
+        GEMINI_3_5_FLASH,
+        GEMINI_3_PRO_PREVIEW,
+        GEMINI_3_PRO_IMAGE_PREVIEW,
+        GEMINI_3_FLASH_PREVIEW,
+        GEMINI_3_1_PRO_PREVIEW,
+        GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS,
+        GEMINI_3_1_FLASH_IMAGE_PREVIEW,
+        GEMINI_3_1_FLASH_LITE_PREVIEW,
+        GEMINI_3_1_FLASH_TTS_PREVIEW,
+    ];
+}
+
 /// Gemini 2.0 Flash model family constants
 pub mod gemini_2_0_flash {
     /// Gemini 2.0 Flash - Next-generation features and improved performance
@@ -230,6 +265,10 @@ pub mod popular {
 pub mod capabilities {
     /// Models with thinking capability
     pub const THINKING_MODELS: &[&str] = &[
+        super::gemini_3::GEMINI_3_5_FLASH,
+        super::gemini_3::GEMINI_3_PRO_PREVIEW,
+        super::gemini_3::GEMINI_3_FLASH_PREVIEW,
+        super::gemini_3::GEMINI_3_1_PRO_PREVIEW,
         super::gemini_2_5_pro::GEMINI_2_5_PRO,
         super::gemini_2_5_flash::GEMINI_2_5_FLASH,
         super::gemini_2_5_flash_lite::GEMINI_2_5_FLASH_LITE,
@@ -257,6 +296,7 @@ pub mod capabilities {
 /// Get all chat models
 pub fn all_chat_models() -> Vec<&'static str> {
     let mut models = Vec::new();
+    models.extend_from_slice(gemini_3::ALL);
     models.extend_from_slice(gemini_2_5_pro::ALL);
     models.extend_from_slice(gemini_2_5_flash::ALL);
     models.extend_from_slice(gemini_2_5_flash_lite::ALL);

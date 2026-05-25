@@ -1,4 +1,5 @@
 //! Alibaba Cloud / Qwen model constants aligned with the AI SDK Alibaba package.
+pub const QWEN3_7_MAX: &str = "qwen3.7-max";
 pub const QWEN3_MAX: &str = "qwen3-max";
 pub const QWEN3_MAX_PREVIEW: &str = "qwen3-max-preview";
 pub const QWEN_PLUS: &str = "qwen-plus";
@@ -32,6 +33,7 @@ pub const WAN2_6_R2V_FLASH: &str = "wan2.6-r2v-flash";
 pub const VIDEO: &str = WAN2_6_T2V;
 
 pub const ALL: &[&str] = &[
+    QWEN3_7_MAX,
     QWEN3_MAX,
     QWEN3_MAX_PREVIEW,
     QWEN_PLUS,

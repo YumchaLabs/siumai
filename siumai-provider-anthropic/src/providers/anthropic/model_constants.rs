@@ -3,7 +3,36 @@
 //! This module provides convenient constants for Anthropic Claude models, making it easy
 //! for developers to reference specific models without hardcoding strings.
 
-/// Claude Opus 4.1 model family constants (latest flagship)
+/// Claude Opus 4.7 model family constants (latest flagship)
+pub mod claude_opus_4_7 {
+    /// Claude Opus 4.7 - Alias for latest
+    pub const CLAUDE_OPUS_4_7: &str = "claude-opus-4-7";
+
+    /// All Claude Opus 4.7 models
+    pub const ALL: &[&str] = &[CLAUDE_OPUS_4_7];
+}
+
+/// Claude Opus 4.6 model family constants
+pub mod claude_opus_4_6 {
+    /// Claude Opus 4.6 - Alias for latest
+    pub const CLAUDE_OPUS_4_6: &str = "claude-opus-4-6";
+
+    /// All Claude Opus 4.6 models
+    pub const ALL: &[&str] = &[CLAUDE_OPUS_4_6];
+}
+
+/// Claude Opus 4.5 model family constants
+pub mod claude_opus_4_5 {
+    /// Claude Opus 4.5 - Specific version
+    pub const CLAUDE_OPUS_4_5_20251101: &str = "claude-opus-4-5-20251101";
+    /// Claude Opus 4.5 - Alias
+    pub const CLAUDE_OPUS_4_5: &str = "claude-opus-4-5";
+
+    /// All Claude Opus 4.5 models
+    pub const ALL: &[&str] = &[CLAUDE_OPUS_4_5_20251101, CLAUDE_OPUS_4_5];
+}
+
+/// Claude Opus 4.1 model family constants
 pub mod claude_opus_4_1 {
     /// Claude Opus 4.1 - Most capable and intelligent model yet
     pub const CLAUDE_OPUS_4_1_20250805: &str = "claude-opus-4-1-20250805";
@@ -23,6 +52,26 @@ pub mod claude_opus_4 {
 
     /// All Claude Opus 4 models
     pub const ALL: &[&str] = &[CLAUDE_OPUS_4_20250514, CLAUDE_OPUS_4_0];
+}
+
+/// Claude Sonnet 4.6 model family constants
+pub mod claude_sonnet_4_6 {
+    /// Claude Sonnet 4.6 - Alias for latest
+    pub const CLAUDE_SONNET_4_6: &str = "claude-sonnet-4-6";
+
+    /// All Claude Sonnet 4.6 models
+    pub const ALL: &[&str] = &[CLAUDE_SONNET_4_6];
+}
+
+/// Claude Sonnet 4.5 model family constants
+pub mod claude_sonnet_4_5 {
+    /// Claude Sonnet 4.5 - Specific version
+    pub const CLAUDE_SONNET_4_5_20250929: &str = "claude-sonnet-4-5-20250929";
+    /// Claude Sonnet 4.5 - Alias
+    pub const CLAUDE_SONNET_4_5: &str = "claude-sonnet-4-5";
+
+    /// All Claude Sonnet 4.5 models
+    pub const ALL: &[&str] = &[CLAUDE_SONNET_4_5_20250929, CLAUDE_SONNET_4_5];
 }
 
 /// Claude Sonnet 4 model family constants
@@ -62,6 +111,17 @@ pub mod claude_sonnet_3_5 {
         CLAUDE_3_5_SONNET_20240620,
         CLAUDE_3_5_SONNET_LATEST,
     ];
+}
+
+/// Claude Haiku 4.5 model family constants
+pub mod claude_haiku_4_5 {
+    /// Claude Haiku 4.5 - Specific version
+    pub const CLAUDE_HAIKU_4_5_20251001: &str = "claude-haiku-4-5-20251001";
+    /// Claude Haiku 4.5 - Alias
+    pub const CLAUDE_HAIKU_4_5: &str = "claude-haiku-4-5";
+
+    /// All Claude Haiku 4.5 models
+    pub const ALL: &[&str] = &[CLAUDE_HAIKU_4_5_20251001, CLAUDE_HAIKU_4_5];
 }
 
 /// Claude Haiku 3.5 model family constants
@@ -122,17 +182,35 @@ pub mod popular {
 pub mod capabilities {
     /// Models with thinking capability
     pub const THINKING_MODELS: &[&str] = &[
+        super::claude_opus_4_7::CLAUDE_OPUS_4_7,
+        super::claude_opus_4_6::CLAUDE_OPUS_4_6,
+        super::claude_opus_4_5::CLAUDE_OPUS_4_5_20251101,
+        super::claude_opus_4_5::CLAUDE_OPUS_4_5,
         super::claude_opus_4_1::CLAUDE_OPUS_4_1_20250805,
+        super::claude_sonnet_4_6::CLAUDE_SONNET_4_6,
+        super::claude_sonnet_4_5::CLAUDE_SONNET_4_5_20250929,
+        super::claude_sonnet_4_5::CLAUDE_SONNET_4_5,
         super::claude_opus_4::CLAUDE_OPUS_4_20250514,
         super::claude_sonnet_4::CLAUDE_SONNET_4_20250514,
+        super::claude_haiku_4_5::CLAUDE_HAIKU_4_5_20251001,
+        super::claude_haiku_4_5::CLAUDE_HAIKU_4_5,
         super::claude_sonnet_3_7::CLAUDE_3_7_SONNET_20250219,
     ];
 
     /// Models with vision capability
     pub const VISION_MODELS: &[&str] = &[
+        super::claude_opus_4_7::CLAUDE_OPUS_4_7,
+        super::claude_opus_4_6::CLAUDE_OPUS_4_6,
+        super::claude_opus_4_5::CLAUDE_OPUS_4_5_20251101,
+        super::claude_opus_4_5::CLAUDE_OPUS_4_5,
         super::claude_opus_4_1::CLAUDE_OPUS_4_1_20250805,
+        super::claude_sonnet_4_6::CLAUDE_SONNET_4_6,
+        super::claude_sonnet_4_5::CLAUDE_SONNET_4_5_20250929,
+        super::claude_sonnet_4_5::CLAUDE_SONNET_4_5,
         super::claude_opus_4::CLAUDE_OPUS_4_20250514,
         super::claude_sonnet_4::CLAUDE_SONNET_4_20250514,
+        super::claude_haiku_4_5::CLAUDE_HAIKU_4_5_20251001,
+        super::claude_haiku_4_5::CLAUDE_HAIKU_4_5,
         super::claude_sonnet_3_7::CLAUDE_3_7_SONNET_20250219,
         super::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022,
         super::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20240620,
@@ -141,9 +219,18 @@ pub mod capabilities {
 
     /// Models with priority tier access
     pub const PRIORITY_TIER_MODELS: &[&str] = &[
+        super::claude_opus_4_7::CLAUDE_OPUS_4_7,
+        super::claude_opus_4_6::CLAUDE_OPUS_4_6,
+        super::claude_opus_4_5::CLAUDE_OPUS_4_5_20251101,
+        super::claude_opus_4_5::CLAUDE_OPUS_4_5,
         super::claude_opus_4_1::CLAUDE_OPUS_4_1_20250805,
+        super::claude_sonnet_4_6::CLAUDE_SONNET_4_6,
+        super::claude_sonnet_4_5::CLAUDE_SONNET_4_5_20250929,
+        super::claude_sonnet_4_5::CLAUDE_SONNET_4_5,
         super::claude_opus_4::CLAUDE_OPUS_4_20250514,
         super::claude_sonnet_4::CLAUDE_SONNET_4_20250514,
+        super::claude_haiku_4_5::CLAUDE_HAIKU_4_5_20251001,
+        super::claude_haiku_4_5::CLAUDE_HAIKU_4_5,
         super::claude_sonnet_3_7::CLAUDE_3_7_SONNET_20250219,
         super::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022,
         super::claude_haiku_3_5::CLAUDE_3_5_HAIKU_20241022,
@@ -153,9 +240,15 @@ pub mod capabilities {
 /// Get all chat models
 pub fn all_chat_models() -> Vec<&'static str> {
     let mut models = Vec::new();
+    models.extend_from_slice(claude_opus_4_7::ALL);
+    models.extend_from_slice(claude_opus_4_6::ALL);
+    models.extend_from_slice(claude_opus_4_5::ALL);
     models.extend_from_slice(claude_opus_4_1::ALL);
+    models.extend_from_slice(claude_sonnet_4_6::ALL);
+    models.extend_from_slice(claude_sonnet_4_5::ALL);
     models.extend_from_slice(claude_opus_4::ALL);
     models.extend_from_slice(claude_sonnet_4::ALL);
+    models.extend_from_slice(claude_haiku_4_5::ALL);
     models.extend_from_slice(claude_sonnet_3_7::ALL);
     models.extend_from_slice(claude_sonnet_3_5::ALL);
     models.extend_from_slice(claude_haiku_3_5::ALL);
@@ -249,4 +342,30 @@ pub fn try_get_max_output_tokens(model_id: &str) -> Option<u32> {
         // Default fallback for Claude models not explicitly handled.
         _ => 8192,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popular_recommendations_keep_existing_defaults() {
+        assert_eq!(popular::FLAGSHIP, claude_opus_4_1::CLAUDE_OPUS_4_1);
+        assert_eq!(popular::BALANCED, claude_sonnet_4::CLAUDE_SONNET_4_20250514);
+        assert_eq!(popular::FAST, claude_haiku_3_5::CLAUDE_3_5_HAIKU_LATEST);
+        assert_eq!(
+            popular::THINKING,
+            claude_sonnet_3_7::CLAUDE_3_7_SONNET_LATEST
+        );
+        assert_eq!(popular::LATEST, claude_opus_4_1::CLAUDE_OPUS_4_1);
+    }
+
+    #[test]
+    fn all_chat_models_include_refreshed_and_existing_aliases() {
+        let models = all_chat_models();
+        assert!(models.contains(&claude_opus_4_7::CLAUDE_OPUS_4_7));
+        assert!(models.contains(&claude_sonnet_4_6::CLAUDE_SONNET_4_6));
+        assert!(models.contains(&claude_opus_4_1::CLAUDE_OPUS_4_1));
+        assert!(models.contains(&claude_sonnet_3_5::CLAUDE_3_5_SONNET_LATEST));
+    }
 }

@@ -1,6 +1,10 @@
 //! xAI model constants aligned with the audited AI SDK package subset.
 /// Grok 4 model family constants.
 pub mod grok_4 {
+    pub const GROK_4_20_NON_REASONING: &str = "grok-4.20-non-reasoning";
+    pub const GROK_4_20_REASONING: &str = "grok-4.20-reasoning";
+    pub const GROK_4_3: &str = "grok-4.3";
+    pub const GROK_LATEST: &str = "grok-latest";
     pub const GROK_4_1_FAST_REASONING: &str = "grok-4-1-fast-reasoning";
     pub const GROK_4_1_FAST_NON_REASONING: &str = "grok-4-1-fast-non-reasoning";
     pub const GROK_4_FAST_NON_REASONING: &str = "grok-4-fast-non-reasoning";
@@ -13,6 +17,10 @@ pub mod grok_4 {
     pub const GROK_4_LATEST: &str = "grok-4-latest";
 
     pub const ALL: &[&str] = &[
+        GROK_4_20_NON_REASONING,
+        GROK_4_20_REASONING,
+        GROK_4_3,
+        GROK_LATEST,
         GROK_4_1_FAST_REASONING,
         GROK_4_1_FAST_NON_REASONING,
         GROK_4_FAST_NON_REASONING,
@@ -73,6 +81,10 @@ pub const VIDEO: &str = video::GROK_IMAGINE_VIDEO;
 pub const ALL_CHAT: &[&str] = &[
     grok_4::GROK_4_1_FAST_REASONING,
     grok_4::GROK_4_1_FAST_NON_REASONING,
+    grok_4::GROK_4_20_NON_REASONING,
+    grok_4::GROK_4_20_REASONING,
+    grok_4::GROK_4_3,
+    grok_4::GROK_LATEST,
     grok_4::GROK_4_FAST_NON_REASONING,
     grok_4::GROK_4_FAST_REASONING,
     grok_4::GROK_4_20_0309_NON_REASONING,

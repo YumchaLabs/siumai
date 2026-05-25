@@ -5,6 +5,7 @@
 pub mod chat {
     pub const GEMINI_2_5_FLASH: &str = "gemini-2.5-flash";
     pub const GEMINI_2_5_PRO: &str = "gemini-2.5-pro";
+    pub const GEMINI_3_5_FLASH: &str = "gemini-3.5-flash";
     pub const GEMINI_2_5_FLASH_LITE: &str = "gemini-2.5-flash-lite";
     pub const GEMINI_2_0_FLASH_LITE: &str = "gemini-2.0-flash-lite";
     pub const GEMINI_2_0_FLASH: &str = "gemini-2.0-flash";
@@ -83,6 +84,7 @@ pub const VIDEO: &str = video::VEO_3_1_GENERATE_PREVIEW;
 pub const ALL_CHAT: &[&str] = &[
     chat::GEMINI_2_5_FLASH,
     chat::GEMINI_2_5_PRO,
+    chat::GEMINI_3_5_FLASH,
     chat::GEMINI_2_5_FLASH_LITE,
     chat::GEMINI_2_0_FLASH_LITE,
     chat::GEMINI_2_0_FLASH,
@@ -189,6 +191,7 @@ mod tests {
     #[test]
     fn curated_lists_cover_current_audited_vertex_package_ids() {
         assert!(ALL_CHAT.contains(&chat::GEMINI_3_PRO_PREVIEW));
+        assert!(ALL_CHAT.contains(&chat::GEMINI_3_5_FLASH));
         assert!(ALL_CHAT.contains(&chat::GEMINI_3_1_FLASH_IMAGE_PREVIEW));
         assert!(ALL_EMBEDDING.contains(&embedding::TEXT_EMBEDDING_005));
         assert!(ALL_EMBEDDING.contains(&embedding::GEMINI_EMBEDDING_2_PREVIEW));

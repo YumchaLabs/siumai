@@ -30,6 +30,12 @@ pub fn get_models_for_provider(provider: &str) -> Vec<String> {
         "openrouter" => openrouter::all_models(),
         "vertex-maas" => vertex_maas::all_models(),
         "xai" => xai::all_models(),
+        "alibaba" | "qwen" => alibaba::all_models(),
+        "mistral" => mistral::ALL_CHAT
+            .iter()
+            .chain(mistral::ALL_EMBEDDING.iter())
+            .map(|&model| model.to_string())
+            .collect(),
         "groq" => groq::all_models(),
         "together" | "togetherai" => togetherai::all_models(),
         "siliconflow" => siliconflow::all_models(),
@@ -96,6 +102,8 @@ mod tests {
             "pub mod google_vertex_xai;",
             "pub mod fireworks;",
             "pub mod xai;",
+            "pub mod alibaba;",
+            "pub mod mistral;",
             "pub mod siliconflow;",
             "pub mod groq;",
             "pub mod togetherai;",
@@ -159,6 +167,24 @@ mod tests {
     }
 
     #[test]
+    fn test_alibaba_models() {
+        let models = alibaba::all_models();
+        assert!(!models.is_empty());
+        assert!(models.contains(&alibaba::QWEN_PLUS.to_string()));
+        assert!(models.contains(&alibaba::QWEN3_7_MAX.to_string()));
+    }
+
+    #[test]
+    fn test_mistral_models() {
+        let models = get_models_for_provider("mistral");
+        assert!(!models.is_empty());
+        assert!(models.contains(&mistral::chat::MISTRAL_LARGE_LATEST.to_string()));
+        assert!(models.contains(&mistral::chat::MISTRAL_MEDIUM_3.to_string()));
+        assert!(models.contains(&mistral::chat::MISTRAL_MEDIUM_3_5.to_string()));
+        assert!(models.contains(&mistral::embedding::MISTRAL_EMBED.to_string()));
+    }
+
+    #[test]
     fn test_fireworks_models() {
         let models = fireworks::all_models();
         assert!(!models.is_empty());
@@ -183,7 +209,15 @@ mod tests {
         assert!(models.contains(&xai::IMAGE.to_string()));
         assert!(models.contains(&xai::VIDEO.to_string()));
         assert!(models.contains(&xai::GROK_BETA.to_string()));
+        assert!(models.contains(&xai::grok_4::GROK_4_LATEST.to_string()));
+        assert!(models.contains(&xai::grok_4::GROK_LATEST.to_string()));
         assert!(models.contains(&xai::GROK_CODE_FAST_1.to_string()));
+        assert_eq!(xai::CHAT, xai::grok_4::GROK_4);
+        assert_eq!(xai::popular::FLAGSHIP, xai::grok_4::GROK_4);
+        assert_eq!(
+            xai::popular::REASONING,
+            xai::grok_4::GROK_4_1_FAST_REASONING
+        );
     }
 
     #[test]
@@ -232,6 +266,16 @@ mod tests {
 
         let xai_models = get_models_for_provider("xai");
         assert!(xai_models.contains(&xai::grok_4::GROK_4_LATEST.to_string()));
+        assert!(xai_models.contains(&xai::grok_4::GROK_LATEST.to_string()));
+
+        let alibaba_models = get_models_for_provider("alibaba");
+        assert!(alibaba_models.contains(&alibaba::QWEN3_7_MAX.to_string()));
+
+        let qwen_models = get_models_for_provider("qwen");
+        assert!(qwen_models.contains(&alibaba::QWEN3_7_MAX.to_string()));
+
+        let mistral_models = get_models_for_provider("mistral");
+        assert!(mistral_models.contains(&mistral::chat::MISTRAL_MEDIUM_3_5.to_string()));
 
         let groq_models = get_models_for_provider("groq");
         assert!(groq_models.contains(&groq::production::GPT_OSS_120B.to_string()));
@@ -264,6 +308,13 @@ mod tests {
         ));
         assert!(is_model_supported("moonshotai", moonshotai::KIMI_K2P5));
         assert!(is_model_supported("xai", xai::grok_4::GROK_4_LATEST));
+        assert!(is_model_supported("xai", xai::grok_4::GROK_LATEST));
+        assert!(is_model_supported("alibaba", alibaba::QWEN3_7_MAX));
+        assert!(is_model_supported("qwen", alibaba::QWEN3_7_MAX));
+        assert!(is_model_supported(
+            "mistral",
+            mistral::chat::MISTRAL_MEDIUM_3_5
+        ));
         assert!(is_model_supported("groq", groq::production::GPT_OSS_20B));
         assert!(is_model_supported(
             "togetherai",

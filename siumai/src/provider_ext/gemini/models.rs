@@ -20,6 +20,7 @@ pub mod chat {
     pub const GEMINI_3_PRO_PREVIEW: &str = "gemini-3-pro-preview";
     pub const GEMINI_3_PRO_IMAGE_PREVIEW: &str = "gemini-3-pro-image-preview";
     pub const GEMINI_3_FLASH_PREVIEW: &str = "gemini-3-flash-preview";
+    pub const GEMINI_3_5_FLASH: &str = "gemini-3.5-flash";
     pub const GEMINI_3_1_PRO_PREVIEW: &str = "gemini-3.1-pro-preview";
     pub const GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS: &str = "gemini-3.1-pro-preview-customtools";
     pub const GEMINI_3_1_FLASH_IMAGE_PREVIEW: &str = "gemini-3.1-flash-image-preview";
@@ -57,6 +58,7 @@ pub mod chat {
         GEMINI_3_PRO_PREVIEW,
         GEMINI_3_PRO_IMAGE_PREVIEW,
         GEMINI_3_FLASH_PREVIEW,
+        GEMINI_3_5_FLASH,
         GEMINI_3_1_PRO_PREVIEW,
         GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS,
         GEMINI_3_1_FLASH_IMAGE_PREVIEW,

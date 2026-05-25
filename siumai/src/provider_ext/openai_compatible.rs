@@ -15,9 +15,10 @@ pub use siumai_provider_openai_compatible::providers::openai_compatible::{
     TogetherAICompletionModelId, TogetherAIConfig, TogetherAIEmbeddingModelId,
     TogetherAIImageModelId, TogetherAIProviderSettings, TogetherAIRerankingModelId, XaiChatModelId,
     XaiClient, XaiConfig, XaiImageModelId, XaiProviderSettings, XaiResponsesModelId,
-    XaiVideoModelId, deepinfra, deepseek, fireworks, generic_provider_config, get_provider_config,
-    groq, list_provider_ids, moonshot, moonshotai, openrouter, provider_supports_capability,
-    siliconflow, together, togetherai, vertex_maas, xai,
+    XaiVideoModelId, alibaba, deepinfra, deepseek, fireworks, generic_provider_config,
+    get_provider_config, google_vertex_xai, groq, list_provider_ids, mistral, moonshot, moonshotai,
+    openrouter, perplexity, provider_supports_capability, qwen, siliconflow, together, togetherai,
+    vertex_maas, xai,
 };
 
 /// Typed generic OpenAI-compatible provider options (`provider_options_map["openaiCompatible"]`).
