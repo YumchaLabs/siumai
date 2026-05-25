@@ -24,7 +24,7 @@ Status legend:
 
 ## M1 — Extension Factory Inventory
 
-- [~] NECR-020 [owner=codex] [deps=NECR-010] [scope=siumai-registry/src,siumai-registry/tests,docs/workstreams/native-extension-and-compat-retirement]
+- [x] NECR-020 [owner=codex] [deps=NECR-010] [scope=siumai-registry/src,siumai-registry/tests,docs/workstreams/native-extension-and-compat-retirement]
   Goal: Inventory `ProviderExtensionFactory` defaults, provider overrides, native extension clients,
   and remaining `compat_*_client_with_ctx` fallback paths.
   Validation:
@@ -32,11 +32,13 @@ Status legend:
   - existing registry architecture boundary tests still pass.
   Review: registry construction-boundary review.
   Evidence: inventory section in `EVIDENCE_AND_GATES.md` or a dedicated decision note.
-  Handoff: IN_PROGRESS. Start with source inventory before selecting a provider-native override.
+  Handoff: DONE. `ProviderFactory` extension defaults were inventoried. DeepInfra, Fireworks, and
+  TogetherAI were selected as the first image-extras native override targets because each already
+  has a native image client implementing `ImageExtras`.
 
 ## M2 — Native Extension Factory Convergence
 
-- [ ] NECR-030 [owner=codex] [deps=NECR-020] [scope=siumai-registry/src,siumai-registry/tests,provider factory sources]
+- [x] NECR-030 [owner=codex] [deps=NECR-020] [scope=siumai-registry/src,siumai-registry/tests,provider factory sources]
   Goal: Add the first safe provider-owned native extension factory override where the provider
   already has a native extension client, reducing reliance on generic-client adapter fallback.
   Validation:
@@ -45,11 +47,13 @@ Status legend:
   Review: provider construction-path review.
   Evidence: source guard or test proving the selected extension path does not call
   `compat_*_client_with_ctx`.
-  Handoff: TODO.
+  Handoff: DONE. DeepInfra, Fireworks, and TogetherAI now override
+  `image_extras_with_ctx(...)` to return native image extras clients through
+  `ProviderExtensionFactory`, with a boundary test guarding against generic-client adapter fallback.
 
 ## M3 — Method-Style / Generic-Client Retirement Plan
 
-- [ ] NECR-040 [owner=codex] [deps=NECR-020] [scope=siumai-registry/src,siumai-core/src,docs/adr,docs/architecture,docs/migration,tests]
+- [~] NECR-040 [owner=codex] [deps=NECR-020] [scope=siumai-registry/src,siumai-core/src,docs/adr,docs/architecture,docs/migration,tests]
   Goal: Turn method-style and generic-client retirement from prose into source-enforced criteria and
   a deletion plan.
   Validation:
@@ -57,7 +61,8 @@ Status legend:
   - docs identify exact preconditions for deleting `ProviderCompatibilityFactory` and core aliases.
   Review: ADR-0007 compliance review.
   Evidence: guard test and doc updates.
-  Handoff: TODO.
+  Handoff: IN_PROGRESS. Next step is to turn the remaining method-style/generic-client retirement
+  criteria into source-enforced guardrails and documentation.
 
 ## M4 — ADR-0008 Root ContentPart Move Preparation
 

@@ -14,7 +14,7 @@ tracks three residual refactor areas requested for continued fearless refactorin
 
 ## Active Task
 
-NECR-020.
+NECR-040.
 
 ## Decisions Since Last Update
 
@@ -25,6 +25,10 @@ NECR-020.
   their ADR gates are satisfied.
 - Completed NECR-010 by creating the workstream docs, indexing the lane, and validating the doc
   diff.
+- Completed NECR-020 by inventorying extension-facet fallbacks and selecting image extras for
+  DeepInfra, Fireworks, and TogetherAI as the first native override set.
+- Completed NECR-030 by overriding `image_extras_with_ctx(...)` in those three provider factories
+  and adding `hybrid_provider_image_extras_use_native_extension_clients` as a source guard.
 
 ## Blockers
 
@@ -32,5 +36,6 @@ NECR-020.
 
 ## Next Recommended Action
 
-Run NECR-020 inventory against `siumai-registry/src` before selecting the first provider-native
-extension override.
+Continue with NECR-040. The next useful step is to make method-style/generic-client retirement
+criteria source-enforced, building on the remaining `ProviderCompatibilityFactory` and
+`compat_*_client_with_ctx(...)` call-site inventory.

@@ -292,6 +292,53 @@ fn hybrid_provider_composite_clients_are_compat_only_adapters() {
 }
 
 #[test]
+fn hybrid_provider_image_extras_use_native_extension_clients() {
+    struct Case<'a> {
+        file_name: &'a str,
+        helper_call: &'a str,
+    }
+
+    let cases = [
+        Case {
+            file_name: "deepinfra.rs",
+            helper_call: "build_image_client_arc(model_id, ctx).await?",
+        },
+        Case {
+            file_name: "fireworks.rs",
+            helper_call: "build_image_client_arc(model_id, ctx).await?",
+        },
+        Case {
+            file_name: "togetherai.rs",
+            helper_call: "build_image_client_arc(model_id, ctx)?",
+        },
+    ];
+
+    for case in cases {
+        let source = read_factory_source(case.file_name);
+        let method = async_method_source(&source, case.file_name, "image_extras_with_ctx");
+        assert!(
+            method.contains("let client: Arc<dyn ImageExtras> =")
+                && method.contains(case.helper_call),
+            "{}::image_extras_with_ctx should return the native image extras client through the extension facet",
+            case.file_name
+        );
+
+        for forbidden in [
+            "compat_image_client_with_ctx(",
+            "ClientBackedImageExtras",
+            ".as_image_extras()",
+            "CompatCompositeClient",
+        ] {
+            assert!(
+                !method.contains(forbidden),
+                "{}::image_extras_with_ctx should not fall back through generic-client adapter glue `{forbidden}`",
+                case.file_name
+            );
+        }
+    }
+}
+
+#[test]
 fn openai_compatible_factory_centralizes_checked_family_projection_glue() {
     let source = read_factory_source("openai_compatible.rs");
 

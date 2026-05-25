@@ -435,6 +435,15 @@ impl ProviderFactory for TogetherAiProviderFactory {
         Ok(client)
     }
 
+    async fn image_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn ImageExtras>, LlmError> {
+        let client: Arc<dyn ImageExtras> = build_image_client_arc(model_id, ctx)?;
+        Ok(client)
+    }
+
     async fn image_model_family_with_ctx(
         &self,
         model_id: &str,

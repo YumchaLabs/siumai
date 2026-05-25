@@ -7,8 +7,8 @@
   "scope_kind": "provider-compatibility-refactor",
   "problem": "Provider extension defaults, method-style generic-client construction, and low-level ContentPart root paths still preserve compatibility architecture after the previous convergence lane.",
   "objective": "Converge extension construction toward provider-native hooks, make generic-client retirement source-enforced, and prepare ADR-0008 root ContentPart movement behind executable parity gates.",
-  "active_task": "NECR-020",
-  "next_task": "NECR-030",
+  "active_task": "NECR-040",
+  "next_task": "NECR-050",
   "authoritative_docs": [
     {
       "role": "design",

@@ -44,6 +44,35 @@ movement must preserve serde-facing `ChatMessage` and `ChatResponse` compatibili
 | --- | --- | --- | --- | --- |
 | 2026-05-25 | NECR-010 | Workstream docs opened. | Pass | Establishes the follow-on lane and task split for the three requested refactor areas. |
 | 2026-05-25 | NECR-010 | `git diff --check -- docs/workstreams/native-extension-and-compat-retirement docs/workstreams/INDEX.md`. | Pass; Git reported the expected LF-to-CRLF working-copy warning for `docs/workstreams/INDEX.md`. | Proves the new workstream docs and index have no whitespace-error diff. |
+| 2026-05-25 | NECR-020 | Source inventory with `rg -n "impl ProviderExtensionFactory\|compat_.*_client_with_ctx\|build_.*_extras_with_ctx\|as_.*_extras\|impl .*Extras" siumai-registry/src`. | Pass | Shows extension hooks are separate, while default image/speech/transcription extras still adapt `compat_*_client_with_ctx` unless providers override native methods. |
+| 2026-05-25 | NECR-020 | Candidate review of `deepinfra.rs`, `fireworks.rs`, `togetherai.rs`, `openai.rs`, and `openai_compatible.rs`. | Pass | Selects DeepInfra, Fireworks, and TogetherAI image extras as the first safe native override set because they already expose native image clients implementing `ImageExtras`. |
+| 2026-05-25 | NECR-030 | DeepInfra, Fireworks, and TogetherAI override `image_extras_with_ctx(...)` to return `Arc<dyn ImageExtras>` from their native image client builders. | Pass | Reduces extension-facet reliance on generic-client adapter fallback for three native-capable providers without changing public APIs. |
+| 2026-05-25 | NECR-030 | `cargo fmt --package siumai-registry`. | Pass | Formats touched registry factory sources and boundary tests. |
+| 2026-05-25 | NECR-030 | `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test hybrid_provider_image_extras_use_native_extension_clients --no-default-features --features openai,deepinfra,togetherai --no-fail-fast`. | Pass: 1 test run, 1 passed. | Guards that selected hybrid providers return native image extras clients and do not fall back through `compat_image_client_with_ctx`, `ClientBackedImageExtras`, or composite-client glue. |
+| 2026-05-25 | NECR-030 | `cargo check -p siumai-registry --tests --no-default-features --features openai,deepinfra,togetherai`. | Pass | Proves the touched provider factories and tests compile under the feature set that covers the three native override targets. |
+
+## Extension Factory Inventory
+
+Default extension methods in `ProviderFactory` still adapt generic clients for six extension
+surfaces:
+
+- `file_management_capability_with_ctx(...)` via `compat_language_client_with_ctx(...)`
+- `skills_capability_with_ctx(...)` via `compat_language_client_with_ctx(...)`
+- `music_generation_capability_with_ctx(...)` via `compat_language_client_with_ctx(...)`
+- `image_extras_with_ctx(...)` via `compat_image_client_with_ctx(...)`
+- `speech_extras_with_ctx(...)` via `compat_speech_client_with_ctx(...)`
+- `transcription_extras_with_ctx(...)` via `compat_transcription_client_with_ctx(...)`
+
+The first native override set is intentionally limited to image extras because the selected
+providers already have native image clients:
+
+- DeepInfra: `DeepInfraImageClient` implements `ImageExtras`.
+- Fireworks: `FireworksImageClient` implements `ImageExtras`.
+- TogetherAI: `TogetherAiImageClient` implements `ImageExtras`.
+
+Speech and transcription extras remain candidates for a separate provider-specific pass because the
+current implementations often delegate through OpenAI-compatible text/audio clients rather than a
+dedicated native extension object.
 
 ## Residual Risks
 
