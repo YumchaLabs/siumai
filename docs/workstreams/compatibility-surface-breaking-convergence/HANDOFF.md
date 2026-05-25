@@ -9,10 +9,10 @@ This lane is newly opened from the closed public-surface deepening compatibility
 
 ## Active Task
 
-- Task ID: CSBC-030
+- Task ID: CSBC-040
 - Owner: codex
-- Files: `siumai-core/src`, `siumai-core/tests`, docs.
-- Validation: core generic client gate.
+- Files: `siumai-registry/src`, `siumai-registry/tests`, docs.
+- Validation: registry compatibility factory gate.
 - Status: READY
 - Evidence: `EVIDENCE_AND_GATES.md`
 
@@ -28,6 +28,11 @@ This lane is newly opened from the closed public-surface deepening compatibility
 - Completed CSBC-020 by keeping only `ChatMessage`, `Tool`, `StopCondition`, and `Warning` in the
   default compat type namespace, moving the full historical mirror to `legacy_all`, and updating
   public-surface and migration docs.
+- Started CSBC-030 by confirming no production code consumes `siumai_core::client` /
+  `siumai_core::core::client` beyond the alias modules and guards.
+- Completed CSBC-030 by deprecating the lower-level core client aliases, documenting
+  `siumai_core::compat::client` as the preferred core-level import, and adding a production source
+  guard against consuming the aliases.
 
 ## Blockers
 
@@ -35,5 +40,5 @@ This lane is newly opened from the closed public-surface deepening compatibility
 
 ## Next Recommended Action
 
-1. Start CSBC-030 by inventorying internal and test uses of `siumai_core::client` /
-   `siumai_core::core::client`.
+1. Start CSBC-040 by inventorying stable-family and extension uses of
+   `ProviderCompatibilityFactory` / `compat_*_client*` in `siumai-registry`.

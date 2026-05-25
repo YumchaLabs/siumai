@@ -510,12 +510,46 @@ fn llm_client_is_physically_scoped_under_compat_module() {
         );
     }
     assert!(
-        client_alias.contains("pub use crate::compat::client::*;"),
-        "siumai_core::client should re-export the compat client surface as a migration alias"
+        client_alias.contains("#[deprecated(")
+            && client_alias.contains("use siumai_core::compat::client instead")
+            && client_alias.contains("ADR-0007")
+            && client_alias.contains("pub use crate::compat::client::*;"),
+        "siumai_core::client should be a deprecated migration alias with explicit ADR-0007 removal guidance"
     );
     assert!(
-        core_client.contains("pub use crate::compat::client::LlmClient;"),
-        "siumai_core::core::client should point at the compat-owned LlmClient definition"
+        core_client.contains("#[deprecated(")
+            && core_client.contains("use siumai_core::compat::client::LlmClient instead")
+            && core_client.contains("ADR-0007")
+            && core_client.contains("pub use crate::compat::client::LlmClient;"),
+        "siumai_core::core::client should point at the compat-owned LlmClient definition through a deprecated migration alias"
+    );
+
+    let mut violations = Vec::new();
+    let src_dir = manifest_dir.join("src");
+    let allowed_alias_files = ["client.rs", "core/client.rs"];
+    let mut sources = Vec::new();
+    collect_rust_sources(&src_dir, &mut sources);
+    for source_path in sources {
+        let relative_path = normalized_relative_path(&src_dir, &source_path);
+        if allowed_alias_files.contains(&relative_path.as_str()) {
+            continue;
+        }
+        let source = fs::read_to_string(&source_path).expect("read core source");
+        let production_source = production_non_comment_source(&source);
+        for forbidden in [
+            "crate::client::LlmClient",
+            "crate::client::ClientWrapper",
+            "crate::core::client::LlmClient",
+        ] {
+            if production_source.contains(forbidden) {
+                violations.push(format!("{relative_path}: `{forbidden}`"));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "siumai-core production code should import generic-client compatibility types from compat::client, not lower-level aliases:\n{}",
+        violations.join("\n")
     );
 }
 

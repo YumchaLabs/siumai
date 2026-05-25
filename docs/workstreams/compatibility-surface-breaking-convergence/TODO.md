@@ -36,7 +36,7 @@ Status legend:
 
 ## M2 — Core Generic Client Alias Exit Preparation
 
-- [ ] CSBC-030 [owner=codex] [deps=CSBC-020] [scope=siumai-core/src,siumai-core/tests,docs/migration,docs/architecture]
+- [x] CSBC-030 [owner=codex] [deps=CSBC-020] [scope=siumai-core/src,siumai-core/tests,docs/migration,docs/architecture]
   Goal: Move safe internal/test usage away from `siumai_core::client` /
   `siumai_core::core::client`, strengthen guards, and define removal criteria for the aliases.
   Validation:
@@ -44,7 +44,9 @@ Status legend:
   - focused `core_provider_boundary_test` filters.
   Review: ADR-0007 compliance review.
   Evidence: source guard updates and migration docs.
-  Handoff: Split actual alias removal if public break conditions are not yet met.
+  Handoff: DONE. `siumai_core::client` and `siumai_core::core::client` are deprecated migration
+  aliases with ADR-0007 removal guidance; guards now prevent production code from consuming those
+  aliases as implementation owners.
 
 ## M3 — Registry Generic-Client Factory Seam Reduction
 

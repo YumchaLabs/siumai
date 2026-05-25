@@ -160,8 +160,10 @@ Generic `LlmClient` factory construction remains available only through explicit
 code or for extension-only surfaces that do not yet have a first-class model family.
 Generic client type imports now have an explicit migration path:
 `siumai::compat::client::{LlmClient, ClientWrapper}`. `siumai::experimental::client` remains an
-advanced alias, and `siumai_core::client` remains a lower-level migration alias, but new
-application-facing code should prefer the explicit compat path.
+advanced alias. Lower-level `siumai_core::client` and `siumai_core::core::client` imports are
+deprecated migration aliases; new core-level compatibility code should import
+`siumai_core::compat::client::{LlmClient, ClientWrapper}` directly. The aliases remain only until
+ADR-0007's family-native migration conditions are met.
 If custom registry or factory code imported the old registry-root alias
 `siumai_registry::LlmClient`, replace it with `siumai_registry::compat::client::LlmClient`.
 Direct uses of `siumai_registry::registry::factory::build_*_client(...)` are now deprecated

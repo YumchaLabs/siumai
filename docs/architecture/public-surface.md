@@ -217,7 +217,10 @@ method signatures from the stable registry surface. Generic `LlmClient` factory 
 compatibility-only and should stay behind explicit `compat_*_client(...)` /
 `compat_*_client_with_ctx(...)` methods. Downstream code that still needs the generic client types
 should import them from `siumai::compat::client::{LlmClient, ClientWrapper}`; the old
-`siumai::experimental::client` path remains an advanced alias during migration.
+`siumai::experimental::client` path remains an advanced alias during migration. Core-level
+compatibility code should import `siumai_core::compat::client::{LlmClient, ClientWrapper}`
+directly; `siumai_core::client` and `siumai_core::core::client` are deprecated migration aliases
+kept only until ADR-0007's family-native removal conditions are met.
 Registry execution now uses narrower facets derived from that custom-provider contract:
 `ProviderFamilyFactory` for stable family handles, `ProviderCompatibilityFactory` for legacy
 generic-client entry points, and `ProviderExtensionFactory` for non-family extension capabilities.
