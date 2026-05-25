@@ -157,6 +157,28 @@ Notes:
 - The `openai-json-repair` lane also covers structured-output refusal/content-filter behavior so
   JSON repair cannot silently turn plain refusal text into a successful JSON string result.
 
+### `audit-model-catalogs.sh` / `audit-model-catalogs.bat`
+
+Runs the local AI SDK model catalog drift audit against Siumai provider model constants.
+
+```bash
+./scripts/audit-model-catalogs.sh
+```
+
+```bat
+scripts\audit-model-catalogs.bat
+```
+
+Notes:
+
+- Requires a local Vercel AI SDK checkout discoverable as `repo-ref/ai`, `AI_SDK_REPO`, or
+  `VERCEL_AI_REPO`.
+- Uses the standard repository gate: `--include-green --show-skipped --defer deepinfra`.
+- DeepInfra remains intentionally deferred because its larger catalog needs a separate policy
+  decision before bulk expansion.
+- For custom strict audits, call the underlying script directly:
+  `python .agents/skills/siumai-ai-sdk-maintenance/scripts/audit_model_catalogs.py --include-green --show-skipped`.
+
 ## 🧪 Integration Test Scripts
 
 ### `run_integration_tests.sh` (Linux/macOS)
