@@ -11,17 +11,17 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 - `unknown` means the lane has no recognized status source. It is not automatically active.
 - `superseded` means the lane is historical context; resume through its listed successor or a new
   narrow workstream, not by reopening the legacy TODO list.
-- Closed-like counts include `closed`, `completed`, and `superseded`; deferred lanes are tracked
+- Closed-like counts include `closed`, `complete`, `completed`, and `superseded`; deferred lanes are tracked
   separately.
 - Before resuming an `unknown` lane, normalize it by reading its docs and adding a machine-readable `WORKSTREAM.json` or opening a new follow-on workstream.
 - Do not reopen a closed lane for mechanical cleanup; start from a concrete behavior, provider, public contract, or documentation gap.
 
 ## Summary
 
-- Total workstream directories: 75
-- Machine-readable status files: 75
-- Closed or closed-like lanes: 73
-- Active-like lanes: 0
+- Total workstream directories: 79
+- Machine-readable status files: 79
+- Closed or closed-like lanes: 76
+- Active-like lanes: 1
 - Deferred lanes: 2
 - Unknown legacy lanes: 0
 
@@ -40,6 +40,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/bedrock-protocol-boundary-cleanup` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/cohere-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/compatibility-surface-breaking-convergence` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/content-part-compat-namespace-break` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/completion-family-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/completion-metadata-boundary-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/data-content-error-surface-alignment` | closed | `WORKSTREAM.json` | yes |
@@ -51,6 +52,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/fearless-content-part-boundary-split` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-core-provider-alias-extraction` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-language-extension-handle-isolation` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-module-deepening` | complete | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-provider-composite-client-isolation` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-public-surface-deepening` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-refactor` | superseded | `WORKSTREAM.json` | yes |
@@ -82,6 +84,8 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/prompt-call-settings-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/prompt-model-message-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/protocol-bridge-gateway` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/protocol-response-generated-output-boundary` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/provider-native-extension-overrides` | active | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-option-alias-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-settings-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-surface-second-pass` | closed | `WORKSTREAM.json` | yes |
