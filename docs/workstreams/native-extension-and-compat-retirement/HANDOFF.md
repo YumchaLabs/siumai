@@ -1,11 +1,11 @@
 # Native Extension And Compat Retirement — Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Current State
 
-This lane is active. It follows the closed compatibility-surface breaking-convergence lane and
+This lane is closed. It follows the closed compatibility-surface breaking-convergence lane and
 tracks three residual refactor areas requested for continued fearless refactoring:
 
 - provider-specific native extension factory convergence;
@@ -14,7 +14,7 @@ tracks three residual refactor areas requested for continued fearless refactorin
 
 ## Active Task
 
-NECR-060.
+None.
 
 ## Decisions Since Last Update
 
@@ -36,6 +36,7 @@ NECR-060.
   The gate locks root/compat `ContentPart` serialization inside `ChatMessage` and `ChatResponse`
   and records the current externally tagged `MessageContent::MultiModal` and top-level
   `provider_metadata` response metadata shapes.
+- Completed NECR-060 by closing the lane and splitting remaining removals into follow-ons.
 
 ## Blockers
 
@@ -43,6 +44,6 @@ NECR-060.
 
 ## Next Recommended Action
 
-Continue with NECR-060. Close this lane after final evidence and status files agree; split broader
-provider/protocol fixture parity or actual low-level root namespace movement into a new follow-on if
-needed.
+No active task remains in this lane. Open a new follow-on for broader provider/protocol fixture
+parity, additional native extension overrides, or the eventual breaking low-level root
+`ContentPart` namespace movement.

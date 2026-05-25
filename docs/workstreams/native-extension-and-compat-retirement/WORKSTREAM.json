@@ -2,12 +2,12 @@
   "schema_version": 1,
   "slug": "native-extension-and-compat-retirement",
   "title": "Native Extension And Compat Retirement",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-25",
   "scope_kind": "provider-compatibility-refactor",
   "problem": "Provider extension defaults, method-style generic-client construction, and low-level ContentPart root paths still preserve compatibility architecture after the previous convergence lane.",
   "objective": "Converge extension construction toward provider-native hooks, make generic-client retirement source-enforced, and prepare ADR-0008 root ContentPart movement behind executable parity gates.",
-  "active_task": "NECR-060",
+  "active_task": null,
   "next_task": null,
   "authoritative_docs": [
     {
@@ -46,7 +46,7 @@
     "docs/adr/0006-family-model-first-trait-policy.md"
   ],
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue with NECR-020 inventory before making provider source edits."
+    "default_action": "stop",
+    "notes": "This lane is closed. Open a new narrow follow-on for additional native extension overrides, provider/protocol ContentPart fixture parity, or breaking root namespace movement."
   }
 }

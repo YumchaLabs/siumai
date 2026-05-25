@@ -1,6 +1,6 @@
 # Native Extension And Compat Retirement
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Why This Lane Exists
@@ -100,3 +100,22 @@ This lane can close when:
 - ADR-0008 root-move prerequisites have an executable gate or a safe preparatory slice;
 - evidence gates pass for touched crates; and
 - remaining removals are split into concrete follow-ons.
+
+## Closeout Summary
+
+Closed on 2026-05-25.
+
+This lane completed the three requested fearless-refactor areas:
+
+- DeepInfra, Fireworks, and TogetherAI now return native image extras clients through
+  `ProviderFactory::image_extras_with_ctx(...)`, avoiding the default generic-client adapter
+  fallback for those provider-native extension paths.
+- `ProviderCompatibilityFactory` is guarded as method-style-only production infrastructure: it may
+  appear in the registry facet definition and historical `SiumaiBuilder` compatibility construction
+  path, but not leak back into stable handles or provider execution.
+- ADR-0008 now has a concrete serde fixture gate for future low-level root `ContentPart` movement.
+  The gate locks current root/compat payload equivalence inside `ChatMessage` and `ChatResponse`
+  while explicitly preserving the current externally tagged `MessageContent::MultiModal` and
+  top-level `provider_metadata` response metadata shapes.
+
+Remaining broader removals are follow-ons, not hidden active work.

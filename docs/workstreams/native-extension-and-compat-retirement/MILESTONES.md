@@ -1,6 +1,6 @@
 # Native Extension And Compat Retirement — Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## M0 — Scope And Evidence Freeze
@@ -61,3 +61,12 @@ Exit criteria:
 - Evidence is recorded for all completed slices.
 - Remaining provider-specific native overrides or breaking removals are explicit follow-ons.
 - `WORKSTREAM.json`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`, and `HANDOFF.md` agree.
+
+Result: complete. Remaining follow-ons:
+
+- add provider-native overrides for speech/transcription/file/skill/music extension defaults where
+  dedicated native extension objects exist;
+- build broader provider/protocol response fixture parity before moving low-level root
+  `ContentPart`;
+- plan the actual breaking removal of method-style `SiumaiBuilder` generic-client construction only
+  after ADR-0007 gates are satisfied.

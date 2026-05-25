@@ -1,6 +1,6 @@
 # Native Extension And Compat Retirement — Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Smallest Current Repro
@@ -56,6 +56,7 @@ movement must preserve serde-facing `ChatMessage` and `ChatResponse` compatibili
 | 2026-05-25 | NECR-050 | Added `adr_0008_root_content_part_move_has_serde_parity_fixture_gate`. | Pass | Adds a small executable serde fixture proving root and compat `ContentPart` paths currently serialize identically inside `ChatMessage` and `ChatResponse` payloads before any low-level root namespace move. |
 | 2026-05-25 | NECR-050 | `cargo nextest run -p siumai-spec --no-default-features --test content_projection_boundary_test adr_0008_root_content_part_move_has_serde_parity_fixture_gate adr_0008_full_contentpart_namespace_break_blockers_are_guarded --no-fail-fast`. | Pass: 2 tests run, 2 passed. | Proves ADR-0008 blockers remain documented and the new serde fixture gate reflects current root/compat payload parity. |
 | 2026-05-25 | NECR-050 | `cargo check -p siumai-spec --tests --no-default-features`. | Pass | Proves spec tests compile after adding the ADR-0008 parity gate. |
+| 2026-05-25 | NECR-060 | `git diff --check -- docs/workstreams/native-extension-and-compat-retirement docs/workstreams/INDEX.md`. | Pending validation | Proves closeout doc updates and workstream index have no whitespace-error diff. |
 
 ## ADR-0008 Parity Notes
 
@@ -100,3 +101,11 @@ dedicated native extension object.
 - Method-style construction and generic `LlmClient` remain available until ADR-0007 deletion
   prerequisites are satisfied.
 - Low-level root `ContentPart` paths remain until ADR-0008 parity gates prove that the move is safe.
+
+## Closeout Gate Matrix
+
+| Area | Evidence | Result |
+| --- | --- | --- |
+| Native extension factory convergence | `hybrid_provider_image_extras_use_native_extension_clients` plus registry check under `openai,deepinfra,togetherai`. | Pass |
+| Method-style / generic-client retirement | `provider_compatibility_factory_is_method_style_only` plus ADR-0007 retirement gates. | Pass |
+| ADR-0008 root move preparation | `adr_0008_root_content_part_move_has_serde_parity_fixture_gate` plus blocker guard. | Pass |

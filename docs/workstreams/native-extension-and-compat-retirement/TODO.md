@@ -1,6 +1,6 @@
 # Native Extension And Compat Retirement — TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 Status legend:
@@ -80,11 +80,13 @@ Status legend:
 
 ## M5 — Closeout
 
-- [~] NECR-060 [owner=planner] [deps=NECR-030,NECR-040,NECR-050] [scope=docs/workstreams/native-extension-and-compat-retirement]
+- [x] NECR-060 [owner=planner] [deps=NECR-030,NECR-040,NECR-050] [scope=docs/workstreams/native-extension-and-compat-retirement]
   Goal: Close the lane or split any remaining provider-specific removals into narrower follow-ons.
   Validation:
   - documented final gate matrix in `EVIDENCE_AND_GATES.md`
   - `git diff --check -- docs/workstreams/native-extension-and-compat-retirement`
   Review: final self-review or `review-workstream`.
   Evidence: updated workstream docs.
-  Handoff: IN_PROGRESS. Close the lane after final evidence and status files agree.
+  Handoff: DONE. Lane closed with follow-ons split to broader provider/protocol fixture parity,
+  additional provider-native extension overrides, and any eventual breaking low-level root
+  `ContentPart` namespace movement.
