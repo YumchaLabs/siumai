@@ -1,7 +1,7 @@
 # AI SDK Provider Interface Convergence - Milestones
 
 Status: Closed
-Last updated: 2026-05-18
+Last updated: 2026-05-25
 
 ## M0 - Program Scope And Inventory
 
@@ -92,7 +92,8 @@ Progress note: AIPC-070 and AIPC-080 are complete. OpenAI-compatible promoted ve
 inheritance is explicit. Native/provider-package parity rows now either have green evidence,
 intentional Rust-specific boundaries, deferred non-official package status, or a child workstream.
 Google Interactions runtime was split to `docs/workstreams/google-interactions-runtime-alignment`
-because `/interactions` execution is a separate runtime lane rather than a package-surface gap.
+because `/interactions` execution is a separate runtime lane rather than a package-surface gap; that
+child lane is now completed.
 
 ## M4 - Workstream Hygiene And Closeout
 
@@ -117,4 +118,5 @@ Progress note: AIPC-090 is complete. The workstream index now normalizes the his
 were safe to classify from their own TODOs or from AIPC decisions, while leaving only four unknown
 legacy directories: two empty historical directories and two lanes with explicit open follow-up
 items. AIPC-100 closed the parent program and moved remaining executable work to narrower follow-on
-lanes.
+lanes; the Google Interactions runtime child has since completed, so no active AIPC follow-on
+remains.

@@ -1,7 +1,7 @@
 # AI SDK Provider Interface Convergence - Parity Inventory
 
 Status: Closed
-Last updated: 2026-05-18
+Last updated: 2026-05-25
 
 This inventory records the first program-level comparison between AI SDK package seams and Siumai
 crate seams. It is intentionally a control surface, not a claim that every row is complete.
@@ -14,7 +14,8 @@ Status legend:
 - `Deferred`: intentionally outside the current Rust runtime or package scope.
 
 Program closeout note: residual Amber rows are retained as future trigger points. They do not keep
-the AIPC parent lane active; open a narrower workstream only when concrete drift appears.
+the AIPC parent lane active; open a narrower workstream only when concrete drift appears. The
+previous Google Interactions child follow-on is completed.
 
 ## Seam Inventory
 
@@ -39,7 +40,7 @@ the AIPC parent lane active; open a narrower workstream only when concrete drift
 | `azure` | `siumai-provider-azure`, OpenAI protocol reuse | AI SDK-aligned Azure OpenAI package surface with provider-owned metadata/options over OpenAI-family semantics | Green | Public Azure Responses metadata envelopes now export the AI SDK package names under `provider_metadata.azure`; runtime/default registry paths keep Azure metadata out of generic `openai` unless the caller explicitly overrides the provider metadata key. |
 | `openai-compatible` | `siumai-provider-openai-compatible` | Shared OpenAI-compatible runtime plus vendor presets | Green | Keep generic custom-provider configs broad while promoted presets advertise only documented package families. |
 | `anthropic` | `siumai-provider-anthropic`, `siumai-protocol-anthropic` | AI SDK-aligned native Anthropic Messages/files/skills/tools package surface with provider-owned metadata and replay helpers | Green | Registry metadata and `AnthropicClient` capability discovery now expose files and skills while keeping embedding/image/rerank/audio families unsupported; stream custom/raw hints remain confined to explicit provider-native replay and compatibility tests. |
-| `google` | `siumai-provider-gemini`, `siumai-protocol-gemini` | AI SDK-aligned Google/Gemini chat/embedding/image/video/files/tools package surface plus explicit Interactions runtime follow-on | Green | Ordinary Gemini reasoning/source/provider-metadata public paths are covered; `google.interactions(...)` package surface is visible and fail-fast by design until the dedicated runtime lane in `docs/workstreams/google-interactions-runtime-alignment` implements `/interactions`, polling, cancellation, signatures, and stream transforms. |
+| `google` | `siumai-provider-gemini`, `siumai-protocol-gemini` | AI SDK-aligned Google/Gemini chat/embedding/image/video/files/tools package surface plus Google Interactions runtime | Green | Ordinary Gemini reasoning/source/provider-metadata public paths are covered; `google.interactions(...)` runtime execution is implemented and closed in `docs/workstreams/google-interactions-runtime-alignment`. |
 | `google-vertex` | `siumai-provider-google-vertex`, Gemini/Anthropic/OpenAI-compatible integrations | Vertex-native, Anthropic-on-Vertex, Vertex MaaS, and Google Vertex xAI boundary | Green | Vertex-native root aliases now expose `google_vertex()` / `create_google_vertex()` while keeping `vertex()` / `create_vertex()` compatibility; `@ai-sdk/google-vertex/xai` is now modeled as its own Rust provider boundary with dedicated aliases, capability guards, and request-body normalization. |
 | `amazon-bedrock` | `siumai-provider-amazon-bedrock` | AI SDK-aligned Bedrock chat/embedding/image/rerank/tools package surface with provider-owned runtime semantics | Green | Registry, facade, and public-path gates lock chat/embedding/image/rerank plus Anthropic tool re-exports; SigV4 credential-provider hooks and upstream test-only `generateId` stay deferred, and public image options are not exported because the upstream package index does not export them. |
 | `cohere` | `siumai-provider-cohere` | AI SDK-aligned native Cohere v2 chat/embedding/rerank plus Rust package settings/version helpers | Green | Unified factory/catalog/public-surface guards lock chat/embedding/rerank and explicitly keep completion/image/audio/files unsupported; only non-index internals such as `CohereErrorData` and upstream `generateId` stay deferred. |

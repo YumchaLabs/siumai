@@ -1,7 +1,7 @@
 # AI SDK Provider Interface Convergence - Design
 
 Status: Closed
-Last updated: 2026-05-18
+Last updated: 2026-05-25
 
 ## Why This Lane Exists
 
@@ -89,11 +89,11 @@ vertical slices:
 - historical workstream status hygiene for lanes superseded by AIPC or narrower follow-ons.
 
 Remaining work is intentionally not kept inside this parent lane. Real Google Interactions
-`/v1beta/interactions` execution is split to
-`docs/workstreams/google-interactions-runtime-alignment`. Future provider-interface, provider-utils,
-or root-helper drift should open a new bounded workstream only when there is a concrete behavior,
-provider, public contract, or documentation gap. Legacy `ContentPart` compatibility remains
-deferred under ADR-0008.
+`/v1beta/interactions` execution was split to
+`docs/workstreams/google-interactions-runtime-alignment`, and that child lane is now completed.
+Future provider-interface, provider-utils, root-helper, provider catalog, or upstream package drift
+should open a new bounded workstream only when there is a concrete behavior, provider, public
+contract, or documentation gap. Legacy `ContentPart` compatibility remains deferred under ADR-0008.
 
 ## In Scope
 

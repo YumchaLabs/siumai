@@ -1,7 +1,7 @@
 # AI SDK Provider Interface Convergence - TODO
 
 Status: Closed
-Last updated: 2026-05-18
+Last updated: 2026-05-25
 
 Status legend:
 
@@ -98,7 +98,7 @@ Status legend:
   custom replay behavior behind the existing compatibility/protocol boundaries. Google/Gemini is
   now closed for package-surface parity: ordinary Gemini stream/reasoning/source metadata coverage
   is already guarded, and real `google.interactions(...)` execution has been split into
-  `docs/workstreams/google-interactions-runtime-alignment`.
+  `docs/workstreams/google-interactions-runtime-alignment`, which is now completed.
 
 ## M4 - Workstream Hygiene And Closeout
 
@@ -116,7 +116,7 @@ Status legend:
   Goal: Close this program lane or split remaining work into narrower follow-ons.
   Validation: evidence gates are recorded and `WORKSTREAM.json` status is updated.
   Evidence: `EVIDENCE_AND_GATES.md`, `HANDOFF.md`, `WORKSTREAM.json`
-  Handoff: Program lane closed. Remaining Google Interactions runtime execution is split to
-  `docs/workstreams/google-interactions-runtime-alignment`; residual provider interface/utilities,
-  root-helper, and legacy content compatibility rows are future triggers or ADR-0008 deferrals, not
-  active tasks in this lane.
+  Handoff: Program lane closed. Google Interactions runtime execution was split to
+  `docs/workstreams/google-interactions-runtime-alignment` and has since completed; residual
+  provider interface/utilities, root-helper, provider catalog, upstream package, and legacy content
+  compatibility rows are future triggers or ADR-0008 deferrals, not active tasks in this lane.

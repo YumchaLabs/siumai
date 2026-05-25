@@ -1,7 +1,7 @@
 # AI SDK Provider Interface Convergence - Handoff
 
 Status: Closed
-Last updated: 2026-05-18
+Last updated: 2026-05-25
 
 ## Current State
 
@@ -33,6 +33,10 @@ retain explicit completion support where Siumai has documented family coverage.
 This lane is now historical coordination context. Do not reopen it for mechanical cleanup; open a
 new bounded workstream when a concrete behavior, provider, public contract, or documentation gap
 appears.
+
+Post-closeout status hygiene on 2026-05-25 confirmed that
+`docs/workstreams/google-interactions-runtime-alignment` is now completed, so AIPC no longer has an
+active child follow-on.
 
 ## Active Task
 
@@ -145,9 +149,8 @@ None. AIPC-100 closed this parent program lane.
   the protocol/bridge evidence already closed by AIPC-050 and AIPC-060.
 - AIPC-080 closed the remaining Google/Gemini package row by separating package-surface parity from
   runtime execution. Ordinary Gemini reasoning/source/provider-metadata public paths already have
-  focused coverage. `google.interactions(...)` remains package-visible and fail-fast by design until
-  the new `docs/workstreams/google-interactions-runtime-alignment` lane implements the dedicated
-  `/interactions` runtime.
+  focused coverage. `google.interactions(...)` runtime execution was split to
+  `docs/workstreams/google-interactions-runtime-alignment`; that child lane is now completed.
 - AIPC-090 normalized historical workstream status for lanes whose own TODOs were complete or whose
   current entry point is now AIPC / a narrower follow-on. `docs/workstreams/INDEX.md` now records 68
   workstream directories, 64 machine-readable status files, 60 closed-or-superseded lanes, 2 active
@@ -162,7 +165,6 @@ None. AIPC-100 closed this parent program lane.
 
 ## Next Recommended Action
 
-Resume `docs/workstreams/google-interactions-runtime-alignment` at GIR-020 for the remaining
-Google Interactions `/v1beta/interactions` runtime work. Treat provider-interface, provider-utils,
-root-helper, and legacy content compatibility rows in the AIPC inventory as future triggers rather
-than active AIPC tasks.
+No active AIPC follow-on remains. Treat provider-interface, provider-utils, root-helper, legacy
+content compatibility, provider catalog, and upstream package drift as future triggers for new
+bounded workstreams rather than active AIPC tasks.
