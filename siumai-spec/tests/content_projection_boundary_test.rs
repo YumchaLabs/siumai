@@ -188,6 +188,84 @@ fn legacy_content_part_dual_provider_maps_stay_explicitly_audited() {
 }
 
 #[test]
+fn adr_0008_full_contentpart_namespace_break_blockers_are_guarded() {
+    let types_source = read_source("src/types.rs");
+    let chat_source = read_source("src/types/chat/mod.rs");
+    let chat_content_source = read_source("src/types/chat/content/mod.rs");
+    let workspace_root = crate_root()
+        .parent()
+        .expect("siumai-spec should live under workspace root")
+        .to_path_buf();
+    let core_compat_source =
+        fs::read_to_string(workspace_root.join("siumai-core/src/compat/mod.rs"))
+            .expect("read siumai-core compat source");
+    let facade_compat_source = fs::read_to_string(workspace_root.join("siumai/src/compat.rs"))
+        .expect("read siumai facade compat source");
+    let facade_prelude_source = fs::read_to_string(workspace_root.join("siumai/src/prelude.rs"))
+        .expect("read siumai facade prelude source");
+    let adr_source = fs::read_to_string(
+        workspace_root.join("docs/adr/0008-legacy-content-part-compatibility-boundary.md"),
+    )
+    .expect("read ADR-0008");
+    let decision_source = fs::read_to_string(workspace_root.join(
+        "docs/workstreams/compatibility-surface-breaking-convergence/CSBC-050-content-part-decision.md",
+    ))
+    .expect("read CSBC-050 decision");
+
+    assert!(
+        types_source.contains("pub mod compat")
+            && types_source.contains("pub mod content")
+            && types_source.contains("pub mod prompt")
+            && types_source.contains("pub mod output"),
+        "siumai-spec should expose explicit compat and directional content namespaces"
+    );
+    assert!(
+        chat_source.contains("pub use content::{")
+            && chat_source.contains("ContentPart")
+            && chat_source.contains("pub mod compat"),
+        "siumai-spec::types::chat should keep the serde-facing root ContentPart path until a full root namespace move is planned"
+    );
+    assert!(
+        chat_content_source.contains("pub use part::{ContentPart, SourcePart};")
+            && chat_content_source.contains("pub mod compat"),
+        "chat content should keep root and compat paths bound to the same legacy carrier during the compatibility window"
+    );
+    assert!(
+        core_compat_source.contains("pub mod content")
+            && core_compat_source.contains("pub use crate::types::compat::content::*"),
+        "siumai-core should expose the explicit low-level compatibility content namespace"
+    );
+    assert!(
+        facade_compat_source.contains("pub mod content")
+            && facade_compat_source.contains("pub use siumai_core::compat::content::*")
+            && facade_prelude_source.contains("pub mod content")
+            && facade_prelude_source.contains("pub use crate::compat::content::*"),
+        "facade compatibility namespaces should remain the public migration path for legacy content carriers"
+    );
+    assert!(
+        adr_source.contains("2026-05-25 update")
+            && adr_source.contains("facade-level compatibility break has landed")
+            && adr_source.contains("siumai-core::types::ContentPart")
+            && adr_source.contains("CSBC-050-content-part-decision.md"),
+        "ADR-0008 should record the partial facade break and low-level root-move blockers"
+    );
+
+    for blocker in [
+        "ChatMessage",
+        "ChatResponse",
+        "siumai-spec::types::*",
+        "siumai-core::types::*",
+        "Provider, protocol, and bridge response paths",
+        "full-root-move parity suite",
+    ] {
+        assert!(
+            decision_source.contains(blocker),
+            "CSBC-050 decision should name root ContentPart blocker `{blocker}`"
+        );
+    }
+}
+
+#[test]
 fn ai_sdk_v4_prompt_and_generated_content_keep_provider_maps_directional() {
     let prompt_source = read_source("src/types/ai_sdk/language_model_v4/prompt.rs");
     assert!(

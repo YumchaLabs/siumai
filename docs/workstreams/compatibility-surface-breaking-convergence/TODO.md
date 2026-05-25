@@ -65,7 +65,7 @@ Status legend:
 
 ## M4 — ADR-0008 ContentPart Breaking-Slice Decision
 
-- [ ] CSBC-050 [owner=codex] [deps=CSBC-020] [scope=siumai-core,siumai-spec,siumai,docs/adr,docs/migration,tests]
+- [x] CSBC-050 [owner=codex] [deps=CSBC-020] [scope=siumai-core,siumai-spec,siumai,docs/adr,docs/migration,tests]
   Goal: Evaluate ADR-0008 future-breaking conditions and either execute a safe compatibility
   namespace break or record the exact blockers with source guards.
   Validation:
@@ -74,7 +74,13 @@ Status legend:
   - fixture parity tests if any public path moves.
   Review: ADR-0008 compliance review.
   Evidence: decision note and tests.
-  Handoff: Final status must be DONE, DONE_WITH_CONCERNS, BLOCKED, or NEEDS_CONTEXT.
+  Handoff: DONE_WITH_CONCERNS. The facade-level break is already complete:
+  `prelude::unified` does not export legacy `ContentPart`, and explicit compat content namespaces
+  exist. A full `siumai-spec::types::ContentPart` / `siumai-core::types::ContentPart` root move is
+  deferred because serde-facing `ChatMessage` / `ChatResponse`, provider/protocol response parity,
+  and a full root-move fixture suite are not yet complete. The blockers are recorded in
+  `CSBC-050-content-part-decision.md` and guarded by
+  `adr_0008_full_contentpart_namespace_break_blockers_are_guarded`.
 
 ## M5 — Closeout
 

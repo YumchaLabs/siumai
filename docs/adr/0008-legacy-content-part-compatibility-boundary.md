@@ -75,6 +75,17 @@ Legacy `ContentPart` remains available in its current public paths during the cu
 it is classified as a compatibility carrier rather than the canonical request or response content
 interface.
 
+2026-05-25 update: the facade-level compatibility break has landed. The recommended
+`siumai::prelude::unified::*` surface no longer exports legacy `ContentPart`, and migration code
+should import it from explicit compatibility paths such as `siumai::compat::content::*`,
+`siumai::content::compat::*`, `siumai::prelude::compat::content::*`, or
+`siumai_core::compat::content::*`. The low-level `siumai-spec::types::ContentPart` and
+`siumai-core::types::ContentPart` root paths remain in place because `ChatMessage` /
+`ChatResponse` serde compatibility, provider/protocol response parity, and a full root-move fixture
+suite are not yet complete. See
+`docs/workstreams/compatibility-surface-breaking-convergence/CSBC-050-content-part-decision.md` for
+the current blocker record.
+
 New architecture work should follow these rules:
 
 1. Request-side construction should prefer `ModelMessage`, `UserContentPart`,

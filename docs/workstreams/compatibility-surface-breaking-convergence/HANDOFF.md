@@ -9,10 +9,10 @@ This lane is newly opened from the closed public-surface deepening compatibility
 
 ## Active Task
 
-- Task ID: CSBC-050
-- Owner: codex
-- Files: `siumai-core`, `siumai-spec`, `siumai`, docs, tests.
-- Validation: content boundary and public import gates selected during task execution.
+- Task ID: CSBC-060
+- Owner: planner
+- Files: `docs/workstreams/compatibility-surface-breaking-convergence`
+- Validation: closeout doc consistency and final diff checks.
 - Status: READY
 - Evidence: `EVIDENCE_AND_GATES.md`
 
@@ -39,6 +39,12 @@ This lane is newly opened from the closed public-surface deepening compatibility
   `ProviderCompatibilityFactory` remains available through the explicit
   `compatibility_facet_from_provider_factory(...)` adapter used by `SiumaiBuilder` generic-client
   migration construction.
+- Completed CSBC-050 with DONE_WITH_CONCERNS. The facade-level `ContentPart` compatibility break is
+  already complete, but moving the low-level `siumai-spec::types::ContentPart` /
+  `siumai-core::types::ContentPart` root paths remains blocked by serde-facing `ChatMessage` /
+  `ChatResponse`, provider/protocol response parity, and missing full-root fixture coverage. The
+  blockers are recorded in `CSBC-050-content-part-decision.md` and guarded in
+  `siumai-spec/tests/content_projection_boundary_test.rs`.
 
 ## Blockers
 
@@ -46,5 +52,5 @@ This lane is newly opened from the closed public-surface deepening compatibility
 
 ## Next Recommended Action
 
-1. Start CSBC-050 by reading ADR-0008 and inventorying current public `ContentPart` /
-   `legacy_content` import paths before choosing whether a breaking namespace move is safe.
+1. Run CSBC-060 closeout: update the workstream status, record residual public API risks, and run
+   final doc/diff checks.

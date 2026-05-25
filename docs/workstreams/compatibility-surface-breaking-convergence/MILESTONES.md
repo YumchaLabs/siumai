@@ -49,8 +49,10 @@ Exit criteria:
 Exit criteria:
 
 - ADR-0008 future-breaking conditions are checked against current source.
-- Either a safe namespace movement lands with tests, or blockers are recorded as concrete follow-on
-  tasks.
+- The completed facade-level compatibility break is distinguished from the blocked low-level
+  spec/core root namespace move.
+- Blockers for the full root move are recorded as concrete follow-on prerequisites and guarded by
+  source tests.
 
 ## M5 — Closeout
 
