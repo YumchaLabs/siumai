@@ -14,7 +14,7 @@ tracks three residual refactor areas requested for continued fearless refactorin
 
 ## Active Task
 
-NECR-040.
+NECR-050.
 
 ## Decisions Since Last Update
 
@@ -29,6 +29,9 @@ NECR-040.
   DeepInfra, Fireworks, and TogetherAI as the first native override set.
 - Completed NECR-030 by overriding `image_extras_with_ctx(...)` in those three provider factories
   and adding `hybrid_provider_image_extras_use_native_extension_clients` as a source guard.
+- Completed NECR-040 by adding a source guard that confines `ProviderCompatibilityFactory` to
+  `registry/entry/factory.rs` and the historical `SiumaiBuilder` method-style compatibility path,
+  then documenting ADR-0007 deletion gates.
 
 ## Blockers
 
@@ -36,6 +39,5 @@ NECR-040.
 
 ## Next Recommended Action
 
-Continue with NECR-040. The next useful step is to make method-style/generic-client retirement
-criteria source-enforced, building on the remaining `ProviderCompatibilityFactory` and
-`compat_*_client_with_ctx(...)` call-site inventory.
+Continue with NECR-050. Add executable ADR-0008 parity gates before attempting any low-level root
+`ContentPart` namespace movement.

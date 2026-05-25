@@ -240,6 +240,9 @@ Built-in provider factories should keep typed-client construction and typed-clie
 as local helpers. Stable family and explicit compatibility methods can share those helpers, but the
 public surface should not grow new broad generic-client aliases to compensate for duplicated factory
 glue.
+Do not delete `ProviderCompatibilityFactory` until the historical method-style builder has a
+family-native replacement or a documented breaking removal, extension-only surfaces no longer rely
+on generic-client adapters by default, and source guards prove stable handles remain family-native.
 Azure's deployment-based URL mode is the current provider-specific exception; use the registry
 helper `azure_provider_factory_with_options(...)` instead of concrete Azure factory construction.
 

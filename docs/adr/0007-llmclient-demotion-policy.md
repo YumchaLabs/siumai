@@ -66,3 +66,20 @@ We should avoid:
 3. Use contract tests to compare old and new construction paths during migration.
 4. Move registry handle execution off the generic client path incrementally.
 5. Reassess removal or stronger deprecation only after major providers and handles are migrated.
+
+## Retirement gates
+
+Do not delete `ProviderCompatibilityFactory`, `ProviderFactory::compat_*_client*`, or the
+lower-level `siumai_core::client` / `siumai_core::core::client` aliases until all of these gates are
+true:
+
+1. The historical method-style `SiumaiBuilder::build()` path either has a family-native
+   implementation or has been removed behind a documented breaking release.
+2. Stable registry handles store only family and extension facets; no production handle stores or
+   calls `ProviderCompatibilityFactory`.
+3. Extension defaults that still adapt generic clients have either native extension-object factory
+   overrides or explicit removal decisions.
+4. Public migration docs point users from generic `LlmClient` imports to family-native models or
+   explicit `compat::client` imports.
+5. Source guards prove `ProviderCompatibilityFactory` is confined to the facet definition and the
+   method-style compatibility construction entry point.

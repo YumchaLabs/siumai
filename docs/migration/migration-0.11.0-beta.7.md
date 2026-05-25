@@ -180,6 +180,12 @@ migration adapters only. Custom `ProviderFactory` implementations should constru
 models directly in the `*_family_with_ctx(...)` methods instead of reusing a generic `LlmClient`
 wrapper and downcasting capabilities.
 
+Do not delete `ProviderCompatibilityFactory` in downstream forks until the method-style
+`SiumaiBuilder::build()` path has a family-native replacement or is removed in a breaking release,
+extension defaults no longer need generic-client adapters, and source guards prove stable handles
+remain family-native. Until then, treat `compat_*_client_with_ctx(...)` as compatibility glue rather
+than a recommended factory shape.
+
 `ClientWrapper` is now provider-agnostic in `siumai-core`. Provider-named convenience constructors
 such as `ClientWrapper::openai(...)` were removed; import
 `siumai::compat::client::ClientWrapper` and use `ClientWrapper::new(...)` instead.

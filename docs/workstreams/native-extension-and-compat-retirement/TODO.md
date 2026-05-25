@@ -53,7 +53,7 @@ Status legend:
 
 ## M3 — Method-Style / Generic-Client Retirement Plan
 
-- [~] NECR-040 [owner=codex] [deps=NECR-020] [scope=siumai-registry/src,siumai-core/src,docs/adr,docs/architecture,docs/migration,tests]
+- [x] NECR-040 [owner=codex] [deps=NECR-020] [scope=siumai-registry/src,siumai-core/src,docs/adr,docs/architecture,docs/migration,tests]
   Goal: Turn method-style and generic-client retirement from prose into source-enforced criteria and
   a deletion plan.
   Validation:
@@ -61,12 +61,12 @@ Status legend:
   - docs identify exact preconditions for deleting `ProviderCompatibilityFactory` and core aliases.
   Review: ADR-0007 compliance review.
   Evidence: guard test and doc updates.
-  Handoff: IN_PROGRESS. Next step is to turn the remaining method-style/generic-client retirement
-  criteria into source-enforced guardrails and documentation.
+  Handoff: DONE. `ProviderCompatibilityFactory` is now guarded as method-style-only production
+  infrastructure, and ADR-0007 plus public migration docs define deletion gates.
 
 ## M4 — ADR-0008 Root ContentPart Move Preparation
 
-- [ ] NECR-050 [owner=codex] [deps=NECR-020] [scope=siumai-spec,siumai-core,siumai,docs/adr,tests]
+- [~] NECR-050 [owner=codex] [deps=NECR-020] [scope=siumai-spec,siumai-core,siumai,docs/adr,tests]
   Goal: Add executable parity gates or a safe preparatory namespace slice for the low-level
   `ContentPart` root move without breaking serde-facing payload compatibility.
   Validation:
@@ -74,7 +74,8 @@ Status legend:
   - public import tests for any namespace movement.
   Review: ADR-0008 compliance review.
   Evidence: parity gate or decision note.
-  Handoff: TODO.
+  Handoff: IN_PROGRESS. Add executable parity gates before attempting any low-level root
+  `ContentPart` namespace move.
 
 ## M5 — Closeout
 

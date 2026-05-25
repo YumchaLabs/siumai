@@ -1009,6 +1009,85 @@ fn registry_generic_client_imports_are_compat_scoped() {
 }
 
 #[test]
+fn provider_compatibility_factory_is_method_style_only() {
+    let root = crate_root();
+    let src = root.join("src");
+    let mut rust_files = Vec::new();
+    collect_rust_files(&src, &mut rust_files);
+
+    let allowed_production_files = ["src/registry/entry/factory.rs", "src/provider/build.rs"];
+    let mut violations = Vec::new();
+    for file in rust_files {
+        let relative = file
+            .strip_prefix(&root)
+            .expect("registry source under crate root")
+            .to_string_lossy()
+            .replace('\\', "/");
+        if relative.ends_with("_tests.rs") || relative.ends_with("contract_tests.rs") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&file).expect("read registry source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or(source.as_str());
+
+        for marker in [
+            "ProviderCompatibilityFactory",
+            "compatibility_facet_from_provider_factory",
+        ] {
+            if production_source.contains(marker)
+                && !allowed_production_files.contains(&relative.as_str())
+            {
+                violations.push(format!("{relative}: `{marker}`"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ProviderCompatibilityFactory should be confined to the registry facet definition and historical SiumaiBuilder method-style compatibility construction:\n{}",
+        violations.join("\n")
+    );
+
+    let builder_source = fs::read_to_string(root.join("src").join("provider").join("build.rs"))
+        .expect("read provider build source");
+    let builder_production = builder_source
+        .split("\n#[cfg(test)]")
+        .next()
+        .expect("production provider build source");
+    assert!(
+        builder_production.contains("build_default_client_with_capabilities")
+            && builder_production.contains("Arc<dyn LlmClient>")
+            && builder_production.contains("compatibility_facet_from_provider_factory(factory)"),
+        "SiumaiBuilder should be the only production consumer that adapts ProviderFactory into ProviderCompatibilityFactory for a generic LlmClient"
+    );
+
+    let adr = fs::read_to_string(root.join("../docs/adr/0007-llmclient-demotion-policy.md"))
+        .expect("read ADR-0007");
+    let migration_doc =
+        fs::read_to_string(root.join("../docs/migration/migration-0.11.0-beta.7.md"))
+            .expect("read beta.7 migration guide");
+    let public_surface_doc =
+        fs::read_to_string(root.join("../docs/architecture/public-surface.md"))
+            .expect("read public surface doc");
+    for (name, source) in [
+        ("ADR-0007", adr.as_str()),
+        ("migration-0.11.0-beta.7.md", migration_doc.as_str()),
+        ("public-surface.md", public_surface_doc.as_str()),
+    ] {
+        assert!(
+            source.contains("delete `ProviderCompatibilityFactory`")
+                && source.contains("method-style")
+                && source.contains("extension")
+                && source.contains("family-native"),
+            "{name} should state deletion gates for the generic-client compatibility factory"
+        );
+    }
+}
+
+#[test]
 fn registry_family_handles_keep_llm_client_downcasts_isolated() {
     let handles_dir = crate_root()
         .join("src")
