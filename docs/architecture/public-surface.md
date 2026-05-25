@@ -126,6 +126,11 @@ Provider package helper constructors that return `SiumaiBuilder` bind to the reg
 type directly; provider extension helpers should not route through the historical
 `siumai::provider::*` shim or the removed root `siumai::Provider` alias.
 
+`SiumaiBuilder` is provider/configuration selection only. It must not expose caller-authored
+capability flags such as `with_capability()`, `with_audio()`, `with_embedding()`, or
+`with_image_generation()`: capabilities are provider-owned facts surfaced through registry metadata,
+stable family handles, or explicit extension modules.
+
 OpenAI-compatible provider extension modules may expose lower-level `*Client` / `*Config` compat
 aliases when those names help migration from package-specific imports. Those aliases are not the
 recommended stable construction path; the same module should also expose the package-level

@@ -63,6 +63,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   Transcription, and Video are stable families; Music remains extension-only unless a future ADR
   promotes it.
 
+### Removed
+
+- Removed the no-op `SiumaiBuilder` capability flag surface: `with_capability()`, `with_audio()`,
+  `with_embedding()`, `with_image_generation()`, and the internal write-only capability string
+  storage. Provider capabilities are now exposed only as provider/factory metadata or explicit
+  family/extension handles.
+
 ### Migration Notes
 
 - New code should prefer `siumai-provider-utils` for provider/protocol helper imports instead of
@@ -72,6 +79,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   such as `siumai::compat::content::ContentPart` or `siumai::content::compat::ContentPart`.
 - Prefer registry family handles and family-first factory methods for stable model execution. Keep
   generic `LlmClient` construction for compatibility or extension-only integration paths.
+- Replace old `SiumaiBuilder::with_*` capability flags with explicit construction paths:
+  provider-specific builder helpers for provider selection, registry family handles for stable
+  model families, and `siumai::extensions::*` / provider extension modules for non-unified
+  capabilities. The removed flags were write-only and did not affect `build()`.
 
 ## [0.11.0-beta.8] - 2026-05-18
 

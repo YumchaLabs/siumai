@@ -298,7 +298,6 @@ pub struct SiumaiBuilder {
     pub(crate) provider_id: Option<String>,
     pub(crate) api_key: Option<String>,
     pub(crate) base_url: Option<String>,
-    pub(crate) capabilities: Vec<String>,
     pub(crate) common_params: CommonParams,
     pub(crate) http_config: HttpConfig,
     pub(crate) organization: Option<String>,
@@ -337,7 +336,6 @@ impl SiumaiBuilder {
             provider_id: None,
             api_key: None,
             base_url: None,
-            capabilities: Vec::new(),
             common_params: CommonParams::default(),
             http_config: crate::defaults::http::config_default(),
             organization: None,
@@ -457,12 +455,6 @@ impl SiumaiBuilder {
     /// Set location/region (for Google Vertex family providers such as Vertex MaaS).
     pub fn location<S: Into<String>>(mut self, location: S) -> Self {
         self.location = Some(location.into());
-        self
-    }
-
-    /// Enable a specific capability
-    pub fn with_capability<S: Into<String>>(mut self, capability: S) -> Self {
-        self.capabilities.push(capability.into());
         self
     }
 
@@ -825,21 +817,6 @@ impl SiumaiBuilder {
         transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
     ) -> Self {
         self.with_http_transport(transport)
-    }
-
-    /// Enable audio capability
-    pub fn with_audio(self) -> Self {
-        self.with_capability("audio")
-    }
-
-    /// Enable embedding capability
-    pub fn with_embedding(self) -> Self {
-        self.with_capability("embedding")
-    }
-
-    /// Enable image generation capability
-    pub fn with_image_generation(self) -> Self {
-        self.with_capability("image_generation")
     }
 
     // === HTTP configuration (fine-grained) ===
@@ -1243,7 +1220,6 @@ impl std::fmt::Debug for SiumaiBuilder {
             .field("max_tokens", &self.common_params.max_tokens)
             .field("top_p", &self.common_params.top_p)
             .field("seed", &self.common_params.seed)
-            .field("capabilities_count", &self.capabilities.len())
             .field("reasoning_enabled", &self.reasoning_enabled)
             .field("reasoning_budget", &self.reasoning_budget)
             .field("has_tracing", &self.tracing_config.is_some())
