@@ -52,7 +52,10 @@ Exit criteria:
 - Mistral's dedicated AI SDK package surface is audited against the current Siumai preset/facade. PMX-050 keeps
   Mistral on the OpenAI-compatible runtime and fixes bounded request-body drift for `top_k` stripping,
   `stopSequences` preservation as `stop`, and the current AI SDK `reasoningEffort` support list.
-- Azure, Bedrock, and Google Vertex have either no high-value polish gaps or focused fixes/docs for discovered gaps.
+- Azure, Bedrock, and Google Vertex have either no high-value polish gaps or focused fixes/docs for discovered
+  gaps. PMX-060 records Azure and Google Vertex as sufficiently covered by existing no-network provider/facade
+  gates, adds the Bedrock `amazon_bedrock()` package-surface alias, and splits Bedrock Anthropic/Mantle as
+  follow-ons instead of widening this polish task.
 
 Gate:
 

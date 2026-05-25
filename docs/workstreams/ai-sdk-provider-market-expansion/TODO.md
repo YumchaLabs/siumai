@@ -49,12 +49,16 @@ Last updated: 2026-05-25
   `mistral-medium-3.5`). Do not open a native Mistral provider lane unless future upstream behavior exceeds the
   shared compat runtime.
 
-- [ ] PMX-060 [owner=unassigned] [deps=PMX-010] [scope=siumai-provider-azure,siumai-provider-amazon-bedrock,siumai-provider-google-vertex,docs]
+- [x] PMX-060 [owner=codex] [deps=PMX-010] [scope=siumai-provider-azure,siumai-provider-amazon-bedrock,siumai-provider-google-vertex,docs]
   Goal: Audit high-download enterprise providers for docs/test/API polish gaps that block real usage.
   Validation: focused no-network tests or docs updates for discovered Azure, Bedrock, and Vertex gaps.
   Review: review-workstream if code changes land.
   Evidence: `docs/workstreams/ai-sdk-provider-market-expansion/ENTERPRISE_POLISH_AUDIT.md`
-  Handoff: Keep auth-heavy live tests optional unless a no-network equivalent cannot prove the contract.
+  Handoff: DONE. Azure and Google Vertex already have strong provider-owned surfaces and no-network fixture
+  coverage. PMX-060 added the bounded Bedrock package-surface alias `amazon_bedrock()` across facade,
+  compat `Provider`, and `SiumaiBuilder`, matching AI SDK's canonical `amazonBedrock` export while keeping
+  existing `bedrock()` routes stable. Bedrock Anthropic and Bedrock Mantle remain follow-ons because they are
+  sub-provider implementations, not small polish fixes.
 
 ## M4 — Audio And Media Provider Decision
 

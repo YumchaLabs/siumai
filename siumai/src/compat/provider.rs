@@ -87,6 +87,12 @@ impl Provider {
         )
     }
 
+    /// Create an Amazon Bedrock client builder.
+    #[cfg(feature = "bedrock")]
+    pub fn amazon_bedrock() -> siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder {
+        Self::bedrock()
+    }
+
     /// Create a Vercel AI Gateway client builder
     #[cfg(feature = "gateway")]
     pub fn gateway() -> siumai_provider_gateway::providers::gateway::GatewayBuilder {

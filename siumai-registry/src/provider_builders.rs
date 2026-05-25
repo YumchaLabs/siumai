@@ -161,6 +161,12 @@ impl SiumaiBuilder {
         self.provider_id(ids::BEDROCK)
     }
 
+    /// Create an Amazon Bedrock provider (AI SDK package-aligned alias).
+    #[cfg(feature = "bedrock")]
+    pub fn amazon_bedrock(self) -> Self {
+        self.bedrock()
+    }
+
     /// Create a Vercel AI Gateway provider (convenience method)
     #[cfg(feature = "gateway")]
     pub fn gateway(self) -> Self {
@@ -231,6 +237,13 @@ mod tests {
     #[cfg(feature = "bedrock")]
     fn bedrock_builder_method_sets_provider_id() {
         let builder = SiumaiBuilder::new().bedrock();
+        assert_eq!(builder.provider_id, Some(ids::BEDROCK.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "bedrock")]
+    fn amazon_bedrock_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().amazon_bedrock();
         assert_eq!(builder.provider_id, Some(ids::BEDROCK.to_string()));
     }
 

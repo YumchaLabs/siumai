@@ -7,11 +7,18 @@ pub fn bedrock() -> BedrockBuilder {
     crate::compat::Provider::bedrock()
 }
 
+/// Create the Amazon Bedrock provider builder.
+///
+/// This is the Rust package-surface analogue of AI SDK `amazonBedrock`.
+pub fn amazon_bedrock() -> BedrockBuilder {
+    bedrock()
+}
+
 /// Create the Bedrock provider builder.
 ///
 /// This is the Rust package-surface analogue of AI SDK `createAmazonBedrock()`.
 pub fn create_amazon_bedrock() -> BedrockBuilder {
-    bedrock()
+    amazon_bedrock()
 }
 
 /// Anthropic provider tool factories re-exported on the Bedrock surface like AI SDK.

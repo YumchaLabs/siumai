@@ -3269,8 +3269,8 @@ fn public_surface_bedrock_provider_ext_compiles() {
     use siumai::provider_ext::bedrock::{
         AmazonBedrockProviderSettings, BedrockBuilder, BedrockClient, BedrockConfig,
         BedrockEmbeddingRequestExt, BedrockMessageExt, BedrockRequestContentPartExt, VERSION,
-        assistant_message_with_reasoning_metadata, bedrock as bedrock_builder,
-        create_amazon_bedrock, metadata::*, options::*,
+        amazon_bedrock as amazon_bedrock_builder, assistant_message_with_reasoning_metadata,
+        bedrock as bedrock_builder, create_amazon_bedrock, metadata::*, options::*,
     };
 
     let _ = size_of::<AmazonBedrockProviderSettings>();
@@ -3306,6 +3306,7 @@ fn public_surface_bedrock_provider_ext_compiles() {
     let _ = BedrockClient::http_transport;
     let _ = BedrockClient::set_retry_options;
     let _ = bedrock_builder();
+    let _ = amazon_bedrock_builder();
     let _ = create_amazon_bedrock();
     let _ = VERSION;
     let _ = AmazonBedrockProviderSettings::new();
@@ -3369,6 +3370,8 @@ fn public_surface_bedrock_provider_ext_compiles() {
     let _ = siumai::compat::Provider::bedrock().text_embedding("amazon.titan-embed-text-v2:0");
     let _ =
         siumai::compat::Provider::bedrock().text_embedding_model("amazon.titan-embed-text-v2:0");
+    let _ = siumai::compat::Provider::amazon_bedrock().model("amazon.nova-lite-v1:0");
+    let _ = siumai::compat::Siumai::builder().amazon_bedrock();
     #[cfg(feature = "anthropic")]
     {
         let _ = siumai::provider_ext::bedrock::tools::web_search_20260209();

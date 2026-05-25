@@ -40,7 +40,11 @@
     "repo-ref/ai/packages/gateway",
     "repo-ref/ai/packages/cerebras",
     "repo-ref/ai/packages/mistral",
-    "docs/workstreams/ai-sdk-provider-market-expansion/MISTRAL_AUDIT.md"
+    "repo-ref/ai/packages/azure",
+    "repo-ref/ai/packages/amazon-bedrock",
+    "repo-ref/ai/packages/google-vertex",
+    "docs/workstreams/ai-sdk-provider-market-expansion/MISTRAL_AUDIT.md",
+    "docs/workstreams/ai-sdk-provider-market-expansion/ENTERPRISE_POLISH_AUDIT.md"
   ],
   "adr_refs": [
     "docs/adr/0001-vercel-aligned-modular-split.md",
@@ -48,10 +52,12 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "PMX-060",
-  "next_task": "Audit high-download enterprise providers for docs/test/API polish gaps that block real usage.",
+  "current_task": "PMX-070",
+  "next_task": "Decide whether audio/media packages should enter Siumai's near-term provider roadmap.",
   "follow_on": [
     "vercel-gateway-media-admin-and-tools",
+    "bedrock-anthropic-subprovider",
+    "bedrock-mantle-subprovider",
     "audio-media-provider-expansion"
   ],
   "continue_policy": {
