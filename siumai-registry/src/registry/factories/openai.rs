@@ -4,6 +4,7 @@ use super::*;
 use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::text::LanguageModel as FamilyLanguageModel;
+use crate::traits::{FileManagementCapability, SkillsCapability};
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
@@ -141,6 +142,25 @@ impl ProviderFactory for OpenAIProviderFactory {
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
         let client: Arc<dyn FamilyLanguageModel> =
             self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
+    }
+
+    async fn file_management_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FileManagementCapability>, LlmError> {
+        let client: Arc<dyn FileManagementCapability> =
+            self.build_family_model_arc(model_id, ctx).await?;
+        Ok(client)
+    }
+
+    async fn skills_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn SkillsCapability>, LlmError> {
+        let client: Arc<dyn SkillsCapability> = self.build_family_model_arc(model_id, ctx).await?;
         Ok(client)
     }
 

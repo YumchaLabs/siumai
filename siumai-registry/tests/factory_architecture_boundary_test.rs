@@ -339,6 +339,119 @@ fn hybrid_provider_image_extras_use_native_extension_clients() {
 }
 
 #[test]
+fn provider_native_extension_hooks_bypass_generic_client_adapters() {
+    struct Case<'a> {
+        file_name: &'a str,
+        method_name: &'a str,
+        trait_name: &'a str,
+        helper_call: &'a str,
+        forbidden_adapter: &'a str,
+        forbidden_downcast: &'a str,
+    }
+
+    let cases = [
+        Case {
+            file_name: "azure.rs",
+            method_name: "file_management_capability_with_ctx",
+            trait_name: "FileManagementCapability",
+            helper_call: "build_family_model_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedFileManagementCapability",
+            forbidden_downcast: ".as_file_management_capability()",
+        },
+        Case {
+            file_name: "openai.rs",
+            method_name: "file_management_capability_with_ctx",
+            trait_name: "FileManagementCapability",
+            helper_call: "build_family_model_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedFileManagementCapability",
+            forbidden_downcast: ".as_file_management_capability()",
+        },
+        Case {
+            file_name: "openai.rs",
+            method_name: "skills_capability_with_ctx",
+            trait_name: "SkillsCapability",
+            helper_call: "build_family_model_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedSkillsCapability",
+            forbidden_downcast: ".as_skills_capability()",
+        },
+        Case {
+            file_name: "anthropic.rs",
+            method_name: "file_management_capability_with_ctx",
+            trait_name: "FileManagementCapability",
+            helper_call: "build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedFileManagementCapability",
+            forbidden_downcast: ".as_file_management_capability()",
+        },
+        Case {
+            file_name: "anthropic.rs",
+            method_name: "skills_capability_with_ctx",
+            trait_name: "SkillsCapability",
+            helper_call: "build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedSkillsCapability",
+            forbidden_downcast: ".as_skills_capability()",
+        },
+        Case {
+            file_name: "gemini.rs",
+            method_name: "file_management_capability_with_ctx",
+            trait_name: "FileManagementCapability",
+            helper_call: "build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedFileManagementCapability",
+            forbidden_downcast: ".as_file_management_capability()",
+        },
+        Case {
+            file_name: "xai.rs",
+            method_name: "file_management_capability_with_ctx",
+            trait_name: "FileManagementCapability",
+            helper_call: "build_text_family_model_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedFileManagementCapability",
+            forbidden_downcast: ".as_file_management_capability()",
+        },
+        Case {
+            file_name: "minimaxi.rs",
+            method_name: "file_management_capability_with_ctx",
+            trait_name: "FileManagementCapability",
+            helper_call: "build_typed_client_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedFileManagementCapability",
+            forbidden_downcast: ".as_file_management_capability()",
+        },
+        Case {
+            file_name: "minimaxi.rs",
+            method_name: "music_generation_capability_with_ctx",
+            trait_name: "MusicGenerationCapability",
+            helper_call: "build_typed_client_arc(model_id, ctx).await?",
+            forbidden_adapter: "ClientBackedMusicGenerationCapability",
+            forbidden_downcast: ".as_music_generation_capability()",
+        },
+    ];
+
+    for case in cases {
+        let source = read_factory_source(case.file_name);
+        let method = async_method_source(&source, case.file_name, case.method_name);
+        let trait_projection = format!("let client: Arc<dyn {}> =", case.trait_name);
+        assert!(
+            method.contains(&trait_projection) && method.contains(case.helper_call),
+            "{}::{} should return the provider-native typed client as Arc<dyn {}>",
+            case.file_name,
+            case.method_name,
+            case.trait_name
+        );
+
+        for forbidden in [
+            "compat_language_client_with_ctx(",
+            case.forbidden_adapter,
+            case.forbidden_downcast,
+        ] {
+            assert!(
+                !method.contains(forbidden),
+                "{}::{} should not fall back through generic-client adapter glue `{forbidden}`",
+                case.file_name,
+                case.method_name
+            );
+        }
+    }
+}
+
+#[test]
 fn openai_compatible_factory_centralizes_checked_family_projection_glue() {
     let source = read_factory_source("openai_compatible.rs");
 

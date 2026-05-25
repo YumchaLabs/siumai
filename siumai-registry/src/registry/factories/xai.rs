@@ -4,6 +4,7 @@ use super::*;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
+use crate::traits::FileManagementCapability;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 use siumai_core::video::VideoModel as FamilyVideoModel;
@@ -116,6 +117,16 @@ impl ProviderFactory for XAIProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
         let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
+    }
+
+    async fn file_management_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FileManagementCapability>, LlmError> {
+        let client: Arc<dyn FileManagementCapability> =
+            self.build_text_family_model_arc(model_id, ctx).await?;
         Ok(client)
     }
 

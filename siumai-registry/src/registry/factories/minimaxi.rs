@@ -4,6 +4,7 @@ use super::*;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
+use crate::traits::{FileManagementCapability, MusicGenerationCapability};
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::video::VideoModel as FamilyVideoModel;
 use siumai_provider_minimaxi::providers::minimaxi::client::MinimaxiClient;
@@ -116,6 +117,26 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
         let client = self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
+    }
+
+    async fn file_management_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FileManagementCapability>, LlmError> {
+        let client: Arc<dyn FileManagementCapability> =
+            self.build_typed_client_arc(model_id, ctx).await?;
+        Ok(client)
+    }
+
+    async fn music_generation_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn MusicGenerationCapability>, LlmError> {
+        let client: Arc<dyn MusicGenerationCapability> =
+            self.build_typed_client_arc(model_id, ctx).await?;
         Ok(client)
     }
 

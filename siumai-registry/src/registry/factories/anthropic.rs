@@ -3,6 +3,7 @@
 use super::*;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
+use crate::traits::{FileManagementCapability, SkillsCapability};
 use siumai_provider_anthropic::providers::anthropic::AnthropicClient;
 
 /// Anthropic provider factory
@@ -120,6 +121,26 @@ impl ProviderFactory for AnthropicProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
         let client = self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
+    }
+
+    async fn file_management_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FileManagementCapability>, LlmError> {
+        let client: Arc<dyn FileManagementCapability> =
+            self.build_text_family_model_arc(model_id, ctx).await?;
+        Ok(client)
+    }
+
+    async fn skills_capability_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn SkillsCapability>, LlmError> {
+        let client: Arc<dyn SkillsCapability> =
+            self.build_text_family_model_arc(model_id, ctx).await?;
         Ok(client)
     }
 
