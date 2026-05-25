@@ -153,6 +153,7 @@ pub enum ProviderType {
     Mistral,
     Fireworks,
     Perplexity,
+    Gateway,
     XAI,
     Groq,
     MiniMaxi,
@@ -179,6 +180,7 @@ impl std::fmt::Display for ProviderType {
             Self::Mistral => write!(f, "mistral"),
             Self::Fireworks => write!(f, "fireworks"),
             Self::Perplexity => write!(f, "perplexity"),
+            Self::Gateway => write!(f, "gateway"),
             Self::XAI => write!(f, "xai"),
             Self::Groq => write!(f, "groq"),
             Self::MiniMaxi => write!(f, "minimaxi"),
@@ -209,6 +211,7 @@ impl ProviderType {
             "mistral" => Self::Mistral,
             "fireworks" => Self::Fireworks,
             "perplexity" => Self::Perplexity,
+            "gateway" => Self::Gateway,
             "xai" => Self::XAI,
             "groq" => Self::Groq,
             "minimaxi" => Self::MiniMaxi,
@@ -496,6 +499,12 @@ mod tests {
     fn provider_type_maps_bedrock_name() {
         assert_eq!(ProviderType::from_name("bedrock"), ProviderType::Bedrock);
         assert_eq!(ProviderType::Bedrock.to_string(), "bedrock");
+    }
+
+    #[test]
+    fn provider_type_maps_gateway_name() {
+        assert_eq!(ProviderType::from_name("gateway"), ProviderType::Gateway);
+        assert_eq!(ProviderType::Gateway.to_string(), "gateway");
     }
 
     #[test]

@@ -26,6 +26,7 @@
     feature = "openai",
     feature = "anthropic",
     feature = "bedrock",
+    feature = "gateway",
     feature = "cohere",
     feature = "google",
     feature = "ollama",
@@ -84,6 +85,12 @@ impl Provider {
         siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
             BuilderBase::default(),
         )
+    }
+
+    /// Create a Vercel AI Gateway client builder
+    #[cfg(feature = "gateway")]
+    pub fn gateway() -> siumai_provider_gateway::providers::gateway::GatewayBuilder {
+        siumai_provider_gateway::providers::gateway::GatewayBuilder::new(BuilderBase::default())
     }
 
     /// Create a Cohere client builder

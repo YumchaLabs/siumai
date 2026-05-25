@@ -37,6 +37,8 @@ pub(crate) const TOGETHERAI: &str = "togetherai";
 
 // Native Amazon Bedrock provider id.
 pub(crate) const BEDROCK: &str = "bedrock";
+// Native Vercel AI Gateway provider id.
+pub(crate) const GATEWAY: &str = "gateway";
 
 /// Alias id for registry convenience (canonical id is `vertex`).
 pub(crate) const GOOGLE_VERTEX_ALIAS: &str = "google-vertex";
@@ -69,6 +71,7 @@ pub(crate) enum BuiltinProviderId {
     Cohere,
     TogetherAi,
     Bedrock,
+    Gateway,
 }
 
 impl BuiltinProviderId {
@@ -95,6 +98,7 @@ impl BuiltinProviderId {
             COHERE => Some(Self::Cohere),
             TOGETHERAI => Some(Self::TogetherAi),
             BEDROCK => Some(Self::Bedrock),
+            GATEWAY => Some(Self::Gateway),
             _ => None,
         }
     }

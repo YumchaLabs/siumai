@@ -485,6 +485,13 @@ mod builtins {
         }
 
         #[test]
+        #[cfg(feature = "gateway")]
+        fn test_registry_registers_gateway() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            assert!(registry.resolve(crate::provider::ids::GATEWAY).is_some());
+        }
+
+        #[test]
         #[cfg(feature = "cohere")]
         fn test_registry_registers_cohere() {
             let registry = ProviderRegistry::with_builtin_providers();

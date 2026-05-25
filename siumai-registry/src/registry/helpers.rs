@@ -386,6 +386,17 @@ pub fn builtin_provider_factory(provider_id: &str) -> Result<Arc<dyn ProviderFac
                 Err(unsupported_provider_feature("Amazon Bedrock", "bedrock"))
             }
         }
+        Some(ids::BuiltinProviderId::Gateway) => {
+            #[cfg(feature = "gateway")]
+            {
+                Ok(Arc::new(crate::registry::factories::GatewayProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "gateway"))]
+            {
+                Err(unsupported_provider_feature("Vercel AI Gateway", "gateway"))
+            }
+        }
         Some(ids::BuiltinProviderId::Azure | ids::BuiltinProviderId::AzureChat) => {
             #[cfg(feature = "azure")]
             {
@@ -542,6 +553,12 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     {
         insert_builtin_provider_factory(&mut providers, ids::BEDROCK)
             .expect("Bedrock factory should be available when the bedrock feature is enabled");
+    }
+
+    #[cfg(feature = "gateway")]
+    {
+        insert_builtin_provider_factory(&mut providers, ids::GATEWAY)
+            .expect("Gateway factory should be available when the gateway feature is enabled");
     }
 
     // Provider-specific factories built on top of the OpenAI-compatible runtime.

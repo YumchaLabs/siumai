@@ -2898,6 +2898,7 @@ dependencies = [
  "siumai-provider-azure",
  "siumai-provider-cohere",
  "siumai-provider-deepseek",
+ "siumai-provider-gateway",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
  "siumai-provider-groq",
@@ -3272,6 +3273,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "siumai-provider-gateway"
+version = "0.11.0-beta.8"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "base64",
+ "chrono",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "reqwest 0.13.3",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "siumai-provider-utils",
+ "tokio",
+ "tokio-test",
+]
+
+[[package]]
 name = "siumai-provider-gemini"
 version = "0.11.0-beta.8"
 dependencies = [
@@ -3605,6 +3627,7 @@ dependencies = [
  "siumai-provider-azure",
  "siumai-provider-cohere",
  "siumai-provider-deepseek",
+ "siumai-provider-gateway",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
  "siumai-provider-groq",

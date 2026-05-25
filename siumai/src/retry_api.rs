@@ -38,7 +38,7 @@ pub fn backoff_executor_for_provider(provider: &ProviderType) -> BackoffRetryExe
         | ProviderType::VertexMaas
         | ProviderType::GoogleVertexXai => google_backoff(),
         ProviderType::Ollama => ollama_backoff(),
-        ProviderType::Bedrock | ProviderType::Custom(_) => {
+        ProviderType::Bedrock | ProviderType::Gateway | ProviderType::Custom(_) => {
             return BackoffRetryExecutor::new();
         }
     };

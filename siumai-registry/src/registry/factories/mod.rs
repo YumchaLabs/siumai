@@ -17,7 +17,8 @@
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 use std::sync::Arc;
 
@@ -36,7 +37,8 @@ use std::sync::Arc;
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 use crate::compat::client::LlmClient;
 #[cfg(any(
@@ -54,7 +56,8 @@ use crate::compat::client::LlmClient;
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 use crate::error::LlmError;
 
@@ -76,7 +79,8 @@ use crate::execution::http::client::build_http_client_from_config;
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 use crate::registry::entry::ProviderFactory;
 #[cfg(any(
@@ -94,7 +98,8 @@ use crate::registry::entry::ProviderFactory;
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 use crate::traits::ProviderCapabilities;
 
@@ -112,7 +117,8 @@ use crate::traits::ProviderCapabilities;
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 use crate::registry::entry::BuildContext;
 
@@ -134,6 +140,8 @@ mod deepinfra;
 mod deepseek;
 #[cfg(feature = "openai")]
 mod fireworks;
+#[cfg(feature = "gateway")]
+mod gateway;
 #[cfg(feature = "google")]
 mod gemini;
 #[cfg(feature = "google-vertex")]
@@ -175,6 +183,8 @@ pub use deepinfra::DeepInfraProviderFactory;
 pub use deepseek::DeepSeekProviderFactory;
 #[cfg(feature = "openai")]
 pub use fireworks::FireworksProviderFactory;
+#[cfg(feature = "gateway")]
+pub use gateway::GatewayProviderFactory;
 #[cfg(feature = "google")]
 pub use gemini::GeminiProviderFactory;
 #[cfg(feature = "google-vertex")]

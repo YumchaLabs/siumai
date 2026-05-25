@@ -217,6 +217,7 @@ async fn test_provider_id_mapping() {
         ("cohere", ProviderType::Cohere),
         ("togetherai", ProviderType::TogetherAi),
         ("bedrock", ProviderType::Bedrock),
+        ("gateway", ProviderType::Gateway),
         ("minimaxi", ProviderType::MiniMaxi),
         ("openrouter", ProviderType::Custom("openrouter".to_string())),
     ];
@@ -493,6 +494,7 @@ fn test_provider_type_consistency() {
         ProviderType::Fireworks,
         ProviderType::Perplexity,
         ProviderType::Bedrock,
+        ProviderType::Gateway,
         ProviderType::MiniMaxi,
         ProviderType::Custom("openrouter".to_string()),
     ];
@@ -536,6 +538,7 @@ fn test_provider_type_consistency() {
         ProviderType::from_name("perplexity"),
         ProviderType::Perplexity
     );
+    assert_eq!(ProviderType::from_name("gateway"), ProviderType::Gateway);
     assert_eq!(
         ProviderType::from_name("togetherai"),
         ProviderType::TogetherAi

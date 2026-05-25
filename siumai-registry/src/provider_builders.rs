@@ -161,6 +161,12 @@ impl SiumaiBuilder {
         self.provider_id(ids::BEDROCK)
     }
 
+    /// Create a Vercel AI Gateway provider (convenience method)
+    #[cfg(feature = "gateway")]
+    pub fn gateway(self) -> Self {
+        self.provider_id(ids::GATEWAY)
+    }
+
     /// Create an Ollama provider (convenience method)
     #[cfg(feature = "ollama")]
     pub fn ollama(self) -> Self {
@@ -200,6 +206,7 @@ mod tests {
         feature = "togetherai",
         feature = "deepinfra",
         feature = "bedrock",
+        feature = "gateway",
         feature = "deepseek",
         feature = "google-vertex"
     ))]
@@ -224,6 +231,13 @@ mod tests {
     fn bedrock_builder_method_sets_provider_id() {
         let builder = SiumaiBuilder::new().bedrock();
         assert_eq!(builder.provider_id, Some(ids::BEDROCK.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "gateway")]
+    fn gateway_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().gateway();
+        assert_eq!(builder.provider_id, Some(ids::GATEWAY.to_string()));
     }
 
     #[test]

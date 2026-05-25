@@ -38,6 +38,7 @@ siumai-provider-minimaxi = { version = "0.11.0-beta.8", path = "../siumai-provid
 siumai-provider-cohere = { version = "0.11.0-beta.8", path = "../siumai-provider-cohere", default-features = false, optional = true }
 siumai-provider-togetherai = { version = "0.11.0-beta.8", path = "../siumai-provider-togetherai", default-features = false, optional = true }
 siumai-provider-amazon-bedrock = { version = "0.11.0-beta.8", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
+siumai-provider-gateway = { version = "0.11.0-beta.8", path = "../siumai-provider-gateway", default-features = false, optional = true }
 
 async-trait.workspace = true
 serde.workspace = true
@@ -82,6 +83,7 @@ structured-messages = [
     "siumai-provider-cohere?/structured-messages",
     "siumai-provider-togetherai?/structured-messages",
     "siumai-provider-amazon-bedrock?/structured-messages",
+    "siumai-provider-gateway?/structured-messages",
     "builtins",
 ]
 
@@ -182,6 +184,11 @@ bedrock = [
     "dep:siumai-provider-amazon-bedrock",
     "siumai-provider-amazon-bedrock/bedrock",
 ]
+gateway = [
+    "builtins",
+    "dep:siumai-provider-gateway",
+    "siumai-provider-gateway/gateway",
+]
 
 gcp = ["builtins", "siumai-core/gcp", "google", "google-vertex", "siumai-provider-google-vertex/gcp"]
 json-repair = ["builtins", "siumai-core/json-repair", "google", "siumai-provider-gemini/json-repair"]
@@ -204,6 +211,7 @@ all-providers = [
     "cohere",
     "togetherai",
     "bedrock",
+    "gateway",
 ]
 
 [dev-dependencies]

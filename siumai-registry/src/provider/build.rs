@@ -15,7 +15,8 @@ use crate::provider::ids;
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 use crate::registry::entry::ProviderCompatibilityFactory;
 #[cfg(feature = "azure")]
@@ -35,7 +36,8 @@ use crate::registry::entry::ProviderFactory;
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 async fn build_default_client_with_capabilities(
     compatibility_factory: &std::sync::Arc<dyn ProviderCompatibilityFactory>,
@@ -95,7 +97,8 @@ async fn build_default_client_with_capabilities(
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 ))]
 pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     use crate::compat::client::LlmClient;
@@ -294,11 +297,12 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "bedrock"
+    feature = "bedrock",
+    feature = "gateway"
 )))]
 pub async fn build(_builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     Err(LlmError::UnsupportedOperation(
-        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, cohere, togetherai, bedrock, ollama, deepseek, xai, groq, minimaxi)".to_string(),
+        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, cohere, togetherai, bedrock, gateway, ollama, deepseek, xai, groq, minimaxi)".to_string(),
     ))
 }
 

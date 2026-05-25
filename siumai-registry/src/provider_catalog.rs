@@ -742,6 +742,28 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     },
                 ));
             }
+            #[cfg(feature = "gateway")]
+            CatalogProviderId::Gateway => {
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == crate::provider::ids::GATEWAY)
+                    .expect("Gateway metadata should be registered");
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url.unwrap_or(
+                                siumai_provider_gateway::providers::gateway::GatewayConfig::DEFAULT_BASE_URL,
+                            ),
+                        ),
+                        supported_models: Vec::new(),
+                    },
+                ));
+            }
             #[cfg(feature = "xai")]
             CatalogProviderId::Xai => {
                 let meta = native_metas
@@ -1843,5 +1865,23 @@ mod tests {
             info.supported_models.is_empty(),
             "expected bedrock catalog to avoid inventing model lists"
         );
+    }
+
+    #[test]
+    #[cfg(feature = "gateway")]
+    fn provider_catalog_uses_native_metadata_for_gateway() {
+        let info = super::get_provider_info_by_id("gateway").expect("gateway should exist");
+        assert_eq!(info.provider_type, super::ProviderType::Gateway);
+        assert_eq!(info.name.as_ref(), "Vercel AI Gateway");
+        assert_eq!(
+            info.default_base_url.as_ref(),
+            "https://ai-gateway.vercel.sh/v4/ai"
+        );
+        assert!(info.capabilities.chat);
+        assert!(info.capabilities.streaming);
+        assert!(info.capabilities.embedding);
+        assert!(info.capabilities.supports("tools"));
+        assert!(!info.capabilities.supports("image_generation"));
+        assert!(info.supported_models.is_empty());
     }
 }

@@ -111,6 +111,13 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
             ],
         ),
         (
+            "gateway.rs",
+            &[
+                "language_model_text_with_ctx",
+                "embedding_model_family_with_ctx",
+            ],
+        ),
+        (
             "cohere.rs",
             &[
                 "language_model_text_with_ctx",
@@ -415,6 +422,120 @@ mod vertex_maas_contract {
             crate::traits::ModelMetadata::provider_id(embedding.as_ref()),
             "vertex-maas"
         );
+    }
+}
+
+#[cfg(feature = "gateway")]
+mod gateway_contract {
+    use super::*;
+    use crate::registry::factories::GatewayProviderFactory;
+
+    #[tokio::test]
+    async fn gateway_factory_uses_ctx_config_and_posts_language_endpoint() {
+        let _lock = lock_env();
+
+        let _api_key = EnvGuard::set("AI_GATEWAY_API_KEY", "env-key");
+
+        let factory = GatewayProviderFactory;
+        let transport = CaptureTransport::default();
+        let ctx = BuildContext {
+            provider_id: Some("gateway".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://gateway.test/v4/ai/".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .compat_language_client_with_ctx("openai/gpt-5-mini", &ctx)
+            .await
+            .expect("build gateway client");
+
+        assert_eq!(client.provider_id().as_ref(), "gateway");
+        assert!(
+            client
+                .as_any()
+                .is::<siumai_provider_gateway::providers::gateway::GatewayClient>(),
+            "expected provider-owned GatewayClient"
+        );
+
+        let chat = client
+            .as_chat_capability()
+            .expect("gateway chat capability");
+        let _err = chat
+            .chat_request(make_chat_request())
+            .await
+            .expect_err("capture transport should return an auth error after sending");
+
+        let req = transport.take().expect("captured gateway request");
+        assert_eq!(req.url, "https://gateway.test/v4/ai/language-model");
+        assert_eq!(
+            header_value(&req, "authorization"),
+            Some("Bearer ctx-key".to_string())
+        );
+        assert_eq!(
+            header_value(&req, "ai-gateway-protocol-version"),
+            Some("0.0.1".to_string())
+        );
+        assert_eq!(
+            header_value(&req, "ai-gateway-auth-method"),
+            Some("api-key".to_string())
+        );
+        assert_eq!(
+            header_value(&req, "ai-language-model-id"),
+            Some("openai/gpt-5-mini".to_string())
+        );
+        assert_eq!(
+            header_value(&req, "ai-language-model-streaming"),
+            Some("false".to_string())
+        );
+        assert_eq!(req.body["prompt"][0]["role"], serde_json::json!("user"));
+    }
+
+    #[tokio::test]
+    async fn gateway_factory_exposes_language_and_embedding_families_only() {
+        let _lock = lock_env();
+
+        let factory = GatewayProviderFactory;
+        let transport = CaptureTransport::default();
+        let ctx = BuildContext {
+            provider_id: Some("gateway".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let language = factory
+            .language_model_text_with_ctx("openai/gpt-5-mini", &ctx)
+            .await
+            .expect("build gateway language model");
+        let embedding = factory
+            .embedding_model_family_with_ctx("openai/text-embedding-3-small", &ctx)
+            .await
+            .expect("build gateway embedding model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(language.as_ref()),
+            "gateway"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(embedding.as_ref()),
+            "gateway"
+        );
+
+        assert_unsupported_operation_contains(
+            factory
+                .image_model_family_with_ctx("openai/gpt-image-1", &ctx)
+                .await,
+            "native image family",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .reranking_model_family_with_ctx("cohere/rerank-v3.5", &ctx)
+                .await,
+            "native reranking family",
+        );
+        assert_capture_transport_unused(&transport);
     }
 }
 

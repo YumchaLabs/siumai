@@ -12,6 +12,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Added directional content namespaces across the public surface:
   `siumai::content::prompt`, `siumai::content::output`, and `siumai::content::compat`.
 
+- Added a native Vercel AI Gateway proof with provider-protocol language and embedding support,
+  typed Gateway provider options, registry/catalog integration, and public facade exports.
 ### Changed
 
 - Hardened the clean architecture boundaries across registry, core, provider-utils, protocol,

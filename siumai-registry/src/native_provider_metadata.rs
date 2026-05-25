@@ -442,5 +442,24 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_rerank(),
     });
 
+    // Vercel AI Gateway (AI SDK provider-protocol language + embedding proof)
+    #[cfg(feature = "gateway")]
+    out.push(NativeProviderMetadata {
+        id: "gateway",
+        name: "Vercel AI Gateway",
+        description: "Vercel AI Gateway provider-protocol language and embedding models",
+        default_base_url: Some(
+            siumai_provider_gateway::providers::gateway::GatewayConfig::DEFAULT_BASE_URL,
+        ),
+        default_model_policy: NativeProviderDefaultModelPolicy::ExplicitRequired(
+            "Vercel AI Gateway requires an explicit model id",
+        ),
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_embedding()
+            .with_streaming()
+            .with_tools(),
+    });
+
     out
 }

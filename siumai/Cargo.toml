@@ -118,6 +118,8 @@ siumai-provider-togetherai = { version = "0.11.0-beta.8", path = "../siumai-prov
 
 siumai-provider-amazon-bedrock = { version = "0.11.0-beta.8", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
 
+siumai-provider-gateway = { version = "0.11.0-beta.8", path = "../siumai-provider-gateway", default-features = false, optional = true }
+
 
 
 # Async traits
@@ -271,6 +273,8 @@ structured-messages = [
     "siumai-provider-togetherai/structured-messages",
 
     "siumai-provider-amazon-bedrock/structured-messages",
+
+    "siumai-provider-gateway/structured-messages",
 
     "siumai-protocol-openai/structured-messages",
 
@@ -461,6 +465,16 @@ bedrock = [
 
 ]
 
+gateway = [
+
+    "siumai-registry/gateway",
+
+    "dep:siumai-provider-gateway",
+
+    "siumai-provider-gateway/gateway",
+
+]
+
 
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
@@ -524,6 +538,8 @@ all-providers = [
     "togetherai",
 
     "bedrock",
+
+    "gateway",
 
 ]
 

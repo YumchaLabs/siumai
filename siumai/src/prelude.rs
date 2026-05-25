@@ -232,7 +232,8 @@ pub mod unified {
             feature = "deepinfra",
             feature = "cohere",
             feature = "togetherai",
-            feature = "bedrock"
+            feature = "bedrock",
+            feature = "gateway"
         ))]
         pub use crate::registry::{
             builtin_provider_factory, create_registry_with_defaults, global,

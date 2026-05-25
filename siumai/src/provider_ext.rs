@@ -32,6 +32,9 @@ pub mod google_vertex_xai;
 #[cfg(feature = "bedrock")]
 pub mod bedrock;
 
+#[cfg(feature = "gateway")]
+pub mod gateway;
+
 #[cfg(feature = "cohere")]
 pub mod cohere;
 

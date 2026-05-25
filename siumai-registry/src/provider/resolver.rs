@@ -48,7 +48,7 @@ pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
         ids::AZURE | ids::AZURE_CHAT => false,
         ids::ANTHROPIC | ids::ANTHROPIC_VERTEX => false,
         ids::GEMINI | ids::VERTEX => false,
-        ids::OLLAMA | ids::FIREWORKS | ids::XAI | ids::GROQ | ids::MINIMAXI => false,
+        ids::OLLAMA | ids::FIREWORKS | ids::GATEWAY | ids::XAI | ids::GROQ | ids::MINIMAXI => false,
         // Anything else is treated as OpenAI-compatible (custom providers).
         _ => true,
     }
@@ -67,6 +67,7 @@ pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
     feature = "cohere",
     feature = "togetherai",
     feature = "bedrock",
+    feature = "gateway",
     feature = "deepinfra",
     feature = "ollama",
     feature = "deepseek",
