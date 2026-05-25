@@ -1,6 +1,6 @@
 # Provider Native Extension Overrides — Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## M0 — Scope And Inventory
@@ -10,6 +10,8 @@ Exit criteria:
 - Workstream docs exist and agree on active task PNEO-010/PNEO-020.
 - `docs/workstreams/INDEX.md` reflects the actual workstream inventory.
 - Selected provider-native extension candidates are recorded.
+
+Result: Complete.
 
 ## M1 — Native Extension Hook Overrides
 
@@ -22,6 +24,8 @@ Exit criteria:
 - Source guards reject fallback through `compat_language_client_with_ctx(...)`,
   `as_*_capability()`, and `ClientBacked*` adapters for those hooks.
 
+Result: Complete.
+
 ## M2 — Evidence And Closeout
 
 Exit criteria:
@@ -29,3 +33,5 @@ Exit criteria:
 - Focused nextest and check gates pass for the touched registry feature set.
 - Residual extension defaults are documented.
 - The lane is closed or has a concrete follow-on instead of open-ended active scope.
+
+Result: Complete.

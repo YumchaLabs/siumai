@@ -1,22 +1,18 @@
 # Provider Native Extension Overrides — Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Current State
 
-The lane is being opened to remove generic-client adapter fallback from provider-native file,
-skills, and music extension hooks.
+The lane is closed. Provider-native file, skills, and music extension hooks were implemented and
+guarded for the selected built-in providers.
 
 ## Next Action
 
-Run PNEO-020:
-
-1. Add `provider_native_extension_hooks_bypass_generic_client_adapters` to
-   `siumai-registry/tests/factory_architecture_boundary_test.rs`.
-2. Make it name the selected factory methods and reject `compat_language_client_with_ctx(...)`,
-   `as_*_capability()`, and `ClientBacked*` adapter markers.
-3. Implement PNEO-030 by returning typed provider clients as extension trait objects.
+Do not continue this lane for unrelated extension cleanup. Open a new narrow workstream if
+speech/transcription extras gain provider-owned native extension clients or if ADR-0007 deletion
+preconditions are ready.
 
 ## Validation To Re-run
 

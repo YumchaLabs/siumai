@@ -1,6 +1,6 @@
 # Provider Native Extension Overrides
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Why This Lane Exists
@@ -90,3 +90,21 @@ This lane can close when:
 - evidence is recorded; and
 - any remaining extension defaults are classified as provider prerequisite work, not hidden active
   scope.
+
+## Closeout Summary
+
+Closed on 2026-05-25.
+
+This lane completed the provider-native extension override batch:
+
+- Azure OpenAI, OpenAI, Anthropic, Gemini, xAI, and MiniMaxi file-management extension hooks now
+  return native typed provider clients directly.
+- OpenAI and Anthropic skills extension hooks now return native typed provider clients directly.
+- MiniMaxi music-generation extension hooks now return the native typed provider client directly.
+- `provider_native_extension_hooks_bypass_generic_client_adapters` guards those hooks against
+  regression into `compat_language_client_with_ctx(...)`, `ClientBacked*` adapters, or
+  `as_*_capability()` downcasts.
+
+Speech and transcription extras remain follow-on work only after a provider-owned native object is
+identified. The default extension adapter path remains for custom providers and built-ins without a
+proven native extension hook.

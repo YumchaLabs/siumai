@@ -20,8 +20,8 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 - Total workstream directories: 79
 - Machine-readable status files: 79
-- Closed or closed-like lanes: 76
-- Active-like lanes: 1
+- Closed or closed-like lanes: 77
+- Active-like lanes: 0
 - Deferred lanes: 2
 - Unknown legacy lanes: 0
 
@@ -85,7 +85,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/prompt-model-message-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/protocol-bridge-gateway` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/protocol-response-generated-output-boundary` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/provider-native-extension-overrides` | active | `WORKSTREAM.json` | yes |
+| `docs/workstreams/provider-native-extension-overrides` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-option-alias-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-settings-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-surface-second-pass` | closed | `WORKSTREAM.json` | yes |

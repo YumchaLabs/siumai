@@ -1,6 +1,6 @@
 # Provider Native Extension Overrides — TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 Status legend:
@@ -12,7 +12,7 @@ Status legend:
 
 ## M0 — Scope And Inventory
 
-- [~] PNEO-010 [owner=planner] [deps=none] [scope=docs/workstreams/provider-native-extension-overrides]
+- [x] PNEO-010 [owner=planner] [deps=none] [scope=docs/workstreams/provider-native-extension-overrides]
   Goal: Open the follow-on lane for provider-native file, skills, and music extension factory
   overrides.
   Validation: `DESIGN.md`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`,
@@ -20,31 +20,34 @@ Status legend:
   lane.
   Review: planner self-review.
   Evidence: workstream docs.
-  Handoff: In progress. First executable code task is PNEO-020.
+  Handoff: DONE. Workstream docs opened, indexed, and validated. First executable code task was
+  PNEO-020.
 
-- [ ] PNEO-020 [owner=codex] [deps=PNEO-010] [scope=siumai-registry/src,siumai-registry/tests]
+- [x] PNEO-020 [owner=codex] [deps=PNEO-010] [scope=siumai-registry/src,siumai-registry/tests]
   Goal: Add a focused source guard that names each selected provider-native extension hook and
   rejects generic-client adapter fallback.
   Validation:
   `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test provider_native_extension_hooks_bypass_generic_client_adapters --no-default-features --features openai,azure,anthropic,google,xai,minimaxi --no-fail-fast`
   Review: registry construction-boundary review.
   Evidence: failing-then-passing boundary test.
-  Handoff: PNEO-030 should satisfy the guard without broad provider rewrites.
+  Handoff: DONE. Added `provider_native_extension_hooks_bypass_generic_client_adapters`, first
+  observed it fail on the missing Azure file hook, then turned it green after PNEO-030.
 
 ## M1 — Native Extension Hook Overrides
 
-- [ ] PNEO-030 [owner=codex] [deps=PNEO-020] [scope=siumai-registry/src/registry/factories]
+- [x] PNEO-030 [owner=codex] [deps=PNEO-020] [scope=siumai-registry/src/registry/factories]
   Goal: Override provider-native file, skills, and music extension hooks where the typed provider
   client already implements the target extension trait.
   Validation:
   `cargo check -p siumai-registry --tests --no-default-features --features openai,azure,anthropic,google,xai,minimaxi`
   Review: provider factory review.
   Evidence: typed-client projection in factory methods.
-  Handoff: PNEO-040 records the final gate matrix and residual extension defaults.
+  Handoff: DONE. Azure OpenAI, OpenAI, Anthropic, Gemini, xAI, and MiniMaxi now return native typed
+  clients from selected extension hooks.
 
 ## M2 — Evidence And Closeout
 
-- [ ] PNEO-040 [owner=codex] [deps=PNEO-020,PNEO-030] [scope=docs/workstreams/provider-native-extension-overrides]
+- [x] PNEO-040 [owner=codex] [deps=PNEO-020,PNEO-030] [scope=docs/workstreams/provider-native-extension-overrides]
   Goal: Record validation evidence, classify remaining defaults, and decide whether the lane can
   close or should split a follow-on.
   Validation:
@@ -52,4 +55,5 @@ Status legend:
   - final focused cargo gates from `EVIDENCE_AND_GATES.md`
   Review: final self-review.
   Evidence: updated workstream docs.
-  Handoff: close lane if gates pass and residual work is split.
+  Handoff: DONE. Lane closed. Speech/transcription extras remain a future provider-specific lane
+  only after native provider objects are proven.

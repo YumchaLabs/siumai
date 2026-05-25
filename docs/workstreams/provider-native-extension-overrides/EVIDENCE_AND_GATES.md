@@ -1,6 +1,6 @@
 # Provider Native Extension Overrides — Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Smallest Current Repro
@@ -56,7 +56,13 @@ Deferred extension hooks:
 
 | Date | Task | Command / Evidence | Result | What it proves |
 | --- | --- | --- | --- | --- |
-| 2026-05-25 | PNEO-010 | Workstream docs opened. | Pending validation | Establishes the follow-on lane and selected provider-native extension scope. |
+| 2026-05-25 | PNEO-010 | Workstream docs opened and `docs/workstreams/INDEX.md` corrected to include previously missing machine-readable lanes plus this active lane. | Pass | Establishes the follow-on lane and restores workstream navigation to the actual directory inventory. |
+| 2026-05-25 | PNEO-020 | `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test provider_native_extension_hooks_bypass_generic_client_adapters --no-default-features --features openai,azure,anthropic,google,xai,minimaxi --no-fail-fast` before implementation. | Expected fail: missing `file_management_capability_with_ctx` in `azure.rs`. | Proves the guard exposes inherited default extension fallback before the native overrides are added. |
+| 2026-05-25 | PNEO-030 | Azure OpenAI, OpenAI, Anthropic, Gemini, xAI, and MiniMaxi registry factories now project typed provider clients as `Arc<dyn FileManagementCapability>`, `Arc<dyn SkillsCapability>`, or `Arc<dyn MusicGenerationCapability>` for selected hooks. | Pass | Removes the selected extension paths from generic-client adapter fallback without changing provider runtime request behavior. |
+| 2026-05-25 | PNEO-020/PNEO-030 | `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test provider_native_extension_hooks_bypass_generic_client_adapters --no-default-features --features openai,azure,anthropic,google,xai,minimaxi --no-fail-fast`. | Pass: 1 test run, 1 passed. | Guards that selected provider-native extension hooks do not call `compat_language_client_with_ctx(...)`, `ClientBacked*` adapters, or `as_*_capability()` downcasts. |
+| 2026-05-25 | PNEO-030 | `cargo fmt --package siumai-registry`. | Pass | Formats the touched registry factory sources and boundary test. |
+| 2026-05-25 | PNEO-030 | `cargo check -p siumai-registry --tests --no-default-features --features openai,azure,anthropic,google,xai,minimaxi`. | Pass | Proves the selected provider-native extension projections compile under the touched provider feature set. |
+| 2026-05-25 | PNEO-040 | `git diff --check -- docs/workstreams/provider-native-extension-overrides docs/workstreams/INDEX.md` and `git diff --check -- siumai-registry/src/registry/factories siumai-registry/tests/factory_architecture_boundary_test.rs`. | Pass; Git reported the expected LF-to-CRLF working-copy warnings. | Proves docs and code diffs have no whitespace-error diff. |
 
 ## Residual Risks
 
@@ -65,3 +71,11 @@ Deferred extension hooks:
 - The selected factory overrides construct a provider client for each extension handle request,
   matching existing registry family construction behavior but not sharing handles.
 - Broader deletion of generic-client compatibility remains governed by ADR-0007.
+
+## Closeout Gate Matrix
+
+| Area | Evidence | Result |
+| --- | --- | --- |
+| Source guard | `provider_native_extension_hooks_bypass_generic_client_adapters` under `openai,azure,anthropic,google,xai,minimaxi`. | Pass |
+| Compile gate | `cargo check -p siumai-registry --tests --no-default-features --features openai,azure,anthropic,google,xai,minimaxi`. | Pass |
+| Diff hygiene | `git diff --check` for touched docs, registry factories, and boundary test. | Pass |
