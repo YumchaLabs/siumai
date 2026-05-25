@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `response_content` adapter, keeping compatibility payload generation separate from request
   provider-option handling.
 
+### Removed
+
+- Removed the legacy provider-local `providers::ollama::model_constants` module. Use the curated
+  `providers::ollama::models` surface for chat and embedding model ids.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-ollama-v0.11.0-beta.7...siumai-provider-ollama-v0.11.0-beta.8) - 2026-05-18
 
 ### Other

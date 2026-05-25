@@ -1,6 +1,6 @@
 # MiniMaxi Unified Provider Surface - TODO
 
-Last updated: 2026-04-10
+Last updated: 2026-05-25
 
 Status legend:
 
@@ -27,6 +27,8 @@ Status legend:
 
 ## Follow-up
 
-- [ ] Revisit the curated model subset when MiniMaxi promotes new first-class family ids.
-- [-] Remove the broader legacy `model_constants.rs` surface immediately.
-  - deferred because internal callers may still rely on its wider alias coverage
+- [x] Revisit the curated model subset when MiniMaxi promotes new first-class family ids.
+  - completed for this release line by keeping the existing curated family set as the provider-owned
+    source of truth
+- [x] Remove the broader legacy `model_constants.rs` surface.
+  - completed after facade/catalog/default-model consumers had moved to curated `models.rs`

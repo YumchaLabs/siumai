@@ -20,9 +20,9 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 - Total workstream directories: 81
 - Machine-readable status files: 81
-- Closed or closed-like lanes: 79
+- Closed or closed-like lanes: 81
 - Active-like lanes: 0
-- Deferred lanes: 2
+- Deferred lanes: 0
 - Unknown legacy lanes: 0
 
 ## Inventory
@@ -72,11 +72,11 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/groq-browser-search-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/groq-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/language-model-call-options-alignment` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/minimaxi-unified-provider-surface` | deferred | `WORKSTREAM.json` | yes |
+| `docs/workstreams/minimaxi-unified-provider-surface` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/mistral-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/moonshotai-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/native-extension-and-compat-retirement` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/ollama-unified-provider-surface` | deferred | `WORKSTREAM.json` | yes |
+| `docs/workstreams/ollama-unified-provider-surface` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/openai-compatible-package-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/openai-compatible-reasoning-policy-alignment` | completed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/openai-compatible-usage-policy-alignment` | completed | `WORKSTREAM.json` | yes |

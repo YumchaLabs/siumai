@@ -1,6 +1,6 @@
 # MiniMaxi Unified Provider Surface - Milestones
 
-Last updated: 2026-04-10
+Last updated: 2026-05-25
 
 ## MMP-M0 - Scope locked
 
@@ -46,5 +46,15 @@ Acceptance criteria:
 - a dedicated workstream folder exists
 - fearless-refactor docs mention the new single-source model/catalog shape
 - unreleased changelogs describe the user-visible implications
+
+Status: completed
+
+## MMP-M5 - Legacy model constants removed
+
+Acceptance criteria:
+
+- `siumai-provider-minimaxi` no longer exposes `providers::minimaxi::model_constants`
+- provider crate tests, facade model catalog, and registry catalog use curated `models.rs`
+- workstream status is closed instead of deferred
 
 Status: completed

@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider-owned family construction path per supported family.
 - Documented Video as a stable registry family for this release line while keeping Music available
   only through explicit extension/capability paths.
+- Removed registry/default-model references to MiniMaxi and Ollama legacy `model_constants`
+  modules; built-in metadata and catalog output now depend only on provider-owned curated
+  `models.rs` surfaces for those providers.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-registry-v0.11.0-beta.7...siumai-registry-v0.11.0-beta.8) - 2026-05-18
 

@@ -1,6 +1,6 @@
 # Ollama Unified Provider Surface - Milestones
 
-Last updated: 2026-04-10
+Last updated: 2026-05-25
 
 ## OLP-M0 - Scope locked
 
@@ -46,5 +46,16 @@ Acceptance criteria:
 - a dedicated workstream folder exists
 - fearless-refactor docs mention the new single-source model shape
 - unreleased changelogs describe the user-visible implications
+
+Status: completed
+
+## OLP-M5 - Legacy model constants removed
+
+Acceptance criteria:
+
+- `siumai-provider-ollama` no longer exposes `providers::ollama::model_constants`
+- provider crate tests, facade model catalog, registry metadata, and provider catalog use curated
+  `models.rs`
+- workstream status is closed instead of deferred
 
 Status: completed

@@ -1,6 +1,6 @@
 # Ollama Unified Provider Surface - TODO
 
-Last updated: 2026-04-10
+Last updated: 2026-05-25
 
 Status legend:
 
@@ -27,6 +27,8 @@ Status legend:
 
 ## Follow-up
 
-- [ ] Revisit the curated Ollama subset when the public default list changes intentionally.
-- [-] Delete the broader legacy `model_constants.rs` surface immediately.
-  - deferred because downstream callers may still rely on the wider alias coverage
+- [x] Revisit the curated Ollama subset when the public default list changes intentionally.
+  - completed for this release line by keeping the existing curated chat/embedding set as the
+    provider-owned source of truth
+- [x] Delete the broader legacy `model_constants.rs` surface.
+  - completed after facade/catalog/default-model consumers had moved to curated `models.rs`

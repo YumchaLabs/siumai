@@ -1922,6 +1922,59 @@ fn compatibility_builder_uses_registry_owned_default_model_resolution() {
 }
 
 #[test]
+fn minimaxi_and_ollama_use_curated_models_not_legacy_model_constants() {
+    let root = crate_root();
+
+    for relative in [
+        "../siumai-provider-minimaxi/src/providers/minimaxi/model_constants.rs",
+        "../siumai-provider-ollama/src/providers/ollama/model_constants.rs",
+    ] {
+        assert!(
+            !root.join(relative).exists(),
+            "{relative} should be removed; MiniMaxi and Ollama should use provider-owned curated models.rs surfaces"
+        );
+    }
+
+    for (relative, forbidden) in [
+        (
+            "../siumai-provider-minimaxi/src/providers/minimaxi/mod.rs",
+            "pub mod model_constants",
+        ),
+        (
+            "../siumai-provider-minimaxi/src/providers/minimaxi/models.rs",
+            "model_constants",
+        ),
+        (
+            "../siumai-provider-ollama/src/providers/ollama/mod.rs",
+            "pub mod model_constants",
+        ),
+        (
+            "../siumai-provider-ollama/src/providers/ollama/models.rs",
+            "model_constants",
+        ),
+        (
+            "../siumai/src/model_catalog.rs",
+            "siumai_provider_minimaxi::providers::minimaxi::model_constants",
+        ),
+        (
+            "../siumai/src/model_catalog.rs",
+            "siumai_provider_ollama::providers::ollama::model_constants",
+        ),
+        (
+            "src/native_provider_metadata.rs",
+            "siumai_provider_ollama::providers::ollama::model_constants",
+        ),
+    ] {
+        let source = fs::read_to_string(root.join(relative))
+            .unwrap_or_else(|error| panic!("read {relative}: {error}"));
+        assert!(
+            !source.contains(forbidden),
+            "{relative} should not depend on legacy MiniMaxi/Ollama model_constants surface `{forbidden}`"
+        );
+    }
+}
+
+#[test]
 fn focused_public_facade_tests_use_provider_build_override_shortcuts() {
     let root = crate_root();
 

@@ -1,6 +1,6 @@
 # Ollama Unified Provider Surface - Design
 
-Last updated: 2026-04-10
+Last updated: 2026-05-25
 
 ## Problem
 
@@ -44,8 +44,8 @@ plus:
 - `ALL_EMBEDDING`
 - `all_models()`
 
-The older `model_constants.rs` still exists as the broader compatibility layer with alias-heavy
-families and historical names.
+The older `model_constants.rs` compatibility layer has been removed. `models.rs` is now the only
+provider-local model catalog for Ollama.
 
 ### 3. Facade, registry, and defaults now share one source
 
@@ -66,8 +66,7 @@ The implemented surface is locked by:
 - public-surface compile guards on `provider_ext::ollama`
 - registry catalog tests for native Ollama metadata/model output
 
-## Remaining follow-up
+## Closeout
 
-- Decide later whether the legacy `model_constants.rs` surface should be narrowed once curated
-  `models.rs` becomes the dominant downstream entry point.
-- Revisit the curated list whenever the supported default subset intentionally changes.
+The deferred follow-up is complete. Future changes should update `providers/ollama/models.rs`
+directly whenever the supported default subset intentionally changes.

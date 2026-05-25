@@ -1,6 +1,6 @@
 # MiniMaxi Unified Provider Surface - Design
 
-Last updated: 2026-04-10
+Last updated: 2026-05-25
 
 ## Problem
 
@@ -42,8 +42,8 @@ plus top-level defaults and grouped lists:
 - `ALL_*`
 - `all_models()`
 
-The older `model_constants.rs` remains as the broader compatibility layer instead of the canonical
-catalog/facade source.
+The older `model_constants.rs` compatibility layer has been removed. `models.rs` is now the only
+provider-local model catalog for MiniMaxi.
 
 ### 2. Facade and registry now reuse that same source
 
@@ -76,9 +76,7 @@ The implemented surface is locked by:
 - registry catalog tests for native MiniMaxi metadata/model output
 - focused stream metadata rekey tests for typed finish parts and final `StreamEnd`
 
-## Remaining follow-up
+## Closeout
 
-- Revisit the curated MiniMaxi model subset if the provider grows more first-class public family
-  ids.
-- Decide later whether the broader legacy `model_constants.rs` surface should be slimmed down once
-  downstream migration pressure is low enough.
+The deferred follow-up is complete. Future changes should update `providers/minimaxi/models.rs`
+directly when MiniMaxi promotes new first-class public family ids.

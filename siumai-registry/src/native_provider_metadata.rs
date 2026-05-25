@@ -348,7 +348,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
         description: "Local Ollama models with full control and privacy",
         default_base_url: Some("http://localhost:11434"),
         default_model_policy: NativeProviderDefaultModelPolicy::Default(
-            siumai_provider_ollama::providers::ollama::model_constants::llama_3_2::LLAMA_3_2,
+            siumai_provider_ollama::providers::ollama::models::CHAT,
         ),
         capabilities: ProviderCapabilities::new()
             .with_chat()

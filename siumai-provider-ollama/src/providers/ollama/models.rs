@@ -1,8 +1,7 @@
 //! Curated Ollama model constants for the public provider surface.
 //!
 //! These constants intentionally model the current curated/default subset that Siumai advertises
-//! through the public facade and provider catalog. They are narrower than the legacy
-//! `model_constants` module, which still keeps broader aliases and historical ids.
+//! through the public facade and provider catalog.
 
 /// Ollama chat/language-model constants.
 pub mod chat {
@@ -32,6 +31,7 @@ pub mod chat {
     pub const DEEPSEEK_CODER_LATEST: &str = "deepseek-coder:latest";
     pub const DEEPSEEK_CODER_6_7B: &str = "deepseek-coder:6.7b";
     pub const DEEPSEEK_CODER_33B: &str = "deepseek-coder:33b";
+    pub const DEEPSEEK_R1_LATEST: &str = "deepseek-r1:latest";
 }
 
 /// Ollama embedding-model constants.
@@ -70,6 +70,7 @@ pub const ALL_CHAT: &[&str] = &[
     chat::DEEPSEEK_CODER_LATEST,
     chat::DEEPSEEK_CODER_6_7B,
     chat::DEEPSEEK_CODER_33B,
+    chat::DEEPSEEK_R1_LATEST,
 ];
 
 pub const ALL_EMBEDDING: &[&str] = &[embedding::NOMIC_EMBED_TEXT, embedding::ALL_MINILM];

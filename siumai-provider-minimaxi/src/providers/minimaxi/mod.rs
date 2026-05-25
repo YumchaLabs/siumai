@@ -19,7 +19,6 @@
 //! - `image.rs` - Image generation capability implementation
 //! - `spec.rs` - ProviderSpec implementation (chat uses Anthropic standard)
 //! - `types.rs` - MiniMaxi-specific type definitions
-//! - `model_constants.rs` - Legacy/exhaustive model constants
 //! - `models.rs` - Curated model-family constants for facade/catalog alignment
 //!
 //! # Example Usage
@@ -59,7 +58,6 @@ mod utils;
 // Capability modules
 pub mod audio;
 pub mod image;
-pub mod model_constants;
 pub mod models;
 pub mod music;
 pub mod video;

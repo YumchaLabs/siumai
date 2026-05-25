@@ -27,7 +27,7 @@ pub mod constants {
 
     /// Re-export Ollama model constants (detailed structure).
     #[cfg(feature = "ollama")]
-    pub use siumai_provider_ollama::providers::ollama::model_constants as ollama;
+    pub use siumai_provider_ollama::providers::ollama::models as ollama;
 
     /// Re-export xAI model constants (detailed structure).
     #[cfg(feature = "xai")]
@@ -39,7 +39,7 @@ pub mod constants {
 
     /// Re-export MiniMaxi model constants (detailed structure).
     #[cfg(feature = "minimaxi")]
-    pub use siumai_provider_minimaxi::providers::minimaxi::model_constants as minimaxi;
+    pub use siumai_provider_minimaxi::providers::minimaxi::models as minimaxi;
 
     /// Re-export DeepSeek model constants (detailed structure).
     #[cfg(feature = "deepseek")]
@@ -215,34 +215,34 @@ pub mod model_constants {
     /// Ollama models with simplified access.
     #[cfg(feature = "ollama")]
     pub mod ollama {
-        use siumai_provider_ollama::providers::ollama::model_constants as c;
+        use siumai_provider_ollama::providers::ollama::models as c;
 
         // Llama 3.2 family
-        pub const LLAMA_3_2: &str = c::llama_3_2::LLAMA_3_2;
-        pub const LLAMA_3_2_3B: &str = c::llama_3_2::LLAMA_3_2_3B;
-        pub const LLAMA_3_2_1B: &str = c::llama_3_2::LLAMA_3_2_1B;
+        pub const LLAMA_3_2: &str = c::chat::LLAMA_3_2_LATEST;
+        pub const LLAMA_3_2_3B: &str = c::chat::LLAMA_3_2_3B;
+        pub const LLAMA_3_2_1B: &str = c::chat::LLAMA_3_2_1B;
 
         // Llama 3.1 family
-        pub const LLAMA_3_1: &str = c::llama_3_1::LLAMA_3_1;
-        pub const LLAMA_3_1_8B: &str = c::llama_3_1::LLAMA_3_1_8B;
-        pub const LLAMA_3_1_70B: &str = c::llama_3_1::LLAMA_3_1_70B;
+        pub const LLAMA_3_1: &str = c::chat::LLAMA_3_1_LATEST;
+        pub const LLAMA_3_1_8B: &str = c::chat::LLAMA_3_1_8B;
+        pub const LLAMA_3_1_70B: &str = c::chat::LLAMA_3_1_70B;
 
         // Code Llama
-        pub const CODE_LLAMA: &str = c::code_llama::CODE_LLAMA;
-        pub const CODE_LLAMA_13B: &str = c::code_llama::CODE_LLAMA_13B;
+        pub const CODE_LLAMA: &str = c::chat::CODE_LLAMA_LATEST;
+        pub const CODE_LLAMA_13B: &str = c::chat::CODE_LLAMA_13B;
 
         // Other popular models
-        pub const MISTRAL: &str = c::mistral::MISTRAL;
-        pub const PHI_3: &str = c::phi_3::PHI_3;
-        pub const GEMMA: &str = c::gemma::GEMMA;
-        pub const QWEN2: &str = c::qwen2::QWEN2;
+        pub const MISTRAL: &str = c::chat::MISTRAL_LATEST;
+        pub const PHI_3: &str = c::chat::PHI_3_LATEST;
+        pub const GEMMA: &str = c::chat::GEMMA_LATEST;
+        pub const QWEN2: &str = c::chat::QWEN2_LATEST;
 
         // DeepSeek models
-        pub const DEEPSEEK_R1: &str = c::deepseek::DEEPSEEK_R1;
-        pub const DEEPSEEK_CODER: &str = c::deepseek::DEEPSEEK_CODER;
+        pub const DEEPSEEK_R1: &str = c::chat::DEEPSEEK_R1_LATEST;
+        pub const DEEPSEEK_CODER: &str = c::chat::DEEPSEEK_CODER_LATEST;
 
         // Embedding models
-        pub const NOMIC_EMBED_TEXT: &str = c::embeddings::NOMIC_EMBED_TEXT;
+        pub const NOMIC_EMBED_TEXT: &str = c::embedding::NOMIC_EMBED_TEXT;
     }
 
     /// xAI models with simplified access.
@@ -266,22 +266,18 @@ pub mod model_constants {
     /// MiniMaxi models with simplified access.
     #[cfg(feature = "minimaxi")]
     pub mod minimaxi {
-        use siumai_provider_minimaxi::providers::minimaxi::model_constants as c;
+        use siumai_provider_minimaxi::providers::minimaxi::models as c;
 
         // Text
-        pub const MINIMAX_M2: &str = c::text::MINIMAX_M2;
-        pub const MINIMAX_M2_STABLE: &str = c::text::MINIMAX_M2_STABLE;
+        pub const MINIMAX_M2: &str = c::chat::MINIMAX_M2;
+        pub const MINIMAX_M2_STABLE: &str = c::chat::MINIMAX_M2_STABLE;
 
         // Audio (TTS)
-        pub const SPEECH_2_6_HD: &str = c::audio::SPEECH_2_6_HD;
-        pub const SPEECH_2_6_TURBO: &str = c::audio::SPEECH_2_6_TURBO;
-
-        // Voices (subset)
-        pub const MALE_QN_QINGSE: &str = c::voice::MALE_QN_QINGSE;
-        pub const FEMALE_SHAONV: &str = c::voice::FEMALE_SHAONV;
+        pub const SPEECH_2_6_HD: &str = c::speech::SPEECH_2_6_HD;
+        pub const SPEECH_2_6_TURBO: &str = c::speech::SPEECH_2_6_TURBO;
 
         // Images
-        pub const IMAGE_01: &str = c::images::IMAGE_01;
-        pub const IMAGE_01_LIVE: &str = c::images::IMAGE_01_LIVE;
+        pub const IMAGE_01: &str = c::image::IMAGE_01;
+        pub const IMAGE_01_LIVE: &str = c::image::IMAGE_01_LIVE;
     }
 }

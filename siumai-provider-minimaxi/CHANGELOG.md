@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the legacy provider-local `providers::minimaxi::model_constants` module. Use the curated
+  `providers::minimaxi::models` surface for chat, speech, image, video, and music model ids.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-minimaxi-v0.11.0-beta.7...siumai-provider-minimaxi-v0.11.0-beta.8) - 2026-05-18
 
 ### Other

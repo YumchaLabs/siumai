@@ -176,26 +176,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Available Models
 
-You can use model constants from `siumai::providers::minimaxi::model_constants`:
+You can use model constants from `siumai::providers::minimaxi::models`:
 
 ```rust
-use siumai::providers::minimaxi::model_constants;
+use siumai::providers::minimaxi::models;
 
 // Text models
-model_constants::text::MINIMAX_M2           // "MiniMax-M2"
-model_constants::text::MINIMAX_M2_STABLE    // "MiniMax-M2-Stable"
+models::chat::MINIMAX_M2                    // "MiniMax-M2"
+models::chat::MINIMAX_M2_STABLE             // "MiniMax-M2-Stable"
 
 // Audio models
-model_constants::audio::SPEECH_2_6_HD       // "speech-2.6-hd"
-model_constants::audio::SPEECH_2_6_TURBO    // "speech-2.6-turbo"
-
-// Voice IDs
-model_constants::voice::MALE_QN_QINGSE      // "male-qn-qingse"
-model_constants::voice::FEMALE_SHAONV       // "female-shaonv"
+models::speech::SPEECH_2_6_HD               // "speech-2.6-hd"
+models::speech::SPEECH_2_6_TURBO            // "speech-2.6-turbo"
 
 // Image models
-model_constants::images::IMAGE_01           // "image-01"
-model_constants::images::IMAGE_01_LIVE      // "image-01-live"
+models::image::IMAGE_01                     // "image-01"
+models::image::IMAGE_01_LIVE                // "image-01-live"
 ```
 
 ### Text Generation

@@ -1,35 +1,34 @@
 //! Curated MiniMaxi model constants for the public provider surface.
 //!
-//! This module sits above the broader `model_constants` compatibility layer and exposes the
-//! stable model-family surface that the facade and provider catalog should share.
+//! This module is the provider-owned model source shared by the facade and provider catalog.
 
 /// MiniMaxi chat/language-model constants.
 pub mod chat {
-    pub const MINIMAX_M2: &str = super::super::model_constants::text::MINIMAX_M2;
-    pub const MINIMAX_M2_STABLE: &str = super::super::model_constants::text::MINIMAX_M2_STABLE;
+    pub const MINIMAX_M2: &str = "MiniMax-M2";
+    pub const MINIMAX_M2_STABLE: &str = "MiniMax-M2-Stable";
 }
 
 /// MiniMaxi speech/TTS model constants.
 pub mod speech {
-    pub const SPEECH_2_6_HD: &str = super::super::model_constants::audio::SPEECH_2_6_HD;
-    pub const SPEECH_2_6_TURBO: &str = super::super::model_constants::audio::SPEECH_2_6_TURBO;
+    pub const SPEECH_2_6_HD: &str = "speech-2.6-hd";
+    pub const SPEECH_2_6_TURBO: &str = "speech-2.6-turbo";
 }
 
 /// MiniMaxi video model constants.
 pub mod video {
-    pub const HAILUO_2_3: &str = super::super::model_constants::video::HAILUO_2_3;
-    pub const HAILUO_2_3_FAST: &str = super::super::model_constants::video::HAILUO_2_3_FAST;
+    pub const HAILUO_2_3: &str = "hailuo-2.3";
+    pub const HAILUO_2_3_FAST: &str = "hailuo-2.3-fast";
 }
 
 /// MiniMaxi music model constants.
 pub mod music {
-    pub const MUSIC_2_0: &str = super::super::model_constants::music::MUSIC_2_0;
+    pub const MUSIC_2_0: &str = "music-2.0";
 }
 
 /// MiniMaxi image model constants.
 pub mod image {
-    pub const IMAGE_01: &str = super::super::model_constants::images::IMAGE_01;
-    pub const IMAGE_01_LIVE: &str = super::super::model_constants::images::IMAGE_01_LIVE;
+    pub const IMAGE_01: &str = "image-01";
+    pub const IMAGE_01_LIVE: &str = "image-01-live";
 }
 
 pub const CHAT: &str = chat::MINIMAX_M2;
