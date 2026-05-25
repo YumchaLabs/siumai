@@ -29,13 +29,16 @@ Last updated: 2026-05-26
 
 ## DGA-030 — Registry And Capability Wiring
 
-- [ ] DGA-030 [owner=worker] [deps=DGA-020] [scope=siumai-registry,siumai-core,Cargo.toml]
+- [x] DGA-030 [owner=worker] [deps=DGA-020] [scope=siumai-registry,siumai-core,Cargo.toml]
   Goal: Wire Deepgram into feature flags, native metadata, provider catalog, registry factory, and stable
   speech/transcription model handles.
   Validation: `cargo nextest run -p siumai-registry --features deepgram deepgram --no-fail-fast`; `cargo fmt --check -p siumai-registry`.
   Review: review-workstream for capability metadata, unsupported family rejection, and registry context precedence.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Registry should expose speech/transcription and reject non-audio families before transport use.
+  Handoff: DONE. Registry now exposes Deepgram feature flags, native metadata, provider catalog,
+  builder selector, speech/transcription factory paths, provider-specific build overrides, and
+  non-audio family rejection before transport use. Facade exports remain intentionally out of scope
+  for DGA-040.
 
 ## DGA-040 — Facade, Public Surface, And Examples
 

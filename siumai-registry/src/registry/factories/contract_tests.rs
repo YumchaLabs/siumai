@@ -136,6 +136,13 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
             ],
         ),
         (
+            "deepgram.rs",
+            &[
+                "speech_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        ),
+        (
             "fireworks.rs",
             &[
                 "language_model_text_with_ctx",
@@ -12002,6 +12009,393 @@ data: [DONE]
             Some("text/event-stream".to_string())
         );
         assert_eq!(req.url, "https://example.com/openai/v1/chat/completions");
+    }
+}
+
+#[cfg(feature = "deepgram")]
+mod deepgram_contract {
+    use super::*;
+    use crate::traits::AudioCapability;
+    use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
+
+    fn deepgram_stt_response(text: &str) -> serde_json::Value {
+        serde_json::json!({
+            "metadata": {
+                "duration": 1.25
+            },
+            "results": {
+                "channels": [
+                    {
+                        "detected_language": "en",
+                        "alternatives": [
+                            {
+                                "transcript": text,
+                                "confidence": 0.91,
+                                "words": [
+                                    {
+                                        "word": "hello",
+                                        "start": 0.0,
+                                        "end": 0.5,
+                                        "confidence": 0.95
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn deepgram_factory_declares_audio_without_non_audio_families() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::DeepgramProviderFactory;
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("audio"));
+        assert!(caps.supports("speech"));
+        assert!(caps.supports("transcription"));
+        assert!(!caps.supports("chat"));
+        assert!(!caps.supports("completion"));
+        assert!(!caps.supports("embedding"));
+        assert!(!caps.supports("image_generation"));
+        assert!(!caps.supports("rerank"));
+    }
+
+    #[tokio::test]
+    async fn deepgram_factory_supports_native_speech_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::DeepgramProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("deepgram".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://api.deepgram.test".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .speech_model_family_with_ctx("aura-2-helena-en", &ctx)
+            .await
+            .expect("build native Deepgram speech-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "deepgram"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "aura-2-helena-en"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
+    async fn deepgram_factory_supports_native_transcription_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::DeepgramProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("deepgram".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://api.deepgram.test".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .transcription_model_family_with_ctx("nova-3", &ctx)
+            .await
+            .expect("build native Deepgram transcription-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "deepgram"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "nova-3"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
+    async fn deepgram_factory_rejects_non_audio_family_paths_before_transport_use() {
+        let _lock = lock_env();
+
+        let transport = CaptureTransport::default();
+        let factory = crate::registry::factories::DeepgramProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("deepgram".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://api.deepgram.test".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        assert_unsupported_operation_contains(
+            factory
+                .compat_language_client_with_ctx("nova-3", &ctx)
+                .await,
+            "language family path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .compat_embedding_client_with_ctx("nova-3", &ctx)
+                .await,
+            "embedding family path",
+        );
+        assert_unsupported_operation_contains(
+            factory.image_model_family_with_ctx("nova-3", &ctx).await,
+            "image family model path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .compat_reranking_client_with_ctx("nova-3", &ctx)
+                .await,
+            "reranking family path",
+        );
+        assert_capture_transport_unused(&transport);
+    }
+
+    #[tokio::test]
+    async fn deepgram_registry_rejects_non_audio_handles_before_transport_use() {
+        let _lock = lock_env();
+
+        let transport = CaptureTransport::default();
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepgram".to_string(),
+            Arc::new(crate::registry::factories::DeepgramProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("ctx-key")
+            .with_base_url("https://api.deepgram.test")
+            .fetch(Arc::new(transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        assert_unsupported_operation_contains(
+            registry.language_model("deepgram:nova-3"),
+            "language_model/chat handles",
+        );
+        assert_unsupported_operation_contains(
+            registry.embedding_model("deepgram:nova-3"),
+            "embedding_model handle",
+        );
+        assert_unsupported_operation_contains(
+            registry.image_model("deepgram:nova-3"),
+            "image_model handle",
+        );
+        assert_unsupported_operation_contains(
+            registry.reranking_model("deepgram:nova-3"),
+            "reranking_model handle",
+        );
+        assert_capture_transport_unused(&transport);
+    }
+
+    #[tokio::test]
+    async fn deepgram_registry_speech_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let global_transport = BytesSuccessTransport::new(vec![9, 9, 9], "audio/mpeg");
+        let deepgram_transport = BytesSuccessTransport::new(vec![1, 2, 3, 4], "audio/wav");
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepgram".to_string(),
+            Arc::new(crate::registry::factories::DeepgramProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "deepgram",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/deepgram/")
+                    .fetch(Arc::new(deepgram_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .speech_model("deepgram:aura-2-helena-en")
+            .expect("build Deepgram speech handle");
+
+        let response = AudioCapability::text_to_speech(
+            &handle,
+            crate::types::TtsRequest::new("hello from deepgram".to_string())
+                .with_format("wav_24000".to_string()),
+        )
+        .await
+        .expect("Deepgram speech ok");
+
+        assert_eq!(response.audio_data, vec![1, 2, 3, 4]);
+        assert_eq!(response.format, "wav");
+
+        let req = deepgram_transport
+            .take()
+            .expect("captured Deepgram speech request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(
+            req.headers
+                .get(AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Token ctx-key")
+        );
+        assert_eq!(
+            req.headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/json")
+        );
+        assert_eq!(
+            req.url,
+            "https://example.com/deepgram/v1/speak?container=wav&encoding=linear16&model=aura-2-helena-en&sample_rate=24000"
+        );
+        assert_eq!(
+            req.body,
+            serde_json::json!({ "text": "hello from deepgram" })
+        );
+    }
+
+    #[tokio::test]
+    async fn deepgram_registry_transcription_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let global_transport =
+            MultipartJsonSuccessTransport::new(deepgram_stt_response("hello from global"));
+        let deepgram_transport =
+            MultipartJsonSuccessTransport::new(deepgram_stt_response("hello from deepgram"));
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepgram".to_string(),
+            Arc::new(crate::registry::factories::DeepgramProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "deepgram",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/deepgram")
+                    .fetch(Arc::new(deepgram_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .transcription_model("deepgram:nova-3")
+            .expect("build Deepgram transcription handle");
+
+        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/wav");
+        request = request.with_media_type("audio/wav".to_string());
+
+        let response = handle
+            .speech_to_text(request)
+            .await
+            .expect("Deepgram transcription ok");
+
+        assert_eq!(response.text, "hello from deepgram");
+        assert_eq!(response.language.as_deref(), Some("en"));
+        assert_eq!(response.words.as_ref().map(Vec::len), Some(1));
+
+        let req = deepgram_transport
+            .take_multipart()
+            .expect("captured Deepgram raw audio request");
+        assert!(global_transport.take_multipart().is_none());
+        assert_eq!(
+            req.headers
+                .get(AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Token ctx-key")
+        );
+        assert_eq!(
+            req.headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("audio/wav")
+        );
+        assert_eq!(
+            req.headers
+                .get(CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok()),
+            Some("3")
+        );
+        assert_eq!(
+            req.url,
+            "https://example.com/deepgram/v1/listen?diarize=true&model=nova-3"
+        );
+        assert_eq!(req.body, b"abc".to_vec());
+    }
+
+    #[tokio::test]
+    async fn deepgram_builder_routes_known_transcription_model_to_stt_defaults() {
+        let _lock = lock_env();
+
+        let transport =
+            MultipartJsonSuccessTransport::new(deepgram_stt_response("hello from builder"));
+
+        let client = crate::provider::SiumaiBuilder::new()
+            .deepgram()
+            .api_key("ctx-key")
+            .base_url("https://example.com/deepgram")
+            .model("nova-3")
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .await
+            .expect("build Deepgram transcription-oriented compatibility client");
+
+        let request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/wav")
+            .with_media_type("audio/wav".to_string());
+
+        let response = AudioCapability::speech_to_text(&client, request)
+            .await
+            .expect("Deepgram builder transcription ok");
+
+        assert_eq!(response.text, "hello from builder");
+
+        let req = transport
+            .take_multipart()
+            .expect("captured Deepgram builder raw audio request");
+        assert_eq!(
+            req.headers
+                .get(AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Token ctx-key")
+        );
+        assert_eq!(
+            req.url,
+            "https://example.com/deepgram/v1/listen?diarize=true&model=nova-3"
+        );
+        assert_eq!(req.body, b"abc".to_vec());
+    }
+
+    #[test]
+    fn deepgram_factory_source_declares_native_audio_family_overrides() {
+        let source = include_str!("deepgram.rs");
+
+        assert!(source.contains("async fn speech_model_family_with_ctx("));
+        assert!(source.contains("async fn transcription_model_family_with_ctx("));
     }
 }
 

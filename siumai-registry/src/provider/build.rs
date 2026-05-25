@@ -16,7 +16,8 @@ use crate::provider::ids;
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 use crate::registry::entry::ProviderCompatibilityFactory;
 #[cfg(feature = "azure")]
@@ -37,7 +38,8 @@ use crate::registry::entry::ProviderFactory;
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 async fn build_default_client_with_capabilities(
     compatibility_factory: &std::sync::Arc<dyn ProviderCompatibilityFactory>,
@@ -65,6 +67,25 @@ async fn build_default_client_with_capabilities(
         return compatibility_factory
             .build_compat_image_client_with_ctx(model_id, ctx)
             .await;
+    }
+    #[cfg(feature = "deepgram")]
+    if provider_id == ids::DEEPGRAM {
+        let is_speech_model =
+            siumai_provider_deepgram::providers::deepgram::models::ALL_SPEECH.contains(&model_id);
+        let is_transcription_model =
+            siumai_provider_deepgram::providers::deepgram::models::ALL_TRANSCRIPTION
+                .contains(&model_id);
+
+        if is_transcription_model && !is_speech_model {
+            return compatibility_factory
+                .build_compat_transcription_client_with_ctx(model_id, ctx)
+                .await;
+        }
+        if is_speech_model {
+            return compatibility_factory
+                .build_compat_speech_client_with_ctx(model_id, ctx)
+                .await;
+        }
     }
     if capabilities.supports("speech") {
         return compatibility_factory
@@ -98,7 +119,8 @@ async fn build_default_client_with_capabilities(
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     use crate::compat::client::LlmClient;
@@ -298,11 +320,12 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 )))]
 pub async fn build(_builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     Err(LlmError::UnsupportedOperation(
-        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, cohere, togetherai, bedrock, gateway, ollama, deepseek, xai, groq, minimaxi)".to_string(),
+        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, cohere, togetherai, bedrock, gateway, deepgram, ollama, deepseek, xai, groq, minimaxi)".to_string(),
     ))
 }
 

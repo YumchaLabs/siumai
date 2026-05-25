@@ -47,8 +47,8 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "DGA-030",
-  "next_task": "Wire Deepgram into registry feature flags, native metadata, provider catalog, and speech/transcription factory paths.",
+  "current_task": "DGA-040",
+  "next_task": "Expose Deepgram facade/provider extension paths and public import tests without widening prelude::unified.",
   "follow_on": [
     "elevenlabs-audio-provider",
     "media-task-polling-foundation"

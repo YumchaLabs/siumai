@@ -173,6 +173,12 @@ impl SiumaiBuilder {
         self.provider_id(ids::GATEWAY)
     }
 
+    /// Create a Deepgram provider (convenience method)
+    #[cfg(feature = "deepgram")]
+    pub fn deepgram(self) -> Self {
+        self.provider_id(ids::DEEPGRAM)
+    }
+
     /// Create an Ollama provider (convenience method)
     #[cfg(feature = "ollama")]
     pub fn ollama(self) -> Self {
@@ -213,6 +219,7 @@ mod tests {
         feature = "deepinfra",
         feature = "bedrock",
         feature = "gateway",
+        feature = "deepgram",
         feature = "deepseek",
         feature = "google-vertex",
         feature = "openai"
@@ -252,6 +259,13 @@ mod tests {
     fn gateway_builder_method_sets_provider_id() {
         let builder = SiumaiBuilder::new().gateway();
         assert_eq!(builder.provider_id, Some(ids::GATEWAY.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "deepgram")]
+    fn deepgram_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().deepgram();
+        assert_eq!(builder.provider_id, Some(ids::DEEPGRAM.to_string()));
     }
 
     #[test]

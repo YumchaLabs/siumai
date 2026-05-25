@@ -18,7 +18,8 @@
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 use std::sync::Arc;
 
@@ -38,7 +39,8 @@ use std::sync::Arc;
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 use crate::compat::client::LlmClient;
 #[cfg(any(
@@ -57,7 +59,8 @@ use crate::compat::client::LlmClient;
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 use crate::error::LlmError;
 
@@ -80,7 +83,8 @@ use crate::execution::http::client::build_http_client_from_config;
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 use crate::registry::entry::ProviderFactory;
 #[cfg(any(
@@ -99,7 +103,8 @@ use crate::registry::entry::ProviderFactory;
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 use crate::traits::ProviderCapabilities;
 
@@ -118,7 +123,8 @@ use crate::traits::ProviderCapabilities;
     feature = "groq",
     feature = "minimaxi",
     feature = "bedrock",
-    feature = "gateway"
+    feature = "gateway",
+    feature = "deepgram"
 ))]
 use crate::registry::entry::BuildContext;
 
@@ -134,6 +140,8 @@ mod bedrock;
 mod cohere;
 #[cfg(test)]
 mod contract_tests;
+#[cfg(feature = "deepgram")]
+mod deepgram;
 #[cfg(feature = "deepinfra")]
 mod deepinfra;
 #[cfg(feature = "deepseek")]
@@ -177,6 +185,8 @@ pub use azure::AzureOpenAiProviderFactory;
 pub use bedrock::BedrockProviderFactory;
 #[cfg(feature = "cohere")]
 pub use cohere::CohereProviderFactory;
+#[cfg(feature = "deepgram")]
+pub use deepgram::DeepgramProviderFactory;
 #[cfg(feature = "deepinfra")]
 pub use deepinfra::DeepInfraProviderFactory;
 #[cfg(feature = "deepseek")]

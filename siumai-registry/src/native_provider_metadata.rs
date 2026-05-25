@@ -421,6 +421,21 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_rerank(),
     });
 
+    // Deepgram
+    #[cfg(feature = "deepgram")]
+    out.push(NativeProviderMetadata {
+        id: ids::DEEPGRAM,
+        name: "Deepgram",
+        description: "Deepgram AI SDK-aligned speech and transcription provider",
+        default_base_url: Some(
+            siumai_provider_deepgram::providers::deepgram::DeepgramConfig::DEFAULT_BASE_URL,
+        ),
+        default_model_policy: NativeProviderDefaultModelPolicy::ExplicitRequired(
+            "Deepgram requires an explicit speech or transcription model id",
+        ),
+        capabilities: ProviderCapabilities::new().with_audio(),
+    });
+
     // Amazon Bedrock (Converse + embedding + image + Rerank)
     #[cfg(feature = "bedrock")]
     out.push(NativeProviderMetadata {

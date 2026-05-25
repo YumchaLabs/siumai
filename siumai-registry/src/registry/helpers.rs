@@ -385,6 +385,19 @@ pub fn builtin_provider_factory(provider_id: &str) -> Result<Arc<dyn ProviderFac
                 Err(unsupported_provider_feature("TogetherAI", "togetherai"))
             }
         }
+        Some(ids::BuiltinProviderId::Deepgram) => {
+            #[cfg(feature = "deepgram")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::DeepgramProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "deepgram"))]
+            {
+                Err(unsupported_provider_feature("Deepgram", "deepgram"))
+            }
+        }
         Some(ids::BuiltinProviderId::Bedrock) => {
             #[cfg(feature = "bedrock")]
             {
@@ -557,6 +570,12 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         insert_builtin_provider_factory(&mut providers, ids::TOGETHERAI).expect(
             "TogetherAI factory should be available when the togetherai feature is enabled",
         );
+    }
+
+    #[cfg(feature = "deepgram")]
+    {
+        insert_builtin_provider_factory(&mut providers, ids::DEEPGRAM)
+            .expect("Deepgram factory should be available when the deepgram feature is enabled");
     }
 
     #[cfg(feature = "bedrock")]

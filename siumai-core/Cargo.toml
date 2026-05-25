@@ -66,6 +66,7 @@ minimaxi = []
 cohere = []
 togetherai = []
 bedrock = []
+deepgram = []
 
 gcp = ["google"]
 json-repair = ["dep:jsonrepair"]
@@ -83,6 +84,7 @@ all-providers = [
     "minimaxi",
     "cohere",
     "togetherai",
+    "deepgram",
 ]
 
 [dev-dependencies]

@@ -7,18 +7,20 @@ Last updated: 2026-05-26
 
 The workstream is open. DGA-010 froze the execution lane from the closed AI SDK provider market expansion
 decision. DGA-020 added the native Deepgram provider crate and passed focused provider-crate gates.
+DGA-030 wired Deepgram into the registry and passed focused registry gates.
 
 ## Active Task
 
-- Task ID: DGA-030
+- Task ID: DGA-040
 - Owner: worker
 - Files:
-  - `siumai-registry/*`
-  - `siumai-core/*` if new feature metadata hooks are required
-  - `Cargo.toml`
+  - `siumai/*`
+  - `siumai/tests/*`
+  - `examples/*`
 - Validation:
-  - `cargo nextest run -p siumai-registry --features deepgram deepgram --no-fail-fast`
-  - `cargo fmt --check -p siumai-registry`
+  - `cargo nextest run -p siumai --features deepgram deepgram --no-fail-fast`
+  - targeted public-surface import test
+  - `cargo fmt --check -p siumai`
 - Status: READY_TO_IMPLEMENT
 - Review: Pending after implementation
 - Evidence: `docs/workstreams/deepgram-audio-provider/EVIDENCE_AND_GATES.md`
@@ -37,6 +39,12 @@ decision. DGA-020 added the native Deepgram provider crate and passed focused pr
 - Deepgram STT uses raw audio bytes with `Content-Type` from `SttRequest.media_type`; the custom
   no-network hook currently travels through the existing `HttpTransport::execute_multipart` byte
   request shape because there is no separate raw-body transport trait.
+- DGA-030 added `siumai-registry` and `siumai-core` `deepgram` feature flags, native provider
+  metadata, catalog model listing, `DeepgramProviderFactory`, `SiumaiBuilder::deepgram()`, and
+  focused no-network registry tests. Deepgram's native metadata uses an explicit-model policy to
+  avoid ambiguity between speech and transcription defaults on compatibility construction.
+- The compatibility builder now routes known Deepgram transcription models (for example `nova-3`)
+  through the transcription client before the generic audio speech-first fallback.
 
 ## Blockers
 
@@ -44,5 +52,5 @@ decision. DGA-020 added the native Deepgram provider crate and passed focused pr
 
 ## Next Recommended Action
 
-- Start DGA-030 by wiring Deepgram into feature flags, registry metadata, and speech/transcription
-  factory paths without widening the unified prelude.
+- Start DGA-040 by adding facade/provider extension exports and public import tests without widening
+  `prelude::unified`.
