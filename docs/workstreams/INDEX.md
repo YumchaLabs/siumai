@@ -20,8 +20,8 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 - Total workstream directories: 74
 - Machine-readable status files: 74
-- Closed or closed-like lanes: 71
-- Active-like lanes: 1
+- Closed or closed-like lanes: 72
+- Active-like lanes: 0
 - Deferred lanes: 2
 - Unknown legacy lanes: 0
 
@@ -39,7 +39,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/bedrock-image-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/bedrock-protocol-boundary-cleanup` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/cohere-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
-| `docs/workstreams/compatibility-surface-breaking-convergence` | active | `WORKSTREAM.json` | yes |
+| `docs/workstreams/compatibility-surface-breaking-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/completion-family-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/completion-metadata-boundary-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/data-content-error-surface-alignment` | closed | `WORKSTREAM.json` | yes |

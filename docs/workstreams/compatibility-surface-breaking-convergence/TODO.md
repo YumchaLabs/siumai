@@ -1,6 +1,6 @@
 # Compatibility Surface Breaking Convergence — TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 Status legend:
@@ -84,11 +84,13 @@ Status legend:
 
 ## M5 — Closeout
 
-- [ ] CSBC-060 [owner=planner] [deps=CSBC-020,CSBC-030,CSBC-040,CSBC-050] [scope=docs/workstreams/compatibility-surface-breaking-convergence]
+- [x] CSBC-060 [owner=planner] [deps=CSBC-020,CSBC-030,CSBC-040,CSBC-050] [scope=docs/workstreams/compatibility-surface-breaking-convergence]
   Goal: Close this lane or split remaining compatibility removals into narrower follow-ons.
   Validation:
   - documented final gate matrix in `EVIDENCE_AND_GATES.md`
   - `git diff --check -- docs/workstreams/compatibility-surface-breaking-convergence`
   Review: final self-review or `review-workstream`.
   Evidence: updated workstream docs.
-  Handoff: Summarize residual public API risks.
+  Handoff: DONE. Lane closed with residual follow-ons recorded for full `ContentPart` root
+  namespace movement, lower-level core alias deletion, and eventual method-style/generic-client
+  retirement after ADR-0007 / ADR-0008 prerequisites are satisfied.

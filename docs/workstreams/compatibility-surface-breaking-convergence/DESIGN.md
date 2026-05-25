@@ -1,6 +1,6 @@
 # Compatibility Surface Breaking Convergence
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Why This Lane Exists
@@ -105,3 +105,21 @@ This lane can close when:
 - ADR-0008 ContentPart movement is either completed or blocked by named unmet conditions,
 - evidence gates pass, and
 - any remaining breaking work is split into narrower follow-ons.
+
+## Closeout Summary
+
+Closed on 2026-05-25.
+
+The lane completed the safe compatibility-surface narrowing work:
+
+- Facade `compat::types` and `prelude::compat::types` now expose a curated legacy set, with the old
+  catch-all mirror moved under `legacy_all`.
+- `siumai_core::client` and `siumai_core::core::client` are deprecated migration aliases with
+  ADR-0007 removal guidance and source guards against production consumption.
+- Registry image, speech, and transcription extras now route through `ProviderExtensionFactory`;
+  stable family handles no longer store `ProviderCompatibilityFactory`.
+- ADR-0008's `ContentPart` root namespace move was evaluated. The facade-level break is complete,
+  while the low-level `siumai-spec::types::ContentPart` / `siumai-core::types::ContentPart` move is
+  explicitly deferred behind serde payload parity and provider/protocol fixture coverage.
+
+Residual breaking work is tracked as follow-on candidates, not hidden current-lane work.

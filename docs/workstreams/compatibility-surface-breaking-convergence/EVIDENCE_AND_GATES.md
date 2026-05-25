@@ -1,6 +1,6 @@
 # Compatibility Surface Breaking Convergence — Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Smallest Current Repro
@@ -85,3 +85,14 @@ Before accepting a breaking or near-breaking slice, check:
 | 2026-05-25 | CSBC-050 | `cargo nextest run -p siumai-spec --no-default-features --test content_projection_boundary_test adr_0008_full_contentpart_namespace_break_blockers_are_guarded --no-fail-fast`. | Pass: 1 test run, 1 passed. | Guards explicit compat/directional namespaces and the documented blockers for a full root `ContentPart` namespace move. |
 | 2026-05-25 | CSBC-050 | `cargo nextest run -p siumai --test public_surface_imports_test public_surface_legacy_content_part_uses_explicit_compat_namespace public_surface_directional_content_namespaces_compile public_surface_unified_prelude_excludes_legacy_content_part --no-default-features --features openai --no-fail-fast`. | Pass: 3 tests run, 3 passed. | Proves facade public import paths still enforce explicit compat content and directional prompt/output namespaces. |
 | 2026-05-25 | CSBC-050 | `cargo nextest run -p siumai --test facade_architecture_boundary_test legacy_content_part_has_explicit_compat_namespace stable_unified_prelude_does_not_export_legacy_content_part directional_content_namespaces_are_visible_and_compat_is_explicit generate_text_projection_delegates_content_part_mapping_to_spec --no-default-features --features openai --no-fail-fast`. | Pass: 4 tests run, 4 passed. | Proves facade architecture guards still reject stable-prelude legacy `ContentPart` exposure and keep the response projection adapter-owned. |
+| 2026-05-25 | CSBC-060 | `git diff --check -- docs/workstreams/compatibility-surface-breaking-convergence`. | Pass; Git reported expected LF-to-CRLF working-copy warnings only. | Proves closeout doc updates have no whitespace-error diff. |
+| 2026-05-25 | CSBC-060 | Workstream docs closed and cross-checked. | Pass | `DESIGN.md`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`, `HANDOFF.md`, and `WORKSTREAM.json` agree on closed status and residual follow-ons. |
+
+## Residual Risks
+
+- `siumai_core::client` and `siumai_core::core::client` remain public deprecated aliases until
+  ADR-0007 family-native migration conditions are satisfied.
+- `ProviderCompatibilityFactory` and `ProviderFactory::compat_*_client*` remain explicit migration
+  seams for method-style generic-client construction.
+- Low-level `siumai-spec::types::ContentPart` / `siumai-core::types::ContentPart` root paths remain
+  available until ADR-0008 root-move parity prerequisites are met.

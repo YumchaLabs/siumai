@@ -1,6 +1,6 @@
 # Compatibility Surface Breaking Convergence — Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## M0 — Scope And Evidence Freeze
@@ -61,3 +61,11 @@ Exit criteria:
 - Evidence is recorded for all completed slices.
 - Remaining breaking changes are explicit, not hidden.
 - `WORKSTREAM.json`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`, and `HANDOFF.md` agree.
+
+Result: complete. Remaining breaking changes are follow-on candidates:
+
+- delete lower-level core generic-client aliases after ADR-0007 conditions are met;
+- retire method-style/generic-client construction after family-native providers and extension
+  factories cover those use cases;
+- move low-level `ContentPart` root paths only after ADR-0008 root-move parity prerequisites are
+  satisfied.

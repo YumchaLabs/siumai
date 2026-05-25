@@ -1,20 +1,16 @@
 # Compatibility Surface Breaking Convergence — Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-25
 
 ## Current State
 
-This lane is newly opened from the closed public-surface deepening compatibility audit.
+This lane is closed. It was opened from the closed public-surface deepening compatibility audit to
+narrow remaining compatibility surfaces and record any unsafe breaking removals.
 
 ## Active Task
 
-- Task ID: CSBC-060
-- Owner: planner
-- Files: `docs/workstreams/compatibility-surface-breaking-convergence`
-- Validation: closeout doc consistency and final diff checks.
-- Status: READY
-- Evidence: `EVIDENCE_AND_GATES.md`
+None.
 
 ## Decisions Since Last Update
 
@@ -50,7 +46,17 @@ This lane is newly opened from the closed public-surface deepening compatibility
 
 - No blocker currently.
 
+## Residual Risks
+
+- Low-level core generic-client aliases remain as deprecated migration aliases until ADR-0007
+  conditions are met.
+- `ProviderCompatibilityFactory` / `ProviderFactory::compat_*_client*` remain explicit migration
+  seams for method-style generic-client construction.
+- Low-level `ContentPart` root paths remain until ADR-0008 root-move fixture/parity prerequisites
+  are complete.
+
 ## Next Recommended Action
 
-1. Run CSBC-060 closeout: update the workstream status, record residual public API risks, and run
-   final doc/diff checks.
+No active task remains in this lane. Start a new narrow follow-on only for a concrete residual risk:
+core alias deletion, method-style/generic-client retirement, or full `ContentPart` root namespace
+movement.
