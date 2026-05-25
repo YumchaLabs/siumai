@@ -1,0 +1,83 @@
+# Compatibility Surface Breaking Convergence — TODO
+
+Status: Active
+Last updated: 2026-05-25
+
+Status legend:
+
+- `[ ]` pending
+- `[~]` in progress
+- `[x]` complete
+- `[-]` intentionally deferred or split
+
+## M0 — Scope And Evidence Freeze
+
+- [x] CSBC-010 [owner=planner] [deps=none] [scope=docs/workstreams/compatibility-surface-breaking-convergence]
+  Goal: Freeze target state, task order, and evidence anchors for compatibility-surface breaking
+  convergence.
+  Validation: `DESIGN.md`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`,
+  `WORKSTREAM.json`, and `HANDOFF.md` exist and agree.
+  Review: planner self-review.
+  Evidence: workstream docs.
+  Handoff: DONE. Workstream docs opened and indexed. First executable task is CSBC-020.
+
+## M1 — Broad Facade Compat Types Narrowing
+
+- [ ] CSBC-020 [owner=codex] [deps=CSBC-010] [scope=siumai/src/compat.rs,siumai/src/prelude.rs,siumai/tests,docs]
+  Goal: Replace broad `siumai::compat::types::*` / `siumai::prelude::compat::types::*` mirroring
+  with a narrower explicit compatibility type surface or a documented transition module.
+  Validation:
+  - `cargo check -p siumai --tests --no-default-features --features openai`
+  - focused public compat import tests.
+  Review: public path preservation and migration-doc review.
+  Evidence: facade source guard and public import coverage.
+  Handoff: Final status must say whether any root compat type import was removed, kept, or
+  deprecated.
+
+## M2 — Core Generic Client Alias Exit Preparation
+
+- [ ] CSBC-030 [owner=codex] [deps=CSBC-020] [scope=siumai-core/src,siumai-core/tests,docs/migration,docs/architecture]
+  Goal: Move safe internal/test usage away from `siumai_core::client` /
+  `siumai_core::core::client`, strengthen guards, and define removal criteria for the aliases.
+  Validation:
+  - `cargo check -p siumai-core --tests --no-default-features`
+  - focused `core_provider_boundary_test` filters.
+  Review: ADR-0007 compliance review.
+  Evidence: source guard updates and migration docs.
+  Handoff: Split actual alias removal if public break conditions are not yet met.
+
+## M3 — Registry Generic-Client Factory Seam Reduction
+
+- [ ] CSBC-040 [owner=codex] [deps=CSBC-030] [scope=siumai-registry/src,siumai-registry/tests,docs]
+  Goal: Reduce stable-family dependency on `ProviderCompatibilityFactory` /
+  `compat_*_client*` and document remaining extension/method-style dependency points.
+  Validation:
+  - `cargo check -p siumai-registry --tests --no-default-features --features openai`
+  - focused registry factory architecture tests.
+  Review: ADR-0007 and family-first registry review.
+  Evidence: registry source guards and architecture docs.
+  Handoff: Split provider-specific native extension factory work if needed.
+
+## M4 — ADR-0008 ContentPart Breaking-Slice Decision
+
+- [ ] CSBC-050 [owner=codex] [deps=CSBC-020] [scope=siumai-core,siumai-spec,siumai,docs/adr,docs/migration,tests]
+  Goal: Evaluate ADR-0008 future-breaking conditions and either execute a safe compatibility
+  namespace break or record the exact blockers with source guards.
+  Validation:
+  - focused content boundary tests;
+  - public content import tests;
+  - fixture parity tests if any public path moves.
+  Review: ADR-0008 compliance review.
+  Evidence: decision note and tests.
+  Handoff: Final status must be DONE, DONE_WITH_CONCERNS, BLOCKED, or NEEDS_CONTEXT.
+
+## M5 — Closeout
+
+- [ ] CSBC-060 [owner=planner] [deps=CSBC-020,CSBC-030,CSBC-040,CSBC-050] [scope=docs/workstreams/compatibility-surface-breaking-convergence]
+  Goal: Close this lane or split remaining compatibility removals into narrower follow-ons.
+  Validation:
+  - documented final gate matrix in `EVIDENCE_AND_GATES.md`
+  - `git diff --check -- docs/workstreams/compatibility-surface-breaking-convergence`
+  Review: final self-review or `review-workstream`.
+  Evidence: updated workstream docs.
+  Handoff: Summarize residual public API risks.
