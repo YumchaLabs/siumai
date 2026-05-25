@@ -8,7 +8,7 @@
   "problem": "Remaining explicit compatibility shims keep old broad type, generic-client, registry factory, and legacy content shapes discoverable after public-surface deepening.",
   "objective": "Narrow or prepare removal of remaining compatibility surfaces while respecting ADR-0007 and ADR-0008 migration conditions.",
   "active_task": null,
-  "next_task": "CSBC-020",
+  "next_task": "CSBC-030",
   "authoritative_docs": [
     {
       "role": "design",

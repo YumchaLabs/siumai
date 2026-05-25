@@ -1762,6 +1762,9 @@ fn public_surface_compat_imports_compile() {
     let _ = size_of::<ProviderCore>();
     let _ = size_of::<ClientWrapper>();
     let _ = size_of::<*const dyn LlmClient>();
+    let _ = size_of::<siumai::compat::types::ChatMessage>();
+    let _ = size_of::<siumai::compat::types::Warning>();
+    let _ = size_of::<siumai::compat::types::legacy_all::MessageContent>();
     let _ = experimental_filter_active_tools::<String>
         as fn(
             Option<&[siumai::compat::types::Tool]>,
@@ -1802,6 +1805,8 @@ fn public_surface_compat_prelude_imports_compile() {
     let _ = size_of::<StreamingToolCallTypeValidation>();
     let _ = size_of::<prelude_compat_content::ContentPart>();
     let _ = size_of::<prelude_compat_types::ChatMessage>();
+    let _ = size_of::<prelude_compat_types::Warning>();
+    let _ = size_of::<prelude_compat_types::legacy_all::MessageContent>();
     let _ = experimental_filter_active_tools::<String>
         as fn(
             Option<&[siumai::prelude::compat::types::Tool]>,

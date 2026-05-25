@@ -1507,7 +1507,9 @@ fn broad_facade_types_path_is_explicit_compat_only() {
     let root_types_path = ["siumai", "types"].join("::");
     let root_types_glob = format!("`{root_types_path}::*`");
     let compat_types_glob = "`siumai::compat::types::*`";
+    let compat_types_legacy_glob = "`siumai::compat::types::legacy_all::*`";
     let prelude_compat_types_glob = "`siumai::prelude::compat::types::*`";
+    let prelude_compat_types_legacy_glob = "`siumai::prelude::compat::types::legacy_all::*`";
     let public_surface_doc =
         fs::read_to_string(crate_root().join("../docs/architecture/public-surface.md"))
             .expect("read public surface doc");
@@ -1529,13 +1531,21 @@ fn broad_facade_types_path_is_explicit_compat_only() {
     );
     assert!(
         compat_rs.contains("pub mod types {")
+            && compat_rs.contains(
+                "pub use siumai_core::types::{ChatMessage, StopCondition, Tool, Warning};"
+            )
+            && compat_rs.contains("pub mod legacy_all")
             && compat_rs.contains("pub use siumai_core::types::*;"),
-        "siumai::compat should own the broad type namespace for migration-only imports"
+        "siumai::compat::types should expose a narrow migration set and keep the broad mirror only under legacy_all"
     );
     assert!(
         prelude_rs.contains("pub mod types {")
-            && prelude_rs.contains("pub use crate::compat::types::*;"),
-        "prelude::compat should expose compat::types without restoring a root facade type module"
+            && prelude_rs.contains(
+                "pub use crate::compat::types::{ChatMessage, StopCondition, Tool, Warning};"
+            )
+            && prelude_rs.contains("pub mod legacy_all")
+            && prelude_rs.contains("pub use crate::compat::types::legacy_all::*;"),
+        "prelude::compat::types should follow the narrowed compat::types surface with a nested legacy_all escape hatch"
     );
     assert!(
         !unified_source.contains("siumai_core::types::*"),
@@ -1545,14 +1555,17 @@ fn broad_facade_types_path_is_explicit_compat_only() {
         public_surface_doc.contains(&root_types_glob)
             && public_surface_doc.contains("removed historical compatibility path")
             && public_surface_doc.contains(compat_types_glob)
+            && public_surface_doc.contains(compat_types_legacy_glob)
             && public_surface_doc.contains(prelude_compat_types_glob)
+            && public_surface_doc.contains(prelude_compat_types_legacy_glob)
             && public_surface_doc.contains("curated explicit list"),
         "public-surface.md should document the root type removal and the explicit compat migration path"
     );
     assert!(
         migration_doc.contains("Root broad type namespace")
             && migration_doc.contains(&root_types_glob)
-            && migration_doc.contains(compat_types_glob),
+            && migration_doc.contains(compat_types_glob)
+            && migration_doc.contains(compat_types_legacy_glob),
         "migration docs should include the root type namespace removal"
     );
     assert!(
@@ -1560,7 +1573,7 @@ fn broad_facade_types_path_is_explicit_compat_only() {
             && compatibility_audit.contains(&root_types_glob)
             && compatibility_audit.contains(compat_types_glob)
             && compatibility_audit.contains("removed from the facade root"),
-        "compatibility-audit.md should classify broad type imports as explicit compat-only"
+        "compatibility-audit.md should classify historical broad type imports as explicit compat-only"
     );
 
     let forbidden_path = format!("{root_types_path}::");

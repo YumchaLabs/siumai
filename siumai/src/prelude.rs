@@ -258,9 +258,14 @@ pub mod compat {
         experimental_filter_active_tools, step_count_is,
     };
 
-    /// Historical broad type namespace for migration-oriented imports.
+    /// Narrow legacy type namespace for migration-oriented imports.
     pub mod types {
-        pub use crate::compat::types::*;
+        pub use crate::compat::types::{ChatMessage, StopCondition, Tool, Warning};
+
+        /// Historical catch-all type namespace for last-resort migrations.
+        pub mod legacy_all {
+            pub use crate::compat::types::legacy_all::*;
+        }
     }
 
     /// Legacy chat content payloads.

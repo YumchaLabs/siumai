@@ -43,9 +43,11 @@ construct shared structs directly, or compare serialized snapshots.
   `siumai::builder::*` shim was removed.
 - `SiumaiBuilder::provider(ProviderType)` was removed; use `.provider_id("openai")`,
   `.provider_id("anthropic")`, or provider-specific helpers such as `.openai()` / `.anthropic()`.
-- Root broad type namespace: import migration-only catch-all types from
-  `siumai::compat::types::*` or `siumai::prelude::compat::types::*`; the root `siumai::types::*`
-  path was removed.
+- Root broad type namespace: import common legacy names from the narrowed
+  `siumai::compat::types::*` or `siumai::prelude::compat::types::*` surface. Last-resort migration
+  code that still needs the old catch-all namespace can use
+  `siumai::compat::types::legacy_all::*` or `siumai::prelude::compat::types::legacy_all::*`; the
+  root `siumai::types::*` path was removed.
 - Deprecated AI SDK parity aliases: import `CallSettings`, `Experimental_*` result aliases,
   `experimental_filter_active_tools`, and `step_count_is` from `siumai::compat` when needed.
 - File/skill upload helpers: import upload helper types from `siumai::files::*` /
@@ -880,9 +882,9 @@ for migration code that still needs method-style provider builders.
 
 ## 16) Root broad type namespace imports
 
-The historical root `siumai::types::*` catch-all namespace moved to the explicit compatibility
-surface. This keeps broad migration imports visible and prevents the facade root from becoming the
-default type namespace again.
+The historical root `siumai::types::*` catch-all namespace moved out of the facade root. The main
+compatibility type surface is now narrowed to common legacy names; the broad mirror is available
+only through a nested `legacy_all` namespace for last-resort migrations.
 
 Before:
 
@@ -890,7 +892,7 @@ Before:
 use siumai::types::{ChatMessage, Tool, Warning};
 ```
 
-After, for migration code that intentionally keeps the catch-all namespace:
+After, for migration code that needs common legacy names:
 
 ```rust,ignore
 use siumai::compat::types::{ChatMessage, Tool, Warning};
@@ -900,6 +902,12 @@ Or through the compatibility prelude:
 
 ```rust,ignore
 use siumai::prelude::compat::types::{ChatMessage, Tool, Warning};
+```
+
+If older code truly needs the old catch-all namespace during migration:
+
+```rust,ignore
+use siumai::compat::types::legacy_all::*;
 ```
 
 For new code, prefer the owning stable paths instead:

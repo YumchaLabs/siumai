@@ -23,7 +23,7 @@ Status legend:
 
 ## M1 — Broad Facade Compat Types Narrowing
 
-- [ ] CSBC-020 [owner=codex] [deps=CSBC-010] [scope=siumai/src/compat.rs,siumai/src/prelude.rs,siumai/tests,docs]
+- [x] CSBC-020 [owner=codex] [deps=CSBC-010] [scope=siumai/src/compat.rs,siumai/src/prelude.rs,siumai/tests,docs]
   Goal: Replace broad `siumai::compat::types::*` / `siumai::prelude::compat::types::*` mirroring
   with a narrower explicit compatibility type surface or a documented transition module.
   Validation:
@@ -31,8 +31,8 @@ Status legend:
   - focused public compat import tests.
   Review: public path preservation and migration-doc review.
   Evidence: facade source guard and public import coverage.
-  Handoff: Final status must say whether any root compat type import was removed, kept, or
-  deprecated.
+  Handoff: DONE. `compat::types` and `prelude::compat::types` now expose common legacy names only;
+  the old catch-all mirror moved to nested `legacy_all` modules for last-resort migration.
 
 ## M2 — Core Generic Client Alias Exit Preparation
 

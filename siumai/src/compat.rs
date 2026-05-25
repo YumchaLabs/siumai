@@ -59,12 +59,20 @@ pub use siumai_core::types::{
     experimental_filter_active_tools, step_count_is,
 };
 
-/// Historical broad type namespace for migration-only imports.
+/// Narrow legacy type namespace for migration-only imports.
 ///
 /// Prefer `siumai::prelude::unified::*`, `siumai::prelude::extensions::*`, or the owning
 /// family/provider module for new code.
 pub mod types {
-    pub use siumai_core::types::*;
+    pub use siumai_core::types::{ChatMessage, StopCondition, Tool, Warning};
+
+    /// Historical catch-all type namespace for last-resort migrations.
+    ///
+    /// Prefer the curated `siumai::compat::types::*` surface or stable owning modules before
+    /// importing this broad mirror.
+    pub mod legacy_all {
+        pub use siumai_core::types::*;
+    }
 }
 
 /// Legacy builder base types (provider builder internals).

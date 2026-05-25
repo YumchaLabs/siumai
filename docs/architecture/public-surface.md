@@ -402,11 +402,13 @@ The root `siumai::builder::*` shim has been removed. Code that intentionally nee
 base internals during migration should import them from `siumai::compat::builder::*`; normal
 application code should not depend on builder base types.
 
-The root `siumai::types::*` path has also been removed. Migration code that needs the historical
-catch-all type namespace should import `siumai::compat::types::*` or
-`siumai::prelude::compat::types::*` explicitly. New code should prefer stable family imports from
-`siumai::prelude::unified::*`, extension-only imports from `siumai::extensions::*` /
-`siumai::prelude::extensions::*`, and provider-specific data from
+The root `siumai::types::*` path has also been removed. Migration code that needs common legacy
+types should import the narrowed `siumai::compat::types::*` or
+`siumai::prelude::compat::types::*` surface explicitly. The historical catch-all mirror remains
+only as `siumai::compat::types::legacy_all::*` or
+`siumai::prelude::compat::types::legacy_all::*` for last-resort migrations. New code should prefer
+stable family imports from `siumai::prelude::unified::*`, extension-only imports from
+`siumai::extensions::*` / `siumai::prelude::extensions::*`, and provider-specific data from
 `siumai::provider_ext::<provider>::*`.
 
 Legacy chat content carriers are also compatibility-only. Migration code that intentionally needs
@@ -436,7 +438,10 @@ They may exist in lower-level crates, but should not be used through the facade.
 
 `siumai::types::*` is a removed historical compatibility path. Use the explicit migration surface
 `siumai::compat::types::*` / `siumai::prelude::compat::types::*` only when porting older code that
-needs the catch-all namespace. Prefer `siumai::prelude::unified::*` for stable family data,
+needs common legacy names such as `ChatMessage`, `Tool`, `StopCondition`, or `Warning`. If a
+migration still needs the old catch-all namespace, use
+`siumai::compat::types::legacy_all::*` or `siumai::prelude::compat::types::legacy_all::*` and treat
+that as temporary. Prefer `siumai::prelude::unified::*` for stable family data,
 `siumai::prelude::extensions::*` for non-unified capability types, and provider extension modules
 for provider-specific options or metadata. The default `prelude::unified` type exports must stay a
 curated explicit list rather than a glob mirror of the broad compatibility type namespace.
