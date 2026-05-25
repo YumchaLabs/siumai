@@ -39,9 +39,10 @@ Exit criteria:
 Exit criteria:
 
 - Stable family handles remain native-family first.
-- Remaining compatibility factory methods are documented as method-style or extension-only
-  migration seams.
-- Guards prevent stable family regressions into `compat_*_client*` self-calls.
+- Stable family handles store only family/extension facets, not `ProviderCompatibilityFactory`.
+- Remaining compatibility factory methods are documented as explicit method-style migration seams.
+- Guards prevent stable family regressions into `compat_*_client*` self-calls or direct
+  compatibility-facet storage.
 
 ## M4 — ADR-0008 ContentPart Breaking-Slice Decision
 

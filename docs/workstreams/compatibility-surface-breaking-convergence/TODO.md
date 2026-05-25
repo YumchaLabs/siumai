@@ -50,7 +50,7 @@ Status legend:
 
 ## M3 — Registry Generic-Client Factory Seam Reduction
 
-- [ ] CSBC-040 [owner=codex] [deps=CSBC-030] [scope=siumai-registry/src,siumai-registry/tests,docs]
+- [x] CSBC-040 [owner=codex] [deps=CSBC-030] [scope=siumai-registry/src,siumai-registry/tests,docs]
   Goal: Reduce stable-family dependency on `ProviderCompatibilityFactory` /
   `compat_*_client*` and document remaining extension/method-style dependency points.
   Validation:
@@ -58,7 +58,10 @@ Status legend:
   - focused registry factory architecture tests.
   Review: ADR-0007 and family-first registry review.
   Evidence: registry source guards and architecture docs.
-  Handoff: Split provider-specific native extension factory work if needed.
+  Handoff: DONE. Image, speech, and transcription extras now route through
+  `ProviderExtensionFactory`; stable family handles no longer store `ProviderCompatibilityFactory`.
+  `ProviderFactoryFacets` keeps only family/extension facets, while the compatibility facet is
+  created only for explicit `SiumaiBuilder` generic-client migration construction.
 
 ## M4 — ADR-0008 ContentPart Breaking-Slice Decision
 

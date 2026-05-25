@@ -197,7 +197,10 @@ fn provider_factory_facets_split_stable_compat_and_extension_execution() {
     );
     assert!(
         !extension_trait.contains("LlmClient")
-            && extension_trait.contains("build_file_management_capability_with_ctx"),
+            && extension_trait.contains("build_file_management_capability_with_ctx")
+            && extension_trait.contains("build_image_extras_with_ctx")
+            && extension_trait.contains("build_speech_extras_with_ctx")
+            && extension_trait.contains("build_transcription_extras_with_ctx"),
         "ProviderExtensionFactory should expose extension capability objects without widening the family facet"
     );
 
@@ -222,9 +225,13 @@ fn provider_factory_facets_split_stable_compat_and_extension_execution() {
             && source.contains("fn from_provider_factory(")
             && source.contains("struct ProviderFactoryFacetAdapter")
             && source.contains("family_factory: Arc<dyn ProviderFamilyFactory>")
-            && source.contains("compatibility_factory: Arc<dyn ProviderCompatibilityFactory>")
             && source.contains("extension_factory: Arc<dyn ProviderExtensionFactory>"),
-        "registry internals should adapt the broad ProviderFactory implementation trait into narrow execution facets"
+        "registry internals should adapt the broad ProviderFactory implementation trait into narrow family/extension execution facets"
+    );
+    assert!(
+        !source.contains("compatibility_factory: Arc<dyn ProviderCompatibilityFactory>")
+            && source.contains("compatibility_facet_from_provider_factory"),
+        "ProviderFactoryFacets should not store the compatibility facet; generic-client compatibility should be built only for explicit migration entry points"
     );
 }
 
@@ -263,8 +270,9 @@ fn registry_handles_depend_on_narrow_factory_facets() {
         );
         assert!(
             source.contains("Arc<dyn ProviderFamilyFactory>")
-                && source.contains("Arc<dyn ProviderCompatibilityFactory>"),
-            "{file_name} should hold explicit family and compatibility facets"
+                && source.contains("Arc<dyn ProviderExtensionFactory>")
+                && !source.contains("Arc<dyn ProviderCompatibilityFactory>"),
+            "{file_name} should hold family and extension facets, not the legacy compatibility facet"
         );
     }
 
@@ -419,21 +427,15 @@ fn remaining_registry_handle_compat_paths_are_extension_only() {
         image_generation_capability,
     );
 
-    let image_extras = source_section(
-        &image_source,
-        "image handle ImageExtras impl",
-        "impl ImageExtras for ImageModelHandle",
-        "impl crate::traits::ModelMetadata for ImageModelHandle",
-    );
-    assert_eq!(
-        count_occurrences(image_extras, "build_compat_image_client_with_ctx"),
-        2,
-        "image compat client access must stay isolated to image extras edit/variation paths"
-    );
     assert_eq!(
         count_occurrences(&image_source, "build_compat_image_client_with_ctx"),
+        0,
+        "image handle must route image extras through ProviderExtensionFactory instead of ProviderCompatibilityFactory"
+    );
+    assert_eq!(
+        count_occurrences(&image_source, "build_image_extras_with_ctx"),
         2,
-        "image handle must not grow new compat image client paths outside image extras"
+        "image extras access should stay isolated to edit/variation paths"
     );
 
     let audio_source = read_handle_source("audio.rs");
@@ -458,43 +460,25 @@ fn remaining_registry_handle_compat_paths_are_extension_only() {
         transcription_primary,
     );
 
-    let speech_extension_helper = source_section(
-        &audio_source,
-        "speech handle extension helper",
-        "async fn build_speech_client",
-        "async fn get_or_create_speech_model",
-    );
-    assert_eq!(
-        count_occurrences(
-            speech_extension_helper,
-            "build_compat_speech_client_with_ctx"
-        ),
-        1,
-        "speech compat client access must stay isolated to speech extras paths"
-    );
     assert_eq!(
         count_occurrences(&audio_source, "build_compat_speech_client_with_ctx"),
-        1,
-        "speech handle must not grow new compat speech client paths outside extras"
+        0,
+        "speech handle must route speech extras through ProviderExtensionFactory instead of ProviderCompatibilityFactory"
     );
 
-    let transcription_extension_helper = source_section(
-        &audio_source,
-        "transcription handle extension helper",
-        "async fn build_transcription_client",
-        "async fn get_or_create_transcription_model",
-    );
     assert_eq!(
-        count_occurrences(
-            transcription_extension_helper,
-            "build_compat_transcription_client_with_ctx",
-        ),
+        count_occurrences(&audio_source, "build_speech_extras_with_ctx"),
         1,
-        "transcription compat client access must stay isolated to transcription extras paths"
+        "speech extras access should stay isolated to the speech extension helper"
     );
     assert_eq!(
         count_occurrences(&audio_source, "build_compat_transcription_client_with_ctx"),
+        0,
+        "transcription handle must route transcription extras through ProviderExtensionFactory instead of ProviderCompatibilityFactory"
+    );
+    assert_eq!(
+        count_occurrences(&audio_source, "build_transcription_extras_with_ctx"),
         1,
-        "transcription handle must not grow new compat transcription client paths outside extras"
+        "transcription extras access should stay isolated to the transcription extension helper"
     );
 }

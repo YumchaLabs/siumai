@@ -9,10 +9,10 @@ This lane is newly opened from the closed public-surface deepening compatibility
 
 ## Active Task
 
-- Task ID: CSBC-040
+- Task ID: CSBC-050
 - Owner: codex
-- Files: `siumai-registry/src`, `siumai-registry/tests`, docs.
-- Validation: registry compatibility factory gate.
+- Files: `siumai-core`, `siumai-spec`, `siumai`, docs, tests.
+- Validation: content boundary and public import gates selected during task execution.
 - Status: READY
 - Evidence: `EVIDENCE_AND_GATES.md`
 
@@ -33,6 +33,12 @@ This lane is newly opened from the closed public-surface deepening compatibility
 - Completed CSBC-030 by deprecating the lower-level core client aliases, documenting
   `siumai_core::compat::client` as the preferred core-level import, and adding a production source
   guard against consuming the aliases.
+- Completed CSBC-040 by moving image, speech, and transcription extras construction behind
+  `ProviderExtensionFactory`, removing `ProviderCompatibilityFactory` storage from stable
+  image/audio handles, and shrinking `ProviderFactoryFacets` to family/extension facets only.
+  `ProviderCompatibilityFactory` remains available through the explicit
+  `compatibility_facet_from_provider_factory(...)` adapter used by `SiumaiBuilder` generic-client
+  migration construction.
 
 ## Blockers
 
@@ -40,5 +46,5 @@ This lane is newly opened from the closed public-surface deepening compatibility
 
 ## Next Recommended Action
 
-1. Start CSBC-040 by inventorying stable-family and extension uses of
-   `ProviderCompatibilityFactory` / `compat_*_client*` in `siumai-registry`.
+1. Start CSBC-050 by reading ADR-0008 and inventorying current public `ContentPart` /
+   `legacy_content` import paths before choosing whether a breaking namespace move is safe.

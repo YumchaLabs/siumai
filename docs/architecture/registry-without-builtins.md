@@ -62,9 +62,12 @@ cargo run -p siumai-registry --example no_builtins_custom_factory
   through `compat_language_client_with_ctx(...)`.
 - Registry execution is split into narrower facets:
   - `ProviderFamilyFactory` for stable family-model construction;
-  - `ProviderCompatibilityFactory` for legacy generic-client construction;
-  - `ProviderExtensionFactory` for non-family extension capabilities.
+  - `ProviderExtensionFactory` for non-family extension capabilities, including image, speech, and
+    transcription extras;
+  - `ProviderCompatibilityFactory` for explicit legacy generic-client construction.
   Custom providers still implement `ProviderFactory`; these facets are blanket-implemented from
-  that source-compatible trait so registry handles can depend on the narrower boundary.
+  that source-compatible trait so registry handles can depend on the narrower boundary. Stable
+  family handles store family/extension facets only; the compatibility facet is created only for
+  migration entry points that explicitly return `Arc<dyn LlmClient>`.
 - If you _do_ want built-in providers, enable `siumai-registry` features like `openai` / `ollama`
   (these imply `builtins`).

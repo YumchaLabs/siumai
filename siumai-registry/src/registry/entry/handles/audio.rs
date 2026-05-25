@@ -4,7 +4,6 @@ use std::time::Duration;
 use lru::LruCache;
 use tokio::sync::Mutex as TokioMutex;
 
-use crate::compat::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::retry_api::RetryOptions;
@@ -18,7 +17,7 @@ use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 
 use super::super::build_context::build_registry_context;
 use super::super::cache::{SpeechCacheEntry, TranscriptionCacheEntry};
-use super::super::factory::{ProviderCompatibilityFactory, ProviderFamilyFactory};
+use super::super::factory::{ProviderExtensionFactory, ProviderFamilyFactory};
 
 fn request_model_missing(slot: Option<&str>) -> bool {
     match slot {
@@ -55,7 +54,7 @@ fn apply_translation_handle_default_model(
 #[derive(Clone)]
 pub struct SpeechModelHandle {
     pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
-    pub(in crate::registry::entry) compatibility_factory: Arc<dyn ProviderCompatibilityFactory>,
+    pub(in crate::registry::entry) extension_factory: Arc<dyn ProviderExtensionFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -97,13 +96,7 @@ impl AudioCapability for SpeechModelHandle {
     }
 
     async fn text_to_speech_stream(&self, request: TtsRequest) -> Result<AudioStream, LlmError> {
-        let client = self.build_speech_client(&self.model_id).await?;
-        let extras = client.as_speech_extras().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support streaming text-to-speech.",
-                self.provider_id
-            ))
-        })?;
+        let extras = self.build_speech_extras(&self.model_id).await?;
 
         extras
             .tts_stream(apply_speech_handle_default_model(request, &self.model_id))
@@ -111,13 +104,7 @@ impl AudioCapability for SpeechModelHandle {
     }
 
     async fn get_voices(&self) -> Result<Vec<VoiceInfo>, LlmError> {
-        let client = self.build_speech_client(&self.model_id).await?;
-        let extras = client.as_speech_extras().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support voice listing.",
-                self.provider_id
-            ))
-        })?;
+        let extras = self.build_speech_extras(&self.model_id).await?;
 
         extras.get_voices().await
     }
@@ -134,7 +121,10 @@ impl crate::traits::ModelMetadata for SpeechModelHandle {
 }
 
 impl SpeechModelHandle {
-    async fn build_speech_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+    async fn build_speech_extras(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn crate::traits::SpeechExtras>, LlmError> {
         let ctx = build_registry_context(
             &self.provider_id,
             &self.http_interceptors,
@@ -147,8 +137,8 @@ impl SpeechModelHandle {
             None,
             None,
         );
-        self.compatibility_factory
-            .build_compat_speech_client_with_ctx(model_id, &ctx)
+        self.extension_factory
+            .build_speech_extras_with_ctx(model_id, &ctx)
             .await
     }
 
@@ -195,7 +185,7 @@ impl SpeechModelHandle {
 #[derive(Clone)]
 pub struct TranscriptionModelHandle {
     pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
-    pub(in crate::registry::entry) compatibility_factory: Arc<dyn ProviderCompatibilityFactory>,
+    pub(in crate::registry::entry) extension_factory: Arc<dyn ProviderExtensionFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -243,13 +233,7 @@ impl AudioCapability for TranscriptionModelHandle {
     }
 
     async fn speech_to_text_stream(&self, request: SttRequest) -> Result<AudioStream, LlmError> {
-        let client = self.build_transcription_client(&self.model_id).await?;
-        let extras = client.as_transcription_extras().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support streaming speech-to-text.",
-                self.provider_id
-            ))
-        })?;
+        let extras = self.build_transcription_extras(&self.model_id).await?;
 
         extras
             .stt_stream(apply_transcription_handle_default_model(
@@ -263,13 +247,7 @@ impl AudioCapability for TranscriptionModelHandle {
         &self,
         request: AudioTranslationRequest,
     ) -> Result<SttResponse, LlmError> {
-        let client = self.build_transcription_client(&self.model_id).await?;
-        let extras = client.as_transcription_extras().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support audio translation.",
-                self.provider_id
-            ))
-        })?;
+        let extras = self.build_transcription_extras(&self.model_id).await?;
 
         extras
             .audio_translate(apply_translation_handle_default_model(
@@ -280,13 +258,7 @@ impl AudioCapability for TranscriptionModelHandle {
     }
 
     async fn get_supported_languages(&self) -> Result<Vec<LanguageInfo>, LlmError> {
-        let client = self.build_transcription_client(&self.model_id).await?;
-        let extras = client.as_transcription_extras().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support language listing.",
-                self.provider_id
-            ))
-        })?;
+        let extras = self.build_transcription_extras(&self.model_id).await?;
 
         extras.get_supported_languages().await
     }
@@ -303,10 +275,10 @@ impl crate::traits::ModelMetadata for TranscriptionModelHandle {
 }
 
 impl TranscriptionModelHandle {
-    async fn build_transcription_client(
+    async fn build_transcription_extras(
         &self,
         model_id: &str,
-    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+    ) -> Result<Arc<dyn crate::traits::TranscriptionExtras>, LlmError> {
         let ctx = build_registry_context(
             &self.provider_id,
             &self.http_interceptors,
@@ -319,8 +291,8 @@ impl TranscriptionModelHandle {
             None,
             None,
         );
-        self.compatibility_factory
-            .build_compat_transcription_client_with_ctx(model_id, &ctx)
+        self.extension_factory
+            .build_transcription_extras_with_ctx(model_id, &ctx)
             .await
     }
 

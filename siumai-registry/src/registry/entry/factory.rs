@@ -6,7 +6,8 @@ use crate::error::LlmError;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::text::LanguageModel as FamilyLanguageModel;
 use crate::traits::{
-    FileManagementCapability, MusicGenerationCapability, ProviderCapabilities, SkillsCapability,
+    FileManagementCapability, ImageExtras, MusicGenerationCapability, ProviderCapabilities,
+    SkillsCapability, SpeechExtras, TranscriptionExtras,
 };
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::rerank::RerankingModel as FamilyRerankingModel;
@@ -16,8 +17,9 @@ use siumai_core::video::VideoModel as FamilyVideoModel;
 
 use super::build_context::BuildContext;
 use super::extension_adapters::{
-    ClientBackedFileManagementCapability, ClientBackedMusicGenerationCapability,
-    ClientBackedSkillsCapability,
+    ClientBackedFileManagementCapability, ClientBackedImageExtras,
+    ClientBackedMusicGenerationCapability, ClientBackedSkillsCapability, ClientBackedSpeechExtras,
+    ClientBackedTranscriptionExtras,
 };
 
 fn unsupported_native_family_model(provider_id: &str, family: &str) -> LlmError {
@@ -164,6 +166,24 @@ pub trait ProviderExtensionFactory: Send + Sync {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn MusicGenerationCapability>, LlmError>;
+
+    async fn build_image_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn ImageExtras>, LlmError>;
+
+    async fn build_speech_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn SpeechExtras>, LlmError>;
+
+    async fn build_transcription_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn TranscriptionExtras>, LlmError>;
 }
 
 /// Provider factory trait - similar to Vercel AI SDK's ProviderV3.
@@ -311,6 +331,89 @@ pub trait ProviderFactory: Send + Sync {
         model_id: &str,
     ) -> Result<Arc<dyn MusicGenerationCapability>, LlmError> {
         self.music_generation_capability_with_ctx(model_id, &BuildContext::default())
+            .await
+    }
+
+    /// Create an image extras extension with build context.
+    async fn image_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn ImageExtras>, LlmError> {
+        let client = self.compat_image_client_with_ctx(model_id, ctx).await?;
+        if client.as_image_extras().is_none() {
+            return Err(unsupported_extension(
+                self.provider_id().as_ref(),
+                "image extras",
+            ));
+        }
+
+        Ok(Arc::new(ClientBackedImageExtras::new(
+            client,
+            self.provider_id().into_owned(),
+        )))
+    }
+
+    /// Create an image extras extension without an explicit build context.
+    async fn image_extras(&self, model_id: &str) -> Result<Arc<dyn ImageExtras>, LlmError> {
+        self.image_extras_with_ctx(model_id, &BuildContext::default())
+            .await
+    }
+
+    /// Create a speech extras extension with build context.
+    async fn speech_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn SpeechExtras>, LlmError> {
+        let client = self.compat_speech_client_with_ctx(model_id, ctx).await?;
+        if client.as_speech_extras().is_none() {
+            return Err(unsupported_extension(
+                self.provider_id().as_ref(),
+                "speech extras",
+            ));
+        }
+
+        Ok(Arc::new(ClientBackedSpeechExtras::new(
+            client,
+            self.provider_id().into_owned(),
+        )))
+    }
+
+    /// Create a speech extras extension without an explicit build context.
+    async fn speech_extras(&self, model_id: &str) -> Result<Arc<dyn SpeechExtras>, LlmError> {
+        self.speech_extras_with_ctx(model_id, &BuildContext::default())
+            .await
+    }
+
+    /// Create a transcription extras extension with build context.
+    async fn transcription_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn TranscriptionExtras>, LlmError> {
+        let client = self
+            .compat_transcription_client_with_ctx(model_id, ctx)
+            .await?;
+        if client.as_transcription_extras().is_none() {
+            return Err(unsupported_extension(
+                self.provider_id().as_ref(),
+                "transcription extras",
+            ));
+        }
+
+        Ok(Arc::new(ClientBackedTranscriptionExtras::new(
+            client,
+            self.provider_id().into_owned(),
+        )))
+    }
+
+    /// Create a transcription extras extension without an explicit build context.
+    async fn transcription_extras(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn TranscriptionExtras>, LlmError> {
+        self.transcription_extras_with_ctx(model_id, &BuildContext::default())
             .await
     }
 
@@ -591,7 +694,6 @@ pub trait ProviderFactory: Send + Sync {
 #[derive(Clone)]
 pub(in crate::registry::entry) struct ProviderFactoryFacets {
     family_factory: Arc<dyn ProviderFamilyFactory>,
-    compatibility_factory: Arc<dyn ProviderCompatibilityFactory>,
     extension_factory: Arc<dyn ProviderExtensionFactory>,
 }
 
@@ -605,7 +707,6 @@ impl ProviderFactoryFacets {
 
         Self {
             family_factory: adapter.clone(),
-            compatibility_factory: adapter.clone(),
             extension_factory: adapter,
         }
     }
@@ -616,12 +717,6 @@ impl ProviderFactoryFacets {
 
     pub(in crate::registry::entry) fn family_factory(&self) -> Arc<dyn ProviderFamilyFactory> {
         self.family_factory.clone()
-    }
-
-    pub(in crate::registry::entry) fn compatibility_factory(
-        &self,
-    ) -> Arc<dyn ProviderCompatibilityFactory> {
-        self.compatibility_factory.clone()
     }
 
     pub(in crate::registry::entry) fn extension_factory(
@@ -816,6 +911,30 @@ impl ProviderExtensionFactory for ProviderFactoryFacetAdapter {
         ProviderFactory::music_generation_capability_with_ctx(self.factory.as_ref(), model_id, ctx)
             .await
     }
+
+    async fn build_image_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn ImageExtras>, LlmError> {
+        ProviderFactory::image_extras_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_speech_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn SpeechExtras>, LlmError> {
+        ProviderFactory::speech_extras_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
+
+    async fn build_transcription_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn TranscriptionExtras>, LlmError> {
+        ProviderFactory::transcription_extras_with_ctx(self.factory.as_ref(), model_id, ctx).await
+    }
 }
 
 #[async_trait::async_trait]
@@ -993,5 +1112,29 @@ where
         ctx: &BuildContext,
     ) -> Result<Arc<dyn MusicGenerationCapability>, LlmError> {
         ProviderFactory::music_generation_capability_with_ctx(self, model_id, ctx).await
+    }
+
+    async fn build_image_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn ImageExtras>, LlmError> {
+        ProviderFactory::image_extras_with_ctx(self, model_id, ctx).await
+    }
+
+    async fn build_speech_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn SpeechExtras>, LlmError> {
+        ProviderFactory::speech_extras_with_ctx(self, model_id, ctx).await
+    }
+
+    async fn build_transcription_extras_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn TranscriptionExtras>, LlmError> {
+        ProviderFactory::transcription_extras_with_ctx(self, model_id, ctx).await
     }
 }

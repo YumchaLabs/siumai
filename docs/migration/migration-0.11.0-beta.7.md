@@ -158,6 +158,10 @@ prelude.
 Generic `LlmClient` factory construction remains available only through explicit
 `compat_*_client(...)` / `compat_*_client_with_ctx(...)` methods. Use those methods for migration
 code or for extension-only surfaces that do not yet have a first-class model family.
+Registry-owned image, speech, and transcription extras now route through `ProviderExtensionFactory`
+instead of stable handles storing `ProviderCompatibilityFactory`; custom providers can override the
+typed extension methods when they have native extension objects, while the default implementations
+continue to adapt the explicit `compat_*_client_with_ctx(...)` methods.
 Generic client type imports now have an explicit migration path:
 `siumai::compat::client::{LlmClient, ClientWrapper}`. `siumai::experimental::client` remains an
 advanced alias. Lower-level `siumai_core::client` and `siumai_core::core::client` imports are

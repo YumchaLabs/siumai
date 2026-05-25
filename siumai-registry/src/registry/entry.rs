@@ -408,7 +408,7 @@ impl ProviderRegistryHandle {
 
         Ok(ImageModelHandle {
             family_factory: factory.family_factory(),
-            compatibility_factory: factory.compatibility_factory(),
+            extension_factory: factory.extension_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),
@@ -465,7 +465,7 @@ impl ProviderRegistryHandle {
 
         Ok(SpeechModelHandle {
             family_factory: factory.family_factory(),
-            compatibility_factory: factory.compatibility_factory(),
+            extension_factory: factory.extension_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),
@@ -495,7 +495,7 @@ impl ProviderRegistryHandle {
 
         Ok(TranscriptionModelHandle {
             family_factory: factory.family_factory(),
-            compatibility_factory: factory.compatibility_factory(),
+            extension_factory: factory.extension_factory(),
             provider_id,
             model_id,
             http_interceptors: self.http_interceptors.clone(),

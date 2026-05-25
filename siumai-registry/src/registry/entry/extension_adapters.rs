@@ -2,11 +2,16 @@ use std::sync::Arc;
 
 use crate::compat::client::LlmClient;
 use crate::error::LlmError;
-use crate::traits::{FileManagementCapability, MusicGenerationCapability, SkillsCapability};
+use crate::traits::{
+    FileManagementCapability, ImageExtras, MusicGenerationCapability, SkillsCapability,
+    SpeechExtras, TranscriptionExtras,
+};
 use crate::types::{
-    FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
-    MusicGenerationRequest, MusicGenerationResponse, MusicStyle, SkillUploadRequest,
-    SkillUploadResult,
+    AudioStream, AudioTranslationRequest, FileDeleteResponse, FileListQuery, FileListResponse,
+    FileObject, FileUploadRequest, ImageEditRequest, ImageGenerationResponse,
+    ImageVariationRequest, LanguageInfo, MusicGenerationRequest, MusicGenerationResponse,
+    MusicStyle, SkillUploadRequest, SkillUploadResult, SttRequest, SttResponse, TtsRequest,
+    VoiceInfo,
 };
 
 fn unsupported(provider_id: &str, extension: &str) -> LlmError {
@@ -164,5 +169,139 @@ impl MusicGenerationCapability for ClientBackedMusicGenerationCapability {
             .as_music_generation_capability()
             .map(|music| music.supports_instrumental())
             .unwrap_or(true)
+    }
+}
+
+pub(in crate::registry::entry) struct ClientBackedImageExtras {
+    client: Arc<dyn LlmClient>,
+    provider_id: String,
+}
+
+impl ClientBackedImageExtras {
+    pub(in crate::registry::entry) fn new(client: Arc<dyn LlmClient>, provider_id: String) -> Self {
+        Self {
+            client,
+            provider_id,
+        }
+    }
+
+    fn capability(&self) -> Result<&dyn ImageExtras, LlmError> {
+        self.client
+            .as_image_extras()
+            .ok_or_else(|| unsupported(&self.provider_id, "image extras"))
+    }
+}
+
+#[async_trait::async_trait]
+impl ImageExtras for ClientBackedImageExtras {
+    async fn edit_image(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        self.capability()?.edit_image(request).await
+    }
+
+    async fn create_variation(
+        &self,
+        request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        self.capability()?.create_variation(request).await
+    }
+
+    fn get_supported_sizes(&self) -> Vec<String> {
+        self.client
+            .as_image_extras()
+            .map(|image| image.get_supported_sizes())
+            .unwrap_or_default()
+    }
+
+    fn get_supported_formats(&self) -> Vec<String> {
+        self.client
+            .as_image_extras()
+            .map(|image| image.get_supported_formats())
+            .unwrap_or_default()
+    }
+
+    fn supports_image_editing(&self) -> bool {
+        self.client
+            .as_image_extras()
+            .map(|image| image.supports_image_editing())
+            .unwrap_or(false)
+    }
+
+    fn supports_image_variations(&self) -> bool {
+        self.client
+            .as_image_extras()
+            .map(|image| image.supports_image_variations())
+            .unwrap_or(false)
+    }
+}
+
+pub(in crate::registry::entry) struct ClientBackedSpeechExtras {
+    client: Arc<dyn LlmClient>,
+    provider_id: String,
+}
+
+impl ClientBackedSpeechExtras {
+    pub(in crate::registry::entry) fn new(client: Arc<dyn LlmClient>, provider_id: String) -> Self {
+        Self {
+            client,
+            provider_id,
+        }
+    }
+
+    fn capability(&self) -> Result<&dyn SpeechExtras, LlmError> {
+        self.client
+            .as_speech_extras()
+            .ok_or_else(|| unsupported(&self.provider_id, "speech extras"))
+    }
+}
+
+#[async_trait::async_trait]
+impl SpeechExtras for ClientBackedSpeechExtras {
+    async fn tts_stream(&self, request: TtsRequest) -> Result<AudioStream, LlmError> {
+        self.capability()?.tts_stream(request).await
+    }
+
+    async fn get_voices(&self) -> Result<Vec<VoiceInfo>, LlmError> {
+        self.capability()?.get_voices().await
+    }
+}
+
+pub(in crate::registry::entry) struct ClientBackedTranscriptionExtras {
+    client: Arc<dyn LlmClient>,
+    provider_id: String,
+}
+
+impl ClientBackedTranscriptionExtras {
+    pub(in crate::registry::entry) fn new(client: Arc<dyn LlmClient>, provider_id: String) -> Self {
+        Self {
+            client,
+            provider_id,
+        }
+    }
+
+    fn capability(&self) -> Result<&dyn TranscriptionExtras, LlmError> {
+        self.client
+            .as_transcription_extras()
+            .ok_or_else(|| unsupported(&self.provider_id, "transcription extras"))
+    }
+}
+
+#[async_trait::async_trait]
+impl TranscriptionExtras for ClientBackedTranscriptionExtras {
+    async fn stt_stream(&self, request: SttRequest) -> Result<AudioStream, LlmError> {
+        self.capability()?.stt_stream(request).await
+    }
+
+    async fn audio_translate(
+        &self,
+        request: AudioTranslationRequest,
+    ) -> Result<SttResponse, LlmError> {
+        self.capability()?.audio_translate(request).await
+    }
+
+    async fn get_supported_languages(&self) -> Result<Vec<LanguageInfo>, LlmError> {
+        self.capability()?.get_supported_languages().await
     }
 }

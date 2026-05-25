@@ -222,9 +222,11 @@ compatibility code should import `siumai_core::compat::client::{LlmClient, Clien
 directly; `siumai_core::client` and `siumai_core::core::client` are deprecated migration aliases
 kept only until ADR-0007's family-native removal conditions are met.
 Registry execution now uses narrower facets derived from that custom-provider contract:
-`ProviderFamilyFactory` for stable family handles, `ProviderCompatibilityFactory` for legacy
-generic-client entry points, and `ProviderExtensionFactory` for non-family extension capabilities.
-These facets prevent the stable registry handles from depending on the wide compatibility surface.
+`ProviderFamilyFactory` for stable family handles, `ProviderExtensionFactory` for non-family
+extension capabilities, and `ProviderCompatibilityFactory` for legacy generic-client entry points.
+Stable registry handles store family/extension facets only; the compatibility facet is created only
+for explicit migration entry points that return `Arc<dyn LlmClient>`. These facets prevent the
+stable registry handles from depending on the wide compatibility surface.
 Custom registry/factory code that must name the generic client trait should use
 `siumai_registry::compat::client::LlmClient`; the old `siumai_registry::LlmClient` root import is
 no longer part of the small registry root surface.

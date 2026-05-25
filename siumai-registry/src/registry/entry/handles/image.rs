@@ -9,13 +9,13 @@ use crate::types::{
 };
 
 use super::super::build_context::build_registry_context;
-use super::super::factory::{ProviderCompatibilityFactory, ProviderFamilyFactory};
+use super::super::factory::{ProviderExtensionFactory, ProviderFamilyFactory};
 
 /// Image model handle - delegates to factory for client creation
 #[derive(Clone)]
 pub struct ImageModelHandle {
     pub(in crate::registry::entry) family_factory: Arc<dyn ProviderFamilyFactory>,
-    pub(in crate::registry::entry) compatibility_factory: Arc<dyn ProviderCompatibilityFactory>,
+    pub(in crate::registry::entry) extension_factory: Arc<dyn ProviderExtensionFactory>,
     pub(in crate::registry::entry) provider_id: String,
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
@@ -162,16 +162,12 @@ impl ImageExtras for ImageModelHandle {
             None,
             None,
         );
-        let client = self
-            .compatibility_factory
-            .build_compat_image_client_with_ctx(&self.model_id, &ctx)
+        let image_extras = self
+            .extension_factory
+            .build_image_extras_with_ctx(&self.model_id, &ctx)
             .await?;
 
-        let image_client = client.as_image_extras().ok_or_else(|| {
-            LlmError::UnsupportedOperation("Provider does not support image extras".to_string())
-        })?;
-
-        image_client.edit_image(request).await
+        image_extras.edit_image(request).await
     }
 
     async fn create_variation(
@@ -190,16 +186,12 @@ impl ImageExtras for ImageModelHandle {
             None,
             None,
         );
-        let client = self
-            .compatibility_factory
-            .build_compat_image_client_with_ctx(&self.model_id, &ctx)
+        let image_extras = self
+            .extension_factory
+            .build_image_extras_with_ctx(&self.model_id, &ctx)
             .await?;
 
-        let image_client = client.as_image_extras().ok_or_else(|| {
-            LlmError::UnsupportedOperation("Provider does not support image extras".to_string())
-        })?;
-
-        image_client.create_variation(request).await
+        image_extras.create_variation(request).await
     }
 
     fn get_supported_sizes(&self) -> Vec<String> {
