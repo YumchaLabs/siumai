@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "slug": "native-extension-and-compat-retirement",
+  "title": "Native Extension And Compat Retirement",
+  "status": "active",
+  "updated": "2026-05-25",
+  "scope_kind": "provider-compatibility-refactor",
+  "problem": "Provider extension defaults, method-style generic-client construction, and low-level ContentPart root paths still preserve compatibility architecture after the previous convergence lane.",
+  "objective": "Converge extension construction toward provider-native hooks, make generic-client retirement source-enforced, and prepare ADR-0008 root ContentPart movement behind executable parity gates.",
+  "active_task": "NECR-020",
+  "next_task": "NECR-030",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/native-extension-and-compat-retirement/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/native-extension-and-compat-retirement/TODO.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/native-extension-and-compat-retirement/MILESTONES.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/native-extension-and-compat-retirement/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/native-extension-and-compat-retirement/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "cargo check -p siumai-registry --tests --no-default-features --features openai",
+    "cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-default-features --features openai --no-fail-fast",
+    "focused content projection and public import tests selected during NECR-050"
+  ],
+  "evidence": [
+    "docs/workstreams/native-extension-and-compat-retirement/EVIDENCE_AND_GATES.md"
+  ],
+  "adr_refs": [
+    "docs/adr/0007-llmclient-demotion-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md",
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0006-family-model-first-trait-policy.md"
+  ],
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue with NECR-020 inventory before making provider source edits."
+  }
+}
