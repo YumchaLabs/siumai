@@ -801,10 +801,10 @@ fn apply_mistral_chat_settings(
         body_obj.remove("presence_penalty");
     }
 
-    if req.common_params.stop_sequences.is_some()
-        && !passthrough_provider_option_has(provider_options, "stop")
+    if req.common_params.top_k.is_some()
+        && !passthrough_provider_option_has(provider_options, "top_k")
     {
-        body_obj.remove("stop");
+        body_obj.remove("top_k");
     }
 
     if let Some(seed) = req.common_params.seed {
@@ -828,7 +828,10 @@ fn apply_mistral_chat_settings(
         .get("model")
         .and_then(|value| value.as_str())
         .unwrap_or(req.common_params.model.as_str());
-    if !matches!(model, "mistral-small-latest" | "mistral-small-2603") {
+    if !matches!(
+        model,
+        "mistral-small-latest" | "mistral-small-2603" | "mistral-medium-3" | "mistral-medium-3.5"
+    ) {
         body_obj.remove("reasoning_effort");
     }
 }
@@ -2619,7 +2622,7 @@ mod tests {
 
         assert!(body.get("frequency_penalty").is_none());
         assert!(body.get("presence_penalty").is_none());
-        assert!(body.get("stop").is_none());
+        assert_eq!(body.get("stop"), Some(&serde_json::json!(["END"])));
         assert!(body.get("seed").is_none());
         assert_eq!(body.get("random_seed"), Some(&serde_json::json!(99)));
         assert!(body.get("reasoning_effort").is_none());
@@ -3284,6 +3287,52 @@ mod tests {
         assert!(body.get("parallelToolCalls").is_none());
         assert!(body.get("structuredOutputs").is_none());
         assert!(body.get("strictJsonSchema").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_mistral_reasoning_effort_keeps_current_ai_sdk_supported_models() {
+        use crate::core::ProviderSpec;
+        use crate::types::CommonParams;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "mistral".to_string(),
+                name: "Mistral AI".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "mistral".to_string(),
+            "https://api.mistral.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model_params(CommonParams {
+                model: "mistral-medium-3.5".to_string(),
+                top_k: Some(20.0),
+                ..CommonParams::default()
+            })
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option("mistral", serde_json::json!({ "reasoningEffort": "high" }));
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert!(body.get("top_k").is_none());
+        assert!(body.get("reasoningEffort").is_none());
     }
 
     #[test]

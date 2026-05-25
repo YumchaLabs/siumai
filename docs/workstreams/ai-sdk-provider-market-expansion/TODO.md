@@ -38,12 +38,16 @@ Last updated: 2026-05-25
 
 ## M3 — Mistral And Existing High-Download Provider Deepening
 
-- [ ] PMX-050 [owner=unassigned] [deps=PMX-010] [scope=repo-ref/ai/packages/mistral,siumai-provider-openai-compatible,siumai]
+- [x] PMX-050 [owner=codex] [deps=PMX-010] [scope=repo-ref/ai/packages/mistral,siumai-provider-openai-compatible,siumai]
   Goal: Audit `@ai-sdk/mistral` against Siumai's Mistral preset/facade and close concrete package-surface gaps.
   Validation: audit notes plus focused tests for any fixed request/model/public-surface gaps.
   Review: review-workstream if code changes land.
   Evidence: `docs/workstreams/ai-sdk-provider-market-expansion/MISTRAL_AUDIT.md`
-  Handoff: Open a dedicated native Mistral provider lane only if required by protocol differences.
+  Handoff: DONE. Mistral remains on the OpenAI-compatible runtime. PMX-050 fixed three bounded request-shape
+  drifts: Mistral now strips unsupported common `top_k`, keeps `stop` for `stopSequences`, and preserves
+  `reasoning_effort` for the current AI SDK-supported medium reasoning models (`mistral-medium-3` and
+  `mistral-medium-3.5`). Do not open a native Mistral provider lane unless future upstream behavior exceeds the
+  shared compat runtime.
 
 - [ ] PMX-060 [owner=unassigned] [deps=PMX-010] [scope=siumai-provider-azure,siumai-provider-amazon-bedrock,siumai-provider-google-vertex,docs]
   Goal: Audit high-download enterprise providers for docs/test/API polish gaps that block real usage.

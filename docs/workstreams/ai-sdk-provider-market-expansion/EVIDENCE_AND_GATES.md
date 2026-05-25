@@ -81,9 +81,12 @@ cargo nextest run -p siumai cerebras --features openai --no-fail-fast
 Mistral:
 
 ```powershell
-cargo nextest run -p siumai-provider-openai-compatible mistral --no-fail-fast
-cargo nextest run -p siumai-registry mistral --no-fail-fast
-cargo nextest run -p siumai mistral --no-fail-fast
+cargo nextest run -p siumai-protocol-openai --features openai-standard openai_compatible_mistral --no-fail-fast
+cargo nextest run -p siumai-provider-openai-compatible mistral --features openai-standard --no-fail-fast
+cargo nextest run -p siumai-registry --features openai mistral --no-fail-fast
+cargo nextest run -p siumai --features openai --test provider_public_path_parity_test mistral_ --no-fail-fast
+cargo nextest run -p siumai --features openai --test public_surface_imports_test public_surface_mistral_fireworks_perplexity_provider_ext_compile --no-fail-fast
+cargo nextest run -p siumai --features openai --test mistral_openai_compat_url_alignment_test --no-fail-fast
 ```
 
 Enterprise providers:
@@ -126,3 +129,13 @@ python .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py
 | 2026-05-25 | PMX-040 | `cargo fmt --check -p siumai -p siumai-spec -p siumai-provider-openai-compatible -p siumai-registry -p siumai-protocol-openai` | Pass. |
 | 2026-05-25 | PMX-040 | `git diff --check` | Pass. |
 | 2026-05-25 | PMX-040 | `cargo nextest run -p siumai --no-default-features --features openai,azure,anthropic,google,xai,ollama,groq,deepseek -E 'test(test_provider_type_consistency)' --no-fail-fast` | Earlier attempt timed out after 304 seconds during compilation due command shape and broad feature compile cost; superseded by the explicit `--test siumai_unified_interface_test -E 'test(test_provider_type_consistency)'` pass above. |
+| 2026-05-25 | PMX-050 | `repo-ref/ai/packages/mistral/src/{mistral-provider.ts,mistral-chat-language-model.ts,mistral-chat-language-model-options.ts,mistral-embedding-model.ts,mistral-embedding-options.ts,convert-to-mistral-chat-messages.ts,mistral-prepare-tools.ts,map-mistral-finish-reason.ts}` compared against Siumai Mistral preset/facade sources. | Done: Mistral remains an OpenAI-compatible provider. Concrete bounded gaps were limited to request-body normalization for unsupported `topK`, `stopSequences` preservation as `stop`, and the current `reasoningEffort` model support list. See `MISTRAL_AUDIT.md`. |
+| 2026-05-25 | PMX-050 | `cargo nextest run -p siumai-protocol-openai --features openai-standard openai_compatible_mistral --no-fail-fast` with `CARGO_TARGET_DIR=D:\siumai-target-mistral`. | Pass: 7 tests run, 7 passed, 345 skipped. Covers Mistral request body normalization for unsupported common settings, `stopSequences` -> `stop`, JSON schema/object behavior, provider-option cleanup, reasoning-effort support list, and tool-choice mapping. |
+| 2026-05-25 | PMX-050 | `cargo nextest run -p siumai-provider-openai-compatible mistral --features openai-standard --no-fail-fast` with `CARGO_TARGET_DIR=D:\siumai-target-mistral`. | Pass: 6 tests run, 6 passed, 243 skipped. Covers Mistral model constants, typed options serialization/aliases, request extension merge, provider settings, and runtime `model_length` finish normalization. |
+| 2026-05-25 | PMX-050 | `cargo nextest run -p siumai-registry --features openai mistral --no-fail-fast` with `CARGO_TARGET_DIR=D:\siumai-target-mistral`. | Pass: 4 tests run, 4 passed, 241 skipped. Covers provider catalog mapping, native completion-family rejection, explicit completion capability absence, and Mistral embedding registry override behavior. |
+| 2026-05-25 | PMX-050 | `cargo nextest run -p siumai --features openai --test public_surface_imports_test public_surface_mistral_fireworks_perplexity_provider_ext_compile --no-fail-fast` with `CARGO_TARGET_DIR=D:\siumai-target-mistral`. | Pass: 1 test run, 1 passed, 22 skipped. Covers facade import paths for Mistral builder helpers, model constants, and typed options. |
+| 2026-05-25 | PMX-050 | `cargo nextest run -p siumai --features openai --test provider_public_path_parity_test mistral_ --no-fail-fast` with `CARGO_TARGET_DIR=D:\siumai-target-mistral`. | Pass: 9 tests run, 9 passed, 141 skipped. Covers Mistral builder/config/registry chat, chat stream, embedding, options, package settings, and unsupported completion-family behavior. |
+| 2026-05-25 | PMX-050 | `cargo nextest run -p siumai --features openai --test mistral_openai_compat_url_alignment_test --no-fail-fast` with `CARGO_TARGET_DIR=D:\siumai-target-mistral`. | Pass: 2 tests run, 2 passed. Covers Mistral chat and embedding endpoint URLs. |
+| 2026-05-25 | PMX-050 | `cargo nextest run -p siumai-registry mistral --no-fail-fast` | Earlier attempt ran without the `openai` feature and discovered 0 tests; superseded by the feature-correct registry pass above. |
+| 2026-05-25 | PMX-050 | `cargo nextest run -p siumai mistral --no-fail-fast` | Earlier broad facade filter timed out after 304 seconds during compilation; superseded by explicit facade test-target passes above. |
+| 2026-05-25 | PMX-050 | `cargo fmt --check -p siumai-protocol-openai`; `python -m json.tool docs\workstreams\ai-sdk-provider-market-expansion\WORKSTREAM.json`; `git diff --check` | Pass. `git diff --check` emitted only LF-to-CRLF working-copy warnings for touched files. |

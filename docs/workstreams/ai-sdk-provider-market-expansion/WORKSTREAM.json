@@ -39,7 +39,8 @@
     "docs/workstreams/ai-sdk-provider-market-expansion/EVIDENCE_AND_GATES.md",
     "repo-ref/ai/packages/gateway",
     "repo-ref/ai/packages/cerebras",
-    "repo-ref/ai/packages/mistral"
+    "repo-ref/ai/packages/mistral",
+    "docs/workstreams/ai-sdk-provider-market-expansion/MISTRAL_AUDIT.md"
   ],
   "adr_refs": [
     "docs/adr/0001-vercel-aligned-modular-split.md",
@@ -47,8 +48,8 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "PMX-050",
-  "next_task": "Audit the AI SDK Mistral package surface against Siumai's current Mistral preset/facade and close concrete gaps only if they stay bounded.",
+  "current_task": "PMX-060",
+  "next_task": "Audit high-download enterprise providers for docs/test/API polish gaps that block real usage.",
   "follow_on": [
     "vercel-gateway-media-admin-and-tools",
     "audio-media-provider-expansion"

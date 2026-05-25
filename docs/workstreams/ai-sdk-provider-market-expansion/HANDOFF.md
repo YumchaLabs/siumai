@@ -6,22 +6,25 @@ Last updated: 2026-05-25
 ## Current State
 
 The workstream is open. Market evidence shows Siumai already covers the major direct providers, while the
-next high-impact work is Gateway implementation scoping, Mistral package-surface audit, enterprise provider
-polish, and audio/media provider prioritization.
+next high-impact work is enterprise provider polish and audio/media provider prioritization.
 
-PMX-010, PMX-020, PMX-030, and PMX-040 are complete. PMX-050 is the next unresolved task.
+PMX-010, PMX-020, PMX-030, PMX-040, and PMX-050 are complete. PMX-060 is the next unresolved task.
 
 ## Active Task
 
-- Task ID: PMX-050
+- Task ID: PMX-060
 - Owner: unassigned
 - Files:
-  - `repo-ref/ai/packages/mistral/*`
-  - `siumai-provider-openai-compatible/*`
+  - `repo-ref/ai/packages/azure/*`
+  - `repo-ref/ai/packages/amazon-bedrock/*`
+  - `repo-ref/ai/packages/google-vertex/*`
+  - `siumai-provider-azure/*`
+  - `siumai-provider-amazon-bedrock/*`
+  - `siumai-provider-google-vertex/*`
   - `siumai-registry/*`
   - `siumai/*`
 - Validation:
-  - focused nextest for any Mistral provider/registry/facade fixes.
+  - focused no-network tests or docs updates for any Azure, Bedrock, or Vertex polish gaps.
   - `cargo fmt --check` for touched crates.
 - Status: READY_TO_AUDIT
 - Review: Pending
@@ -47,6 +50,11 @@ PMX-010, PMX-020, PMX-030, and PMX-040 are complete. PMX-050 is the next unresol
   wiring, and facade exports through `provider_ext::gateway`, `providers::gateway`, and `Provider::gateway()`.
   Gateway media families, OIDC, admin resources, provider-defined tools, and full model catalog generation
   remain follow-ons.
+- PMX-050 audited `@ai-sdk/mistral` against Siumai's OpenAI-compatible Mistral preset/facade. Mistral remains
+  on the shared compat runtime. The bounded fixes were request-body only: strip unsupported common `top_k`, keep
+  `stop` for `stopSequences`, and preserve `reasoning_effort` for `mistral-medium-3` and `mistral-medium-3.5`,
+  matching the current AI SDK package support list. A native Mistral provider lane is deferred unless future
+  upstream behavior exceeds the compat runtime.
 
 ## Blockers
 
@@ -54,5 +62,6 @@ PMX-010, PMX-020, PMX-030, and PMX-040 are complete. PMX-050 is the next unresol
 
 ## Next Recommended Action
 
-- Continue with PMX-050 Mistral package-surface audit. Keep it audit-first: only land code if the gap is
-  concrete, bounded, and can be proven with no-network focused tests.
+- Continue with PMX-060 enterprise provider polish audit for Azure, Bedrock, and Google Vertex. Keep it
+  audit-first: only land code if a high-value gap is concrete, bounded, and can be proven with no-network
+  focused tests.

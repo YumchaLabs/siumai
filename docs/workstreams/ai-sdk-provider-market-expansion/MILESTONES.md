@@ -49,7 +49,9 @@ Gate:
 
 Exit criteria:
 
-- Mistral's dedicated AI SDK package surface is audited against the current Siumai preset/facade.
+- Mistral's dedicated AI SDK package surface is audited against the current Siumai preset/facade. PMX-050 keeps
+  Mistral on the OpenAI-compatible runtime and fixes bounded request-body drift for `top_k` stripping,
+  `stopSequences` preservation as `stop`, and the current AI SDK `reasoningEffort` support list.
 - Azure, Bedrock, and Google Vertex have either no high-value polish gaps or focused fixes/docs for discovered gaps.
 
 Gate:
