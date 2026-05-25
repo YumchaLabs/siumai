@@ -3,6 +3,7 @@
 //! This module contains model definitions for various OpenAI-compatible providers.
 
 pub mod alibaba;
+pub mod cerebras;
 pub mod deepinfra;
 pub mod deepseek;
 pub mod fireworks;
@@ -31,6 +32,7 @@ pub fn get_models_for_provider(provider: &str) -> Vec<String> {
         "vertex-maas" => vertex_maas::all_models(),
         "xai" => xai::all_models(),
         "alibaba" | "qwen" => alibaba::all_models(),
+        "cerebras" => cerebras::all_models(),
         "mistral" => mistral::ALL_CHAT
             .iter()
             .chain(mistral::ALL_EMBEDDING.iter())
@@ -192,6 +194,18 @@ mod tests {
         assert!(models.contains(&fireworks::COMPLETION.to_string()));
         assert!(models.contains(&fireworks::EMBEDDING.to_string()));
         assert!(models.contains(&fireworks::IMAGE.to_string()));
+    }
+
+    #[test]
+    fn test_cerebras_models() {
+        let models = get_models_for_provider("cerebras");
+        assert_eq!(models.len(), 6);
+        assert!(models.contains(&"llama3.1-8b".to_string()));
+        assert!(models.contains(&"gpt-oss-120b".to_string()));
+        assert!(models.contains(&"qwen-3-235b-a22b-instruct-2507".to_string()));
+        assert!(models.contains(&"qwen-3-235b-a22b-thinking-2507".to_string()));
+        assert!(models.contains(&"zai-glm-4.6".to_string()));
+        assert!(models.contains(&"zai-glm-4.7".to_string()));
     }
 
     #[test]

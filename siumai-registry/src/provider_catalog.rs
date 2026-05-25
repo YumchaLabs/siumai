@@ -719,6 +719,36 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     supported_models: models,
                 }));
             }
+            #[cfg(feature = "openai")]
+            CatalogProviderId::Cerebras => {
+                use siumai_provider_openai_compatible::providers::openai_compatible::cerebras as cerebras_models;
+
+                let mut models: Vec<Cow<'static, str>> = Vec::new();
+                if let Some(model) = rec.default_model.clone() {
+                    push_unique_model(&mut models, Cow::Owned(model));
+                }
+                for model in cerebras_models::ALL_CHAT {
+                    push_unique_model(&mut models, Cow::Borrowed(*model));
+                }
+
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Owned(rec.name.clone()),
+                        description: Cow::Borrowed(
+                            "Cerebras language models via the OpenAI-compatible chat surface",
+                        ),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Owned(
+                            rec.base_url
+                                .clone()
+                                .unwrap_or_else(|| "https://api.cerebras.ai/v1".to_string()),
+                        ),
+                        supported_models: models,
+                    },
+                ));
+            }
             #[cfg(feature = "bedrock")]
             CatalogProviderId::Bedrock => {
                 let meta = native_metas
@@ -1531,6 +1561,33 @@ mod tests {
                 .iter()
                 .any(|model| { model.as_ref() == "sonar-deep-research" }),
             "expected curated perplexity research model to be listed"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn provider_catalog_lookup_by_id_maps_cerebras_to_first_class_provider_type() {
+        let info = super::get_provider_info_by_id("cerebras").expect("cerebras should resolve");
+        assert_eq!(info.provider_type, super::ProviderType::Cerebras);
+        assert_eq!(info.name.as_ref(), "Cerebras");
+        assert_eq!(info.default_base_url.as_ref(), "https://api.cerebras.ai/v1");
+        assert!(info.capabilities.chat);
+        assert!(info.capabilities.streaming);
+        assert!(info.capabilities.supports("tools"));
+        assert!(!info.capabilities.supports("embedding"));
+        assert!(!info.capabilities.supports("image_generation"));
+        assert!(!info.capabilities.supports("completion"));
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|model| { model.as_ref() == "llama3.1-8b" }),
+            "expected cerebras default chat model to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|model| { model.as_ref() == "zai-glm-4.7" }),
+            "expected curated cerebras preview model to be listed"
         );
     }
 

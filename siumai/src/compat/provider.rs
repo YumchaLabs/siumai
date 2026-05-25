@@ -161,6 +161,15 @@ impl Provider {
         siumai_registry::provider::SiumaiBuilder::new().perplexity()
     }
 
+    /// Create a Cerebras unified builder.
+    ///
+    /// This mirrors the AI SDK `cerebras` provider package surface while continuing to reuse the
+    /// shared OpenAI-compatible runtime internally.
+    #[cfg(feature = "openai")]
+    pub fn cerebras() -> siumai_registry::provider::SiumaiBuilder {
+        siumai_registry::provider::SiumaiBuilder::new().cerebras()
+    }
+
     /// Create a MoonshotAI unified builder.
     ///
     /// This mirrors the AI SDK `moonshotai` provider package surface while continuing to reuse the

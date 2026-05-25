@@ -7,6 +7,7 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::providers::openai_compatible::middleware::{
     OpenAiCompatibleAlibabaCacheControlWarningMiddleware,
+    OpenAiCompatibleCerebrasStructuredOutputMiddleware,
     OpenAiCompatibleDeprecatedProviderOptionsWarningMiddleware,
     OpenAiCompatibleStructuredOutputsWarningMiddleware, OpenAiCompatibleToolWarningsMiddleware,
 };
@@ -60,6 +61,12 @@ fn compat_model_middlewares(
     ) {
         middlewares.push(Arc::new(
             OpenAiCompatibleAlibabaCacheControlWarningMiddleware::new(config.provider_id.clone()),
+        ));
+    }
+
+    if config.provider_id == "cerebras" {
+        middlewares.push(Arc::new(
+            OpenAiCompatibleCerebrasStructuredOutputMiddleware::new(),
         ));
     }
 

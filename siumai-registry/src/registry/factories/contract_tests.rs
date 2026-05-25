@@ -6022,6 +6022,7 @@ mod openai_contract {
             "mistral",
             "perplexity",
             "moonshotai",
+            "cerebras",
         ] {
             let factory = OpenAICompatibleProviderFactory::new(provider_id.to_string());
             let caps = factory.capabilities();
@@ -6120,6 +6121,59 @@ mod openai_contract {
         assert_unsupported_operation_contains(
             factory
                 .transcription_model_family_with_ctx("sonar", &ctx)
+                .await,
+            "'transcription' family path",
+        );
+        assert_capture_transport_unused(&transport);
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_factory_cerebras_rejects_non_text_family_paths() {
+        let _lock = lock_env();
+
+        let factory = OpenAICompatibleProviderFactory::new("cerebras".to_string());
+        let transport = CaptureTransport::default();
+        let ctx = BuildContext {
+            provider_id: Some("cerebras".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/v1/".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        assert_unsupported_operation_contains(
+            factory
+                .completion_model_family_with_ctx("llama3.1-8b", &ctx)
+                .await,
+            "'completion' family path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .embedding_model_family_with_ctx("llama3.1-8b", &ctx)
+                .await,
+            "'embedding' family path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .image_model_family_with_ctx("llama3.1-8b", &ctx)
+                .await,
+            "'image_generation' family path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .reranking_model_family_with_ctx("llama3.1-8b", &ctx)
+                .await,
+            "'rerank' family path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .speech_model_family_with_ctx("llama3.1-8b", &ctx)
+                .await,
+            "'speech' family path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .transcription_model_family_with_ctx("llama3.1-8b", &ctx)
                 .await,
             "'transcription' family path",
         );

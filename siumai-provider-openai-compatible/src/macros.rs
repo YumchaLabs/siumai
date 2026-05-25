@@ -16,6 +16,7 @@ macro_rules! siumai_for_each_openai_compatible_provider {
         $mac!(github_copilot, "github_copilot");
         $mac!(perplexity, "perplexity");
         $mac!(mistral, "mistral");
+        $mac!(cerebras, "cerebras");
         $mac!(cohere, "cohere");
         $mac!(zhipu, "zhipu");
         $mac!(moonshotai, "moonshotai");

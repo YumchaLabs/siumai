@@ -28,6 +28,7 @@ pub(crate) const OLLAMA: &str = "ollama";
 pub(crate) const DEEPSEEK: &str = "deepseek";
 pub(crate) const DEEPINFRA: &str = "deepinfra";
 pub(crate) const FIREWORKS: &str = "fireworks";
+pub(crate) const CEREBRAS: &str = "cerebras";
 pub(crate) const XAI: &str = "xai";
 pub(crate) const GROQ: &str = "groq";
 pub(crate) const MINIMAXI: &str = "minimaxi";
@@ -65,6 +66,7 @@ pub(crate) enum BuiltinProviderId {
     DeepSeek,
     DeepInfra,
     Fireworks,
+    Cerebras,
     Xai,
     Groq,
     MiniMaxi,
@@ -92,6 +94,7 @@ impl BuiltinProviderId {
             DEEPSEEK => Some(Self::DeepSeek),
             DEEPINFRA => Some(Self::DeepInfra),
             FIREWORKS => Some(Self::Fireworks),
+            CEREBRAS => Some(Self::Cerebras),
             XAI => Some(Self::Xai),
             GROQ => Some(Self::Groq),
             MINIMAXI => Some(Self::MiniMaxi),

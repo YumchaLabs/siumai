@@ -99,6 +99,7 @@ async fn promoted_vendor_clients_only_expose_explicit_completion_capability() {
         "mistral",
         "perplexity",
         "moonshotai",
+        "cerebras",
     ];
 
     for provider_id in non_completion_providers {
@@ -387,6 +388,84 @@ async fn chat_request_runtime_mistral_maps_model_length_finish_reason() {
 
     assert_eq!(response.finish_reason, Some(FinishReason::Length));
     assert_eq!(response.raw_finish_reason.as_deref(), Some("model_length"));
+}
+
+#[tokio::test]
+async fn chat_request_runtime_cerebras_json_text_tool_calls_finish_normalizes_to_stop() {
+    let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "cerebras".to_string(),
+        name: "Cerebras".to_string(),
+        base_url: "https://api.cerebras.ai/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec![
+            "chat".to_string(),
+            "streaming".to_string(),
+            "tools".to_string(),
+            "reasoning".to_string(),
+        ],
+        default_model: Some("llama3.1-8b".to_string()),
+        supports_reasoning: true,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+    let transport = JsonResponseTransport::new(serde_json::json!({
+        "id": "chatcmpl-cerebras-structured",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "zai-glm-4.7",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "{\"result\":\"2026\"}",
+                "reasoning_content": "The tool result is ready; format it as JSON.",
+                "tool_calls": [{
+                    "id": "call_repeat",
+                    "type": "function",
+                    "function": {
+                        "name": "nonUsefulTool",
+                        "arguments": "{}"
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+    }));
+
+    let cfg = OpenAiCompatibleConfig::new(
+        "cerebras",
+        "test-key",
+        "https://api.cerebras.ai/v1",
+        adapter,
+    )
+    .with_model("zai-glm-4.7")
+    .with_supports_structured_outputs(true)
+    .with_http_transport(Arc::new(transport));
+
+    let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+        .await
+        .expect("client ok");
+
+    let response = client
+        .chat_request(
+            ChatRequest::builder()
+                .model("zai-glm-4.7")
+                .messages(vec![ChatMessage::user("hi").build()])
+                .response_format(ResponseFormat::json_object())
+                .build(),
+        )
+        .await
+        .expect("response ok");
+
+    assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+    assert_eq!(response.raw_finish_reason.as_deref(), Some("tool_calls"));
+    assert!(!response.has_tool_calls());
+    assert_eq!(response.content.all_text(), "{\"result\":\"2026\"}");
+    assert_eq!(
+        response.reasoning(),
+        vec!["The tool result is ready; format it as JSON."]
+    );
 }
 
 #[tokio::test]
@@ -2251,6 +2330,111 @@ async fn chat_stream_request_runtime_applies_request_body_transformer() {
 
     assert!(captured.body.get("stream_options").is_none());
     assert_eq!(captured.body.get("custom"), Some(&serde_json::json!(true)));
+}
+
+#[tokio::test]
+async fn chat_stream_request_runtime_cerebras_json_text_drops_repeated_tool_call_and_normalizes_finish()
+ {
+    let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "cerebras".to_string(),
+        name: "Cerebras".to_string(),
+        base_url: "https://api.cerebras.ai/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec![
+            "chat".to_string(),
+            "streaming".to_string(),
+            "tools".to_string(),
+            "reasoning".to_string(),
+        ],
+        default_model: Some("llama3.1-8b".to_string()),
+        supports_reasoning: true,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+    let transport = SseResponseTransport::new(
+        br#"data: {"id":"chatcmpl-cerebras-stream","object":"chat.completion.chunk","created":1,"model":"zai-glm-4.7","choices":[{"index":0,"delta":{"role":"assistant","content":"{\"result\":\"2026\"}"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-cerebras-stream","object":"chat.completion.chunk","created":1,"model":"zai-glm-4.7","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_repeat","type":"function","function":{"name":"nonUsefulTool","arguments":"{}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-cerebras-stream","object":"chat.completion.chunk","created":1,"model":"zai-glm-4.7","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
+
+data: [DONE]
+
+"#
+        .to_vec(),
+    );
+
+    let cfg = OpenAiCompatibleConfig::new(
+        "cerebras",
+        "test-key",
+        "https://api.cerebras.ai/v1",
+        adapter,
+    )
+    .with_model("zai-glm-4.7")
+    .with_supports_structured_outputs(true)
+    .with_http_transport(Arc::new(transport));
+
+    let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+        .await
+        .expect("client ok");
+
+    let stream = client
+        .chat_stream_request(
+            ChatRequest::builder()
+                .model("zai-glm-4.7")
+                .messages(vec![ChatMessage::user("hi").build()])
+                .response_format(ResponseFormat::json_object())
+                .stream(true)
+                .build(),
+        )
+        .await
+        .expect("stream ok");
+
+    let events: Vec<_> = stream
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .map(|event| event.expect("stream event"))
+        .collect();
+
+    assert!(
+        events.iter().all(|event| {
+            !matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolInputStart { .. }
+                        | ChatStreamPart::ToolInputDelta { .. }
+                        | ChatStreamPart::ToolInputEnd { .. }
+                        | ChatStreamPart::ToolCall(_)
+                }
+            )
+        }),
+        "expected repeated Cerebras tool-call stream parts to be dropped after text"
+    );
+
+    let finish = events
+        .iter()
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish { finish_reason, .. },
+            } => Some(finish_reason),
+            _ => None,
+        })
+        .expect("finish part");
+    assert_eq!(finish.unified, FinishReason::Stop);
+    assert_eq!(finish.raw.as_deref(), Some("tool_calls"));
+
+    let stream_end = events
+        .iter()
+        .find_map(|event| match event {
+            ChatStreamEvent::StreamEnd { response } => Some(response),
+            _ => None,
+        })
+        .expect("stream end");
+    assert_eq!(stream_end.finish_reason, Some(FinishReason::Stop));
+    assert_eq!(stream_end.raw_finish_reason.as_deref(), Some("tool_calls"));
+    assert!(!stream_end.has_tool_calls());
+    assert_eq!(stream_end.content.all_text(), "{\"result\":\"2026\"}");
 }
 
 #[tokio::test]

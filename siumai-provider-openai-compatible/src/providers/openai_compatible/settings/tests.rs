@@ -30,6 +30,7 @@ fn simple_provider_settings_stay_macro_generated() {
         ("FireworksProviderSettings", "FireworksConfig"),
         ("MistralProviderSettings", "MistralConfig"),
         ("PerplexityProviderSettings", "PerplexityConfig"),
+        ("CerebrasProviderSettings", "CerebrasConfig"),
     ] {
         let marker = format!("pub struct {settings} => {config}");
         assert!(
@@ -274,6 +275,28 @@ fn fireworks_provider_settings_into_config_preserve_supported_inputs() {
         config.common_params.model,
         "accounts/fireworks/models/llama-v3p1-8b-instruct"
     );
+    assert_eq!(
+        config.http_config.headers.get("x-test").map(String::as_str),
+        Some("1")
+    );
+    assert!(config.http_transport.is_some());
+}
+
+#[test]
+fn cerebras_provider_settings_into_config_preserve_supported_inputs() {
+    let config = CerebrasProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/cerebras")
+        .with_header("x-test", "1")
+        .with_fetch(Arc::new(NoopTransport))
+        .into_config_for_model("zai-glm-4.7")
+        .expect("settings into config");
+
+    assert_eq!(config.provider_id, "cerebras");
+    assert_eq!(config.base_url, "https://example.com/cerebras");
+    assert_eq!(config.common_params.model, "zai-glm-4.7");
+    assert_eq!(config.supports_structured_outputs, Some(true));
+    assert!(config.request_body_transformer.is_some());
     assert_eq!(
         config.http_config.headers.get("x-test").map(String::as_str),
         Some("1")

@@ -153,6 +153,7 @@ pub enum ProviderType {
     Mistral,
     Fireworks,
     Perplexity,
+    Cerebras,
     Gateway,
     XAI,
     Groq,
@@ -180,6 +181,7 @@ impl std::fmt::Display for ProviderType {
             Self::Mistral => write!(f, "mistral"),
             Self::Fireworks => write!(f, "fireworks"),
             Self::Perplexity => write!(f, "perplexity"),
+            Self::Cerebras => write!(f, "cerebras"),
             Self::Gateway => write!(f, "gateway"),
             Self::XAI => write!(f, "xai"),
             Self::Groq => write!(f, "groq"),
@@ -211,6 +213,7 @@ impl ProviderType {
             "mistral" => Self::Mistral,
             "fireworks" => Self::Fireworks,
             "perplexity" => Self::Perplexity,
+            "cerebras" => Self::Cerebras,
             "gateway" => Self::Gateway,
             "xai" => Self::XAI,
             "groq" => Self::Groq,
@@ -529,6 +532,12 @@ mod tests {
             ProviderType::Perplexity
         );
         assert_eq!(ProviderType::Perplexity.to_string(), "perplexity");
+    }
+
+    #[test]
+    fn provider_type_maps_cerebras_name() {
+        assert_eq!(ProviderType::from_name("cerebras"), ProviderType::Cerebras);
+        assert_eq!(ProviderType::Cerebras.to_string(), "cerebras");
     }
 
     #[test]

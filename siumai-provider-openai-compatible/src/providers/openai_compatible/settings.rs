@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use super::alibaba_video::{ALIBABA_VIDEO_DEFAULT_BASE_URL, AlibabaVideoModel};
 use super::{
-    AlibabaConfig, DeepInfraConfig, DeepSeekConfig, FireworksConfig, GoogleVertexMaasConfig,
-    GoogleVertexXaiConfig, GroqConfig, MistralConfig, MoonshotAIConfig, OpenAiCompatibleBuilder,
-    OpenAiCompatibleConfig, PerplexityConfig, RequestBodyTransformer, ResponseMetadataExtractor,
-    TogetherAIConfig, XaiConfig,
+    AlibabaConfig, CerebrasConfig, DeepInfraConfig, DeepSeekConfig, FireworksConfig,
+    GoogleVertexMaasConfig, GoogleVertexXaiConfig, GroqConfig, MistralConfig, MoonshotAIConfig,
+    OpenAiCompatibleBuilder, OpenAiCompatibleConfig, PerplexityConfig, RequestBodyTransformer,
+    ResponseMetadataExtractor, TogetherAIConfig, XaiConfig,
 };
 
 const GOOGLE_VERTEX_MAAS_DEFAULT_LOCATION: &str = "global";
@@ -48,6 +48,41 @@ pub fn google_vertex_xai_request_body_transformer() -> Arc<dyn RequestBodyTransf
                 obj.remove("thinking_budget");
                 obj.remove("thinkingBudget");
             }
+            Ok(())
+        },
+    )
+}
+
+#[doc(hidden)]
+pub fn cerebras_request_body_transformer() -> Arc<dyn RequestBodyTransformer> {
+    Arc::new(
+        |body: &mut serde_json::Value, _model: &str, request_type: super::RequestType| {
+            if !matches!(request_type, super::RequestType::Chat) {
+                return Ok(());
+            }
+
+            let Some(messages) = body
+                .get_mut("messages")
+                .and_then(serde_json::Value::as_array_mut)
+            else {
+                return Ok(());
+            };
+
+            for message in messages {
+                let Some(message_obj) = message.as_object_mut() else {
+                    continue;
+                };
+                if message_obj.get("role").and_then(|value| value.as_str()) != Some("assistant") {
+                    continue;
+                }
+                let Some(reasoning_content) = message_obj.remove("reasoning_content") else {
+                    continue;
+                };
+                message_obj
+                    .entry("reasoning".to_string())
+                    .or_insert(reasoning_content);
+            }
+
             Ok(())
         },
     )
@@ -707,6 +742,15 @@ impl AlibabaProviderSettings {
 
         video_model
     }
+}
+
+simple_compat_provider_settings! {
+    /// Package-level Cerebras provider settings aligned with
+    /// `repo-ref/ai/packages/cerebras/src/cerebras-provider.ts`.
+    ///
+    /// This carrier is model-agnostic. Model selection happens later through
+    /// `into_builder_for_model(...)` or `into_config_for_model(...)`.
+    pub struct CerebrasProviderSettings => CerebrasConfig, "cerebras";
 }
 
 simple_compat_provider_settings! {

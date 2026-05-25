@@ -557,7 +557,10 @@ impl OpenAiCompatibleBuilder {
         }
         if let Some(supports) = self.supports_structured_outputs {
             config = config.with_supports_structured_outputs(supports);
-        } else if canonical_provider_id == "google-vertex-xai" {
+        } else if matches!(
+            canonical_provider_id.as_str(),
+            "google-vertex-xai" | "cerebras"
+        ) {
             config = config.with_supports_structured_outputs(true);
         }
         if let Some(transformer) = self.request_body_transformer.clone() {
@@ -565,6 +568,10 @@ impl OpenAiCompatibleBuilder {
         } else if canonical_provider_id == "google-vertex-xai" {
             config = config.with_request_body_transformer(
                 crate::providers::openai_compatible::settings::google_vertex_xai_request_body_transformer(),
+            );
+        } else if canonical_provider_id == "cerebras" {
+            config = config.with_request_body_transformer(
+                crate::providers::openai_compatible::settings::cerebras_request_body_transformer(),
             );
         }
         config = config.with_auth_required(auth_required);

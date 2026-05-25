@@ -1023,9 +1023,8 @@ fn default_request_settings_for_provider(provider_id: &str) -> OpenAiCompatibleR
     OpenAiCompatibleRequestSettings {
         supports_structured_outputs: match provider_id {
             // Keep this aligned with the compat config defaults used by the public client surface.
-            "openrouter" | "perplexity" | "mistral" | "groq" | "qwen" | "alibaba" | "xai" => {
-                Some(true)
-            }
+            "openrouter" | "perplexity" | "mistral" | "groq" | "qwen" | "alibaba" | "xai"
+            | "cerebras" => Some(true),
             _ => None,
         },
         ..OpenAiCompatibleRequestSettings::default()

@@ -493,6 +493,7 @@ fn test_provider_type_consistency() {
         ProviderType::Mistral,
         ProviderType::Fireworks,
         ProviderType::Perplexity,
+        ProviderType::Cerebras,
         ProviderType::Bedrock,
         ProviderType::Gateway,
         ProviderType::MiniMaxi,
@@ -538,6 +539,7 @@ fn test_provider_type_consistency() {
         ProviderType::from_name("perplexity"),
         ProviderType::Perplexity
     );
+    assert_eq!(ProviderType::from_name("cerebras"), ProviderType::Cerebras);
     assert_eq!(ProviderType::from_name("gateway"), ProviderType::Gateway);
     assert_eq!(
         ProviderType::from_name("togetherai"),

@@ -208,7 +208,8 @@ mod tests {
         feature = "bedrock",
         feature = "gateway",
         feature = "deepseek",
-        feature = "google-vertex"
+        feature = "google-vertex",
+        feature = "openai"
     ))]
     use super::*;
 
@@ -276,5 +277,12 @@ mod tests {
             builder.provider_id,
             Some(ids::GOOGLE_VERTEX_XAI.to_string())
         );
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn cerebras_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().cerebras();
+        assert_eq!(builder.provider_id, Some("cerebras".to_string()));
     }
 }

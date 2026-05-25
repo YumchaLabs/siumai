@@ -18,6 +18,9 @@ pub mod perplexity;
 pub mod fireworks;
 
 #[cfg(feature = "openai")]
+pub mod cerebras;
+
+#[cfg(feature = "openai")]
 pub mod moonshotai;
 
 #[cfg(feature = "deepinfra")]

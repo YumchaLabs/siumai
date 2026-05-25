@@ -413,6 +413,67 @@ fn openai_compatible_builder_installs_request_body_transformer() {
 }
 
 #[test]
+fn openai_compatible_builder_installs_cerebras_request_defaults() {
+    let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "cerebras")
+        .api_key("test-key")
+        .into_config()
+        .expect("into_config ok");
+
+    assert_eq!(config.provider_id, "cerebras");
+    assert_eq!(config.base_url, "https://api.cerebras.ai/v1");
+    assert_eq!(config.model, "llama3.1-8b");
+    assert_eq!(config.supports_structured_outputs, Some(true));
+
+    let transformer = config
+        .request_body_transformer
+        .as_ref()
+        .expect("cerebras request body transformer");
+    let mut body = serde_json::json!({
+        "model": "llama3.1-8b",
+        "messages": [
+            { "role": "user", "content": "what is the magic number?" },
+            {
+                "role": "assistant",
+                "content": null,
+                "reasoning_content": "I should call a tool.",
+                "tool_calls": [
+                    {
+                        "id": "tool-call-id",
+                        "type": "function",
+                        "function": { "name": "getNumber", "arguments": "{}" }
+                    }
+                ]
+            },
+            {
+                "role": "assistant",
+                "content": "already mapped",
+                "reasoning_content": "do not overwrite",
+                "reasoning": "existing reasoning"
+            }
+        ]
+    });
+
+    transformer
+        .transform_request_body(
+            &mut body,
+            "llama3.1-8b",
+            crate::providers::openai_compatible::RequestType::Chat,
+        )
+        .expect("transform body");
+
+    assert!(body["messages"][1].get("reasoning_content").is_none());
+    assert_eq!(
+        body["messages"][1]["reasoning"],
+        serde_json::json!("I should call a tool.")
+    );
+    assert!(body["messages"][2].get("reasoning_content").is_none());
+    assert_eq!(
+        body["messages"][2]["reasoning"],
+        serde_json::json!("existing reasoning")
+    );
+}
+
+#[test]
 fn openai_compatible_builder_into_config_matches_manual_compatible_config() {
     let builder_config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
         .api_key("test-key")

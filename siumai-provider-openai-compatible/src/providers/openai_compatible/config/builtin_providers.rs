@@ -1,3 +1,4 @@
+use crate::providers::openai_compatible::cerebras as cerebras_models;
 use crate::providers::openai_compatible::fireworks as fireworks_models;
 use crate::providers::openai_compatible::google_vertex_xai as google_vertex_xai_models;
 use crate::providers::openai_compatible::mistral as mistral_models;
@@ -218,6 +219,23 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             default_model: Some(perplexity_models::CHAT.to_string()),
             supports_reasoning: false,
             api_key_env: Some("PERPLEXITY_API_KEY".to_string()),
+            api_key_env_aliases: Vec::new(),
+        },
+    );
+
+    // Cerebras - AI SDK package-aligned chat/language-model surface.
+    // Reference: repo-ref/ai/packages/cerebras
+    providers.insert(
+        "cerebras".to_string(),
+        ProviderConfig {
+            id: "cerebras".to_string(),
+            name: "Cerebras".to_string(),
+            base_url: "https://api.cerebras.ai/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["tools".to_string(), "reasoning".to_string()],
+            default_model: Some(cerebras_models::CHAT.to_string()),
+            supports_reasoning: true,
+            api_key_env: Some("CEREBRAS_API_KEY".to_string()),
             api_key_env_aliases: Vec::new(),
         },
     );

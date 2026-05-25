@@ -107,7 +107,7 @@ impl OpenAiCompatibleConfig {
         match provider_id {
             // These built-in compat presets are expected to preserve JSON Schema outputs on the
             // public path by default rather than falling back to generic `json_object`.
-            "openrouter" | "perplexity" | "mistral" => Some(true),
+            "openrouter" | "perplexity" | "mistral" | "cerebras" => Some(true),
             _ => None,
         }
     }

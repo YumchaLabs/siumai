@@ -27,6 +27,7 @@ pub fn backoff_executor_for_provider(provider: &ProviderType) -> BackoffRetryExe
         | ProviderType::TogetherAi
         | ProviderType::Mistral
         | ProviderType::Fireworks
+        | ProviderType::Cerebras
         | ProviderType::Perplexity
         | ProviderType::XAI
         | ProviderType::Groq

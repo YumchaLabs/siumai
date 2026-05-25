@@ -57,6 +57,14 @@ TARGETS: tuple[AuditTarget, ...] = (
         rust_paths=("siumai-provider-cohere/src/providers/cohere/models.rs",),
     ),
     AuditTarget(
+        name="cerebras",
+        package="cerebras",
+        type_regex=r"CerebrasChatModelId",
+        rust_paths=(
+            "siumai-provider-openai-compatible/src/providers/openai_compatible/providers/models/cerebras.rs",
+        ),
+    ),
+    AuditTarget(
         name="deepinfra",
         package="deepinfra",
         type_regex=r"DeepInfra(Chat|Completion|Embedding|Image)ModelId",

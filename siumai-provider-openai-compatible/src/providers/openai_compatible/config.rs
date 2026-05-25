@@ -280,6 +280,20 @@ mod tests {
         assert_eq!(config.id, "fireworks");
         assert_eq!(config.api_key_env.as_deref(), Some("FIREWORKS_API_KEY"));
 
+        let config = get_provider_config("cerebras").unwrap();
+        assert_eq!(config.id, "cerebras");
+        assert_eq!(config.name, "Cerebras");
+        assert_eq!(config.base_url, "https://api.cerebras.ai/v1");
+        assert_eq!(config.default_model.as_deref(), Some("llama3.1-8b"));
+        assert_eq!(config.api_key_env.as_deref(), Some("CEREBRAS_API_KEY"));
+        assert!(provider_supports_capability("cerebras", "tools"));
+        assert!(!provider_supports_capability("cerebras", "completion"));
+        assert!(!provider_supports_capability("cerebras", "embedding"));
+        assert!(!provider_supports_capability(
+            "cerebras",
+            "image_generation"
+        ));
+
         let config = get_provider_config("qwen").unwrap();
         assert_eq!(config.id, "qwen");
         assert_eq!(config.api_key_env.as_deref(), Some("ALIBABA_API_KEY"));
@@ -353,6 +367,7 @@ mod tests {
             "mistral",
             "perplexity",
             "moonshotai",
+            "cerebras",
         ] {
             let config = get_provider_config(provider_id)
                 .unwrap_or_else(|| panic!("missing provider config for {provider_id}"));

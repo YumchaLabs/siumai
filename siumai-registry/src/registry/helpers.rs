@@ -296,6 +296,16 @@ pub fn builtin_provider_factory(provider_id: &str) -> Result<Arc<dyn ProviderFac
                 Err(unsupported_openai_compatible_provider(ids::FIREWORKS))
             }
         }
+        Some(ids::BuiltinProviderId::Cerebras) => {
+            #[cfg(feature = "openai")]
+            {
+                openai_compatible_provider_factory(ids::CEREBRAS)
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                Err(unsupported_openai_compatible_provider(ids::CEREBRAS))
+            }
+        }
         Some(ids::BuiltinProviderId::Xai) => {
             #[cfg(feature = "xai")]
             {

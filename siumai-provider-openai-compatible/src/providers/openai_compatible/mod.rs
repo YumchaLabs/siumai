@@ -65,7 +65,7 @@ pub mod registry {
 
 // Re-export model constants for easy access
 pub use providers::models::{
-    alibaba, deepinfra, deepseek, fireworks, google_vertex_xai, groq, mistral, moonshot,
+    alibaba, cerebras, deepinfra, deepseek, fireworks, google_vertex_xai, groq, mistral, moonshot,
     moonshotai, openrouter, perplexity, qwen, siliconflow, together, togetherai, vertex_maas, xai,
 };
 
@@ -134,11 +134,11 @@ pub use model_alias::normalize_model_id;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use settings::{
-    AlibabaProviderSettings, DeepInfraProviderSettings, DeepSeekProviderSettings,
-    FireworksProviderSettings, GoogleVertexMaasProviderSettings, GoogleVertexXaiProviderSettings,
-    GroqProviderSettings, MistralProviderSettings, MoonshotAIProviderSettings,
-    OpenAICompatibleProviderSettings, PerplexityProviderSettings, TogetherAIProviderSettings,
-    XaiProviderSettings,
+    AlibabaProviderSettings, CerebrasProviderSettings, DeepInfraProviderSettings,
+    DeepSeekProviderSettings, FireworksProviderSettings, GoogleVertexMaasProviderSettings,
+    GoogleVertexXaiProviderSettings, GroqProviderSettings, MistralProviderSettings,
+    MoonshotAIProviderSettings, OpenAICompatibleProviderSettings, PerplexityProviderSettings,
+    TogetherAIProviderSettings, XaiProviderSettings,
 };
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
@@ -331,6 +331,17 @@ pub type PerplexityClient = openai_client::OpenAiCompatibleClient;
 pub type PerplexityConfig = openai_config::OpenAiCompatibleConfig;
 /// Rust package version exposed on the Perplexity package-surface facade.
 pub const PERPLEXITY_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// AI SDK-style provider-scoped alias for Cerebras compat clients.
+pub type CerebrasClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for Cerebras compat configs.
+pub type CerebrasConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the Cerebras package-surface facade.
+pub const CEREBRAS_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// AI SDK-style Cerebras chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type CerebrasChatModelId = String;
 
 /// AI SDK-style provider-scoped alias for Fireworks compat text-family clients.
 pub type FireworksClient = openai_client::OpenAiCompatibleClient;

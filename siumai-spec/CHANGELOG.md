@@ -11,10 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added directional content namespaces for prompt/request parts, generated output parts, and legacy
   compatibility content. New code should navigate through `content::prompt`, `content::output`, and
-- Add `ProviderType::Gateway` so the native Vercel AI Gateway proof can be classified across
-  catalog, retry, and compatibility metadata.
   explicit `content::compat` paths instead of treating legacy `ContentPart` as the default content
   carrier.
+- Add `ProviderType::Cerebras` so catalog, retry, and compatibility metadata can classify the
+  audited Cerebras OpenAI-compatible provider as a first-class package surface.
+- Add `ProviderType::Gateway` so the native Vercel AI Gateway proof can be classified across
+  catalog, retry, and compatibility metadata.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 
