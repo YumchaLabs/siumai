@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "deepgram-audio-provider",
+  "title": "Deepgram Audio Provider",
+  "status": "draft",
+  "updated": "2026-05-26",
+  "scope_kind": "execution",
+  "problem": "Siumai needs a first-class Deepgram audio provider aligned with the AI SDK package surface for speech and transcription.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/deepgram-audio-provider/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/deepgram-audio-provider/TODO.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/deepgram-audio-provider/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/deepgram-audio-provider/MILESTONES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/deepgram-audio-provider/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "python .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py",
+    "cargo nextest run -p siumai-provider-deepgram --features deepgram --no-fail-fast",
+    "cargo nextest run -p siumai-registry --features deepgram deepgram --no-fail-fast",
+    "cargo nextest run -p siumai --features deepgram deepgram --no-fail-fast",
+    "cargo fmt --check for touched packages",
+    "git diff --check"
+  ],
+  "evidence": [
+    "docs/workstreams/ai-sdk-provider-market-expansion/AUDIO_MEDIA_DECISION.md",
+    "repo-ref/ai/packages/deepgram",
+    "docs/workstreams/deepgram-audio-provider/EVIDENCE_AND_GATES.md"
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0002-provider-crates-by-provider.md",
+    "docs/adr/0003-provider-ext-export-policy.md",
+    "docs/adr/0004-experimental-surface-policy.md"
+  ],
+  "current_task": "DGA-020",
+  "next_task": "Add the siumai-provider-deepgram crate with speech/transcription client behavior and no-network request tests.",
+  "follow_on": [
+    "elevenlabs-audio-provider",
+    "media-task-polling-foundation"
+  ],
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue while work remains limited to Deepgram speech/transcription parity, no-network gates, and stable provider-root exports. Split follow-ons for ElevenLabs or queued media behavior."
+  }
+}
