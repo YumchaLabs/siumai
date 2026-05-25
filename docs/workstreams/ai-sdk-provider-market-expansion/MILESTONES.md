@@ -1,7 +1,7 @@
 # AI SDK Provider Market Expansion — Milestones
 
 Status: Draft
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 ## M0 — Scope Freeze
 
@@ -66,9 +66,12 @@ Gate:
 
 Exit criteria:
 
-- Deepgram, ElevenLabs, Fal, Replicate, and similar provider packages are ranked by priority.
-- Any selected provider is split into a dedicated implementation task or workstream.
-- Deferred media/audio packages have explicit rationale.
+- Deepgram, ElevenLabs, Fal, Replicate, and similar provider packages are ranked by priority. PMX-070 ranks
+  Deepgram first, ElevenLabs second, Replicate third, and Fal fourth.
+- Any selected provider is split into a dedicated implementation task or workstream. PMX-070 splits
+  implementation into follow-ons rather than adding provider code in this lane.
+- Deferred media/audio packages have explicit rationale. Replicate and Fal are deferred until queued media task
+  policy and model-specific request-shape gates are explicit.
 
 Gate:
 

@@ -3,7 +3,7 @@
   "slug": "ai-sdk-provider-market-expansion",
   "title": "AI SDK Provider Market Expansion",
   "status": "draft",
-  "updated": "2026-05-25",
+  "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai needs to prioritize the next provider work by AI SDK package adoption and implementation cost instead of treating every upstream provider package as equal backlog.",
   "authoritative_docs": [
@@ -43,8 +43,13 @@
     "repo-ref/ai/packages/azure",
     "repo-ref/ai/packages/amazon-bedrock",
     "repo-ref/ai/packages/google-vertex",
+    "repo-ref/ai/packages/deepgram",
+    "repo-ref/ai/packages/elevenlabs",
+    "repo-ref/ai/packages/fal",
+    "repo-ref/ai/packages/replicate",
     "docs/workstreams/ai-sdk-provider-market-expansion/MISTRAL_AUDIT.md",
-    "docs/workstreams/ai-sdk-provider-market-expansion/ENTERPRISE_POLISH_AUDIT.md"
+    "docs/workstreams/ai-sdk-provider-market-expansion/ENTERPRISE_POLISH_AUDIT.md",
+    "docs/workstreams/ai-sdk-provider-market-expansion/AUDIO_MEDIA_DECISION.md"
   ],
   "adr_refs": [
     "docs/adr/0001-vercel-aligned-modular-split.md",
@@ -52,13 +57,17 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "PMX-070",
-  "next_task": "Decide whether audio/media packages should enter Siumai's near-term provider roadmap.",
+  "current_task": "PMX-080",
+  "next_task": "Close the lane or split any remaining broad work into narrower provider workstreams.",
   "follow_on": [
     "vercel-gateway-media-admin-and-tools",
     "bedrock-anthropic-subprovider",
     "bedrock-mantle-subprovider",
-    "audio-media-provider-expansion"
+    "deepgram-audio-provider",
+    "elevenlabs-audio-provider",
+    "media-task-polling-foundation",
+    "replicate-image-video-provider",
+    "fal-media-provider"
   ],
   "continue_policy": {
     "default_action": "continue",

@@ -1,29 +1,27 @@
 # AI SDK Provider Market Expansion — Handoff
 
 Status: Draft
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 ## Current State
 
 The workstream is open. Market evidence shows Siumai already covers the major direct providers, while the
-next high-impact work is audio/media provider prioritization.
+remaining high-impact work is lane closeout and follow-on split hygiene.
 
-PMX-010, PMX-020, PMX-030, PMX-040, PMX-050, and PMX-060 are complete. PMX-070 is the next unresolved task.
+PMX-010, PMX-020, PMX-030, PMX-040, PMX-050, PMX-060, and PMX-070 are complete. PMX-080 is the next
+unresolved task.
 
 ## Active Task
 
-- Task ID: PMX-070
-- Owner: unassigned
+- Task ID: PMX-080
+- Owner: planner
 - Files:
-  - `repo-ref/ai/packages/deepgram/*`
-  - `repo-ref/ai/packages/elevenlabs/*`
-  - `repo-ref/ai/packages/fal/*`
-  - `repo-ref/ai/packages/replicate/*`
   - `docs/workstreams/ai-sdk-provider-market-expansion/*`
 - Validation:
-  - decision note ranks audio/media packages by market signal, implementation cost, and fit with stable families.
+  - verify-rust-workstream records fresh final gate evidence.
+  - review-workstream has no blocking findings.
   - `python .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py`
-- Status: READY_TO_AUDIT
+- Status: READY_TO_CLOSE
 - Review: Pending
 - Evidence: `docs/workstreams/ai-sdk-provider-market-expansion/EVIDENCE_AND_GATES.md`
 
@@ -59,6 +57,12 @@ PMX-010, PMX-020, PMX-030, PMX-040, PMX-050, and PMX-060 are complete. PMX-070 i
   canonical `amazonBedrock` export while preserving `bedrock()`.
 - Bedrock Anthropic and Bedrock Mantle are follow-ons, not PMX-060 fixes. They need dedicated factory/auth/model
   catalog/request gates because upstream exposes them as sub-provider packages.
+- PMX-070 audited `@ai-sdk/deepgram`, `@ai-sdk/elevenlabs`, `@ai-sdk/fal`, and `@ai-sdk/replicate` against
+  Siumai's stable speech, transcription, image, and video families. No provider implementation lands in this
+  lane. Deepgram is the first dedicated audio-provider candidate because it has the strongest media-package
+  download signal and a narrow speech/transcription surface. ElevenLabs is second, especially for TTS/voice
+  workflows. Replicate and Fal are deferred to media-provider lanes after queue/polling policy and
+  model-specific request-shape gates are explicit.
 
 ## Blockers
 
@@ -66,5 +70,5 @@ PMX-010, PMX-020, PMX-030, PMX-040, PMX-050, and PMX-060 are complete. PMX-070 i
 
 ## Next Recommended Action
 
-- Continue with PMX-070 audio/media decision for Deepgram, ElevenLabs, Fal, Replicate, and related packages.
-  Keep it decision-first: rank market signal and implementation cost before opening any provider implementation.
+- Continue with PMX-080 closeout. Verify the final docs, decide whether follow-ons should be opened as separate
+  workstreams, and close this market-expansion lane when review and final gates are recorded.

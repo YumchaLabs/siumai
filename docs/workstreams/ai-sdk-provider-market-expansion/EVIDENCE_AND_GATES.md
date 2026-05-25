@@ -1,7 +1,7 @@
 # AI SDK Provider Market Expansion — Evidence And Gates
 
 Status: Draft
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 ## Market Evidence
 
@@ -145,3 +145,7 @@ python .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py
 | 2026-05-25 | PMX-060 | `cargo nextest run -p siumai --features bedrock --test public_surface_imports_test public_surface_bedrock_provider_ext_compiles --no-fail-fast` | Pass: 1 test run, 1 passed, 23 skipped. Covers Bedrock facade imports including `amazon_bedrock()`, `create_amazon_bedrock()`, typed settings/options/metadata, compat `Provider::amazon_bedrock()`, and `SiumaiBuilder::amazon_bedrock()`. |
 | 2026-05-25 | PMX-060 | `cargo nextest run -p siumai-registry --features bedrock amazon_bedrock --no-fail-fast` | Pass: 1 test run, 1 passed, 144 skipped. Covers `SiumaiBuilder::amazon_bedrock()` resolving to the canonical Bedrock provider id. Narrow build emitted existing unused helper warnings in `contract_tests.rs`. |
 | 2026-05-25 | PMX-060 | `cargo fmt --check -p siumai -p siumai-registry`; `git diff --check` | Pass. `git diff --check` emitted only LF-to-CRLF working-copy warnings for touched files. |
+| 2026-05-26 | PMX-070 | npm downloads API `last-month` for `@ai-sdk/deepgram`, `@ai-sdk/elevenlabs`, `@ai-sdk/fal`, and `@ai-sdk/replicate`. | Pass: npm returned the same frozen window `2026-04-25` through `2026-05-24`: Deepgram 605,045; ElevenLabs 533,132; Replicate 257,948; Fal 192,339. |
+| 2026-05-26 | PMX-070 | `repo-ref/ai/packages/{deepgram,elevenlabs,fal,replicate}/src` package surfaces compared against Siumai media families and registry handles. | Done: Deepgram and ElevenLabs are narrow speech/transcription candidates; Replicate and Fal require dedicated media lanes because of prediction/queue polling, timeout policy, dynamic model inputs, and broad model-specific request options. |
+| 2026-05-26 | PMX-070 | `docs/workstreams/ai-sdk-provider-market-expansion/AUDIO_MEDIA_DECISION.md` | Done: decision note ranks provider priority, defers broad media implementation, and splits follow-ons for Deepgram, ElevenLabs, shared media polling policy, Replicate, and Fal. |
+| 2026-05-26 | PMX-070 | `python .agents\skills\siumai-ai-sdk-maintenance\scripts\resolve_ai_sdk_repo.py`; `python -m json.tool docs\workstreams\ai-sdk-provider-market-expansion\WORKSTREAM.json`; `git diff --check` | Pass: AI SDK reference resolved at `repo-ref/ai`; WORKSTREAM.json parsed successfully; `git diff --check` found no whitespace errors and emitted only LF-to-CRLF working-copy warnings for touched docs. |

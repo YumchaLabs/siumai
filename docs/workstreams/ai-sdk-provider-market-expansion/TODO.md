@@ -1,7 +1,7 @@
 # AI SDK Provider Market Expansion — TODO
 
 Status: Draft
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 ## M0 — Scope And Evidence Freeze
 
@@ -62,12 +62,14 @@ Last updated: 2026-05-25
 
 ## M4 — Audio And Media Provider Decision
 
-- [ ] PMX-070 [owner=unassigned] [deps=PMX-010] [scope=repo-ref/ai/packages/deepgram,repo-ref/ai/packages/elevenlabs,repo-ref/ai/packages/fal,repo-ref/ai/packages/replicate,docs]
+- [x] PMX-070 [owner=codex] [deps=PMX-010] [scope=repo-ref/ai/packages/deepgram,repo-ref/ai/packages/elevenlabs,repo-ref/ai/packages/fal,repo-ref/ai/packages/replicate,docs]
   Goal: Decide whether audio/media packages should enter Siumai's near-term provider roadmap.
   Validation: decision note ranks Deepgram, ElevenLabs, Fal, Replicate, and related media packages by market signal, implementation cost, and fit with stable families.
   Review: planner review before new provider work is opened.
   Evidence: `docs/workstreams/ai-sdk-provider-market-expansion/AUDIO_MEDIA_DECISION.md`
-  Handoff: Split one dedicated provider lane only after the decision note picks a concrete target.
+  Handoff: DONE. PMX-070 keeps provider implementation out of this lane. Deepgram is the first dedicated audio
+  provider candidate, ElevenLabs is the second audio candidate, and Replicate/Fal are deferred to media lanes
+  after queue/polling policy and model-specific request-shape gates are explicit.
 
 ## M5 — Closeout
 
