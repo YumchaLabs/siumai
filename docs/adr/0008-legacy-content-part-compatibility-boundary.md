@@ -86,6 +86,12 @@ suite are not yet complete. See
 `docs/workstreams/compatibility-surface-breaking-convergence/CSBC-050-content-part-decision.md` for
 the current blocker record.
 
+2026-05-25 update 2: `adr_0008_root_content_part_move_has_serde_parity_fixture_gate` now provides a
+small executable serde fixture for the next breaking slice. It proves the current root and compat
+`ContentPart` paths serialize identically inside `ChatMessage` and `ChatResponse` payloads. This is
+a gate, not permission to move the root path by itself; provider/protocol response fixture parity
+still needs to be completed before the low-level root namespace changes.
+
 New architecture work should follow these rules:
 
 1. Request-side construction should prefer `ModelMessage`, `UserContentPart`,

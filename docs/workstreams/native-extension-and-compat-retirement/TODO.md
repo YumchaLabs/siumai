@@ -66,7 +66,7 @@ Status legend:
 
 ## M4 — ADR-0008 Root ContentPart Move Preparation
 
-- [~] NECR-050 [owner=codex] [deps=NECR-020] [scope=siumai-spec,siumai-core,siumai,docs/adr,tests]
+- [x] NECR-050 [owner=codex] [deps=NECR-020] [scope=siumai-spec,siumai-core,siumai,docs/adr,tests]
   Goal: Add executable parity gates or a safe preparatory namespace slice for the low-level
   `ContentPart` root move without breaking serde-facing payload compatibility.
   Validation:
@@ -74,16 +74,17 @@ Status legend:
   - public import tests for any namespace movement.
   Review: ADR-0008 compliance review.
   Evidence: parity gate or decision note.
-  Handoff: IN_PROGRESS. Add executable parity gates before attempting any low-level root
-  `ContentPart` namespace move.
+  Handoff: DONE. Added a serde fixture gate that locks the current root/compat `ContentPart`
+  payload equivalence inside `ChatMessage` and `ChatResponse`; low-level root movement remains
+  blocked until broader provider/protocol fixture parity exists.
 
 ## M5 — Closeout
 
-- [ ] NECR-060 [owner=planner] [deps=NECR-030,NECR-040,NECR-050] [scope=docs/workstreams/native-extension-and-compat-retirement]
+- [~] NECR-060 [owner=planner] [deps=NECR-030,NECR-040,NECR-050] [scope=docs/workstreams/native-extension-and-compat-retirement]
   Goal: Close the lane or split any remaining provider-specific removals into narrower follow-ons.
   Validation:
   - documented final gate matrix in `EVIDENCE_AND_GATES.md`
   - `git diff --check -- docs/workstreams/native-extension-and-compat-retirement`
   Review: final self-review or `review-workstream`.
   Evidence: updated workstream docs.
-  Handoff: TODO.
+  Handoff: IN_PROGRESS. Close the lane after final evidence and status files agree.

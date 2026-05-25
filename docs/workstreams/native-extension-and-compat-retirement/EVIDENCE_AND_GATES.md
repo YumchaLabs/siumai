@@ -53,6 +53,22 @@ movement must preserve serde-facing `ChatMessage` and `ChatResponse` compatibili
 | 2026-05-25 | NECR-040 | Added `provider_compatibility_factory_is_method_style_only` and ADR-0007 retirement gates. | Pass | Converts generic-client retirement from prose into source-enforced guardrails and documented deletion prerequisites. |
 | 2026-05-25 | NECR-040 | `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test provider_compatibility_factory_is_method_style_only public_docs_classify_generic_llm_client_factory_paths_as_migration_only --no-default-features --features openai,deepinfra,togetherai --no-fail-fast`. | Pass: 2 tests run, 2 passed. | Proves `ProviderCompatibilityFactory` is production-confined to the facet definition plus historical `SiumaiBuilder` method-style construction and that public docs classify generic-client factory paths as migration-only. |
 | 2026-05-25 | NECR-040 | `cargo check -p siumai-registry --tests --no-default-features --features openai,deepinfra,togetherai`. | Pass | Proves registry tests compile after adding the compatibility-factory guard and doc gates. |
+| 2026-05-25 | NECR-050 | Added `adr_0008_root_content_part_move_has_serde_parity_fixture_gate`. | Pass | Adds a small executable serde fixture proving root and compat `ContentPart` paths currently serialize identically inside `ChatMessage` and `ChatResponse` payloads before any low-level root namespace move. |
+| 2026-05-25 | NECR-050 | `cargo nextest run -p siumai-spec --no-default-features --test content_projection_boundary_test adr_0008_root_content_part_move_has_serde_parity_fixture_gate adr_0008_full_contentpart_namespace_break_blockers_are_guarded --no-fail-fast`. | Pass: 2 tests run, 2 passed. | Proves ADR-0008 blockers remain documented and the new serde fixture gate reflects current root/compat payload parity. |
+| 2026-05-25 | NECR-050 | `cargo check -p siumai-spec --tests --no-default-features`. | Pass | Proves spec tests compile after adding the ADR-0008 parity gate. |
+
+## ADR-0008 Parity Notes
+
+The first root-move fixture gate intentionally locks the current serde payload shape rather than
+moving the namespace. It caught two important facts while being written:
+
+- `MessageContent::MultiModal(...)` currently serializes as an externally tagged enum
+  (`{"MultiModal":[...]}`), so root-move parity must preserve that shape unless a separate serde
+  migration is approved.
+- `ContentPart`-level metadata serializes as `providerMetadata`, while top-level `ChatResponse`
+  metadata currently serializes as `provider_metadata`.
+
+Those shapes are now executable evidence for future root namespace movement.
 
 ## Extension Factory Inventory
 

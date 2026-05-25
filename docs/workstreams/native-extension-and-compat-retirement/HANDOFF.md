@@ -14,7 +14,7 @@ tracks three residual refactor areas requested for continued fearless refactorin
 
 ## Active Task
 
-NECR-050.
+NECR-060.
 
 ## Decisions Since Last Update
 
@@ -32,6 +32,10 @@ NECR-050.
 - Completed NECR-040 by adding a source guard that confines `ProviderCompatibilityFactory` to
   `registry/entry/factory.rs` and the historical `SiumaiBuilder` method-style compatibility path,
   then documenting ADR-0007 deletion gates.
+- Completed NECR-050 by adding `adr_0008_root_content_part_move_has_serde_parity_fixture_gate`.
+  The gate locks root/compat `ContentPart` serialization inside `ChatMessage` and `ChatResponse`
+  and records the current externally tagged `MessageContent::MultiModal` and top-level
+  `provider_metadata` response metadata shapes.
 
 ## Blockers
 
@@ -39,5 +43,6 @@ NECR-050.
 
 ## Next Recommended Action
 
-Continue with NECR-050. Add executable ADR-0008 parity gates before attempting any low-level root
-`ContentPart` namespace movement.
+Continue with NECR-060. Close this lane after final evidence and status files agree; split broader
+provider/protocol fixture parity or actual low-level root namespace movement into a new follow-on if
+needed.

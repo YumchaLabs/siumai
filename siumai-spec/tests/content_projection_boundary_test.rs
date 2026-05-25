@@ -555,6 +555,92 @@ fn response_content_projection_rejects_ambiguous_legacy_carriers() {
     );
 }
 
+#[test]
+fn adr_0008_root_content_part_move_has_serde_parity_fixture_gate() {
+    let mut provider_options = ProviderOptionsMap::default();
+    provider_options.insert(
+        "openai",
+        serde_json::json!({ "cacheControl": { "type": "ephemeral" } }),
+    );
+    let provider_metadata = ProviderMetadataMap::from([(
+        "openai".to_string(),
+        serde_json::json!({ "itemId": "msg_1", "responseId": "resp_1" }),
+    )]);
+
+    let root_part = ContentPart::Text {
+        text: "hello".to_string(),
+        provider_options: provider_options.clone(),
+        provider_metadata: Some(provider_metadata.clone()),
+    };
+    let compat_part = siumai_spec::types::content::compat::ContentPart::Text {
+        text: "hello".to_string(),
+        provider_options: provider_options.clone(),
+        provider_metadata: Some(provider_metadata.clone()),
+    };
+    assert_eq!(
+        serde_json::to_value(&root_part).expect("serialize root ContentPart"),
+        serde_json::to_value(&compat_part).expect("serialize compat ContentPart"),
+        "root and compat ContentPart paths must serialize identically until the root namespace move lands"
+    );
+
+    let message = ChatMessage {
+        role: MessageRole::User,
+        content: MessageContent::MultiModal(vec![root_part.clone()]),
+        provider_options: provider_options.clone(),
+        metadata: Default::default(),
+    };
+    let message_value = serde_json::to_value(&message).expect("serialize ChatMessage fixture");
+    assert_eq!(message_value["role"], serde_json::json!("user"));
+    assert_eq!(
+        message_value["providerOptions"]["openai"]["cacheControl"]["type"],
+        serde_json::json!("ephemeral")
+    );
+    assert_eq!(
+        message_value["content"]["MultiModal"][0],
+        serde_json::to_value(&compat_part).expect("serialize compat fixture part")
+    );
+
+    let message_roundtrip: ChatMessage =
+        serde_json::from_value(message_value.clone()).expect("deserialize ChatMessage fixture");
+    assert_eq!(
+        serde_json::to_value(&message_roundtrip).expect("reserialize ChatMessage fixture"),
+        message_value,
+        "ChatMessage serde payload must remain stable before root ContentPart movement"
+    );
+
+    let mut response = ChatResponse::new(MessageContent::MultiModal(vec![ContentPart::ToolCall {
+        tool_call_id: "call_1".to_string(),
+        tool_name: "search".to_string(),
+        arguments: serde_json::json!({ "query": "rust" }),
+        provider_executed: Some(true),
+        dynamic: Some(false),
+        invalid: Some(false),
+        error: None,
+        title: Some("Search".to_string()),
+        provider_options,
+        provider_metadata: Some(provider_metadata.clone()),
+    }]));
+    response.provider_metadata = Some(provider_metadata);
+
+    let response_value = serde_json::to_value(&response).expect("serialize ChatResponse fixture");
+    assert_eq!(
+        response_value["content"]["MultiModal"][0]["providerMetadata"]["openai"]["itemId"],
+        serde_json::json!("msg_1")
+    );
+    assert_eq!(
+        response_value["provider_metadata"]["openai"]["responseId"],
+        serde_json::json!("resp_1")
+    );
+
+    let response_roundtrip: ChatResponse =
+        serde_json::from_value(response_value.clone()).expect("deserialize ChatResponse fixture");
+    assert_eq!(
+        serde_json::to_value(&response_roundtrip).expect("reserialize ChatResponse fixture"),
+        response_value,
+        "ChatResponse serde payload must remain stable before root ContentPart movement"
+    );
+}
+
 fn assert_json_has_no_key(value: &serde_json::Value, key: &str) {
     match value {
         serde_json::Value::Object(map) => {
