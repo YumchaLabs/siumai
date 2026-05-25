@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "ai-sdk-provider-market-expansion",
+  "title": "AI SDK Provider Market Expansion",
+  "status": "draft",
+  "updated": "2026-05-25",
+  "scope_kind": "execution",
+  "problem": "Siumai needs to prioritize the next provider work by AI SDK package adoption and implementation cost instead of treating every upstream provider package as equal backlog.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/ai-sdk-provider-market-expansion/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/ai-sdk-provider-market-expansion/TODO.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/ai-sdk-provider-market-expansion/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/ai-sdk-provider-market-expansion/MILESTONES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/ai-sdk-provider-market-expansion/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "python .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py",
+    "scripts\\audit-model-catalogs.bat",
+    "focused cargo nextest for edited provider/registry/facade tests",
+    "cargo fmt --check for touched packages",
+    "git diff --check"
+  ],
+  "evidence": [
+    "docs/workstreams/ai-sdk-provider-market-expansion/EVIDENCE_AND_GATES.md",
+    "repo-ref/ai/packages/gateway",
+    "repo-ref/ai/packages/cerebras",
+    "repo-ref/ai/packages/mistral"
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0002-provider-crates-by-provider.md",
+    "docs/adr/0003-provider-ext-export-policy.md",
+    "docs/adr/0004-experimental-surface-policy.md"
+  ],
+  "current_task": "PMX-050",
+  "next_task": "Audit the AI SDK Mistral package surface against Siumai's current Mistral preset/facade and close concrete gaps only if they stay bounded.",
+  "follow_on": [
+    "vercel-gateway-media-admin-and-tools",
+    "audio-media-provider-expansion"
+  ],
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue while tasks are grounded in npm package adoption, local AI SDK reference evidence, and bounded provider-specific validation gates. Split a follow-on when Gateway or media provider scope grows beyond this market-expansion lane."
+  }
+}
