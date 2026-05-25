@@ -18,9 +18,9 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 ## Summary
 
-- Total workstream directories: 80
-- Machine-readable status files: 80
-- Closed or closed-like lanes: 78
+- Total workstream directories: 81
+- Machine-readable status files: 81
+- Closed or closed-like lanes: 79
 - Active-like lanes: 0
 - Deferred lanes: 2
 - Unknown legacy lanes: 0
@@ -91,6 +91,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/provider-settings-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-surface-second-pass` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-utils-tooling-runtime-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/registry-typed-builder-isolation` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/request-options-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/shared-data-content-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/shared-type-surface-alignment` | closed | `WORKSTREAM.json` | yes |

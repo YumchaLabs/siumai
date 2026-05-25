@@ -63,7 +63,7 @@ impl GeminiProviderFactory {
             model_id,
         );
 
-        crate::registry::factory::build_gemini_typed_client(
+        crate::registry::typed_builders::build_gemini_typed_client(
             api_key,
             base_url,
             http_client,

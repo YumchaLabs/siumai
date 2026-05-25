@@ -197,7 +197,7 @@ async fn build_text_client_with_ctx(
         model_id,
     );
 
-    crate::registry::factory::build_openai_compatible_typed_client(
+    crate::registry::typed_builders::build_openai_compatible_typed_client(
         ids::FIREWORKS.to_string(),
         resolve_api_key(ctx)?,
         Some(resolve_root_base_url(ctx)),

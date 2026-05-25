@@ -238,6 +238,9 @@ no longer part of the small registry root surface.
 The old `siumai_registry::registry::factory::build_*_client(...)` helpers are compatibility-only
 shims; new registry/provider work should implement `ProviderFactory::*_family_with_ctx(...)` using
 provider-owned config builders instead of calling those broad generic-client constructors.
+Built-in typed provider-client construction helpers live behind the internal
+`siumai_registry::registry::typed_builders` module. Any typed helper paths that remain reachable
+from `siumai_registry::registry::factory` are compatibility wrappers, not the implementation owner.
 OpenAI-compatible vendor or dynamic provider ids should use
 `openai_compatible_provider_factory(...)` instead of concrete OpenAI-compatible factory
 construction.

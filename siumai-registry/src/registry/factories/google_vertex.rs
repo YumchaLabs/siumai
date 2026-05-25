@@ -80,7 +80,7 @@ impl GoogleVertexProviderFactory {
             model_id,
         );
 
-        crate::registry::factory::build_google_vertex_typed_client(
+        crate::registry::typed_builders::build_google_vertex_typed_client(
             base_url,
             api_key,
             http_client,

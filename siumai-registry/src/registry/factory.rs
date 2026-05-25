@@ -21,6 +21,9 @@ use crate::types::{CommonParams, HttpConfig};
 use std::sync::Arc;
 
 #[cfg(feature = "openai")]
+pub use crate::registry::typed_builders::OpenAiChatApiMode;
+
+#[cfg(feature = "openai")]
 #[deprecated(
     since = "0.11.0-beta.8",
     note = "compatibility-only; use registry ProviderFactory family methods or OpenAI provider config-first construction"
@@ -101,13 +104,6 @@ pub async fn build_openai_chat_completions_client(
 }
 
 #[cfg(feature = "openai")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpenAiChatApiMode {
-    Responses,
-    ChatCompletions,
-}
-
-#[cfg(feature = "openai")]
 #[allow(clippy::too_many_arguments)]
 async fn build_openai_client_with_mode(
     api_key: String,
@@ -175,6 +171,10 @@ async fn build_openai_client_with_mode(
     feature = "deepinfra",
     feature = "google-vertex"
 ))]
+#[deprecated(
+    since = "0.11.0-beta.9",
+    note = "compatibility wrapper; typed provider construction now lives in registry::typed_builders"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_openai_compatible_typed_client(
     provider_id: String,
@@ -196,108 +196,24 @@ pub async fn build_openai_compatible_typed_client(
     siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
     LlmError,
 > {
-    // Resolve provider adapter and base URL via registry v2
-    let registry = crate::registry::global_registry();
-    let (resolved_id, adapter, resolved_base) = {
-        let mut guard = registry
-            .write()
-            .map_err(|_| LlmError::InternalError("Registry lock poisoned".to_string()))?;
-        // Ensure provider adapter is registered without clobbering native metadata/capabilities.
-        let _ = guard.register_openai_compatible(&provider_id);
-        let rec = guard.resolve(&provider_id).cloned().ok_or_else(|| {
-            LlmError::ConfigurationError(format!(
-                "Unknown OpenAI-compatible provider: {}",
-                provider_id
-            ))
-        })?;
-        let adapter = rec.adapter.ok_or_else(|| {
-            LlmError::ConfigurationError(format!(
-                "Adapter missing for OpenAI-compatible provider: {}",
-                rec.id
-            ))
-        })?;
-        // Prefer custom base_url when provided; treat it as the full API prefix (Vercel AI SDK style).
-        let default_base = rec
-            .base_url
-            .unwrap_or_else(|| adapter.base_url().to_string());
-        let base = crate::provider_utils::builder_helpers::resolve_base_url(
-            base_url.clone(),
-            &default_base,
-        );
-        (rec.id, adapter, base)
-    };
-
-    // Build config
-    let mut config =
-        siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
-            &resolved_id,
-            &api_key,
-            &resolved_base,
-            adapter,
-        )
-        .with_model(&{
-            crate::provider::resolver::normalize_model_id(&resolved_id, &common_params.model)
-        })
-        .with_http_config(http_config.clone());
-    if let Some(token_provider) = token_provider {
-        config = config.with_token_provider(token_provider);
-    }
-    if let Some(enabled) = reasoning_enabled {
-        config = config.with_reasoning(enabled);
-    }
-    if let Some(budget) = reasoning_budget {
-        config = config.with_reasoning_budget(budget);
-    }
-    if let Some(transport) = http_transport {
-        config = config.with_http_transport(transport);
-    }
-    if resolved_id == crate::provider::ids::GOOGLE_VERTEX_XAI {
-        config = config
-            .with_include_usage(true)
-            .with_supports_structured_outputs(true)
-            .with_request_body_transformer(
-                siumai_provider_openai_compatible::providers::openai_compatible::settings::google_vertex_xai_request_body_transformer(),
-            );
-    }
-
-    // Apply common params we support directly
-    if let Some(temp) = common_params.temperature {
-        config.common_params.temperature = Some(temp);
-    }
-    if let Some(max_tokens) = common_params.max_tokens {
-        config.common_params.max_tokens = Some(max_tokens);
-    }
-
-    // Create client via provided HTTP client
-    let mut client =
-        siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
-            config,
-            http_client,
-        )
-        .await?;
-    if let Some(opts) = retry_options {
-        client.set_retry_options(Some(opts));
-    }
-    if !interceptors.is_empty() {
-        client = client.with_http_interceptors(interceptors);
-    }
-
-    // Apply tracing if configured (no-op if client ignores)
-    if let Some(tc) = tracing_config {
-        // OpenAI-compatible client doesn?t currently expose tracing guard; keep placeholder for symmetry
-        let _ = tc; // avoid unused warning
-    }
-    // Auto + user middlewares based on resolved provider id
-    let mut auto_mws = crate::execution::middleware::build_auto_middlewares_vec(
-        &resolved_id,
-        &common_params.model,
-    );
-    auto_mws.extend(middlewares);
-    if !auto_mws.is_empty() {
-        client = client.with_model_middlewares(auto_mws);
-    }
-
-    Ok(client)
+    crate::registry::typed_builders::build_openai_compatible_typed_client(
+        provider_id,
+        api_key,
+        base_url,
+        http_client,
+        common_params,
+        reasoning_enabled,
+        reasoning_budget,
+        http_config,
+        token_provider,
+        _provider_params,
+        tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+    )
+    .await
 }
 
 #[cfg(any(
@@ -328,7 +244,7 @@ pub async fn build_openai_compatible_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let client = build_openai_compatible_typed_client(
+    let client = crate::registry::typed_builders::build_openai_compatible_typed_client(
         provider_id,
         api_key,
         base_url,
@@ -408,6 +324,10 @@ pub async fn build_anthropic_client(
 }
 
 #[cfg(feature = "google")]
+#[deprecated(
+    since = "0.11.0-beta.9",
+    note = "compatibility wrapper; typed provider construction now lives in registry::typed_builders"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_gemini_typed_client(
     api_key: String,
@@ -425,60 +345,21 @@ pub async fn build_gemini_typed_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<siumai_provider_gemini::providers::gemini::GeminiClient, LlmError> {
-    use siumai_provider_gemini::providers::gemini::client::GeminiClient;
-    use siumai_provider_gemini::providers::gemini::types::{GeminiConfig, GenerationConfig};
-
-    // Build base config
-    let mut gcfg = GenerationConfig::new();
-    if let Some(temp) = common_params.temperature {
-        gcfg = gcfg.with_temperature(temp);
-    }
-    if let Some(max_tokens) = common_params.max_tokens {
-        gcfg = gcfg.with_max_output_tokens(max_tokens as i32);
-    }
-    if let Some(top_p) = common_params.top_p {
-        gcfg = gcfg.with_top_p(top_p);
-    }
-    if let Some(stop) = common_params.stop_sequences.clone() {
-        gcfg = gcfg.with_stop_sequences(stop);
-    }
-
-    let mut config = GeminiConfig::new(api_key)
-        .with_base_url(base_url)
-        .with_model(common_params.model.clone())
-        .with_generation_config(gcfg)
-        .with_common_params(common_params.clone());
-    config = config.with_http_config(http_config.clone());
-    if let Some(transport) = http_transport {
-        config = config.with_http_transport(transport);
-    }
-
-    if let Some(tp) = google_token_provider {
-        config = config.with_token_provider(tp);
-    }
-
-    let mut client = GeminiClient::with_http_client(config, http_client)?;
-    if let Some(opts) = retry_options {
-        client.set_retry_options(Some(opts));
-    }
-    if !interceptors.is_empty() {
-        client = client.with_http_interceptors(interceptors);
-    }
-
-    if let Some(tc) = tracing_config {
-        client.set_tracing_config(Some(tc));
-    }
-    let mut auto_mws =
-        crate::execution::middleware::build_auto_middlewares_vec("gemini", &common_params.model);
-    auto_mws.push(std::sync::Arc::new(
-        siumai_provider_gemini::providers::gemini::middleware::GeminiToolWarningsMiddleware::new(),
-    ));
-    auto_mws.extend(middlewares);
-    if !auto_mws.is_empty() {
-        client = client.with_model_middlewares(auto_mws);
-    }
-
-    Ok(client)
+    crate::registry::typed_builders::build_gemini_typed_client(
+        api_key,
+        base_url,
+        http_client,
+        common_params,
+        http_config,
+        _provider_params,
+        google_token_provider,
+        tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+    )
+    .await
 }
 
 #[cfg(feature = "google")]
@@ -503,7 +384,7 @@ pub async fn build_gemini_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let client = build_gemini_typed_client(
+    let client = crate::registry::typed_builders::build_gemini_typed_client(
         api_key,
         base_url,
         http_client,
@@ -524,6 +405,10 @@ pub async fn build_gemini_client(
 
 /// Build Anthropic on Vertex AI typed client.
 #[cfg(feature = "google-vertex")]
+#[deprecated(
+    since = "0.11.0-beta.9",
+    note = "compatibility wrapper; typed provider construction now lives in registry::typed_builders"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_anthropic_vertex_typed_client(
     base_url: String,
@@ -542,63 +427,19 @@ pub async fn build_anthropic_vertex_typed_client(
     siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient,
     LlmError,
 > {
-    let token_provider = {
-        #[cfg(feature = "gcp")]
-        {
-            fn has_auth_header(headers: &std::collections::HashMap<String, String>) -> bool {
-                headers
-                    .keys()
-                    .any(|key| key.eq_ignore_ascii_case("authorization"))
-            }
-
-            let mut token_provider = google_token_provider;
-            if token_provider.is_none() && !has_auth_header(&http_config.headers) {
-                token_provider = Some(Arc::new(
-                    siumai_provider_google_vertex::auth::adc::AdcTokenProvider::default_client(),
-                ));
-            }
-            token_provider
-        }
-        #[cfg(not(feature = "gcp"))]
-        {
-            google_token_provider
-        }
-    };
-
-    let mut cfg =
-        siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicConfig::new(
-            base_url,
-            common_params.model.clone(),
-        )
-        .with_http_config(http_config)
-        .with_http_interceptors(interceptors)
-        .with_model_middlewares(
-            crate::execution::middleware::build_auto_middlewares_vec(
-                "anthropic",
-                &common_params.model,
-            ),
-        );
-
-    if let Some(http_transport) = http_transport {
-        cfg = cfg.with_http_transport(http_transport);
-    }
-    if let Some(token_provider) = token_provider {
-        cfg = cfg.with_token_provider(token_provider);
-    }
-    if !middlewares.is_empty() {
-        let mut all_middlewares = cfg.model_middlewares.clone();
-        all_middlewares.extend(middlewares);
-        cfg = cfg.with_model_middlewares(all_middlewares);
-    }
-    let mut client =
-        siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient::with_http_client(
-            cfg,
-            http_client,
-        )?;
-    if let Some(opts) = retry_options {
-        client.set_retry_options(Some(opts));
-    }
-    Ok(client)
+    crate::registry::typed_builders::build_anthropic_vertex_typed_client(
+        base_url,
+        http_client,
+        common_params,
+        http_config,
+        google_token_provider,
+        _tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+    )
+    .await
 }
 
 /// Build Anthropic on Vertex AI compatibility client.
@@ -620,7 +461,7 @@ pub async fn build_anthropic_vertex_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let client = build_anthropic_vertex_typed_client(
+    let client = crate::registry::typed_builders::build_anthropic_vertex_typed_client(
         base_url,
         http_client,
         common_params,
@@ -638,6 +479,10 @@ pub async fn build_anthropic_vertex_client(
 }
 
 #[cfg(feature = "google-vertex")]
+#[deprecated(
+    since = "0.11.0-beta.9",
+    note = "compatibility wrapper; typed provider construction now lives in registry::typed_builders"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_google_vertex_typed_client(
     base_url: String,
@@ -652,35 +497,20 @@ pub async fn build_google_vertex_typed_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient, LlmError> {
-    let mut cfg = siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig::new(
+    crate::registry::typed_builders::build_google_vertex_typed_client(
         base_url,
-        common_params.model.clone(),
+        api_key,
+        http_client,
+        common_params,
+        http_config,
+        token_provider,
+        _tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
     )
-    .with_http_config(http_config)
-    .with_http_interceptors(interceptors)
-    .with_model_middlewares(middlewares);
-
-    if let Some(api_key) = api_key {
-        cfg = cfg.with_api_key(api_key);
-    }
-    if let Some(http_transport) = http_transport {
-        cfg = cfg.with_http_transport(http_transport);
-    }
-    if let Some(token_provider) = token_provider {
-        cfg = cfg.with_token_provider(token_provider);
-    }
-
-    let mut client =
-        siumai_provider_google_vertex::providers::vertex::GoogleVertexClient::with_http_client(
-            cfg,
-            http_client,
-        )?;
-    client = client.with_common_params(common_params);
-    if let Some(opts) = retry_options {
-        client = client.with_retry_options(opts);
-    }
-
-    Ok(client)
+    .await
 }
 
 /// Build Google Vertex client (Imagen via Vertex AI).
@@ -703,7 +533,7 @@ pub async fn build_google_vertex_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let client = build_google_vertex_typed_client(
+    let client = crate::registry::typed_builders::build_google_vertex_typed_client(
         base_url,
         api_key,
         http_client,

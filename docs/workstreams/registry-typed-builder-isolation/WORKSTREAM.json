@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "slug": "registry-typed-builder-isolation",
+  "title": "Registry Typed Builder Isolation",
+  "status": "closed",
+  "updated": "2026-05-25",
+  "scope_kind": "registry-construction-refactor",
+  "problem": "The public legacy registry::factory module still owns typed provider-client builder implementation used by production provider factories.",
+  "objective": "Move typed provider-client builder implementation behind an internal registry module while keeping registry::factory as a compatibility wrapper surface.",
+  "active_task": null,
+  "next_task": null,
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/registry-typed-builder-isolation/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/registry-typed-builder-isolation/TODO.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/registry-typed-builder-isolation/MILESTONES.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/registry-typed-builder-isolation/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/registry-typed-builder-isolation/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "cargo nextest run -p siumai-registry --test factory_architecture_boundary_test production_factories_use_internal_typed_builders_not_legacy_factory_module --no-default-features --features openai,google,google-vertex,togetherai,deepinfra --no-fail-fast",
+    "cargo check -p siumai-registry --tests --all-features",
+    "git diff --check -- CHANGELOG.md docs/architecture/public-surface.md docs/workstreams/registry-typed-builder-isolation docs/workstreams/INDEX.md siumai-registry/src/registry siumai-registry/tests/factory_architecture_boundary_test.rs"
+  ],
+  "evidence": [
+    "docs/workstreams/registry-typed-builder-isolation/EVIDENCE_AND_GATES.md"
+  ],
+  "adr_refs": [
+    "docs/adr/0007-llmclient-demotion-policy.md",
+    "docs/adr/0006-family-model-first-trait-policy.md"
+  ],
+  "continue_policy": {
+    "default_action": "closed",
+    "notes": "Lane closed after moving typed provider-client builder implementation behind internal registry::typed_builders while keeping registry::factory compatibility wrappers."
+  }
+}

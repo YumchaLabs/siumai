@@ -126,7 +126,7 @@ async fn build_text_client_with_ctx(
     );
     let root_base_url = resolve_root_base_url(ctx);
 
-    crate::registry::factory::build_openai_compatible_typed_client(
+    crate::registry::typed_builders::build_openai_compatible_typed_client(
         ids::DEEPINFRA.to_string(),
         resolve_api_key(ctx)?,
         Some(text_base_url(&root_base_url)),

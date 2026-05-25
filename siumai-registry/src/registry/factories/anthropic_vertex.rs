@@ -63,7 +63,7 @@ async fn build_typed_client_with_ctx(
         )
     };
 
-    crate::registry::factory::build_anthropic_vertex_typed_client(
+    crate::registry::typed_builders::build_anthropic_vertex_typed_client(
         base_url,
         http_client,
         common_params,

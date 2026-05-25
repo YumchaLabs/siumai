@@ -133,7 +133,7 @@ async fn build_text_client_with_ctx(
     );
     let (api_key, token_provider) = resolve_auth(ctx, &http_config)?;
 
-    crate::registry::factory::build_openai_compatible_typed_client(
+    crate::registry::typed_builders::build_openai_compatible_typed_client(
         ids::GOOGLE_VERTEX_XAI.to_string(),
         api_key,
         Some(resolve_base_url(ctx)?),

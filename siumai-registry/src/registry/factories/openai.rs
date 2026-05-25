@@ -53,15 +53,17 @@ impl OpenAIProviderFactory {
 
         let mode = match ctx.provider_id.as_deref() {
             Some(crate::provider::ids::OPENAI_CHAT) => {
-                crate::registry::factory::OpenAiChatApiMode::ChatCompletions
+                crate::registry::typed_builders::OpenAiChatApiMode::ChatCompletions
             }
-            _ => crate::registry::factory::OpenAiChatApiMode::Responses,
+            _ => crate::registry::typed_builders::OpenAiChatApiMode::Responses,
         };
 
         let mut config = siumai_provider_openai::providers::openai::OpenAiConfig::new(api_key)
             .with_base_url(base_url)
             .with_model(common_params.model.clone())
-            .with_use_responses_api(mode == crate::registry::factory::OpenAiChatApiMode::Responses);
+            .with_use_responses_api(
+                mode == crate::registry::typed_builders::OpenAiChatApiMode::Responses,
+            );
 
         if let Some(temp) = common_params.temperature {
             config = config.with_temperature(temp);

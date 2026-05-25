@@ -123,7 +123,7 @@ impl OpenAICompatibleProviderFactory {
             )?
         };
 
-        crate::registry::factory::build_openai_compatible_typed_client(
+        crate::registry::typed_builders::build_openai_compatible_typed_client(
             self.provider_id.clone(),
             api_key,
             ctx.base_url.clone(),

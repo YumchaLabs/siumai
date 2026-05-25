@@ -19,6 +19,8 @@ pub mod entry;
 pub mod factories;
 #[cfg(feature = "builtins")]
 pub mod factory;
+#[cfg(feature = "builtins")]
+pub(crate) mod typed_builders;
 
 pub mod helpers;
 

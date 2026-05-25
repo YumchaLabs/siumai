@@ -1369,6 +1369,73 @@ fn production_factories_do_not_call_legacy_broad_build_client_helpers() {
 }
 
 #[test]
+fn production_factories_use_internal_typed_builders_not_legacy_factory_module() {
+    let factories_dir = crate_root().join("src").join("registry").join("factories");
+    let forbidden_legacy_factory_paths = [
+        "crate::registry::factory::build_openai_compatible_typed_client(",
+        "crate::registry::factory::build_gemini_typed_client(",
+        "crate::registry::factory::build_anthropic_vertex_typed_client(",
+        "crate::registry::factory::build_google_vertex_typed_client(",
+        "crate::registry::factory::OpenAiChatApiMode",
+    ];
+    let mut violations = Vec::new();
+
+    for entry in fs::read_dir(factories_dir).expect("read registry factories directory") {
+        let path = entry.expect("read registry factory entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if matches!(file_name, "contract_tests.rs" | "test.rs" | "mod.rs") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path).expect("read registry factory source");
+        for forbidden in forbidden_legacy_factory_paths {
+            if source.contains(forbidden) {
+                violations.push(format!("{file_name}: {forbidden}"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "production ProviderFactory implementations should use registry::typed_builders for typed provider construction, not the public legacy registry::factory module:\n{}",
+        violations.join("\n")
+    );
+
+    let registry_mod = fs::read_to_string(crate_root().join("src").join("registry").join("mod.rs"))
+        .expect("read registry module");
+    assert!(
+        registry_mod.contains("mod typed_builders;"),
+        "registry should keep typed provider construction helpers in an internal typed_builders module"
+    );
+
+    let legacy_factory =
+        fs::read_to_string(crate_root().join("src").join("registry").join("factory.rs"))
+            .expect("read legacy registry factory module");
+    assert!(
+        legacy_factory.contains("pub use crate::registry::typed_builders::OpenAiChatApiMode;"),
+        "registry::factory should re-export OpenAiChatApiMode as a compatibility wrapper, not own the enum"
+    );
+    for helper in [
+        "build_openai_compatible_typed_client",
+        "build_gemini_typed_client",
+        "build_anthropic_vertex_typed_client",
+        "build_google_vertex_typed_client",
+    ] {
+        assert!(
+            legacy_factory.contains(&format!("pub async fn {helper}("))
+                && legacy_factory.contains(&format!("crate::registry::typed_builders::{helper}(")),
+            "registry::factory::{helper} should be a compatibility wrapper around registry::typed_builders::{helper}"
+        );
+    }
+}
+
+#[test]
 fn legacy_registry_factory_build_helpers_are_deprecated_compatibility_shims() {
     let source = fs::read_to_string(crate_root().join("src").join("registry").join("factory.rs"))
         .expect("read legacy registry factory module");

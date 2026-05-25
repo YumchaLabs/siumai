@@ -19,6 +19,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Split registry provider construction into family-first, compatibility, and extension facets so
   stable family handles no longer use compatibility `LlmClient` paths as their primary execution
   route.
+- Moved built-in provider typed-client construction helpers behind an internal
+  `siumai_registry::registry::typed_builders` module. The legacy
+  `siumai_registry::registry::factory` module now acts as a compatibility wrapper surface for these
+  typed helper paths and for deprecated generic-client construction helpers.
 - Moved OpenAI-compatible `/completions` response conversion and SSE parser state into
   `siumai-protocol-openai`; OpenAI-compatible provider runtime now delegates protocol conversion.
 - Moved Gemini GenerateContent request normalization into `siumai-protocol-gemini`, leaving
