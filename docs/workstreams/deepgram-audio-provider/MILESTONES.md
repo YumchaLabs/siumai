@@ -1,6 +1,6 @@
 # Deepgram Audio Provider — Milestones
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 — Scope Freeze
@@ -60,6 +60,17 @@ Gate:
 
 Exit criteria:
 
-- All task ledger items are done, split, or explicitly deferred.
-- Evidence gates are refreshed.
-- HANDOFF.md states the next task or lane closure.
+- All task ledger items are done, split, or explicitly deferred. DONE.
+- Evidence gates are refreshed. DONE.
+- HANDOFF.md states the next task or lane closure. DONE.
+
+Gate:
+
+- `cargo nextest run -p siumai-provider-deepgram --features deepgram --no-fail-fast`
+- `cargo nextest run -p siumai-registry --features deepgram deepgram --no-fail-fast`
+- `cargo nextest run -p siumai --features deepgram deepgram --no-fail-fast`
+- `cargo fmt --check -p siumai-provider-deepgram`
+- `cargo fmt --check -p siumai-registry`
+- `cargo fmt --check -p siumai`
+- `python -m json.tool docs\workstreams\deepgram-audio-provider\WORKSTREAM.json`
+- `git diff --check`

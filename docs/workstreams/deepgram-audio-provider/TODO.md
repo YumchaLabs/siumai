@@ -1,6 +1,6 @@
 # Deepgram Audio Provider — TODO
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## DGA-010 — Scope And Contract Freeze
@@ -55,9 +55,11 @@ Last updated: 2026-05-26
 
 ## DGA-050 — Closeout
 
-- [ ] DGA-050 [owner=planner] [deps=DGA-020,DGA-030,DGA-040] [scope=docs/workstreams/deepgram-audio-provider]
+- [x] DGA-050 [owner=planner] [deps=DGA-020,DGA-030,DGA-040] [scope=docs/workstreams/deepgram-audio-provider]
   Goal: Close the Deepgram lane or split any residual option/model gaps into narrow follow-ons.
   Validation: verify-rust-workstream records fresh final gate evidence.
   Review: review-workstream has no blocking findings.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`
-  Handoff: Summarize shipped behavior, unsupported families, intentional divergences, and follow-ons.
+  Handoff: DONE. The Deepgram lane is closed after fresh provider-crate, registry, facade, formatting,
+  JSON, and whitespace gates. Follow-ons remain separate lanes for ElevenLabs and queued media/polling
+  foundations.

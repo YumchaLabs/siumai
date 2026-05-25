@@ -1,6 +1,6 @@
 # Deepgram Audio Provider
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## Why This Lane Exists

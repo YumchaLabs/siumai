@@ -1,27 +1,32 @@
 # Deepgram Audio Provider — Handoff
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open. DGA-010 froze the execution lane from the closed AI SDK provider market expansion
-decision. DGA-020 added the native Deepgram provider crate and passed focused provider-crate gates.
-DGA-030 wired Deepgram into the registry and passed focused registry gates. DGA-040 exposed the
-Deepgram facade/public surface and passed focused facade gates.
+The workstream is closed. DGA-010 froze the execution lane from the closed AI SDK provider market
+expansion decision. DGA-020 added the native Deepgram provider crate. DGA-030 wired Deepgram into
+the registry. DGA-040 exposed the Deepgram facade/public surface. DGA-050 reran fresh focused gates
+and closed the lane.
 
 ## Active Task
 
-- Task ID: DGA-050
-- Owner: planner
+- Task ID: none
+- Owner: n/a
 - Files:
   - `docs/workstreams/deepgram-audio-provider/*`
 - Validation:
-  - verify-rust-workstream records fresh final gate evidence
+  - `cargo nextest run -p siumai-provider-deepgram --features deepgram --no-fail-fast`
+  - `cargo nextest run -p siumai-registry --features deepgram deepgram --no-fail-fast`
+  - `cargo nextest run -p siumai --features deepgram deepgram --no-fail-fast`
+  - `cargo fmt --check -p siumai-provider-deepgram`
+  - `cargo fmt --check -p siumai-registry`
+  - `cargo fmt --check -p siumai`
   - `python -m json.tool docs\workstreams\deepgram-audio-provider\WORKSTREAM.json`
   - `git diff --check`
-- Status: READY_TO_CLOSE
-- Review: Pending closeout review
+- Status: CLOSED
+- Review: Closeout review found no blocking findings.
 - Evidence: `docs/workstreams/deepgram-audio-provider/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Last Update
@@ -52,9 +57,10 @@ Deepgram facade/public surface and passed focused facade gates.
 
 ## Blockers
 
-- None currently.
+- None.
 
 ## Next Recommended Action
 
-- Run DGA-050 closeout: review the shipped provider/registry/facade evidence, run final JSON and
-  whitespace gates, then close the Deepgram lane or split narrow follow-ons.
+- Start a separate workstream for the next audio/media lane if needed. Recommended follow-ons are
+  `elevenlabs-audio-provider` for another speech/transcription package and
+  `media-task-polling-foundation` for queued media providers such as Fal or Replicate.

@@ -1,6 +1,6 @@
 # Deepgram Audio Provider — Evidence And Gates
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## Market Evidence
@@ -91,3 +91,7 @@ git diff --check
 | 2026-05-26 | DGA-040 | `cargo fmt --check -p siumai` | Pass: facade crate formatting check completed after `cargo fmt -p siumai`. |
 | 2026-05-26 | DGA-040 | `cargo check -p siumai --tests --no-default-features --features deepgram` | Not used as a DGA-040 gate: facade library compiles far enough to build the Deepgram feature, but an existing OpenAI tooling public-surface test references `siumai::tools::openai` without enabling the `openai`/`protocol-openai` feature. |
 | 2026-05-26 | DGA-040 | `python -m json.tool docs\workstreams\deepgram-audio-provider\WORKSTREAM.json`; `git diff --check` | Pass: WORKSTREAM.json parsed successfully; no whitespace errors. |
+| 2026-05-26 | DGA-050 | `cargo nextest run -p siumai-provider-deepgram --features deepgram --no-fail-fast`; `cargo fmt --check -p siumai-provider-deepgram` | Pass: 10 provider-crate tests passed; formatting check passed. |
+| 2026-05-26 | DGA-050 | `cargo nextest run -p siumai-registry --features deepgram deepgram --no-fail-fast`; `cargo fmt --check -p siumai-registry` | Pass: 11 registry focused tests passed; formatting check passed. The registry test build emitted existing unused-code/import warnings in `contract_tests.rs`. |
+| 2026-05-26 | DGA-050 | `cargo nextest run -p siumai --features deepgram deepgram --no-fail-fast`; `cargo fmt --check -p siumai` | Pass: 2 facade public-surface tests passed; formatting check passed. |
+| 2026-05-26 | DGA-050 | `python -m json.tool docs\workstreams\deepgram-audio-provider\WORKSTREAM.json`; `git diff --check` | Pass: WORKSTREAM.json parsed successfully; no whitespace errors. |

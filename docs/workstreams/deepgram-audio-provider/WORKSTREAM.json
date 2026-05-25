@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "deepgram-audio-provider",
   "title": "Deepgram Audio Provider",
-  "status": "draft",
+  "status": "closed",
   "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai needs a first-class Deepgram audio provider aligned with the AI SDK package surface for speech and transcription.",
@@ -47,14 +47,14 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "DGA-050",
-  "next_task": "Close the Deepgram lane or split residual option/model gaps into narrow follow-ons.",
+  "current_task": null,
+  "next_task": "Lane closed. Open a separate follow-on workstream for ElevenLabs or queued media polling foundations.",
   "follow_on": [
     "elevenlabs-audio-provider",
     "media-task-polling-foundation"
   ],
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue while work remains limited to Deepgram speech/transcription parity, no-network gates, and stable provider-root exports. Split follow-ons for ElevenLabs or queued media behavior."
+    "default_action": "closed",
+    "notes": "Deepgram speech/transcription provider, registry wiring, facade exports, and closeout gates are complete. Future audio/media work should start a separate workstream."
   }
 }
