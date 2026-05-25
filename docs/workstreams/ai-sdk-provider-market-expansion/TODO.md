@@ -1,6 +1,6 @@
 # AI SDK Provider Market Expansion — TODO
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 — Scope And Evidence Freeze
@@ -73,9 +73,11 @@ Last updated: 2026-05-26
 
 ## M5 — Closeout
 
-- [ ] PMX-080 [owner=planner] [deps=PMX-020,PMX-040,PMX-050,PMX-060,PMX-070] [scope=docs/workstreams/ai-sdk-provider-market-expansion]
+- [x] PMX-080 [owner=planner] [deps=PMX-020,PMX-040,PMX-050,PMX-060,PMX-070] [scope=docs/workstreams/ai-sdk-provider-market-expansion]
   Goal: Close the lane or split any remaining broad work into narrower provider workstreams.
   Validation: verify-rust-workstream records fresh final gate evidence.
   Review: review-workstream has no blocking findings.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`
-  Handoff: Summarize shipped providers, deferred packages, and remaining risks.
+  Handoff: DONE. This lane is closed. Shipped work is Gateway, Cerebras, Mistral request-shape alignment,
+  Bedrock alias polish, and the audio/media decision note. Deferred follow-ons are split into dedicated
+  provider or polling lanes rather than left implicit.

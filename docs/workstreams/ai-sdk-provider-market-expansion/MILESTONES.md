@@ -1,6 +1,6 @@
 # AI SDK Provider Market Expansion — Milestones
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 — Scope Freeze
@@ -84,3 +84,6 @@ Exit criteria:
 - All task ledger items are done, split, or explicitly deferred.
 - Evidence gates are refreshed.
 - HANDOFF.md names the next task or states the lane is closed.
+
+Closeout: Achieved on 2026-05-26. All tasks are complete and the remaining media/provider work is split into
+explicit follow-on lanes.

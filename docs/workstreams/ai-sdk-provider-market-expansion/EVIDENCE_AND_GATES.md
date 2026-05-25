@@ -1,6 +1,6 @@
 # AI SDK Provider Market Expansion — Evidence And Gates
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## Market Evidence
@@ -149,3 +149,4 @@ python .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py
 | 2026-05-26 | PMX-070 | `repo-ref/ai/packages/{deepgram,elevenlabs,fal,replicate}/src` package surfaces compared against Siumai media families and registry handles. | Done: Deepgram and ElevenLabs are narrow speech/transcription candidates; Replicate and Fal require dedicated media lanes because of prediction/queue polling, timeout policy, dynamic model inputs, and broad model-specific request options. |
 | 2026-05-26 | PMX-070 | `docs/workstreams/ai-sdk-provider-market-expansion/AUDIO_MEDIA_DECISION.md` | Done: decision note ranks provider priority, defers broad media implementation, and splits follow-ons for Deepgram, ElevenLabs, shared media polling policy, Replicate, and Fal. |
 | 2026-05-26 | PMX-070 | `python .agents\skills\siumai-ai-sdk-maintenance\scripts\resolve_ai_sdk_repo.py`; `python -m json.tool docs\workstreams\ai-sdk-provider-market-expansion\WORKSTREAM.json`; `git diff --check` | Pass: AI SDK reference resolved at `repo-ref/ai`; WORKSTREAM.json parsed successfully; `git diff --check` found no whitespace errors and emitted only LF-to-CRLF working-copy warnings for touched docs. |
+| 2026-05-26 | PMX-080 | Workstream closeout review of `DESIGN.md`, `TODO.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`, and `GATEWAY_INVENTORY.md`; WORKSTREAM JSON parse check; stale status marker grep; `git diff --check`. | Pass: all task items are complete or split; no stale Draft, open PMX task, or ready-to-close markers remain; WORKSTREAM.json parsed successfully; `git diff --check` found no whitespace errors and emitted only LF-to-CRLF working-copy warnings for touched docs. |

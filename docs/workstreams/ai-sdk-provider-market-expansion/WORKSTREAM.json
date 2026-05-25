@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "ai-sdk-provider-market-expansion",
   "title": "AI SDK Provider Market Expansion",
-  "status": "draft",
+  "status": "closed",
   "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai needs to prioritize the next provider work by AI SDK package adoption and implementation cost instead of treating every upstream provider package as equal backlog.",
@@ -57,8 +57,8 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "PMX-080",
-  "next_task": "Close the lane or split any remaining broad work into narrower provider workstreams.",
+  "current_task": "closed",
+  "next_task": "Open a dedicated follow-on workstream only if one of the explicit Deepgram, ElevenLabs, Replicate, or Fal lanes is approved.",
   "follow_on": [
     "vercel-gateway-media-admin-and-tools",
     "bedrock-anthropic-subprovider",
@@ -70,7 +70,7 @@
     "fal-media-provider"
   ],
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue while tasks are grounded in npm package adoption, local AI SDK reference evidence, and bounded provider-specific validation gates. Split a follow-on when Gateway or media provider scope grows beyond this market-expansion lane."
+    "default_action": "closed",
+    "notes": "This lane is complete. Continue only in a new follow-on workstream that is grounded in npm package adoption, local AI SDK reference evidence, and bounded provider-specific validation gates."
   }
 }

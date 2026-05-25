@@ -1,7 +1,7 @@
 # AI SDK Provider Market Expansion
 
-Status: Draft
-Last updated: 2026-05-25
+Status: Closed
+Last updated: 2026-05-26
 
 ## Why This Lane Exists
 
@@ -142,3 +142,7 @@ This lane can close when:
 - focused nextest/check gates pass for touched crates;
 - catalog and public facade audits are updated when provider roots or model constants change;
 - workstream docs record shipped behavior, deferred scope, and follow-on work.
+
+Closeout: Achieved on 2026-05-26. The lane now records the shipped Gateway proof, Cerebras onboarding,
+Mistral request-shape fixes, Bedrock alias polish, and the audio/media decision note with explicit follow-on
+splits for Deepgram, ElevenLabs, Replicate, and Fal.

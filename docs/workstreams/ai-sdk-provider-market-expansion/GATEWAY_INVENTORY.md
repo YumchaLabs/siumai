@@ -1,7 +1,7 @@
 # Vercel AI Gateway Contract Inventory
 
-Status: Draft
-Last updated: 2026-05-25
+Status: Closed
+Last updated: 2026-05-26
 
 Task: PMX-020
 

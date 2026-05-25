@@ -1,15 +1,14 @@
 # AI SDK Provider Market Expansion — Handoff
 
-Status: Draft
+Status: Closed
 Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open. Market evidence shows Siumai already covers the major direct providers, while the
-remaining high-impact work is lane closeout and follow-on split hygiene.
+The workstream is closed. Market evidence and reference-package audits now support the shipped provider
+surface and the explicit split of remaining media work into follow-on lanes.
 
-PMX-010, PMX-020, PMX-030, PMX-040, PMX-050, PMX-060, and PMX-070 are complete. PMX-080 is the next
-unresolved task.
+PMX-010, PMX-020, PMX-030, PMX-040, PMX-050, PMX-060, PMX-070, and PMX-080 are complete.
 
 ## Active Task
 
@@ -21,8 +20,8 @@ unresolved task.
   - verify-rust-workstream records fresh final gate evidence.
   - review-workstream has no blocking findings.
   - `python .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py`
-- Status: READY_TO_CLOSE
-- Review: Pending
+- Status: COMPLETE
+- Review: Complete
 - Evidence: `docs/workstreams/ai-sdk-provider-market-expansion/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Last Update
@@ -66,9 +65,9 @@ unresolved task.
 
 ## Blockers
 
-- None currently.
+- None.
 
 ## Next Recommended Action
 
-- Continue with PMX-080 closeout. Verify the final docs, decide whether follow-ons should be opened as separate
-  workstreams, and close this market-expansion lane when review and final gates are recorded.
+- Open a dedicated follow-on only for the provider lane that actually gets approved next. Deepgram and
+  ElevenLabs remain audio candidates; Replicate and Fal remain media candidates with polling policy gates.
