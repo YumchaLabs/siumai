@@ -82,3 +82,6 @@ git diff --check
 | 2026-05-26 | DGA-010 | `python .agents\skills\siumai-ai-sdk-maintenance\scripts\resolve_ai_sdk_repo.py` | Pass: resolved local AI SDK reference at `repo-ref/ai`. |
 | 2026-05-26 | DGA-010 | `repo-ref/ai/packages/deepgram/src/{index.ts,deepgram-provider.ts,deepgram-speech-model.ts,deepgram-transcription-model.ts,*options.ts}` reviewed against Siumai speech/transcription family surfaces. | Done: implementation boundary is native Deepgram speech plus transcription only. |
 | 2026-05-26 | DGA-010 | `python -m json.tool docs\workstreams\deepgram-audio-provider\WORKSTREAM.json`; `git diff --check` | Pass: WORKSTREAM.json parsed successfully; no whitespace errors. |
+| 2026-05-26 | DGA-020 | `cargo nextest run -p siumai-provider-deepgram --features deepgram --no-fail-fast` | Pass: 10 tests covered typed options, request option merging, env key constant, explicit key override, header merging, runtime helpers, `/v1/speak` JSON request/auth/query behavior, `/v1/listen` raw audio request/auth/query behavior, and transcription response mapping. |
+| 2026-05-26 | DGA-020 | `cargo fmt --check --package siumai-provider-deepgram` | Pass: provider crate formatting check completed. |
+| 2026-05-26 | DGA-020 | `git diff --check` | Pass: no whitespace errors; Git reported expected LF-to-CRLF working-copy warnings for touched root Cargo files. |

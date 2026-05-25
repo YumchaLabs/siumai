@@ -27,6 +27,7 @@ members = [
     "siumai-provider-togetherai",
     "siumai-provider-amazon-bedrock",
     "siumai-provider-gateway",
+    "siumai-provider-deepgram",
 ]
 
 [workspace.package]

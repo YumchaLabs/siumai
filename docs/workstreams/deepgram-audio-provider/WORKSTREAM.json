@@ -47,8 +47,8 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "DGA-020",
-  "next_task": "Add the siumai-provider-deepgram crate with speech/transcription client behavior and no-network request tests.",
+  "current_task": "DGA-030",
+  "next_task": "Wire Deepgram into registry feature flags, native metadata, provider catalog, and speech/transcription factory paths.",
   "follow_on": [
     "elevenlabs-audio-provider",
     "media-task-polling-foundation"

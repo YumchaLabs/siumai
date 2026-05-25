@@ -15,14 +15,17 @@ Last updated: 2026-05-26
 
 ## DGA-020 — Provider Crate And Speech/Transcription Core
 
-- [ ] DGA-020 [owner=worker] [deps=DGA-010] [scope=siumai-provider-deepgram,Cargo.toml]
+- [x] DGA-020 [owner=worker] [deps=DGA-010] [scope=siumai-provider-deepgram,Cargo.toml]
   Goal: Add `siumai-provider-deepgram` with provider settings, auth/base URL handling, model constants,
   typed speech/transcription options, error mapping, and no-network client tests for `/v1/speak` and
   `/v1/listen`.
   Validation: `cargo nextest run -p siumai-provider-deepgram --features deepgram --no-fail-fast`; `cargo fmt --check -p siumai-provider-deepgram`.
   Review: review-workstream for provider crate boundary and option mapping.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: The crate should compile and prove request URL/header/body behavior before registry wiring starts.
+  Handoff: DONE. `siumai-provider-deepgram` now owns config, auth/base URL/header handling, model
+  constants, typed speech/transcription options, speech/transcription family model wrappers, and
+  no-network `/v1/speak` plus `/v1/listen` request/response tests. Registry and facade wiring remain
+  intentionally out of scope for DGA-030/DGA-040.
 
 ## DGA-030 — Registry And Capability Wiring
 
