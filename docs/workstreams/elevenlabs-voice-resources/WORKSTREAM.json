@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "elevenlabs-voice-resources",
   "title": "ElevenLabs Voice Resources",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai's ElevenLabs provider can generate speech when users know a voice id, but it lacks provider-owned resource clients for listing and retrieving ElevenLabs voices.",
@@ -38,6 +38,7 @@
   "evidence": [
     "docs/workstreams/elevenlabs-audio-provider",
     "repo-ref/ai/packages/elevenlabs",
+    "https://elevenlabs.io/docs/llms.txt",
     "https://elevenlabs.io/docs/api-reference/voices/search.mdx",
     "https://elevenlabs.io/docs/api-reference/voices/get.mdx",
     "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/list.mdx",
@@ -50,10 +51,10 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "ELVR-040",
-  "next_task": "Decide whether voice clone/update/delete/settings/sample/PVC APIs belong in this lane or should split into mutation-focused follow-ons.",
+  "current_task": "closed",
+  "next_task": "Follow-ons only: voice mutation/PVC/sample/settings resources or pronunciation dictionary mutation/download resources.",
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue with ELVR-040 as a docs/planning decision. Keep voice mutation, live credential gates, and generic voice-management traits split unless a narrow task is explicitly accepted."
+    "default_action": "close",
+    "notes": "This lane is closed. Start a new workstream for mutation-heavy voice APIs, pronunciation dictionary mutation/download APIs, live credential gates, or any future generic voice-management contract."
   }
 }

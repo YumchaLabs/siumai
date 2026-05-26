@@ -1,6 +1,6 @@
 # ElevenLabs Voice Resources — TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## ELVR-010 — Scope And Resource Contract Freeze
@@ -47,21 +47,25 @@ Last updated: 2026-05-26
 
 ## ELVR-040 — Voice Mutation Split Decision
 
-- [ ] ELVR-040 [owner=planner] [deps=ELVR-020] [scope=docs/workstreams/elevenlabs-voice-resources]
+- [x] ELVR-040 [owner=planner] [deps=ELVR-020] [scope=docs/workstreams/elevenlabs-voice-resources]
   Goal: Decide whether voice clone/update/delete/settings/sample/PVC APIs belong in this lane or in
   separate mutation-focused workstreams.
   Validation: TODO/MILESTONES/HANDOFF record explicit close-or-split decision.
   Review: review-workstream for scope creep and live credential implications.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Prefer split unless read-only resources expose an obvious shared helper that makes the
-  mutation slice narrow and testable.
+  Handoff: DONE. Split voice clone/update/delete/settings/sample/PVC APIs into future
+  mutation-focused workstreams. Official endpoint inventory shows multipart uploads, binary sample
+  retrieval, training/verification workflows, delete/update semantics, and likely live credential
+  smoke tests; that would obscure the read-only catalog/dictionary deliverable.
 
 ## ELVR-050 — Closeout
 
-- [ ] ELVR-050 [owner=planner] [deps=ELVR-020] [scope=docs/workstreams/elevenlabs-voice-resources]
+- [x] ELVR-050 [owner=planner] [deps=ELVR-020] [scope=docs/workstreams/elevenlabs-voice-resources]
   Goal: Close the lane or split residual dictionary/mutation gaps into narrow follow-ons.
   Validation: verify-rust-workstream records fresh final gate evidence.
   Review: review-workstream has no blocking findings.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`
-  Handoff: Summarize shipped voice resource behavior, deferred mutation APIs, and whether a generic
-  voice management contract is still unjustified.
+  Handoff: DONE. Lane closed with read-only voice catalog and pronunciation dictionary metadata
+  resources shipped. Voice mutation/PVC/sample/settings APIs and pronunciation dictionary
+  mutation/download APIs are follow-ons. A generic voice-management contract remains unjustified
+  because only ElevenLabs has this provider-specific resource shape in Siumai today.

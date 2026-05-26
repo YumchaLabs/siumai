@@ -1,6 +1,6 @@
 # ElevenLabs Voice Resources — Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 — Scope Freeze
@@ -49,7 +49,7 @@ Gate:
 
 ## M3 — Closeout
 
-Status: Ready after ELVR-040.
+Status: Complete.
 
 Exit criteria:
 
