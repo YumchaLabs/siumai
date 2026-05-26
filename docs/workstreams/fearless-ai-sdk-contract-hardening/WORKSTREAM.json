@@ -8,8 +8,8 @@
   "scope_kind": "execution",
   "problem": "Siumai preserves AI SDK-style stream, metadata, tool, usage, cancellation, and error data but leaves several replay, diagnostics, safety, and capability semantics implicit.",
   "objective": "Make the shared contracts explicit, tested, documented, and reflected in changelogs so downstream adapters can consume Siumai without undocumented replay or raw-data assumptions.",
-  "current_task": "AICH-020",
-  "next_task": "AICH-020",
+  "current_task": "AICH-030",
+  "next_task": "AICH-030",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -49,6 +49,12 @@
       "date": "2026-05-26",
       "kind": "audit",
       "summary": "Recorded 12 AI SDK contract gaps across stream replay, reasoning/text separation, cancellation, raw diagnostics, tool contracts, usage, error safety, and capability failure behavior."
+    },
+    {
+      "date": "2026-05-26",
+      "kind": "task",
+      "task": "AICH-020",
+      "summary": "Documented StreamEnd response content as final replay/fallback and added a stream processor regression test proving it is not appended as another text delta."
     }
   ],
   "adr_refs": [

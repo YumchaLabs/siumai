@@ -13,12 +13,12 @@ Last updated: 2026-05-26
 
 ## M1 - Stream Replay And Cancellation Contracts
 
-- [ ] AICH-020 [owner=unassigned] [deps=AICH-010] [scope=siumai-spec/src/types/streaming.rs,siumai-spec/src/types/chat/response.rs,siumai-core/src/streaming,CHANGELOG.md,siumai-spec/CHANGELOG.md,siumai-core/CHANGELOG.md]
+- [x] AICH-020 [owner=codex] [deps=AICH-010] [scope=siumai-spec/src/types/streaming.rs,siumai-spec/src/types/chat/response.rs,siumai-core/src/streaming,CHANGELOG.md,siumai-spec/CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Define and test `StreamEnd.response.content` as final response replay/fallback, not append-only delta.
   Validation: `cargo nextest run -p siumai-spec stream --no-fail-fast`; `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`
   Review: Verify downstream consumers can dedupe text/reasoning/tool calls without losing terminal-only content.
   Evidence: Stream type docs, processor tests, changelog entries.
-  Handoff: Include a note for adapter authors: consume deltas for live UI and reconcile `StreamEnd` as final replay.
+  Handoff: DONE. `StreamEnd.response.content` is documented as final replay/fallback; processor regression test proves it is not appended as another text delta. Adapter authors should consume deltas for live UI and reconcile `StreamEnd` as final replay.
 
 - [ ] AICH-030 [owner=unassigned] [deps=AICH-020] [scope=siumai-protocol-openai/src/standards/openai/responses_sse,siumai-provider-openai/src,siumai-provider-openai-compatible/src,CHANGELOG.md,siumai-protocol-openai/CHANGELOG.md]
   Goal: Add a fixture for reasoning deltas with final visible text materialized only through terminal response content.

@@ -900,6 +900,43 @@ mod tests {
     }
 
     #[test]
+    fn stream_end_response_content_is_final_replay_not_text_delta() {
+        let mut sp = StreamProcessor::new();
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "text_1".to_string(),
+                delta: "hello".to_string(),
+                provider_metadata: None,
+            },
+        });
+
+        let response = ChatResponse {
+            id: Some("resp_replay".to_string()),
+            content: MessageContent::Text("hello".to_string()),
+            model: Some("runtime-model-replay".to_string()),
+            usage: None,
+            finish_reason: Some(FinishReason::Stop),
+            raw_finish_reason: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            warnings: None,
+            request: None,
+            response: None,
+            provider_metadata: None,
+        };
+
+        let _ = sp.process_event(ChatStreamEvent::StreamEnd { response });
+        let final_resp = sp.build_final_response();
+
+        assert_eq!(final_resp.id.as_deref(), Some("resp_replay"));
+        assert_eq!(
+            final_resp.content,
+            MessageContent::Text("hello".to_string())
+        );
+    }
+
+    #[test]
     fn stream_start_metadata_falls_back_when_stream_end_missing() {
         let mut sp = StreamProcessor::new();
         let _ = sp.process_event(ChatStreamEvent::StreamStart {

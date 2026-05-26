@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `ProviderType::Gateway` so the native Vercel AI Gateway proof can be classified across
   catalog, retry, and compatibility metadata.
 
+### Changed
+
+- Documented streamed `ChatResponse` content carried by `ChatStreamEvent::StreamEnd` as final
+  replay/fallback content, not an append-only delta.
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 
 ### Added

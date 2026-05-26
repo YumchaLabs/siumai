@@ -49,6 +49,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Started tracking the fearless AI SDK contract hardening workstream for stream replay semantics,
   raw/private diagnostics, tool ownership, usage snapshots, cancellation, error safety, and provider
   capability failure behavior.
+- Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
+  response rather than an append-only stream delta.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can

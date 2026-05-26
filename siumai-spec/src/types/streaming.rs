@@ -351,9 +351,15 @@ pub enum ChatStreamEvent {
         /// Response metadata
         metadata: ResponseMetadata,
     },
-    /// Stream end event with final response
+    /// Stream end event with the final response snapshot for this provider call.
+    ///
+    /// `response.content` is not a stream delta. Providers and protocol adapters may leave it
+    /// empty, may replay the complete final content that was already emitted through typed stream
+    /// parts, or may provide terminal-only content that was not available as live deltas. Consumers
+    /// should use `Part` / `PartWithReplay` events for incremental UI updates and reconcile this
+    /// terminal response as the final snapshot instead of appending it blindly.
     StreamEnd {
-        /// Final response
+        /// Final response snapshot or replay/fallback response.
         response: ChatResponse,
     },
     /// Typed AI SDK-style stream part.

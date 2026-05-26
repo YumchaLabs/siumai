@@ -51,7 +51,10 @@ pub struct AudioOutput {
 pub struct ChatResponse {
     /// Response ID
     pub id: Option<String>,
-    /// The response content (can include text, tool calls, reasoning, etc.)
+    /// The response content (can include text, tool calls, reasoning, etc.).
+    ///
+    /// When this response is carried by `ChatStreamEvent::StreamEnd`, the content is a final
+    /// snapshot/replay or fallback response for the provider call, not an append-only stream delta.
     pub content: MessageContent,
     /// Model used for the response
     pub model: Option<String>,

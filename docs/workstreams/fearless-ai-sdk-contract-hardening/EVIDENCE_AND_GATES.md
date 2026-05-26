@@ -86,3 +86,6 @@ Run `review-workstream` before accepting a completed implementation slice, and
 | --- | --- | --- | --- | --- |
 | 2026-05-26 | AICH-010 | Static audit of the 12 Siumai contract gaps against `repo-ref/ai` and Siumai core/spec/provider files. | Pass | Established scope for this workstream; implementation gates still pending. |
 | 2026-05-26 | AICH-010 | `python -m json.tool docs\workstreams\fearless-ai-sdk-contract-hardening\WORKSTREAM.json`; `git diff --check -- CHANGELOG.md docs\workstreams\fearless-ai-sdk-contract-hardening docs\workstreams\INDEX.md`; workstream count check. | Pass | JSON parsed; diff check reported only expected LF-to-CRLF working-copy warnings; index inventory is 90 dirs / 90 status files / 1 active lane. |
+| 2026-05-26 | AICH-020 | `cargo fmt --check -p siumai-spec -p siumai-core` | Pass | Full workspace `cargo fmt --check` hit Windows path-length error 206, so formatting was checked on the touched crates. |
+| 2026-05-26 | AICH-020 | `cargo nextest run -p siumai-core streaming::processor --no-fail-fast` | Pass | 13 tests passed, including `stream_end_response_content_is_final_replay_not_text_delta`. |
+| 2026-05-26 | AICH-020 | `cargo nextest run -p siumai-spec stream --no-fail-fast` | Pass | 15 stream-related spec tests passed. |
