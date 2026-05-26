@@ -1,17 +1,6 @@
 use super::*;
 
 impl OpenAiResponsesEventConverter {
-    pub(super) fn mark_web_search_tool_input_emitted(&self, id: &str) -> bool {
-        let Ok(mut set) = self.emitted_web_search_tool_input_ids.lock() else {
-            return false;
-        };
-        if set.contains(id) {
-            return false;
-        }
-        set.insert(id.to_string());
-        true
-    }
-
     pub(super) fn mark_stream_start_emitted(&self) -> bool {
         let Ok(mut emitted) = self.emitted_stream_start.lock() else {
             return false;

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
@@ -11,11 +11,13 @@ mod apply_patch;
 mod code_interpreter;
 mod convert;
 mod custom_tools;
+use custom_tools::CustomToolState;
 mod function_tool;
 mod mcp;
 mod pending;
 use pending::TerminalEventBuffer;
 mod provider_tools;
+use provider_tools::ProviderToolState;
 mod reasoning;
 use reasoning::ReasoningLifecycleState;
 mod replay;
@@ -32,8 +34,7 @@ pub struct OpenAiResponsesEventConverter {
     function_call_meta_by_item_id: Arc<Mutex<HashMap<String, (String, String)>>>,
     emitted_function_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_function_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
-    provider_tool_name_by_item_type: Arc<Mutex<HashMap<String, String>>>,
-    shell_call_provider_executed: Arc<Mutex<bool>>,
+    provider_tools: ProviderToolState,
     mcp_call_args_by_item_id: Arc<Mutex<HashMap<String, String>>>,
     emitted_mcp_call_ids: Arc<Mutex<HashSet<String>>>,
     emitted_mcp_result_ids: Arc<Mutex<HashSet<String>>>,
@@ -50,7 +51,6 @@ pub struct OpenAiResponsesEventConverter {
     emitted_code_interpreter_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_code_interpreter_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
     emitted_code_interpreter_tool_call_ids: Arc<Mutex<HashSet<String>>>,
-    emitted_web_search_tool_input_ids: Arc<Mutex<HashSet<String>>>,
     emitted_stream_start: Arc<Mutex<bool>>,
     emitted_response_metadata: Arc<Mutex<HashSet<String>>>,
     created_response_id: Arc<Mutex<Option<String>>>,
@@ -90,15 +90,7 @@ pub struct OpenAiResponsesEventConverter {
     provider_metadata_key: String,
 
     /// Maps custom tool call names (e.g. xAI internal tool names) to the user-facing tool name.
-    custom_tool_name_by_call_name: Arc<Mutex<HashMap<String, String>>>,
-    custom_tool_call_name_by_item_id: Arc<Mutex<HashMap<String, String>>>,
-    custom_tool_tool_name_by_item_id: Arc<Mutex<HashMap<String, String>>>,
-    custom_tool_input_by_item_id: Arc<Mutex<HashMap<String, String>>>,
-    emitted_custom_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
-    emitted_custom_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
-    emitted_custom_tool_call_ids: Arc<Mutex<HashSet<String>>>,
-    hosted_tool_search_call_ids: Arc<Mutex<VecDeque<String>>>,
-    emitted_tool_search_input_start_ids: Arc<Mutex<HashSet<String>>>,
+    custom_tools: CustomToolState,
 
     serialize_state: Arc<Mutex<OpenAiResponsesSerializeState>>,
 }
@@ -109,8 +101,7 @@ impl Default for OpenAiResponsesEventConverter {
             function_call_meta_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             emitted_function_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_function_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
-            provider_tool_name_by_item_type: Arc::new(Mutex::new(HashMap::new())),
-            shell_call_provider_executed: Arc::new(Mutex::new(false)),
+            provider_tools: ProviderToolState::default(),
             mcp_call_args_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             emitted_mcp_call_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_mcp_result_ids: Arc::new(Mutex::new(HashSet::new())),
@@ -127,7 +118,6 @@ impl Default for OpenAiResponsesEventConverter {
             emitted_code_interpreter_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_code_interpreter_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_code_interpreter_tool_call_ids: Arc::new(Mutex::new(HashSet::new())),
-            emitted_web_search_tool_input_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_stream_start: Arc::new(Mutex::new(false)),
             emitted_response_metadata: Arc::new(Mutex::new(HashSet::new())),
             created_response_id: Arc::new(Mutex::new(None)),
@@ -146,15 +136,7 @@ impl Default for OpenAiResponsesEventConverter {
             responses_transform_style: super::super::transformers::ResponsesTransformStyle::OpenAi,
             requested_store: None,
             provider_metadata_key: "openai".to_string(),
-            custom_tool_name_by_call_name: Arc::new(Mutex::new(HashMap::new())),
-            custom_tool_call_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
-            custom_tool_tool_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
-            custom_tool_input_by_item_id: Arc::new(Mutex::new(HashMap::new())),
-            emitted_custom_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
-            emitted_custom_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
-            emitted_custom_tool_call_ids: Arc::new(Mutex::new(HashSet::new())),
-            hosted_tool_search_call_ids: Arc::new(Mutex::new(VecDeque::new())),
-            emitted_tool_search_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
+            custom_tools: CustomToolState::default(),
             serialize_state: Arc::new(Mutex::new(OpenAiResponsesSerializeState::default())),
         }
     }

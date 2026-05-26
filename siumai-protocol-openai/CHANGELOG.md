@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guarded typed OpenAI response metadata as protocol-owned while provider packages keep only stable
   re-export paths.
 - Extracted OpenAI Responses SSE terminal buffering, replay hint projection, and reasoning lifecycle
-  state into named converter modules while preserving AI SDK-compatible stream output.
+  state plus provider/custom tool ownership state into named converter modules while preserving AI
+  SDK-compatible stream output.
 - Added a Responses SSE contract fixture proving streamed reasoning deltas remain compatible with
   final visible text that is only available in the terminal `response.completed` payload.
 - Added a Responses SSE usage fixture proving repeated usage events are cumulative snapshots and

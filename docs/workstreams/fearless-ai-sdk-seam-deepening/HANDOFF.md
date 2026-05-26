@@ -34,6 +34,6 @@ Hajimi adapter changes out of scope.
 
 ## Next Recommended Action
 
-Continue AISD-020 with `run-workstream-task`. The terminal buffering, replay helper, and reasoning
-lifecycle slices are done and verified; next deepen provider tool state or serializer state before
-marking AISD-020 complete.
+Continue AISD-020 with `run-workstream-task`. The terminal buffering, replay helper, reasoning
+lifecycle, and provider/custom tool state slices are done and verified; next deepen serializer state
+before marking AISD-020 complete.

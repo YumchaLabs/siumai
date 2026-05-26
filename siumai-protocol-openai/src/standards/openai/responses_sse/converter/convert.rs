@@ -1397,7 +1397,7 @@ impl OpenAiResponsesEventConverter {
                 let tool_call_id = item.get("id")?.as_str()?;
                 let call_name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let tool_name = self.custom_tool_name_for_call_name(call_name);
-                self.record_custom_tool_item(tool_call_id, call_name, &tool_name);
+                self.record_custom_tool_item(tool_call_id, &tool_name);
 
                 if self.stream_parts_style == StreamPartsStyle::Xai {
                     // AI SDK xAI alignment: defer tool-input-* and tool-call emission until
@@ -1471,11 +1471,7 @@ impl OpenAiResponsesEventConverter {
                     let tool_name = self
                         .provider_tool_name_for_item_type(item_type)
                         .unwrap_or_else(|| "toolSearch".to_string());
-                    let should_emit = self
-                        .emitted_tool_search_input_start_ids
-                        .lock()
-                        .map(|mut ids| ids.insert(tool_call_id.to_string()))
-                        .unwrap_or(false);
+                    let should_emit = self.mark_tool_search_input_start_emitted(tool_call_id);
                     if should_emit {
                         return Some(vec![self.openai_tool_input_start_event(
                             tool_call_id,
@@ -1947,8 +1943,8 @@ impl OpenAiResponsesEventConverter {
                     return None;
                 }
 
-                if is_hosted && let Ok(mut ids) = self.hosted_tool_search_call_ids.lock() {
-                    ids.push_back(tool_call_id.to_string());
+                if is_hosted {
+                    self.push_hosted_tool_search_call_id(tool_call_id);
                 }
 
                 let tool_name = self
@@ -1970,11 +1966,7 @@ impl OpenAiResponsesEventConverter {
 
                 let mut events = Vec::new();
                 if is_hosted {
-                    let has_started = self
-                        .emitted_tool_search_input_start_ids
-                        .lock()
-                        .map(|ids| ids.contains(tool_call_id))
-                        .unwrap_or(false);
+                    let has_started = self.has_tool_search_input_start_emitted(tool_call_id);
                     if has_started {
                         events.push(self.openai_tool_input_end_event(tool_call_id, None));
                     }
@@ -2009,10 +2001,7 @@ impl OpenAiResponsesEventConverter {
                 let tool_call_id = if let Some(call_id) = call_id.filter(|id| !id.is_empty()) {
                     call_id.to_string()
                 } else {
-                    self.hosted_tool_search_call_ids
-                        .lock()
-                        .ok()
-                        .and_then(|mut ids| ids.pop_front())
+                    self.pop_hosted_tool_search_call_id()
                         .unwrap_or_else(|| item_id.to_string())
                 };
                 if tool_call_id.is_empty() {
