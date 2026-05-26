@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "slug": "elevenlabs-pronunciation-dictionary-mutations",
+  "title": "ElevenLabs Pronunciation Dictionary Mutations",
+  "status": "active",
+  "updated": "2026-05-26",
+  "scope_kind": "execution",
+  "problem": "Siumai can list and retrieve ElevenLabs pronunciation dictionary metadata, but it cannot create or mutate dictionaries that feed existing TTS pronunciation dictionary locators.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/TODO.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/MILESTONES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast",
+    "cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast",
+    "cargo fmt --check for touched packages",
+    "git diff --check"
+  ],
+  "evidence": [
+    "docs/workstreams/elevenlabs-voice-resources",
+    "https://elevenlabs.io/docs/llms.txt",
+    "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/create-from-rules.mdx",
+    "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/create-from-file.mdx",
+    "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/update.mdx",
+    "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/rules/add.mdx",
+    "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/rules/remove.mdx",
+    "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/rules/set.mdx",
+    "docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/EVIDENCE_AND_GATES.md"
+  ],
+  "adr_refs": [
+    "docs/adr/0003-provider-ext-export-policy.md"
+  ],
+  "current_task": "EPDM-020",
+  "next_task": "Implement create_from_rules on ElevenLabsPronunciationDictionaries with no-network provider and facade tests.",
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue with EPDM-020 first. Keep create-from-file, metadata update, rule mutation, download-by-version, and voice mutation as separate slices unless explicitly accepted."
+  }
+}
