@@ -1,24 +1,22 @@
 # ElevenLabs Voice Mutation Resources - Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open and scope is frozen. ELVM-010 through ELVM-040 are complete. Siumai now has
-provider-owned voice settings get/update, voice/sample delete, and IVC create resources on the
-existing `ElevenLabsVoices` client.
+The workstream is closed. ELVM-010 through ELVM-060 are complete. Siumai now has provider-owned
+voice settings get/update, voice/sample delete, and IVC create resources on the existing
+`ElevenLabsVoices` client.
 
 ## Active Task
 
-- Task ID: ELVM-050
-- Owner: planner/worker
-- Files: `docs/workstreams/elevenlabs-voice-mutation-resources`, `siumai-provider-elevenlabs`,
-  `siumai`, `siumai/tests`
-- Validation: official docs re-audit, no-network JSON/multipart tests for accepted PVC endpoint, or
-  docs-only split validation.
-- Status: READY
-- Review: review-workstream for workflow boundary, live-credential boundary, and response shape.
+- Task ID: none
+- Owner: none
+- Files: none
+- Validation: final gates recorded in `EVIDENCE_AND_GATES.md`.
+- Status: CLOSED
+- Review: closeout review found no blocking workstream or code-quality findings.
 - Evidence: `docs/workstreams/elevenlabs-voice-mutation-resources/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Opening
@@ -42,12 +40,13 @@ existing `ElevenLabsVoices` client.
   audio endpoint but show an empty JSON response schema.
 - Treat PVC as a workflow boundary. PVC create may be a later bounded JSON slice, but training,
   samples, captcha, and manual verification should not be hidden behind a single create call.
+- PVC create/update/train/sample/verification is split into a dedicated follow-on workflow lane.
 
 ## Blockers
 
-- None for ELVM-050.
+- None remaining for this lane.
 
 ## Next Recommended Action
 
-- Decide whether PVC create belongs in this lane as a bounded JSON slice or whether PVC should split
-  into a dedicated workflow workstream covering create/update/train/samples/verification.
+- Open a dedicated PVC workflow workstream if PVC support is needed.
+- Open a smaller voice edit or sample-audio follow-on if those endpoints become priority.

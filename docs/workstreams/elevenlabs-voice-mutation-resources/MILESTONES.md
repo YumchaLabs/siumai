@@ -1,6 +1,6 @@
 # ElevenLabs Voice Mutation Resources - Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 - Scope Freeze
@@ -71,6 +71,8 @@ Gate:
 
 ## M4 - PVC Boundary
 
+Status: Complete on 2026-05-26. PVC workflow APIs are split into a dedicated follow-on.
+
 Exit criteria:
 
 - PVC create/update/train/sample/verification workflow boundary is documented.
@@ -83,6 +85,8 @@ Gate:
 - Focused no-network tests for accepted PVC endpoints or docs-only split validation.
 
 ## M5 - Closeout
+
+Status: Complete on 2026-05-26. The lane is closed; residual PVC/edit/sample-audio work is split.
 
 Exit criteria:
 

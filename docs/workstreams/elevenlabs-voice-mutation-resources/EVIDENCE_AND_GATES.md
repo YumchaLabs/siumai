@@ -1,6 +1,6 @@
 # ElevenLabs Voice Mutation Resources - Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Source Evidence
@@ -64,6 +64,10 @@ cargo fmt --check -p siumai-provider-elevenlabs -p siumai
 Closeout:
 
 ```powershell
+cargo nextest run -p siumai-core http_request --no-fail-fast
+cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast
+cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast
+cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai
 python -m json.tool docs\workstreams\elevenlabs-voice-mutation-resources\WORKSTREAM.json
 git diff --check
 ```
@@ -105,3 +109,10 @@ git diff --check
 | 2026-05-26 | ELVM-040 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with IVC request/file/response exports. |
 | 2026-05-26 | ELVM-040 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
 | 2026-05-26 | ELVM-040 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |
+| 2026-05-26 | ELVM-050 | Official PVC docs for create/update/train/samples/verification reviewed from the opening audit. | Decision: split PVC workflow APIs into a dedicated follow-on instead of adding one isolated PVC method to this lane. |
+| 2026-05-26 | ELVM-060 | `cargo nextest run -p siumai-core http_request --no-fail-fast` | Passed: final shared HTTP helper gate ran 21 tests, including DELETE custom transport coverage. |
+| 2026-05-26 | ELVM-060 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast` | Passed: final provider voice resource gate ran 8 tests for list/get/settings/delete/IVC behavior. |
+| 2026-05-26 | ELVM-060 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: final facade public-surface gate compiles all ElevenLabs resource exports. |
+| 2026-05-26 | ELVM-060 | `cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
+| 2026-05-26 | ELVM-060 | `python -m json.tool docs\workstreams\elevenlabs-voice-mutation-resources\WORKSTREAM.json` | Passed: closeout workstream metadata is valid JSON. |
+| 2026-05-26 | ELVM-060 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |

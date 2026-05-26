@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "elevenlabs-voice-mutation-resources",
   "title": "ElevenLabs Voice Mutation Resources",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai can list and retrieve ElevenLabs voices, but it cannot manage user-owned voices, edit voice settings, fetch/delete samples, or start IVC/PVC voice workflows.",
@@ -37,6 +37,7 @@
     "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast",
     "cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast",
     "cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai",
+    "python -m json.tool docs\\workstreams\\elevenlabs-voice-mutation-resources\\WORKSTREAM.json",
     "git diff --check"
   ],
   "evidence": [
@@ -66,10 +67,10 @@
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "ELVM-050",
-  "next_task": "Decide the PVC workflow boundary and implement a bounded first PVC slice or split follow-ons.",
+  "current_task": "closed",
+  "next_task": "Open a dedicated PVC workflow workstream or a smaller voice edit/sample-audio follow-on if needed.",
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue with ELVM-050. Keep PVC workflows provider-owned and split if their request/response semantics grow beyond a bounded slice."
+    "default_action": "stop",
+    "notes": "Voice mutation lane is closed. Remaining PVC workflow, voice edit, and sample-audio APIs should start from a new narrow workstream."
   }
 }

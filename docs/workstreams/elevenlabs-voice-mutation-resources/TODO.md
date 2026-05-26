@@ -1,6 +1,6 @@
 # ElevenLabs Voice Mutation Resources - TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## ELVM-010 - Scope And Endpoint Contract Freeze
@@ -56,21 +56,23 @@ Last updated: 2026-05-26
 
 ## ELVM-050 - PVC Boundary And First PVC Slice
 
-- [ ] ELVM-050 [owner=planner/worker] [deps=ELVM-020] [scope=docs/workstreams/elevenlabs-voice-mutation-resources,siumai-provider-elevenlabs,siumai]
+- [x] ELVM-050 [owner=planner/worker] [deps=ELVM-020] [scope=docs/workstreams/elevenlabs-voice-mutation-resources,siumai-provider-elevenlabs,siumai]
   Goal: Decide whether PVC create/update/train/sample/verification belongs in this lane or should
   split into a PVC workflow lane; implement at most one bounded first PVC slice if accepted.
   Validation: official docs re-audit, no-network JSON/multipart tests for accepted PVC endpoint, or
   docs-only split validation.
   Review: review-workstream for workflow boundary, live-credential boundary, and response shape.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: READY. Next decide whether PVC create/update/train/sample/verification belongs in this
-  lane or should split into a dedicated PVC workflow lane.
+  Handoff: DONE. Split PVC create/update/train/sample/verification into a dedicated follow-on
+  workflow lane because PVC operations share training, sample, captcha, and manual verification
+  state that should be designed together.
 
 ## ELVM-060 - Closeout
 
-- [ ] ELVM-060 [owner=planner] [deps=ELVM-020] [scope=docs/workstreams/elevenlabs-voice-mutation-resources,CHANGELOG.md]
+- [x] ELVM-060 [owner=planner] [deps=ELVM-020] [scope=docs/workstreams/elevenlabs-voice-mutation-resources,CHANGELOG.md]
   Goal: Close the lane or split residual voice mutation/PVC/sample gaps into narrow follow-ons.
   Validation: verify-rust-workstream records fresh final gate evidence.
   Review: review-workstream has no blocking findings.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`, `CHANGELOG.md`
-  Handoff: Summarize shipped voice mutation behavior and deferred endpoints.
+  Handoff: DONE. Closed this lane after implementing voice settings get/update, voice/sample delete,
+  and IVC create. PVC workflow APIs, voice edit, and sample audio remain explicit follow-ons.

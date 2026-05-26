@@ -1,6 +1,6 @@
 # ElevenLabs Voice Mutation Resources
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Why This Lane Exists
@@ -58,7 +58,7 @@ Siumai's unified speech/transcription families unchanged.
 
 ## Target State
 
-When this workstream closes:
+Closed target state:
 
 - `ElevenLabsVoices` owns provider-specific mutation/read helpers that are not part of the unified
   speech/transcription families.
@@ -101,6 +101,6 @@ mutation lanes:
 
 ## Closeout Condition
 
-This lane can close when the accepted voice mutation slices are implemented or split, focused
-provider/facade gates pass, CHANGELOG records user-visible resource additions, and remaining PVC or
-sample workflow gaps have a clear follow-on decision.
+This lane is closed. The accepted voice mutation slices are implemented, focused provider/facade
+gates pass, CHANGELOG records user-visible resource additions, and remaining PVC, voice edit, and
+sample audio workflow gaps have clear follow-on decisions.
