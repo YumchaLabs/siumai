@@ -122,6 +122,10 @@ mirrors the audited `provider_ext::gemini` surface while owning Google-named bui
 the Google package path should use `siumai::provider_ext::google::legacy_params::*`; do not flatten
 those legacy parameters into the Google extension root.
 
+`siumai::provider_ext::elevenlabs` is the native ElevenLabs audio facade. It mirrors the audited
+speech/transcription package surface while owning `elevenlabs()` and `create_elevenlabs()` builder
+helpers and keeping the provider-specific audio options scoped under `options::*` and `ext::*`.
+
 Provider package helper constructors that return `SiumaiBuilder` bind to the registry-owned builder
 type directly; provider extension helpers should not route through the historical
 `siumai::provider::*` shim or the removed root `siumai::Provider` alias.

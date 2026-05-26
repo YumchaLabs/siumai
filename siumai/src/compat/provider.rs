@@ -108,6 +108,15 @@ impl Provider {
         siumai_registry::provider::SiumaiBuilder::new().deepgram()
     }
 
+    /// Create an ElevenLabs unified builder.
+    ///
+    /// ElevenLabs is a native audio provider. Known speech models build speech handles; known
+    /// transcription models build transcription handles through the registry factory.
+    #[cfg(feature = "elevenlabs")]
+    pub fn elevenlabs() -> siumai_registry::provider::SiumaiBuilder {
+        siumai_registry::provider::SiumaiBuilder::new().elevenlabs()
+    }
+
     /// Create a Cohere client builder
     #[cfg(feature = "cohere")]
     pub fn cohere() -> siumai_provider_cohere::providers::cohere::CohereBuilder {

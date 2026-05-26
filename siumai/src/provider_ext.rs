@@ -41,6 +41,9 @@ pub mod gateway;
 #[cfg(feature = "deepgram")]
 pub mod deepgram;
 
+#[cfg(feature = "elevenlabs")]
+pub mod elevenlabs;
+
 #[cfg(feature = "cohere")]
 pub mod cohere;
 

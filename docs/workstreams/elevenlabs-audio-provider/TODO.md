@@ -45,13 +45,17 @@ Last updated: 2026-05-26
 
 ## ELA-040 — Facade, Public Surface, And Examples
 
-- [ ] ELA-040 [owner=worker] [deps=ELA-030] [scope=siumai,siumai/tests,examples]
+- [x] ELA-040 [owner=worker] [deps=ELA-030] [scope=siumai,siumai/tests,examples]
   Goal: Expose `provider_ext::elevenlabs`, `providers::elevenlabs`, builder/compat helpers, model constants,
   and typed options without widening `prelude::unified`.
   Validation: `cargo nextest run -p siumai --features elevenlabs elevenlabs --no-fail-fast`; targeted public-surface import test; `cargo fmt --check -p siumai`.
   Review: review-workstream for public API shape and export policy.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Public exports must document the deprecated AI SDK lowercase `elevenlabs` alias decision if Siumai chooses not to mirror it.
+  Handoff: DONE. `siumai::provider_ext::elevenlabs` and `siumai::providers::elevenlabs`
+  expose the native audio facade, builder helpers, model constants, typed options, and request
+  extension traits. `Provider::elevenlabs()` is available as an explicit compat helper, and
+  facade feature/build-time provider accounting works with only `elevenlabs` enabled.
+  `prelude::unified` was left unchanged.
 
 ## ELA-050 — Closeout
 

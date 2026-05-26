@@ -48,6 +48,10 @@ pub mod constants {
     /// Re-export Deepgram model constants (detailed structure).
     #[cfg(feature = "deepgram")]
     pub use siumai_provider_deepgram::providers::deepgram::models as deepgram;
+
+    /// Re-export ElevenLabs model constants (detailed structure).
+    #[cfg(feature = "elevenlabs")]
+    pub use siumai_provider_elevenlabs::providers::elevenlabs::models as elevenlabs;
 }
 
 /// Simplified model constants for easy access across providers.
@@ -289,5 +293,11 @@ pub mod model_constants {
     #[cfg(feature = "deepgram")]
     pub mod deepgram {
         pub use siumai_provider_deepgram::providers::deepgram::models::*;
+    }
+
+    /// ElevenLabs speech and transcription models.
+    #[cfg(feature = "elevenlabs")]
+    pub mod elevenlabs {
+        pub use siumai_provider_elevenlabs::providers::elevenlabs::models::*;
     }
 }

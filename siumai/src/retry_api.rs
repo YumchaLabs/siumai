@@ -42,6 +42,7 @@ pub fn backoff_executor_for_provider(provider: &ProviderType) -> BackoffRetryExe
         ProviderType::Bedrock
         | ProviderType::Gateway
         | ProviderType::Deepgram
+        | ProviderType::ElevenLabs
         | ProviderType::Custom(_) => {
             return BackoffRetryExecutor::new();
         }

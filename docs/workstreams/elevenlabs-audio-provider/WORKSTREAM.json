@@ -48,10 +48,10 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "ELA-040",
-  "next_task": "Expose ElevenLabs through the facade public surface without widening prelude::unified.",
+  "current_task": "ELA-050",
+  "next_task": "Close the ElevenLabs lane or split any residual option/resource gaps into narrow follow-ons.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with ELA-040 while the scope stays limited to facade exports, feature wiring, public import tests, and examples for native ElevenLabs speech/transcription. Split voice resources, live credential gates, and queued media behavior into follow-ons."
+    "notes": "Continue with ELA-050 closeout. Refresh final verification, review evidence and public-surface policy, then close the lane or split voice resources, live credential gates, and queued media behavior into follow-ons."
   }
 }

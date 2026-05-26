@@ -37,11 +37,12 @@ fn ensure_provider_available() {
         cfg!(feature = "bedrock"),
         cfg!(feature = "gateway"),
         cfg!(feature = "deepgram"),
+        cfg!(feature = "elevenlabs"),
     ];
 
     if !providers.iter().any(|&enabled| enabled) {
         panic!(
-            "At least one provider feature must be enabled. Available features: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi, deepseek, deepinfra, cohere, togetherai, bedrock, gateway, deepgram"
+            "At least one provider feature must be enabled. Available features: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi, deepseek, deepinfra, cohere, togetherai, bedrock, gateway, deepgram, elevenlabs"
         );
     }
 }
@@ -98,6 +99,9 @@ fn add_build_info() {
     }
     if cfg!(feature = "deepgram") {
         enabled_providers.push("deepgram");
+    }
+    if cfg!(feature = "elevenlabs") {
+        enabled_providers.push("elevenlabs");
     }
 
     // Set environment variables for runtime access

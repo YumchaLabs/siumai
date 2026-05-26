@@ -122,6 +122,8 @@ siumai-provider-gateway = { version = "0.11.0-beta.8", path = "../siumai-provide
 
 siumai-provider-deepgram = { version = "0.11.0-beta.8", path = "../siumai-provider-deepgram", default-features = false, optional = true }
 
+siumai-provider-elevenlabs = { version = "0.11.0-beta.8", path = "../siumai-provider-elevenlabs", default-features = false, optional = true }
+
 
 
 # Async traits
@@ -279,6 +281,8 @@ structured-messages = [
     "siumai-provider-gateway/structured-messages",
 
     "siumai-provider-deepgram/structured-messages",
+
+    "siumai-provider-elevenlabs/structured-messages",
 
     "siumai-protocol-openai/structured-messages",
 
@@ -491,6 +495,18 @@ deepgram = [
 
 ]
 
+elevenlabs = [
+
+    "siumai-core/elevenlabs",
+
+    "siumai-registry/elevenlabs",
+
+    "dep:siumai-provider-elevenlabs",
+
+    "siumai-provider-elevenlabs/elevenlabs",
+
+]
+
 
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
@@ -558,6 +574,8 @@ all-providers = [
     "gateway",
 
     "deepgram",
+
+    "elevenlabs",
 
 ]
 

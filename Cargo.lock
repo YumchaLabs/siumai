@@ -2899,6 +2899,7 @@ dependencies = [
  "siumai-provider-cohere",
  "siumai-provider-deepgram",
  "siumai-provider-deepseek",
+ "siumai-provider-elevenlabs",
  "siumai-provider-gateway",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",

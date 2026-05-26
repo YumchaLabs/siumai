@@ -5,19 +5,21 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open, scope is frozen, and ELA-020 plus ELA-030 are complete.
-`siumai-provider-elevenlabs` provides the native speech/transcription provider crate, and
-`siumai-registry` now wires ElevenLabs into feature flags, provider ids, native metadata, provider
-catalog, factory selection, builder routing, and speech/transcription handle construction.
+The workstream is open, scope is frozen, and ELA-020 through ELA-040 are complete.
+`siumai-provider-elevenlabs` provides the native speech/transcription provider crate,
+`siumai-registry` wires ElevenLabs into provider metadata and family routing, and the `siumai`
+facade now exposes `provider_ext::elevenlabs`, `providers::elevenlabs`, `Provider::elevenlabs()`,
+model constants, typed options, request extension traits, and build-time provider accounting without
+widening `prelude::unified`.
 
 ## Active Task
 
-- Task ID: ELA-040
-- Owner: worker
-- Files: `siumai`, `siumai/tests`, `examples`
-- Validation: `cargo nextest run -p siumai --features elevenlabs elevenlabs --no-fail-fast`; `cargo fmt --check -p siumai`
+- Task ID: ELA-050
+- Owner: planner
+- Files: `docs/workstreams/elevenlabs-audio-provider`
+- Validation: closeout gate set in `EVIDENCE_AND_GATES.md`
 - Status: READY
-- Review: review-workstream before accepting completion
+- Review: review-workstream for final lane acceptance
 - Evidence: `docs/workstreams/elevenlabs-audio-provider/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Last Update
@@ -30,6 +32,11 @@ catalog, factory selection, builder routing, and speech/transcription handle con
 - Include `ProviderType::ElevenLabs` in `siumai-spec` for registry catalog compatibility metadata;
   this is the only intentional ELA-030 scope expansion beyond the original registry/core/Cargo files.
 - Keep ElevenLabs out of OpenAI-compatible model normalization paths; it is a native audio provider.
+- Mirror the AI SDK lowercase package export through `provider_ext::elevenlabs::elevenlabs()` and
+  `siumai::providers::elevenlabs::elevenlabs()`, with `create_elevenlabs()` as the Rust analogue of
+  `createElevenLabs()`.
+- Keep ElevenLabs-specific options and extension traits scoped under `provider_ext::elevenlabs`;
+  do not add them to `prelude::unified`.
 
 ## Blockers
 
@@ -37,6 +44,5 @@ catalog, factory selection, builder routing, and speech/transcription handle con
 
 ## Next Recommended Action
 
-- Start ELA-040 by exposing `provider_ext::elevenlabs`, `providers::elevenlabs`, facade feature
-  wiring, model constants, typed options, and public import tests. Preserve the export policy:
-  no widening of `prelude::unified`.
+- Start ELA-050 closeout: run final verification, review the task ledger and evidence, then either
+  close the lane or split any residual voice/resource/live-credential gaps into follow-ons.

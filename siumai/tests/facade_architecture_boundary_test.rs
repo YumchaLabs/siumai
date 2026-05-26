@@ -139,7 +139,14 @@ fn facade_keeps_provider_extension_bodies_out_of_lib_rs() {
         "the OpenAI-compatible provider-list macro is provider-owned and should not be re-exported from the facade root"
     );
 
-    for provider in ["openai", "anthropic", "gemini", "google_vertex", "xai"] {
+    for provider in [
+        "openai",
+        "anthropic",
+        "gemini",
+        "google_vertex",
+        "xai",
+        "elevenlabs",
+    ] {
         let declaration = format!("pub mod {provider};");
         assert!(
             provider_ext_rs.contains(&declaration),
