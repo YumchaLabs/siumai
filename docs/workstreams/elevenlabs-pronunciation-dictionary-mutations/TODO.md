@@ -1,6 +1,6 @@
 # ElevenLabs Pronunciation Dictionary Mutations — TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## EPDM-010 — Scope And Endpoint Contract Freeze
@@ -84,9 +84,11 @@ Last updated: 2026-05-26
 
 ## EPDM-070 — Closeout
 
-- [ ] EPDM-070 [owner=planner] [deps=EPDM-020] [scope=docs/workstreams/elevenlabs-pronunciation-dictionary-mutations,CHANGELOG.md]
+- [x] EPDM-070 [owner=planner] [deps=EPDM-020] [scope=docs/workstreams/elevenlabs-pronunciation-dictionary-mutations,CHANGELOG.md]
   Goal: Close the lane or split residual mutation/download gaps into narrow follow-ons.
   Validation: verify-rust-workstream records fresh final gate evidence.
   Review: review-workstream has no blocking findings.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`, `CHANGELOG.md`
-  Handoff: Summarize shipped mutation behavior and deferred endpoints.
+  Handoff: DONE. Closed this lane after implementing create-from-rules, create-from-file, metadata
+  update, add/set/remove rule mutation, and binary download-by-version. Voice mutation APIs remain a
+  separate workstream.

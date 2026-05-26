@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "elevenlabs-pronunciation-dictionary-mutations",
   "title": "ElevenLabs Pronunciation Dictionary Mutations",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai can list and retrieve ElevenLabs pronunciation dictionary metadata, but it cannot create or mutate dictionaries that feed existing TTS pronunciation dictionary locators.",
@@ -31,7 +31,9 @@
   "gates": [
     "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast",
     "cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast",
-    "cargo fmt --check for touched packages",
+    "cargo nextest run -p siumai-core http_request --no-fail-fast",
+    "cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai",
+    "python -m json.tool docs\\workstreams\\elevenlabs-pronunciation-dictionary-mutations\\WORKSTREAM.json",
     "git diff --check"
   ],
   "evidence": [
@@ -43,15 +45,16 @@
     "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/rules/add.mdx",
     "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/rules/remove.mdx",
     "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/rules/set.mdx",
+    "https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/download.mdx",
     "docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/EVIDENCE_AND_GATES.md"
   ],
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "EPDM-070",
-  "next_task": "Close the pronunciation dictionary mutation lane or split any residual follow-ons.",
+  "current_task": "closed",
+  "next_task": "Open or resume the separate ElevenLabs voice mutation resources workstream.",
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue with EPDM-070 closeout next. Voice mutation remains a separate workstream unless explicitly accepted."
+    "default_action": "stop",
+    "notes": "Pronunciation dictionary mutation/download lane is closed. Continue the overall goal by opening or resuming the separate ElevenLabs voice mutation resources workstream."
   }
 }

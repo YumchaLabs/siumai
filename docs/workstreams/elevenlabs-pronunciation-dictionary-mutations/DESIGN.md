@@ -1,6 +1,6 @@
 # ElevenLabs Pronunciation Dictionary Mutations
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Why This Lane Exists
@@ -41,11 +41,11 @@ the unified speech/transcription families unchanged.
 | Create from file | `POST /v1/pronunciation-dictionaries/add-from-file`, multipart `name`, `file`, optional `description`, `workspace_access`; returns `id` and `version_id`. | Second slice after JSON creation proves shared mutation wiring. |
 | Update metadata | `PATCH /v1/pronunciation-dictionaries/{id}`, JSON `archived` and/or `name`; returns dictionary metadata without changing version. | Bounded follow-on slice. |
 | Rule mutation | `POST /{id}/add-rules`, `remove-rules`, `set-rules`; returns `id`, `version_id`, `version_rules_num`. | Bounded follow-on after create requests share rule request structs. |
-| Download by version | Docs index lists `download.mdx`, but direct page fetch returned HTTP 500 during opening. | Audit before implementation; do not block the first mutation slice on this endpoint. |
+| Download by version | `GET /v1/pronunciation-dictionaries/{dictionary_id}/{version_id}/download`; returns binary PLS content. | Re-audited and implemented after the opening transient docs fetch failure cleared. |
 
 ## Target State
 
-When this workstream closes:
+Closed target state:
 
 - `ElevenLabsPronunciationDictionaries` owns mutation methods in the provider crate instead of
   creating another facade family.
@@ -91,6 +91,6 @@ Reuse the closed voice resources design:
 
 ## Closeout Condition
 
-This lane can close when the accepted mutation/download slices are implemented or explicitly split,
-focused provider/facade gates pass, CHANGELOG records user-visible resource additions, and remaining
-download or mutation endpoints have a clear follow-on decision.
+This lane is closed. The accepted mutation/download slices are implemented, focused
+provider/facade gates pass, CHANGELOG records user-visible resource additions, and the remaining
+voice mutation APIs stay in a separate workstream.

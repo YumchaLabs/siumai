@@ -1,22 +1,22 @@
 # ElevenLabs Pronunciation Dictionary Mutations — Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open and scope is frozen. EPDM-010 through EPDM-060 are complete. Siumai now has
-provider-owned create-from-rules, create-from-file, metadata update, and rule mutation
-pronunciation dictionary APIs, plus binary PLS download by dictionary/version id.
+The pronunciation dictionary mutation/download lane is closed. EPDM-010 through EPDM-070 are
+complete. Siumai now has provider-owned create-from-rules, create-from-file, metadata update,
+add/set/remove rule mutation, and binary PLS download by dictionary/version id.
 
 ## Active Task
 
-- Task ID: EPDM-070
-- Owner: planner
-- Files: `docs/workstreams/elevenlabs-pronunciation-dictionary-mutations`, `CHANGELOG.md`
-- Validation: verify-rust-workstream records fresh final gate evidence.
-- Status: READY
-- Review: review-workstream has no blocking findings before closure.
+- Task ID: none
+- Owner: none
+- Files: none
+- Validation: final gates recorded in `EVIDENCE_AND_GATES.md`.
+- Status: CLOSED
+- Review: closeout review found no blocking workstream or code-quality findings.
 - Evidence: `docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Opening
@@ -41,8 +41,9 @@ pronunciation dictionary APIs, plus binary PLS download by dictionary/version id
 ## Blockers
 
 - None for EPDM-020.
+- None remaining for this lane.
 
 ## Next Recommended Action
 
-- Run closeout/review for EPDM-070. If accepted, close this pronunciation dictionary mutation lane
-  and open or resume the separate ElevenLabs voice mutation workstream.
+- Open or resume the separate ElevenLabs voice mutation workstream. Keep voice clone/update/delete,
+  settings/sample, and PVC boundary decisions out of this closed lane.

@@ -1,6 +1,6 @@
 # ElevenLabs Pronunciation Dictionary Mutations — Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 — Scope Freeze
@@ -65,6 +65,8 @@ Gate:
 - Focused provider/facade nextest filters for implemented endpoints, or docs-only split validation.
 
 ## M4 — Closeout
+
+Status: Complete on 2026-05-26. The lane is closed; voice mutation remains separate.
 
 Exit criteria:
 

@@ -1,6 +1,6 @@
 # ElevenLabs Pronunciation Dictionary Mutations — Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Source Evidence
@@ -37,6 +37,10 @@ cargo fmt --check -p siumai-provider-elevenlabs -p siumai
 Closeout:
 
 ```powershell
+cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast
+cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast
+cargo nextest run -p siumai-core http_request --no-fail-fast
+cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai
 python -m json.tool docs\workstreams\elevenlabs-pronunciation-dictionary-mutations\WORKSTREAM.json
 git diff --check
 ```
@@ -86,3 +90,9 @@ git diff --check
 | 2026-05-26 | EPDM-060 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with download response type. |
 | 2026-05-26 | EPDM-060 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
 | 2026-05-26 | EPDM-060 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |
+| 2026-05-26 | EPDM-070 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast` | Passed: final provider pronunciation dictionary gate ran 8 no-network tests covering list/get/create/update/rules/download behavior. |
+| 2026-05-26 | EPDM-070 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile for provider-owned ElevenLabs resources. |
+| 2026-05-26 | EPDM-070 | `cargo nextest run -p siumai-core http_request --no-fail-fast` | Passed: 19 shared HTTP request helper tests cover custom transport, retry, response body, and error classification behavior. |
+| 2026-05-26 | EPDM-070 | `cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
+| 2026-05-26 | EPDM-070 | `python -m json.tool docs\workstreams\elevenlabs-pronunciation-dictionary-mutations\WORKSTREAM.json` | Passed: closeout workstream metadata is valid JSON. |
+| 2026-05-26 | EPDM-070 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |
