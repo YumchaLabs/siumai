@@ -60,7 +60,7 @@ pub mod resources {
         ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdateVoiceSettingsRequest,
         ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
         ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
-        ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoices,
+        ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
     };
 }
 

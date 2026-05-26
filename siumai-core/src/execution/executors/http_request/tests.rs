@@ -1,8 +1,9 @@
 use super::*;
 use crate::error::LlmError;
 use crate::execution::http::transport::{
-    HttpTransport, HttpTransportGetRequest, HttpTransportMultipartRequest, HttpTransportRequest,
-    HttpTransportResponse, HttpTransportStreamBody, HttpTransportStreamResponse,
+    HttpTransport, HttpTransportDeleteRequest, HttpTransportGetRequest,
+    HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
+    HttpTransportStreamBody, HttpTransportStreamResponse,
 };
 use async_trait::async_trait;
 use std::collections::VecDeque;
@@ -24,6 +25,7 @@ impl crate::execution::http::interceptor::HttpInterceptor for FlagInterceptor {
 struct SequenceTransport {
     json_requests: Arc<Mutex<Vec<HttpTransportRequest>>>,
     get_requests: Arc<Mutex<Vec<HttpTransportGetRequest>>>,
+    delete_requests: Arc<Mutex<Vec<HttpTransportDeleteRequest>>>,
     multipart_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,
     stream_requests: Arc<Mutex<Vec<HttpTransportRequest>>>,
     multipart_stream_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,
@@ -36,6 +38,7 @@ impl SequenceTransport {
         Self {
             json_requests: Arc::new(Mutex::new(Vec::new())),
             get_requests: Arc::new(Mutex::new(Vec::new())),
+            delete_requests: Arc::new(Mutex::new(Vec::new())),
             multipart_requests: Arc::new(Mutex::new(Vec::new())),
             stream_requests: Arc::new(Mutex::new(Vec::new())),
             multipart_stream_requests: Arc::new(Mutex::new(Vec::new())),
@@ -48,6 +51,7 @@ impl SequenceTransport {
         Self {
             json_requests: Arc::new(Mutex::new(Vec::new())),
             get_requests: Arc::new(Mutex::new(Vec::new())),
+            delete_requests: Arc::new(Mutex::new(Vec::new())),
             multipart_requests: Arc::new(Mutex::new(Vec::new())),
             stream_requests: Arc::new(Mutex::new(Vec::new())),
             multipart_stream_requests: Arc::new(Mutex::new(Vec::new())),
@@ -62,6 +66,10 @@ impl SequenceTransport {
 
     fn take_get_requests(&self) -> Vec<HttpTransportGetRequest> {
         std::mem::take(&mut *self.get_requests.lock().unwrap())
+    }
+
+    fn take_delete_requests(&self) -> Vec<HttpTransportDeleteRequest> {
+        std::mem::take(&mut *self.delete_requests.lock().unwrap())
     }
 
     fn take_multipart_requests(&self) -> Vec<HttpTransportMultipartRequest> {
@@ -108,6 +116,18 @@ impl HttpTransport for SequenceTransport {
         request: HttpTransportGetRequest,
     ) -> Result<HttpTransportResponse, LlmError> {
         self.get_requests.lock().unwrap().push(request);
+        self.responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or_else(|| LlmError::HttpError("missing transport response".into()))
+    }
+
+    async fn execute_delete(
+        &self,
+        request: HttpTransportDeleteRequest,
+    ) -> Result<HttpTransportResponse, LlmError> {
+        self.delete_requests.lock().unwrap().push(request);
         self.responses
             .lock()
             .unwrap()
@@ -908,6 +928,91 @@ async fn get_request_custom_transport_retries_401_then_200() {
     assert_eq!(result.json["ok"], "after retry");
 
     let requests = transport.take_get_requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("0"),
+    );
+    assert_eq!(
+        requests[1]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("1"),
+    );
+}
+
+#[tokio::test]
+async fn delete_request_uses_custom_transport_and_returns_json() {
+    let client = reqwest::Client::new();
+    let transport = SequenceTransport::new(vec![HttpTransportResponse {
+        status: 200,
+        headers: reqwest::header::HeaderMap::new(),
+        body: br#"{"status":"ok"}"#.to_vec(),
+    }]);
+    let mut config = test_config(
+        &client,
+        reqwest::header::HeaderMap::new(),
+        vec![],
+        Some(crate::retry_api::RetryOptions::default()),
+    );
+    config.transport = Some(Arc::new(transport.clone()));
+
+    let url = "http://unused.invalid/v1/voices/voice_123";
+    let result = execute_delete_request(&config, url, None)
+        .await
+        .expect("delete request should use custom transport");
+
+    assert_eq!(result.status, 200);
+    assert_eq!(result.json["status"], "ok");
+
+    let requests = transport.take_delete_requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].url, url);
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("0"),
+    );
+}
+
+#[tokio::test]
+async fn delete_request_custom_transport_retries_401_then_200() {
+    let client = reqwest::Client::new();
+    let transport = SequenceTransport::new(vec![
+        HttpTransportResponse {
+            status: 401,
+            headers: reqwest::header::HeaderMap::new(),
+            body: b"unauthorized".to_vec(),
+        },
+        HttpTransportResponse {
+            status: 200,
+            headers: reqwest::header::HeaderMap::new(),
+            body: Vec::new(),
+        },
+    ]);
+    let mut config = test_config(
+        &client,
+        reqwest::header::HeaderMap::new(),
+        vec![],
+        Some(crate::retry_api::RetryOptions::default()),
+    );
+    config.transport = Some(Arc::new(transport.clone()));
+
+    let url = "http://unused.invalid/v1/voices/voice_123";
+    let result = execute_delete_request(&config, url, None)
+        .await
+        .expect("delete request should retry on 401 through custom transport");
+
+    assert_eq!(result.status, 200);
+    assert_eq!(result.json, serde_json::json!({}));
+
+    let requests = transport.take_delete_requests();
     assert_eq!(requests.len(), 2);
     assert_eq!(
         requests[0]

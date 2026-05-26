@@ -28,14 +28,16 @@ Last updated: 2026-05-26
 
 ## ELVM-030 - Delete Voice And Sample Delete Decision
 
-- [ ] ELVM-030 [owner=planner/worker] [deps=ELVM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests,docs/workstreams/elevenlabs-voice-mutation-resources]
+- [x] ELVM-030 [owner=planner/worker] [deps=ELVM-020] [scope=siumai-core,siumai-provider-elevenlabs,siumai,siumai/tests,docs/workstreams/elevenlabs-voice-mutation-resources]
   Goal: Decide whether to add a shared DELETE JSON helper and implement `delete_voice` plus
   `delete_sample`, or split one endpoint if response/error semantics differ.
   Validation: focused provider/facade nextest filter for accepted delete endpoints; `git diff --check`.
   Review: review-workstream for DELETE helper reuse and status response naming.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: READY. Next decide whether a shared DELETE JSON helper should serve both voice deletion
-  and sample deletion in one bounded slice.
+  Handoff: DONE. Core already had DELETE JSON execution but lacked custom transport support. Added
+  custom transport DELETE support, provider-owned `execute_delete_json`, `delete_voice`,
+  `delete_sample`, shared `ElevenLabsVoiceStatusResponse`, no-network tests, facade exports, and
+  CHANGELOG coverage.
 
 ## ELVM-040 - IVC Create And Voice Edit Multipart
 
@@ -47,7 +49,8 @@ Last updated: 2026-05-26
   Review: review-workstream for file-part ownership, label encoding, moderation flag semantics, and
   whether edit should split.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Pending ELVM-020 and ELVM-030 decision.
+  Handoff: READY. Next implement the smallest IVC multipart slice, keeping voice edit split unless
+  the request/response shape remains clearly shared.
 
 ## ELVM-050 - PVC Boundary And First PVC Slice
 

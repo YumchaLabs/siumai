@@ -5,19 +5,21 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open and scope is frozen. ELVM-010 and ELVM-020 are complete. Siumai now has
-provider-owned voice settings get/update resources on the existing `ElevenLabsVoices` client.
+The workstream is open and scope is frozen. ELVM-010 through ELVM-030 are complete. Siumai now has
+provider-owned voice settings get/update plus voice/sample delete resources on the existing
+`ElevenLabsVoices` client.
 
 ## Active Task
 
-- Task ID: ELVM-030
-- Owner: planner/worker
+- Task ID: ELVM-040
+- Owner: worker
 - Files: `siumai-provider-elevenlabs`, `siumai`, `siumai/tests`,
   `docs/workstreams/elevenlabs-voice-mutation-resources`
-- Validation: focused provider/facade nextest filter for accepted delete endpoints and
-  `git diff --check`.
+- Validation: no-network multipart provider tests for accepted IVC/edit endpoints, facade
+  public-surface test, and formatting checks.
 - Status: READY
-- Review: review-workstream for DELETE helper reuse and status response naming.
+- Review: review-workstream for file-part ownership, label encoding, moderation flag semantics, and
+  whether edit should split.
 - Evidence: `docs/workstreams/elevenlabs-voice-mutation-resources/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Opening
@@ -31,6 +33,8 @@ provider-owned voice settings get/update resources on the existing `ElevenLabsVo
   settings response semantics.
 - Settings get/update is implemented with `default_settings`, `settings`, `update_settings`,
   `ElevenLabsUpdateVoiceSettingsRequest`, and `ElevenLabsVoiceSettingsUpdateResponse`.
+- Voice and sample deletion are implemented with shared `ElevenLabsVoiceStatusResponse`.
+- Core DELETE JSON execution now supports custom transports, preserving no-network resource tests.
 - Do not implement sample audio until the response shape is re-audited; current docs describe an
   audio endpoint but show an empty JSON response schema.
 - Treat PVC as a workflow boundary. PVC create may be a later bounded JSON slice, but training,
@@ -38,9 +42,9 @@ provider-owned voice settings get/update resources on the existing `ElevenLabsVo
 
 ## Blockers
 
-- None for ELVM-030.
+- None for ELVM-040.
 
 ## Next Recommended Action
 
-- Decide whether to add a shared DELETE JSON helper, then implement `delete_voice` and
-  `delete_sample` together if the response/status semantics stay aligned.
+- Implement the smallest accepted IVC multipart slice, likely `create_ivc_voice`. Split voice edit
+  unless the shared multipart request shape stays bounded.

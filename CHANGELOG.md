@@ -33,11 +33,14 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   ID.
 - Added ElevenLabs voice settings resources for reading default/per-voice settings and updating
   per-voice settings under `provider_ext::elevenlabs::resources`.
+- Added ElevenLabs voice and voice sample delete resources with shared status response mapping.
 
 ### Changed
 
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
+- Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can
+  exercise DELETE endpoints without live network calls.
 - Hardened the clean architecture boundaries across registry, core, provider-utils, protocol,
   provider, bridge, and facade crates.
 - Split registry provider construction into family-first, compatibility, and extension facets so

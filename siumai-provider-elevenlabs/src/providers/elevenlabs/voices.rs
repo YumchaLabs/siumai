@@ -14,7 +14,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::config::ElevenLabsConfig;
-use super::resource_http::{execute_get_json, execute_post_json};
+use super::resource_http::{execute_delete_json, execute_get_json, execute_post_json};
 
 /// Provider-owned client for ElevenLabs voice catalog resources.
 #[derive(Clone)]
@@ -121,6 +121,61 @@ impl ElevenLabsVoices {
         .await
     }
 
+    /// Delete a voice using `DELETE /v1/voices/{voice_id}`.
+    pub async fn delete_voice(
+        &self,
+        voice_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        self.delete_voice_with_http_config(voice_id, None).await
+    }
+
+    /// Delete a voice with per-request HTTP configuration.
+    pub async fn delete_voice_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        let url = self.voice_url(voice_id)?;
+        execute_delete_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "delete voice",
+        )
+        .await
+    }
+
+    /// Delete a voice sample using `DELETE /v1/voices/{voice_id}/samples/{sample_id}`.
+    pub async fn delete_sample(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        self.delete_sample_with_http_config(voice_id, sample_id, None)
+            .await
+    }
+
+    /// Delete a voice sample with per-request HTTP configuration.
+    pub async fn delete_sample_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        let url = self.voice_sample_url(voice_id, sample_id)?;
+        execute_delete_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "delete voice sample",
+        )
+        .await
+    }
+
     /// List voices using `GET /v2/voices`.
     pub async fn list(
         &self,
@@ -189,11 +244,7 @@ impl ElevenLabsVoices {
         Ok(url.to_string())
     }
 
-    fn voice_action_url(
-        &self,
-        voice_id: impl AsRef<str>,
-        action: &str,
-    ) -> Result<String, LlmError> {
+    fn voice_url(&self, voice_id: impl AsRef<str>) -> Result<String, LlmError> {
         let voice_id = voice_id.as_ref().trim();
         if voice_id.is_empty() {
             return Err(LlmError::InvalidInput(
@@ -202,10 +253,33 @@ impl ElevenLabsVoices {
         }
 
         let encoded = urlencoding::encode(voice_id);
-        Ok(join_url(
-            &self.base_url(),
-            &format!("v1/voices/{encoded}/{action}"),
-        ))
+        Ok(join_url(&self.base_url(), &format!("v1/voices/{encoded}")))
+    }
+
+    fn voice_action_url(
+        &self,
+        voice_id: impl AsRef<str>,
+        action: &str,
+    ) -> Result<String, LlmError> {
+        let base = self.voice_url(voice_id)?;
+        Ok(format!("{base}/{action}"))
+    }
+
+    fn voice_sample_url(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+    ) -> Result<String, LlmError> {
+        let base = self.voice_action_url(voice_id, "samples")?;
+        let sample_id = sample_id.as_ref().trim();
+        if sample_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs sample_id cannot be empty".to_string(),
+            ));
+        }
+
+        let encoded = urlencoding::encode(sample_id);
+        Ok(format!("{base}/{encoded}"))
     }
 }
 
@@ -537,6 +611,14 @@ pub struct ElevenLabsVoiceSettingsUpdateResponse {
     pub extra: HashMap<String, Value>,
 }
 
+/// Status response body returned by ElevenLabs voice mutation endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsVoiceStatusResponse {
+    pub status: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
 /// Verified language metadata returned by ElevenLabs voice APIs.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsVerifiedLanguage {
@@ -556,7 +638,8 @@ pub struct ElevenLabsVerifiedLanguage {
 mod tests {
     use super::*;
     use crate::execution::http::transport::{
-        HttpTransport, HttpTransportGetRequest, HttpTransportRequest, HttpTransportResponse,
+        HttpTransport, HttpTransportDeleteRequest, HttpTransportGetRequest, HttpTransportRequest,
+        HttpTransportResponse,
     };
     use async_trait::async_trait;
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -571,6 +654,7 @@ mod tests {
         response: Value,
         last_json: Arc<Mutex<Option<HttpTransportRequest>>>,
         last_get: Arc<Mutex<Option<HttpTransportGetRequest>>>,
+        last_delete: Arc<Mutex<Option<HttpTransportDeleteRequest>>>,
     }
 
     impl JsonGetTransport {
@@ -579,6 +663,7 @@ mod tests {
                 response,
                 last_json: Arc::new(Mutex::new(None)),
                 last_get: Arc::new(Mutex::new(None)),
+                last_delete: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -596,6 +681,14 @@ mod tests {
                 .expect("get transport lock")
                 .take()
                 .expect("captured get request")
+        }
+
+        fn take_delete(&self) -> HttpTransportDeleteRequest {
+            self.last_delete
+                .lock()
+                .expect("delete transport lock")
+                .take()
+                .expect("captured delete request")
         }
     }
 
@@ -620,6 +713,20 @@ mod tests {
             request: HttpTransportGetRequest,
         ) -> Result<HttpTransportResponse, LlmError> {
             *self.last_get.lock().expect("get transport lock") = Some(request);
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&self.response).expect("serialize response"),
+            })
+        }
+
+        async fn execute_delete(
+            &self,
+            request: HttpTransportDeleteRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self.last_delete.lock().expect("delete transport lock") = Some(request);
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
             Ok(HttpTransportResponse {
@@ -971,6 +1078,54 @@ mod tests {
                 .contains("ElevenLabs voice settings update request cannot be empty"),
             "{err}"
         );
+    }
+
+    #[tokio::test]
+    async fn voices_delete_voice_and_sample_delete_use_delete_json() {
+        let transport = JsonGetTransport::new(json!({
+            "status": "ok",
+            "future_status": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .delete_voice_with_http_config("voice/id with space", Some(&request_http))
+            .await
+            .expect("delete voice response");
+        let captured = transport.take_delete();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/voice%2Fid%20with%20space"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.extra.get("future_status"), Some(&json!("kept")));
+
+        let response = voices
+            .delete_sample("voice/id with space", "sample/id with space")
+            .await
+            .expect("delete sample response");
+        let captured = transport.take_delete();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/voice%2Fid%20with%20space/samples/sample%2Fid%20with%20space"
+        );
+        assert_eq!(response.status, "ok");
     }
 
     #[tokio::test]

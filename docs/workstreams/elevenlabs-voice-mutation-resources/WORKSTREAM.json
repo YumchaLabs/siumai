@@ -30,10 +30,12 @@
   ],
   "gates": [
     "python .agents\\skills\\siumai-ai-sdk-maintenance\\scripts\\resolve_ai_sdk_repo.py",
+    "cargo nextest run -p siumai-core http_request --no-fail-fast",
     "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_settings --no-fail-fast",
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_delete --no-fail-fast",
     "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast",
     "cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast",
-    "cargo fmt --check -p siumai-provider-elevenlabs -p siumai",
+    "cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai",
     "git diff --check"
   ],
   "evidence": [
@@ -63,10 +65,10 @@
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "ELVM-030",
-  "next_task": "Decide and implement the delete voice/sample delete slice or split follow-ons.",
+  "current_task": "ELVM-040",
+  "next_task": "Implement the smallest accepted IVC multipart slice or split voice edit.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with ELVM-030. Keep IVC/PVC/sample workflows provider-owned and split if their request/response semantics grow beyond a bounded slice."
+    "notes": "Continue with ELVM-040. Keep IVC/PVC/sample workflows provider-owned and split if their request/response semantics grow beyond a bounded slice."
   }
 }

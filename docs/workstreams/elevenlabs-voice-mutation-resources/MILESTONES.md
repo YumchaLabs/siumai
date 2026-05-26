@@ -40,6 +40,9 @@ Gate:
 
 ## M2 - Delete And Sample Decision
 
+Status: Complete on 2026-05-26. Voice and sample deletion are implemented with shared DELETE
+custom-transport support and evidence under ELVM-030.
+
 Exit criteria:
 
 - Shared DELETE JSON wiring is implemented or explicitly deferred.

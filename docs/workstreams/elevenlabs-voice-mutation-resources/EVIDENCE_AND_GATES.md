@@ -42,6 +42,16 @@ cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --n
 cargo fmt --check -p siumai-provider-elevenlabs -p siumai
 ```
 
+Voice delete:
+
+```powershell
+cargo nextest run -p siumai-core http_request --no-fail-fast
+cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_delete --no-fail-fast
+cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast
+cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast
+cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai
+```
+
 Closeout:
 
 ```powershell
@@ -75,3 +85,9 @@ git diff --check
 | 2026-05-26 | ELVM-020 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with voice settings request/response exports. |
 | 2026-05-26 | ELVM-020 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
 | 2026-05-26 | ELVM-020 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |
+| 2026-05-26 | ELVM-030 | `cargo nextest run -p siumai-core http_request --no-fail-fast` | Passed: 21 shared HTTP request helper tests, including DELETE custom transport and 401 retry coverage. |
+| 2026-05-26 | ELVM-030 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_delete --no-fail-fast` | Passed: no-network delete test covers voice delete, sample delete, path encoding, request header merge, auth header, status response mapping, and unknown field preservation. |
+| 2026-05-26 | ELVM-030 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast` | Passed: 7 voice resource tests cover list/get/settings/delete behavior. |
+| 2026-05-26 | ELVM-030 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with shared voice status response export. |
+| 2026-05-26 | ELVM-030 | `cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
+| 2026-05-26 | ELVM-030 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |

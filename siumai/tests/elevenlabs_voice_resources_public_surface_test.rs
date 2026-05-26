@@ -13,7 +13,7 @@ use siumai::provider_ext::elevenlabs::resources::{
     ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdateVoiceSettingsRequest,
     ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
     ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
-    ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoices,
+    ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
 };
 use siumai::provider_ext::elevenlabs::{ElevenLabsClient, ElevenLabsConfig};
 
@@ -28,6 +28,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsVoiceSettingsResponse>();
     assert_type::<ElevenLabsUpdateVoiceSettingsRequest>();
     assert_type::<ElevenLabsVoiceSettingsUpdateResponse>();
+    assert_type::<ElevenLabsVoiceStatusResponse>();
     assert_type::<ElevenLabsVerifiedLanguage>();
     assert_type::<ElevenLabsPronunciationDictionaries>();
     assert_type::<ElevenLabsPronunciationDictionaryListQuery>();
@@ -46,6 +47,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoices>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoiceListQuery>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsUpdateVoiceSettingsRequest>();
+    assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoiceStatusResponse>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
     assert_type::<
         siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
