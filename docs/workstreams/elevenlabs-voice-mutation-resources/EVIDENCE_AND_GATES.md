@@ -52,6 +52,15 @@ cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --n
 cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai
 ```
 
+IVC create:
+
+```powershell
+cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_ivc --no-fail-fast
+cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast
+cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast
+cargo fmt --check -p siumai-provider-elevenlabs -p siumai
+```
+
 Closeout:
 
 ```powershell
@@ -91,3 +100,8 @@ git diff --check
 | 2026-05-26 | ELVM-030 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with shared voice status response export. |
 | 2026-05-26 | ELVM-030 | `cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
 | 2026-05-26 | ELVM-030 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |
+| 2026-05-26 | ELVM-040 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_ivc --no-fail-fast` | Passed: no-network IVC create test covers multipart endpoint, repeated `files` parts, filenames/MIME types, optional fields, labels serialization, auth/header merge, and response mapping. |
+| 2026-05-26 | ELVM-040 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast` | Passed: 8 voice resource tests cover list/get/settings/delete/IVC behavior. |
+| 2026-05-26 | ELVM-040 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with IVC request/file/response exports. |
+| 2026-05-26 | ELVM-040 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
+| 2026-05-26 | ELVM-040 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |

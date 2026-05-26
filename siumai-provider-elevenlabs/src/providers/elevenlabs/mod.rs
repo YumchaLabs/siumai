@@ -33,9 +33,11 @@ pub use pronunciation_dictionaries::{
     ElevenLabsUpdatePronunciationDictionaryRequest,
 };
 pub use voices::{
+    ElevenLabsCreateIvcVoiceRequest, ElevenLabsCreateIvcVoiceResponse,
     ElevenLabsUpdateVoiceSettingsRequest, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
-    ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
-    ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
+    ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile,
+    ElevenLabsVoiceSettingsResponse, ElevenLabsVoiceSettingsUpdateResponse,
+    ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

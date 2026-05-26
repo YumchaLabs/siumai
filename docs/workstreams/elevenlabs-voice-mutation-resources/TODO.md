@@ -41,7 +41,7 @@ Last updated: 2026-05-26
 
 ## ELVM-040 - IVC Create And Voice Edit Multipart
 
-- [ ] ELVM-040 [owner=worker] [deps=ELVM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] ELVM-040 [owner=worker] [deps=ELVM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Implement the smallest accepted multipart IVC/edit slice, likely `create_ivc_voice` first
   and `edit_voice` if the shared request shape stays bounded.
   Validation: no-network multipart provider tests for files, labels, optional fields, path encoding,
@@ -49,8 +49,10 @@ Last updated: 2026-05-26
   Review: review-workstream for file-part ownership, label encoding, moderation flag semantics, and
   whether edit should split.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: READY. Next implement the smallest IVC multipart slice, keeping voice edit split unless
-  the request/response shape remains clearly shared.
+  Handoff: DONE. Implemented `create_ivc_voice` with typed `ElevenLabsCreateIvcVoiceRequest`,
+  reusable `ElevenLabsVoiceSampleFile`, multipart multi-sample upload, labels serialization,
+  response mapping, no-network tests, facade exports, and CHANGELOG coverage. `edit_voice` remains
+  split because it has different path/body requirements and a status response.
 
 ## ELVM-050 - PVC Boundary And First PVC Slice
 
@@ -61,7 +63,8 @@ Last updated: 2026-05-26
   docs-only split validation.
   Review: review-workstream for workflow boundary, live-credential boundary, and response shape.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Pending earlier voice mutation slices.
+  Handoff: READY. Next decide whether PVC create/update/train/sample/verification belongs in this
+  lane or should split into a dedicated PVC workflow lane.
 
 ## ELVM-060 - Closeout
 

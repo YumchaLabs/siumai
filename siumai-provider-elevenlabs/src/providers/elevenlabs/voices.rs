@@ -14,7 +14,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::config::ElevenLabsConfig;
-use super::resource_http::{execute_delete_json, execute_get_json, execute_post_json};
+use super::resource_http::{
+    execute_delete_json, execute_get_json, execute_multipart_json, execute_post_json,
+};
 
 /// Provider-owned client for ElevenLabs voice catalog resources.
 #[derive(Clone)]
@@ -117,6 +119,26 @@ impl ElevenLabsVoices {
             body,
             request.http_config.as_ref(),
             "update voice settings",
+        )
+        .await
+    }
+
+    /// Create an instant voice clone using `POST /v1/voices/add`.
+    pub async fn create_ivc_voice(
+        &self,
+        request: ElevenLabsCreateIvcVoiceRequest,
+    ) -> Result<ElevenLabsCreateIvcVoiceResponse, LlmError> {
+        request.validate()?;
+        let url = join_url(&self.base_url(), "v1/voices/add");
+        let request_clone = request.clone();
+        execute_multipart_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            move || request_clone.build_form(),
+            request.http_config.as_ref(),
+            "create IVC voice",
         )
         .await
     }
@@ -423,6 +445,10 @@ fn push_optional(pairs: &mut Vec<(String, String)>, key: &str, value: Option<&st
     }
 }
 
+fn optional_trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
 /// Response body for `GET /v2/voices`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsVoiceListResponse {
@@ -611,6 +637,166 @@ pub struct ElevenLabsVoiceSettingsUpdateResponse {
     pub extra: HashMap<String, Value>,
 }
 
+/// Caller-provided audio file used by ElevenLabs voice mutation endpoints.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsVoiceSampleFile {
+    pub bytes: Vec<u8>,
+    pub filename: Option<String>,
+    pub mime_type: Option<String>,
+}
+
+impl ElevenLabsVoiceSampleFile {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self {
+            bytes,
+            filename: None,
+            mime_type: None,
+        }
+    }
+
+    pub fn with_filename(mut self, value: impl Into<String>) -> Self {
+        self.filename = Some(value.into());
+        self
+    }
+
+    pub fn with_mime_type(mut self, value: impl Into<String>) -> Self {
+        self.mime_type = Some(value.into());
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.bytes.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs voice sample file cannot be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn build_part(&self) -> Result<reqwest::multipart::Part, LlmError> {
+        let mut part = reqwest::multipart::Part::bytes(self.bytes.clone());
+        if let Some(filename) = optional_trimmed(self.filename.as_deref()) {
+            part = part.file_name(filename.to_string());
+        }
+        if let Some(mime_type) = optional_trimmed(self.mime_type.as_deref()) {
+            part = part.mime_str(mime_type).map_err(|e| {
+                LlmError::InvalidInput(format!(
+                    "Invalid ElevenLabs voice sample file MIME type '{mime_type}': {e}"
+                ))
+            })?;
+        }
+        Ok(part)
+    }
+}
+
+/// Request body for creating an instant voice clone.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsCreateIvcVoiceRequest {
+    pub name: String,
+    pub files: Vec<ElevenLabsVoiceSampleFile>,
+    pub remove_background_noise: Option<bool>,
+    pub description: Option<String>,
+    pub labels: HashMap<String, String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsCreateIvcVoiceRequest {
+    pub fn new<I>(name: impl Into<String>, files: I) -> Self
+    where
+        I: IntoIterator<Item = ElevenLabsVoiceSampleFile>,
+    {
+        Self {
+            name: name.into(),
+            files: files.into_iter().collect(),
+            remove_background_noise: None,
+            description: None,
+            labels: HashMap::new(),
+            http_config: None,
+        }
+    }
+
+    pub fn with_file(mut self, value: ElevenLabsVoiceSampleFile) -> Self {
+        self.files.push(value);
+        self
+    }
+
+    pub const fn with_remove_background_noise(mut self, value: bool) -> Self {
+        self.remove_background_noise = Some(value);
+        self
+    }
+
+    pub fn with_description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    pub fn with_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.labels.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.name.trim().is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs voice name cannot be empty".to_string(),
+            ));
+        }
+        if self.files.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs IVC voice creation requires at least one sample file".to_string(),
+            ));
+        }
+        for file in &self.files {
+            file.validate()?;
+        }
+        if self.labels.keys().any(|key| key.trim().is_empty()) {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs voice label keys cannot be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn build_form(&self) -> Result<reqwest::multipart::Form, LlmError> {
+        let mut form = reqwest::multipart::Form::new().text("name", self.name.trim().to_string());
+
+        for file in &self.files {
+            form = form.part("files", file.build_part()?);
+        }
+        if let Some(remove_background_noise) = self.remove_background_noise {
+            form = form.text(
+                "remove_background_noise",
+                remove_background_noise.to_string(),
+            );
+        }
+        if let Some(description) = optional_trimmed(self.description.as_deref()) {
+            form = form.text("description", description.to_string());
+        }
+        if !self.labels.is_empty() {
+            let labels = serde_json::to_string(&self.labels).map_err(|e| {
+                LlmError::InvalidInput(format!("Invalid ElevenLabs voice labels: {e}"))
+            })?;
+            form = form.text("labels", labels);
+        }
+
+        Ok(form)
+    }
+}
+
+/// Response body for `POST /v1/voices/add`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsCreateIvcVoiceResponse {
+    pub voice_id: String,
+    pub requires_verification: bool,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
 /// Status response body returned by ElevenLabs voice mutation endpoints.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsVoiceStatusResponse {
@@ -638,8 +824,8 @@ pub struct ElevenLabsVerifiedLanguage {
 mod tests {
     use super::*;
     use crate::execution::http::transport::{
-        HttpTransport, HttpTransportDeleteRequest, HttpTransportGetRequest, HttpTransportRequest,
-        HttpTransportResponse,
+        HttpTransport, HttpTransportDeleteRequest, HttpTransportGetRequest,
+        HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
     };
     use async_trait::async_trait;
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -655,6 +841,7 @@ mod tests {
         last_json: Arc<Mutex<Option<HttpTransportRequest>>>,
         last_get: Arc<Mutex<Option<HttpTransportGetRequest>>>,
         last_delete: Arc<Mutex<Option<HttpTransportDeleteRequest>>>,
+        last_multipart: Arc<Mutex<Option<HttpTransportMultipartRequest>>>,
     }
 
     impl JsonGetTransport {
@@ -664,6 +851,7 @@ mod tests {
                 last_json: Arc::new(Mutex::new(None)),
                 last_get: Arc::new(Mutex::new(None)),
                 last_delete: Arc::new(Mutex::new(None)),
+                last_multipart: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -689,6 +877,14 @@ mod tests {
                 .expect("delete transport lock")
                 .take()
                 .expect("captured delete request")
+        }
+
+        fn take_multipart(&self) -> HttpTransportMultipartRequest {
+            self.last_multipart
+                .lock()
+                .expect("multipart transport lock")
+                .take()
+                .expect("captured multipart request")
         }
     }
 
@@ -727,6 +923,23 @@ mod tests {
             request: HttpTransportDeleteRequest,
         ) -> Result<HttpTransportResponse, LlmError> {
             *self.last_delete.lock().expect("delete transport lock") = Some(request);
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&self.response).expect("serialize response"),
+            })
+        }
+
+        async fn execute_multipart(
+            &self,
+            request: HttpTransportMultipartRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self
+                .last_multipart
+                .lock()
+                .expect("multipart transport lock") = Some(request);
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
             Ok(HttpTransportResponse {
@@ -1078,6 +1291,94 @@ mod tests {
                 .contains("ElevenLabs voice settings update request cannot be empty"),
             "{err}"
         );
+    }
+
+    #[tokio::test]
+    async fn voices_ivc_create_posts_multipart_and_maps_response() {
+        let transport = JsonGetTransport::new(json!({
+            "voice_id": "voice-clone-1",
+            "requires_verification": true,
+            "future_create": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+        request_http
+            .headers
+            .insert("x-shared".to_string(), "request-wins".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_header("x-global-header", "global")
+            .with_header("x-shared", "global")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .create_ivc_voice(
+                ElevenLabsCreateIvcVoiceRequest::new(
+                    "Narrator Clone",
+                    [ElevenLabsVoiceSampleFile::new(b"audio-one".to_vec())
+                        .with_filename("sample-one.wav")
+                        .with_mime_type("audio/wav")],
+                )
+                .with_file(
+                    ElevenLabsVoiceSampleFile::new(b"audio-two".to_vec())
+                        .with_filename("sample-two.mp3")
+                        .with_mime_type("audio/mpeg"),
+                )
+                .with_remove_background_noise(true)
+                .with_description("Narration voice")
+                .with_label("accent", "american")
+                .with_http_config(request_http),
+            )
+            .await
+            .expect("create IVC voice response");
+
+        let captured = transport.take_multipart();
+        assert_eq!(captured.url, "https://api.elevenlabs.test/v1/voices/add");
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert!(
+            header_value(&captured.headers, "content-type")
+                .is_some_and(|value| value.starts_with("multipart/form-data; boundary="))
+        );
+        assert!(header_value(&captured.headers, "content-length").is_some());
+        assert_eq!(
+            header_value(&captured.headers, "x-global-header"),
+            Some("global")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-shared"),
+            Some("request-wins")
+        );
+
+        let body = String::from_utf8_lossy(&captured.body);
+        assert!(body.contains("name=\"name\""));
+        assert!(body.contains("Narrator Clone"));
+        assert!(body.contains("name=\"files\"; filename=\"sample-one.wav\""));
+        assert!(body.contains("Content-Type: audio/wav"));
+        assert!(body.contains("audio-one"));
+        assert!(body.contains("name=\"files\"; filename=\"sample-two.mp3\""));
+        assert!(body.contains("Content-Type: audio/mpeg"));
+        assert!(body.contains("audio-two"));
+        assert!(body.contains("name=\"remove_background_noise\""));
+        assert!(body.contains("true"));
+        assert!(body.contains("name=\"description\""));
+        assert!(body.contains("Narration voice"));
+        assert!(body.contains("name=\"labels\""));
+        assert!(body.contains("\"accent\":\"american\""));
+
+        assert_eq!(response.voice_id, "voice-clone-1");
+        assert_eq!(response.requires_verification, true);
+        assert_eq!(response.extra.get("future_create"), Some(&json!("kept")));
     }
 
     #[tokio::test]

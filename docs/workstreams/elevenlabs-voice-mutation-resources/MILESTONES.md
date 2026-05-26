@@ -56,6 +56,8 @@ Gate:
 
 ## M3 - IVC Multipart
 
+Status: Complete on 2026-05-26. IVC create is implemented; voice edit is split for a later slice.
+
 Exit criteria:
 
 - IVC create is implemented or split with a reason.

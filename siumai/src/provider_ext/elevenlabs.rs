@@ -47,6 +47,7 @@ pub mod ext {
 /// Provider-specific resources not covered by the unified speech/transcription families.
 pub mod resources {
     pub use siumai_provider_elevenlabs::providers::elevenlabs::{
+        ElevenLabsCreateIvcVoiceRequest, ElevenLabsCreateIvcVoiceResponse,
         ElevenLabsCreatePronunciationDictionaryFromFileRequest,
         ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
         ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
@@ -59,7 +60,7 @@ pub mod resources {
         ElevenLabsRemovePronunciationDictionaryRulesRequest,
         ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdateVoiceSettingsRequest,
         ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
-        ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
+        ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile, ElevenLabsVoiceSettingsResponse,
         ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
     };
 }

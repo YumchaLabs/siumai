@@ -1,6 +1,7 @@
 #![cfg(feature = "elevenlabs")]
 
 use siumai::provider_ext::elevenlabs::resources::{
+    ElevenLabsCreateIvcVoiceRequest, ElevenLabsCreateIvcVoiceResponse,
     ElevenLabsCreatePronunciationDictionaryFromFileRequest,
     ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsPronunciationDictionaries,
     ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
@@ -12,7 +13,7 @@ use siumai::provider_ext::elevenlabs::resources::{
     ElevenLabsRemovePronunciationDictionaryRulesRequest,
     ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdateVoiceSettingsRequest,
     ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
-    ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
+    ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile, ElevenLabsVoiceSettingsResponse,
     ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
 };
 use siumai::provider_ext::elevenlabs::{ElevenLabsClient, ElevenLabsConfig};
@@ -29,6 +30,9 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsUpdateVoiceSettingsRequest>();
     assert_type::<ElevenLabsVoiceSettingsUpdateResponse>();
     assert_type::<ElevenLabsVoiceStatusResponse>();
+    assert_type::<ElevenLabsCreateIvcVoiceRequest>();
+    assert_type::<ElevenLabsCreateIvcVoiceResponse>();
+    assert_type::<ElevenLabsVoiceSampleFile>();
     assert_type::<ElevenLabsVerifiedLanguage>();
     assert_type::<ElevenLabsPronunciationDictionaries>();
     assert_type::<ElevenLabsPronunciationDictionaryListQuery>();
@@ -48,6 +52,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoiceListQuery>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsUpdateVoiceSettingsRequest>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoiceStatusResponse>();
+    assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsCreateIvcVoiceRequest>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
     assert_type::<
         siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
@@ -80,6 +85,12 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
         .with_stability(0.45)
         .with_similarity_boost(0.8)
         .with_speed(1.05);
+    let create_ivc_voice_request = ElevenLabsCreateIvcVoiceRequest::new(
+        "Narrator Clone",
+        [ElevenLabsVoiceSampleFile::new(b"audio".to_vec()).with_filename("sample.wav")],
+    )
+    .with_remove_background_noise(true)
+    .with_label("accent", "american");
     let create_dictionary_request = ElevenLabsCreatePronunciationDictionaryFromRulesRequest::new(
         "Product terms",
         vec![ElevenLabsPronunciationDictionaryRuleRequest::alias(
@@ -112,5 +123,6 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     drop(remove_dictionary_rules_request);
     drop(voices);
     drop(update_voice_settings_request);
+    drop(create_ivc_voice_request);
     drop(pronunciation_dictionaries);
 }

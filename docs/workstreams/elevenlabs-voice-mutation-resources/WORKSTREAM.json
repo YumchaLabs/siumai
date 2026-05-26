@@ -33,6 +33,7 @@
     "cargo nextest run -p siumai-core http_request --no-fail-fast",
     "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_settings --no-fail-fast",
     "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_delete --no-fail-fast",
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_ivc --no-fail-fast",
     "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast",
     "cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast",
     "cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai",
@@ -65,10 +66,10 @@
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "ELVM-040",
-  "next_task": "Implement the smallest accepted IVC multipart slice or split voice edit.",
+  "current_task": "ELVM-050",
+  "next_task": "Decide the PVC workflow boundary and implement a bounded first PVC slice or split follow-ons.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with ELVM-040. Keep IVC/PVC/sample workflows provider-owned and split if their request/response semantics grow beyond a bounded slice."
+    "notes": "Continue with ELVM-050. Keep PVC workflows provider-owned and split if their request/response semantics grow beyond a bounded slice."
   }
 }

@@ -34,6 +34,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Added ElevenLabs voice settings resources for reading default/per-voice settings and updating
   per-voice settings under `provider_ext::elevenlabs::resources`.
 - Added ElevenLabs voice and voice sample delete resources with shared status response mapping.
+- Added ElevenLabs IVC voice creation resources with multipart multi-sample upload support.
 
 ### Changed
 
