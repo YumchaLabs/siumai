@@ -2224,6 +2224,63 @@ mod tests {
     }
 
     #[test]
+    fn stream_part_tool_input_start_projects_only_stable_fields() {
+        let runtime_part = ChatStreamPart::ToolInputStart {
+            id: "call_1".to_string(),
+            tool_name: "web_search".to_string(),
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "provider-a".to_string(),
+                serde_json::json!({ "itemId": "item_1" }),
+            )])),
+            provider_executed: Some(true),
+            dynamic: Some(true),
+            title: Some("Web Search".to_string()),
+        };
+
+        let part = TypedStreamPart::from_runtime_part(runtime_part);
+        let value = serde_json::to_value(&part).expect("serialize typed stream part");
+        assert_eq!(value["type"], serde_json::json!("tool-input-start"));
+        assert_eq!(value["id"], serde_json::json!("call_1"));
+        assert_eq!(value["toolName"], serde_json::json!("web_search"));
+        assert_eq!(value["providerExecuted"], serde_json::json!(true));
+        assert_eq!(value["dynamic"], serde_json::json!(true));
+        assert_eq!(value["title"], serde_json::json!("Web Search"));
+        assert_eq!(
+            value["providerMetadata"]["provider-a"]["itemId"],
+            serde_json::json!("item_1")
+        );
+        assert!(value.get("index").is_none());
+        assert!(value.get("outputIndex").is_none());
+        assert!(value.get("rawItem").is_none());
+
+        match part.to_runtime_part() {
+            ChatStreamPart::ToolInputStart {
+                id,
+                tool_name,
+                provider_metadata,
+                provider_executed,
+                dynamic,
+                title,
+            } => {
+                assert_eq!(id, "call_1");
+                assert_eq!(tool_name, "web_search");
+                assert_eq!(provider_executed, Some(true));
+                assert_eq!(dynamic, Some(true));
+                assert_eq!(title.as_deref(), Some("Web Search"));
+                assert_eq!(
+                    provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("provider-a"))
+                        .and_then(|metadata| metadata.get("itemId"))
+                        .and_then(|value| value.as_str()),
+                    Some("item_1")
+                );
+            }
+            other => panic!("unexpected runtime part: {other:?}"),
+        }
+    }
+
+    #[test]
     fn stream_part_formats_as_data_sse_frame() {
         let part = TypedStreamPart::TextStart {
             id: "0".to_string(),

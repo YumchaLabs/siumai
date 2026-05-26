@@ -1,5 +1,7 @@
 //! Provider-defined tool types.
 
+use super::{ToolNameValidationError, validate_provider_tool_id, validate_tool_name};
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 enum ProviderToolType {
@@ -18,6 +20,9 @@ pub struct LanguageModelV4ProviderTool {
     #[serde(rename = "type")]
     marker: ProviderToolType,
     /// Provider tool id in `<provider>.<tool>` format.
+    ///
+    /// Use `validate_provider_tool_id` or the stable tool `validate_contract()` before provider
+    /// request projection when the id is configuration-driven.
     pub id: String,
     /// Tool name unique within this model call.
     pub name: String,
@@ -50,6 +55,12 @@ impl LanguageModelV4ProviderTool {
             serde_json::Value::Object(args) => Ok(Self::new(id, name, args)),
             other => Err(other),
         }
+    }
+
+    /// Validate the model-facing provider-tool contract.
+    pub fn validate_contract(&self) -> Result<(), ToolNameValidationError> {
+        validate_provider_tool_id(&self.id)?;
+        validate_tool_name(&self.name)
     }
 }
 
@@ -84,14 +95,17 @@ impl LanguageModelV4ProviderTool {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProviderDefinedTool {
-    /// Tool ID in format "provider.tool_name"
+    /// Tool ID in format "provider.tool_name".
     ///
-    /// Examples: "openai.web_search", "anthropic.web_search_20250305"
+    /// Examples: "openai.web_search", "anthropic.web_search_20250305". Use
+    /// `validate_provider_tool_id`, `try_new`, or `validate_contract()` when the id is
+    /// configuration-driven.
     pub id: String,
 
-    /// Tool name used in the tools map
+    /// Tool name used in the tools map.
     ///
-    /// Examples: "web_search", "file_search", "code_execution"
+    /// Examples: "web_search", "file_search", "code_execution". Names are portable lookup keys
+    /// and should pass `validate_tool_name` before provider request projection.
     pub name: String,
 
     /// Optional display title.
@@ -112,8 +126,10 @@ pub struct ProviderDefinedTool {
 
     /// Whether this provider tool is executed by the provider.
     ///
-    /// This mirrors AI SDK's `isProviderExecuted` flag. Legacy Siumai constructors default to
-    /// `true` because the historical provider-defined tool surface represented hosted tools.
+    /// This mirrors AI SDK's `isProviderExecuted` flag. `true` means the provider/model service
+    /// owns execution and may return the result without a local tool-result turn; `false` means
+    /// Siumai or the caller owns execution. Legacy Siumai constructors default to `true` because
+    /// the historical provider-defined tool surface represented hosted tools.
     pub is_provider_executed: bool,
 
     /// Provider-specific configuration arguments.
@@ -268,10 +284,20 @@ impl ProviderDefinedTool {
         }
     }
 
+    /// Create a hosted provider tool after validating the provider-tool contract.
+    pub fn try_new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Result<Self, ToolNameValidationError> {
+        let tool = Self::new(id, name);
+        tool.validate_contract()?;
+        Ok(tool)
+    }
+
     /// Create a tool whose input/output schemas are provider-defined but execution is local.
     ///
     /// This mirrors AI SDK provider-utils `createProviderDefinedToolFactory(...)`, which sets
-    /// `isProviderExecuted: false`.
+    /// `isProviderExecuted: false`. The caller/runtime owns execution for these tool calls.
     pub fn provider_defined(id: impl Into<String>, name: impl Into<String>) -> Self {
         Self::new(id, name).with_provider_executed(false)
     }
@@ -279,7 +305,7 @@ impl ProviderDefinedTool {
     /// Create a hosted tool that is executed by the provider.
     ///
     /// This mirrors AI SDK provider-utils `createProviderExecutedToolFactory(...)`, which sets
-    /// `isProviderExecuted: true`.
+    /// `isProviderExecuted: true`. The provider/model service owns execution for these tool calls.
     pub fn provider_executed(id: impl Into<String>, name: impl Into<String>) -> Self {
         Self::new(id, name).with_provider_executed(true)
     }
@@ -334,6 +360,12 @@ impl ProviderDefinedTool {
     /// Whether the provider executes this tool.
     pub const fn is_provider_executed(&self) -> bool {
         self.is_provider_executed
+    }
+
+    /// Validate the stable provider-tool contract.
+    pub fn validate_contract(&self) -> Result<(), ToolNameValidationError> {
+        validate_provider_tool_id(&self.id)?;
+        validate_tool_name(&self.name)
     }
 
     /// Set whether the provider executes this tool.

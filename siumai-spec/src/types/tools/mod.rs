@@ -6,6 +6,7 @@ mod choice;
 mod function;
 mod provider_defined;
 mod tool;
+mod validation;
 
 #[cfg(any())]
 mod openai_builtin;
@@ -19,3 +20,4 @@ pub use function::{
 };
 pub use provider_defined::{LanguageModelV4ProviderTool, ProviderDefinedTool};
 pub use tool::{LanguageModelV4Tool, Tool};
+pub use validation::{ToolNameValidationError, validate_provider_tool_id, validate_tool_name};

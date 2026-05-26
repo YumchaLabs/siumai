@@ -50,12 +50,12 @@ Last updated: 2026-05-26
   Evidence: Error policy docs and tests.
   Handoff: DONE. `LlmErrorExt::user_message()` is now documented and tested as safe display copy that avoids raw `Display` fallback; `summarize_error().message` uses that safe copy while raw provider messages/details remain in diagnostics fields and verbose rendering only.
 
-- [ ] AICH-070 [owner=unassigned] [deps=AICH-010] [scope=siumai-spec/src/types/tools,siumai-spec/src/types/prompt.rs,siumai-core/src/streaming,CHANGELOG.md,siumai-spec/CHANGELOG.md]
+- [x] AICH-070 [owner=codex] [deps=AICH-010] [scope=siumai-spec/src/types/tools,siumai-spec/src/types/prompt.rs,siumai-core/src/streaming,CHANGELOG.md,siumai-spec/CHANGELOG.md]
   Goal: Harden tool contracts: tool-name validation/failure mode, provider-executed execution owner, and `ToolInputStart` stable field projection.
   Validation: `cargo nextest run -p siumai-spec tools --no-fail-fast`; targeted stream processor tool tests.
   Review: Keep provider-specific replay index out of stable `ToolInputStart` unless promoted by an ADR.
   Evidence: Tool docs, validation tests, provider-executed prompt tests.
-  Handoff: If strict validation is breaking, add a fallible constructor and request validation first.
+  Handoff: DONE. Tool names and provider-tool ids now have explicit validation helpers, fallible constructors, and `validate_contract()` methods while legacy constructors remain infallible. Provider-executed means provider/model-service execution ownership; `ToolInputStart` carries only stable public fields while replay indexes/raw items stay in replay hints.
 
 - [ ] AICH-080 [owner=unassigned] [deps=AICH-020] [scope=siumai-spec/src/types/usage.rs,siumai-core/src/streaming/processor.rs,siumai-protocol-openai,CHANGELOG.md,siumai-spec/CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Define stream usage as a single provider-call cumulative snapshot and prevent accidental over-counting from repeated cumulative finish usage.

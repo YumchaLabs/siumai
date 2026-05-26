@@ -8,8 +8,8 @@
   "scope_kind": "execution",
   "problem": "Siumai preserves AI SDK-style stream, metadata, tool, usage, cancellation, and error data but leaves several replay, diagnostics, safety, and capability semantics implicit.",
   "objective": "Make the shared contracts explicit, tested, documented, and reflected in changelogs so downstream adapters can consume Siumai without undocumented replay or raw-data assumptions.",
-  "current_task": "AICH-070",
-  "next_task": "AICH-070",
+  "current_task": "AICH-080",
+  "next_task": "AICH-080",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -79,6 +79,12 @@
       "kind": "task",
       "task": "AICH-060",
       "summary": "Split safe user-facing error messages from raw diagnostics so user_message() and normal summaries no longer expose provider raw detail, while diagnostics fields retain raw messages and bodies."
+    },
+    {
+      "date": "2026-05-26",
+      "kind": "task",
+      "task": "AICH-070",
+      "summary": "Added explicit tool-name/provider-tool-id validation and fallible constructors, documented provider-executed ownership, and tested ToolInputStart stable projection without provider replay indexes."
     }
   ],
   "adr_refs": [

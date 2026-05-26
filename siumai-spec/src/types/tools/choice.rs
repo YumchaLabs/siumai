@@ -3,6 +3,8 @@
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::validation::{ToolNameValidationError, validate_tool_name};
+
 /// Tool type enumeration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ToolType {
@@ -68,10 +70,11 @@ pub enum ToolChoice {
     /// Note: Some providers (like Anthropic) implement this by removing tools from the request.
     None,
 
-    /// Force the model to call a specific tool
+    /// Force the model to call a specific tool.
     ///
     /// The model must call the specified tool. The tool name must match one of the
-    /// tools provided in the request.
+    /// tools provided in the request. Use `try_tool` or `validate_contract()` when the selected
+    /// name should fail before provider request projection.
     Tool {
         /// Name of the tool to call
         name: String,
@@ -108,7 +111,10 @@ impl<'de> Deserialize<'de> for ToolChoice {
 }
 
 impl ToolChoice {
-    /// Create a tool choice that forces a specific tool
+    /// Create a tool choice that forces a specific tool.
+    ///
+    /// This legacy constructor remains infallible. Use `try_tool` or `validate_contract()` when
+    /// configuration-driven names should fail before provider request projection.
     ///
     /// # Example
     ///
@@ -119,6 +125,13 @@ impl ToolChoice {
     /// ```
     pub fn tool(name: impl Into<String>) -> Self {
         Self::Tool { name: name.into() }
+    }
+
+    /// Create a tool choice after validating the portable tool-name contract.
+    pub fn try_tool(name: impl Into<String>) -> Result<Self, ToolNameValidationError> {
+        let name = name.into();
+        validate_tool_name(&name)?;
+        Ok(Self::tool(name))
     }
 
     /// Check if this is the Auto variant
@@ -147,6 +160,14 @@ impl ToolChoice {
             Self::Tool { name } => Some(name),
             _ => None,
         }
+    }
+
+    /// Validate the named-tool contract before lowering this choice to a provider request.
+    pub fn validate_contract(&self) -> Result<(), ToolNameValidationError> {
+        if let Self::Tool { name } = self {
+            validate_tool_name(name)?;
+        }
+        Ok(())
     }
 
     /// Project this high-level tool-choice input onto the model-facing V4 object shape.
@@ -215,12 +236,27 @@ impl LanguageModelV4ToolChoice {
         }
     }
 
+    /// Create a model-facing tool choice after validating the portable tool-name contract.
+    pub fn try_tool(tool_name: impl Into<String>) -> Result<Self, ToolNameValidationError> {
+        let tool_name = tool_name.into();
+        validate_tool_name(&tool_name)?;
+        Ok(Self::tool(tool_name))
+    }
+
     /// Get the tool name if this is a Tool variant.
     pub fn tool_name(&self) -> Option<&str> {
         match self {
             Self::Tool { tool_name } => Some(tool_name),
             _ => None,
         }
+    }
+
+    /// Validate the named-tool contract.
+    pub fn validate_contract(&self) -> Result<(), ToolNameValidationError> {
+        if let Self::Tool { tool_name } = self {
+            validate_tool_name(tool_name)?;
+        }
+        Ok(())
     }
 
     fn from_json_value(value: serde_json::Value) -> Result<Self, String> {
@@ -416,6 +452,18 @@ mod tests {
             prepare_tool_choice(Some(&ToolChoice::tool("weather"))),
             LanguageModelV4ToolChoice::tool("weather")
         );
+    }
+
+    #[test]
+    fn tool_choice_named_tool_contract_is_validatable() {
+        assert!(ToolChoice::try_tool("weather").is_ok());
+        assert!(ToolChoice::try_tool("bad name").is_err());
+
+        let legacy = ToolChoice::tool("bad name");
+        assert!(legacy.validate_contract().is_err());
+
+        assert!(LanguageModelV4ToolChoice::try_tool("weather").is_ok());
+        assert!(LanguageModelV4ToolChoice::try_tool("bad name").is_err());
     }
 
     #[test]

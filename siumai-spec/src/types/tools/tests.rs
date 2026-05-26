@@ -248,6 +248,105 @@ fn provider_defined_tool_deserializes_ai_sdk_aliases() {
 }
 
 #[test]
+fn tool_name_validation_rejects_ambiguous_lookup_keys() {
+    assert!(validate_tool_name("weather").is_ok());
+    assert!(validate_tool_name("weather_v2-forecast").is_ok());
+
+    assert!(matches!(
+        validate_tool_name(""),
+        Err(ToolNameValidationError::InvalidToolName { .. })
+    ));
+    assert!(matches!(
+        validate_tool_name(" weather"),
+        Err(ToolNameValidationError::InvalidToolName { .. })
+    ));
+    assert!(matches!(
+        validate_tool_name("weather tool"),
+        Err(ToolNameValidationError::InvalidToolName { .. })
+    ));
+    assert!(matches!(
+        validate_tool_name("weather\n"),
+        Err(ToolNameValidationError::InvalidToolName { .. })
+    ));
+}
+
+#[test]
+fn provider_tool_id_validation_requires_provider_tool_shape() {
+    assert!(validate_provider_tool_id("openai.web_search").is_ok());
+    assert!(validate_provider_tool_id("anthropic.web_search_20250305").is_ok());
+
+    for invalid_id in [
+        "openai",
+        ".web_search",
+        "openai.",
+        "openai..web_search",
+        "openai.web search",
+    ] {
+        assert!(
+            matches!(
+                validate_provider_tool_id(invalid_id),
+                Err(ToolNameValidationError::InvalidProviderToolId { .. })
+            ),
+            "{invalid_id} should fail validation"
+        );
+    }
+}
+
+#[test]
+fn fallible_tool_constructors_report_invalid_contracts() {
+    assert!(ToolFunction::try_new("weather", "Get weather", serde_json::json!({})).is_ok());
+    assert!(ToolFunction::try_new("bad name", "Bad", serde_json::json!({})).is_err());
+
+    assert!(ProviderDefinedTool::try_new("openai.web_search", "web_search").is_ok());
+    assert!(ProviderDefinedTool::try_new("invalid", "web_search").is_err());
+    assert!(ProviderDefinedTool::try_new("openai.web_search", "bad name").is_err());
+
+    assert!(Tool::try_function("weather", "Get weather", serde_json::json!({})).is_ok());
+    assert!(Tool::try_function("bad name", "Bad", serde_json::json!({})).is_err());
+
+    assert!(Tool::try_provider_defined("openai.web_search", "web_search").is_ok());
+    assert!(Tool::try_provider_defined("invalid", "web_search").is_err());
+
+    assert!(LanguageModelV4FunctionTool::try_new("weather", serde_json::json!({})).is_ok());
+    assert!(
+        LanguageModelV4FunctionTool::new("bad name", serde_json::json!({}))
+            .validate_contract()
+            .is_err()
+    );
+
+    let provider_projection = LanguageModelV4ProviderTool::try_new(
+        "openai.web_search",
+        "web_search",
+        serde_json::json!({}),
+    )
+    .expect("provider args object");
+    assert!(provider_projection.validate_contract().is_ok());
+    let invalid_provider_projection =
+        LanguageModelV4ProviderTool::new("invalid", "web_search", serde_json::Map::new());
+    assert!(invalid_provider_projection.validate_contract().is_err());
+}
+
+#[test]
+fn legacy_tool_constructors_remain_infallible_but_can_be_validated() {
+    let function_tool = Tool::function("bad name", "Bad", serde_json::json!({}));
+    assert!(function_tool.validate_contract().is_err());
+
+    let provider_tool = Tool::provider_defined("invalid", "web_search");
+    assert!(provider_tool.validate_contract().is_err());
+}
+
+#[test]
+fn provider_defined_tool_execution_owner_is_explicit() {
+    let local = ProviderDefinedTool::provider_defined("acme.search", "search");
+    assert!(!local.is_provider_executed());
+    assert!(local.validate_contract().is_ok());
+
+    let hosted = ProviderDefinedTool::provider_executed("openai.web_search", "web_search");
+    assert!(hosted.is_provider_executed());
+    assert!(hosted.validate_contract().is_ok());
+}
+
+#[test]
 fn provider_defined_tool_provider() {
     let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
     assert_eq!(tool.provider(), Some("openai"));

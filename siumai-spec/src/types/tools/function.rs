@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::{ToolNameValidationError, validate_tool_name};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 enum FunctionToolType {
@@ -20,6 +22,9 @@ pub struct LanguageModelV4FunctionTool {
     #[serde(rename = "type")]
     marker: FunctionToolType,
     /// Tool name unique within this model call.
+    ///
+    /// Use `validate_tool_name`, `try_new`, or `validate_contract()` before request projection when
+    /// the caller needs an early provider-agnostic failure mode.
     pub name: String,
     /// Optional tool description.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,6 +57,21 @@ impl LanguageModelV4FunctionTool {
             strict: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
         }
+    }
+
+    /// Create a model-facing function tool after validating the portable tool name.
+    pub fn try_new(
+        name: impl Into<String>,
+        input_schema: serde_json::Value,
+    ) -> Result<Self, ToolNameValidationError> {
+        let name = name.into();
+        validate_tool_name(&name)?;
+        Ok(Self::new(name, input_schema))
+    }
+
+    /// Validate the model-facing function-tool contract.
+    pub fn validate_contract(&self) -> Result<(), ToolNameValidationError> {
+        validate_tool_name(&self.name)
     }
 }
 
@@ -100,7 +120,10 @@ impl LanguageModelV4FunctionToolInputExample {
 /// Tool function definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolFunction {
-    /// Function name
+    /// Function name.
+    ///
+    /// Names are portable lookup keys. They must be non-empty, unpadded, and free of whitespace or
+    /// control characters when validated before provider request projection.
     pub name: String,
     /// Optional display title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -174,6 +197,22 @@ impl ToolFunction {
             strict: None,
             provider_options_map: crate::types::ProviderOptionsMap::default(),
         }
+    }
+
+    /// Create a new function-tool schema after validating the portable tool name.
+    pub fn try_new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Result<Self, ToolNameValidationError> {
+        let name = name.into();
+        validate_tool_name(&name)?;
+        Ok(Self::new(name, description, parameters))
+    }
+
+    /// Validate the tool name without mutating the schema.
+    pub fn validate_name(&self) -> Result<(), ToolNameValidationError> {
+        validate_tool_name(&self.name)
     }
 
     /// Optional display title.

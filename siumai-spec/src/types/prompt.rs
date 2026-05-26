@@ -691,6 +691,11 @@ pub struct ToolCallPart {
         alias = "provider_executed",
         skip_serializing_if = "Option::is_none"
     )]
+    /// Tool execution owner.
+    ///
+    /// `Some(true)` means the provider/model service executed the tool. `None` and `Some(false)`
+    /// mean the caller/runtime owns execution, so execution validation requires a matching
+    /// tool-result turn before the next user/system message.
     pub provider_executed: Option<bool>,
 }
 
@@ -710,7 +715,7 @@ impl ToolCallPart {
         }
     }
 
-    /// Mark whether the tool call was executed by the provider.
+    /// Mark whether the tool call was executed by the provider/model service.
     pub fn with_provider_executed(mut self, provider_executed: bool) -> Self {
         self.provider_executed = Some(provider_executed);
         self
@@ -797,6 +802,7 @@ pub struct ToolApprovalResponse {
         alias = "provider_executed",
         skip_serializing_if = "Option::is_none"
     )]
+    /// Whether this approval response refers to a provider/model-service executed tool call.
     pub provider_executed: Option<bool>,
     #[serde(
         rename = "providerOptions",
@@ -2365,6 +2371,28 @@ mod tests {
         prompt
             .standardize_for_execution()
             .expect("provider-executed tool call should be valid");
+    }
+
+    #[test]
+    fn prompt_execution_validation_requires_result_when_provider_executed_is_false() {
+        let prompt = Prompt::messages(vec![ModelMessage::Assistant(AssistantModelMessage::new(
+            AssistantContent::parts(vec![AssistantContentPart::ToolCall(
+                ToolCallPart::new(
+                    "call_local_execution",
+                    "search",
+                    serde_json::json!({ "query": "rust" }),
+                )
+                .with_provider_executed(false),
+            )]),
+        ))]);
+
+        let err = prompt
+            .standardize_for_execution()
+            .expect_err("locally executed tool call still needs a result");
+        let PromptExecutionError::MissingToolResults(err) = err else {
+            panic!("expected missing tool results error");
+        };
+        assert_eq!(err.tool_call_ids, vec!["call_local_execution".to_string()]);
     }
 
     #[test]

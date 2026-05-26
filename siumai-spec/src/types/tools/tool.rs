@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     LanguageModelV4FunctionTool, LanguageModelV4ProviderTool, ProviderDefinedTool, ToolFunction,
+    ToolNameValidationError,
 };
 
 /// AI SDK V4 model-facing tool union.
@@ -84,7 +85,10 @@ pub enum Tool {
 }
 
 impl Tool {
-    /// Create a new function tool
+    /// Create a new function tool.
+    ///
+    /// This legacy constructor remains infallible. Use `try_function` or `validate_contract()` when
+    /// configuration-driven tool names should fail before provider request projection.
     ///
     /// # Example
     ///
@@ -110,6 +114,17 @@ impl Tool {
         Self::Function {
             function: ToolFunction::new(name, description, parameters),
         }
+    }
+
+    /// Create a function tool after validating the portable tool-name contract.
+    pub fn try_function(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Result<Self, ToolNameValidationError> {
+        Ok(Self::Function {
+            function: ToolFunction::try_new(name, description, parameters)?,
+        })
     }
 
     /// Optional display title for the tool.
@@ -144,11 +159,25 @@ impl Tool {
         }
     }
 
+    /// Create a function tool with output schema after validating the portable tool-name contract.
+    pub fn try_function_with_output_schema(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: serde_json::Value,
+        output_schema: serde_json::Value,
+    ) -> Result<Self, ToolNameValidationError> {
+        Ok(Self::Function {
+            function: ToolFunction::try_new(name, description, input_schema)?
+                .with_output_schema(output_schema),
+        })
+    }
+
     /// Create a hosted provider tool.
     ///
     /// This legacy constructor defaults to `isProviderExecuted: true`, matching the historical
     /// Siumai hosted-tool surface. Use `provider_defined_with_schema` for AI SDK provider-defined
-    /// tools whose execution is local.
+    /// tools whose execution is local. Use `try_provider_defined` or `validate_contract()` when
+    /// configuration-driven ids or names should fail before provider request projection.
     ///
     /// # Example
     ///
@@ -164,6 +193,16 @@ impl Tool {
         Self::ProviderDefined(ProviderDefinedTool::new(id, name))
     }
 
+    /// Create a hosted provider tool after validating the provider-tool contract.
+    pub fn try_provider_defined(
+        id: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Result<Self, ToolNameValidationError> {
+        Ok(Self::ProviderDefined(ProviderDefinedTool::try_new(
+            id, name,
+        )?))
+    }
+
     /// Create an AI SDK-style provider-defined tool whose execution is local.
     pub fn provider_defined_with_schema(
         id: impl Into<String>,
@@ -173,6 +212,17 @@ impl Tool {
         Self::ProviderDefined(
             ProviderDefinedTool::provider_defined(id, name).with_input_schema(input_schema),
         )
+    }
+
+    /// Create a locally executed provider-defined tool after validating the contract.
+    pub fn try_provider_defined_with_schema(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        input_schema: serde_json::Value,
+    ) -> Result<Self, ToolNameValidationError> {
+        let tool = ProviderDefinedTool::provider_defined(id, name).with_input_schema(input_schema);
+        tool.validate_contract()?;
+        Ok(Self::ProviderDefined(tool))
     }
 
     /// Create an AI SDK-style provider-executed tool with provider-defined schemas.
@@ -187,6 +237,20 @@ impl Tool {
                 .with_input_schema(input_schema)
                 .with_output_schema(output_schema),
         )
+    }
+
+    /// Create a provider-executed tool after validating the provider-tool contract.
+    pub fn try_provider_executed_with_schema(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        input_schema: serde_json::Value,
+        output_schema: serde_json::Value,
+    ) -> Result<Self, ToolNameValidationError> {
+        let tool = ProviderDefinedTool::provider_executed(id, name)
+            .with_input_schema(input_schema)
+            .with_output_schema(output_schema);
+        tool.validate_contract()?;
+        Ok(Self::ProviderDefined(tool))
     }
 
     /// Add arguments to a provider-defined tool
@@ -213,7 +277,7 @@ impl Tool {
         }
     }
 
-    /// Whether this is a provider tool that is executed by the provider.
+    /// Whether this is a provider tool that is executed by the provider/model service.
     pub fn is_provider_executed(&self) -> Option<bool> {
         match self {
             Self::ProviderDefined(tool) => Some(tool.is_provider_executed()),
@@ -228,6 +292,14 @@ impl Tool {
                 Self::ProviderDefined(tool.with_provider_executed(is_provider_executed))
             }
             other => other,
+        }
+    }
+
+    /// Validate this tool before lowering it to a provider request.
+    pub fn validate_contract(&self) -> Result<(), ToolNameValidationError> {
+        match self {
+            Self::Function { function } => function.validate_name(),
+            Self::ProviderDefined(tool) => tool.validate_contract(),
         }
     }
 

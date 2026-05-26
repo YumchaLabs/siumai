@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split safe user-facing error messages from raw diagnostic details: `user_message()` and normal
   error summaries now return safe generic copy while raw provider messages/bodies remain available
   only through explicit diagnostics fields or verbose rendering.
+- Guarded tool stream projection so `ToolInputStart` stable fields flow into final tool parts while
+  provider replay indexes and raw replay items stay out of public provider metadata.
 - Moved spec-only provider/protocol helper implementations to `siumai-provider-utils`; matching
   `siumai-core::utils::*` alias modules for those helpers were removed.
 - Kept only core-owned utility behavior in core: cancellation/abort stream wiring remains stable

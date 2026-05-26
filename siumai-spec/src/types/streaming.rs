@@ -87,6 +87,10 @@ pub struct ChatStreamToolCall {
         skip_serializing_if = "Option::is_none",
         rename = "providerExecuted"
     )]
+    /// Tool execution owner.
+    ///
+    /// `Some(true)` means the provider/model service executed the tool. `None` and `Some(false)`
+    /// mean the caller/runtime owns execution.
     pub provider_executed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dynamic: Option<bool>,
@@ -282,6 +286,12 @@ pub enum ChatStreamPart {
         )]
         provider_metadata: Option<StreamProviderMetadata>,
     },
+    /// Tool input became available and may stream through following deltas.
+    ///
+    /// This variant carries only stable AI SDK stream fields: id, tool name, public provider
+    /// metadata, execution ownership, dynamic flag, and title. Provider-specific replay hints such
+    /// as OpenAI Responses `outputIndex` and raw items belong in `ChatStreamReplay`, not in this
+    /// stable part.
     ToolInputStart {
         id: String,
         #[serde(rename = "toolName")]
@@ -847,6 +857,36 @@ mod tests {
                 .and_then(|replay| replay.output_index),
             Some(2)
         );
+    }
+
+    #[test]
+    fn tool_input_start_serializes_only_stable_ai_sdk_fields() {
+        let part = ChatStreamPart::ToolInputStart {
+            id: "call_1".to_string(),
+            tool_name: "web_search".to_string(),
+            provider_metadata: Some(HashMap::from([(
+                "provider-a".to_string(),
+                serde_json::json!({ "itemId": "item_1" }),
+            )])),
+            provider_executed: Some(true),
+            dynamic: Some(true),
+            title: Some("Web Search".to_string()),
+        };
+
+        let value = serde_json::to_value(&part).expect("serialize tool input start");
+        assert_eq!(value["type"], serde_json::json!("tool-input-start"));
+        assert_eq!(value["id"], serde_json::json!("call_1"));
+        assert_eq!(value["toolName"], serde_json::json!("web_search"));
+        assert_eq!(value["providerExecuted"], serde_json::json!(true));
+        assert_eq!(value["dynamic"], serde_json::json!(true));
+        assert_eq!(value["title"], serde_json::json!("Web Search"));
+        assert_eq!(
+            value["providerMetadata"]["provider-a"]["itemId"],
+            serde_json::json!("item_1")
+        );
+        assert!(value.get("index").is_none());
+        assert!(value.get("outputIndex").is_none());
+        assert!(value.get("rawItem").is_none());
     }
 
     #[test]

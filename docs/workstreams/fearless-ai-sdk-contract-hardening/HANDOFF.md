@@ -5,28 +5,32 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open. AICH-010 through AICH-060 are complete. The bootstrap captured the 12-gap
+The workstream is open. AICH-010 through AICH-070 are complete. The bootstrap captured the 12-gap
 audit, linked the local AI SDK reference under `repo-ref/ai`, and made changelog tracking part of
 the task ledger. AICH-020 documented `StreamEnd.response.content` as final replay/fallback.
 AICH-030 added an OpenAI Responses SSE fixture proving reasoning deltas and terminal-only final
 visible text are both preserved. AICH-040 documented `stream_with_cancel` as the recommended
 cancelable stream entry and separated default local cancellation from provider-specific remote
 abort. AICH-050 defined public provider metadata versus private raw diagnostics boundaries.
-AICH-060 split safe user-facing error messages from raw diagnostics.
+AICH-060 split safe user-facing error messages from raw diagnostics. AICH-070 added explicit tool
+validation/failure helpers, documented provider-executed ownership, and locked `ToolInputStart`
+stable projection away from provider replay indexes.
 
 ## Active Task
 
-- Task ID: AICH-070
+- Task ID: AICH-080
 - Owner: unassigned
 - Files:
-  - `siumai-spec/src/types/tools`
-  - `siumai-spec/src/types/prompt.rs`
-  - `siumai-core/src/streaming`
+  - `siumai-spec/src/types/usage.rs`
+  - `siumai-core/src/streaming/processor.rs`
+  - `siumai-protocol-openai`
   - `CHANGELOG.md`
   - `siumai-spec/CHANGELOG.md`
+  - `siumai-core/CHANGELOG.md`
 - Validation:
-  - `cargo nextest run -p siumai-spec tools --no-fail-fast`
-  - targeted stream processor tool tests
+  - `cargo nextest run -p siumai-spec usage --no-fail-fast`
+  - `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`
+  - protocol usage fixtures if touched
 - Status: READY
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -50,6 +54,9 @@ AICH-060 split safe user-facing error messages from raw diagnostics.
   diagnostics.
 - AICH-060 established `LlmErrorExt::user_message()` as safe display copy and moved raw provider
   messages/details to diagnostics fields or verbose rendering.
+- AICH-070 established portable tool-name and provider-tool-id validation as an opt-in/fallible
+  failure mode while preserving legacy constructors; `providerExecuted: true` now clearly means
+  provider/model-service owned execution, and `ToolInputStart` exposes only stable public fields.
 
 ## Blockers
 
@@ -57,5 +64,5 @@ AICH-060 split safe user-facing error messages from raw diagnostics.
 
 ## Next Recommended Action
 
-- Execute AICH-070 with `run-workstream-task`: harden tool-name validation/failure mode,
-  provider-executed ownership, and `ToolInputStart` stable field projection.
+- Execute AICH-080 with `run-workstream-task`: define usage snapshots as cumulative per-provider-call
+  usage and guard stream processor aggregation against double-counting repeated final snapshots.

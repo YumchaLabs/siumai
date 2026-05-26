@@ -620,7 +620,9 @@ impl ToolCallBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AudioOutput, ChatStreamFinishInfo, PromptTokensDetails, Warning};
+    use crate::types::{
+        AudioOutput, ChatStreamFinishInfo, ChatStreamReplay, PromptTokensDetails, Warning,
+    };
 
     fn production_source() -> &'static str {
         include_str!("processor.rs")
@@ -1201,5 +1203,74 @@ mod tests {
         assert_eq!(tool_result.dynamic.copied(), Some(true));
         assert_eq!(tool_result.preliminary.copied(), Some(true));
         assert_eq!(tool_result.title, Some("Web Search"));
+    }
+
+    #[test]
+    fn tool_input_start_replay_index_stays_out_of_stable_final_parts() {
+        let mut sp = StreamProcessor::new();
+
+        let _ = sp.process_event(ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolInputStart {
+                id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                provider_metadata: Some(HashMap::from([(
+                    "provider-a".to_string(),
+                    serde_json::json!({ "itemId": "item_1" }),
+                )])),
+                provider_executed: Some(true),
+                dynamic: Some(true),
+                title: Some("Web Search".to_string()),
+            },
+            replay: ChatStreamReplay::openai_responses(
+                Some(7),
+                Some(serde_json::json!({
+                    "id": "raw_item_1",
+                    "output_index": 7
+                })),
+            )
+            .expect("replay"),
+        });
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputDelta {
+                id: "call_1".to_string(),
+                delta: "{\"query\":\"rust\"}".to_string(),
+                provider_metadata: None,
+            },
+        });
+
+        let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::ToolCalls));
+        let parts = final_resp
+            .content
+            .as_multimodal()
+            .expect("expected multimodal");
+        let ContentPart::ToolCall {
+            arguments,
+            provider_executed,
+            dynamic,
+            title,
+            provider_metadata,
+            ..
+        } = parts
+            .iter()
+            .find(|part| matches!(part, ContentPart::ToolCall { .. }))
+            .expect("tool call")
+        else {
+            panic!("expected tool call");
+        };
+
+        assert_eq!(arguments, &serde_json::json!({ "query": "rust" }));
+        assert_eq!(*provider_executed, Some(true));
+        assert_eq!(*dynamic, Some(true));
+        assert_eq!(title.as_deref(), Some("Web Search"));
+
+        let provider_metadata = provider_metadata.as_ref().expect("provider metadata");
+        let provider_a = provider_metadata
+            .get("provider-a")
+            .and_then(|metadata| metadata.as_object())
+            .expect("provider metadata object");
+        assert_eq!(provider_a.get("itemId"), Some(&serde_json::json!("item_1")));
+        assert!(provider_a.get("outputIndex").is_none());
+        assert!(provider_a.get("rawItem").is_none());
+        assert!(provider_a.get("raw_item").is_none());
     }
 }

@@ -59,6 +59,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   raw stream parts, replay hints, and raw/private custom stream events.
 - Split safe user-facing error messages from raw diagnostic details so `user_message()` and normal
   error summaries no longer fall back to provider raw messages, bodies, headers, or request data.
+- Hardened tool contract semantics with explicit validation/failure helpers, provider-executed
+  execution ownership, and stable `ToolInputStart` projection that keeps provider replay indexes in
+  replay hints instead of public stream parts.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can

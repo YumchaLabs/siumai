@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added portable tool-name and provider-tool-id validation helpers plus fallible constructors and
+  `validate_contract()` methods for function tools, provider tools, and named tool choices.
 - Added directional content namespaces for prompt/request parts, generated output parts, and legacy
   compatibility content. New code should navigate through `content::prompt`, `content::output`, and
   explicit `content::compat` paths instead of treating legacy `ContentPart` as the default content
@@ -25,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Defined raw/private diagnostics boundaries for `ProviderMetadataMap`, `ResponseMetadata`,
   `HttpRequestInfo` / `HttpResponseInfo`, `ChatStreamPart::Raw`, replay hints, and raw/private
   custom stream events.
+- Documented provider-executed tool calls as provider/model-service owned execution and locked
+  `ToolInputStart` to stable public fields, keeping provider replay indexes and raw items in replay
+  hints.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 
