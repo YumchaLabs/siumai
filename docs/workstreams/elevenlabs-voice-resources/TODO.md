@@ -17,16 +17,18 @@ Last updated: 2026-05-26
 
 ## ELVR-020 — Read-Only Voice Catalog Resource
 
-- [ ] ELVR-020 [owner=worker] [deps=ELVR-010] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] ELVR-020 [owner=worker] [deps=ELVR-010] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Add a provider-owned `ElevenLabsVoices` resource client with typed list/search query,
   paginated voice list response, and voice detail retrieval for `GET /v2/voices` and
   `GET /v1/voices/{voice_id}`.
   Validation: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast`; `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`; `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`.
   Review: review-workstream for resource boundary, query mapping, serde tolerance, auth/header/base URL reuse, and facade export policy.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Start with no-network tests proving `xi-api-key`, custom headers, `/v2/voices` query
-  params, `/v1/voices/{voice_id}` URL encoding, pagination fields, and preservation of unknown
-  response metadata.
+  Handoff: DONE. `ElevenLabsClient::voices()` now returns `ElevenLabsVoices`; list/get resources
+  are exported through provider crate and facade `provider_ext::elevenlabs::resources`. No-network
+  tests prove `xi-api-key`, explicit key override, custom/global/request header merge, base URL
+  override, documented `/v2/voices` query params, `/v1/voices/{voice_id}` URL encoding, stable field
+  mapping, unknown metadata preservation, and facade imports.
 
 ## ELVR-030 — Pronunciation Dictionary Resource Decision
 

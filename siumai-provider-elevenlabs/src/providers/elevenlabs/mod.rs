@@ -7,6 +7,7 @@ pub mod config;
 pub mod ext;
 pub mod models;
 pub mod options;
+pub mod voices;
 
 pub use client::{ElevenLabsClient, ElevenLabsSpeechModel, ElevenLabsTranscriptionModel};
 pub use config::ElevenLabsConfig;
@@ -16,6 +17,10 @@ pub use options::{
     ElevenLabsSpeechOptions, ElevenLabsSttOptions, ElevenLabsTranscriptionFileFormat,
     ElevenLabsTranscriptionModelOptions, ElevenLabsTranscriptionTimestampsGranularity,
     ElevenLabsVoiceSettings,
+};
+pub use voices::{
+    ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
+    ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse, ElevenLabsVoices,
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

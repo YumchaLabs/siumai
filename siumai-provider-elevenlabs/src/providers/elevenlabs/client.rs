@@ -110,6 +110,15 @@ impl ElevenLabsClient {
         self.config.http_transport.clone()
     }
 
+    /// Get provider-owned ElevenLabs voice catalog resources.
+    pub fn voices(&self) -> super::voices::ElevenLabsVoices {
+        super::voices::ElevenLabsVoices::new(
+            self.config.clone(),
+            self.http_client.clone(),
+            self.retry_options.clone(),
+        )
+    }
+
     pub fn speech_model(&self, model_id: impl Into<String>) -> ElevenLabsSpeechModel {
         ElevenLabsSpeechModel {
             client: self.clone(),

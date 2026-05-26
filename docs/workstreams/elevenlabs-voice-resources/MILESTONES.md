@@ -18,6 +18,8 @@ Gate:
 
 ## M1 — Voice Catalog Resource
 
+Status: Complete.
+
 Exit criteria:
 
 - `ElevenLabsVoices` exists in `siumai-provider-elevenlabs`.
@@ -33,6 +35,8 @@ Gate:
 - `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`
 
 ## M2 — Dictionary Or Split
+
+Status: Ready.
 
 Exit criteria:
 

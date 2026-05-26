@@ -62,3 +62,8 @@ git diff --check
 | --- | --- | --- | --- |
 | 2026-05-26 | ELVR-010 | `python .agents\skills\siumai-ai-sdk-maintenance\scripts\resolve_ai_sdk_repo.py` | Pass: resolved local AI SDK reference at `repo-ref/ai`. |
 | 2026-05-26 | ELVR-010 | `repo-ref/ai/packages/elevenlabs/src/{index.ts,elevenlabs-provider.ts,elevenlabs-speech-model.ts}` reviewed with official ElevenLabs voice and pronunciation dictionary API docs. | Done: resource APIs are outside AI SDK package parity and should stay provider-owned. |
+| 2026-05-26 | ELVR-020 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast` | Pass: 3 voice resource tests cover list/get request construction, auth/header/base URL reuse, explicit key override, query mapping, URL encoding, response field mapping, and unknown metadata preservation. |
+| 2026-05-26 | ELVR-020 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Pass: facade resource imports compile through `siumai::provider_ext::elevenlabs::resources` and alias `siumai::providers::elevenlabs::resources`. |
+| 2026-05-26 | ELVR-020 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Pass: touched packages are formatted. |
+| 2026-05-26 | ELVR-020 | `python -m json.tool docs\workstreams\elevenlabs-voice-resources\WORKSTREAM.json` | Pass: workstream metadata remains valid JSON. |
+| 2026-05-26 | ELVR-020 | `git diff --check` | Pass: no whitespace errors in the working diff. |

@@ -44,6 +44,14 @@ pub mod ext {
     };
 }
 
+/// Provider-specific resources not covered by the unified speech/transcription families.
+pub mod resources {
+    pub use siumai_provider_elevenlabs::providers::elevenlabs::{
+        ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
+        ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse, ElevenLabsVoices,
+    };
+}
+
 pub use ext::{ElevenLabsSttRequestExt, ElevenLabsTtsRequestExt};
 pub use models::{
     ALL_SPEECH, ALL_TRANSCRIPTION, DEFAULT_SPEECH, DEFAULT_TRANSCRIPTION, DEFAULT_VOICE,

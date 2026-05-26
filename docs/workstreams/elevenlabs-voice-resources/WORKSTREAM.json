@@ -49,10 +49,10 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "ELVR-020",
-  "next_task": "Add read-only ElevenLabs voice catalog resources under provider_ext::elevenlabs::resources.",
+  "current_task": "ELVR-030",
+  "next_task": "Decide whether pronunciation dictionary list/get metadata belongs in this lane or should split into a follow-on.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with ELVR-020 while keeping scope limited to read-only voice list/get resources, public facade resources exports, and no-network tests. Split voice mutation, pronunciation dictionaries, live credential gates, and generic voice-management traits unless a narrow task is explicitly accepted."
+    "notes": "Continue with ELVR-030 after reviewing the dictionary API scope. Keep voice mutation, live credential gates, and generic voice-management traits split unless a narrow task is explicitly accepted."
   }
 }
