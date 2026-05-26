@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "slug": "elevenlabs-voice-mutation-resources",
+  "title": "ElevenLabs Voice Mutation Resources",
+  "status": "active",
+  "updated": "2026-05-26",
+  "scope_kind": "execution",
+  "problem": "Siumai can list and retrieve ElevenLabs voices, but it cannot manage user-owned voices, edit voice settings, fetch/delete samples, or start IVC/PVC voice workflows.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/elevenlabs-voice-mutation-resources/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/elevenlabs-voice-mutation-resources/TODO.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/elevenlabs-voice-mutation-resources/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/elevenlabs-voice-mutation-resources/MILESTONES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/elevenlabs-voice-mutation-resources/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "python .agents\\skills\\siumai-ai-sdk-maintenance\\scripts\\resolve_ai_sdk_repo.py",
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_settings --no-fail-fast",
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast",
+    "cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast",
+    "cargo fmt --check -p siumai-provider-elevenlabs -p siumai",
+    "git diff --check"
+  ],
+  "evidence": [
+    "docs/workstreams/elevenlabs-voice-resources",
+    "repo-ref/ai/packages/elevenlabs",
+    "https://elevenlabs.io/docs/llms.txt",
+    "https://elevenlabs.io/docs/api-reference/voices/settings/get-default.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/settings/get.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/settings/update.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/delete.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/samples/get.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/samples/delete.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/ivc/create.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/update.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/create.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/update.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/train.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/create.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/update.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/delete.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/get-audio.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/verification/request.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/verification/captcha.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/verification/captcha/verify.mdx",
+    "docs/workstreams/elevenlabs-voice-mutation-resources/EVIDENCE_AND_GATES.md"
+  ],
+  "adr_refs": [
+    "docs/adr/0003-provider-ext-export-policy.md"
+  ],
+  "current_task": "ELVM-020",
+  "next_task": "Implement voice settings get/update on ElevenLabsVoices.",
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue with ELVM-020. Keep IVC/PVC/sample workflows provider-owned and split if their request/response semantics grow beyond a bounded slice."
+  }
+}
