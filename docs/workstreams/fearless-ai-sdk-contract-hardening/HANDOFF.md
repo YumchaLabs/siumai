@@ -5,25 +5,28 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open. AICH-010 through AICH-050 are complete. The bootstrap captured the 12-gap
+The workstream is open. AICH-010 through AICH-060 are complete. The bootstrap captured the 12-gap
 audit, linked the local AI SDK reference under `repo-ref/ai`, and made changelog tracking part of
 the task ledger. AICH-020 documented `StreamEnd.response.content` as final replay/fallback.
 AICH-030 added an OpenAI Responses SSE fixture proving reasoning deltas and terminal-only final
 visible text are both preserved. AICH-040 documented `stream_with_cancel` as the recommended
 cancelable stream entry and separated default local cancellation from provider-specific remote
 abort. AICH-050 defined public provider metadata versus private raw diagnostics boundaries.
+AICH-060 split safe user-facing error messages from raw diagnostics.
 
 ## Active Task
 
-- Task ID: AICH-060
+- Task ID: AICH-070
 - Owner: unassigned
 - Files:
-  - `siumai-core/src/error`
-  - `siumai-spec/src/error`
+  - `siumai-spec/src/types/tools`
+  - `siumai-spec/src/types/prompt.rs`
+  - `siumai-core/src/streaming`
   - `CHANGELOG.md`
-  - `siumai-core/CHANGELOG.md`
+  - `siumai-spec/CHANGELOG.md`
 - Validation:
-  - `cargo nextest run -p siumai-core error --no-fail-fast`
+  - `cargo nextest run -p siumai-spec tools --no-fail-fast`
+  - targeted stream processor tool tests
 - Status: READY
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -45,6 +48,8 @@ abort. AICH-050 defined public provider metadata versus private raw diagnostics 
   projection, while `ResponseMetadata.headers/body`, HTTP request/response bodies,
   `ChatStreamPart::Raw`, replay `rawItem`, and raw/private/diagnostic custom events are private
   diagnostics.
+- AICH-060 established `LlmErrorExt::user_message()` as safe display copy and moved raw provider
+  messages/details to diagnostics fields or verbose rendering.
 
 ## Blockers
 
@@ -52,5 +57,5 @@ abort. AICH-050 defined public provider metadata versus private raw diagnostics 
 
 ## Next Recommended Action
 
-- Execute AICH-060 with `run-workstream-task`: split safe/public error message semantics from raw
-  diagnostic detail so `user_message()` cannot leak provider body, headers, or raw request data.
+- Execute AICH-070 with `run-workstream-task`: harden tool-name validation/failure mode,
+  provider-executed ownership, and `ToolInputStart` stable field projection.

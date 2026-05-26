@@ -43,12 +43,12 @@ Last updated: 2026-05-26
   Evidence: Type docs, serialization tests, protocol raw event fixtures.
   Handoff: DONE. `ProviderMetadataMap` is documented as the public provider-scoped projection lane, while `ResponseMetadata.headers/body`, HTTP request/response bodies, `ChatStreamPart::Raw`, replay `rawItem`, and `raw`/`private`/`diagnostic` custom event types are private diagnostics with routing helpers and regression coverage.
 
-- [ ] AICH-060 [owner=unassigned] [deps=AICH-050] [scope=siumai-core/src/error,siumai-spec/src/error,CHANGELOG.md,siumai-core/CHANGELOG.md]
+- [x] AICH-060 [owner=codex] [deps=AICH-050] [scope=siumai-core/src/error,siumai-spec/src/error,CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Split safe/public error message semantics from raw diagnostic detail so `user_message()` cannot leak provider body, headers, or raw request data.
   Validation: `cargo nextest run -p siumai-core error --no-fail-fast`
   Review: Confirm fallback `Display` paths are not treated as safe public copy.
   Evidence: Error policy docs and tests.
-  Handoff: If this requires a new API name, preserve compatibility while marking the safe path explicitly.
+  Handoff: DONE. `LlmErrorExt::user_message()` is now documented and tested as safe display copy that avoids raw `Display` fallback; `summarize_error().message` uses that safe copy while raw provider messages/details remain in diagnostics fields and verbose rendering only.
 
 - [ ] AICH-070 [owner=unassigned] [deps=AICH-010] [scope=siumai-spec/src/types/tools,siumai-spec/src/types/prompt.rs,siumai-core/src/streaming,CHANGELOG.md,siumai-spec/CHANGELOG.md]
   Goal: Harden tool contracts: tool-name validation/failure mode, provider-executed execution owner, and `ToolInputStart` stable field projection.

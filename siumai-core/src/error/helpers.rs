@@ -56,12 +56,15 @@ pub struct Diagnosis {
     pub note: Option<String>,
 }
 
-/// Structured error summary for CLI/UI consumption (raw-first design)
+/// Structured error summary for CLI/UI consumption.
+///
+/// `message` is safe for ordinary display. Raw provider messages, headers, and bodies stay under
+/// `raw` / `details` and should only be rendered in explicit verbose diagnostics contexts.
 #[derive(Debug, Clone)]
 pub struct ErrorSummary {
     pub kind: ErrorKind,
     pub status: Option<u16>,
-    /// Original provider message (raw) when available; otherwise best-effort
+    /// Safe display message.
     pub message: String,
     /// Raw provider info for verbose display
     pub raw: RawInfo,
@@ -97,11 +100,12 @@ pub fn summarize_error(
 ) -> ErrorSummary {
     let status = err.status_code();
     let kind = map_error_kind(err);
-    let message = extract_raw_message(err);
+    let raw_message = extract_raw_message(err);
+    let message = err.user_message();
     let suggestions = suggest_fixes(err, provider_id);
 
     let raw = RawInfo {
-        message: Some(message.clone()),
+        message: Some(raw_message),
         body: extract_details(err),
         headers: None,
     };
@@ -146,7 +150,7 @@ pub fn map_error_kind(err: &LlmError) -> ErrorKind {
     }
 }
 
-/// Format a concise user-facing message from LlmError.
+/// Extract a raw diagnostic message from `LlmError`.
 fn extract_raw_message(err: &LlmError) -> String {
     match err {
         LlmError::ApiError { message, .. } => message.clone(),
@@ -304,5 +308,48 @@ mod tests {
         let s = summarize_error(&e, Some("model-a"), Some("provider-a"));
         assert!(!s.suggestions.is_empty());
         // Provider hint is best-effort; it may be None depending on registry state in unit tests.
+    }
+
+    #[test]
+    fn summary_message_is_safe_while_raw_keeps_provider_detail() {
+        let e = LlmError::ApiError {
+            code: 400,
+            message: "bad request with Authorization: Bearer sk-secret".to_string(),
+            details: Some(serde_json::json!({
+                "body": { "prompt": "private" },
+                "headers": { "authorization": "Bearer sk-secret" }
+            })),
+        };
+
+        let summary = summarize_error(&e, Some("openai:gpt-4o"), Some("openai"));
+
+        assert_eq!(
+            summary.message,
+            "The provider rejected the request. Please check your request parameters."
+        );
+        assert!(!summary.message.contains("sk-secret"));
+        assert_eq!(
+            summary.raw.message.as_deref(),
+            Some("bad request with Authorization: Bearer sk-secret")
+        );
+        assert!(summary.raw.body.is_some());
+    }
+
+    #[test]
+    fn non_verbose_summary_does_not_render_raw_diagnostics() {
+        let e = LlmError::ApiError {
+            code: 400,
+            message: "bad request with Authorization: Bearer sk-secret".to_string(),
+            details: Some(serde_json::json!({ "body": { "prompt": "private" } })),
+        };
+        let summary = summarize_error(&e, None, None);
+
+        let rendered = format_summary(&summary, false);
+        assert!(rendered.contains("Message: The provider rejected the request."));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("private"));
+
+        let verbose = format_summary(&summary, true);
+        assert!(verbose.contains("private"));
     }
 }

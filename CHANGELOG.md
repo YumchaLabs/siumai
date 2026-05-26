@@ -57,6 +57,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   stream-consumption cancellation separated from provider-specific remote abort.
 - Defined raw/private diagnostics boundaries for provider metadata, response headers/bodies,
   raw stream parts, replay hints, and raw/private custom stream events.
+- Split safe user-facing error messages from raw diagnostic details so `user_message()` and normal
+  error summaries no longer fall back to provider raw messages, bodies, headers, or request data.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can

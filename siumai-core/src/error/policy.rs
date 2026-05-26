@@ -56,7 +56,12 @@ pub trait LlmErrorExt {
     /// Gets the runtime error category.
     fn category(&self) -> ErrorCategory;
 
-    /// Gets a concise user-facing error message.
+    /// Gets a concise safe user-facing error message.
+    ///
+    /// This message is suitable for ordinary UI/CLI display. It must not include raw provider
+    /// response bodies, headers, serialized request bodies, provider debug payloads, or fallback
+    /// `Display` output from unknown errors. Use the error's `Display` implementation or
+    /// diagnostics helpers when raw detail is explicitly needed.
     fn user_message(&self) -> String;
 
     /// Gets suggested recovery actions for the error.
@@ -173,9 +178,67 @@ impl LlmErrorExt for LlmError {
                 "Network connection failed. Please check your internet connection and try again."
                     .to_string()
             }
+            Self::HttpError(_) => {
+                "The HTTP request failed. Please check connectivity and provider availability."
+                    .to_string()
+            }
+            Self::ApiError {
+                code: 401 | 403, ..
+            } => "Authentication failed. Please check your API key and provider permissions."
+                .to_string(),
+            Self::ApiError { code: 429, .. } => {
+                "Rate limit exceeded. Please wait before making more requests.".to_string()
+            }
+            Self::ApiError {
+                code: 400..=499, ..
+            } => "The provider rejected the request. Please check your request parameters."
+                .to_string(),
             Self::ApiError {
                 code: 500..=599, ..
             } => "The service is temporarily unavailable. Please try again later.".to_string(),
+            Self::ApiError { .. } => {
+                "The provider returned an error. Check diagnostics for provider details."
+                    .to_string()
+            }
+            Self::JsonError(_) | Self::ParseError(_) => {
+                "The provider returned data that could not be parsed.".to_string()
+            }
+            Self::InvalidInput(_) | Self::InvalidParameter(_) | Self::ToolValidationError(_) => {
+                "The request is invalid. Please check the input parameters.".to_string()
+            }
+            Self::IoError(_) => {
+                "A local IO operation failed. Check diagnostics for details.".to_string()
+            }
+            Self::NotFound(_) => "The requested resource was not found.".to_string(),
+            Self::StreamError(_) => {
+                "The streaming request failed. Please retry the request.".to_string()
+            }
+            Self::ProviderError { provider, .. } => {
+                format!("The provider '{provider}' returned an error.")
+            }
+            Self::ConfigurationError(_) => {
+                "The client is not configured correctly. Please check configuration.".to_string()
+            }
+            Self::InternalError(_) | Self::ProcessingError(_) | Self::Other(_) => {
+                "An internal error occurred. Check diagnostics for details.".to_string()
+            }
+            Self::UnsupportedOperation(_) => {
+                "This operation is not supported by the selected provider or model.".to_string()
+            }
+            Self::ToolCallError(_) => {
+                "A tool call failed. Check diagnostics for tool error details.".to_string()
+            }
+            Self::UnsupportedToolType(_) => {
+                "This tool type is not supported by the selected provider or model.".to_string()
+            }
+            Self::ContextualError {
+                source_error: Some(source),
+                ..
+            } => source.user_message(),
+            Self::ContextualError { .. } => {
+                "An error occurred while processing the request. Check diagnostics for details."
+                    .to_string()
+            }
             Self::NoImageGenerated { .. } => {
                 "The provider completed the image request but returned no final image.".to_string()
             }
@@ -193,7 +256,6 @@ impl LlmErrorExt for LlmError {
                 "The provider completed the structured-output request but returned no valid object."
                     .to_string()
             }
-            _ => self.to_string(),
         }
     }
 
@@ -441,5 +503,76 @@ mod tests {
                 .iter()
                 .any(|tip| tip.contains("empty text"))
         );
+    }
+
+    #[test]
+    fn user_message_does_not_expose_api_error_raw_provider_details() {
+        let error = LlmError::ApiError {
+            code: 400,
+            message: "bad request: Authorization: Bearer sk-secret body={\"prompt\":\"private\"}"
+                .to_string(),
+            details: Some(serde_json::json!({
+                "headers": { "authorization": "Bearer sk-secret" },
+                "body": { "prompt": "private" }
+            })),
+        };
+
+        let user_message = error.user_message();
+        assert_eq!(
+            user_message,
+            "The provider rejected the request. Please check your request parameters."
+        );
+        assert!(!user_message.contains("sk-secret"));
+        assert!(!user_message.contains("private"));
+        assert!(error.to_string().contains("sk-secret"));
+    }
+
+    #[test]
+    fn user_message_does_not_fallback_to_display_for_raw_string_variants() {
+        let raw = "provider body={\"secret\":\"private\"} header=authorization";
+        let cases = [
+            LlmError::HttpError(raw.to_string()),
+            LlmError::ParseError(raw.to_string()),
+            LlmError::ProviderError {
+                provider: "openai".to_string(),
+                message: raw.to_string(),
+                error_code: Some("bad_request".to_string()),
+            },
+            LlmError::InternalError(raw.to_string()),
+            LlmError::Other(raw.to_string()),
+        ];
+
+        for error in cases {
+            let user_message = error.user_message();
+            assert!(
+                !user_message.contains("secret") && !user_message.contains("authorization"),
+                "unsafe user message for {error:?}: {user_message}"
+            );
+        }
+    }
+
+    #[test]
+    fn contextual_error_uses_source_safe_message_instead_of_context_raw_text() {
+        let error = LlmError::ContextualError {
+            context: "provider raw response".to_string(),
+            message: "Authorization: Bearer sk-secret".to_string(),
+            source_error: Some(Box::new(LlmError::ApiError {
+                code: 503,
+                message: "upstream body with secret".to_string(),
+                details: None,
+            })),
+            metadata: std::collections::HashMap::from([(
+                "request_body".to_string(),
+                "{\"prompt\":\"private\"}".to_string(),
+            )]),
+        };
+
+        let user_message = error.user_message();
+        assert_eq!(
+            user_message,
+            "The service is temporarily unavailable. Please try again later."
+        );
+        assert!(!user_message.contains("sk-secret"));
+        assert!(!user_message.contains("private"));
     }
 }

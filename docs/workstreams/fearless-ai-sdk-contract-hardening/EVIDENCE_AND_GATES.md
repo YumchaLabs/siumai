@@ -101,3 +101,5 @@ Run `review-workstream` before accepting a completed implementation slice, and
 | 2026-05-26 | AICH-050 | `cargo nextest run -p siumai-spec metadata --no-fail-fast` | Pass | 22 metadata-related tests passed, including public provider metadata vs private diagnostics classification. |
 | 2026-05-26 | AICH-050 | `cargo nextest run -p siumai-spec private_diagnostics --no-fail-fast` | Pass | 8 private diagnostics tests passed for response metadata, raw stream parts, replay raw items, and custom raw/private/diagnostic event-type routing. |
 | 2026-05-26 | AICH-050 | `cargo nextest run -p siumai-protocol-openai --features openai-standard compat_stream_unparsable_chunk_emits_raw_error_and_error_finish --no-fail-fast` | Pass | 1 OpenAI-compatible raw chunk fixture passed and now asserts raw chunks are private diagnostics. |
+| 2026-05-26 | AICH-060 | `cargo fmt --check -p siumai-core` | Pass | Formatting passed for the touched core error modules. |
+| 2026-05-26 | AICH-060 | `cargo nextest run -p siumai-core error --no-fail-fast` | Pass | 26 error-related tests passed, including safe `user_message()` and non-verbose summary diagnostics coverage. |
