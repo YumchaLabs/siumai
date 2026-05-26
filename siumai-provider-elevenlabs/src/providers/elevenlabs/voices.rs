@@ -4,52 +4,17 @@
 //! speech/transcription families. This module keeps that surface provider-owned.
 
 use crate::error::LlmError;
-use crate::execution::executors::common::{HttpExecutionConfig, execute_get_request};
-use crate::execution::http::headers::HttpHeaderBuilder;
-use crate::execution::wiring::HttpExecutionWiring;
 use crate::provider_utils::url::join_url;
 use crate::retry_api::RetryOptions;
-use crate::traits::ProviderCapabilities;
 use crate::types::HttpConfig;
 use reqwest::Url;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use super::config::ElevenLabsConfig;
-
-const PROVIDER_ID: &str = "elevenlabs";
-const XI_API_KEY: &str = "xi-api-key";
-
-#[derive(Clone)]
-struct ElevenLabsVoicesSpec;
-
-impl crate::core::ProviderSpec for ElevenLabsVoicesSpec {
-    fn id(&self) -> &'static str {
-        PROVIDER_ID
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new()
-    }
-
-    fn build_headers(
-        &self,
-        ctx: &crate::core::ProviderContext,
-    ) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_deref()
-            .ok_or_else(|| LlmError::MissingApiKey("ElevenLabs API key not provided".into()))?;
-
-        Ok(HttpHeaderBuilder::new()
-            .with_custom_auth(XI_API_KEY, api_key)?
-            .with_custom_headers(&ctx.http_extra_headers)?
-            .build())
-    }
-}
+use super::resource_http::execute_get_json;
 
 /// Provider-owned client for ElevenLabs voice catalog resources.
 #[derive(Clone)]
@@ -94,8 +59,15 @@ impl ElevenLabsVoices {
     ) -> Result<ElevenLabsVoiceListResponse, LlmError> {
         let url = self.list_url(query.as_ref())?;
         let per_request_http_config = query.as_ref().and_then(|query| query.http_config.as_ref());
-        self.get_json(&url, per_request_http_config, "list voices")
-            .await
+        execute_get_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            per_request_http_config,
+            "list voices",
+        )
+        .await
     }
 
     /// Retrieve a single voice using `GET /v1/voices/{voice_id}`.
@@ -118,28 +90,15 @@ impl ElevenLabsVoices {
 
         let encoded = urlencoding::encode(voice_id);
         let url = join_url(&self.base_url(), &format!("v1/voices/{encoded}"));
-        self.get_json(&url, http_config, "get voice").await
-    }
-
-    fn build_http_config(&self) -> HttpExecutionConfig {
-        let mut wiring = HttpExecutionWiring::new(
-            PROVIDER_ID,
+        execute_get_json(
+            &self.config,
             self.http_client.clone(),
-            crate::core::ProviderContext::new(
-                PROVIDER_ID,
-                self.base_url(),
-                Some(self.config.api_key.expose_secret().to_string()),
-                self.config.http_config.headers.clone(),
-            ),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "get voice",
         )
-        .with_interceptors(self.config.http_interceptors.clone())
-        .with_retry_options(self.retry_options.clone());
-
-        if let Some(transport) = self.config.http_transport.clone() {
-            wiring = wiring.with_transport(transport);
-        }
-
-        wiring.config(Arc::new(ElevenLabsVoicesSpec))
+        .await
     }
 
     fn base_url(&self) -> String {
@@ -159,32 +118,6 @@ impl ElevenLabsVoices {
         }
 
         Ok(url.to_string())
-    }
-
-    async fn get_json<T>(
-        &self,
-        url: &str,
-        http_config: Option<&HttpConfig>,
-        operation: &str,
-    ) -> Result<T, LlmError>
-    where
-        T: for<'de> Deserialize<'de> + Send,
-    {
-        let cfg = self.build_http_config();
-        let call = || {
-            let cfg = cfg.clone();
-            let url = url.to_string();
-            async move {
-                let result = execute_get_request(&cfg, &url, http_config).await?;
-                serde_json::from_value(result.json).map_err(|e| {
-                    LlmError::ParseError(format!(
-                        "Failed to parse ElevenLabs {operation} response: {e}"
-                    ))
-                })
-            }
-        };
-
-        crate::retry_api::maybe_retry(self.retry_options.clone(), call).await
     }
 }
 
@@ -442,7 +375,10 @@ mod tests {
     use async_trait::async_trait;
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
     use serde_json::json;
+    use std::sync::Arc;
     use std::sync::Mutex;
+
+    use super::super::resource_http::XI_API_KEY;
 
     #[derive(Clone)]
     struct JsonGetTransport {

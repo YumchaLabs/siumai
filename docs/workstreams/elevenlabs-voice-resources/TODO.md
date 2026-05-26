@@ -32,14 +32,18 @@ Last updated: 2026-05-26
 
 ## ELVR-030 — Pronunciation Dictionary Resource Decision
 
-- [ ] ELVR-030 [owner=planner/worker] [deps=ELVR-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests,docs/workstreams/elevenlabs-voice-resources]
+- [x] ELVR-030 [owner=planner/worker] [deps=ELVR-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests,docs/workstreams/elevenlabs-voice-resources]
   Goal: Decide whether to implement pronunciation dictionary resources in this lane or split them,
   then implement the smallest accepted slice.
   Validation: focused provider/facade nextest filter for pronunciation dictionary resource behavior; `cargo fmt --check` for touched packages.
   Review: review-workstream for endpoint count, mutation semantics, and fit with existing TTS locator options.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Candidate first slice is list/get dictionary metadata; create/update/download/rule
-  mutation can split if it would obscure the voice catalog deliverable.
+  Handoff: DONE. Implemented provider-owned `ElevenLabsPronunciationDictionaries` read-only
+  metadata resources for `GET /v1/pronunciation-dictionaries` and
+  `GET /v1/pronunciation-dictionaries/{pronunciation_dictionary_id}`. This exposes dictionary IDs,
+  latest version IDs, metadata, and detail rules needed to discover inputs for existing TTS
+  pronunciation dictionary locators. Create/update/rule mutation and PLS download remain split
+  candidates.
 
 ## ELVR-040 — Voice Mutation Split Decision
 

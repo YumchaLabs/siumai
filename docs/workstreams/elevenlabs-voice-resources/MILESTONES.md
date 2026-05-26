@@ -36,7 +36,7 @@ Gate:
 
 ## M2 — Dictionary Or Split
 
-Status: Ready.
+Status: Complete.
 
 Exit criteria:
 
@@ -48,6 +48,8 @@ Gate:
 - Focused nextest filter for implemented dictionary resources, or docs-only close/split validation.
 
 ## M3 — Closeout
+
+Status: Ready after ELVR-040.
 
 Exit criteria:
 

@@ -119,6 +119,17 @@ impl ElevenLabsClient {
         )
     }
 
+    /// Get provider-owned ElevenLabs pronunciation dictionary metadata resources.
+    pub fn pronunciation_dictionaries(
+        &self,
+    ) -> super::pronunciation_dictionaries::ElevenLabsPronunciationDictionaries {
+        super::pronunciation_dictionaries::ElevenLabsPronunciationDictionaries::new(
+            self.config.clone(),
+            self.http_client.clone(),
+            self.retry_options.clone(),
+        )
+    }
+
     pub fn speech_model(&self, model_id: impl Into<String>) -> ElevenLabsSpeechModel {
         ElevenLabsSpeechModel {
             client: self.clone(),

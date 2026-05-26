@@ -12,6 +12,7 @@ Last updated: 2026-05-26
 | `https://elevenlabs.io/docs/api-reference/voices/get.mdx` | Documents `GET /v1/voices/{voice_id}` for voice metadata. | Detail retrieval is part of the first voice catalog slice. |
 | `https://elevenlabs.io/docs/api-reference/voices/ivc/create.mdx` | Documents multipart `POST /v1/voices/add`. | Voice cloning is mutation-heavy and deferred from ELVR-020. |
 | `https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/list.mdx` | Documents `GET /v1/pronunciation-dictionaries` with pagination. | Dictionary metadata is a candidate follow-on task. |
+| `https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/get.mdx` | Documents `GET /v1/pronunciation-dictionaries/{pronunciation_dictionary_id}` returning metadata and latest-version rules. | Read-only dictionary detail is narrow enough for ELVR-030; mutation/download remains out of scope. |
 
 ## Baseline Gates
 
@@ -29,6 +30,14 @@ Voice catalog:
 
 ```powershell
 cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast
+cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast
+cargo fmt --check -p siumai-provider-elevenlabs -p siumai
+```
+
+Pronunciation dictionary metadata:
+
+```powershell
+cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast
 cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast
 cargo fmt --check -p siumai-provider-elevenlabs -p siumai
 ```
@@ -67,3 +76,11 @@ git diff --check
 | 2026-05-26 | ELVR-020 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Pass: touched packages are formatted. |
 | 2026-05-26 | ELVR-020 | `python -m json.tool docs\workstreams\elevenlabs-voice-resources\WORKSTREAM.json` | Pass: workstream metadata remains valid JSON. |
 | 2026-05-26 | ELVR-020 | `git diff --check` | Pass: no whitespace errors in the working diff. |
+| 2026-05-26 | ELVR-030 | `https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/{list,get}.mdx` reviewed. | Decision: implement only read-only list/get metadata in this lane; split create/update/rule mutation and PLS download. |
+| 2026-05-26 | ELVR-030 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast` | Pass: 2 tests cover dictionary list/get endpoints, query mapping, auth/header/base URL reuse, URL encoding, metadata/rule mapping, and unknown metadata preservation. |
+| 2026-05-26 | ELVR-030 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast` | Pass: 3 tests confirm the shared resource HTTP refactor preserved voice catalog behavior. |
+| 2026-05-26 | ELVR-030 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Pass: facade resource imports compile for voice and pronunciation dictionary resources. |
+| 2026-05-26 | ELVR-030 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Pass: touched packages are formatted. |
+| 2026-05-26 | ELVR-030 | `cargo check -p siumai --lib --no-default-features --features elevenlabs` | Pass: facade compiles with only the ElevenLabs provider feature enabled; existing warnings remain in `siumai-bridge` legacy content helpers and `siumai::tools`. |
+| 2026-05-26 | ELVR-030 | `python -m json.tool docs\workstreams\elevenlabs-voice-resources\WORKSTREAM.json` | Pass: workstream metadata remains valid JSON after moving current task to ELVR-040. |
+| 2026-05-26 | ELVR-030 | `git diff --check` | Pass: no whitespace errors in the working diff. |

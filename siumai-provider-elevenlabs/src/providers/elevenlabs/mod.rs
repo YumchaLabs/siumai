@@ -7,6 +7,8 @@ pub mod config;
 pub mod ext;
 pub mod models;
 pub mod options;
+pub mod pronunciation_dictionaries;
+pub(crate) mod resource_http;
 pub mod voices;
 
 pub use client::{ElevenLabsClient, ElevenLabsSpeechModel, ElevenLabsTranscriptionModel};
@@ -17,6 +19,11 @@ pub use options::{
     ElevenLabsSpeechOptions, ElevenLabsSttOptions, ElevenLabsTranscriptionFileFormat,
     ElevenLabsTranscriptionModelOptions, ElevenLabsTranscriptionTimestampsGranularity,
     ElevenLabsVoiceSettings,
+};
+pub use pronunciation_dictionaries::{
+    ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
+    ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
+    ElevenLabsPronunciationDictionaryRule,
 };
 pub use voices::{
     ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,

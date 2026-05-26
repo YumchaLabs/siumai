@@ -5,17 +5,18 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open and scope is frozen. ELVR-010 and ELVR-020 are complete. Siumai now has a
-read-only ElevenLabs voice catalog resource client under provider-owned `resources::*`.
+The workstream is open and scope is frozen. ELVR-010 through ELVR-030 are complete. Siumai now has
+read-only ElevenLabs voice catalog and pronunciation dictionary metadata resource clients under
+provider-owned `resources::*`.
 
 ## Active Task
 
-- Task ID: ELVR-030
-- Owner: planner/worker
-- Files: `siumai-provider-elevenlabs`, `siumai`, `siumai/tests`, `docs/workstreams/elevenlabs-voice-resources`
-- Validation: focused provider/facade nextest filter for any accepted pronunciation dictionary resource slice; `cargo fmt --check` for touched packages
+- Task ID: ELVR-040
+- Owner: planner
+- Files: `docs/workstreams/elevenlabs-voice-resources`
+- Validation: TODO/MILESTONES/HANDOFF record explicit close-or-split decision
 - Status: READY
-- Review: decide implementation vs split before adding dictionary endpoints
+- Review: check scope creep and live credential implications before accepting voice mutation work
 - Evidence: `docs/workstreams/elevenlabs-voice-resources/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Opening
@@ -29,7 +30,10 @@ read-only ElevenLabs voice catalog resource client under provider-owned `resourc
 - Defer voice cloning, PVC/sample APIs, settings mutation, and live credential smoke tests.
 - `ElevenLabsVoices` is provider-owned and exported through facade `resources`, not through
   `prelude::unified`.
-- Decide pronunciation dictionary resources after voice catalog lands.
+- `ElevenLabsPronunciationDictionaries` read-only list/get metadata is narrow enough for this lane
+  because it discovers IDs and latest version IDs used by existing TTS pronunciation dictionary
+  locators.
+- Pronunciation dictionary create/update/rule mutation and PLS download remain split candidates.
 
 ## Blockers
 
@@ -37,5 +41,5 @@ read-only ElevenLabs voice catalog resource client under provider-owned `resourc
 
 ## Next Recommended Action
 
-- Review ELVR-030 and decide whether pronunciation dictionary list/get metadata is narrow enough for
-  this lane or should split into a follow-on.
+- Review ELVR-040 and decide whether voice clone/update/delete/settings/sample/PVC APIs should stay
+  split from this read-only resource lane.
