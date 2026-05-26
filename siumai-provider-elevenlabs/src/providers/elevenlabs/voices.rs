@@ -143,6 +143,27 @@ impl ElevenLabsVoices {
         .await
     }
 
+    /// Edit a user-owned voice using `POST /v1/voices/{voice_id}/edit`.
+    pub async fn edit_voice(
+        &self,
+        voice_id: impl AsRef<str>,
+        request: ElevenLabsEditVoiceRequest,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        request.validate()?;
+        let url = self.voice_action_url(voice_id, "edit")?;
+        let request_clone = request.clone();
+        execute_multipart_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            move || request_clone.build_form(),
+            request.http_config.as_ref(),
+            "edit voice",
+        )
+        .await
+    }
+
     /// Create a professional voice clone using `POST /v1/voices/pvc`.
     pub async fn create_pvc_voice(
         &self,
@@ -1242,6 +1263,110 @@ pub struct ElevenLabsCreateIvcVoiceResponse {
     pub requires_verification: bool,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+/// Request body for editing a user-owned voice.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsEditVoiceRequest {
+    pub name: String,
+    pub files: Vec<ElevenLabsVoiceSampleFile>,
+    pub remove_background_noise: Option<bool>,
+    pub description: Option<String>,
+    pub labels: HashMap<String, String>,
+    pub moderate_metadata: Option<bool>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsEditVoiceRequest {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            files: Vec::new(),
+            remove_background_noise: None,
+            description: None,
+            labels: HashMap::new(),
+            moderate_metadata: None,
+            http_config: None,
+        }
+    }
+
+    pub fn with_file(mut self, value: ElevenLabsVoiceSampleFile) -> Self {
+        self.files.push(value);
+        self
+    }
+
+    pub fn with_files<I>(mut self, values: I) -> Self
+    where
+        I: IntoIterator<Item = ElevenLabsVoiceSampleFile>,
+    {
+        self.files.extend(values);
+        self
+    }
+
+    pub const fn with_remove_background_noise(mut self, value: bool) -> Self {
+        self.remove_background_noise = Some(value);
+        self
+    }
+
+    pub fn with_description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    pub fn with_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.labels.insert(key.into(), value.into());
+        self
+    }
+
+    pub const fn with_moderate_metadata(mut self, value: bool) -> Self {
+        self.moderate_metadata = Some(value);
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.name.trim().is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs voice name cannot be empty".to_string(),
+            ));
+        }
+        for file in &self.files {
+            file.validate()?;
+        }
+        validate_voice_labels(&self.labels)
+    }
+
+    fn build_form(&self) -> Result<reqwest::multipart::Form, LlmError> {
+        let mut form = reqwest::multipart::Form::new().text("name", self.name.trim().to_string());
+
+        for file in &self.files {
+            form = form.part("files", file.build_part()?);
+        }
+        if let Some(remove_background_noise) = self.remove_background_noise {
+            form = form.text(
+                "remove_background_noise",
+                remove_background_noise.to_string(),
+            );
+        }
+        if let Some(description) = optional_trimmed(self.description.as_deref()) {
+            form = form.text("description", description.to_string());
+        }
+        if !self.labels.is_empty() {
+            let labels = serde_json::to_string(&self.labels).map_err(|e| {
+                LlmError::InvalidInput(format!("Invalid ElevenLabs voice labels: {e}"))
+            })?;
+            form = form.text("labels", labels);
+        }
+        if let Some(moderate_metadata) = self.moderate_metadata {
+            form = form.text("moderate_metadata", moderate_metadata.to_string());
+        }
+
+        Ok(form)
+    }
 }
 
 /// Request body for creating a professional voice clone.
@@ -3068,6 +3193,91 @@ mod tests {
         assert_eq!(response.voice_id, "voice-clone-1");
         assert_eq!(response.requires_verification, true);
         assert_eq!(response.extra.get("future_create"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn voices_edit_posts_multipart_and_maps_status() {
+        let transport = JsonGetTransport::new(json!({
+            "status": "ok",
+            "future_status": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .edit_voice(
+                "voice/id with space",
+                ElevenLabsEditVoiceRequest::new("Edited Voice")
+                    .with_file(
+                        ElevenLabsVoiceSampleFile::new(b"new-audio".to_vec())
+                            .with_filename("new-sample.wav")
+                            .with_mime_type("audio/wav"),
+                    )
+                    .with_remove_background_noise(true)
+                    .with_description("Updated voice description")
+                    .with_label("accent", "american")
+                    .with_moderate_metadata(true)
+                    .with_http_config(request_http),
+            )
+            .await
+            .expect("edit voice response");
+
+        let captured = transport.take_multipart();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/voice%2Fid%20with%20space/edit"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        let body = String::from_utf8_lossy(&captured.body);
+        assert!(body.contains("name=\"name\""));
+        assert!(body.contains("Edited Voice"));
+        assert!(body.contains("name=\"files\"; filename=\"new-sample.wav\""));
+        assert!(body.contains("Content-Type: audio/wav"));
+        assert!(body.contains("new-audio"));
+        assert!(body.contains("name=\"remove_background_noise\""));
+        assert!(body.contains("true"));
+        assert!(body.contains("name=\"description\""));
+        assert!(body.contains("Updated voice description"));
+        assert!(body.contains("name=\"labels\""));
+        assert!(body.contains("\"accent\":\"american\""));
+        assert!(body.contains("name=\"moderate_metadata\""));
+        assert!(body.contains("true"));
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.extra.get("future_status"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn voices_edit_rejects_empty_required_name() {
+        let transport = JsonGetTransport::new(json!({ "status": "ok" }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_http_transport(Arc::new(transport));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let err = voices
+            .edit_voice("voice-1", ElevenLabsEditVoiceRequest::new(" "))
+            .await
+            .expect_err("empty name should fail");
+
+        assert!(
+            err.to_string()
+                .contains("ElevenLabs voice name cannot be empty"),
+            "{err}"
+        );
     }
 
     #[tokio::test]

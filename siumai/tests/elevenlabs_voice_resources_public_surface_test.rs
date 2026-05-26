@@ -4,8 +4,8 @@ use siumai::provider_ext::elevenlabs::resources::{
     ElevenLabsAddPvcVoiceSamplesRequest, ElevenLabsCreateIvcVoiceRequest,
     ElevenLabsCreateIvcVoiceResponse, ElevenLabsCreatePronunciationDictionaryFromFileRequest,
     ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsCreatePvcVoiceRequest,
-    ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
-    ElevenLabsPronunciationDictionaryCreateResponse,
+    ElevenLabsEditVoiceRequest, ElevenLabsPronunciationDictionaries,
+    ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
     ElevenLabsPronunciationDictionaryDownloadResponse, ElevenLabsPronunciationDictionaryListQuery,
     ElevenLabsPronunciationDictionaryListResponse, ElevenLabsPronunciationDictionaryRule,
     ElevenLabsPronunciationDictionaryRuleRequest,
@@ -57,6 +57,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsPvcManualVerificationRequest>();
     assert_type::<ElevenLabsPvcCaptchaVerificationRequest>();
     assert_type::<ElevenLabsPvcCaptchaResponse>();
+    assert_type::<ElevenLabsEditVoiceRequest>();
     assert_type::<ElevenLabsVerifiedLanguage>();
     assert_type::<ElevenLabsPronunciationDictionaries>();
     assert_type::<ElevenLabsPronunciationDictionaryListQuery>();
@@ -89,6 +90,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     );
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPvcCaptchaVerificationRequest>(
     );
+    assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsEditVoiceRequest>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
     assert_type::<
         siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
@@ -158,6 +160,11 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     let pvc_captcha_verification_request = ElevenLabsPvcCaptchaVerificationRequest::new(
         ElevenLabsVoiceSampleFile::new(b"recording".to_vec()).with_filename("captcha.wav"),
     );
+    let edit_voice_request = ElevenLabsEditVoiceRequest::new("Edited Voice")
+        .with_file(ElevenLabsVoiceSampleFile::new(b"audio".to_vec()).with_filename("sample.wav"))
+        .with_remove_background_noise(true)
+        .with_label("accent", "american")
+        .with_moderate_metadata(true);
     let create_dictionary_request = ElevenLabsCreatePronunciationDictionaryFromRulesRequest::new(
         "Product terms",
         vec![ElevenLabsPronunciationDictionaryRuleRequest::alias(
@@ -199,5 +206,6 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     drop(pvc_sample_audio_query);
     drop(pvc_manual_verification_request);
     drop(pvc_captcha_verification_request);
+    drop(edit_voice_request);
     drop(pronunciation_dictionaries);
 }

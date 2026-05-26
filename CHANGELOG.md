@@ -41,6 +41,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   deletion, preview audio, waveform, speaker status/start, and separated speaker audio retrieval.
 - Added ElevenLabs PVC verification resources for manual verification requests, captcha retrieval,
   and captcha recording submission.
+- Added ElevenLabs voice edit resources with multipart name, sample upload, labels, description,
+  background-noise removal, and metadata moderation support.
 
 ### Changed
 
