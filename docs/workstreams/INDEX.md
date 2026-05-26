@@ -1,6 +1,6 @@
 # Workstream Index
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 
 This index is the navigation surface for `docs/workstreams/`. It records what can be inferred from existing workstream files; it does not rewrite historical status by assumption.
 
@@ -18,10 +18,10 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 ## Summary
 
-- Total workstream directories: 90
-- Machine-readable status files: 90
+- Total workstream directories: 91
+- Machine-readable status files: 91
 - Closed or closed-like lanes: 90
-- Active-like lanes: 0
+- Active-like lanes: 1
 - Deferred lanes: 0
 - Unknown legacy lanes: 0
 
@@ -56,6 +56,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/elevenlabs-voice-resources` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-architecture-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-ai-sdk-contract-hardening` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-ai-sdk-seam-deepening` | active | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-boundary-hardening` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-clean-architecture-boundaries` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-content-part-boundary-split` | closed | `WORKSTREAM.json` | yes |

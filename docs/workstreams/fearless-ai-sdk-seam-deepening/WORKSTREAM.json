@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "slug": "fearless-ai-sdk-seam-deepening",
+  "title": "Fearless AI SDK Seam Deepening",
+  "status": "active",
+  "opened": "2026-05-27",
+  "updated": "2026-05-27",
+  "scope_kind": "architecture",
+  "problem": "AI SDK contract hardening made behavior explicit, but several stream, diagnostics, tool, usage, and capability rules remain shallow caller knowledge.",
+  "objective": "Deepen the remaining AI SDK contract seams into named modules with stronger locality, better leverage, executable projection rules, and less obsolete pass-through code.",
+  "current_task": "AISD-020",
+  "next_task": "AISD-020",
+  "blocked": false,
+  "reference_repo": {
+    "name": "vercel-ai",
+    "path": "repo-ref/ai",
+    "source": "local"
+  },
+  "authoritative_docs": [
+    {
+      "role": "adr",
+      "path": "docs/adr/0009-ai-sdk-contract-seam-deepening.md"
+    },
+    {
+      "role": "design",
+      "path": "docs/workstreams/fearless-ai-sdk-seam-deepening/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/fearless-ai-sdk-seam-deepening/TODO.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/fearless-ai-sdk-seam-deepening/MILESTONES.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/fearless-ai-sdk-seam-deepening/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/fearless-ai-sdk-seam-deepening/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "python -m json.tool docs/workstreams/fearless-ai-sdk-seam-deepening/WORKSTREAM.json",
+    "git diff --check -- docs/adr docs/workstreams/fearless-ai-sdk-seam-deepening docs/workstreams/INDEX.md",
+    "cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai",
+    "cargo nextest run -p siumai-spec -p siumai-core -p siumai-protocol-openai --no-fail-fast",
+    "cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses --no-fail-fast"
+  ],
+  "evidence": [
+    {
+      "date": "2026-05-27",
+      "kind": "architecture-review",
+      "summary": "Post-hardening architecture review found six deepening candidates: OpenAI Responses stream state, diagnostics projection, tool ownership, capability gates, usage ledger, and core stream assembly."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "adr",
+      "task": "AISD-010",
+      "summary": "ADR-0009 records crate-owned seam deepening as the architecture direction for the remaining AI SDK contract rules."
+    }
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0006-family-model-first-trait-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md",
+    "docs/adr/0009-ai-sdk-contract-seam-deepening.md"
+  ],
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue through AISD tasks in dependency order. Split provider-specific behavior only when a task proves the seam belongs outside the current crate. Hajimi adapter changes remain out of scope."
+  }
+}

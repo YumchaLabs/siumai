@@ -12,6 +12,7 @@ This folder contains Architecture Decision Records for the fearless refactor.
 - `0006-family-model-first-trait-policy.md` — Make family model traits the primary execution contracts.
 - `0007-llmclient-demotion-policy.md` — Demote `LlmClient` to a compatibility abstraction.
 - `0008-legacy-content-part-compatibility-boundary.md` — Classify legacy `ContentPart` as a compatibility carrier until a later breaking slice can move it.
+- `0009-ai-sdk-contract-seam-deepening.md` — Deepen AI SDK contract rules into named module seams after the contract hardening lane.
 
 ## Conventions
 
