@@ -58,3 +58,8 @@ git diff --check
 | --- | --- | --- | --- |
 | 2026-05-26 | EPDM-010 | `https://elevenlabs.io/docs/llms.txt` pronunciation dictionary endpoint inventory reviewed. | Done: create-from-rules, create-from-file, update, rules add/remove/set, list/get, and download-by-version were identified. |
 | 2026-05-26 | EPDM-010 | Official create/update/rules `.mdx` pages fetched with `Invoke-WebRequest`; `download.mdx` fetch returned HTTP 500 while still listed in `llms.txt`. | Decision: first executable slice is create-from-rules; download requires re-audit before implementation. |
+| 2026-05-26 | EPDM-020 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation_dictionaries_create_from_rules_posts_json_and_maps_response --no-fail-fast` | Passed: no-network create-from-rules behavior covers URL, `xi-api-key`, JSON body, global/request header merge, response identifiers, and unknown field preservation. |
+| 2026-05-26 | EPDM-020 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast` | Passed: 3 pronunciation dictionary provider tests. |
+| 2026-05-26 | EPDM-020 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed on standalone rerun after an earlier parallel cargo-lock timeout: facade resource imports compile. |
+| 2026-05-26 | EPDM-020 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
+| 2026-05-26 | EPDM-020 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |

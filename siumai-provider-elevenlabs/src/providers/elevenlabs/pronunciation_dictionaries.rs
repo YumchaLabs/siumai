@@ -1,7 +1,7 @@
-//! ElevenLabs pronunciation dictionary metadata resources.
+//! ElevenLabs pronunciation dictionary resources.
 //!
-//! This module intentionally implements only read-only metadata endpoints. Dictionary creation,
-//! version/rule mutation, and PLS download stay out of this resource slice.
+//! This module keeps pronunciation dictionary metadata and provider-owned mutations outside
+//! Siumai's unified speech/transcription families.
 
 use crate::error::LlmError;
 use crate::provider_utils::url::join_url;
@@ -9,12 +9,12 @@ use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 use reqwest::Url;
 use secrecy::ExposeSecret;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
 use super::config::ElevenLabsConfig;
-use super::resource_http::execute_get_json;
+use super::resource_http::{execute_get_json, execute_post_json};
 
 /// Provider-owned client for ElevenLabs pronunciation dictionary metadata resources.
 #[derive(Clone)]
@@ -50,6 +50,30 @@ impl ElevenLabsPronunciationDictionaries {
             http_client,
             retry_options,
         }
+    }
+
+    /// Create a pronunciation dictionary from inline rules using
+    /// `POST /v1/pronunciation-dictionaries/add-from-rules`.
+    pub async fn create_from_rules(
+        &self,
+        request: ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
+    ) -> Result<ElevenLabsPronunciationDictionaryCreateResponse, LlmError> {
+        request.validate()?;
+        let url = join_url(
+            &self.base_url(),
+            "v1/pronunciation-dictionaries/add-from-rules",
+        );
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "create pronunciation dictionary from rules",
+        )
+        .await
     }
 
     /// List pronunciation dictionary metadata using `GET /v1/pronunciation-dictionaries`.
@@ -206,6 +230,207 @@ fn push_optional(pairs: &mut Vec<(String, String)>, key: &str, value: Option<&st
     }
 }
 
+fn optional_trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+/// Request body for creating a pronunciation dictionary from inline rules.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsCreatePronunciationDictionaryFromRulesRequest {
+    pub rules: Vec<ElevenLabsPronunciationDictionaryRuleRequest>,
+    pub name: String,
+    pub description: Option<String>,
+    pub workspace_access: Option<String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsCreatePronunciationDictionaryFromRulesRequest {
+    pub fn new(
+        name: impl Into<String>,
+        rules: Vec<ElevenLabsPronunciationDictionaryRuleRequest>,
+    ) -> Self {
+        Self {
+            rules,
+            name: name.into(),
+            description: None,
+            workspace_access: None,
+            http_config: None,
+        }
+    }
+
+    pub fn with_description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    pub fn with_workspace_access(mut self, value: impl Into<String>) -> Self {
+        self.workspace_access = Some(value.into());
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.name.trim().is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary name cannot be empty".to_string(),
+            ));
+        }
+
+        for rule in &self.rules {
+            rule.validate()?;
+        }
+
+        Ok(())
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            rules: &'a [ElevenLabsPronunciationDictionaryRuleRequest],
+            name: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            description: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            workspace_access: Option<&'a str>,
+        }
+
+        serde_json::to_value(Body {
+            rules: &self.rules,
+            name: self.name.trim(),
+            description: optional_trimmed(self.description.as_deref()),
+            workspace_access: optional_trimmed(self.workspace_access.as_deref()),
+        })
+        .map_err(|e| {
+            LlmError::InvalidInput(format!(
+                "Invalid ElevenLabs pronunciation dictionary create request: {e}"
+            ))
+        })
+    }
+}
+
+/// Alias or phoneme rule used when creating or mutating pronunciation dictionaries.
+#[derive(Debug, Clone, Serialize)]
+pub struct ElevenLabsPronunciationDictionaryRuleRequest {
+    pub string_to_replace: String,
+    #[serde(rename = "type")]
+    pub rule_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case_sensitive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub word_boundaries: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phoneme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alphabet: Option<String>,
+}
+
+impl ElevenLabsPronunciationDictionaryRuleRequest {
+    pub fn alias(string_to_replace: impl Into<String>, alias: impl Into<String>) -> Self {
+        Self {
+            string_to_replace: string_to_replace.into(),
+            rule_type: "alias".to_string(),
+            case_sensitive: None,
+            word_boundaries: None,
+            alias: Some(alias.into()),
+            phoneme: None,
+            alphabet: None,
+        }
+    }
+
+    pub fn phoneme(
+        string_to_replace: impl Into<String>,
+        phoneme: impl Into<String>,
+        alphabet: impl Into<String>,
+    ) -> Self {
+        Self {
+            string_to_replace: string_to_replace.into(),
+            rule_type: "phoneme".to_string(),
+            case_sensitive: None,
+            word_boundaries: None,
+            alias: None,
+            phoneme: Some(phoneme.into()),
+            alphabet: Some(alphabet.into()),
+        }
+    }
+
+    pub fn with_case_sensitive(mut self, value: bool) -> Self {
+        self.case_sensitive = Some(value);
+        self
+    }
+
+    pub fn with_word_boundaries(mut self, value: bool) -> Self {
+        self.word_boundaries = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.string_to_replace.trim().is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary rule string_to_replace cannot be empty"
+                    .to_string(),
+            ));
+        }
+
+        match self.rule_type.as_str() {
+            "alias" => {
+                if optional_trimmed(self.alias.as_deref()).is_none() {
+                    return Err(LlmError::InvalidInput(
+                        "ElevenLabs pronunciation dictionary alias rule requires alias".to_string(),
+                    ));
+                }
+            }
+            "phoneme" => {
+                if optional_trimmed(self.phoneme.as_deref()).is_none() {
+                    return Err(LlmError::InvalidInput(
+                        "ElevenLabs pronunciation dictionary phoneme rule requires phoneme"
+                            .to_string(),
+                    ));
+                }
+                if optional_trimmed(self.alphabet.as_deref()).is_none() {
+                    return Err(LlmError::InvalidInput(
+                        "ElevenLabs pronunciation dictionary phoneme rule requires alphabet"
+                            .to_string(),
+                    ));
+                }
+            }
+            other => {
+                return Err(LlmError::InvalidInput(format!(
+                    "Unsupported ElevenLabs pronunciation dictionary rule type: {other}"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Response body for pronunciation dictionary create endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPronunciationDictionaryCreateResponse {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub created_by: Option<String>,
+    #[serde(default)]
+    pub creation_time_unix: Option<i64>,
+    pub version_id: String,
+    #[serde(default)]
+    pub version_rules_num: Option<u32>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub permission_on_resource: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
 /// Response body for `GET /v1/pronunciation-dictionaries`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsPronunciationDictionaryListResponse {
@@ -282,6 +507,7 @@ mod tests {
     #[derive(Clone)]
     struct JsonGetTransport {
         response: Value,
+        last_json: Arc<Mutex<Option<HttpTransportRequest>>>,
         last_get: Arc<Mutex<Option<HttpTransportGetRequest>>>,
     }
 
@@ -289,8 +515,17 @@ mod tests {
         fn new(response: Value) -> Self {
             Self {
                 response,
+                last_json: Arc::new(Mutex::new(None)),
                 last_get: Arc::new(Mutex::new(None)),
             }
+        }
+
+        fn take_json(&self) -> HttpTransportRequest {
+            self.last_json
+                .lock()
+                .expect("json transport lock")
+                .take()
+                .expect("captured json request")
         }
 
         fn take_get(&self) -> HttpTransportGetRequest {
@@ -306,11 +541,16 @@ mod tests {
     impl HttpTransport for JsonGetTransport {
         async fn execute_json(
             &self,
-            _request: HttpTransportRequest,
+            request: HttpTransportRequest,
         ) -> Result<HttpTransportResponse, LlmError> {
-            Err(LlmError::UnsupportedOperation(
-                "json requests are not expected in pronunciation dictionary tests".to_string(),
-            ))
+            *self.last_json.lock().expect("json transport lock") = Some(request);
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&self.response).expect("serialize response"),
+            })
         }
 
         async fn execute_get(
@@ -501,5 +741,117 @@ mod tests {
         assert_eq!(rules[1].string_to_replace.as_deref(), Some("Siumai"));
         assert_eq!(rules[1].phoneme.as_deref(), Some("ˈsuːmaɪ"));
         assert_eq!(rules[1].alphabet.as_deref(), Some("ipa"));
+    }
+
+    #[tokio::test]
+    async fn pronunciation_dictionaries_create_from_rules_posts_json_and_maps_response() {
+        let transport = JsonGetTransport::new(json!({
+            "id": "dict-1",
+            "name": "Product terms",
+            "created_by": "user-1",
+            "creation_time_unix": 1_700_000_000,
+            "version_id": "version-1",
+            "version_rules_num": 2,
+            "description": "Brand pronunciation",
+            "permission_on_resource": "viewer",
+            "unknown_create": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+        request_http
+            .headers
+            .insert("x-shared".to_string(), "request-wins".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_header("x-global-header", "global")
+            .with_header("x-shared", "global")
+            .with_http_transport(Arc::new(transport.clone()));
+        let dictionaries = ElevenLabsPronunciationDictionaries::new(
+            config,
+            reqwest::Client::new(),
+            Some(RetryOptions::policy_default().with_max_attempts(1)),
+        );
+
+        let response = dictionaries
+            .create_from_rules(
+                ElevenLabsCreatePronunciationDictionaryFromRulesRequest::new(
+                    "Product terms",
+                    vec![
+                        ElevenLabsPronunciationDictionaryRuleRequest::alias("Siumai", "sue my")
+                            .with_case_sensitive(false)
+                            .with_word_boundaries(true),
+                        ElevenLabsPronunciationDictionaryRuleRequest::phoneme(
+                            "route", "rut", "ipa",
+                        ),
+                    ],
+                )
+                .with_description("Brand pronunciation")
+                .with_workspace_access("viewer")
+                .with_http_config(request_http),
+            )
+            .await
+            .expect("pronunciation dictionary create response");
+
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/pronunciation-dictionaries/add-from-rules"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "content-type"),
+            Some("application/json")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-global-header"),
+            Some("global")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-shared"),
+            Some("request-wins")
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "rules": [
+                    {
+                        "string_to_replace": "Siumai",
+                        "type": "alias",
+                        "case_sensitive": false,
+                        "word_boundaries": true,
+                        "alias": "sue my"
+                    },
+                    {
+                        "string_to_replace": "route",
+                        "type": "phoneme",
+                        "phoneme": "rut",
+                        "alphabet": "ipa"
+                    }
+                ],
+                "name": "Product terms",
+                "description": "Brand pronunciation",
+                "workspace_access": "viewer"
+            })
+        );
+
+        assert_eq!(response.id, "dict-1");
+        assert_eq!(response.name.as_deref(), Some("Product terms"));
+        assert_eq!(response.created_by.as_deref(), Some("user-1"));
+        assert_eq!(response.creation_time_unix, Some(1_700_000_000));
+        assert_eq!(response.version_id, "version-1");
+        assert_eq!(response.version_rules_num, Some(2));
+        assert_eq!(response.description.as_deref(), Some("Brand pronunciation"));
+        assert_eq!(response.permission_on_resource.as_deref(), Some("viewer"));
+        assert_eq!(response.extra.get("unknown_create"), Some(&json!("kept")));
     }
 }

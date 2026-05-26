@@ -18,6 +18,8 @@ Gate:
 
 ## M1 — Create From Rules
 
+Status: Complete on 2026-05-26. Evidence is recorded in `EVIDENCE_AND_GATES.md` under EPDM-020.
+
 Exit criteria:
 
 - `ElevenLabsPronunciationDictionaries::create_from_rules` exists.

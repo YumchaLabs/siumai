@@ -1,11 +1,12 @@
 #![cfg(feature = "elevenlabs")]
 
 use siumai::provider_ext::elevenlabs::resources::{
-    ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
+    ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsPronunciationDictionaries,
+    ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
     ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
-    ElevenLabsPronunciationDictionaryRule, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
-    ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
-    ElevenLabsVoices,
+    ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
+    ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
+    ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse, ElevenLabsVoices,
 };
 use siumai::provider_ext::elevenlabs::{ElevenLabsClient, ElevenLabsConfig};
 
@@ -24,9 +25,15 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsPronunciationDictionaryListResponse>();
     assert_type::<ElevenLabsPronunciationDictionary>();
     assert_type::<ElevenLabsPronunciationDictionaryRule>();
+    assert_type::<ElevenLabsCreatePronunciationDictionaryFromRulesRequest>();
+    assert_type::<ElevenLabsPronunciationDictionaryRuleRequest>();
+    assert_type::<ElevenLabsPronunciationDictionaryCreateResponse>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoices>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoiceListQuery>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
+    assert_type::<
+        siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
+    >();
 
     let config = ElevenLabsConfig::new("test-key").with_base_url("https://api.elevenlabs.test");
     let client = ElevenLabsClient::from_config(config).expect("elevenlabs client");
@@ -42,9 +49,16 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     let dictionary_query = ElevenLabsPronunciationDictionaryListQuery::new()
         .with_page_size(10)
         .with_sort("creation_time_unix");
+    let create_dictionary_request = ElevenLabsCreatePronunciationDictionaryFromRulesRequest::new(
+        "Product terms",
+        vec![ElevenLabsPronunciationDictionaryRuleRequest::alias(
+            "Siumai", "sue my",
+        )],
+    );
 
     drop(query);
     drop(dictionary_query);
+    drop(create_dictionary_request);
     drop(voices);
     drop(pronunciation_dictionaries);
 }

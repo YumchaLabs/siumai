@@ -16,7 +16,7 @@ Last updated: 2026-05-26
 
 ## EPDM-020 — Create From Rules
 
-- [ ] EPDM-020 [owner=worker] [deps=EPDM-010] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] EPDM-020 [owner=worker] [deps=EPDM-010] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Add typed `create_from_rules` support to `ElevenLabsPronunciationDictionaries` for
   `POST /v1/pronunciation-dictionaries/add-from-rules`, including alias/phoneme rule request types,
   create response mapping, configured auth/header/base URL reuse, request header merge, and facade
@@ -24,9 +24,10 @@ Last updated: 2026-05-26
   Validation: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast`; `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`; `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`.
   Review: review-workstream for request shape, response mapping, rule type naming, and locator fit.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Start with a no-network test proving `xi-api-key`, JSON body shape, custom/request header
-  merge, response `id/version_id/version_rules_num`, unknown metadata preservation, and public facade
-  imports.
+  Handoff: DONE. Implemented `create_from_rules` with typed request/response structs, shared JSON
+  POST resource wiring, alias/phoneme rule request builders, no-network provider coverage for
+  auth/header/body/response behavior, and facade public-surface exports. Next executable task is
+  EPDM-030 create-from-file multipart support.
 
 ## EPDM-030 — Create From File
 

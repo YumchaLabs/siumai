@@ -21,6 +21,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `provider_ext::elevenlabs::resources`, including read-only voice catalog/detail clients and
   pronunciation dictionary metadata list/detail clients that reuse configured auth, base URL,
   headers, custom transport, interceptors, and retry options.
+- Added ElevenLabs pronunciation dictionary `create_from_rules` resources with typed alias/phoneme
+  rule requests and create responses exposing dictionary/version identifiers for TTS locator use.
 
 ### Changed
 

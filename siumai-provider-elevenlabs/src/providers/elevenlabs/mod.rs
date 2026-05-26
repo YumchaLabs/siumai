@@ -21,9 +21,10 @@ pub use options::{
     ElevenLabsVoiceSettings,
 };
 pub use pronunciation_dictionaries::{
-    ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
+    ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsPronunciationDictionaries,
+    ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
     ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
-    ElevenLabsPronunciationDictionaryRule,
+    ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
 };
 pub use voices::{
     ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,

@@ -1,5 +1,7 @@
 use crate::error::LlmError;
-use crate::execution::executors::common::{HttpExecutionConfig, execute_get_request};
+use crate::execution::executors::common::{
+    HttpBody, HttpExecutionConfig, execute_get_request, execute_json_request,
+};
 use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::execution::wiring::HttpExecutionWiring;
 use crate::retry_api::RetryOptions;
@@ -7,6 +9,7 @@ use crate::traits::ProviderCapabilities;
 use crate::types::HttpConfig;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
+use serde_json::Value;
 use std::sync::Arc;
 
 use super::config::ElevenLabsConfig;
@@ -84,6 +87,37 @@ where
         let url = url.to_string();
         async move {
             let result = execute_get_request(&cfg, &url, http_config).await?;
+            serde_json::from_value(result.json).map_err(|e| {
+                LlmError::ParseError(format!(
+                    "Failed to parse ElevenLabs {operation} response: {e}"
+                ))
+            })
+        }
+    };
+
+    crate::retry_api::maybe_retry(retry_options, call).await
+}
+
+pub(crate) async fn execute_post_json<T>(
+    config: &ElevenLabsConfig,
+    http_client: reqwest::Client,
+    retry_options: Option<RetryOptions>,
+    url: &str,
+    body: Value,
+    http_config: Option<&HttpConfig>,
+    operation: &str,
+) -> Result<T, LlmError>
+where
+    T: for<'de> Deserialize<'de> + Send,
+{
+    let cfg = build_http_config(config, http_client, retry_options.clone());
+    let call = || {
+        let cfg = cfg.clone();
+        let url = url.to_string();
+        let body = body.clone();
+        async move {
+            let result =
+                execute_json_request(&cfg, &url, HttpBody::Json(body), http_config, false).await?;
             serde_json::from_value(result.json).map_err(|e| {
                 LlmError::ParseError(format!(
                     "Failed to parse ElevenLabs {operation} response: {e}"
