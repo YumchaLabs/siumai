@@ -17,6 +17,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `reasoning_content` replay and GLM structured-output `tool_calls` finish normalization.
 - Added a native Vercel AI Gateway proof with provider-protocol language and embedding support,
   typed Gateway provider options, registry/catalog integration, and public facade exports.
+- Added ElevenLabs provider-owned voice resources under
+  `provider_ext::elevenlabs::resources`, including read-only voice catalog/detail clients and
+  pronunciation dictionary metadata list/detail clients that reuse configured auth, base URL,
+  headers, custom transport, interceptors, and retry options.
 
 ### Changed
 
