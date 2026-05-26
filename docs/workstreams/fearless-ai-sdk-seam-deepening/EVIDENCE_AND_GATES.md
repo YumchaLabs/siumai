@@ -10,6 +10,8 @@ Last updated: 2026-05-27
 | 2026-05-27 | AISD-010 | Architecture review using `improve-codebase-architecture` plus three read-only Explore agents for stream, diagnostics, and tool/usage/capability slices. | Pass | Found six deepening candidates: OpenAI Responses stream state, diagnostics projection, tool ownership, capability gates, usage ledger, and core stream assembly. |
 | 2026-05-27 | AISD-010 | `python -m json.tool docs\workstreams\fearless-ai-sdk-seam-deepening\WORKSTREAM.json` | Pass | Workstream metadata parses and records AISD-020 as the next executable task. |
 | 2026-05-27 | AISD-010 | `git diff --check -- docs\adr docs\workstreams\fearless-ai-sdk-seam-deepening docs\workstreams\INDEX.md` | Pass | Diff check reported only expected LF-to-CRLF working-copy warnings. |
+| 2026-05-27 | AISD-020 | `cargo fmt --check -p siumai-protocol-openai` | Pass | Terminal buffering refactor is formatted after extracting `TerminalEventBuffer`. |
+| 2026-05-27 | AISD-020 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast` | Pass | 71 Responses SSE tests passed, covering terminal buffering, StreamEnd replay, reasoning/text separation, raw replay serialization, provider-executed tool events, and repeated usage behavior. |
 
 ## Required Gates
 

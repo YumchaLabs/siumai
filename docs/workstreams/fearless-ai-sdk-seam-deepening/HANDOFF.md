@@ -20,7 +20,7 @@ Hajimi adapter changes out of scope.
 - Validation:
   - `cargo fmt --check -p siumai-protocol-openai`
   - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast`
-- Status: READY
+- Status: IN_PROGRESS
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
 
@@ -34,5 +34,6 @@ Hajimi adapter changes out of scope.
 
 ## Next Recommended Action
 
-Execute AISD-020 with `run-workstream-task`: deepen OpenAI Responses stream state first because it
-covers the largest cluster of the original contract problems.
+Continue AISD-020 with `run-workstream-task`. The terminal buffering slice is done and verified;
+next deepen replay, reasoning lifecycle, provider tool state, or serializer state before marking
+AISD-020 complete.

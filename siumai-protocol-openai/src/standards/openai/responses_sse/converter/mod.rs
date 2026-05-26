@@ -14,6 +14,7 @@ mod custom_tools;
 mod function_tool;
 mod mcp;
 mod pending;
+use pending::TerminalEventBuffer;
 mod provider_tools;
 mod reasoning;
 mod stream_meta;
@@ -60,7 +61,7 @@ pub struct OpenAiResponsesEventConverter {
     emitted_text_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_text_end_ids: Arc<Mutex<HashSet<String>>>,
     text_annotations_by_item_id: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
-    pending_stream_end_events: Arc<Mutex<VecDeque<crate::streaming::ChatStreamEvent>>>,
+    pending_stream_end_events: TerminalEventBuffer,
 
     /// Default tool input used for web search calls when the output item does not contain
     /// an explicit arguments payload.
@@ -147,7 +148,7 @@ impl Default for OpenAiResponsesEventConverter {
             emitted_text_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_text_end_ids: Arc::new(Mutex::new(HashSet::new())),
             text_annotations_by_item_id: Arc::new(Mutex::new(HashMap::new())),
-            pending_stream_end_events: Arc::new(Mutex::new(VecDeque::new())),
+            pending_stream_end_events: TerminalEventBuffer::default(),
             web_search_default_input: "{}".to_string(),
             include_web_search_provider_executed_in_tool_input: true,
             emit_web_search_tool_input_delta: false,

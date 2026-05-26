@@ -388,10 +388,10 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
     fn handle_stream_end_events(
         &self,
     ) -> Vec<Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>> {
-        let Ok(mut q) = self.pending_stream_end_events.lock() else {
-            return Vec::new();
-        };
-        q.drain(..).map(Ok).collect()
+        self.drain_pending_stream_end_events()
+            .into_iter()
+            .map(Ok)
+            .collect()
     }
 
     fn finalize_on_disconnect(&self) -> bool {
