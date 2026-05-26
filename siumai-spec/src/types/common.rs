@@ -412,7 +412,12 @@ impl<'de> Deserialize<'de> for FinishReason {
     }
 }
 
-/// Response metadata
+/// Response metadata.
+///
+/// `id`, `model`, `created`, `provider`, and `request_id` are public response projection fields.
+/// `headers` and `body` are transport diagnostics: they can contain provider raw data, internal
+/// routing details, rate-limit state, or sensitive response material. Do not expose those two
+/// fields in user-visible output or ordinary logs without an explicit diagnostics/redaction policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseMetadata {
     /// Response ID
@@ -443,11 +448,39 @@ pub struct ResponseMetadata {
     )]
     pub request_id: Option<String>,
     /// Response headers when available.
+    ///
+    /// This is private diagnostic data, not part of the stable public response projection.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
     /// Raw response body when the provider surface exposes it.
+    ///
+    /// This is private diagnostic data, not part of the stable public response projection.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<serde_json::Value>,
+}
+
+impl ResponseMetadata {
+    /// Return whether this metadata carries private transport diagnostics.
+    ///
+    /// Public projections may safely keep identifiers and timestamps while stripping `headers`
+    /// and `body`. Those two fields can include raw provider material and should be routed through
+    /// diagnostics handling rather than ordinary user-facing output.
+    pub fn contains_private_diagnostics(&self) -> bool {
+        self.headers
+            .as_ref()
+            .is_some_and(|headers| !headers.is_empty())
+            || self.body.is_some()
+    }
+
+    /// Clone this metadata without private transport diagnostics.
+    ///
+    /// This preserves public response projection fields and clears `headers` / `body`.
+    pub fn without_private_diagnostics(&self) -> Self {
+        let mut metadata = self.clone();
+        metadata.headers = None;
+        metadata.body = None;
+        metadata
+    }
 }
 
 #[cfg(test)]
@@ -711,6 +744,64 @@ mod tests {
 
         let value = serde_json::to_value(&metadata).expect("serialize metadata");
         assert_eq!(value["headers"]["x-request-id"], serde_json::json!("req_1"));
+    }
+
+    #[test]
+    fn response_metadata_detects_private_diagnostics() {
+        let mut metadata = ResponseMetadata {
+            id: Some("resp_1".to_string()),
+            model: Some("gpt-4o".to_string()),
+            created: None,
+            provider: "openai".to_string(),
+            request_id: Some("req_1".to_string()),
+            headers: None,
+            body: None,
+        };
+
+        assert!(!metadata.contains_private_diagnostics());
+
+        metadata.headers = Some(HashMap::new());
+        assert!(!metadata.contains_private_diagnostics());
+
+        metadata.headers = Some(HashMap::from([(
+            "x-request-id".to_string(),
+            "req_1".to_string(),
+        )]));
+        assert!(metadata.contains_private_diagnostics());
+
+        metadata.headers = None;
+        metadata.body = Some(serde_json::json!({ "raw": true }));
+        assert!(metadata.contains_private_diagnostics());
+    }
+
+    #[test]
+    fn response_metadata_public_projection_strips_private_diagnostics() {
+        let metadata = ResponseMetadata {
+            id: Some("resp_1".to_string()),
+            model: Some("gpt-4o".to_string()),
+            created: Some(
+                DateTime::parse_from_rfc3339("2026-04-21T09:00:00Z")
+                    .expect("valid timestamp")
+                    .with_timezone(&Utc),
+            ),
+            provider: "openai".to_string(),
+            request_id: Some("req_1".to_string()),
+            headers: Some(HashMap::from([(
+                "set-cookie".to_string(),
+                "session=private".to_string(),
+            )])),
+            body: Some(serde_json::json!({ "full_provider_response": true })),
+        };
+
+        let projection = metadata.without_private_diagnostics();
+        assert_eq!(projection.id.as_deref(), Some("resp_1"));
+        assert_eq!(projection.model.as_deref(), Some("gpt-4o"));
+        assert_eq!(projection.provider, "openai");
+        assert_eq!(projection.request_id.as_deref(), Some("req_1"));
+        assert_eq!(projection.created, metadata.created);
+        assert_eq!(projection.headers, None);
+        assert_eq!(projection.body, None);
+        assert!(!projection.contains_private_diagnostics());
     }
 
     #[test]

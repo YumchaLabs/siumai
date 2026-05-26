@@ -55,6 +55,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   text that appears only in the terminal response snapshot.
 - Documented `stream_with_cancel` as the recommended cancelable stream entry, with local
   stream-consumption cancellation separated from provider-specific remote abort.
+- Defined raw/private diagnostics boundaries for provider metadata, response headers/bodies,
+  raw stream parts, replay hints, and raw/private custom stream events.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can

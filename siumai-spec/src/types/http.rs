@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// HTTP response metadata
+/// HTTP response metadata.
+///
+/// `headers` and `body` are transport diagnostics. They may contain raw provider material or
+/// sensitive response details and should not be exposed in ordinary public output without a
+/// diagnostics/redaction policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpResponseInfo {
     /// Timestamp when the response was received.
@@ -18,13 +22,19 @@ pub struct HttpResponseInfo {
     #[serde(rename = "modelId", skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
     /// Response headers (lowercased keys).
+    ///
+    /// This is private diagnostic data.
     pub headers: HashMap<String, String>,
     /// Parsed raw response body when the executor retains it.
+    ///
+    /// This is private diagnostic data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<serde_json::Value>,
 }
 
 /// HTTP request metadata
+///
+/// The serialized body is a transport diagnostic and may contain sensitive provider request data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpRequestInfo {
     /// Serialized request body when available.
@@ -126,6 +136,28 @@ impl HttpConfig {
     /// Create an empty request-level override config.
     pub fn empty() -> Self {
         Self::default()
+    }
+}
+
+impl HttpResponseInfo {
+    /// Return whether this response envelope carries private transport diagnostics.
+    pub fn contains_private_diagnostics(&self) -> bool {
+        !self.headers.is_empty() || self.body.is_some()
+    }
+
+    /// Clone this response envelope without private transport diagnostics.
+    pub fn without_private_diagnostics(&self) -> Self {
+        let mut response = self.clone();
+        response.headers.clear();
+        response.body = None;
+        response
+    }
+}
+
+impl HttpRequestInfo {
+    /// Return whether this request envelope carries private transport diagnostics.
+    pub fn contains_private_diagnostics(&self) -> bool {
+        self.body.is_some()
     }
 }
 

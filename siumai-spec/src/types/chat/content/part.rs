@@ -97,6 +97,10 @@ pub enum ContentPart {
         provider_options: ProviderOptionsMap,
 
         /// Provider-specific metadata (Vercel-aligned).
+        ///
+        /// This is a public provider-scoped projection lane, not a raw provider dump. Keep
+        /// transport headers, raw bodies, and unreviewed provider debug payloads on diagnostics
+        /// carriers instead.
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -130,7 +134,7 @@ pub enum ContentPart {
         )]
         provider_options: ProviderOptionsMap,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -161,7 +165,7 @@ pub enum ContentPart {
         )]
         provider_options: ProviderOptionsMap,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -191,7 +195,7 @@ pub enum ContentPart {
         )]
         provider_options: ProviderOptionsMap,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -219,7 +223,7 @@ pub enum ContentPart {
         )]
         provider_options: ProviderOptionsMap,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -242,7 +246,7 @@ pub enum ContentPart {
         )]
         provider_options: ProviderOptionsMap,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -263,7 +267,7 @@ pub enum ContentPart {
         #[serde(flatten)]
         source: SourcePart,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -341,7 +345,7 @@ pub enum ContentPart {
         )]
         provider_options: ProviderOptionsMap,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -404,7 +408,7 @@ pub enum ContentPart {
         )]
         provider_options: ProviderOptionsMap,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",
@@ -485,7 +489,7 @@ pub enum ContentPart {
         )]
         provider_options: ProviderOptionsMap,
 
-        /// Provider-specific metadata (Vercel-aligned).
+        /// Provider-specific metadata (Vercel-aligned public projection).
         #[serde(
             rename = "providerMetadata",
             alias = "provider_metadata",

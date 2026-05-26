@@ -8,6 +8,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 
 /// Provider metadata object keyed by provider name.
+///
+/// Stream provider metadata is a public provider-scoped projection lane. Do not put raw HTTP
+/// payloads, response headers, whole provider chunks, or unreviewed debug data here; use
+/// `ResponseMetadata` transport diagnostics, `ChatStreamPart::Raw`, `ChatStreamReplay`, or
+/// provider diagnostics handling instead.
 pub type StreamProviderMetadata = ProviderMetadataMap;
 
 fn serialize_stream_non_null_json_value<S>(
@@ -150,6 +155,7 @@ pub struct ChatStreamFilePart {
 /// These hints are intentionally kept outside `ChatStreamPart` so the stable
 /// AI SDK-aligned part schema stays clean while protocol serializers can still
 /// recover provider-specific wire details when lossless replay matters.
+/// Replay hints may carry raw provider data and should not be treated as user-visible output.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ChatStreamReplay {
     #[serde(
@@ -199,6 +205,20 @@ impl ChatStreamReplay {
 
     pub fn is_empty(&self) -> bool {
         self.openai_responses.is_none()
+    }
+
+    /// Return whether this replay envelope carries private provider wire data.
+    pub fn contains_private_diagnostics(&self) -> bool {
+        self.openai_responses
+            .as_ref()
+            .is_some_and(ChatStreamOpenAiResponsesReplay::contains_private_diagnostics)
+    }
+}
+
+impl ChatStreamOpenAiResponsesReplay {
+    /// Return whether this replay envelope carries raw OpenAI Responses item data.
+    pub fn contains_private_diagnostics(&self) -> bool {
+        self.raw_item.is_some()
     }
 }
 
@@ -334,6 +354,11 @@ pub enum ChatStreamPart {
         )]
         provider_metadata: Option<StreamProviderMetadata>,
     },
+    /// Raw provider chunk or event payload.
+    ///
+    /// This is a private diagnostics/replay carrier, not part of the stable public semantic
+    /// projection. Consumers should only expose it through an explicit diagnostics/redaction
+    /// policy.
     Raw {
         #[serde(rename = "rawValue")]
         raw_value: serde_json::Value,
@@ -341,6 +366,20 @@ pub enum ChatStreamPart {
     Error {
         error: serde_json::Value,
     },
+}
+
+impl ChatStreamPart {
+    /// Return whether this stream part carries private diagnostics or raw provider data.
+    ///
+    /// AI SDK-style `providerMetadata` fields are considered public provider-scoped projections by
+    /// contract. This method flags explicit raw/transport diagnostics carriers only.
+    pub fn contains_private_diagnostics(&self) -> bool {
+        match self {
+            Self::ResponseMetadata(metadata) => metadata.contains_private_diagnostics(),
+            Self::Raw { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 /// Chat streaming event
@@ -366,7 +405,8 @@ pub enum ChatStreamEvent {
     ///
     /// This is the structured semantic stream model. It represents text,
     /// reasoning, tools, sources, response metadata, warnings, usage, and
-    /// custom content using AI SDK-aligned part variants.
+    /// custom content using AI SDK-aligned part variants. Explicit raw parts remain private
+    /// diagnostics/replay data and should not be projected into user-visible output by default.
     Part {
         /// Structured stream part.
         part: ChatStreamPart,
@@ -387,10 +427,13 @@ pub enum ChatStreamEvent {
         /// Error message
         error: String,
     },
-    /// Custom provider-specific event
+    /// Custom provider-specific event.
     ///
     /// Allows providers to emit custom events without modifying the core enum.
     /// Users can pattern match on `event_type` to handle provider-specific features.
+    /// Event types whose provider-local segment starts with `raw`, `private`, or `diagnostic`
+    /// are reserved for private diagnostics and should be routed to diagnostics handling instead
+    /// of being silently discarded or shown in user-visible output.
     ///
     /// # Example
     /// ```rust,ignore
@@ -411,6 +454,62 @@ pub enum ChatStreamEvent {
         /// Event data as JSON value
         data: serde_json::Value,
     },
+}
+
+impl ChatStreamEvent {
+    /// Return whether a custom event type is reserved for private diagnostics.
+    ///
+    /// The check is segment-based so names such as `raw_openai_event`, `openai:raw_response`,
+    /// `openai.private_debug`, and `provider/diagnostic_headers` are all recognized.
+    pub fn custom_event_type_is_private_diagnostics(event_type: &str) -> bool {
+        let normalized = event_type.trim().to_ascii_lowercase();
+        if normalized.is_empty() {
+            return false;
+        }
+
+        normalized
+            .split([':', '.', '/'])
+            .filter(|segment| !segment.is_empty())
+            .any(|segment| {
+                segment == "raw"
+                    || segment == "private"
+                    || segment == "diagnostic"
+                    || segment == "diagnostics"
+                    || segment.starts_with("raw_")
+                    || segment.starts_with("private_")
+                    || segment.starts_with("diagnostic_")
+                    || segment.starts_with("diagnostics_")
+            })
+    }
+
+    /// Return whether this event carries private diagnostics or raw provider data.
+    ///
+    /// This is a routing helper for bridges/adapters that need to keep public stream projection
+    /// separate from raw diagnostics. It intentionally does not treat ordinary `providerMetadata`
+    /// as private by itself; providers must only put reviewed public projection fields there.
+    pub fn contains_private_diagnostics(&self) -> bool {
+        match self {
+            Self::StreamStart { metadata } => metadata.contains_private_diagnostics(),
+            Self::Part { part } => part.contains_private_diagnostics(),
+            Self::PartWithReplay { part, replay } => {
+                part.contains_private_diagnostics() || replay.contains_private_diagnostics()
+            }
+            Self::Custom { event_type, .. } => {
+                Self::custom_event_type_is_private_diagnostics(event_type)
+            }
+            Self::StreamEnd { response } => {
+                response
+                    .request
+                    .as_ref()
+                    .is_some_and(crate::types::HttpRequestInfo::contains_private_diagnostics)
+                    || response
+                        .response
+                        .as_ref()
+                        .is_some_and(crate::types::HttpResponseInfo::contains_private_diagnostics)
+            }
+            Self::Error { .. } => false,
+        }
+    }
 }
 
 /// Audio streaming event
@@ -748,5 +847,119 @@ mod tests {
                 .and_then(|replay| replay.output_index),
             Some(2)
         );
+    }
+
+    #[test]
+    fn provider_metadata_is_public_projection_not_private_diagnostics() {
+        let event = ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "0".to_string(),
+                delta: "hello".to_string(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({ "responseId": "resp_1" }),
+                )])),
+            },
+        };
+
+        assert!(!event.contains_private_diagnostics());
+    }
+
+    #[test]
+    fn raw_stream_part_is_private_diagnostics() {
+        let event = ChatStreamEvent::Part {
+            part: ChatStreamPart::Raw {
+                raw_value: serde_json::json!({ "provider": "chunk" }),
+            },
+        };
+
+        assert!(event.contains_private_diagnostics());
+    }
+
+    #[test]
+    fn response_metadata_headers_and_body_are_private_diagnostics() {
+        let metadata = ResponseMetadata {
+            id: Some("resp_1".to_string()),
+            model: Some("gpt-4o".to_string()),
+            created: None,
+            provider: "openai".to_string(),
+            request_id: Some("req_1".to_string()),
+            headers: Some(HashMap::from([(
+                "set-cookie".to_string(),
+                "session=private".to_string(),
+            )])),
+            body: Some(serde_json::json!({ "raw": true })),
+        };
+
+        let event = ChatStreamEvent::Part {
+            part: ChatStreamPart::ResponseMetadata(metadata.clone()),
+        };
+
+        assert!(event.contains_private_diagnostics());
+        assert!(
+            !metadata
+                .without_private_diagnostics()
+                .contains_private_diagnostics()
+        );
+    }
+
+    #[test]
+    fn stream_end_http_response_metadata_is_private_diagnostics() {
+        let mut response =
+            ChatResponse::new(crate::types::MessageContent::Text("done".to_string()));
+        response.response = Some(crate::types::HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: Some("gpt-4o".to_string()),
+            headers: HashMap::from([("x-ratelimit-remaining".to_string(), "10".to_string())]),
+            body: Some(serde_json::json!({ "raw": true })),
+        });
+
+        assert!(ChatStreamEvent::StreamEnd { response }.contains_private_diagnostics());
+    }
+
+    #[test]
+    fn replay_raw_item_is_private_diagnostics() {
+        let event = ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::TextDelta {
+                id: "0".to_string(),
+                delta: "hello".to_string(),
+                provider_metadata: None,
+            },
+            replay: ChatStreamReplay::openai_responses(
+                Some(0),
+                Some(serde_json::json!({ "id": "item_1", "raw": true })),
+            )
+            .expect("replay"),
+        };
+
+        assert!(event.contains_private_diagnostics());
+    }
+
+    #[test]
+    fn custom_raw_private_and_diagnostic_event_types_are_private_diagnostics() {
+        for event_type in [
+            "raw_openai_event",
+            "openai:raw_response",
+            "openai.private_debug",
+            "provider/diagnostic_headers",
+            "provider:diagnostics_body",
+        ] {
+            assert!(
+                ChatStreamEvent::custom_event_type_is_private_diagnostics(event_type),
+                "{event_type} should be private diagnostics"
+            );
+
+            assert!(
+                ChatStreamEvent::Custom {
+                    event_type: event_type.to_string(),
+                    data: serde_json::json!({ "raw": true }),
+                }
+                .contains_private_diagnostics()
+            );
+        }
+
+        assert!(!ChatStreamEvent::custom_event_type_is_private_diagnostics(
+            "openai:citation"
+        ));
     }
 }

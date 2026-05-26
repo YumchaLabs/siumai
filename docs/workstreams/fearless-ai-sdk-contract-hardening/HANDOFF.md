@@ -5,30 +5,26 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open. AICH-010, AICH-020, AICH-030, and AICH-040 are complete. The bootstrap
-captured the 12-gap audit, linked the local AI SDK reference under `repo-ref/ai`, and made changelog
-tracking part of the task ledger. AICH-020 documented `StreamEnd.response.content` as final
-replay/fallback. AICH-030 added an OpenAI Responses SSE fixture proving reasoning deltas and
-terminal-only final visible text are both preserved. AICH-040 documented `stream_with_cancel` as the
-recommended cancelable stream entry and separated default local cancellation from provider-specific
-remote abort.
+The workstream is open. AICH-010 through AICH-050 are complete. The bootstrap captured the 12-gap
+audit, linked the local AI SDK reference under `repo-ref/ai`, and made changelog tracking part of
+the task ledger. AICH-020 documented `StreamEnd.response.content` as final replay/fallback.
+AICH-030 added an OpenAI Responses SSE fixture proving reasoning deltas and terminal-only final
+visible text are both preserved. AICH-040 documented `stream_with_cancel` as the recommended
+cancelable stream entry and separated default local cancellation from provider-specific remote
+abort. AICH-050 defined public provider metadata versus private raw diagnostics boundaries.
 
 ## Active Task
 
-- Task ID: AICH-050
+- Task ID: AICH-060
 - Owner: unassigned
 - Files:
-  - `siumai-spec/src/types/common.rs`
-  - `siumai-spec/src/types/chat/content`
-  - `siumai-spec/src/types/streaming.rs`
-  - `siumai-core/src/streaming`
-  - `siumai-protocol-openai`
+  - `siumai-core/src/error`
+  - `siumai-spec/src/error`
   - `CHANGELOG.md`
-  - `siumai-spec/CHANGELOG.md`
+  - `siumai-core/CHANGELOG.md`
 - Validation:
-  - `cargo nextest run -p siumai-spec metadata --no-fail-fast`
-  - targeted protocol raw-event tests
-- Status: NEEDS_CONTEXT
+  - `cargo nextest run -p siumai-core error --no-fail-fast`
+- Status: READY
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
 
@@ -45,6 +41,10 @@ remote abort.
 - AICH-030 established the OpenAI Responses SSE reasoning/text separation fixture at protocol level.
 - AICH-040 established that `stream_with_cancel` is the recommended cancelable entry; default
   behavior guarantees local stream-consumption cancellation, while remote abort is provider-specific.
+- AICH-050 established `ProviderMetadataMap` / stream `providerMetadata` as public provider-scoped
+  projection, while `ResponseMetadata.headers/body`, HTTP request/response bodies,
+  `ChatStreamPart::Raw`, replay `rawItem`, and raw/private/diagnostic custom events are private
+  diagnostics.
 
 ## Blockers
 
@@ -52,5 +52,5 @@ remote abort.
 
 ## Next Recommended Action
 
-- Execute AICH-050 with `run-workstream-task`: define raw/private diagnostics treatment for provider
-  metadata, `ResponseMetadata.headers/body`, `ChatStreamPart::Raw`, and `ChatStreamEvent::Custom`.
+- Execute AICH-060 with `run-workstream-task`: split safe/public error message semantics from raw
+  diagnostic detail so `user_message()` cannot leak provider body, headers, or raw request data.

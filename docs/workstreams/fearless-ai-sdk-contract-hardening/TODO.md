@@ -36,12 +36,12 @@ Last updated: 2026-05-26
 
 ## M2 - Diagnostics, Tools, Usage, And Capability Contracts
 
-- [ ] AICH-050 [owner=unassigned] [deps=AICH-020] [scope=siumai-spec/src/types/common.rs,siumai-spec/src/types/chat/content,siumai-spec/src/types/streaming.rs,siumai-core/src/streaming,siumai-protocol-openai,CHANGELOG.md,siumai-spec/CHANGELOG.md]
+- [x] AICH-050 [owner=codex] [deps=AICH-020] [scope=siumai-spec/src/types/common.rs,siumai-spec/src/types/chat/content,siumai-spec/src/types/streaming.rs,siumai-core/src/streaming,siumai-protocol-openai,CHANGELOG.md,siumai-spec/CHANGELOG.md]
   Goal: Define raw/private diagnostics treatment for provider metadata, `ResponseMetadata.headers/body`, `ChatStreamPart::Raw`, and `ChatStreamEvent::Custom`.
   Validation: `cargo nextest run -p siumai-spec metadata --no-fail-fast`; targeted protocol raw-event tests.
   Review: Public projections must whitelist safe fields; raw provider data remains available for diagnostics.
   Evidence: Type docs, serialization tests, protocol raw event fixtures.
-  Handoff: Note which fields are safe public metadata and which are private diagnostics.
+  Handoff: DONE. `ProviderMetadataMap` is documented as the public provider-scoped projection lane, while `ResponseMetadata.headers/body`, HTTP request/response bodies, `ChatStreamPart::Raw`, replay `rawItem`, and `raw`/`private`/`diagnostic` custom event types are private diagnostics with routing helpers and regression coverage.
 
 - [ ] AICH-060 [owner=unassigned] [deps=AICH-050] [scope=siumai-core/src/error,siumai-spec/src/error,CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Split safe/public error message semantics from raw diagnostic detail so `user_message()` cannot leak provider body, headers, or raw request data.

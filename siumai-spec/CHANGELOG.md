@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Documented streamed `ChatResponse` content carried by `ChatStreamEvent::StreamEnd` as final
   replay/fallback content, not an append-only delta.
+- Defined raw/private diagnostics boundaries for `ProviderMetadataMap`, `ResponseMetadata`,
+  `HttpRequestInfo` / `HttpResponseInfo`, `ChatStreamPart::Raw`, replay hints, and raw/private
+  custom stream events.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 

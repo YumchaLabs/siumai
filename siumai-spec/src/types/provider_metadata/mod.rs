@@ -13,6 +13,13 @@ use std::collections::HashMap;
 /// Semantically this is `{ "provider_id": { ...provider fields... } }`.
 /// We intentionally keep the inner payload as `serde_json::Value` for backward compatibility
 /// while helper accessors expect object-shaped provider payloads.
+///
+/// This map is a public provider-scoped projection lane. It should contain fields that a provider
+/// or protocol adapter intentionally exposes to application code, such as ids, cache metadata,
+/// citations, safety ratings, or typed reasoning replay fields. It is not the right place to dump
+/// raw HTTP bodies, response headers, whole SSE chunks, or provider debug events; keep those on
+/// explicit raw/diagnostic carriers such as `ResponseMetadata::headers`, `ResponseMetadata::body`,
+/// `ChatStreamPart::Raw`, or provider-specific diagnostics sinks.
 pub type ProviderMetadataMap = HashMap<String, Value>;
 
 /// Get the provider-scoped metadata object for `provider_id`.

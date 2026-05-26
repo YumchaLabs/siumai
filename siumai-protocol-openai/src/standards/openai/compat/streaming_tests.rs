@@ -1930,6 +1930,10 @@ async fn compat_stream_unparsable_chunk_emits_raw_error_and_error_finish() {
             )
         })
         .expect("raw part");
+    assert!(
+        events[raw_pos].contains_private_diagnostics(),
+        "raw provider chunks must route through diagnostics, not public projection"
+    );
     let error_pos = events
         .iter()
         .position(|event| {
