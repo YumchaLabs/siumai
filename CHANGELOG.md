@@ -39,6 +39,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   requests under `provider_ext::elevenlabs::resources`.
 - Added ElevenLabs PVC sample and speaker separation resources for sample upload, metadata update,
   deletion, preview audio, waveform, speaker status/start, and separated speaker audio retrieval.
+- Added ElevenLabs PVC verification resources for manual verification requests, captcha retrieval,
+  and captcha recording submission.
 
 ### Changed
 

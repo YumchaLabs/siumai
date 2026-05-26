@@ -44,13 +44,15 @@ Last updated: 2026-05-26
 
 ## M3 - PVC Verification
 
-- [ ] EPVC-040 [owner=worker] [deps=EPVC-030] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] EPVC-040 [owner=worker] [deps=EPVC-030] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Implement manual verification request, captcha get, and captcha verification upload.
   Validation: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_verification --no-fail-fast`; `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`; `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`.
   Review: review-workstream for multipart field naming, empty captcha response handling, path
   encoding, and status response reuse.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Final status must be DONE, DONE_WITH_CONCERNS, BLOCKED, or NEEDS_CONTEXT.
+  Handoff: DONE. Implemented manual verification request, captcha get, and captcha verification
+  upload with typed request/response wrappers, multipart field coverage, path encoding,
+  per-request HTTP config support, facade exports, changelog coverage, and no-network tests.
 
 ## M4 - Closeout
 

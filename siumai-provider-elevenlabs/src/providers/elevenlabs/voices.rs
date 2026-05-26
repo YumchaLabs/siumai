@@ -425,6 +425,75 @@ impl ElevenLabsVoices {
         .await
     }
 
+    /// Request manual verification using `POST /v1/voices/pvc/{voice_id}/verification`.
+    pub async fn request_pvc_voice_manual_verification(
+        &self,
+        voice_id: impl AsRef<str>,
+        request: ElevenLabsPvcManualVerificationRequest,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        request.validate()?;
+        let url = self.pvc_voice_action_url(voice_id, "verification")?;
+        let request_clone = request.clone();
+        execute_multipart_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            move || request_clone.build_form(),
+            request.http_config.as_ref(),
+            "request PVC voice manual verification",
+        )
+        .await
+    }
+
+    /// Retrieve a PVC verification captcha using `GET /v1/voices/pvc/{voice_id}/captcha`.
+    pub async fn get_pvc_voice_captcha(
+        &self,
+        voice_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsPvcCaptchaResponse, LlmError> {
+        self.get_pvc_voice_captcha_with_http_config(voice_id, None)
+            .await
+    }
+
+    /// Retrieve a PVC verification captcha with per-request HTTP configuration.
+    pub async fn get_pvc_voice_captcha_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsPvcCaptchaResponse, LlmError> {
+        let url = self.pvc_voice_action_url(voice_id, "captcha")?;
+        execute_get_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "get PVC voice captcha",
+        )
+        .await
+    }
+
+    /// Submit PVC captcha verification using `POST /v1/voices/pvc/{voice_id}/captcha`.
+    pub async fn verify_pvc_voice_captcha(
+        &self,
+        voice_id: impl AsRef<str>,
+        request: ElevenLabsPvcCaptchaVerificationRequest,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        request.validate()?;
+        let url = self.pvc_voice_action_url(voice_id, "captcha")?;
+        let request_clone = request.clone();
+        execute_multipart_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            move || request_clone.build_form(),
+            request.http_config.as_ref(),
+            "verify PVC voice captcha",
+        )
+        .await
+    }
+
     /// Delete a voice using `DELETE /v1/voices/{voice_id}`.
     pub async fn delete_voice(
         &self,
@@ -1681,6 +1750,101 @@ pub struct ElevenLabsPvcSpeakerAudioResponse {
     pub extra: HashMap<String, Value>,
 }
 
+/// Request body for requesting manual PVC voice verification.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsPvcManualVerificationRequest {
+    pub files: Vec<ElevenLabsVoiceSampleFile>,
+    pub extra_text: Option<String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsPvcManualVerificationRequest {
+    pub fn new<I>(files: I) -> Self
+    where
+        I: IntoIterator<Item = ElevenLabsVoiceSampleFile>,
+    {
+        Self {
+            files: files.into_iter().collect(),
+            extra_text: None,
+            http_config: None,
+        }
+    }
+
+    pub fn with_file(mut self, value: ElevenLabsVoiceSampleFile) -> Self {
+        self.files.push(value);
+        self
+    }
+
+    pub fn with_extra_text(mut self, value: impl Into<String>) -> Self {
+        self.extra_text = Some(value.into());
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.files.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC manual verification requires at least one file".to_string(),
+            ));
+        }
+        for file in &self.files {
+            file.validate()?;
+        }
+        Ok(())
+    }
+
+    fn build_form(&self) -> Result<reqwest::multipart::Form, LlmError> {
+        let mut form = reqwest::multipart::Form::new();
+        for file in &self.files {
+            form = form.part("files", file.build_part()?);
+        }
+        if let Some(extra_text) = optional_trimmed(self.extra_text.as_deref()) {
+            form = form.text("extra_text", extra_text.to_string());
+        }
+        Ok(form)
+    }
+}
+
+/// Request body for submitting PVC captcha verification audio.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsPvcCaptchaVerificationRequest {
+    pub recording: ElevenLabsVoiceSampleFile,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsPvcCaptchaVerificationRequest {
+    pub fn new(recording: ElevenLabsVoiceSampleFile) -> Self {
+        Self {
+            recording,
+            http_config: None,
+        }
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        self.recording.validate()
+    }
+
+    fn build_form(&self) -> Result<reqwest::multipart::Form, LlmError> {
+        Ok(reqwest::multipart::Form::new().part("recording", self.recording.build_part()?))
+    }
+}
+
+/// Response body for `GET /v1/voices/pvc/{voice_id}/captcha`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ElevenLabsPvcCaptchaResponse {
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
 /// Status response body returned by ElevenLabs voice mutation endpoints.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsVoiceStatusResponse {
@@ -2698,6 +2862,124 @@ mod tests {
             response.extra.get("future_speaker_audio"),
             Some(&json!("kept"))
         );
+    }
+
+    #[tokio::test]
+    async fn voices_pvc_verification_manual_request_posts_multipart() {
+        let transport = JsonGetTransport::new(json!({
+            "status": "ok",
+            "future_status": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .request_pvc_voice_manual_verification(
+                "voice/id with space",
+                ElevenLabsPvcManualVerificationRequest::new([ElevenLabsVoiceSampleFile::new(
+                    b"document".to_vec(),
+                )
+                .with_filename("verification.pdf")
+                .with_mime_type("application/pdf")])
+                .with_extra_text("Verification context")
+                .with_http_config(request_http),
+            )
+            .await
+            .expect("manual verification response");
+
+        let captured = transport.take_multipart();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/verification"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        let body = String::from_utf8_lossy(&captured.body);
+        assert!(body.contains("name=\"files\"; filename=\"verification.pdf\""));
+        assert!(body.contains("Content-Type: application/pdf"));
+        assert!(body.contains("document"));
+        assert!(body.contains("name=\"extra_text\""));
+        assert!(body.contains("Verification context"));
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.extra.get("future_status"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn voices_pvc_verification_captcha_get_and_verify() {
+        let transport = JsonGetTransport::new(json!({
+            "future_captcha": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .get_pvc_voice_captcha_with_http_config("voice/id with space", Some(&request_http))
+            .await
+            .expect("captcha response");
+
+        let captured = transport.take_get();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/captcha"
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(response.extra.get("future_captcha"), Some(&json!("kept")));
+
+        let transport = JsonGetTransport::new(json!({
+            "status": "ok",
+            "future_status": "kept"
+        }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .verify_pvc_voice_captcha(
+                "voice/id with space",
+                ElevenLabsPvcCaptchaVerificationRequest::new(
+                    ElevenLabsVoiceSampleFile::new(b"captcha-audio".to_vec())
+                        .with_filename("captcha.wav")
+                        .with_mime_type("audio/wav"),
+                ),
+            )
+            .await
+            .expect("verify captcha response");
+
+        let captured = transport.take_multipart();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/captcha"
+        );
+        let body = String::from_utf8_lossy(&captured.body);
+        assert!(body.contains("name=\"recording\"; filename=\"captcha.wav\""));
+        assert!(body.contains("Content-Type: audio/wav"));
+        assert!(body.contains("captcha-audio"));
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.extra.get("future_status"), Some(&json!("kept")));
     }
 
     #[tokio::test]

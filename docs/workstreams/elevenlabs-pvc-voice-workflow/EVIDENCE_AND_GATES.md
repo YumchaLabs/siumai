@@ -101,6 +101,16 @@ gates, and residual risks here or in the closeout notes.
 - 2026-05-26: `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`
   - Result: PASS.
   - Covers: formatting for the crates touched by EPVC-030.
+- 2026-05-26: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_verification --no-fail-fast`
+  - Result: PASS. 2 tests passed, 32 skipped.
+  - Covers: PVC manual verification multipart upload, captcha get response mapping, captcha
+    recording multipart upload, path encoding, per-request HTTP headers, and status mapping.
+- 2026-05-26: `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`
+  - Result: PASS. 1 test passed, 546 skipped across 213 binaries.
+  - Covers: facade exports for the new PVC verification request/response types.
+- 2026-05-26: `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`
+  - Result: PASS.
+  - Covers: formatting for the crates touched by EPVC-040.
 
 ## Notes
 
