@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documented provider-executed tool calls as provider/model-service owned execution and locked
   `ToolInputStart` to stable public fields, keeping provider replay indexes and raw items in replay
   hints.
+- Documented `Usage` as a single provider/model-call cumulative snapshot; explicit multi-call
+  aggregation still uses `Usage::merge()` and drops provider-native raw usage.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 

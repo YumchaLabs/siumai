@@ -209,6 +209,48 @@ fn test_responses_event_converter_usage_update() {
 }
 
 #[test]
+fn responses_event_converter_repeated_usage_keeps_latest_snapshot() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let first = eventsource_stream::Event {
+        event: "response.usage".to_string(),
+        data: r#"{"usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let second = eventsource_stream::Event {
+        event: "response.usage".to_string(),
+        data: r#"{"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+
+    let first_events = futures::executor::block_on(conv.convert_event(first));
+    let second_events = futures::executor::block_on(conv.convert_event(second));
+
+    match stream_part(second_events.first().expect("second usage event")) {
+        Some(crate::streaming::TypedStreamPart::Finish { usage, .. }) => {
+            assert_eq!(usage.input_tokens.total, Some(12));
+            assert_eq!(usage.output_tokens.total, Some(5));
+        }
+        other => panic!("expected typed finish usage, got {other:?}"),
+    }
+
+    let mut processor = crate::streaming::StreamProcessor::new();
+    for event in first_events.into_iter().chain(second_events) {
+        let event = event.expect("converted event");
+        let _ = processor.process_event(event);
+    }
+    let response = processor.build_final_response();
+    let usage = response.usage.expect("usage");
+    assert_eq!(usage.prompt_tokens(), Some(12));
+    assert_eq!(usage.completion_tokens(), Some(5));
+    assert_eq!(usage.total_tokens(), Some(17));
+}
+
+#[test]
 fn xai_responses_event_converter_usage_update_uses_xai_semantics() {
     let conv = OpenAiResponsesEventConverter::new().with_responses_transform_style(
         crate::standards::openai::transformers::ResponsesTransformStyle::Xai,

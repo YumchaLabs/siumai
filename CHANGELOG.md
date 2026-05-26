@@ -62,6 +62,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Hardened tool contract semantics with explicit validation/failure helpers, provider-executed
   execution ownership, and stable `ToolInputStart` projection that keeps provider replay indexes in
   replay hints instead of public stream parts.
+- Defined stream usage as a per-provider-call cumulative snapshot and stopped repeated cumulative
+  finish usage parts from being over-counted by the stream processor.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can

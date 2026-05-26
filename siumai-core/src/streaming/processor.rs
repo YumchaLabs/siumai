@@ -474,14 +474,8 @@ impl StreamProcessor {
 
     /// Process usage update
     fn process_usage_update(&mut self, usage: Usage) -> ProcessedEvent {
-        if let Some(ref mut current) = self.current_usage {
-            current.merge(&usage);
-        } else {
-            self.current_usage = Some(usage.clone());
-        }
-        ProcessedEvent::UsageUpdate {
-            usage: self.current_usage.clone().unwrap(),
-        }
+        self.current_usage = Some(usage.clone());
+        ProcessedEvent::UsageUpdate { usage }
     }
 
     fn merge_tool_call_builder_metadata(
@@ -841,6 +835,64 @@ mod tests {
                 .and_then(|metadata| metadata.get("finish"))
                 .and_then(|value| value.as_bool()),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn repeated_finish_usage_snapshots_replace_instead_of_accumulating() {
+        let mut sp = StreamProcessor::new();
+
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish {
+                usage: Usage::builder()
+                    .prompt_tokens(10)
+                    .completion_tokens(4)
+                    .total_tokens(14)
+                    .with_input_cache_read_tokens(2)
+                    .with_raw_usage_value(serde_json::json!({
+                        "provider": "first",
+                        "total_tokens": 14
+                    }))
+                    .build(),
+                finish_reason: ChatStreamFinishInfo {
+                    unified: FinishReason::Stop,
+                    raw: Some("stop".to_string()),
+                },
+                provider_metadata: None,
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish {
+                usage: Usage::builder()
+                    .prompt_tokens(12)
+                    .completion_tokens(5)
+                    .total_tokens(17)
+                    .with_input_cache_read_tokens(3)
+                    .with_raw_usage_value(serde_json::json!({
+                        "provider": "second",
+                        "total_tokens": 17
+                    }))
+                    .build(),
+                finish_reason: ChatStreamFinishInfo {
+                    unified: FinishReason::Stop,
+                    raw: Some("stop".to_string()),
+                },
+                provider_metadata: None,
+            },
+        });
+
+        let final_resp = sp.build_final_response();
+        let usage = final_resp.usage.expect("usage present");
+        assert_eq!(usage.prompt_tokens(), Some(12));
+        assert_eq!(usage.completion_tokens(), Some(5));
+        assert_eq!(usage.total_tokens(), Some(17));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(3));
+        assert_eq!(
+            usage.raw_usage_value(),
+            Some(serde_json::json!({
+                "provider": "second",
+                "total_tokens": 17
+            }))
         );
     }
 

@@ -1,6 +1,13 @@
 //! Usage statistics types.
 //!
 //! This module defines token usage structures shared across providers.
+//!
+//! A `Usage` value represents one provider/model call's cumulative usage snapshot, matching the AI
+//! SDK language-model usage contract. Stream processors should replace earlier usage snapshots from
+//! the same provider call with the latest snapshot instead of adding them together. Use
+//! `Usage::merge()` only at orchestration boundaries that intentionally aggregate multiple provider
+//! calls or steps; merged usage drops provider-native `raw` because there is no stable cross-provider
+//! raw aggregation shape.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
@@ -123,7 +130,11 @@ impl UsageOutputTokens {
     }
 }
 
-/// Usage statistics
+/// Usage statistics for one provider/model call.
+///
+/// Counts are cumulative snapshots for that call, not deltas. Repeated stream finish snapshots from
+/// the same call should be treated as replacement updates. `merge()` is reserved for explicit
+/// multi-call or multi-step aggregation.
 #[derive(Debug, Clone, Default)]
 pub struct Usage {
     /// Legacy input-token total kept only as a compatibility seed for accessors/serde.
@@ -979,6 +990,35 @@ mod tests {
         assert_eq!(usage.normalized_output_tokens().text, Some(5));
         assert_eq!(usage.normalized_output_tokens().reasoning, Some(2));
         assert_eq!(usage.raw_usage_value(), None);
+    }
+
+    #[test]
+    fn usage_merge_is_explicit_multi_call_aggregation_not_snapshot_replacement() {
+        let mut first_call = Usage::builder()
+            .prompt_tokens(10)
+            .completion_tokens(4)
+            .total_tokens(14)
+            .with_raw_usage_value(serde_json::json!({
+                "call": "first",
+                "total_tokens": 14
+            }))
+            .build();
+        let second_call = Usage::builder()
+            .prompt_tokens(12)
+            .completion_tokens(5)
+            .total_tokens(17)
+            .with_raw_usage_value(serde_json::json!({
+                "call": "second",
+                "total_tokens": 17
+            }))
+            .build();
+
+        first_call.merge(&second_call);
+
+        assert_eq!(first_call.prompt_tokens(), Some(22));
+        assert_eq!(first_call.completion_tokens(), Some(9));
+        assert_eq!(first_call.total_tokens(), Some(31));
+        assert_eq!(first_call.raw_usage_value(), None);
     }
 
     #[test]

@@ -57,12 +57,12 @@ Last updated: 2026-05-26
   Evidence: Tool docs, validation tests, provider-executed prompt tests.
   Handoff: DONE. Tool names and provider-tool ids now have explicit validation helpers, fallible constructors, and `validate_contract()` methods while legacy constructors remain infallible. Provider-executed means provider/model-service execution ownership; `ToolInputStart` carries only stable public fields while replay indexes/raw items stay in replay hints.
 
-- [ ] AICH-080 [owner=unassigned] [deps=AICH-020] [scope=siumai-spec/src/types/usage.rs,siumai-core/src/streaming/processor.rs,siumai-protocol-openai,CHANGELOG.md,siumai-spec/CHANGELOG.md,siumai-core/CHANGELOG.md]
+- [x] AICH-080 [owner=codex] [deps=AICH-020] [scope=siumai-spec/src/types/usage.rs,siumai-core/src/streaming/processor.rs,siumai-protocol-openai,CHANGELOG.md,siumai-spec/CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Define stream usage as a single provider-call cumulative snapshot and prevent accidental over-counting from repeated cumulative finish usage.
   Validation: `cargo nextest run -p siumai-spec usage --no-fail-fast`; `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`; protocol usage fixtures.
   Review: Preserve AI SDK-style `raw` usage for the final provider call while avoiding meaningless raw aggregation.
   Evidence: Usage docs and repeated-finish usage regression test.
-  Handoff: If a provider emits usage deltas, document it as provider-specific before merging.
+  Handoff: DONE. `Usage` is documented as one provider/model-call cumulative snapshot. Stream processor finish usage now replaces earlier same-call snapshots instead of merging, preserving final raw usage. `Usage::merge()` remains explicit multi-call aggregation and drops raw.
 
 - [ ] AICH-090 [owner=unassigned] [deps=AICH-050,AICH-070,AICH-080] [scope=siumai-spec/src/types/common.rs,siumai-core/src,provider crates as needed,docs,CHANGELOG.md]
   Goal: Make unsupported provider capability behavior explicit: reject, warn, or provider fallback, with shared tests for common behavior.

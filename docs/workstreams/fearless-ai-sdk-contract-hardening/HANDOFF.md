@@ -5,7 +5,7 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open. AICH-010 through AICH-070 are complete. The bootstrap captured the 12-gap
+The workstream is open. AICH-010 through AICH-080 are complete. The bootstrap captured the 12-gap
 audit, linked the local AI SDK reference under `repo-ref/ai`, and made changelog tracking part of
 the task ledger. AICH-020 documented `StreamEnd.response.content` as final replay/fallback.
 AICH-030 added an OpenAI Responses SSE fixture proving reasoning deltas and terminal-only final
@@ -14,23 +14,21 @@ cancelable stream entry and separated default local cancellation from provider-s
 abort. AICH-050 defined public provider metadata versus private raw diagnostics boundaries.
 AICH-060 split safe user-facing error messages from raw diagnostics. AICH-070 added explicit tool
 validation/failure helpers, documented provider-executed ownership, and locked `ToolInputStart`
-stable projection away from provider replay indexes.
+stable projection away from provider replay indexes. AICH-080 defined usage as a per-provider-call
+cumulative snapshot and stopped repeated finish usage snapshots from being over-counted.
 
 ## Active Task
 
-- Task ID: AICH-080
+- Task ID: AICH-090
 - Owner: unassigned
 - Files:
-  - `siumai-spec/src/types/usage.rs`
-  - `siumai-core/src/streaming/processor.rs`
-  - `siumai-protocol-openai`
+  - `siumai-spec/src/types/common.rs`
+  - `siumai-core/src`
+  - provider crates as needed
+  - `docs`
   - `CHANGELOG.md`
-  - `siumai-spec/CHANGELOG.md`
-  - `siumai-core/CHANGELOG.md`
 - Validation:
-  - `cargo nextest run -p siumai-spec usage --no-fail-fast`
-  - `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`
-  - protocol usage fixtures if touched
+  - targeted package tests for warnings/errors touched by the slice
 - Status: READY
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -57,6 +55,9 @@ stable projection away from provider replay indexes.
 - AICH-070 established portable tool-name and provider-tool-id validation as an opt-in/fallible
   failure mode while preserving legacy constructors; `providerExecuted: true` now clearly means
   provider/model-service owned execution, and `ToolInputStart` exposes only stable public fields.
+- AICH-080 established `Usage` as one provider/model-call cumulative snapshot. Stream processor
+  usage updates now replace earlier same-call snapshots, while `Usage::merge()` remains explicit
+  multi-call aggregation and drops provider-native raw usage.
 
 ## Blockers
 
@@ -64,5 +65,5 @@ stable projection away from provider replay indexes.
 
 ## Next Recommended Action
 
-- Execute AICH-080 with `run-workstream-task`: define usage snapshots as cumulative per-provider-call
-  usage and guard stream processor aggregation against double-counting repeated final snapshots.
+- Execute AICH-090 with `run-workstream-task`: make unsupported provider capability behavior
+  explicit as reject, warn, or provider fallback, and add shared tests for touched behavior.
