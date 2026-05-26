@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Guarded typed OpenAI response metadata as protocol-owned while provider packages keep only stable
   re-export paths.
+- Added a Responses SSE contract fixture proving streamed reasoning deltas remain compatible with
+  final visible text that is only available in the terminal `response.completed` payload.
 - Moved OpenAI speech/transcription SSE wire-format helpers and transcription stream event types
   into the protocol crate; provider crates now re-export or call the protocol-owned helpers.
 - Moved OpenAI-compatible `/completions` response conversion and SSE parser state into the protocol

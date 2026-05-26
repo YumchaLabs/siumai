@@ -89,3 +89,7 @@ Run `review-workstream` before accepting a completed implementation slice, and
 | 2026-05-26 | AICH-020 | `cargo fmt --check -p siumai-spec -p siumai-core` | Pass | Full workspace `cargo fmt --check` hit Windows path-length error 206, so formatting was checked on the touched crates. |
 | 2026-05-26 | AICH-020 | `cargo nextest run -p siumai-core streaming::processor --no-fail-fast` | Pass | 13 tests passed, including `stream_end_response_content_is_final_replay_not_text_delta`. |
 | 2026-05-26 | AICH-020 | `cargo nextest run -p siumai-spec stream --no-fail-fast` | Pass | 15 stream-related spec tests passed. |
+| 2026-05-26 | AICH-030 | `cargo fmt --check -p siumai-protocol-openai` | Pass | Formatting passed for the touched protocol crate. |
+| 2026-05-26 | AICH-030 | `cargo nextest run -p siumai-protocol-openai responses_stream_preserves_reasoning_delta_and_terminal_only_final_text --no-fail-fast` | No tests | Initial run omitted required `openai-standard,openai-responses` features, so nextest selected 0 tests. Re-run with features passed. |
+| 2026-05-26 | AICH-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_stream_preserves_reasoning_delta_and_terminal_only_final_text --no-fail-fast` | Pass | 1 test passed, proving reasoning deltas plus terminal-only final visible text are preserved. |
+| 2026-05-26 | AICH-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast` | Pass | 70 Responses SSE tests passed. |

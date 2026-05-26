@@ -20,12 +20,12 @@ Last updated: 2026-05-26
   Evidence: Stream type docs, processor tests, changelog entries.
   Handoff: DONE. `StreamEnd.response.content` is documented as final replay/fallback; processor regression test proves it is not appended as another text delta. Adapter authors should consume deltas for live UI and reconcile `StreamEnd` as final replay.
 
-- [ ] AICH-030 [owner=unassigned] [deps=AICH-020] [scope=siumai-protocol-openai/src/standards/openai/responses_sse,siumai-provider-openai/src,siumai-provider-openai-compatible/src,CHANGELOG.md,siumai-protocol-openai/CHANGELOG.md]
+- [x] AICH-030 [owner=codex] [deps=AICH-020] [scope=siumai-protocol-openai/src/standards/openai/responses_sse,siumai-provider-openai/src,siumai-provider-openai-compatible/src,CHANGELOG.md,siumai-protocol-openai/CHANGELOG.md]
   Goal: Add a fixture for reasoning deltas with final visible text materialized only through terminal response content.
   Validation: `cargo nextest run -p siumai-protocol-openai responses_sse --no-fail-fast`; provider-focused tests if the fixture lives in a provider crate.
   Review: Ensure final text and reasoning are both preserved and not double-counted.
   Evidence: OpenAI Responses or OpenAI-compatible stream fixture.
-  Handoff: If no real provider route can express this today, document the supported core fallback and split provider proof into a follow-on.
+  Handoff: DONE. OpenAI Responses SSE now has a fixture where reasoning deltas stream first, no text deltas are emitted, and terminal `response.completed` supplies final visible text without losing reasoning.
 
 - [ ] AICH-040 [owner=unassigned] [deps=AICH-010] [scope=siumai-core/src/text.rs,siumai-core/src/traits/chat.rs,siumai/src/text.rs,docs,CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Document and test `stream_with_cancel` as the recommended cancelable text stream entry, with local vs remote cancel semantics separated.

@@ -51,6 +51,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   capability failure behavior.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
+- Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible
+  text that appears only in the terminal response snapshot.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can

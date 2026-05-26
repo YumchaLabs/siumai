@@ -2115,6 +2115,70 @@ fn responses_reasoning_item_events_emit_reasoning_parts() {
 }
 
 #[test]
+fn responses_stream_preserves_reasoning_delta_and_terminal_only_final_text() {
+    let conv = OpenAiResponsesEventConverter::new();
+    let mut processor = crate::streaming::StreamProcessor::new();
+
+    let reasoning = eventsource_stream::Event {
+        event: "response.reasoning_summary_text.delta".to_string(),
+        data: r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":"Think first."}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let reasoning_out = futures::executor::block_on(conv.convert_event(reasoning));
+    assert!(
+        reasoning_out.iter().any(|event| matches!(
+            stream_part(event),
+            Some(crate::streaming::TypedStreamPart::ReasoningDelta { delta, .. })
+                if delta == "Think first."
+        )),
+        "fixture must stream reasoning before the final response"
+    );
+    for event in reasoning_out.into_iter().map(Result::unwrap) {
+        let _ = processor.process_event(event);
+    }
+
+    let completed = eventsource_stream::Event {
+        event: "response.completed".to_string(),
+        data: r#"{"type":"response.completed","response":{"id":"resp_reasoning_text_1","object":"response","model":"o4-mini","status":"completed","output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Think first."}]},{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Final answer.","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":4,"output_tokens_details":{"reasoning_tokens":2},"total_tokens":5},"finish_reason":"stop"}}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let completed_out = futures::executor::block_on(conv.convert_event(completed));
+    assert!(
+        completed_out.is_empty(),
+        "completed response should buffer terminal events until stream end"
+    );
+
+    let pending = conv.handle_stream_end_events();
+    assert!(
+        pending.iter().any(|event| matches!(
+            event,
+            Ok(crate::streaming::ChatStreamEvent::StreamEnd { response })
+                if response.text().as_deref() == Some("Final answer.")
+        )),
+        "terminal response must carry final visible text even without text deltas"
+    );
+    for event in pending.into_iter().map(Result::unwrap) {
+        let _ = processor.process_event(event);
+    }
+
+    let final_response = processor.build_final_response();
+
+    assert_eq!(final_response.text().as_deref(), Some("Final answer."));
+    assert_eq!(final_response.reasoning(), vec!["Think first."]);
+    assert_eq!(
+        final_response
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.normalized_output_tokens().reasoning),
+        Some(2)
+    );
+}
+
+#[test]
 fn responses_stream_proxy_serializes_typed_text_delta() {
     let conv = OpenAiResponsesEventConverter::new();
 

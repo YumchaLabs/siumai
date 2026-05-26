@@ -5,24 +5,26 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open. AICH-010 and AICH-020 are complete. The bootstrap captured the 12-gap audit,
-linked the local AI SDK reference under `repo-ref/ai`, and made changelog tracking part of the task
-ledger. AICH-020 documented `StreamEnd.response.content` as final replay/fallback and added a
-processor regression test proving it is not appended as another text delta.
+The workstream is open. AICH-010, AICH-020, and AICH-030 are complete. The bootstrap captured the
+12-gap audit, linked the local AI SDK reference under `repo-ref/ai`, and made changelog tracking
+part of the task ledger. AICH-020 documented `StreamEnd.response.content` as final
+replay/fallback. AICH-030 added an OpenAI Responses SSE fixture proving reasoning deltas and
+terminal-only final visible text are both preserved.
 
 ## Active Task
 
-- Task ID: AICH-030
+- Task ID: AICH-040
 - Owner: unassigned
 - Files:
-  - `siumai-protocol-openai/src/standards/openai/responses_sse`
-  - `siumai-provider-openai/src`
-  - `siumai-provider-openai-compatible/src`
+  - `siumai-core/src/text.rs`
+  - `siumai-core/src/traits/chat.rs`
+  - `siumai/src/text.rs`
+  - `docs`
   - `CHANGELOG.md`
-  - `siumai-protocol-openai/CHANGELOG.md`
+  - `siumai-core/CHANGELOG.md`
 - Validation:
-  - `cargo nextest run -p siumai-protocol-openai responses_sse --no-fail-fast`
-  - provider-focused tests if the fixture lives in a provider crate
+  - `cargo nextest run -p siumai-core stream_with_cancel --no-fail-fast`
+  - existing OpenAI remote cancel test remains green
 - Status: NEEDS_CONTEXT
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -37,6 +39,7 @@ processor regression test proving it is not appended as another text delta.
 - First implementation task is stream replay semantics because it affects downstream loss/duplicate
   behavior and provides the cleanest proof slice.
 - AICH-020 established that `StreamEnd.response.content` is final replay/fallback, not a delta.
+- AICH-030 established the OpenAI Responses SSE reasoning/text separation fixture at protocol level.
 
 ## Blockers
 
@@ -44,5 +47,5 @@ processor regression test proving it is not appended as another text delta.
 
 ## Next Recommended Action
 
-- Execute AICH-030 with `run-workstream-task`: add a reasoning/text separation fixture proving final
-  visible text is preserved when it materializes through terminal response content.
+- Execute AICH-040 with `run-workstream-task`: document and test `stream_with_cancel` as the
+  recommended cancelable text stream entry, with local and remote cancel semantics separated.
