@@ -1,8 +1,8 @@
 #![cfg(feature = "elevenlabs")]
 
 use siumai::provider_ext::elevenlabs::resources::{
-    ElevenLabsCreateIvcVoiceRequest, ElevenLabsCreateIvcVoiceResponse,
-    ElevenLabsCreatePronunciationDictionaryFromFileRequest,
+    ElevenLabsAddPvcVoiceSamplesRequest, ElevenLabsCreateIvcVoiceRequest,
+    ElevenLabsCreateIvcVoiceResponse, ElevenLabsCreatePronunciationDictionaryFromFileRequest,
     ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsCreatePvcVoiceRequest,
     ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
     ElevenLabsPronunciationDictionaryCreateResponse,
@@ -10,13 +10,16 @@ use siumai::provider_ext::elevenlabs::resources::{
     ElevenLabsPronunciationDictionaryListResponse, ElevenLabsPronunciationDictionaryRule,
     ElevenLabsPronunciationDictionaryRuleRequest,
     ElevenLabsPronunciationDictionaryRulesMutationRequest,
-    ElevenLabsPronunciationDictionaryRulesMutationResponse, ElevenLabsPvcVoiceResponse,
+    ElevenLabsPronunciationDictionaryRulesMutationResponse, ElevenLabsPvcSpeakerAudioResponse,
+    ElevenLabsPvcSpeakerResponse, ElevenLabsPvcSpeakerSeparationResponse, ElevenLabsPvcUtterance,
+    ElevenLabsPvcVoiceResponse, ElevenLabsPvcVoiceSample, ElevenLabsPvcVoiceSampleAudioQuery,
+    ElevenLabsPvcVoiceSampleAudioResponse, ElevenLabsPvcVoiceSampleWaveformResponse,
     ElevenLabsRemovePronunciationDictionaryRulesRequest, ElevenLabsTrainPvcVoiceRequest,
     ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdatePvcVoiceRequest,
-    ElevenLabsUpdateVoiceSettingsRequest, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
-    ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile,
-    ElevenLabsVoiceSettingsResponse, ElevenLabsVoiceSettingsUpdateResponse,
-    ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
+    ElevenLabsUpdatePvcVoiceSampleRequest, ElevenLabsUpdateVoiceSettingsRequest,
+    ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
+    ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile, ElevenLabsVoiceSettingsResponse,
+    ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
 };
 use siumai::provider_ext::elevenlabs::{ElevenLabsClient, ElevenLabsConfig};
 
@@ -39,6 +42,16 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsUpdatePvcVoiceRequest>();
     assert_type::<ElevenLabsTrainPvcVoiceRequest>();
     assert_type::<ElevenLabsPvcVoiceResponse>();
+    assert_type::<ElevenLabsAddPvcVoiceSamplesRequest>();
+    assert_type::<ElevenLabsUpdatePvcVoiceSampleRequest>();
+    assert_type::<ElevenLabsPvcVoiceSampleAudioQuery>();
+    assert_type::<ElevenLabsPvcVoiceSample>();
+    assert_type::<ElevenLabsPvcSpeakerSeparationResponse>();
+    assert_type::<ElevenLabsPvcSpeakerResponse>();
+    assert_type::<ElevenLabsPvcUtterance>();
+    assert_type::<ElevenLabsPvcVoiceSampleAudioResponse>();
+    assert_type::<ElevenLabsPvcVoiceSampleWaveformResponse>();
+    assert_type::<ElevenLabsPvcSpeakerAudioResponse>();
     assert_type::<ElevenLabsVerifiedLanguage>();
     assert_type::<ElevenLabsPronunciationDictionaries>();
     assert_type::<ElevenLabsPronunciationDictionaryListQuery>();
@@ -62,6 +75,11 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsCreatePvcVoiceRequest>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsUpdatePvcVoiceRequest>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsTrainPvcVoiceRequest>();
+    assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsAddPvcVoiceSamplesRequest>();
+    assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsUpdatePvcVoiceSampleRequest>(
+    );
+    assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPvcVoiceSampleAudioResponse>(
+    );
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
     assert_type::<
         siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
@@ -108,6 +126,20 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
         .with_language("en-US");
     let train_pvc_voice_request =
         ElevenLabsTrainPvcVoiceRequest::new().with_model_id("eleven_multilingual_v2");
+    let add_pvc_samples_request =
+        ElevenLabsAddPvcVoiceSamplesRequest::new([ElevenLabsVoiceSampleFile::new(
+            b"audio".to_vec(),
+        )
+        .with_filename("sample.wav")])
+        .with_remove_background_noise(true);
+    let update_pvc_sample_request = ElevenLabsUpdatePvcVoiceSampleRequest::new()
+        .with_remove_background_noise(true)
+        .with_selected_speaker_id("speaker-1")
+        .with_trim_start_time(100)
+        .with_trim_end_time(1_000)
+        .with_file_name("sample.wav");
+    let pvc_sample_audio_query =
+        ElevenLabsPvcVoiceSampleAudioQuery::new().with_remove_background_noise(true);
     let create_dictionary_request = ElevenLabsCreatePronunciationDictionaryFromRulesRequest::new(
         "Product terms",
         vec![ElevenLabsPronunciationDictionaryRuleRequest::alias(
@@ -144,5 +176,8 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     drop(create_pvc_voice_request);
     drop(update_pvc_voice_request);
     drop(train_pvc_voice_request);
+    drop(add_pvc_samples_request);
+    drop(update_pvc_sample_request);
+    drop(pvc_sample_audio_query);
     drop(pronunciation_dictionaries);
 }

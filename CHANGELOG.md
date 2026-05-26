@@ -37,6 +37,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Added ElevenLabs IVC voice creation resources with multipart multi-sample upload support.
 - Added ElevenLabs PVC voice metadata and training resources with typed create, update, and train
   requests under `provider_ext::elevenlabs::resources`.
+- Added ElevenLabs PVC sample and speaker separation resources for sample upload, metadata update,
+  deletion, preview audio, waveform, speaker status/start, and separated speaker audio retrieval.
 
 ### Changed
 

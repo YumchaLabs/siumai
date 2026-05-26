@@ -62,8 +62,8 @@
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "EPVC-030",
-  "next_task": "Implement PVC sample and speaker separation resources.",
+  "current_task": "EPVC-040",
+  "next_task": "Implement PVC verification resources.",
   "continue_policy": {
     "default_action": "continue",
     "notes": "Continue this lane until the PVC workflow target state and gates are complete. Split ordinary voice edit into the next follow-on after closeout."

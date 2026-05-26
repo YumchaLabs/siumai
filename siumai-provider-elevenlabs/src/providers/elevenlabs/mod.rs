@@ -33,9 +33,14 @@ pub use pronunciation_dictionaries::{
     ElevenLabsUpdatePronunciationDictionaryRequest,
 };
 pub use voices::{
-    ElevenLabsCreateIvcVoiceRequest, ElevenLabsCreateIvcVoiceResponse,
-    ElevenLabsCreatePvcVoiceRequest, ElevenLabsPvcVoiceResponse, ElevenLabsTrainPvcVoiceRequest,
-    ElevenLabsUpdatePvcVoiceRequest, ElevenLabsUpdateVoiceSettingsRequest,
+    ElevenLabsAddPvcVoiceSamplesRequest, ElevenLabsCreateIvcVoiceRequest,
+    ElevenLabsCreateIvcVoiceResponse, ElevenLabsCreatePvcVoiceRequest,
+    ElevenLabsPvcSpeakerAudioResponse, ElevenLabsPvcSpeakerResponse,
+    ElevenLabsPvcSpeakerSeparationResponse, ElevenLabsPvcUtterance, ElevenLabsPvcVoiceResponse,
+    ElevenLabsPvcVoiceSample, ElevenLabsPvcVoiceSampleAudioQuery,
+    ElevenLabsPvcVoiceSampleAudioResponse, ElevenLabsPvcVoiceSampleWaveformResponse,
+    ElevenLabsTrainPvcVoiceRequest, ElevenLabsUpdatePvcVoiceRequest,
+    ElevenLabsUpdatePvcVoiceSampleRequest, ElevenLabsUpdateVoiceSettingsRequest,
     ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
     ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile, ElevenLabsVoiceSettingsResponse,
     ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,

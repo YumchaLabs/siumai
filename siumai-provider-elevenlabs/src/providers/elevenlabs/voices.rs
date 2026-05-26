@@ -205,6 +205,226 @@ impl ElevenLabsVoices {
         .await
     }
 
+    /// Add samples to a professional voice clone using `POST /v1/voices/pvc/{voice_id}/samples`.
+    pub async fn add_pvc_voice_samples(
+        &self,
+        voice_id: impl AsRef<str>,
+        request: ElevenLabsAddPvcVoiceSamplesRequest,
+    ) -> Result<Vec<ElevenLabsPvcVoiceSample>, LlmError> {
+        request.validate()?;
+        let url = self.pvc_voice_samples_url(voice_id)?;
+        let request_clone = request.clone();
+        execute_multipart_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            move || request_clone.build_form(),
+            request.http_config.as_ref(),
+            "add PVC voice samples",
+        )
+        .await
+    }
+
+    /// Update a professional voice clone sample using
+    /// `POST /v1/voices/pvc/{voice_id}/samples/{sample_id}`.
+    pub async fn update_pvc_voice_sample(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        request: ElevenLabsUpdatePvcVoiceSampleRequest,
+    ) -> Result<ElevenLabsPvcVoiceResponse, LlmError> {
+        request.validate()?;
+        let url = self.pvc_voice_sample_url(voice_id, sample_id)?;
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "update PVC voice sample",
+        )
+        .await
+    }
+
+    /// Delete a professional voice clone sample using
+    /// `DELETE /v1/voices/pvc/{voice_id}/samples/{sample_id}`.
+    pub async fn delete_pvc_voice_sample(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        self.delete_pvc_voice_sample_with_http_config(voice_id, sample_id, None)
+            .await
+    }
+
+    /// Delete a professional voice clone sample with per-request HTTP configuration.
+    pub async fn delete_pvc_voice_sample_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        let url = self.pvc_voice_sample_url(voice_id, sample_id)?;
+        execute_delete_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "delete PVC voice sample",
+        )
+        .await
+    }
+
+    /// Retrieve a professional voice clone sample audio preview using
+    /// `GET /v1/voices/pvc/{voice_id}/samples/{sample_id}/audio`.
+    pub async fn get_pvc_voice_sample_audio(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        query: Option<ElevenLabsPvcVoiceSampleAudioQuery>,
+    ) -> Result<ElevenLabsPvcVoiceSampleAudioResponse, LlmError> {
+        let url = self.pvc_voice_sample_audio_url(voice_id, sample_id, query.as_ref())?;
+        let http_config = query.as_ref().and_then(|query| query.http_config.as_ref());
+        execute_get_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "get PVC voice sample audio",
+        )
+        .await
+    }
+
+    /// Retrieve a professional voice clone sample waveform using
+    /// `GET /v1/voices/pvc/{voice_id}/samples/{sample_id}/waveform`.
+    pub async fn get_pvc_voice_sample_waveform(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsPvcVoiceSampleWaveformResponse, LlmError> {
+        self.get_pvc_voice_sample_waveform_with_http_config(voice_id, sample_id, None)
+            .await
+    }
+
+    /// Retrieve a professional voice clone sample waveform with per-request HTTP configuration.
+    pub async fn get_pvc_voice_sample_waveform_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsPvcVoiceSampleWaveformResponse, LlmError> {
+        let url = self.pvc_voice_sample_action_url(voice_id, sample_id, "waveform")?;
+        execute_get_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "get PVC voice sample waveform",
+        )
+        .await
+    }
+
+    /// Retrieve speaker separation state using
+    /// `GET /v1/voices/pvc/{voice_id}/samples/{sample_id}/speakers`.
+    pub async fn get_pvc_voice_sample_speakers(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsPvcSpeakerSeparationResponse, LlmError> {
+        self.get_pvc_voice_sample_speakers_with_http_config(voice_id, sample_id, None)
+            .await
+    }
+
+    /// Retrieve speaker separation state with per-request HTTP configuration.
+    pub async fn get_pvc_voice_sample_speakers_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsPvcSpeakerSeparationResponse, LlmError> {
+        let url = self.pvc_voice_sample_action_url(voice_id, sample_id, "speakers")?;
+        execute_get_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "get PVC voice sample speakers",
+        )
+        .await
+    }
+
+    /// Start speaker separation using
+    /// `POST /v1/voices/pvc/{voice_id}/samples/{sample_id}/separate-speakers`.
+    pub async fn start_pvc_voice_sample_speaker_separation(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        self.start_pvc_voice_sample_speaker_separation_with_http_config(voice_id, sample_id, None)
+            .await
+    }
+
+    /// Start speaker separation with per-request HTTP configuration.
+    pub async fn start_pvc_voice_sample_speaker_separation_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        let url = self.pvc_voice_sample_action_url(voice_id, sample_id, "separate-speakers")?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            Value::Object(Default::default()),
+            http_config,
+            "start PVC voice sample speaker separation",
+        )
+        .await
+    }
+
+    /// Retrieve separated speaker audio using
+    /// `GET /v1/voices/pvc/{voice_id}/samples/{sample_id}/speakers/{speaker_id}/audio`.
+    pub async fn get_pvc_voice_sample_speaker_audio(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        speaker_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsPvcSpeakerAudioResponse, LlmError> {
+        self.get_pvc_voice_sample_speaker_audio_with_http_config(
+            voice_id, sample_id, speaker_id, None,
+        )
+        .await
+    }
+
+    /// Retrieve separated speaker audio with per-request HTTP configuration.
+    pub async fn get_pvc_voice_sample_speaker_audio_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        speaker_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsPvcSpeakerAudioResponse, LlmError> {
+        let url = self.pvc_voice_sample_speaker_audio_url(voice_id, sample_id, speaker_id)?;
+        execute_get_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "get PVC voice sample speaker audio",
+        )
+        .await
+    }
+
     /// Delete a voice using `DELETE /v1/voices/{voice_id}`.
     pub async fn delete_voice(
         &self,
@@ -388,6 +608,78 @@ impl ElevenLabsVoices {
     ) -> Result<String, LlmError> {
         let base = self.pvc_voice_url(voice_id)?;
         Ok(format!("{base}/{action}"))
+    }
+
+    fn pvc_voice_samples_url(&self, voice_id: impl AsRef<str>) -> Result<String, LlmError> {
+        self.pvc_voice_action_url(voice_id, "samples")
+    }
+
+    fn pvc_voice_sample_url(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+    ) -> Result<String, LlmError> {
+        let base = self.pvc_voice_samples_url(voice_id)?;
+        let sample_id = sample_id.as_ref().trim();
+        if sample_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs sample_id cannot be empty".to_string(),
+            ));
+        }
+
+        let encoded = urlencoding::encode(sample_id);
+        Ok(format!("{base}/{encoded}"))
+    }
+
+    fn pvc_voice_sample_action_url(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        action: &str,
+    ) -> Result<String, LlmError> {
+        let base = self.pvc_voice_sample_url(voice_id, sample_id)?;
+        Ok(format!("{base}/{action}"))
+    }
+
+    fn pvc_voice_sample_audio_url(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        query: Option<&ElevenLabsPvcVoiceSampleAudioQuery>,
+    ) -> Result<String, LlmError> {
+        let base = self.pvc_voice_sample_action_url(voice_id, sample_id, "audio")?;
+        let mut url = Url::parse(&base).map_err(|e| {
+            LlmError::InvalidInput(format!("Invalid ElevenLabs PVC audio URL: {e}"))
+        })?;
+
+        if let Some(query) = query {
+            if let Some(remove_background_noise) = query.remove_background_noise {
+                url.query_pairs_mut().append_pair(
+                    "remove_background_noise",
+                    &remove_background_noise.to_string(),
+                );
+            }
+        }
+
+        Ok(url.to_string())
+    }
+
+    fn pvc_voice_sample_speaker_audio_url(
+        &self,
+        voice_id: impl AsRef<str>,
+        sample_id: impl AsRef<str>,
+        speaker_id: impl AsRef<str>,
+    ) -> Result<String, LlmError> {
+        let base = self.pvc_voice_sample_action_url(voice_id, sample_id, "speakers")?;
+        let speaker_id = speaker_id.as_ref().trim();
+        if speaker_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs speaker_id cannot be empty".to_string(),
+            ));
+        }
+
+        let encoded = urlencoding::encode(speaker_id);
+        Ok(format!("{base}/{encoded}/audio"))
     }
 }
 
@@ -1102,6 +1394,293 @@ pub struct ElevenLabsPvcVoiceResponse {
     pub extra: HashMap<String, Value>,
 }
 
+/// Request body for adding samples to a professional voice clone.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsAddPvcVoiceSamplesRequest {
+    pub files: Vec<ElevenLabsVoiceSampleFile>,
+    pub remove_background_noise: Option<bool>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsAddPvcVoiceSamplesRequest {
+    pub fn new<I>(files: I) -> Self
+    where
+        I: IntoIterator<Item = ElevenLabsVoiceSampleFile>,
+    {
+        Self {
+            files: files.into_iter().collect(),
+            remove_background_noise: None,
+            http_config: None,
+        }
+    }
+
+    pub fn with_file(mut self, value: ElevenLabsVoiceSampleFile) -> Self {
+        self.files.push(value);
+        self
+    }
+
+    pub const fn with_remove_background_noise(mut self, value: bool) -> Self {
+        self.remove_background_noise = Some(value);
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.files.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC sample upload requires at least one sample file".to_string(),
+            ));
+        }
+        for file in &self.files {
+            file.validate()?;
+        }
+        Ok(())
+    }
+
+    fn build_form(&self) -> Result<reqwest::multipart::Form, LlmError> {
+        let mut form = reqwest::multipart::Form::new();
+        for file in &self.files {
+            form = form.part("files", file.build_part()?);
+        }
+        if let Some(remove_background_noise) = self.remove_background_noise {
+            form = form.text(
+                "remove_background_noise",
+                remove_background_noise.to_string(),
+            );
+        }
+        Ok(form)
+    }
+}
+
+/// Request body for updating a professional voice clone sample.
+#[derive(Debug, Clone, Default)]
+pub struct ElevenLabsUpdatePvcVoiceSampleRequest {
+    pub remove_background_noise: Option<bool>,
+    pub selected_speaker_ids: Option<Vec<String>>,
+    pub trim_start_time: Option<u64>,
+    pub trim_end_time: Option<u64>,
+    pub file_name: Option<String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsUpdatePvcVoiceSampleRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub const fn with_remove_background_noise(mut self, value: bool) -> Self {
+        self.remove_background_noise = Some(value);
+        self
+    }
+
+    pub fn with_selected_speaker_id(mut self, value: impl Into<String>) -> Self {
+        self.selected_speaker_ids
+            .get_or_insert_with(Vec::new)
+            .push(value.into());
+        self
+    }
+
+    pub fn with_selected_speaker_ids<I, S>(mut self, values: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.selected_speaker_ids = Some(values.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub const fn with_trim_start_time(mut self, value: u64) -> Self {
+        self.trim_start_time = Some(value);
+        self
+    }
+
+    pub const fn with_trim_end_time(mut self, value: u64) -> Self {
+        self.trim_end_time = Some(value);
+        self
+    }
+
+    pub fn with_file_name(mut self, value: impl Into<String>) -> Self {
+        self.file_name = Some(value.into());
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if let Some(speaker_ids) = &self.selected_speaker_ids {
+            if speaker_ids.iter().any(|value| value.trim().is_empty()) {
+                return Err(LlmError::InvalidInput(
+                    "ElevenLabs PVC selected speaker IDs cannot be empty".to_string(),
+                ));
+            }
+        }
+        if self
+            .file_name
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC sample file_name cannot be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            remove_background_noise: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            selected_speaker_ids: Option<&'a Vec<String>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            trim_start_time: Option<u64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            trim_end_time: Option<u64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            file_name: Option<&'a str>,
+        }
+
+        serde_json::to_value(Body {
+            remove_background_noise: self.remove_background_noise,
+            selected_speaker_ids: self.selected_speaker_ids.as_ref(),
+            trim_start_time: self.trim_start_time,
+            trim_end_time: self.trim_end_time,
+            file_name: optional_trimmed(self.file_name.as_deref()),
+        })
+        .map_err(|e| {
+            LlmError::InvalidInput(format!(
+                "Invalid ElevenLabs PVC voice sample update request: {e}"
+            ))
+        })
+    }
+}
+
+/// Query parameters for retrieving a professional voice clone sample audio preview.
+#[derive(Debug, Clone, Default)]
+pub struct ElevenLabsPvcVoiceSampleAudioQuery {
+    pub remove_background_noise: Option<bool>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsPvcVoiceSampleAudioQuery {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub const fn with_remove_background_noise(mut self, value: bool) -> Self {
+        self.remove_background_noise = Some(value);
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+}
+
+/// Sample metadata returned by ElevenLabs PVC sample endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPvcVoiceSample {
+    #[serde(default)]
+    pub sample_id: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+    #[serde(default)]
+    pub hash: Option<String>,
+    #[serde(default)]
+    pub duration_secs: Option<f64>,
+    #[serde(default)]
+    pub remove_background_noise: Option<bool>,
+    #[serde(default)]
+    pub has_isolated_audio: Option<bool>,
+    #[serde(default)]
+    pub has_isolated_audio_preview: Option<bool>,
+    #[serde(default)]
+    pub speaker_separation: Option<ElevenLabsPvcSpeakerSeparationResponse>,
+    #[serde(default)]
+    pub trim_start: Option<i64>,
+    #[serde(default)]
+    pub trim_end: Option<i64>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+/// Speaker separation state returned by ElevenLabs PVC sample endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPvcSpeakerSeparationResponse {
+    pub voice_id: String,
+    pub sample_id: String,
+    pub status: String,
+    #[serde(default)]
+    pub speakers: Option<HashMap<String, ElevenLabsPvcSpeakerResponse>>,
+    #[serde(default)]
+    pub selected_speaker_ids: Option<Vec<String>>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+/// Speaker metadata returned by ElevenLabs PVC speaker separation endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPvcSpeakerResponse {
+    pub speaker_id: String,
+    pub duration_secs: f64,
+    #[serde(default)]
+    pub utterances: Option<Vec<ElevenLabsPvcUtterance>>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+/// Utterance time range returned by ElevenLabs PVC speaker separation endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPvcUtterance {
+    pub start: f64,
+    pub end: f64,
+}
+
+/// Audio preview response returned by ElevenLabs PVC sample audio endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPvcVoiceSampleAudioResponse {
+    pub audio_base_64: String,
+    pub voice_id: String,
+    pub sample_id: String,
+    pub media_type: String,
+    #[serde(default)]
+    pub duration_secs: Option<f64>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+/// Visual waveform response returned by ElevenLabs PVC sample waveform endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPvcVoiceSampleWaveformResponse {
+    pub sample_id: String,
+    pub visual_waveform: Vec<f64>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+/// Separated speaker audio response returned by ElevenLabs PVC sample endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPvcSpeakerAudioResponse {
+    pub audio_base_64: String,
+    pub media_type: String,
+    pub duration_secs: f64,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
 /// Status response body returned by ElevenLabs voice mutation endpoints.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsVoiceStatusResponse {
@@ -1735,6 +2314,389 @@ mod tests {
             err.to_string()
                 .contains("ElevenLabs PVC voice name cannot be empty"),
             "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn voices_pvc_samples_add_posts_multipart_and_maps_samples() {
+        let transport = JsonGetTransport::new(json!([
+            {
+                "sample_id": "sample-1",
+                "file_name": "sample-one.wav",
+                "mime_type": "audio/wav",
+                "size_bytes": 1234,
+                "hash": "hash-1",
+                "duration_secs": 12.5,
+                "remove_background_noise": true,
+                "has_isolated_audio": true,
+                "has_isolated_audio_preview": false,
+                "trim_start": 10,
+                "trim_end": 12000,
+                "speaker_separation": {
+                    "voice_id": "pvc-voice-1",
+                    "sample_id": "sample-1",
+                    "status": "completed",
+                    "selected_speaker_ids": ["speaker-1"],
+                    "speakers": {
+                        "speaker-1": {
+                            "speaker_id": "speaker-1",
+                            "duration_secs": 11.2,
+                            "utterances": [
+                                { "start": 0.0, "end": 1.25 }
+                            ],
+                            "future_speaker": "kept"
+                        }
+                    },
+                    "future_separation": "kept"
+                },
+                "future_sample": "kept"
+            }
+        ]));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .add_pvc_voice_samples(
+                "voice/id with space",
+                ElevenLabsAddPvcVoiceSamplesRequest::new([ElevenLabsVoiceSampleFile::new(
+                    b"audio-one".to_vec(),
+                )
+                .with_filename("sample-one.wav")
+                .with_mime_type("audio/wav")])
+                .with_remove_background_noise(true)
+                .with_http_config(request_http),
+            )
+            .await
+            .expect("add PVC samples response");
+
+        let captured = transport.take_multipart();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/samples"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        let body = String::from_utf8_lossy(&captured.body);
+        assert!(body.contains("name=\"files\"; filename=\"sample-one.wav\""));
+        assert!(body.contains("Content-Type: audio/wav"));
+        assert!(body.contains("audio-one"));
+        assert!(body.contains("name=\"remove_background_noise\""));
+        assert!(body.contains("true"));
+
+        let sample = response.first().expect("sample");
+        assert_eq!(sample.sample_id.as_deref(), Some("sample-1"));
+        assert_eq!(sample.file_name.as_deref(), Some("sample-one.wav"));
+        assert_eq!(sample.mime_type.as_deref(), Some("audio/wav"));
+        assert_eq!(sample.size_bytes, Some(1234));
+        assert_eq!(sample.hash.as_deref(), Some("hash-1"));
+        assert_eq!(sample.duration_secs, Some(12.5));
+        assert_eq!(sample.remove_background_noise, Some(true));
+        assert_eq!(sample.has_isolated_audio, Some(true));
+        assert_eq!(sample.has_isolated_audio_preview, Some(false));
+        assert_eq!(sample.trim_start, Some(10));
+        assert_eq!(sample.trim_end, Some(12000));
+        assert_eq!(sample.extra.get("future_sample"), Some(&json!("kept")));
+
+        let separation = sample
+            .speaker_separation
+            .as_ref()
+            .expect("speaker separation");
+        assert_eq!(separation.voice_id, "pvc-voice-1");
+        assert_eq!(separation.sample_id, "sample-1");
+        assert_eq!(separation.status, "completed");
+        assert_eq!(
+            separation
+                .selected_speaker_ids
+                .as_ref()
+                .expect("selected speakers"),
+            &vec!["speaker-1".to_string()]
+        );
+        assert_eq!(
+            separation.extra.get("future_separation"),
+            Some(&json!("kept"))
+        );
+        let speaker = separation
+            .speakers
+            .as_ref()
+            .and_then(|speakers| speakers.get("speaker-1"))
+            .expect("speaker");
+        assert_eq!(speaker.speaker_id, "speaker-1");
+        assert_eq!(speaker.duration_secs, 11.2);
+        assert_eq!(
+            speaker
+                .utterances
+                .as_ref()
+                .and_then(|utterances| utterances.first())
+                .map(|utterance| (utterance.start, utterance.end)),
+            Some((0.0, 1.25))
+        );
+        assert_eq!(speaker.extra.get("future_speaker"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn voices_pvc_samples_update_and_delete_use_json_and_delete() {
+        let transport = JsonGetTransport::new(json!({
+            "voice_id": "pvc-voice-1",
+            "future_pvc": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .update_pvc_voice_sample(
+                "voice/id with space",
+                "sample/id with space",
+                ElevenLabsUpdatePvcVoiceSampleRequest::new()
+                    .with_remove_background_noise(true)
+                    .with_selected_speaker_ids(["speaker-1", "speaker-2"])
+                    .with_trim_start_time(250)
+                    .with_trim_end_time(12_500)
+                    .with_file_name("clean-sample.wav")
+                    .with_http_config(request_http),
+            )
+            .await
+            .expect("update PVC sample response");
+
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/samples/sample%2Fid%20with%20space"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "remove_background_noise": true,
+                "selected_speaker_ids": ["speaker-1", "speaker-2"],
+                "trim_start_time": 250,
+                "trim_end_time": 12500,
+                "file_name": "clean-sample.wav"
+            })
+        );
+        assert_eq!(response.voice_id, "pvc-voice-1");
+        assert_eq!(response.extra.get("future_pvc"), Some(&json!("kept")));
+
+        let transport = JsonGetTransport::new(json!({
+            "status": "ok",
+            "future_status": "kept"
+        }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .delete_pvc_voice_sample("voice/id with space", "sample/id with space")
+            .await
+            .expect("delete PVC sample response");
+
+        let captured = transport.take_delete();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/samples/sample%2Fid%20with%20space"
+        );
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.extra.get("future_status"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn voices_pvc_samples_get_audio_waveform_and_speakers() {
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let transport = JsonGetTransport::new(json!({
+            "audio_base_64": "YXVkaW8=",
+            "voice_id": "pvc-voice-1",
+            "sample_id": "sample-1",
+            "media_type": "audio/mpeg",
+            "duration_secs": 3.5,
+            "future_audio": "kept"
+        }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .get_pvc_voice_sample_audio(
+                "voice/id with space",
+                "sample/id with space",
+                Some(
+                    ElevenLabsPvcVoiceSampleAudioQuery::new()
+                        .with_remove_background_noise(true)
+                        .with_http_config(request_http),
+                ),
+            )
+            .await
+            .expect("PVC sample audio response");
+
+        let captured = transport.take_get();
+        assert_eq!(
+            captured.url.split('?').next(),
+            Some(
+                "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/samples/sample%2Fid%20with%20space/audio"
+            )
+        );
+        assert_eq!(
+            query_values(&captured.url, "remove_background_noise"),
+            vec!["true"]
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(response.audio_base_64, "YXVkaW8=");
+        assert_eq!(response.voice_id, "pvc-voice-1");
+        assert_eq!(response.sample_id, "sample-1");
+        assert_eq!(response.media_type, "audio/mpeg");
+        assert_eq!(response.duration_secs, Some(3.5));
+        assert_eq!(response.extra.get("future_audio"), Some(&json!("kept")));
+
+        let transport = JsonGetTransport::new(json!({
+            "sample_id": "sample-1",
+            "visual_waveform": [0.0, 0.5, 1.0],
+            "future_waveform": "kept"
+        }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .get_pvc_voice_sample_waveform("voice/id with space", "sample/id with space")
+            .await
+            .expect("PVC waveform response");
+
+        let captured = transport.take_get();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/samples/sample%2Fid%20with%20space/waveform"
+        );
+        assert_eq!(response.sample_id, "sample-1");
+        assert_eq!(response.visual_waveform, vec![0.0, 0.5, 1.0]);
+        assert_eq!(response.extra.get("future_waveform"), Some(&json!("kept")));
+
+        let transport = JsonGetTransport::new(json!({
+            "voice_id": "pvc-voice-1",
+            "sample_id": "sample-1",
+            "status": "pending",
+            "speakers": null,
+            "selected_speaker_ids": null,
+            "future_separation": "kept"
+        }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .get_pvc_voice_sample_speakers("voice/id with space", "sample/id with space")
+            .await
+            .expect("PVC speakers response");
+
+        let captured = transport.take_get();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/samples/sample%2Fid%20with%20space/speakers"
+        );
+        assert_eq!(response.voice_id, "pvc-voice-1");
+        assert_eq!(response.sample_id, "sample-1");
+        assert_eq!(response.status, "pending");
+        assert!(response.speakers.is_none());
+        assert_eq!(
+            response.extra.get("future_separation"),
+            Some(&json!("kept"))
+        );
+
+        let transport = JsonGetTransport::new(json!({
+            "status": "ok",
+            "future_status": "kept"
+        }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .start_pvc_voice_sample_speaker_separation(
+                "voice/id with space",
+                "sample/id with space",
+            )
+            .await
+            .expect("start PVC speaker separation response");
+
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/samples/sample%2Fid%20with%20space/separate-speakers"
+        );
+        assert_eq!(captured.body, json!({}));
+        assert_eq!(response.status, "ok");
+
+        let transport = JsonGetTransport::new(json!({
+            "audio_base_64": "c3BlYWtlci1hdWRpbw==",
+            "media_type": "audio/wav",
+            "duration_secs": 2.25,
+            "future_speaker_audio": "kept"
+        }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .get_pvc_voice_sample_speaker_audio(
+                "voice/id with space",
+                "sample/id with space",
+                "speaker/id with space",
+            )
+            .await
+            .expect("PVC separated speaker audio response");
+
+        let captured = transport.take_get();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/samples/sample%2Fid%20with%20space/speakers/speaker%2Fid%20with%20space/audio"
+        );
+        assert_eq!(response.audio_base_64, "c3BlYWtlci1hdWRpbw==");
+        assert_eq!(response.media_type, "audio/wav");
+        assert_eq!(response.duration_secs, 2.25);
+        assert_eq!(
+            response.extra.get("future_speaker_audio"),
+            Some(&json!("kept"))
         );
     }
 

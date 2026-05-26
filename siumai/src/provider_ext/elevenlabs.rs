@@ -47,8 +47,8 @@ pub mod ext {
 /// Provider-specific resources not covered by the unified speech/transcription families.
 pub mod resources {
     pub use siumai_provider_elevenlabs::providers::elevenlabs::{
-        ElevenLabsCreateIvcVoiceRequest, ElevenLabsCreateIvcVoiceResponse,
-        ElevenLabsCreatePronunciationDictionaryFromFileRequest,
+        ElevenLabsAddPvcVoiceSamplesRequest, ElevenLabsCreateIvcVoiceRequest,
+        ElevenLabsCreateIvcVoiceResponse, ElevenLabsCreatePronunciationDictionaryFromFileRequest,
         ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsCreatePvcVoiceRequest,
         ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
         ElevenLabsPronunciationDictionaryCreateResponse,
@@ -56,13 +56,17 @@ pub mod resources {
         ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
         ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
         ElevenLabsPronunciationDictionaryRulesMutationRequest,
-        ElevenLabsPronunciationDictionaryRulesMutationResponse, ElevenLabsPvcVoiceResponse,
+        ElevenLabsPronunciationDictionaryRulesMutationResponse, ElevenLabsPvcSpeakerAudioResponse,
+        ElevenLabsPvcSpeakerResponse, ElevenLabsPvcSpeakerSeparationResponse,
+        ElevenLabsPvcUtterance, ElevenLabsPvcVoiceResponse, ElevenLabsPvcVoiceSample,
+        ElevenLabsPvcVoiceSampleAudioQuery, ElevenLabsPvcVoiceSampleAudioResponse,
+        ElevenLabsPvcVoiceSampleWaveformResponse,
         ElevenLabsRemovePronunciationDictionaryRulesRequest, ElevenLabsTrainPvcVoiceRequest,
         ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdatePvcVoiceRequest,
-        ElevenLabsUpdateVoiceSettingsRequest, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
-        ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile,
-        ElevenLabsVoiceSettingsResponse, ElevenLabsVoiceSettingsUpdateResponse,
-        ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
+        ElevenLabsUpdatePvcVoiceSampleRequest, ElevenLabsUpdateVoiceSettingsRequest,
+        ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
+        ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile, ElevenLabsVoiceSettingsResponse,
+        ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
     };
 }
 

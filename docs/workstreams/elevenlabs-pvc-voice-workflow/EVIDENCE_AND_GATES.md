@@ -90,6 +90,17 @@ gates, and residual risks here or in the closeout notes.
 - 2026-05-26: `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`
   - Result: PASS.
   - Covers: formatting for the crates touched by EPVC-020.
+- 2026-05-26: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_samples --no-fail-fast`
+  - Result: PASS. 3 tests passed, 29 skipped.
+  - Covers: PVC sample multipart upload, sample update/delete, preview audio query parameters,
+    waveform retrieval, speaker separation status/start, separated speaker audio retrieval, path
+    encoding, response flattening, and status mapping.
+- 2026-05-26: `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`
+  - Result: PASS. 1 test passed, 546 skipped across 213 binaries.
+  - Covers: facade exports for the new PVC sample and speaker separation request/response types.
+- 2026-05-26: `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`
+  - Result: PASS.
+  - Covers: formatting for the crates touched by EPVC-030.
 
 ## Notes
 

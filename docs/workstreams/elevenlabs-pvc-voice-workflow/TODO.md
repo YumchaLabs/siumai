@@ -30,14 +30,17 @@ Last updated: 2026-05-26
 
 ## M2 - PVC Samples And Speaker Separation
 
-- [ ] EPVC-030 [owner=worker] [deps=EPVC-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] EPVC-030 [owner=worker] [deps=EPVC-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Implement PVC sample add/update/delete, sample audio/waveform retrieval, speaker separation
   status/start, and separated speaker audio retrieval.
   Validation: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_samples --no-fail-fast`; `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`; `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`.
   Review: review-workstream for multipart reuse, sample/speaker path encoding, query encoding,
   response flattening, and binary-vs-base64 response semantics.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Final status must be DONE, DONE_WITH_CONCERNS, BLOCKED, or NEEDS_CONTEXT.
+  Handoff: DONE. Implemented PVC sample upload, sample update/delete, preview audio, waveform,
+  speaker separation status/start, and separated speaker audio resources with typed requests and
+  responses, path/query encoding, multipart reuse, facade exports, changelog coverage, and
+  no-network tests. `separate-speakers` currently sends `{}` through the existing JSON POST helper.
 
 ## M3 - PVC Verification
 
