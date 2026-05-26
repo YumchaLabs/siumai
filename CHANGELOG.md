@@ -35,6 +35,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   per-voice settings under `provider_ext::elevenlabs::resources`.
 - Added ElevenLabs voice and voice sample delete resources with shared status response mapping.
 - Added ElevenLabs IVC voice creation resources with multipart multi-sample upload support.
+- Added ElevenLabs PVC voice metadata and training resources with typed create, update, and train
+  requests under `provider_ext::elevenlabs::resources`.
 
 ### Changed
 

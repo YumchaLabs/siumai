@@ -49,19 +49,20 @@ pub mod resources {
     pub use siumai_provider_elevenlabs::providers::elevenlabs::{
         ElevenLabsCreateIvcVoiceRequest, ElevenLabsCreateIvcVoiceResponse,
         ElevenLabsCreatePronunciationDictionaryFromFileRequest,
-        ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
+        ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsCreatePvcVoiceRequest,
         ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
         ElevenLabsPronunciationDictionaryCreateResponse,
         ElevenLabsPronunciationDictionaryDownloadResponse,
         ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
         ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
         ElevenLabsPronunciationDictionaryRulesMutationRequest,
-        ElevenLabsPronunciationDictionaryRulesMutationResponse,
-        ElevenLabsRemovePronunciationDictionaryRulesRequest,
-        ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdateVoiceSettingsRequest,
-        ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
-        ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile, ElevenLabsVoiceSettingsResponse,
-        ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
+        ElevenLabsPronunciationDictionaryRulesMutationResponse, ElevenLabsPvcVoiceResponse,
+        ElevenLabsRemovePronunciationDictionaryRulesRequest, ElevenLabsTrainPvcVoiceRequest,
+        ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdatePvcVoiceRequest,
+        ElevenLabsUpdateVoiceSettingsRequest, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
+        ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile,
+        ElevenLabsVoiceSettingsResponse, ElevenLabsVoiceSettingsUpdateResponse,
+        ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
     };
 }
 

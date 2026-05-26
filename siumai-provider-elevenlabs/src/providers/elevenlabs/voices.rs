@@ -143,6 +143,68 @@ impl ElevenLabsVoices {
         .await
     }
 
+    /// Create a professional voice clone using `POST /v1/voices/pvc`.
+    pub async fn create_pvc_voice(
+        &self,
+        request: ElevenLabsCreatePvcVoiceRequest,
+    ) -> Result<ElevenLabsPvcVoiceResponse, LlmError> {
+        request.validate()?;
+        let url = join_url(&self.base_url(), "v1/voices/pvc");
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "create PVC voice",
+        )
+        .await
+    }
+
+    /// Update professional voice clone metadata using `POST /v1/voices/pvc/{voice_id}`.
+    pub async fn update_pvc_voice(
+        &self,
+        voice_id: impl AsRef<str>,
+        request: ElevenLabsUpdatePvcVoiceRequest,
+    ) -> Result<ElevenLabsPvcVoiceResponse, LlmError> {
+        request.validate()?;
+        let url = self.pvc_voice_url(voice_id)?;
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "update PVC voice",
+        )
+        .await
+    }
+
+    /// Start professional voice clone training using `POST /v1/voices/pvc/{voice_id}/train`.
+    pub async fn train_pvc_voice(
+        &self,
+        voice_id: impl AsRef<str>,
+        request: ElevenLabsTrainPvcVoiceRequest,
+    ) -> Result<ElevenLabsVoiceStatusResponse, LlmError> {
+        request.validate()?;
+        let url = self.pvc_voice_action_url(voice_id, "train")?;
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "train PVC voice",
+        )
+        .await
+    }
+
     /// Delete a voice using `DELETE /v1/voices/{voice_id}`.
     pub async fn delete_voice(
         &self,
@@ -302,6 +364,30 @@ impl ElevenLabsVoices {
 
         let encoded = urlencoding::encode(sample_id);
         Ok(format!("{base}/{encoded}"))
+    }
+
+    fn pvc_voice_url(&self, voice_id: impl AsRef<str>) -> Result<String, LlmError> {
+        let voice_id = voice_id.as_ref().trim();
+        if voice_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs voice_id cannot be empty".to_string(),
+            ));
+        }
+
+        let encoded = urlencoding::encode(voice_id);
+        Ok(join_url(
+            &self.base_url(),
+            &format!("v1/voices/pvc/{encoded}"),
+        ))
+    }
+
+    fn pvc_voice_action_url(
+        &self,
+        voice_id: impl AsRef<str>,
+        action: &str,
+    ) -> Result<String, LlmError> {
+        let base = self.pvc_voice_url(voice_id)?;
+        Ok(format!("{base}/{action}"))
     }
 }
 
@@ -797,12 +883,240 @@ pub struct ElevenLabsCreateIvcVoiceResponse {
     pub extra: HashMap<String, Value>,
 }
 
+/// Request body for creating a professional voice clone.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsCreatePvcVoiceRequest {
+    pub name: String,
+    pub language: String,
+    pub description: Option<String>,
+    pub labels: HashMap<String, String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsCreatePvcVoiceRequest {
+    pub fn new(name: impl Into<String>, language: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            language: language.into(),
+            description: None,
+            labels: HashMap::new(),
+            http_config: None,
+        }
+    }
+
+    pub fn with_description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    pub fn with_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.labels.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.name.trim().is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC voice name cannot be empty".to_string(),
+            ));
+        }
+        if self.language.trim().is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC voice language cannot be empty".to_string(),
+            ));
+        }
+        validate_voice_labels(&self.labels)
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            name: &'a str,
+            language: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            description: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            labels: Option<&'a HashMap<String, String>>,
+        }
+
+        serde_json::to_value(Body {
+            name: self.name.trim(),
+            language: self.language.trim(),
+            description: optional_trimmed(self.description.as_deref()),
+            labels: (!self.labels.is_empty()).then_some(&self.labels),
+        })
+        .map_err(|e| {
+            LlmError::InvalidInput(format!("Invalid ElevenLabs PVC voice create request: {e}"))
+        })
+    }
+}
+
+/// Request body for updating professional voice clone metadata.
+#[derive(Debug, Clone, Default)]
+pub struct ElevenLabsUpdatePvcVoiceRequest {
+    pub name: Option<String>,
+    pub language: Option<String>,
+    pub description: Option<String>,
+    pub labels: HashMap<String, String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsUpdatePvcVoiceRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_name(mut self, value: impl Into<String>) -> Self {
+        self.name = Some(value.into());
+        self
+    }
+
+    pub fn with_language(mut self, value: impl Into<String>) -> Self {
+        self.language = Some(value.into());
+        self
+    }
+
+    pub fn with_description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    pub fn with_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.labels.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self
+            .name
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC voice name cannot be empty".to_string(),
+            ));
+        }
+        if self
+            .language
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC voice language cannot be empty".to_string(),
+            ));
+        }
+        validate_voice_labels(&self.labels)
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            name: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            language: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            description: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            labels: Option<&'a HashMap<String, String>>,
+        }
+
+        serde_json::to_value(Body {
+            name: optional_trimmed(self.name.as_deref()),
+            language: optional_trimmed(self.language.as_deref()),
+            description: optional_trimmed(self.description.as_deref()),
+            labels: (!self.labels.is_empty()).then_some(&self.labels),
+        })
+        .map_err(|e| {
+            LlmError::InvalidInput(format!("Invalid ElevenLabs PVC voice update request: {e}"))
+        })
+    }
+}
+
+/// Request body for starting professional voice clone training.
+#[derive(Debug, Clone, Default)]
+pub struct ElevenLabsTrainPvcVoiceRequest {
+    pub model_id: Option<String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsTrainPvcVoiceRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_model_id(mut self, value: impl Into<String>) -> Self {
+        self.model_id = Some(value.into());
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self
+            .model_id
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC training model_id cannot be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            model_id: Option<&'a str>,
+        }
+
+        serde_json::to_value(Body {
+            model_id: optional_trimmed(self.model_id.as_deref()),
+        })
+        .map_err(|e| {
+            LlmError::InvalidInput(format!("Invalid ElevenLabs PVC voice train request: {e}"))
+        })
+    }
+}
+
+/// Response body containing a professional voice clone ID.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPvcVoiceResponse {
+    pub voice_id: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
 /// Status response body returned by ElevenLabs voice mutation endpoints.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsVoiceStatusResponse {
     pub status: String,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+fn validate_voice_labels(labels: &HashMap<String, String>) -> Result<(), LlmError> {
+    if labels.keys().any(|key| key.trim().is_empty()) {
+        return Err(LlmError::InvalidInput(
+            "ElevenLabs voice label keys cannot be empty".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Verified language metadata returned by ElevenLabs voice APIs.
@@ -1289,6 +1603,137 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("ElevenLabs voice settings update request cannot be empty"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn voices_pvc_metadata_posts_json_and_maps_responses() {
+        let transport = JsonGetTransport::new(json!({
+            "voice_id": "pvc-voice-1",
+            "future_pvc": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .create_pvc_voice(
+                ElevenLabsCreatePvcVoiceRequest::new("Professional Clone", "en")
+                    .with_description("Narration PVC voice")
+                    .with_label("accent", "american")
+                    .with_http_config(request_http),
+            )
+            .await
+            .expect("create PVC voice response");
+
+        let captured = transport.take_json();
+        assert_eq!(captured.url, "https://api.elevenlabs.test/v1/voices/pvc");
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "name": "Professional Clone",
+                "language": "en",
+                "description": "Narration PVC voice",
+                "labels": { "accent": "american" }
+            })
+        );
+        assert_eq!(response.voice_id, "pvc-voice-1");
+        assert_eq!(response.extra.get("future_pvc"), Some(&json!("kept")));
+
+        let response = voices
+            .update_pvc_voice(
+                "voice/id with space",
+                ElevenLabsUpdatePvcVoiceRequest::new()
+                    .with_name("Updated PVC")
+                    .with_language("en-US")
+                    .with_description("Updated description")
+                    .with_label("age", "middle_aged"),
+            )
+            .await
+            .expect("update PVC voice response");
+
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space"
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "name": "Updated PVC",
+                "language": "en-US",
+                "description": "Updated description",
+                "labels": { "age": "middle_aged" }
+            })
+        );
+        assert_eq!(response.voice_id, "pvc-voice-1");
+    }
+
+    #[tokio::test]
+    async fn voices_pvc_metadata_train_posts_optional_model_id() {
+        let transport = JsonGetTransport::new(json!({
+            "status": "ok",
+            "future_status": "kept"
+        }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .train_pvc_voice(
+                "voice/id with space",
+                ElevenLabsTrainPvcVoiceRequest::new().with_model_id("eleven_multilingual_v2"),
+            )
+            .await
+            .expect("train PVC voice response");
+
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/pvc/voice%2Fid%20with%20space/train"
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "model_id": "eleven_multilingual_v2"
+            })
+        );
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.extra.get("future_status"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn voices_pvc_metadata_create_rejects_missing_required_metadata() {
+        let transport = JsonGetTransport::new(json!({ "voice_id": "pvc-voice-1" }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_http_transport(Arc::new(transport));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let err = voices
+            .create_pvc_voice(ElevenLabsCreatePvcVoiceRequest::new(" ", "en"))
+            .await
+            .expect_err("empty name should fail");
+
+        assert!(
+            err.to_string()
+                .contains("ElevenLabs PVC voice name cannot be empty"),
             "{err}"
         );
     }

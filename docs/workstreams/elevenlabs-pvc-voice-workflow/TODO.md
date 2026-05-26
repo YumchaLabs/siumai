@@ -17,14 +17,16 @@ Last updated: 2026-05-26
 
 ## M1 - PVC Metadata And Training
 
-- [ ] EPVC-020 [owner=worker] [deps=EPVC-010] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] EPVC-020 [owner=worker] [deps=EPVC-010] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Implement create PVC voice, update PVC voice metadata, and start PVC training with typed
   JSON requests/responses.
   Validation: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_metadata --no-fail-fast`; `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`; `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`.
   Review: review-workstream for required-field validation, documented empty-body behavior, path
   encoding, response naming, and facade export fit.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Final status must be DONE, DONE_WITH_CONCERNS, BLOCKED, or NEEDS_CONTEXT.
+  Handoff: DONE. Implemented `create_pvc_voice`, `update_pvc_voice`, and `train_pvc_voice` with
+  typed create/update/train requests, shared PVC voice-id response mapping, path encoding,
+  per-request HTTP config support, facade exports, changelog coverage, and no-network tests.
 
 ## M2 - PVC Samples And Speaker Separation
 

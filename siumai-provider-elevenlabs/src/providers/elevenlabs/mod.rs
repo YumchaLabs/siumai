@@ -34,10 +34,11 @@ pub use pronunciation_dictionaries::{
 };
 pub use voices::{
     ElevenLabsCreateIvcVoiceRequest, ElevenLabsCreateIvcVoiceResponse,
-    ElevenLabsUpdateVoiceSettingsRequest, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
-    ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile,
-    ElevenLabsVoiceSettingsResponse, ElevenLabsVoiceSettingsUpdateResponse,
-    ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
+    ElevenLabsCreatePvcVoiceRequest, ElevenLabsPvcVoiceResponse, ElevenLabsTrainPvcVoiceRequest,
+    ElevenLabsUpdatePvcVoiceRequest, ElevenLabsUpdateVoiceSettingsRequest,
+    ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
+    ElevenLabsVoiceListResponse, ElevenLabsVoiceSampleFile, ElevenLabsVoiceSettingsResponse,
+    ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoiceStatusResponse, ElevenLabsVoices,
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

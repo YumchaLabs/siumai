@@ -79,7 +79,17 @@ gates, and residual risks here or in the closeout notes.
 
 ## Fresh Runs
 
-No implementation gates have run yet in this lane.
+- 2026-05-26: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_metadata --no-fail-fast`
+  - Result: PASS. 3 tests passed, 26 skipped.
+  - Covers: PVC create/update/train JSON URLs, request bodies, headers, response mapping, and
+    required create metadata validation.
+- 2026-05-26: `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`
+  - Result: PASS. 1 test passed, 546 skipped across 213 binaries.
+  - Covers: facade exports for the new PVC request/response types under both
+    `provider_ext::elevenlabs::resources` and `providers::elevenlabs::resources`.
+- 2026-05-26: `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`
+  - Result: PASS.
+  - Covers: formatting for the crates touched by EPVC-020.
 
 ## Notes
 
