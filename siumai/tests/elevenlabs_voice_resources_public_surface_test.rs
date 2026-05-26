@@ -10,9 +10,10 @@ use siumai::provider_ext::elevenlabs::resources::{
     ElevenLabsPronunciationDictionaryRulesMutationRequest,
     ElevenLabsPronunciationDictionaryRulesMutationResponse,
     ElevenLabsRemovePronunciationDictionaryRulesRequest,
-    ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
-    ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
-    ElevenLabsVoices,
+    ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdateVoiceSettingsRequest,
+    ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
+    ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
+    ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoices,
 };
 use siumai::provider_ext::elevenlabs::{ElevenLabsClient, ElevenLabsConfig};
 
@@ -25,6 +26,8 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsVoiceListResponse>();
     assert_type::<ElevenLabsVoice>();
     assert_type::<ElevenLabsVoiceSettingsResponse>();
+    assert_type::<ElevenLabsUpdateVoiceSettingsRequest>();
+    assert_type::<ElevenLabsVoiceSettingsUpdateResponse>();
     assert_type::<ElevenLabsVerifiedLanguage>();
     assert_type::<ElevenLabsPronunciationDictionaries>();
     assert_type::<ElevenLabsPronunciationDictionaryListQuery>();
@@ -42,6 +45,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsPronunciationDictionaryRulesMutationResponse>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoices>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoiceListQuery>();
+    assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsUpdateVoiceSettingsRequest>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
     assert_type::<
         siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
@@ -70,6 +74,10 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     let dictionary_query = ElevenLabsPronunciationDictionaryListQuery::new()
         .with_page_size(10)
         .with_sort("creation_time_unix");
+    let update_voice_settings_request = ElevenLabsUpdateVoiceSettingsRequest::new()
+        .with_stability(0.45)
+        .with_similarity_boost(0.8)
+        .with_speed(1.05);
     let create_dictionary_request = ElevenLabsCreatePronunciationDictionaryFromRulesRequest::new(
         "Product terms",
         vec![ElevenLabsPronunciationDictionaryRuleRequest::alias(
@@ -101,5 +109,6 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     drop(add_dictionary_rules_request);
     drop(remove_dictionary_rules_request);
     drop(voices);
+    drop(update_voice_settings_request);
     drop(pronunciation_dictionaries);
 }

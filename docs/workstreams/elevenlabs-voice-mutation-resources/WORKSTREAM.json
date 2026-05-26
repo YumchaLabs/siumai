@@ -63,10 +63,10 @@
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "ELVM-020",
-  "next_task": "Implement voice settings get/update on ElevenLabsVoices.",
+  "current_task": "ELVM-030",
+  "next_task": "Decide and implement the delete voice/sample delete slice or split follow-ons.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with ELVM-020. Keep IVC/PVC/sample workflows provider-owned and split if their request/response semantics grow beyond a bounded slice."
+    "notes": "Continue with ELVM-030. Keep IVC/PVC/sample workflows provider-owned and split if their request/response semantics grow beyond a bounded slice."
   }
 }

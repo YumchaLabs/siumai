@@ -57,9 +57,10 @@ pub mod resources {
         ElevenLabsPronunciationDictionaryRulesMutationRequest,
         ElevenLabsPronunciationDictionaryRulesMutationResponse,
         ElevenLabsRemovePronunciationDictionaryRulesRequest,
-        ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsVerifiedLanguage,
-        ElevenLabsVoice, ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse,
-        ElevenLabsVoiceSettingsResponse, ElevenLabsVoices,
+        ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsUpdateVoiceSettingsRequest,
+        ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
+        ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
+        ElevenLabsVoiceSettingsUpdateResponse, ElevenLabsVoices,
     };
 }
 

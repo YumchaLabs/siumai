@@ -20,6 +20,8 @@ Gate:
 
 ## M1 - Voice Settings JSON
 
+Status: Complete on 2026-05-26. Evidence is recorded in `EVIDENCE_AND_GATES.md` under ELVM-020.
+
 Exit criteria:
 
 - `ElevenLabsVoices::default_settings` exists.

@@ -70,3 +70,8 @@ git diff --check
 | 2026-05-26 | ELVM-010 | `rg -n "voice|voices|ivc|pvc|settings" repo-ref\ai\packages\elevenlabs -g "*.ts" -g "*.md"` | Done: AI SDK package has speech/transcription voice settings but no voice resource client. |
 | 2026-05-26 | ELVM-010 | `https://elevenlabs.io/docs/llms.txt` voice endpoint inventory reviewed. | Done: settings, delete, samples, IVC, and PVC reference pages were identified. |
 | 2026-05-26 | ELVM-010 | Official settings, delete, sample, IVC, edit, and PVC `.mdx` pages fetched with `Invoke-WebRequest`. | Decision: first executable slice is voice settings get/update; delete, sample audio, IVC, and PVC are follow-on decisions. |
+| 2026-05-26 | ELVM-020 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_settings --no-fail-fast` | Passed: 3 no-network settings tests cover default settings GET, per-voice settings GET, settings update POST JSON, path encoding, request header merge, response mapping, and empty-update rejection. |
+| 2026-05-26 | ELVM-020 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast` | Passed: 6 voice resource tests cover existing list/get behavior plus settings get/update behavior. |
+| 2026-05-26 | ELVM-020 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with voice settings request/response exports. |
+| 2026-05-26 | ELVM-020 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
+| 2026-05-26 | ELVM-020 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |

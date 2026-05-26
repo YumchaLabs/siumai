@@ -15,15 +15,16 @@ Last updated: 2026-05-26
 
 ## ELVM-020 - Voice Settings Get And Update
 
-- [ ] ELVM-020 [owner=worker] [deps=ELVM-010] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] ELVM-020 [owner=worker] [deps=ELVM-010] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Add `default_settings`, `settings`, and `update_settings` support to `ElevenLabsVoices` for
   the documented settings endpoints.
   Validation: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_settings --no-fail-fast`; `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast`; `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`; `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`.
   Review: review-workstream for request naming, empty-update behavior, path encoding, and facade
   export fit.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: READY. Reuse `ElevenLabsVoiceSettingsResponse`; add a typed update request that serializes
-  `stability`, `similarity_boost`, `style`, `use_speaker_boost`, and `speed`.
+  Handoff: DONE. Implemented `default_settings`, `settings`, and `update_settings` with typed
+  `ElevenLabsUpdateVoiceSettingsRequest`, status response mapping, path encoding, header merge,
+  empty-update rejection, no-network provider tests, facade exports, and CHANGELOG coverage.
 
 ## ELVM-030 - Delete Voice And Sample Delete Decision
 
@@ -33,7 +34,8 @@ Last updated: 2026-05-26
   Validation: focused provider/facade nextest filter for accepted delete endpoints; `git diff --check`.
   Review: review-workstream for DELETE helper reuse and status response naming.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Pending ELVM-020.
+  Handoff: READY. Next decide whether a shared DELETE JSON helper should serve both voice deletion
+  and sample deletion in one bounded slice.
 
 ## ELVM-040 - IVC Create And Voice Edit Multipart
 

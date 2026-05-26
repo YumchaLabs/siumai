@@ -5,19 +5,19 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open and scope is frozen. ELVM-010 is complete. The official ElevenLabs voice
-mutation inventory has been audited enough to choose the first implementation slice: voice settings
-get/update on the existing provider-owned `ElevenLabsVoices` resource client.
+The workstream is open and scope is frozen. ELVM-010 and ELVM-020 are complete. Siumai now has
+provider-owned voice settings get/update resources on the existing `ElevenLabsVoices` client.
 
 ## Active Task
 
-- Task ID: ELVM-020
-- Owner: worker
-- Files: `siumai-provider-elevenlabs`, `siumai`, `siumai/tests`
-- Validation: focused provider settings tests, provider voices tests, facade public-surface test,
-  and formatting checks.
+- Task ID: ELVM-030
+- Owner: planner/worker
+- Files: `siumai-provider-elevenlabs`, `siumai`, `siumai/tests`,
+  `docs/workstreams/elevenlabs-voice-mutation-resources`
+- Validation: focused provider/facade nextest filter for accepted delete endpoints and
+  `git diff --check`.
 - Status: READY
-- Review: review-workstream for request naming, empty-update behavior, path encoding, and facade fit.
+- Review: review-workstream for DELETE helper reuse and status response naming.
 - Evidence: `docs/workstreams/elevenlabs-voice-mutation-resources/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Opening
@@ -29,6 +29,8 @@ get/update on the existing provider-owned `ElevenLabsVoices` resource client.
 - Do not add a generic voice-management trait or widen `prelude::unified`.
 - Start with settings get/update because the official API is JSON, bounded, and reuses existing
   settings response semantics.
+- Settings get/update is implemented with `default_settings`, `settings`, `update_settings`,
+  `ElevenLabsUpdateVoiceSettingsRequest`, and `ElevenLabsVoiceSettingsUpdateResponse`.
 - Do not implement sample audio until the response shape is re-audited; current docs describe an
   audio endpoint but show an empty JSON response schema.
 - Treat PVC as a workflow boundary. PVC create may be a later bounded JSON slice, but training,
@@ -36,9 +38,9 @@ get/update on the existing provider-owned `ElevenLabsVoices` resource client.
 
 ## Blockers
 
-- None for ELVM-020.
+- None for ELVM-030.
 
 ## Next Recommended Action
 
-- Implement ELVM-020 with TDD: no-network tests first for `default_settings`, `settings`, and
-  `update_settings`, then facade exports and focused gates.
+- Decide whether to add a shared DELETE JSON helper, then implement `delete_voice` and
+  `delete_sample` together if the response/status semantics stay aligned.

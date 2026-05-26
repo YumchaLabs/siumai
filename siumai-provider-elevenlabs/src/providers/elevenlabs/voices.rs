@@ -9,12 +9,12 @@ use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 use reqwest::Url;
 use secrecy::ExposeSecret;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
 use super::config::ElevenLabsConfig;
-use super::resource_http::execute_get_json;
+use super::resource_http::{execute_get_json, execute_post_json};
 
 /// Provider-owned client for ElevenLabs voice catalog resources.
 #[derive(Clone)]
@@ -50,6 +50,75 @@ impl ElevenLabsVoices {
             http_client,
             retry_options,
         }
+    }
+
+    /// Retrieve default voice settings using `GET /v1/voices/settings/default`.
+    pub async fn default_settings(&self) -> Result<ElevenLabsVoiceSettingsResponse, LlmError> {
+        self.default_settings_with_http_config(None).await
+    }
+
+    /// Retrieve default voice settings with per-request HTTP configuration.
+    pub async fn default_settings_with_http_config(
+        &self,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsVoiceSettingsResponse, LlmError> {
+        let url = join_url(&self.base_url(), "v1/voices/settings/default");
+        execute_get_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "get default voice settings",
+        )
+        .await
+    }
+
+    /// Retrieve settings for a voice using `GET /v1/voices/{voice_id}/settings`.
+    pub async fn settings(
+        &self,
+        voice_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsVoiceSettingsResponse, LlmError> {
+        self.settings_with_http_config(voice_id, None).await
+    }
+
+    /// Retrieve settings for a voice with per-request HTTP configuration.
+    pub async fn settings_with_http_config(
+        &self,
+        voice_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsVoiceSettingsResponse, LlmError> {
+        let url = self.voice_action_url(voice_id, "settings")?;
+        execute_get_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+            "get voice settings",
+        )
+        .await
+    }
+
+    /// Update settings for a voice using `POST /v1/voices/{voice_id}/settings/edit`.
+    pub async fn update_settings(
+        &self,
+        voice_id: impl AsRef<str>,
+        request: ElevenLabsUpdateVoiceSettingsRequest,
+    ) -> Result<ElevenLabsVoiceSettingsUpdateResponse, LlmError> {
+        request.validate()?;
+        let url = self.voice_action_url(voice_id, "settings/edit")?;
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "update voice settings",
+        )
+        .await
     }
 
     /// List voices using `GET /v2/voices`.
@@ -118,6 +187,25 @@ impl ElevenLabsVoices {
         }
 
         Ok(url.to_string())
+    }
+
+    fn voice_action_url(
+        &self,
+        voice_id: impl AsRef<str>,
+        action: &str,
+    ) -> Result<String, LlmError> {
+        let voice_id = voice_id.as_ref().trim();
+        if voice_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs voice_id cannot be empty".to_string(),
+            ));
+        }
+
+        let encoded = urlencoding::encode(voice_id);
+        Ok(join_url(
+            &self.base_url(),
+            &format!("v1/voices/{encoded}/{action}"),
+        ))
     }
 }
 
@@ -351,6 +439,104 @@ pub struct ElevenLabsVoiceSettingsResponse {
     pub extra: HashMap<String, Value>,
 }
 
+/// Request body for updating ElevenLabs voice settings.
+#[derive(Debug, Clone, Default)]
+pub struct ElevenLabsUpdateVoiceSettingsRequest {
+    pub stability: Option<f64>,
+    pub similarity_boost: Option<f64>,
+    pub style: Option<f64>,
+    pub use_speaker_boost: Option<bool>,
+    pub speed: Option<f64>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsUpdateVoiceSettingsRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub const fn with_stability(mut self, value: f64) -> Self {
+        self.stability = Some(value);
+        self
+    }
+
+    pub const fn with_similarity_boost(mut self, value: f64) -> Self {
+        self.similarity_boost = Some(value);
+        self
+    }
+
+    pub const fn with_style(mut self, value: f64) -> Self {
+        self.style = Some(value);
+        self
+    }
+
+    pub const fn with_use_speaker_boost(mut self, value: bool) -> Self {
+        self.use_speaker_boost = Some(value);
+        self
+    }
+
+    pub const fn with_speed(mut self, value: f64) -> Self {
+        self.speed = Some(value);
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.stability.is_none()
+            && self.similarity_boost.is_none()
+            && self.style.is_none()
+            && self.use_speaker_boost.is_none()
+            && self.speed.is_none()
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs voice settings update request cannot be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            stability: Option<f64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            similarity_boost: Option<f64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            style: Option<f64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            use_speaker_boost: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            speed: Option<f64>,
+        }
+
+        serde_json::to_value(Body {
+            stability: self.stability,
+            similarity_boost: self.similarity_boost,
+            style: self.style,
+            use_speaker_boost: self.use_speaker_boost,
+            speed: self.speed,
+        })
+        .map_err(|e| {
+            LlmError::InvalidInput(format!(
+                "Invalid ElevenLabs voice settings update request: {e}"
+            ))
+        })
+    }
+}
+
+/// Response body for `POST /v1/voices/{voice_id}/settings/edit`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsVoiceSettingsUpdateResponse {
+    pub status: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
 /// Verified language metadata returned by ElevenLabs voice APIs.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsVerifiedLanguage {
@@ -383,6 +569,7 @@ mod tests {
     #[derive(Clone)]
     struct JsonGetTransport {
         response: Value,
+        last_json: Arc<Mutex<Option<HttpTransportRequest>>>,
         last_get: Arc<Mutex<Option<HttpTransportGetRequest>>>,
     }
 
@@ -390,8 +577,17 @@ mod tests {
         fn new(response: Value) -> Self {
             Self {
                 response,
+                last_json: Arc::new(Mutex::new(None)),
                 last_get: Arc::new(Mutex::new(None)),
             }
+        }
+
+        fn take_json(&self) -> HttpTransportRequest {
+            self.last_json
+                .lock()
+                .expect("json transport lock")
+                .take()
+                .expect("captured json request")
         }
 
         fn take_get(&self) -> HttpTransportGetRequest {
@@ -407,11 +603,16 @@ mod tests {
     impl HttpTransport for JsonGetTransport {
         async fn execute_json(
             &self,
-            _request: HttpTransportRequest,
+            request: HttpTransportRequest,
         ) -> Result<HttpTransportResponse, LlmError> {
-            Err(LlmError::UnsupportedOperation(
-                "json requests are not expected in voice resource tests".to_string(),
-            ))
+            *self.last_json.lock().expect("json transport lock") = Some(request);
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&self.response).expect("serialize response"),
+            })
         }
 
         async fn execute_get(
@@ -634,6 +835,142 @@ mod tests {
         );
         assert_eq!(response.voice_id, "voice/id with space");
         assert_eq!(response.name.as_deref(), Some("Custom"));
+    }
+
+    #[tokio::test]
+    async fn voices_settings_get_default_and_voice_settings() {
+        let transport = JsonGetTransport::new(json!({
+            "stability": 0.33,
+            "similarity_boost": 0.77,
+            "style": 0.12,
+            "use_speaker_boost": true,
+            "speed": 1.05,
+            "future_setting": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test/")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let default_settings = voices
+            .default_settings_with_http_config(Some(&request_http))
+            .await
+            .expect("default settings response");
+        let captured = transport.take_get();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/settings/default"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(default_settings.stability, Some(0.33));
+        assert_eq!(default_settings.similarity_boost, Some(0.77));
+        assert_eq!(default_settings.style, Some(0.12));
+        assert_eq!(default_settings.use_speaker_boost, Some(true));
+        assert_eq!(default_settings.speed, Some(1.05));
+        assert_eq!(
+            default_settings.extra.get("future_setting"),
+            Some(&json!("kept"))
+        );
+
+        let voice_settings = voices
+            .settings("voice/id with space")
+            .await
+            .expect("voice settings response");
+        let captured = transport.take_get();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/voice%2Fid%20with%20space/settings"
+        );
+        assert_eq!(voice_settings.stability, Some(0.33));
+    }
+
+    #[tokio::test]
+    async fn voices_settings_update_posts_json_and_maps_status() {
+        let transport = JsonGetTransport::new(json!({
+            "status": "ok",
+            "future_status": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_http_transport(Arc::new(transport.clone()));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let response = voices
+            .update_settings(
+                "voice/id with space",
+                ElevenLabsUpdateVoiceSettingsRequest::new()
+                    .with_stability(0.45)
+                    .with_similarity_boost(0.82)
+                    .with_style(0.2)
+                    .with_use_speaker_boost(false)
+                    .with_speed(0.95)
+                    .with_http_config(request_http),
+            )
+            .await
+            .expect("update settings response");
+
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/voices/voice%2Fid%20with%20space/settings/edit"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "stability": 0.45,
+                "similarity_boost": 0.82,
+                "style": 0.2,
+                "use_speaker_boost": false,
+                "speed": 0.95
+            })
+        );
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.extra.get("future_status"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn voices_settings_update_rejects_empty_request() {
+        let transport = JsonGetTransport::new(json!({ "status": "ok" }));
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_http_transport(Arc::new(transport));
+        let voices = ElevenLabsVoices::new(config, reqwest::Client::new(), None);
+
+        let err = voices
+            .update_settings("voice-1", ElevenLabsUpdateVoiceSettingsRequest::new())
+            .await
+            .expect_err("empty update should fail");
+
+        assert!(
+            err.to_string()
+                .contains("ElevenLabs voice settings update request cannot be empty"),
+            "{err}"
+        );
     }
 
     #[tokio::test]
