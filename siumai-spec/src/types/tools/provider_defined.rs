@@ -1,6 +1,8 @@
 //! Provider-defined tool types.
 
-use super::{ToolNameValidationError, validate_provider_tool_id, validate_tool_name};
+use super::{
+    ToolExecutionOwner, ToolNameValidationError, validate_provider_tool_id, validate_tool_name,
+};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -126,10 +128,9 @@ pub struct ProviderDefinedTool {
 
     /// Whether this provider tool is executed by the provider.
     ///
-    /// This mirrors AI SDK's `isProviderExecuted` flag. `true` means the provider/model service
-    /// owns execution and may return the result without a local tool-result turn; `false` means
-    /// Siumai or the caller owns execution. Legacy Siumai constructors default to `true` because
-    /// the historical provider-defined tool surface represented hosted tools.
+    /// This is the AI SDK `isProviderExecuted` wire flag. Use `execution_owner()` for semantic
+    /// routing. Legacy Siumai constructors default to provider-owned execution because the
+    /// historical provider-defined tool surface represented hosted tools.
     pub is_provider_executed: bool,
 
     /// Provider-specific configuration arguments.
@@ -359,7 +360,12 @@ impl ProviderDefinedTool {
 
     /// Whether the provider executes this tool.
     pub const fn is_provider_executed(&self) -> bool {
-        self.is_provider_executed
+        self.execution_owner().is_provider()
+    }
+
+    /// Return the semantic execution owner for this provider tool.
+    pub const fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_is_provider_executed(self.is_provider_executed)
     }
 
     /// Validate the stable provider-tool contract.
@@ -370,7 +376,15 @@ impl ProviderDefinedTool {
 
     /// Set whether the provider executes this tool.
     pub fn with_provider_executed(mut self, is_provider_executed: bool) -> Self {
-        self.is_provider_executed = is_provider_executed;
+        self.is_provider_executed =
+            ToolExecutionOwner::from_is_provider_executed(is_provider_executed)
+                .to_is_provider_executed();
+        self
+    }
+
+    /// Set the semantic execution owner for this provider tool.
+    pub fn with_execution_owner(mut self, owner: ToolExecutionOwner) -> Self {
+        self.is_provider_executed = owner.to_is_provider_executed();
         self
     }
 

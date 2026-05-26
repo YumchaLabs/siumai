@@ -1279,7 +1279,14 @@ impl OpenAiResponsesEventConverter {
         let prefix = format!("{{\"containerId\":{container_id_json},\"code\":\"");
 
         Some(vec![
-            self.openai_tool_input_start_event(item_id, &tool_name, Some(true), None, None, None),
+            self.openai_tool_input_start_event(
+                item_id,
+                &tool_name,
+                provider_owned_tool_flag(),
+                None,
+                None,
+                None,
+            ),
             self.openai_tool_input_delta_event(item_id, &prefix),
         ])
     }
@@ -1312,7 +1319,7 @@ impl OpenAiResponsesEventConverter {
             events.push(self.openai_tool_input_start_event(
                 item_id,
                 &tool_name,
-                Some(true),
+                provider_owned_tool_flag(),
                 None,
                 None,
                 None,
@@ -1361,7 +1368,7 @@ impl OpenAiResponsesEventConverter {
                 item_id,
                 &tool_name,
                 serde_json::Value::String(input),
-                Some(true),
+                provider_owned_tool_flag(),
                 None,
                 None,
                 OpenAiResponsesEventExtras {
@@ -1447,7 +1454,7 @@ impl OpenAiResponsesEventConverter {
                 return Some(vec![self.openai_tool_input_start_event(
                     tool_call_id,
                     &tool_name,
-                    Some(true),
+                    provider_owned_tool_flag(),
                     None,
                     None,
                     None,
@@ -1476,7 +1483,7 @@ impl OpenAiResponsesEventConverter {
                         return Some(vec![self.openai_tool_input_start_event(
                             tool_call_id,
                             &tool_name,
-                            Some(true),
+                            provider_owned_tool_flag(),
                             None,
                             None,
                             None,
@@ -1515,8 +1522,7 @@ impl OpenAiResponsesEventConverter {
         // - xAI file_search also emits empty tool-input-* lifecycle events before tool-call
         if emit_provider_tool_input {
             let provider_executed = if item_type == "web_search_call" {
-                self.include_web_search_provider_executed_in_tool_input
-                    .then_some(true)
+                provider_executed_flag(self.include_web_search_provider_executed_in_tool_input)
             } else {
                 None
             };
@@ -1545,7 +1551,7 @@ impl OpenAiResponsesEventConverter {
             tool_call_id,
             &tool_name,
             input,
-            Some(true),
+            provider_owned_tool_flag(),
             None,
             None,
             OpenAiResponsesEventExtras {
@@ -1646,7 +1652,7 @@ impl OpenAiResponsesEventConverter {
                         tool_call_id,
                         &tool_name,
                         serde_json::json!(input),
-                        Some(true),
+                        provider_owned_tool_flag(),
                         None,
                         None,
                         OpenAiResponsesEventExtras {
@@ -1661,7 +1667,7 @@ impl OpenAiResponsesEventConverter {
                 tool_call_id,
                 &tool_name,
                 serde_json::json!(input.as_str()),
-                Some(true),
+                provider_owned_tool_flag(),
                 None,
                 None,
                 OpenAiResponsesEventExtras {
@@ -1675,7 +1681,6 @@ impl OpenAiResponsesEventConverter {
                     tool_call_id,
                     &tool_name,
                     output.clone(),
-                    Some(true),
                     None,
                     item.get("is_error").and_then(|v| v.as_bool()),
                     Some(self.provider_metadata_json(serde_json::json!({
@@ -1710,7 +1715,7 @@ impl OpenAiResponsesEventConverter {
                     &tool_call_id,
                     &tool_name,
                     serde_json::json!(args),
-                    Some(true),
+                    provider_owned_tool_flag(),
                     Some(true),
                     None,
                     OpenAiResponsesEventExtras {
@@ -1761,7 +1766,7 @@ impl OpenAiResponsesEventConverter {
                         tool_call_id,
                         &tool_name,
                         serde_json::json!(args),
-                        Some(true),
+                        provider_owned_tool_flag(),
                         Some(true),
                         None,
                         OpenAiResponsesEventExtras {
@@ -1804,7 +1809,6 @@ impl OpenAiResponsesEventConverter {
                     tool_call_id,
                     &tool_name_for_result,
                     serde_json::Value::Object(result),
-                    Some(true),
                     Some(true),
                     None,
                     provider_metadata,
@@ -1896,7 +1900,7 @@ impl OpenAiResponsesEventConverter {
                         tool_call_id,
                         &tool_name,
                         serde_json::Value::String(input),
-                        Some(true),
+                        provider_owned_tool_flag(),
                         None,
                         None,
                         OpenAiResponsesEventExtras {
@@ -1912,7 +1916,6 @@ impl OpenAiResponsesEventConverter {
                     serde_json::json!({
                         "outputs": item.get("outputs").cloned().unwrap_or_else(|| serde_json::json!([])),
                     }),
-                    Some(true),
                     None,
                     None,
                     None,
@@ -1985,7 +1988,7 @@ impl OpenAiResponsesEventConverter {
                     tool_call_id,
                     &tool_name,
                     serde_json::Value::String(input),
-                    is_hosted.then_some(true),
+                    provider_executed_flag(is_hosted),
                     None,
                     provider_metadata,
                     OpenAiResponsesEventExtras {
@@ -2022,7 +2025,6 @@ impl OpenAiResponsesEventConverter {
                             serde_json::Value::Array(Vec::new())
                         }),
                     }),
-                    None,
                     None,
                     None,
                     provider_metadata,
@@ -2082,7 +2084,7 @@ impl OpenAiResponsesEventConverter {
                     tool_call_id,
                     &tool_name,
                     serde_json::Value::String(input),
-                    self.shell_call_provider_executed().then_some(true),
+                    provider_executed_flag(self.shell_call_provider_executed()),
                     None,
                     provider_metadata,
                     OpenAiResponsesEventExtras {
@@ -2133,7 +2135,6 @@ impl OpenAiResponsesEventConverter {
                     tool_call_id,
                     &tool_name,
                     result,
-                    None,
                     None,
                     None,
                     None,
@@ -2205,7 +2206,6 @@ impl OpenAiResponsesEventConverter {
                     None,
                     None,
                     None,
-                    None,
                     OpenAiResponsesEventExtras {
                         output_index,
                         raw_item: Some(serde_json::Value::Object(item.clone())),
@@ -2234,7 +2234,6 @@ impl OpenAiResponsesEventConverter {
                     None,
                     None,
                     None,
-                    None,
                     OpenAiResponsesEventExtras {
                         output_index,
                         raw_item: Some(serde_json::Value::Object(item.clone())),
@@ -2256,7 +2255,7 @@ impl OpenAiResponsesEventConverter {
                         tool_call_id,
                         &tool_name,
                         serde_json::json!(""),
-                        Some(true),
+                        provider_owned_tool_flag(),
                         None,
                         None,
                         OpenAiResponsesEventExtras {
@@ -2271,7 +2270,6 @@ impl OpenAiResponsesEventConverter {
                             "type": "computer_use_tool_result",
                             "status": status,
                         }),
-                        Some(true),
                         None,
                         None,
                         None,
@@ -2293,7 +2291,6 @@ impl OpenAiResponsesEventConverter {
             tool_call_id,
             &tool_name,
             result,
-            Some(true),
             None,
             None,
             None,
@@ -2391,7 +2388,7 @@ impl OpenAiResponsesEventConverter {
                             tool_call_id,
                             &tool_name,
                             serde_json::json!(args),
-                            Some(true),
+                            provider_owned_tool_flag(),
                             Some(true),
                             None,
                             OpenAiResponsesEventExtras::default(),
@@ -2403,7 +2400,6 @@ impl OpenAiResponsesEventConverter {
                         tool_call_id,
                         &tool_name_for_result,
                         serde_json::Value::Object(result),
-                        Some(true),
                         Some(true),
                         None,
                         Some(self.provider_metadata_json(serde_json::json!({
@@ -2433,7 +2429,7 @@ impl OpenAiResponsesEventConverter {
                         &tool_call_id,
                         &tool_name,
                         serde_json::json!(args),
-                        Some(true),
+                        provider_owned_tool_flag(),
                         Some(true),
                         None,
                         OpenAiResponsesEventExtras::default(),

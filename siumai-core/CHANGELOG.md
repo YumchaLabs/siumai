@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider replay indexes and raw replay items stay out of public provider metadata.
 - Routed stream processor final content through the public provider-metadata projection so raw,
   private, diagnostic, header, and body fields cannot enter final public content parts.
+- Routed stream and UI provider-executed tool decisions through the shared `ToolExecutionOwner`
+  contract so `Some(false)` remains an explicit caller-owned override and provider-owned UI
+  results stay on the assistant side.
 - Treat repeated stream finish usage as replacement cumulative snapshots for the same provider call,
   preventing accidental double-counting while preserving final raw usage.
 - Routed hard capability guards through the shared unsupported-capability policy so missing family

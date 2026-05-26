@@ -1,8 +1,8 @@
 use crate::streaming::processor::{StreamProcessor, ToolCallBuilder};
 use crate::types::{
     ChatResponse, ChatStreamFileData, ContentPart, FinishReason, MessageContent,
-    ProviderMetadataMap, ResponseMetadata, merge_provider_metadata, provider_metadata_from_object,
-    provider_metadata_without_private_diagnostics,
+    ProviderMetadataMap, ResponseMetadata, ToolExecutionOwner, merge_provider_metadata,
+    provider_metadata_from_object, provider_metadata_without_private_diagnostics,
 };
 use std::collections::HashMap;
 
@@ -267,7 +267,10 @@ fn build_tool_call_part(
         tool_call_id: builder.id.clone(),
         tool_name: builder.name.clone(),
         arguments,
-        provider_executed: builder.provider_executed.or(provider_executed),
+        provider_executed: ToolExecutionOwner::merge_provider_executed_flags(
+            builder.provider_executed,
+            provider_executed,
+        ),
         dynamic: builder.dynamic.or(dynamic),
         invalid: None,
         error: None,

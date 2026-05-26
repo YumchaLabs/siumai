@@ -208,7 +208,7 @@ pub fn last_assistant_message_is_complete_with_tool_calls(messages: &[UiMessage]
     let start = last_step_start_index.map_or(0, |index| index + 1);
 
     let tool_parts = message.parts[start..].iter().filter_map(|part| match part {
-        UiMessagePart::Tool(tool_part) if tool_part.provider_executed != Some(true) => {
+        UiMessagePart::Tool(tool_part) if tool_part.execution_owner().is_caller() => {
             Some(tool_part)
         }
         _ => None,

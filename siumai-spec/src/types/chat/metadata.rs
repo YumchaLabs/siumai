@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::types::ToolExecutionOwner;
+
 use super::content::ToolResultOutput;
 
 /// Tool call information (borrowed view)
@@ -30,6 +32,13 @@ pub struct ToolCallInfo<'a> {
     pub title: Option<&'a str>,
 }
 
+impl ToolCallInfo<'_> {
+    /// Return the semantic execution owner for this tool call.
+    pub fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed.copied())
+    }
+}
+
 /// Tool result information (borrowed view)
 ///
 /// Provides convenient access to tool result fields without pattern matching.
@@ -51,6 +60,13 @@ pub struct ToolResultInfo<'a> {
     pub preliminary: Option<&'a bool>,
     /// Optional human-readable tool title.
     pub title: Option<&'a str>,
+}
+
+impl ToolResultInfo<'_> {
+    /// Return the semantic execution owner for this tool result.
+    pub fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed.copied())
+    }
 }
 
 /// Cache control

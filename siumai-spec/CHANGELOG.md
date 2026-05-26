@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `ToolExecutionOwner` as the semantic contract behind AI SDK `providerExecuted` and
+  `isProviderExecuted` flags, with helper projections on provider tools, prompt tool calls,
+  stream tool calls, UI tool parts, and legacy `ContentPart` tool views.
 - Added portable tool-name and provider-tool-id validation helpers plus fallible constructors and
   `validate_contract()` methods for function tools, provider tools, and named tool choices.
 - Added directional content namespaces for prompt/request parts, generated output parts, and legacy

@@ -1,5 +1,7 @@
 use crate::error::LlmError;
 use crate::execution::transformers::request::RequestTransformer;
+#[cfg(feature = "openai-responses")]
+use crate::types::ToolExecutionOwner;
 use crate::types::{
     ChatRequest, FilePartSource, MediaSource, ModerationRequest, ProviderOptionsMap,
     ProviderReference, RerankRequest,
@@ -64,6 +66,11 @@ fn xai_provider_option_item_id(provider_options: Option<&ProviderOptionsMap>) ->
         .and_then(|options| options.get("itemId").or_else(|| options.get("item_id")))
         .and_then(|value| value.as_str())
         .map(|value| value.to_string())
+}
+
+#[cfg(feature = "openai-responses")]
+fn tool_execution_is_provider_owned(provider_executed: Option<bool>) -> bool {
+    ToolExecutionOwner::from_provider_executed(provider_executed).is_provider()
 }
 
 #[cfg(feature = "openai-responses")]
@@ -344,7 +351,7 @@ impl OpenAiResponsesRequestTransformer {
                             provider_executed,
                             ..
                         } => {
-                            if provider_executed != &Some(true) {
+                            if !tool_execution_is_provider_owned(*provider_executed) {
                                 continue;
                             }
 
@@ -785,7 +792,7 @@ impl OpenAiResponsesRequestTransformer {
                                     provider_options,
                                     ..
                                 } => {
-                                    if provider_executed == &Some(true) {
+                                    if tool_execution_is_provider_owned(*provider_executed) {
                                         continue;
                                     }
 
@@ -893,7 +900,7 @@ impl OpenAiResponsesRequestTransformer {
                                 provider_options,
                                 ..
                             } => {
-                                if provider_executed == &Some(true) {
+                                if tool_execution_is_provider_owned(*provider_executed) {
                                     // Provider-executed tool calls are not sent back to the API.
                                     // Flush any accumulated assistant text to preserve ordering.
                                     flush_assistant(input, &mut content_parts);
@@ -1130,7 +1137,7 @@ impl OpenAiResponsesRequestTransformer {
 
                                 // Assistant tool results are typically provider-executed and stored.
                                 if store
-                                    && (provider_executed == &Some(true)
+                                    && (tool_execution_is_provider_owned(*provider_executed)
                                         || provider_executed.is_none())
                                 {
                                     let item_id = openai_or_azure_provider_option_item_id(Some(
@@ -1680,7 +1687,7 @@ impl OpenAiResponsesRequestTransformer {
                             if let ContentPart::ToolCall {
                                 provider_executed, ..
                             } = part
-                                && provider_executed == &Some(true)
+                                && tool_execution_is_provider_owned(*provider_executed)
                             {
                                 continue;
                             }

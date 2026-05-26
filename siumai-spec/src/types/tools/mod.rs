@@ -3,6 +3,7 @@
 // Deprecated ToolCall and FunctionCall removed. Use ContentPart::ToolCall and tool_result helpers.
 
 mod choice;
+mod execution;
 mod function;
 mod provider_defined;
 mod tool;
@@ -15,6 +16,7 @@ mod openai_builtin;
 mod tests;
 
 pub use choice::{LanguageModelV4ToolChoice, ToolChoice, ToolType, prepare_tool_choice};
+pub use execution::ToolExecutionOwner;
 pub use function::{
     LanguageModelV4FunctionTool, LanguageModelV4FunctionToolInputExample, ToolFunction,
 };

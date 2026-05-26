@@ -7,7 +7,7 @@ use crate::error::LlmError;
 use crate::provider_metadata::openai::{
     OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiSource, OpenAiSourceExt,
 };
-use crate::types::{ChatResponse, ContentPart, FinishReason, Usage};
+use crate::types::{ChatResponse, ContentPart, FinishReason, ToolExecutionOwner, Usage};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -33,6 +33,10 @@ fn openai_chat_finish_reason(response: &ChatResponse) -> Option<String> {
         Some("error") => Some("error".to_string()),
         _ => openai_finish_reason(response.finish_reason.as_ref()).map(ToString::to_string),
     }
+}
+
+fn openai_tool_execution_is_provider_owned(provider_executed: Option<bool>) -> bool {
+    ToolExecutionOwner::from_provider_executed(provider_executed).is_provider()
 }
 
 fn openai_responses_incomplete_reason(response: &ChatResponse) -> Option<String> {
@@ -861,7 +865,7 @@ fn openai_custom_tool_output_item(
         _ => return None,
     };
 
-    if provider_executed != Some(true) {
+    if !openai_tool_execution_is_provider_owned(provider_executed) {
         return None;
     }
 
@@ -924,7 +928,7 @@ fn openai_provider_tool_output_item(
         _ => return None,
     };
 
-    if provider_executed != Some(true) {
+    if !openai_tool_execution_is_provider_owned(provider_executed) {
         return None;
     }
 
@@ -1168,7 +1172,7 @@ fn openai_hosted_dynamic_tool_call_output_item(part: &ContentPart) -> Option<ser
         return None;
     };
 
-    if *provider_executed == Some(true) || *dynamic != Some(true) {
+    if openai_tool_execution_is_provider_owned(*provider_executed) || *dynamic != Some(true) {
         return None;
     }
 
@@ -1223,7 +1227,7 @@ fn openai_hosted_dynamic_tool_result_output_item(part: &ContentPart) -> Option<s
         return None;
     };
 
-    if *provider_executed == Some(true) || *dynamic != Some(true) {
+    if openai_tool_execution_is_provider_owned(*provider_executed) || *dynamic != Some(true) {
         return None;
     }
 
@@ -1364,7 +1368,9 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                         tool_call_id,
                         provider_executed,
                         ..
-                    } if *provider_executed == Some(true) => Some((tool_call_id.as_str(), part)),
+                    } if openai_tool_execution_is_provider_owned(*provider_executed) => {
+                        Some((tool_call_id.as_str(), part))
+                    }
                     _ => None,
                 })
                 .collect();
@@ -1384,7 +1390,9 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                         tool_call_id,
                         provider_executed,
                         ..
-                    } if *provider_executed == Some(true) => Some((tool_call_id.as_str(), part)),
+                    } if openai_tool_execution_is_provider_owned(*provider_executed) => {
+                        Some((tool_call_id.as_str(), part))
+                    }
                     _ => None,
                 })
                 .collect();
@@ -1438,7 +1446,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                             continue;
                         }
 
-                        if *provider_executed == Some(true) {
+                        if openai_tool_execution_is_provider_owned(*provider_executed) {
                             if approval_requests_by_call_id.contains_key(tool_call_id.as_str()) {
                                 continue;
                             }
@@ -1508,7 +1516,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                             continue;
                         };
 
-                        if *provider_executed != Some(true) {
+                        if !openai_tool_execution_is_provider_owned(*provider_executed) {
                             continue;
                         }
 
@@ -1543,7 +1551,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                             continue;
                         }
 
-                        if *provider_executed == Some(true)
+                        if openai_tool_execution_is_provider_owned(*provider_executed)
                             && emitted_provider_tool_items.insert(tool_call_id.clone())
                         {
                             let tool_sources = tool_sources_by_call_id

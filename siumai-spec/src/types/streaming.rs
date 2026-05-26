@@ -4,7 +4,7 @@
 use super::chat::ChatResponse;
 use super::chat::SourcePart;
 use crate::types::{
-    FinishReason, ProviderMetadataMap, ResponseMetadata, Usage, Warning,
+    FinishReason, ProviderMetadataMap, ResponseMetadata, ToolExecutionOwner, Usage, Warning,
     provider_metadata_without_private_diagnostics,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -90,10 +90,10 @@ pub struct ChatStreamToolCall {
         skip_serializing_if = "Option::is_none",
         rename = "providerExecuted"
     )]
-    /// Tool execution owner.
+    /// AI SDK `providerExecuted` wire flag for tool execution ownership.
     ///
-    /// `Some(true)` means the provider/model service executed the tool. `None` and `Some(false)`
-    /// mean the caller/runtime owns execution.
+    /// Use `execution_owner()` for semantic routing. `Some(true)` means provider-owned execution;
+    /// `None` and `Some(false)` mean caller/runtime-owned execution.
     pub provider_executed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dynamic: Option<bool>,
@@ -103,6 +103,19 @@ pub struct ChatStreamToolCall {
         rename = "providerMetadata"
     )]
     pub provider_metadata: Option<StreamProviderMetadata>,
+}
+
+impl ChatStreamToolCall {
+    /// Return the semantic execution owner for this stream tool call.
+    pub const fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed)
+    }
+
+    /// Set semantic execution ownership using the compact AI SDK wire flag.
+    pub fn with_execution_owner(mut self, owner: ToolExecutionOwner) -> Self {
+        self.provider_executed = owner.to_provider_executed_flag();
+        self
+    }
 }
 
 /// Tool result part carried during streaming.

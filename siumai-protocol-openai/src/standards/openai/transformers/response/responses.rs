@@ -5,6 +5,8 @@ use crate::standards::openai::compat::usage::{
 };
 use crate::standards::openai::utils::parse_openai_usage_value;
 use crate::types::ChatResponse;
+#[cfg(feature = "openai-responses")]
+use crate::types::ToolExecutionOwner;
 
 #[cfg(feature = "openai-responses")]
 mod hosted_tools;
@@ -31,6 +33,11 @@ pub struct OpenAiResponsesResponseTransformer {
 pub enum ResponsesTransformStyle {
     OpenAi,
     Xai,
+}
+
+#[cfg(feature = "openai-responses")]
+const fn provider_executed_flag(is_provider_owned: bool) -> Option<bool> {
+    ToolExecutionOwner::from_is_provider_executed(is_provider_owned).to_provider_executed_flag()
 }
 
 #[cfg(feature = "openai-responses")]
@@ -697,7 +704,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_call_id,
                             "toolSearch",
                             serde_json::Value::String(input),
-                            is_hosted.then_some(true),
+                            provider_executed_flag(is_hosted),
                             provider_metadata,
                         ));
                         continue;
@@ -937,7 +944,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                 call_id.to_string(),
                                 "shell",
                                 serde_json::Value::String(input_str),
-                                shell_call_provider_executed.then_some(true),
+                                provider_executed_flag(shell_call_provider_executed),
                                 provider_metadata,
                             )
                             .with_tool_dynamic(true),

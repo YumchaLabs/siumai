@@ -3,7 +3,7 @@ use serde::ser::{Error as SerError, SerializeMap};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
-use crate::types::{ProviderOptionsMap, ProviderReference};
+use crate::types::{ProviderOptionsMap, ProviderReference, ToolExecutionOwner};
 
 /// AI SDK-aligned UI message role.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -533,6 +533,7 @@ impl UiToolDeniedApproval {
 pub struct UiToolInvocation {
     pub tool_call_id: String,
     pub title: Option<String>,
+    /// AI SDK `providerExecuted` wire flag for tool execution ownership.
     pub provider_executed: Option<bool>,
     pub call_provider_metadata: UiProviderMetadata,
     pub state: UiToolInvocationState,
@@ -542,6 +543,17 @@ impl UiToolInvocation {
     /// Return the current tool invocation state.
     pub const fn state(&self) -> UiToolPartState {
         self.state.state()
+    }
+
+    /// Return the semantic execution owner for this UI invocation.
+    pub const fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed)
+    }
+
+    /// Set semantic execution ownership using the compact AI SDK wire flag.
+    pub fn with_execution_owner(mut self, owner: ToolExecutionOwner) -> Self {
+        self.provider_executed = owner.to_provider_executed_flag();
+        self
     }
 }
 
@@ -626,6 +638,7 @@ pub struct UiToolPart {
     pub kind: UiToolKind,
     pub tool_call_id: String,
     pub title: Option<String>,
+    /// AI SDK `providerExecuted` wire flag for tool execution ownership.
     pub provider_executed: Option<bool>,
     pub state: UiToolPartState,
     pub input: Option<Value>,
@@ -694,6 +707,17 @@ impl UiToolPart {
             self.state,
             UiToolPartState::InputStreaming | UiToolPartState::InputAvailable
         )
+    }
+
+    /// Return the semantic execution owner for this UI tool part.
+    pub const fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed)
+    }
+
+    /// Set semantic execution ownership using the compact AI SDK wire flag.
+    pub fn with_execution_owner(mut self, owner: ToolExecutionOwner) -> Self {
+        self.provider_executed = owner.to_provider_executed_flag();
+        self
     }
 
     /// Convert the wide serde-compatible tool part into a state-discriminated invocation view.
@@ -1304,7 +1328,7 @@ mod tests {
         UiDataPart, UiMessagePart, UiToolApproval, UiToolApprovedApproval, UiToolInvocation,
         UiToolInvocationState, UiToolKind, UiToolPart, UiToolPartState,
     };
-    use crate::types::ProviderOptionsMap;
+    use crate::types::{ProviderOptionsMap, ToolExecutionOwner};
 
     #[test]
     fn data_part_serializes_with_data_prefix() {
@@ -1341,7 +1365,9 @@ mod tests {
         let mut tool = UiToolPart::dynamic("code-runner", "call_2", UiToolPartState::OutputError);
         tool.raw_input = Some(serde_json::json!({ "code": "print('hi')" }));
         tool.error_text = Some("boom".to_string());
-        tool.provider_executed = Some(true);
+        tool = tool.with_execution_owner(ToolExecutionOwner::Provider);
+        assert_eq!(tool.provider_executed, Some(true));
+        assert_eq!(tool.execution_owner(), ToolExecutionOwner::Provider);
 
         let value = serde_json::to_value(UiMessagePart::Tool(tool.clone()))
             .expect("serialize dynamic tool part");
@@ -1429,6 +1455,7 @@ mod tests {
         );
 
         assert_eq!(tool.state, UiToolPartState::OutputAvailable);
+        assert_eq!(tool.execution_owner(), ToolExecutionOwner::Provider);
         assert_eq!(tool.invocation().expect("typed invocation"), invocation);
     }
 

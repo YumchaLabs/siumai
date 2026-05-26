@@ -54,6 +54,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   state plus serializer allocation rules behind named converter modules.
 - Added an executable public/private diagnostics projection seam that strips raw/private provider
   metadata keys and exposes public projections for chat responses and stream events.
+- Added a shared `ToolExecutionOwner` contract so provider-executed tool ownership is routed
+  through one semantic owner while AI SDK `providerExecuted` / `isProviderExecuted` remain compact
+  wire flags.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible

@@ -8,7 +8,8 @@
 
 use super::{
     ChatMessage, ChatRequest, ContentPart, FilePartSource, MediaSource, MessageContent,
-    MessageMetadata, MessageRole, ProviderMetadataMap, ProviderOptionsMap, ToolResultOutput,
+    MessageMetadata, MessageRole, ProviderMetadataMap, ProviderOptionsMap, ToolExecutionOwner,
+    ToolResultOutput,
 };
 use base64::Engine;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -691,11 +692,10 @@ pub struct ToolCallPart {
         alias = "provider_executed",
         skip_serializing_if = "Option::is_none"
     )]
-    /// Tool execution owner.
+    /// AI SDK `providerExecuted` wire flag for tool execution ownership.
     ///
-    /// `Some(true)` means the provider/model service executed the tool. `None` and `Some(false)`
-    /// mean the caller/runtime owns execution, so execution validation requires a matching
-    /// tool-result turn before the next user/system message.
+    /// Use `execution_owner()` for semantic routing. `Some(true)` means provider-owned execution;
+    /// `None` and `Some(false)` mean caller/runtime-owned execution.
     pub provider_executed: Option<bool>,
 }
 
@@ -718,6 +718,17 @@ impl ToolCallPart {
     /// Mark whether the tool call was executed by the provider/model service.
     pub fn with_provider_executed(mut self, provider_executed: bool) -> Self {
         self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Return the semantic execution owner for this tool call.
+    pub const fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed)
+    }
+
+    /// Set semantic execution ownership using the compact AI SDK wire flag.
+    pub fn with_execution_owner(mut self, owner: ToolExecutionOwner) -> Self {
+        self.provider_executed = owner.to_provider_executed_flag();
         self
     }
 }
@@ -802,7 +813,7 @@ pub struct ToolApprovalResponse {
         alias = "provider_executed",
         skip_serializing_if = "Option::is_none"
     )]
-    /// Whether this approval response refers to a provider/model-service executed tool call.
+    /// AI SDK `providerExecuted` wire flag for approval response execution ownership.
     pub provider_executed: Option<bool>,
     #[serde(
         rename = "providerOptions",
@@ -834,6 +845,17 @@ impl ToolApprovalResponse {
     /// Mark whether the approval response refers to a provider-executed tool call.
     pub fn with_provider_executed(mut self, provider_executed: bool) -> Self {
         self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Return the semantic execution owner for this approval response.
+    pub const fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed)
+    }
+
+    /// Set semantic execution ownership using the compact AI SDK wire flag.
+    pub fn with_execution_owner(mut self, owner: ToolExecutionOwner) -> Self {
+        self.provider_executed = owner.to_provider_executed_flag();
         self
     }
 
@@ -2129,7 +2151,7 @@ fn validate_prompt_tool_results(messages: &[ModelMessage]) -> Result<(), Missing
                     let AssistantContentPart::ToolCall(part) = part else {
                         continue;
                     };
-                    if part.provider_executed != Some(true) {
+                    if part.execution_owner().is_caller() {
                         push_unique_tool_call_id(
                             &mut pending_tool_call_ids,
                             part.tool_call_id.clone(),
@@ -2357,15 +2379,17 @@ mod tests {
 
     #[test]
     fn prompt_execution_validation_allows_provider_executed_tool_call_without_result() {
+        let tool_call = ToolCallPart::new(
+            "call_provider_executed",
+            "code_interpreter",
+            serde_json::json!({ "code": "print(\"hello\")" }),
+        )
+        .with_execution_owner(ToolExecutionOwner::Provider);
+        assert_eq!(tool_call.provider_executed, Some(true));
+        assert_eq!(tool_call.execution_owner(), ToolExecutionOwner::Provider);
+
         let prompt = Prompt::messages(vec![ModelMessage::Assistant(AssistantModelMessage::new(
-            AssistantContent::parts(vec![AssistantContentPart::ToolCall(
-                ToolCallPart::new(
-                    "call_provider_executed",
-                    "code_interpreter",
-                    serde_json::json!({ "code": "print(\"hello\")" }),
-                )
-                .with_provider_executed(true),
-            )]),
+            AssistantContent::parts(vec![AssistantContentPart::ToolCall(tool_call)]),
         ))]);
 
         prompt

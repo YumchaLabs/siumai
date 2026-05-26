@@ -96,7 +96,6 @@ impl OpenAiResponsesEventConverter {
         tool_call_id: &str,
         tool_name: &str,
         result: serde_json::Value,
-        _provider_executed: Option<bool>,
         dynamic: Option<bool>,
         is_error: Option<bool>,
         provider_metadata: Option<serde_json::Value>,

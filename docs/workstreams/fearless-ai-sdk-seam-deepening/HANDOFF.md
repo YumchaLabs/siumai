@@ -11,6 +11,19 @@ Hajimi adapter changes out of scope.
 
 ## Completed Task
 
+- Task ID: AISD-040
+- Result: DONE
+- Summary: Provider-executed tool ownership now has a shared `ToolExecutionOwner` semantic
+  contract. Spec prompt/UI/stream/tool views expose owner helpers while keeping AI SDK wire flags,
+  core UI and stream projection route decisions through the owner contract, and OpenAI protocol
+  adapters use the same owner helpers for Responses request/response/SSE conversion.
+- Validation:
+  - `cargo check -p siumai-spec -p siumai-core -p siumai-protocol-openai --features siumai-protocol-openai/openai-standard,siumai-protocol-openai/openai-responses`
+  - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
+  - `cargo nextest run -p siumai-spec provider_executed --no-fail-fast`
+  - `cargo nextest run -p siumai-core provider_executed --no-fail-fast`
+  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_executed --no-fail-fast`
+
 - Task ID: AISD-030
 - Result: DONE
 - Summary: Public provider metadata and private diagnostics now have executable projections; core
@@ -34,22 +47,19 @@ Hajimi adapter changes out of scope.
 
 ## Active Task
 
-- Task ID: AISD-040
+- Task ID: AISD-050
 - Owner: codex
 - Files:
-  - `siumai-spec/src/types/tools`
-  - `siumai-spec/src/types/prompt.rs`
-  - `siumai-core/src/tooling`
-  - `siumai-core/src/ui`
-  - `siumai-spec/src/types`
-  - `siumai-protocol-openai/src`
+  - `siumai-core/src/execution`
+  - `siumai-core/src/traits/capabilities.rs`
+  - `siumai-core/src/error/helpers.rs`
+  - `siumai-spec/src/types/common.rs`
   - `CHANGELOG.md`
   - crate changelogs
 - Validation:
-  - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
-  - `cargo nextest run -p siumai-spec provider_executed --no-fail-fast`
-  - `cargo nextest run -p siumai-core provider_executed --no-fail-fast`
-  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_executed --no-fail-fast`
+  - `cargo fmt --check -p siumai-core -p siumai-spec`
+  - `cargo nextest run -p siumai-core unsupported_capability --no-fail-fast`
+  - `cargo nextest run -p siumai-core reject_if_unsupported --no-fail-fast`
 - Status: IN_PROGRESS
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -64,6 +74,6 @@ Hajimi adapter changes out of scope.
 
 ## Next Recommended Action
 
-Continue AISD-040 with `run-workstream-task`. Inspect existing provider-executed constructors,
-prompt/runtime/UI projections, and OpenAI Responses tool ownership before editing; the goal is one
-contract module for execution owner semantics.
+Continue AISD-050 with `run-workstream-task`. Inspect existing unsupported-capability helpers and
+executor guards before editing; the goal is one shared gate module so hard rejects, warnings, and
+provider fallback behavior are explicit rather than repeated across executors.

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ProviderMetadataMap, ProviderOptionsMap};
+use crate::types::{ProviderMetadataMap, ProviderOptionsMap, ToolExecutionOwner};
 
 use super::super::metadata::{ToolCallInfo, ToolResultInfo};
 use super::{
@@ -309,10 +309,10 @@ pub enum ContentPart {
         #[serde(rename = "input")]
         arguments: serde_json::Value,
 
-        /// Whether this tool will be executed by the provider
+        /// AI SDK `providerExecuted` wire flag for tool execution ownership.
         ///
-        /// - `Some(true)`: Provider-defined tool (e.g., web search, code execution)
-        /// - `None` or `Some(false)`: User-defined function
+        /// Use `execution_owner()` for semantic routing. `Some(true)` means provider-owned
+        /// execution; `None` and `Some(false)` mean caller/runtime-owned execution.
         #[serde(
             rename = "providerExecuted",
             alias = "provider_executed",
@@ -368,7 +368,7 @@ pub enum ContentPart {
         /// Optional approval/denial reason.
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
-        /// Whether the approved tool call is provider-executed.
+        /// AI SDK `providerExecuted` wire flag for approval response execution ownership.
         #[serde(
             rename = "providerExecuted",
             alias = "provider_executed",
@@ -1157,6 +1157,43 @@ impl ContentPart {
             *slot = Some(preliminary);
         }
         self
+    }
+
+    /// Set semantic execution ownership for a tool call, tool result, or approval response.
+    pub fn with_tool_execution_owner(mut self, owner: ToolExecutionOwner) -> Self {
+        match &mut self {
+            Self::ToolCall {
+                provider_executed, ..
+            }
+            | Self::ToolResult {
+                provider_executed, ..
+            }
+            | Self::ToolApprovalResponse {
+                provider_executed, ..
+            } => {
+                *provider_executed = owner.to_provider_executed_flag();
+            }
+            _ => {}
+        }
+        self
+    }
+
+    /// Return semantic execution ownership for tool call/result/approval parts.
+    pub const fn tool_execution_owner(&self) -> Option<ToolExecutionOwner> {
+        match self {
+            Self::ToolCall {
+                provider_executed, ..
+            }
+            | Self::ToolResult {
+                provider_executed, ..
+            }
+            | Self::ToolApprovalResponse {
+                provider_executed, ..
+            } => Some(ToolExecutionOwner::from_provider_executed(
+                *provider_executed,
+            )),
+            _ => None,
+        }
     }
 
     /// Attach an optional media type to an image content part.

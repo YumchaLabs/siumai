@@ -14,7 +14,7 @@ use crate::streaming::processor::response_assembly::tool_input_from_builder;
 use crate::types::MessageContent;
 use crate::types::{
     ChatResponse, ChatStreamEvent, ChatStreamPart, ContentPart, FinishReason, ProviderMetadataMap,
-    ResponseMetadata, Usage, Warning, merge_provider_metadata,
+    ResponseMetadata, ToolExecutionOwner, Usage, Warning, merge_provider_metadata,
     provider_metadata_without_private_diagnostics,
 };
 use std::collections::HashMap;
@@ -237,9 +237,10 @@ impl StreamProcessor {
                     tool_name: call.tool_name.clone(),
                     arguments: serde_json::from_str(&call.input)
                         .unwrap_or_else(|_| serde_json::Value::String(call.input.clone())),
-                    provider_executed: call
-                        .provider_executed
-                        .or_else(|| builder.and_then(|builder| builder.provider_executed)),
+                    provider_executed: ToolExecutionOwner::merge_provider_executed_flags(
+                        call.provider_executed,
+                        builder.and_then(|builder| builder.provider_executed),
+                    ),
                     dynamic: call
                         .dynamic
                         .or_else(|| builder.and_then(|builder| builder.dynamic)),
@@ -618,6 +619,11 @@ impl ToolCallBuilder {
             title: None,
             provider_metadata: None,
         }
+    }
+
+    /// Return the semantic execution owner for this incremental tool call.
+    pub const fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed)
     }
 }
 

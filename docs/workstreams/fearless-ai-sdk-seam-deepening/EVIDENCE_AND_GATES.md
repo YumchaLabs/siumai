@@ -26,6 +26,11 @@ Last updated: 2026-05-27
 | 2026-05-27 | AISD-030 | `cargo nextest run -p siumai-core provider_metadata --no-fail-fast` | Pass | 12 core provider metadata tests passed, including final content projection stripping raw/private keys. |
 | 2026-05-27 | AISD-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_metadata --no-fail-fast` | Pass | 23 protocol provider metadata tests passed after the shared public projection change. |
 | 2026-05-27 | AISD-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses diagnostics --no-fail-fast` | Pass | 1 Responses SSE diagnostics projection test passed. |
+| 2026-05-27 | AISD-040 | `cargo check -p siumai-spec -p siumai-core -p siumai-protocol-openai --features siumai-protocol-openai/openai-standard,siumai-protocol-openai/openai-responses` | Pass | Spec/core/protocol compile with the shared `ToolExecutionOwner` contract and OpenAI Responses feature surface. |
+| 2026-05-27 | AISD-040 | `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai` | Pass | Spec/core/protocol formatting is clean after provider-executed ownership refactor. |
+| 2026-05-27 | AISD-040 | `cargo nextest run -p siumai-spec provider_executed --no-fail-fast` | Pass | 3 spec provider-executed tests passed, including `ToolExecutionOwner` wire-flag conversion and prompt validation. |
+| 2026-05-27 | AISD-040 | `cargo nextest run -p siumai-core provider_executed --no-fail-fast` | Pass | 2 core UI provider-executed conversion tests passed. |
+| 2026-05-27 | AISD-040 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_executed --no-fail-fast` | Pass | 6 protocol provider-executed tests passed across Responses SSE conversion, request/response transformers, and JSON response encoding. |
 
 ## Required Gates
 

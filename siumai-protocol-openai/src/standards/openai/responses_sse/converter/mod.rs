@@ -28,6 +28,15 @@ mod tool_events;
 mod serialize;
 mod sse;
 
+const fn provider_executed_flag(is_provider_owned: bool) -> Option<bool> {
+    crate::types::ToolExecutionOwner::from_is_provider_executed(is_provider_owned)
+        .to_provider_executed_flag()
+}
+
+const fn provider_owned_tool_flag() -> Option<bool> {
+    crate::types::ToolExecutionOwner::Provider.to_provider_executed_flag()
+}
+
 /// OpenAI Responses SSE event converter using unified streaming utilities
 #[derive(Clone)]
 pub struct OpenAiResponsesEventConverter {

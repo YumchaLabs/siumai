@@ -339,11 +339,42 @@ fn legacy_tool_constructors_remain_infallible_but_can_be_validated() {
 fn provider_defined_tool_execution_owner_is_explicit() {
     let local = ProviderDefinedTool::provider_defined("acme.search", "search");
     assert!(!local.is_provider_executed());
+    assert_eq!(local.execution_owner(), ToolExecutionOwner::Caller);
     assert!(local.validate_contract().is_ok());
 
     let hosted = ProviderDefinedTool::provider_executed("openai.web_search", "web_search");
     assert!(hosted.is_provider_executed());
+    assert_eq!(hosted.execution_owner(), ToolExecutionOwner::Provider);
     assert!(hosted.validate_contract().is_ok());
+
+    let retargeted = hosted.with_execution_owner(ToolExecutionOwner::Caller);
+    assert!(!retargeted.is_provider_executed());
+    assert_eq!(retargeted.execution_owner(), ToolExecutionOwner::Caller);
+}
+
+#[test]
+fn provider_executed_wire_flags_roundtrip_through_execution_owner() {
+    assert_eq!(
+        ToolExecutionOwner::from_provider_executed(None),
+        ToolExecutionOwner::Caller
+    );
+    assert_eq!(
+        ToolExecutionOwner::from_provider_executed(Some(false)),
+        ToolExecutionOwner::Caller
+    );
+    assert_eq!(
+        ToolExecutionOwner::from_provider_executed(Some(true)),
+        ToolExecutionOwner::Provider
+    );
+    assert_eq!(
+        ToolExecutionOwner::Provider.to_provider_executed_flag(),
+        Some(true)
+    );
+    assert_eq!(ToolExecutionOwner::Caller.to_provider_executed_flag(), None);
+    assert_eq!(
+        ToolExecutionOwner::merge_provider_executed_flags(Some(false), Some(true)),
+        Some(false)
+    );
 }
 
 #[test]

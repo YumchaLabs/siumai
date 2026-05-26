@@ -2,8 +2,8 @@ use crate::types::{
     AssistantContent, AssistantContentPart, AssistantModelMessage, CustomPart, FilePart, ImagePart,
     ModelMessage, ProviderOptionsMap, ProviderReference, ReasoningFilePart, ReasoningPart,
     SystemModelMessage, TextPart, ToolApprovalResponse, ToolCallPart, ToolContentPart,
-    ToolModelMessage, ToolResultContentPart, ToolResultFileId, ToolResultOutput, ToolResultPart,
-    UserContent, UserContentPart, UserModelMessage,
+    ToolExecutionOwner, ToolModelMessage, ToolResultContentPart, ToolResultFileId,
+    ToolResultOutput, ToolResultPart, UserContent, UserContentPart, UserModelMessage,
 };
 use serde::{Deserialize, Serialize};
 
@@ -249,6 +249,17 @@ impl LanguageModelV4ToolCallPart {
     /// Mark whether this tool call will be executed by the provider.
     pub const fn with_provider_executed(mut self, provider_executed: bool) -> Self {
         self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Return the semantic execution owner for this provider prompt tool call.
+    pub const fn execution_owner(&self) -> ToolExecutionOwner {
+        ToolExecutionOwner::from_provider_executed(self.provider_executed)
+    }
+
+    /// Set semantic execution ownership using the compact AI SDK wire flag.
+    pub const fn with_execution_owner(mut self, owner: ToolExecutionOwner) -> Self {
+        self.provider_executed = owner.to_provider_executed_flag();
         self
     }
 
@@ -1336,7 +1347,7 @@ impl LanguageModelV4ToolMessage {
                     ))
                 }
                 ToolContentPart::ToolApprovalResponse(part)
-                    if part.provider_executed == Some(true) =>
+                    if part.execution_owner().is_provider() =>
                 {
                     Some(LanguageModelV4ToolContentPart::ToolApprovalResponse(
                         LanguageModelV4ToolApprovalResponsePart::from_tool_approval_response(part),

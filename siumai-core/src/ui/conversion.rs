@@ -1,8 +1,9 @@
 use crate::tooling::{ExecutableTools, ToolModelOutputContext};
 use crate::types::{
     ChatMessage, ChatRequest, ContentPart, FilePartSource, MediaSource, MessageContent,
-    MessageRole, ProviderOptionsMap, ToolResultOutput, UiDataPart, UiFilePart, UiMessage,
-    UiMessagePart, UiMessageRole, UiReasoningFilePart, UiToolKind, UiToolPart, UiToolPartState,
+    MessageRole, ProviderOptionsMap, ToolExecutionOwner, ToolResultOutput, UiDataPart, UiFilePart,
+    UiMessage, UiMessagePart, UiMessageRole, UiReasoningFilePart, UiToolKind, UiToolPart,
+    UiToolPartState,
 };
 use serde_json::Value;
 
@@ -235,7 +236,7 @@ where
                         ));
                     }
 
-                    if part.provider_executed == Some(true)
+                    if part.execution_owner().is_provider()
                         && !matches!(part.state, UiToolPartState::ApprovalResponded)
                         && matches!(
                             part.state,
@@ -268,7 +269,7 @@ where
         UiMessagePart::Tool(part) => Some(part),
         _ => None,
     }) {
-        if part.provider_executed == Some(true)
+        if part.execution_owner().is_provider()
             && part
                 .approval
                 .as_ref()
@@ -290,7 +291,7 @@ where
             });
         }
 
-        if part.provider_executed == Some(true) {
+        if part.execution_owner().is_provider() {
             continue;
         }
 
@@ -514,7 +515,8 @@ fn convert_tool_result_part(
     Ok(ui_request_tool_result_part(
         part,
         output,
-        provider_executed.then_some(true),
+        ToolExecutionOwner::from_is_provider_executed(provider_executed)
+            .to_provider_executed_flag(),
         provider_options,
     ))
 }

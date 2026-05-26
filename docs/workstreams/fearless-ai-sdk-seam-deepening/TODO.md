@@ -30,12 +30,12 @@ Last updated: 2026-05-27
 
 ## M2 - Tool, Capability, And Usage Contract Depth
 
-- [ ] AISD-040 [owner=codex] [deps=AISD-010] [scope=siumai-spec/src/types/tools,siumai-spec/src/types/prompt.rs,siumai-core/src/tooling,siumai-core/src/ui,siumai-protocol-openai/src,CHANGELOG.md,crate changelogs]
+- [x] AISD-040 [owner=codex] [deps=AISD-010] [scope=siumai-spec/src/types/tools,siumai-spec/src/types/prompt.rs,siumai-core/src/tooling,siumai-core/src/ui,siumai-protocol-openai/src,CHANGELOG.md,crate changelogs]
   Goal: Deepen provider-executed tool ownership into one contract module reused by prompt validation, runtime tooling, UI conversion, and protocol adapters.
   Validation: `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`; `cargo nextest run -p siumai-spec provider_executed --no-fail-fast`; `cargo nextest run -p siumai-core provider_executed --no-fail-fast`; `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_executed --no-fail-fast`.
   Review: Confirm constructor naming no longer forces callers to remember ownership differences.
   Evidence: `EVIDENCE_AND_GATES.md`, changelogs.
-  Handoff: Preserve compatibility constructors unless tests prove a helper is obsolete.
+  Handoff: DONE. `ToolExecutionOwner` is the semantic contract; legacy AI SDK wire flags remain compatibility fields, prompt/UI/core/protocol decisions use the owner helper, and the obsolete ignored provider-executed stream-result parameter was removed.
 
 - [ ] AISD-050 [owner=codex] [deps=AISD-010] [scope=siumai-core/src/execution,siumai-core/src/traits/capabilities.rs,siumai-core/src/error/helpers.rs,siumai-spec/src/types/common.rs,CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Centralize unsupported capability guard choreography behind a deep module so executors do not repeat feature strings, details, policy creation, and policy resolution.

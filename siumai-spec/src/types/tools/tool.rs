@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    LanguageModelV4FunctionTool, LanguageModelV4ProviderTool, ProviderDefinedTool, ToolFunction,
-    ToolNameValidationError,
+    LanguageModelV4FunctionTool, LanguageModelV4ProviderTool, ProviderDefinedTool,
+    ToolExecutionOwner, ToolFunction, ToolNameValidationError,
 };
 
 /// AI SDK V4 model-facing tool union.
@@ -280,7 +280,15 @@ impl Tool {
     /// Whether this is a provider tool that is executed by the provider/model service.
     pub fn is_provider_executed(&self) -> Option<bool> {
         match self {
-            Self::ProviderDefined(tool) => Some(tool.is_provider_executed()),
+            Self::ProviderDefined(tool) => Some(tool.execution_owner().is_provider()),
+            Self::Function { .. } => None,
+        }
+    }
+
+    /// Return the semantic execution owner when this is a provider tool.
+    pub fn execution_owner(&self) -> Option<ToolExecutionOwner> {
+        match self {
+            Self::ProviderDefined(tool) => Some(tool.execution_owner()),
             Self::Function { .. } => None,
         }
     }
@@ -291,6 +299,14 @@ impl Tool {
             Self::ProviderDefined(tool) => {
                 Self::ProviderDefined(tool.with_provider_executed(is_provider_executed))
             }
+            other => other,
+        }
+    }
+
+    /// Set semantic execution ownership when this is a provider tool.
+    pub fn with_execution_owner(self, owner: ToolExecutionOwner) -> Self {
+        match self {
+            Self::ProviderDefined(tool) => Self::ProviderDefined(tool.with_execution_owner(owner)),
             other => other,
         }
     }
