@@ -26,6 +26,9 @@ pub use pronunciation_dictionaries::{
     ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
     ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
     ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
+    ElevenLabsPronunciationDictionaryRulesMutationRequest,
+    ElevenLabsPronunciationDictionaryRulesMutationResponse,
+    ElevenLabsRemovePronunciationDictionaryRulesRequest,
     ElevenLabsUpdatePronunciationDictionaryRequest,
 };
 pub use voices::{

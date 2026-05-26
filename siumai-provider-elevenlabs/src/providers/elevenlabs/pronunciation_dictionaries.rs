@@ -135,6 +135,72 @@ impl ElevenLabsPronunciationDictionaries {
         .await
     }
 
+    /// Add pronunciation dictionary rules using
+    /// `POST /v1/pronunciation-dictionaries/{pronunciation_dictionary_id}/add-rules`.
+    pub async fn add_rules(
+        &self,
+        pronunciation_dictionary_id: impl AsRef<str>,
+        request: ElevenLabsPronunciationDictionaryRulesMutationRequest,
+    ) -> Result<ElevenLabsPronunciationDictionaryRulesMutationResponse, LlmError> {
+        request.validate()?;
+        let url = self.dictionary_action_url(pronunciation_dictionary_id, "add-rules")?;
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "add pronunciation dictionary rules",
+        )
+        .await
+    }
+
+    /// Replace pronunciation dictionary rules using
+    /// `POST /v1/pronunciation-dictionaries/{pronunciation_dictionary_id}/set-rules`.
+    pub async fn set_rules(
+        &self,
+        pronunciation_dictionary_id: impl AsRef<str>,
+        request: ElevenLabsPronunciationDictionaryRulesMutationRequest,
+    ) -> Result<ElevenLabsPronunciationDictionaryRulesMutationResponse, LlmError> {
+        request.validate()?;
+        let url = self.dictionary_action_url(pronunciation_dictionary_id, "set-rules")?;
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "set pronunciation dictionary rules",
+        )
+        .await
+    }
+
+    /// Remove pronunciation dictionary rules using
+    /// `POST /v1/pronunciation-dictionaries/{pronunciation_dictionary_id}/remove-rules`.
+    pub async fn remove_rules(
+        &self,
+        pronunciation_dictionary_id: impl AsRef<str>,
+        request: ElevenLabsRemovePronunciationDictionaryRulesRequest,
+    ) -> Result<ElevenLabsPronunciationDictionaryRulesMutationResponse, LlmError> {
+        request.validate()?;
+        let url = self.dictionary_action_url(pronunciation_dictionary_id, "remove-rules")?;
+        let body = request.body()?;
+        execute_post_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "remove pronunciation dictionary rules",
+        )
+        .await
+    }
+
     /// List pronunciation dictionary metadata using `GET /v1/pronunciation-dictionaries`.
     pub async fn list(
         &self,
@@ -194,6 +260,25 @@ impl ElevenLabsPronunciationDictionaries {
 
     fn base_url(&self) -> String {
         self.config.base_url.trim_end_matches('/').to_string()
+    }
+
+    fn dictionary_action_url(
+        &self,
+        pronunciation_dictionary_id: impl AsRef<str>,
+        action: &str,
+    ) -> Result<String, LlmError> {
+        let pronunciation_dictionary_id = pronunciation_dictionary_id.as_ref().trim();
+        if pronunciation_dictionary_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation_dictionary_id cannot be empty".to_string(),
+            ));
+        }
+
+        let encoded = urlencoding::encode(pronunciation_dictionary_id);
+        Ok(join_url(
+            &self.base_url(),
+            &format!("v1/pronunciation-dictionaries/{encoded}/{action}"),
+        ))
     }
 
     fn list_url(
@@ -530,6 +615,111 @@ impl ElevenLabsUpdatePronunciationDictionaryRequest {
     }
 }
 
+/// Request body for adding or replacing pronunciation dictionary rules.
+#[derive(Debug, Clone, Default)]
+pub struct ElevenLabsPronunciationDictionaryRulesMutationRequest {
+    pub rules: Vec<ElevenLabsPronunciationDictionaryRuleRequest>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsPronunciationDictionaryRulesMutationRequest {
+    pub fn new<I>(rules: I) -> Self
+    where
+        I: IntoIterator<Item = ElevenLabsPronunciationDictionaryRuleRequest>,
+    {
+        Self {
+            rules: rules.into_iter().collect(),
+            http_config: None,
+        }
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        for rule in &self.rules {
+            rule.validate()?;
+        }
+        Ok(())
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            rules: &'a [ElevenLabsPronunciationDictionaryRuleRequest],
+        }
+
+        serde_json::to_value(Body { rules: &self.rules }).map_err(|e| {
+            LlmError::InvalidInput(format!(
+                "Invalid ElevenLabs pronunciation dictionary rules request: {e}"
+            ))
+        })
+    }
+}
+
+/// Request body for removing pronunciation dictionary rules.
+#[derive(Debug, Clone, Default)]
+pub struct ElevenLabsRemovePronunciationDictionaryRulesRequest {
+    pub rule_strings: Vec<String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsRemovePronunciationDictionaryRulesRequest {
+    pub fn new<I, S>(rule_strings: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            rule_strings: rule_strings.into_iter().map(Into::into).collect(),
+            http_config: None,
+        }
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.rule_strings.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary remove rules request cannot be empty"
+                    .to_string(),
+            ));
+        }
+        if self
+            .rule_strings
+            .iter()
+            .any(|rule_string| rule_string.trim().is_empty())
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary rule_strings cannot contain empty values"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            rule_strings: &'a [String],
+        }
+
+        serde_json::to_value(Body {
+            rule_strings: &self.rule_strings,
+        })
+        .map_err(|e| {
+            LlmError::InvalidInput(format!(
+                "Invalid ElevenLabs pronunciation dictionary remove rules request: {e}"
+            ))
+        })
+    }
+}
+
 /// Alias or phoneme rule used when creating or mutating pronunciation dictionaries.
 #[derive(Debug, Clone, Serialize)]
 pub struct ElevenLabsPronunciationDictionaryRuleRequest {
@@ -645,6 +835,17 @@ pub struct ElevenLabsPronunciationDictionaryCreateResponse {
     pub description: Option<String>,
     #[serde(default)]
     pub permission_on_resource: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+/// Response body for pronunciation dictionary rule mutation endpoints.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevenLabsPronunciationDictionaryRulesMutationResponse {
+    pub id: String,
+    pub version_id: String,
+    #[serde(default)]
+    pub version_rules_num: Option<u32>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -1303,5 +1504,142 @@ mod tests {
             .expect_err("empty update should fail before transport");
 
         assert!(matches!(error, LlmError::InvalidInput(_)));
+    }
+
+    #[tokio::test]
+    async fn pronunciation_dictionaries_rule_mutations_post_json_and_map_versions() {
+        let transport = JsonGetTransport::new(json!({
+            "id": "dict/id with space",
+            "version_id": "version-next",
+            "version_rules_num": 4,
+            "unknown_rules": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+        request_http
+            .headers
+            .insert("x-shared".to_string(), "request-wins".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_header("x-global-header", "global")
+            .with_header("x-shared", "global")
+            .with_http_transport(Arc::new(transport.clone()));
+        let dictionaries = ElevenLabsPronunciationDictionaries::new(
+            config,
+            reqwest::Client::new(),
+            Some(RetryOptions::policy_default().with_max_attempts(1)),
+        );
+
+        let add_response = dictionaries
+            .add_rules(
+                "dict/id with space",
+                ElevenLabsPronunciationDictionaryRulesMutationRequest::new(vec![
+                    ElevenLabsPronunciationDictionaryRuleRequest::alias("Siumai", "sue my")
+                        .with_case_sensitive(false)
+                        .with_word_boundaries(true),
+                ])
+                .with_http_config(request_http.clone()),
+            )
+            .await
+            .expect("add pronunciation dictionary rules response");
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/pronunciation-dictionaries/dict%2Fid%20with%20space/add-rules"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-global-header"),
+            Some("global")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-shared"),
+            Some("request-wins")
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "rules": [
+                    {
+                        "string_to_replace": "Siumai",
+                        "type": "alias",
+                        "case_sensitive": false,
+                        "word_boundaries": true,
+                        "alias": "sue my"
+                    }
+                ]
+            })
+        );
+        assert_eq!(add_response.id, "dict/id with space");
+        assert_eq!(add_response.version_id, "version-next");
+        assert_eq!(add_response.version_rules_num, Some(4));
+        assert_eq!(
+            add_response.extra.get("unknown_rules"),
+            Some(&json!("kept"))
+        );
+
+        let set_response = dictionaries
+            .set_rules(
+                "dict/id with space",
+                ElevenLabsPronunciationDictionaryRulesMutationRequest::new(vec![
+                    ElevenLabsPronunciationDictionaryRuleRequest::phoneme("route", "rut", "ipa"),
+                ])
+                .with_http_config(request_http.clone()),
+            )
+            .await
+            .expect("set pronunciation dictionary rules response");
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/pronunciation-dictionaries/dict%2Fid%20with%20space/set-rules"
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "rules": [
+                    {
+                        "string_to_replace": "route",
+                        "type": "phoneme",
+                        "phoneme": "rut",
+                        "alphabet": "ipa"
+                    }
+                ]
+            })
+        );
+        assert_eq!(set_response.version_id, "version-next");
+
+        let remove_response = dictionaries
+            .remove_rules(
+                "dict/id with space",
+                ElevenLabsRemovePronunciationDictionaryRulesRequest::new([
+                    "Siumai".to_string(),
+                    "route".to_string(),
+                ])
+                .with_http_config(request_http),
+            )
+            .await
+            .expect("remove pronunciation dictionary rules response");
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/pronunciation-dictionaries/dict%2Fid%20with%20space/remove-rules"
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "rule_strings": ["Siumai", "route"]
+            })
+        );
+        assert_eq!(remove_response.version_id, "version-next");
     }
 }

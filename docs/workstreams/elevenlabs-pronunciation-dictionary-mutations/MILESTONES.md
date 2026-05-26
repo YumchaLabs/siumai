@@ -52,6 +52,9 @@ Gate:
 
 ## M3 — Rule Mutation And Download Decision
 
+Status: In progress. Rule mutation completed on 2026-05-26; download-by-version re-audit remains
+the next slice.
+
 Exit criteria:
 
 - Add/set/remove rule endpoints are implemented or split with a reason.

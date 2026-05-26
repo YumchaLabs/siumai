@@ -27,6 +27,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   support and shared create response mapping.
 - Added ElevenLabs pronunciation dictionary metadata update resources for renaming and archiving
   dictionaries.
+- Added ElevenLabs pronunciation dictionary rule mutation resources for add, set, and remove
+  operations.
 
 ### Changed
 

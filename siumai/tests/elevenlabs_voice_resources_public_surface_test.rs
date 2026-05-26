@@ -6,6 +6,9 @@ use siumai::provider_ext::elevenlabs::resources::{
     ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
     ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
     ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
+    ElevenLabsPronunciationDictionaryRulesMutationRequest,
+    ElevenLabsPronunciationDictionaryRulesMutationResponse,
+    ElevenLabsRemovePronunciationDictionaryRulesRequest,
     ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
     ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
     ElevenLabsVoices,
@@ -32,6 +35,9 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsPronunciationDictionaryRuleRequest>();
     assert_type::<ElevenLabsPronunciationDictionaryCreateResponse>();
     assert_type::<ElevenLabsUpdatePronunciationDictionaryRequest>();
+    assert_type::<ElevenLabsPronunciationDictionaryRulesMutationRequest>();
+    assert_type::<ElevenLabsRemovePronunciationDictionaryRulesRequest>();
+    assert_type::<ElevenLabsPronunciationDictionaryRulesMutationResponse>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoices>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoiceListQuery>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
@@ -43,6 +49,9 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     >();
     assert_type::<
         siumai::providers::elevenlabs::resources::ElevenLabsUpdatePronunciationDictionaryRequest,
+    >();
+    assert_type::<
+        siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaryRulesMutationRequest,
     >();
 
     let config = ElevenLabsConfig::new("test-key").with_base_url("https://api.elevenlabs.test");
@@ -75,12 +84,20 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     let update_dictionary_request = ElevenLabsUpdatePronunciationDictionaryRequest::new()
         .with_name("Updated terms")
         .with_archived(false);
+    let add_dictionary_rules_request =
+        ElevenLabsPronunciationDictionaryRulesMutationRequest::new(vec![
+            ElevenLabsPronunciationDictionaryRuleRequest::alias("SQL", "sequel"),
+        ]);
+    let remove_dictionary_rules_request =
+        ElevenLabsRemovePronunciationDictionaryRulesRequest::new(["SQL"]);
 
     drop(query);
     drop(dictionary_query);
     drop(create_dictionary_request);
     drop(create_dictionary_from_file_request);
     drop(update_dictionary_request);
+    drop(add_dictionary_rules_request);
+    drop(remove_dictionary_rules_request);
     drop(voices);
     drop(pronunciation_dictionaries);
 }

@@ -57,13 +57,16 @@ Last updated: 2026-05-26
 
 ## EPDM-050 — Rule Mutation
 
-- [ ] EPDM-050 [owner=worker/planner] [deps=EPDM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests,docs/workstreams/elevenlabs-pronunciation-dictionary-mutations]
+- [x] EPDM-050 [owner=worker/planner] [deps=EPDM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests,docs/workstreams/elevenlabs-pronunciation-dictionary-mutations]
   Goal: Decide whether add/remove/set rules stay in this lane, then implement the smallest accepted
   slice using shared rule structs.
   Validation: focused provider/facade nextest filter for accepted rule mutation endpoints.
   Review: review-workstream for version semantics and whether add/set/remove should split.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Add/set use alias/phoneme rule arrays; remove uses `rule_strings`.
+  Handoff: DONE. Kept add/set/remove in this lane because they share version response semantics and
+  the existing alias/phoneme rule request type. Implemented `add_rules`, `set_rules`, and
+  `remove_rules` with typed request/response structs, path encoding, request header merge, and
+  no-network JSON coverage.
 
 ## EPDM-060 — Download By Version Decision
 
