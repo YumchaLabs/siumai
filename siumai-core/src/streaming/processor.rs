@@ -15,8 +15,16 @@ use crate::types::MessageContent;
 use crate::types::{
     ChatResponse, ChatStreamEvent, ChatStreamPart, ContentPart, FinishReason, ProviderMetadataMap,
     ResponseMetadata, Usage, Warning, merge_provider_metadata,
+    provider_metadata_without_private_diagnostics,
 };
 use std::collections::HashMap;
+
+fn public_provider_metadata(metadata: Option<ProviderMetadataMap>) -> Option<ProviderMetadataMap> {
+    metadata
+        .as_ref()
+        .map(provider_metadata_without_private_diagnostics)
+        .filter(|metadata| !metadata.is_empty())
+}
 
 /// Overflow handler callback type
 ///
@@ -239,9 +247,7 @@ impl StreamProcessor {
                     error: None,
                     title: builder.and_then(|builder| builder.title.clone()),
                     provider_options: crate::types::ProviderOptionsMap::default(),
-                    provider_metadata: call
-                        .provider_metadata
-                        .clone()
+                    provider_metadata: public_provider_metadata(call.provider_metadata.clone())
                         .or_else(|| builder.and_then(|builder| builder.provider_metadata.clone())),
                 });
             }
@@ -263,14 +269,14 @@ impl StreamProcessor {
                     preliminary: result.preliminary,
                     title: builder.and_then(|builder| builder.title.clone()),
                     provider_options: crate::types::ProviderOptionsMap::default(),
-                    provider_metadata: result.provider_metadata.clone(),
+                    provider_metadata: public_provider_metadata(result.provider_metadata.clone()),
                 });
             }
             ChatStreamPart::Custom(custom) => {
                 self.stream_parts.push(ContentPart::Custom {
                     kind: custom.kind.clone(),
                     provider_options: crate::types::ProviderOptionsMap::default(),
-                    provider_metadata: custom.provider_metadata.clone(),
+                    provider_metadata: public_provider_metadata(custom.provider_metadata.clone()),
                 });
             }
             ChatStreamPart::File(file) => {
@@ -289,7 +295,7 @@ impl StreamProcessor {
                 self.stream_parts.push(ContentPart::Source {
                     id: id.clone(),
                     source: source.clone(),
-                    provider_metadata: provider_metadata.clone(),
+                    provider_metadata: public_provider_metadata(provider_metadata.clone()),
                 });
             }
             ChatStreamPart::Error { error } => {
@@ -499,7 +505,7 @@ impl StreamProcessor {
         if title.is_some() {
             builder.title = title;
         }
-        if let Some(provider_metadata) = provider_metadata {
+        if let Some(provider_metadata) = public_provider_metadata(provider_metadata) {
             if let Some(current) = builder.provider_metadata.as_mut() {
                 merge_provider_metadata(current, provider_metadata);
             } else {
@@ -519,6 +525,10 @@ impl StreamProcessor {
     }
 
     fn merge_shared_provider_metadata(&mut self, source: ProviderMetadataMap) {
+        let source = provider_metadata_without_private_diagnostics(&source);
+        if source.is_empty() {
+            return;
+        }
         if let Some(current) = self.final_provider_metadata.as_mut() {
             merge_provider_metadata(current, source);
         } else {
@@ -1329,5 +1339,52 @@ mod tests {
         assert!(provider_a.get("outputIndex").is_none());
         assert!(provider_a.get("rawItem").is_none());
         assert!(provider_a.get("raw_item").is_none());
+    }
+
+    #[test]
+    fn final_parts_strip_private_provider_metadata_keys() {
+        let mut sp = StreamProcessor::new();
+
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                input: "{}".to_string(),
+                provider_executed: Some(true),
+                dynamic: None,
+                provider_metadata: Some(HashMap::from([(
+                    "provider-a".to_string(),
+                    serde_json::json!({
+                        "itemId": "item_1",
+                        "rawItem": { "secret": true },
+                        "headers": { "authorization": "secret" }
+                    }),
+                )])),
+            }),
+        });
+
+        let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::ToolCalls));
+        let parts = final_resp
+            .content
+            .as_multimodal()
+            .expect("expected multimodal");
+        let ContentPart::ToolCall {
+            provider_metadata, ..
+        } = parts
+            .iter()
+            .find(|part| matches!(part, ContentPart::ToolCall { .. }))
+            .expect("tool call")
+        else {
+            panic!("expected tool call");
+        };
+
+        let provider_a = provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("provider-a"))
+            .and_then(|metadata| metadata.as_object())
+            .expect("provider metadata");
+        assert_eq!(provider_a.get("itemId"), Some(&serde_json::json!("item_1")));
+        assert!(provider_a.get("rawItem").is_none());
+        assert!(provider_a.get("headers").is_none());
     }
 }

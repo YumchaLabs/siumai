@@ -63,7 +63,82 @@ pub fn provider_metadata_from_object(
     provider_id: impl Into<String>,
     object: impl IntoIterator<Item = (String, Value)>,
 ) -> ProviderMetadataMap {
-    HashMap::from([(provider_id.into(), Value::Object(Map::from_iter(object)))])
+    provider_metadata_public_projection(HashMap::from([(
+        provider_id.into(),
+        Value::Object(Map::from_iter(object)),
+    )]))
+}
+
+/// Return whether a provider metadata key is reserved for private diagnostics.
+///
+/// Provider metadata is a public projection lane. Raw provider payloads, HTTP transport material,
+/// and private/diagnostic debug fields belong in explicit diagnostics carriers instead.
+pub fn provider_metadata_key_is_private_diagnostics(key: &str) -> bool {
+    let normalized = key.trim().replace(['-', '.'], "_").to_ascii_lowercase();
+
+    matches!(
+        normalized.as_str(),
+        "raw"
+            | "rawitem"
+            | "raw_item"
+            | "rawvalue"
+            | "raw_value"
+            | "headers"
+            | "body"
+            | "request"
+            | "response"
+            | "httprequest"
+            | "http_request"
+            | "httpresponse"
+            | "http_response"
+            | "diagnostic"
+            | "diagnostics"
+            | "private"
+    ) || normalized.starts_with("raw_")
+        || normalized.starts_with("private_")
+        || normalized.starts_with("diagnostic_")
+        || normalized.starts_with("diagnostics_")
+}
+
+fn strip_private_diagnostics_from_value(value: &mut Value) {
+    match value {
+        Value::Object(obj) => {
+            obj.retain(|key, _| !provider_metadata_key_is_private_diagnostics(key));
+            for value in obj.values_mut() {
+                strip_private_diagnostics_from_value(value);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                strip_private_diagnostics_from_value(value);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Clone provider metadata with private/raw diagnostic fields removed.
+pub fn provider_metadata_without_private_diagnostics(
+    metadata: &ProviderMetadataMap,
+) -> ProviderMetadataMap {
+    provider_metadata_public_projection(metadata.clone())
+}
+
+/// Convert provider metadata into its public projection.
+///
+/// This function preserves provider namespaces and reviewed provider fields, but strips reserved
+/// raw/private/diagnostic keys recursively from provider payloads.
+pub fn provider_metadata_public_projection(metadata: ProviderMetadataMap) -> ProviderMetadataMap {
+    metadata
+        .into_iter()
+        .filter_map(|(provider_id, mut value)| {
+            strip_private_diagnostics_from_value(&mut value);
+            match &value {
+                Value::Object(obj) if obj.is_empty() => None,
+                _ => Some((provider_id, value)),
+            }
+        })
+        .collect()
 }
 
 /// Merge provider metadata maps.
@@ -72,7 +147,9 @@ pub fn provider_metadata_from_object(
 /// merged shallowly with `source` winning on conflicts. Otherwise, the source entry replaces the
 /// target entry.
 pub fn merge_provider_metadata(target: &mut ProviderMetadataMap, source: ProviderMetadataMap) {
-    for (provider_id, source_value) in source {
+    *target = provider_metadata_public_projection(std::mem::take(target));
+
+    for (provider_id, source_value) in provider_metadata_public_projection(source) {
         match (target.get_mut(&provider_id), source_value) {
             (Some(Value::Object(target_obj)), Value::Object(source_obj)) => {
                 target_obj.extend(source_obj);
@@ -164,5 +241,69 @@ mod tests {
             ),
             Some(&Value::String("sig".to_string()))
         );
+    }
+
+    #[test]
+    fn provider_metadata_public_projection_strips_private_fields_recursively() {
+        let metadata = provider_metadata_public_projection(ProviderMetadataMap::from([(
+            "openai".to_string(),
+            serde_json::json!({
+                "itemId": "item_1",
+                "rawItem": { "private": true },
+                "headers": { "authorization": "secret" },
+                "nested": {
+                    "body": { "secret": true },
+                    "kept": 1
+                },
+                "items": [
+                    { "raw_value": "secret", "kept": true }
+                ]
+            }),
+        )]));
+
+        let openai_value = metadata.get("openai").expect("openai metadata");
+        let openai = openai_value.as_object().expect("openai metadata");
+        assert_eq!(openai.get("itemId"), Some(&serde_json::json!("item_1")));
+        assert!(openai.get("rawItem").is_none());
+        assert!(openai.get("headers").is_none());
+        assert_eq!(
+            openai_value.pointer("/nested/kept"),
+            Some(&serde_json::json!(1))
+        );
+        assert!(openai_value.pointer("/nested/body").is_none());
+        assert_eq!(
+            openai_value.pointer("/items/0/kept"),
+            Some(&serde_json::json!(true))
+        );
+        assert!(openai_value.pointer("/items/0/raw_value").is_none());
+    }
+
+    #[test]
+    fn merge_provider_metadata_projects_target_and_source() {
+        let mut target = ProviderMetadataMap::from([(
+            "openai".to_string(),
+            serde_json::json!({
+                "itemId": "item_1",
+                "raw_item": { "secret": true }
+            }),
+        )]);
+        let source = ProviderMetadataMap::from([(
+            "openai".to_string(),
+            serde_json::json!({
+                "phase": "done",
+                "diagnostics": { "secret": true }
+            }),
+        )]);
+
+        merge_provider_metadata(&mut target, source);
+
+        let openai = target
+            .get("openai")
+            .and_then(|value| value.as_object())
+            .expect("openai metadata");
+        assert_eq!(openai.get("itemId"), Some(&serde_json::json!("item_1")));
+        assert_eq!(openai.get("phase"), Some(&serde_json::json!("done")));
+        assert!(openai.get("raw_item").is_none());
+        assert!(openai.get("diagnostics").is_none());
     }
 }

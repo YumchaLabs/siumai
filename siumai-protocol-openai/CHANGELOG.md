@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extracted OpenAI Responses SSE terminal buffering, replay hint projection, and reasoning lifecycle
   state plus provider/custom tool ownership and serializer allocation rules into named converter
   modules while preserving AI SDK-compatible stream output.
+- Added a Responses SSE diagnostics projection regression proving raw replay hints stay private and
+  public stream projection drops reserved raw provider metadata keys.
 - Added a Responses SSE contract fixture proving streamed reasoning deltas remain compatible with
   final visible text that is only available in the terminal `response.completed` payload.
 - Added a Responses SSE usage fixture proving repeated usage events are cumulative snapshots and

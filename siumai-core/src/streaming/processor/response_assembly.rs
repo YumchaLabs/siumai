@@ -2,8 +2,16 @@ use crate::streaming::processor::{StreamProcessor, ToolCallBuilder};
 use crate::types::{
     ChatResponse, ChatStreamFileData, ContentPart, FinishReason, MessageContent,
     ProviderMetadataMap, ResponseMetadata, merge_provider_metadata, provider_metadata_from_object,
+    provider_metadata_without_private_diagnostics,
 };
 use std::collections::HashMap;
+
+fn public_provider_metadata(metadata: Option<ProviderMetadataMap>) -> Option<ProviderMetadataMap> {
+    metadata
+        .as_ref()
+        .map(provider_metadata_without_private_diagnostics)
+        .filter(|metadata| !metadata.is_empty())
+}
 
 impl StreamProcessor {
     /// Build the final response
@@ -192,7 +200,7 @@ pub(super) fn stream_file_part_to_content_part(
             source,
             media_type: file.media_type.clone(),
             provider_options: crate::types::ProviderOptionsMap::default(),
-            provider_metadata: file.provider_metadata.clone(),
+            provider_metadata: public_provider_metadata(file.provider_metadata.clone()),
         }
     } else {
         ContentPart::File {
@@ -200,7 +208,7 @@ pub(super) fn stream_file_part_to_content_part(
             media_type: file.media_type.clone(),
             filename: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
-            provider_metadata: file.provider_metadata.clone(),
+            provider_metadata: public_provider_metadata(file.provider_metadata.clone()),
         }
     }
 }
@@ -212,7 +220,7 @@ fn response_text_part(
     ContentPart::Text {
         text: text.into(),
         provider_options: crate::types::ProviderOptionsMap::default(),
-        provider_metadata,
+        provider_metadata: public_provider_metadata(provider_metadata),
     }
 }
 
@@ -230,7 +238,7 @@ fn build_reasoning_part(text: &str, terminal_response: Option<&ChatResponse>) ->
     ContentPart::Reasoning {
         text: text.to_string(),
         provider_options: crate::types::ProviderOptionsMap::default(),
-        provider_metadata,
+        provider_metadata: public_provider_metadata(provider_metadata),
     }
 }
 
@@ -265,7 +273,9 @@ fn build_tool_call_part(
         error: None,
         title: builder.title.clone().or(title),
         provider_options: crate::types::ProviderOptionsMap::default(),
-        provider_metadata: builder.provider_metadata.clone().or(provider_metadata),
+        provider_metadata: public_provider_metadata(
+            builder.provider_metadata.clone().or(provider_metadata),
+        ),
     }
 }
 

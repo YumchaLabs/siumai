@@ -8,8 +8,8 @@
   "scope_kind": "architecture",
   "problem": "AI SDK contract hardening made behavior explicit, but several stream, diagnostics, tool, usage, and capability rules remain shallow caller knowledge.",
   "objective": "Deepen the remaining AI SDK contract seams into named modules with stronger locality, better leverage, executable projection rules, and less obsolete pass-through code.",
-  "current_task": "AISD-030",
-  "next_task": "AISD-030",
+  "current_task": "AISD-040",
+  "next_task": "AISD-040",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -66,6 +66,12 @@
       "kind": "implementation",
       "task": "AISD-020",
       "summary": "OpenAI Responses SSE converter state now has named owners for terminal buffering, replay hints, reasoning lifecycle, provider/custom tool ownership, and serializer allocation rules."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "implementation",
+      "task": "AISD-030",
+      "summary": "Public provider metadata and private diagnostics now have executable projection helpers used by stream response assembly and covered by spec/core/protocol regressions."
     }
   ],
   "adr_refs": [

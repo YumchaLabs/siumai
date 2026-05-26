@@ -159,6 +159,11 @@ impl HttpRequestInfo {
     pub fn contains_private_diagnostics(&self) -> bool {
         self.body.is_some()
     }
+
+    /// Clone this request envelope without private transport diagnostics.
+    pub fn without_private_diagnostics(&self) -> Self {
+        Self { body: None }
+    }
 }
 
 // Helper module for Duration serialization

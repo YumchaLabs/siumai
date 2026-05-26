@@ -20,6 +20,12 @@ Last updated: 2026-05-27
 | 2026-05-27 | AISD-020 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast` | Pass | 71 Responses SSE tests passed after moving provider-defined tool names, hosted tool-search pairing, and custom tool de-duplication behind named state modules. |
 | 2026-05-27 | AISD-020 | `cargo fmt --check -p siumai-protocol-openai` | Pass | Serializer state refactor is formatted after extracting `OpenAiResponsesSerializeStateCell` and state-owned allocation helpers. |
 | 2026-05-27 | AISD-020 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast` | Pass | 71 Responses SSE tests passed after moving sequence, output-index, provider-tool-index, reasoning-item, function-call, and message-item allocation rules into `OpenAiResponsesSerializeState`. |
+| 2026-05-27 | AISD-030 | `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai` | Pass | Spec/core/protocol formatting is clean after diagnostics projection changes. |
+| 2026-05-27 | AISD-030 | `cargo nextest run -p siumai-spec private_diagnostics --no-fail-fast` | Pass | 9 private diagnostics tests passed for response metadata, stream replay, custom raw/private events, and chat response projection. |
+| 2026-05-27 | AISD-030 | `cargo nextest run -p siumai-spec provider_metadata --no-fail-fast` | Pass | 13 provider metadata tests passed, including recursive public projection and merge-time stripping. |
+| 2026-05-27 | AISD-030 | `cargo nextest run -p siumai-core provider_metadata --no-fail-fast` | Pass | 12 core provider metadata tests passed, including final content projection stripping raw/private keys. |
+| 2026-05-27 | AISD-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_metadata --no-fail-fast` | Pass | 23 protocol provider metadata tests passed after the shared public projection change. |
+| 2026-05-27 | AISD-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses diagnostics --no-fail-fast` | Pass | 1 Responses SSE diagnostics projection test passed. |
 
 ## Required Gates
 

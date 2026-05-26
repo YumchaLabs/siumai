@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Defined raw/private diagnostics boundaries for `ProviderMetadataMap`, `ResponseMetadata`,
   `HttpRequestInfo` / `HttpResponseInfo`, `ChatStreamPart::Raw`, replay hints, and raw/private
   custom stream events.
+- Added executable public diagnostics projection helpers for provider metadata, chat responses, and
+  stream events so raw/private provider keys and transport diagnostics can be stripped consistently.
 - Documented provider-executed tool calls as provider/model-service owned execution and locked
   `ToolInputStart` to stable public fields, keeping provider replay indexes and raw items in replay
   hints.

@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only through explicit diagnostics fields or verbose rendering.
 - Guarded tool stream projection so `ToolInputStart` stable fields flow into final tool parts while
   provider replay indexes and raw replay items stay out of public provider metadata.
+- Routed stream processor final content through the public provider-metadata projection so raw,
+  private, diagnostic, header, and body fields cannot enter final public content parts.
 - Treat repeated stream finish usage as replacement cumulative snapshots for the same provider call,
   preventing accidental double-counting while preserving final raw usage.
 - Routed hard capability guards through the shared unsupported-capability policy so missing family

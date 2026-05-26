@@ -74,6 +74,39 @@ fn parse_test_timestamp(timestamp: &str) -> chrono::DateTime<chrono::Utc> {
 }
 
 #[test]
+fn responses_replay_raw_item_has_private_diagnostics_projection() {
+    let event = crate::streaming::ChatStreamEvent::PartWithReplay {
+        part: crate::types::ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "web_search".to_string(),
+            input: "{}".to_string(),
+            provider_executed: Some(true),
+            dynamic: None,
+            provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                "itemId": "item_1",
+                "rawItem": { "secret": true }
+            }))),
+        }),
+        replay: crate::types::ChatStreamReplay::openai_responses(
+            Some(0),
+            Some(serde_json::json!({ "id": "raw_item_1" })),
+        )
+        .expect("replay"),
+    };
+
+    assert!(event.contains_private_diagnostics());
+
+    let public = event
+        .without_private_diagnostics()
+        .expect("public projection");
+    assert!(!public.contains_private_diagnostics());
+    assert!(matches!(
+        public,
+        crate::streaming::ChatStreamEvent::Part { .. }
+    ));
+}
+
+#[test]
 fn responses_sse_converter_sources_do_not_read_request_provider_options() {
     let converter_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/standards/openai/responses_sse/converter");

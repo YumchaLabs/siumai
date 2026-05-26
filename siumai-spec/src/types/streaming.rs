@@ -3,7 +3,10 @@
 
 use super::chat::ChatResponse;
 use super::chat::SourcePart;
-use crate::types::{FinishReason, ProviderMetadataMap, ResponseMetadata, Usage, Warning};
+use crate::types::{
+    FinishReason, ProviderMetadataMap, ResponseMetadata, Usage, Warning,
+    provider_metadata_without_private_diagnostics,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 
@@ -379,15 +382,155 @@ pub enum ChatStreamPart {
 }
 
 impl ChatStreamPart {
+    fn provider_metadata_contains_private_diagnostics(
+        provider_metadata: &Option<StreamProviderMetadata>,
+    ) -> bool {
+        provider_metadata.as_ref().is_some_and(|metadata| {
+            provider_metadata_without_private_diagnostics(metadata) != *metadata
+        })
+    }
+
+    fn public_provider_metadata(
+        provider_metadata: &Option<StreamProviderMetadata>,
+    ) -> Option<StreamProviderMetadata> {
+        provider_metadata
+            .as_ref()
+            .map(provider_metadata_without_private_diagnostics)
+            .filter(|metadata| !metadata.is_empty())
+    }
+
     /// Return whether this stream part carries private diagnostics or raw provider data.
     ///
-    /// AI SDK-style `providerMetadata` fields are considered public provider-scoped projections by
-    /// contract. This method flags explicit raw/transport diagnostics carriers only.
+    /// AI SDK-style `providerMetadata` fields are public provider-scoped projections by contract,
+    /// so this method only flags metadata keys reserved for raw/private diagnostics.
     pub fn contains_private_diagnostics(&self) -> bool {
         match self {
+            Self::TextStart {
+                provider_metadata, ..
+            }
+            | Self::TextDelta {
+                provider_metadata, ..
+            }
+            | Self::TextEnd {
+                provider_metadata, ..
+            }
+            | Self::ReasoningStart {
+                provider_metadata, ..
+            }
+            | Self::ReasoningDelta {
+                provider_metadata, ..
+            }
+            | Self::ReasoningEnd {
+                provider_metadata, ..
+            }
+            | Self::ToolInputStart {
+                provider_metadata, ..
+            }
+            | Self::ToolInputDelta {
+                provider_metadata, ..
+            }
+            | Self::ToolInputEnd {
+                provider_metadata, ..
+            }
+            | Self::Custom(ChatStreamCustomContent {
+                provider_metadata, ..
+            })
+            | Self::File(ChatStreamFilePart {
+                provider_metadata, ..
+            })
+            | Self::ReasoningFile(ChatStreamFilePart {
+                provider_metadata, ..
+            })
+            | Self::Source {
+                provider_metadata, ..
+            }
+            | Self::Finish {
+                provider_metadata, ..
+            } => Self::provider_metadata_contains_private_diagnostics(provider_metadata),
+            Self::ToolApprovalRequest(request) => {
+                Self::provider_metadata_contains_private_diagnostics(&request.provider_metadata)
+            }
+            Self::ToolCall(call) => {
+                Self::provider_metadata_contains_private_diagnostics(&call.provider_metadata)
+            }
+            Self::ToolResult(result) => {
+                Self::provider_metadata_contains_private_diagnostics(&result.provider_metadata)
+            }
             Self::ResponseMetadata(metadata) => metadata.contains_private_diagnostics(),
             Self::Raw { .. } => true,
             _ => false,
+        }
+    }
+
+    /// Return the public projection of this part, dropping raw-only diagnostics carriers.
+    pub fn without_private_diagnostics(&self) -> Option<Self> {
+        let mut part = self.clone();
+        match &mut part {
+            Self::TextStart {
+                provider_metadata, ..
+            }
+            | Self::TextDelta {
+                provider_metadata, ..
+            }
+            | Self::TextEnd {
+                provider_metadata, ..
+            }
+            | Self::ReasoningStart {
+                provider_metadata, ..
+            }
+            | Self::ReasoningDelta {
+                provider_metadata, ..
+            }
+            | Self::ReasoningEnd {
+                provider_metadata, ..
+            }
+            | Self::ToolInputStart {
+                provider_metadata, ..
+            }
+            | Self::ToolInputDelta {
+                provider_metadata, ..
+            }
+            | Self::ToolInputEnd {
+                provider_metadata, ..
+            }
+            | Self::Custom(ChatStreamCustomContent {
+                provider_metadata, ..
+            })
+            | Self::File(ChatStreamFilePart {
+                provider_metadata, ..
+            })
+            | Self::ReasoningFile(ChatStreamFilePart {
+                provider_metadata, ..
+            })
+            | Self::Source {
+                provider_metadata, ..
+            }
+            | Self::Finish {
+                provider_metadata, ..
+            } => {
+                *provider_metadata = Self::public_provider_metadata(provider_metadata);
+                Some(part)
+            }
+            Self::ToolApprovalRequest(request) => {
+                request.provider_metadata =
+                    Self::public_provider_metadata(&request.provider_metadata);
+                Some(part)
+            }
+            Self::ToolCall(call) => {
+                call.provider_metadata = Self::public_provider_metadata(&call.provider_metadata);
+                Some(part)
+            }
+            Self::ToolResult(result) => {
+                result.provider_metadata =
+                    Self::public_provider_metadata(&result.provider_metadata);
+                Some(part)
+            }
+            Self::ResponseMetadata(metadata) => {
+                *metadata = metadata.without_private_diagnostics();
+                Some(part)
+            }
+            Self::Raw { .. } => None,
+            _ => Some(part),
         }
     }
 }
@@ -507,17 +650,32 @@ impl ChatStreamEvent {
             Self::Custom { event_type, .. } => {
                 Self::custom_event_type_is_private_diagnostics(event_type)
             }
-            Self::StreamEnd { response } => {
-                response
-                    .request
-                    .as_ref()
-                    .is_some_and(crate::types::HttpRequestInfo::contains_private_diagnostics)
-                    || response
-                        .response
-                        .as_ref()
-                        .is_some_and(crate::types::HttpResponseInfo::contains_private_diagnostics)
-            }
+            Self::StreamEnd { response } => response.contains_private_diagnostics(),
             Self::Error { .. } => false,
+        }
+    }
+
+    /// Return the public projection of this event, dropping raw-only diagnostics carriers.
+    pub fn without_private_diagnostics(&self) -> Option<Self> {
+        match self {
+            Self::StreamStart { metadata } => Some(Self::StreamStart {
+                metadata: metadata.without_private_diagnostics(),
+            }),
+            Self::StreamEnd { response } => Some(Self::StreamEnd {
+                response: response.without_private_diagnostics(),
+            }),
+            Self::Part { part } => part
+                .without_private_diagnostics()
+                .map(|part| Self::Part { part }),
+            Self::PartWithReplay { part, .. } => part
+                .without_private_diagnostics()
+                .map(|part| Self::Part { part }),
+            Self::Custom { event_type, .. }
+                if Self::custom_event_type_is_private_diagnostics(event_type) =>
+            {
+                None
+            }
+            Self::Custom { .. } | Self::Error { .. } => Some(self.clone()),
         }
     }
 }
@@ -906,6 +1064,53 @@ mod tests {
     }
 
     #[test]
+    fn provider_metadata_reserved_private_keys_are_projected_out() {
+        let event = ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                input: "{}".to_string(),
+                provider_executed: Some(true),
+                dynamic: None,
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "item_1",
+                        "rawItem": { "secret": true }
+                    }),
+                )])),
+            }),
+            replay: ChatStreamReplay::openai_responses(
+                Some(0),
+                Some(serde_json::json!({ "id": "raw_item_1" })),
+            )
+            .expect("replay"),
+        };
+
+        assert!(event.contains_private_diagnostics());
+
+        let public = event
+            .without_private_diagnostics()
+            .expect("public projection");
+        assert!(!public.contains_private_diagnostics());
+        assert!(matches!(public, ChatStreamEvent::Part { .. }));
+        let ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(call),
+        } = public
+        else {
+            panic!("expected projected tool call part");
+        };
+        let openai = call
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("openai"))
+            .and_then(|metadata| metadata.as_object())
+            .expect("openai metadata");
+        assert_eq!(openai.get("itemId"), Some(&serde_json::json!("item_1")));
+        assert!(openai.get("rawItem").is_none());
+    }
+
+    #[test]
     fn raw_stream_part_is_private_diagnostics() {
         let event = ChatStreamEvent::Part {
             part: ChatStreamPart::Raw {
@@ -914,6 +1119,7 @@ mod tests {
         };
 
         assert!(event.contains_private_diagnostics());
+        assert!(event.without_private_diagnostics().is_none());
     }
 
     #[test]
@@ -973,6 +1179,10 @@ mod tests {
         };
 
         assert!(event.contains_private_diagnostics());
+        assert!(matches!(
+            event.without_private_diagnostics(),
+            Some(ChatStreamEvent::Part { .. })
+        ));
     }
 
     #[test]
@@ -995,6 +1205,15 @@ mod tests {
                     data: serde_json::json!({ "raw": true }),
                 }
                 .contains_private_diagnostics()
+            );
+
+            assert!(
+                ChatStreamEvent::Custom {
+                    event_type: event_type.to_string(),
+                    data: serde_json::json!({ "raw": true }),
+                }
+                .without_private_diagnostics()
+                .is_none()
             );
         }
 

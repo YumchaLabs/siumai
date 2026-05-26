@@ -21,12 +21,12 @@ Last updated: 2026-05-27
   Evidence: `EVIDENCE_AND_GATES.md`, protocol changelog, focused fixtures.
   Handoff: DONE. Terminal buffering is owned by `TerminalEventBuffer`, replay hint attach/apply logic is owned by `converter::replay`, reasoning state is owned by `ReasoningLifecycleState`, provider/custom tool ownership state is owned by `ProviderToolState` and `CustomToolState`, and serializer allocation rules are owned by `OpenAiResponsesSerializeState`.
 
-- [ ] AISD-030 [owner=codex] [deps=AISD-020] [scope=siumai-spec/src/types,siumai-core/src/streaming,siumai-protocol-openai/src,CHANGELOG.md,crate changelogs]
+- [x] AISD-030 [owner=codex] [deps=AISD-020] [scope=siumai-spec/src/types,siumai-core/src/streaming,siumai-protocol-openai/src,CHANGELOG.md,crate changelogs]
   Goal: Make public provider metadata versus private diagnostics an executable projection seam used by protocol/core output paths.
   Validation: `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`; `cargo nextest run -p siumai-spec private_diagnostics --no-fail-fast`; `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses diagnostics --no-fail-fast`.
   Review: Confirm raw headers, bodies, raw stream parts, replay raw items, and reserved custom events cannot silently enter public provider metadata.
   Evidence: `EVIDENCE_AND_GATES.md`, changelogs.
-  Handoff: Delete or demote pass-through helpers only when projection parity is tested.
+  Handoff: DONE. Provider metadata public projection strips reserved raw/private diagnostic keys, `ChatResponse` and stream events expose public projections, core final content uses the projection, and protocol has a Responses SSE diagnostics regression.
 
 ## M2 - Tool, Capability, And Usage Contract Depth
 

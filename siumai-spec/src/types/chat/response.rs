@@ -9,6 +9,7 @@ use super::message::{ChatMessage, MessageRole};
 use super::metadata::MessageMetadata;
 use crate::types::{
     FinishReason, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, Usage, Warning,
+    provider_metadata_without_private_diagnostics,
 };
 
 /// Audio output from the model
@@ -239,6 +240,37 @@ impl ChatResponse {
     /// Check if the response has tool results.
     pub fn has_tool_results(&self) -> bool {
         !self.tool_results().is_empty()
+    }
+
+    /// Return whether this response carries private diagnostics or raw provider data.
+    pub fn contains_private_diagnostics(&self) -> bool {
+        self.request
+            .as_ref()
+            .is_some_and(HttpRequestInfo::contains_private_diagnostics)
+            || self
+                .response
+                .as_ref()
+                .is_some_and(HttpResponseInfo::contains_private_diagnostics)
+            || self.provider_metadata.as_ref().is_some_and(|metadata| {
+                provider_metadata_without_private_diagnostics(metadata) != *metadata
+            })
+    }
+
+    /// Clone this response with private diagnostics removed from transport and provider metadata.
+    pub fn without_private_diagnostics(&self) -> Self {
+        let mut response = self.clone();
+        response.request = None;
+        response.response = response
+            .response
+            .as_ref()
+            .map(HttpResponseInfo::without_private_diagnostics)
+            .filter(|response| !response.contains_private_diagnostics());
+        response.provider_metadata = response
+            .provider_metadata
+            .as_ref()
+            .map(provider_metadata_without_private_diagnostics)
+            .filter(|metadata| !metadata.is_empty());
+        response
     }
 
     /// Get tool calls (deprecated - use tool_calls() instead)
@@ -500,6 +532,45 @@ mod tests {
         ]));
 
         assert_eq!(response.reasoning(), vec!["useful"]);
+    }
+
+    #[test]
+    fn response_public_projection_strips_private_diagnostics() {
+        let mut response = ChatResponse::new(MessageContent::Text("done".to_string()));
+        response.request = Some(HttpRequestInfo {
+            body: Some("{\"prompt\":\"private\"}".to_string()),
+        });
+        response.response = Some(HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: Some("gpt-4o".to_string()),
+            headers: HashMap::from([("authorization".to_string(), "Bearer secret".to_string())]),
+            body: Some(serde_json::json!({ "raw": true })),
+        });
+        response.provider_metadata = Some(HashMap::from([(
+            "openai".to_string(),
+            serde_json::json!({
+                "responseId": "resp_1",
+                "rawItem": { "secret": true }
+            }),
+        )]));
+
+        assert!(response.contains_private_diagnostics());
+
+        let public = response.without_private_diagnostics();
+        assert!(!public.contains_private_diagnostics());
+        assert!(public.request.is_none());
+        let http = public.response.expect("public http metadata");
+        assert!(http.headers.is_empty());
+        assert!(http.body.is_none());
+        assert_eq!(http.model_id.as_deref(), Some("gpt-4o"));
+        let openai = public
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("openai"))
+            .and_then(|metadata| metadata.as_object())
+            .expect("openai metadata");
+        assert_eq!(openai.get("responseId"), Some(&serde_json::json!("resp_1")));
+        assert!(openai.get("rawItem").is_none());
     }
 
     #[test]

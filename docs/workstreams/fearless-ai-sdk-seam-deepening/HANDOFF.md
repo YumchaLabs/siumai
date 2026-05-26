@@ -11,6 +11,19 @@ Hajimi adapter changes out of scope.
 
 ## Completed Task
 
+- Task ID: AISD-030
+- Result: DONE
+- Summary: Public provider metadata and private diagnostics now have executable projections; core
+  final content strips reserved raw/private provider metadata keys, and protocol has a diagnostics
+  regression for OpenAI Responses replay raw items.
+- Validation:
+  - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
+  - `cargo nextest run -p siumai-spec private_diagnostics --no-fail-fast`
+  - `cargo nextest run -p siumai-spec provider_metadata --no-fail-fast`
+  - `cargo nextest run -p siumai-core provider_metadata --no-fail-fast`
+  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_metadata --no-fail-fast`
+  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses diagnostics --no-fail-fast`
+
 - Task ID: AISD-020
 - Result: DONE
 - Summary: OpenAI Responses SSE converter state now has named owners for terminal buffering, replay
@@ -21,18 +34,22 @@ Hajimi adapter changes out of scope.
 
 ## Active Task
 
-- Task ID: AISD-030
+- Task ID: AISD-040
 - Owner: codex
 - Files:
+  - `siumai-spec/src/types/tools`
+  - `siumai-spec/src/types/prompt.rs`
+  - `siumai-core/src/tooling`
+  - `siumai-core/src/ui`
   - `siumai-spec/src/types`
-  - `siumai-core/src/streaming`
   - `siumai-protocol-openai/src`
   - `CHANGELOG.md`
   - crate changelogs
 - Validation:
   - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
-  - `cargo nextest run -p siumai-spec private_diagnostics --no-fail-fast`
-  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses diagnostics --no-fail-fast`
+  - `cargo nextest run -p siumai-spec provider_executed --no-fail-fast`
+  - `cargo nextest run -p siumai-core provider_executed --no-fail-fast`
+  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_executed --no-fail-fast`
 - Status: IN_PROGRESS
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -47,6 +64,6 @@ Hajimi adapter changes out of scope.
 
 ## Next Recommended Action
 
-Continue AISD-030 with `run-workstream-task`. Inspect the existing provider metadata, diagnostics,
-raw stream part, and custom event paths before editing; the goal is one executable projection seam
-for public metadata versus private diagnostics.
+Continue AISD-040 with `run-workstream-task`. Inspect existing provider-executed constructors,
+prompt/runtime/UI projections, and OpenAI Responses tool ownership before editing; the goal is one
+contract module for execution owner semantics.
