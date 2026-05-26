@@ -143,6 +143,13 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
             ],
         ),
         (
+            "elevenlabs.rs",
+            &[
+                "speech_model_family_with_ctx",
+                "transcription_model_family_with_ctx",
+            ],
+        ),
+        (
             "fireworks.rs",
             &[
                 "language_model_text_with_ctx",
@@ -12393,6 +12400,356 @@ mod deepgram_contract {
     #[test]
     fn deepgram_factory_source_declares_native_audio_family_overrides() {
         let source = include_str!("deepgram.rs");
+
+        assert!(source.contains("async fn speech_model_family_with_ctx("));
+        assert!(source.contains("async fn transcription_model_family_with_ctx("));
+    }
+}
+
+#[cfg(feature = "elevenlabs")]
+mod elevenlabs_contract {
+    use super::*;
+    use crate::traits::AudioCapability;
+    use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderName};
+
+    const XI_API_KEY: &str = "xi-api-key";
+
+    fn elevenlabs_stt_response(text: &str) -> serde_json::Value {
+        serde_json::json!({
+            "language_code": "en",
+            "language_probability": 0.96,
+            "text": text,
+            "words": [
+                {
+                    "text": "hello",
+                    "type": "word",
+                    "start": 0.0,
+                    "end": 0.5
+                }
+            ]
+        })
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_factory_declares_audio_without_non_audio_families() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::ElevenLabsProviderFactory;
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("audio"));
+        assert!(caps.supports("speech"));
+        assert!(caps.supports("transcription"));
+        assert!(!caps.supports("chat"));
+        assert!(!caps.supports("completion"));
+        assert!(!caps.supports("embedding"));
+        assert!(!caps.supports("image_generation"));
+        assert!(!caps.supports("rerank"));
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_factory_supports_native_speech_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::ElevenLabsProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("elevenlabs".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://api.elevenlabs.test".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .speech_model_family_with_ctx("eleven_multilingual_v2", &ctx)
+            .await
+            .expect("build native ElevenLabs speech-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "elevenlabs"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "eleven_multilingual_v2"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_factory_supports_native_transcription_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::ElevenLabsProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("elevenlabs".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://api.elevenlabs.test".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .transcription_model_family_with_ctx("scribe_v1", &ctx)
+            .await
+            .expect("build native ElevenLabs transcription-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "elevenlabs"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "scribe_v1"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_factory_rejects_non_audio_family_paths_before_transport_use() {
+        let _lock = lock_env();
+
+        let transport = CaptureTransport::default();
+        let factory = crate::registry::factories::ElevenLabsProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("elevenlabs".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://api.elevenlabs.test".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        assert_unsupported_operation_contains(
+            factory
+                .compat_language_client_with_ctx("scribe_v1", &ctx)
+                .await,
+            "language family path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .compat_embedding_client_with_ctx("scribe_v1", &ctx)
+                .await,
+            "embedding family path",
+        );
+        assert_unsupported_operation_contains(
+            factory.image_model_family_with_ctx("scribe_v1", &ctx).await,
+            "image family model path",
+        );
+        assert_unsupported_operation_contains(
+            factory
+                .compat_reranking_client_with_ctx("scribe_v1", &ctx)
+                .await,
+            "reranking family path",
+        );
+        assert_capture_transport_unused(&transport);
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_registry_speech_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let global_transport = BytesSuccessTransport::new(vec![9, 9, 9], "audio/mpeg");
+        let elevenlabs_transport = BytesSuccessTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "elevenlabs".to_string(),
+            Arc::new(crate::registry::factories::ElevenLabsProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "elevenlabs",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/elevenlabs/")
+                    .fetch(Arc::new(elevenlabs_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .speech_model("elevenlabs:eleven_multilingual_v2")
+            .expect("build ElevenLabs speech handle");
+
+        let response = AudioCapability::text_to_speech(
+            &handle,
+            crate::types::TtsRequest::new("hello from elevenlabs".to_string())
+                .with_voice("voice-123".to_string())
+                .with_format("mp3_64".to_string()),
+        )
+        .await
+        .expect("ElevenLabs speech ok");
+
+        assert_eq!(response.audio_data, vec![1, 2, 3, 4]);
+        assert_eq!(response.format, "mp3");
+
+        let req = elevenlabs_transport
+            .take()
+            .expect("captured ElevenLabs speech request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(
+            req.headers
+                .get(HeaderName::from_static(XI_API_KEY))
+                .and_then(|value| value.to_str().ok()),
+            Some("ctx-key")
+        );
+        assert_eq!(
+            req.headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/json")
+        );
+        assert_eq!(
+            req.url,
+            "https://example.com/elevenlabs/v1/text-to-speech/voice-123?output_format=mp3_44100_64"
+        );
+        assert_eq!(
+            req.body,
+            serde_json::json!({
+                "text": "hello from elevenlabs",
+                "model_id": "eleven_multilingual_v2"
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_registry_transcription_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let global_transport =
+            MultipartJsonSuccessTransport::new(elevenlabs_stt_response("hello from global"));
+        let elevenlabs_transport =
+            MultipartJsonSuccessTransport::new(elevenlabs_stt_response("hello from elevenlabs"));
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "elevenlabs".to_string(),
+            Arc::new(crate::registry::factories::ElevenLabsProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "elevenlabs",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/elevenlabs")
+                    .fetch(Arc::new(elevenlabs_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .transcription_model("elevenlabs:scribe_v1")
+            .expect("build ElevenLabs transcription handle");
+
+        let response = handle
+            .speech_to_text(crate::types::SttRequest::from_audio(
+                b"abc".to_vec(),
+                "audio/wav",
+            ))
+            .await
+            .expect("ElevenLabs transcription ok");
+
+        assert_eq!(response.text, "hello from elevenlabs");
+        assert_eq!(response.language.as_deref(), Some("en"));
+        assert_eq!(response.words.as_ref().map(Vec::len), Some(1));
+
+        let req = elevenlabs_transport
+            .take_multipart()
+            .expect("captured ElevenLabs multipart request");
+        assert!(global_transport.take_multipart().is_none());
+        assert_eq!(
+            req.headers
+                .get(HeaderName::from_static(XI_API_KEY))
+                .and_then(|value| value.to_str().ok()),
+            Some("ctx-key")
+        );
+        let content_type = req
+            .headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .expect("multipart content-type");
+        assert!(
+            content_type.starts_with("multipart/form-data; boundary="),
+            "unexpected content type: {content_type}"
+        );
+        let content_length = req
+            .headers
+            .get(CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<usize>().ok())
+            .expect("multipart content length");
+        assert_eq!(content_length, req.body.len());
+        assert_eq!(req.url, "https://example.com/elevenlabs/v1/speech-to-text");
+
+        let body_text = String::from_utf8_lossy(&req.body);
+        assert!(body_text.contains("name=\"model_id\""));
+        assert!(body_text.contains("scribe_v1"));
+        assert!(body_text.contains("name=\"file\"; filename=\"audio.wav\""));
+        assert!(body_text.contains("Content-Type: audio/wav"));
+        assert!(body_text.contains("abc"));
+        assert!(body_text.contains("name=\"diarize\""));
+        assert!(body_text.contains("true"));
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_builder_routes_known_transcription_model_to_stt_defaults() {
+        let _lock = lock_env();
+
+        let transport =
+            MultipartJsonSuccessTransport::new(elevenlabs_stt_response("hello from builder"));
+
+        let client = crate::provider::SiumaiBuilder::new()
+            .elevenlabs()
+            .api_key("ctx-key")
+            .base_url("https://example.com/elevenlabs")
+            .model("scribe_v1")
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .await
+            .expect("build ElevenLabs transcription-oriented compatibility client");
+
+        let response = AudioCapability::speech_to_text(
+            &client,
+            crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/wav"),
+        )
+        .await
+        .expect("ElevenLabs builder transcription ok");
+
+        assert_eq!(response.text, "hello from builder");
+
+        let req = transport
+            .take_multipart()
+            .expect("captured ElevenLabs builder multipart request");
+        assert_eq!(
+            req.headers
+                .get(HeaderName::from_static(XI_API_KEY))
+                .and_then(|value| value.to_str().ok()),
+            Some("ctx-key")
+        );
+        assert_eq!(req.url, "https://example.com/elevenlabs/v1/speech-to-text");
+        let body_text = String::from_utf8_lossy(&req.body);
+        assert!(body_text.contains("name=\"model_id\""));
+        assert!(body_text.contains("scribe_v1"));
+        assert!(body_text.contains("abc"));
+    }
+
+    #[test]
+    fn elevenlabs_factory_source_declares_native_audio_family_overrides() {
+        let source = include_str!("elevenlabs.rs");
 
         assert!(source.contains("async fn speech_model_family_with_ctx("));
         assert!(source.contains("async fn transcription_model_family_with_ctx("));

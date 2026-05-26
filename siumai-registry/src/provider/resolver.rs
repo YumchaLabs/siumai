@@ -54,7 +54,8 @@ pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
         | ids::XAI
         | ids::GROQ
         | ids::MINIMAXI
-        | ids::DEEPGRAM => false,
+        | ids::DEEPGRAM
+        | ids::ELEVENLABS => false,
         // Anything else is treated as OpenAI-compatible (custom providers).
         _ => true,
     }
@@ -80,7 +81,8 @@ pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
     feature = "xai",
     feature = "groq",
     feature = "minimaxi",
-    feature = "deepgram"
+    feature = "deepgram",
+    feature = "elevenlabs"
 ))]
 pub fn infer_provider_id_from_model(model: &str) -> Option<String> {
     let model = model.trim();

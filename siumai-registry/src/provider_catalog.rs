@@ -665,6 +665,41 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     },
                 ));
             }
+            #[cfg(feature = "elevenlabs")]
+            CatalogProviderId::ElevenLabs => {
+                use siumai_provider_elevenlabs::providers::elevenlabs::models as elevenlabs_models;
+
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == crate::provider::ids::ELEVENLABS)
+                    .expect("ElevenLabs metadata should be registered");
+                let mut models: Vec<Cow<'static, str>> = Vec::new();
+                if let Some(model) = rec.default_model.clone() {
+                    push_unique_model(&mut models, Cow::Owned(model));
+                }
+                for model in elevenlabs_models::ALL_SPEECH
+                    .iter()
+                    .chain(elevenlabs_models::ALL_TRANSCRIPTION.iter())
+                {
+                    push_unique_model(&mut models, Cow::Borrowed(*model));
+                }
+
+                out.push(provider_info_from_record(
+                    &rec,
+                    provider_type.clone(),
+                    ProviderInfoBody {
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url.unwrap_or(
+                                siumai_provider_elevenlabs::providers::elevenlabs::ElevenLabsConfig::DEFAULT_BASE_URL,
+                            ),
+                        ),
+                        supported_models: models,
+                    },
+                ));
+            }
             #[cfg(feature = "openai")]
             CatalogProviderId::Mistral => {
                 use siumai_provider_openai_compatible::providers::openai_compatible::mistral as mistral_models;
@@ -1977,6 +2012,53 @@ mod tests {
                 .iter()
                 .any(|m| m.as_ref() == models::DEFAULT_TRANSCRIPTION),
             "expected Deepgram default transcription model to be listed"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "elevenlabs")]
+    fn provider_catalog_uses_native_metadata_for_elevenlabs() {
+        use siumai_provider_elevenlabs::providers::elevenlabs::models;
+
+        let info = super::get_provider_info_by_id("elevenlabs").expect("elevenlabs should exist");
+        assert_eq!(info.provider_type, super::ProviderType::ElevenLabs);
+        assert_eq!(info.name.as_ref(), "ElevenLabs");
+        assert_eq!(
+            info.default_base_url.as_ref(),
+            siumai_provider_elevenlabs::providers::elevenlabs::ElevenLabsConfig::DEFAULT_BASE_URL
+        );
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.description.as_ref().contains("AI SDK-aligned")
+                && info
+                    .description
+                    .as_ref()
+                    .contains("speech and transcription"),
+            "expected ElevenLabs metadata to document the AI SDK audio-only package surface"
+        );
+        assert!(
+            info.capabilities.audio && info.capabilities.speech && info.capabilities.transcription,
+            "expected ElevenLabs to expose speech/transcription audio capabilities"
+        );
+        assert!(
+            !info.capabilities.chat
+                && !info.capabilities.completion
+                && !info.capabilities.embedding
+                && !info.capabilities.image_generation
+                && !info.capabilities.rerank,
+            "expected ElevenLabs non-audio families to remain unsupported"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::DEFAULT_SPEECH),
+            "expected ElevenLabs default speech model to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == models::DEFAULT_TRANSCRIPTION),
+            "expected ElevenLabs default transcription model to be listed"
         );
     }
 

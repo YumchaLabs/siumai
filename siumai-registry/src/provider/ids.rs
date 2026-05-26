@@ -36,6 +36,7 @@ pub(crate) const MINIMAXI: &str = "minimaxi";
 pub(crate) const COHERE: &str = "cohere";
 pub(crate) const TOGETHERAI: &str = "togetherai";
 pub(crate) const DEEPGRAM: &str = "deepgram";
+pub(crate) const ELEVENLABS: &str = "elevenlabs";
 
 // Native Amazon Bedrock provider id.
 pub(crate) const BEDROCK: &str = "bedrock";
@@ -74,6 +75,7 @@ pub(crate) enum BuiltinProviderId {
     Cohere,
     TogetherAi,
     Deepgram,
+    ElevenLabs,
     Bedrock,
     Gateway,
 }
@@ -103,6 +105,7 @@ impl BuiltinProviderId {
             COHERE => Some(Self::Cohere),
             TOGETHERAI => Some(Self::TogetherAi),
             DEEPGRAM => Some(Self::Deepgram),
+            ELEVENLABS => Some(Self::ElevenLabs),
             BEDROCK => Some(Self::Bedrock),
             GATEWAY => Some(Self::Gateway),
             _ => None,

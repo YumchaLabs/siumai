@@ -150,6 +150,7 @@ pub enum ProviderType {
     Cohere,
     TogetherAi,
     Deepgram,
+    ElevenLabs,
     Bedrock,
     Mistral,
     Fireworks,
@@ -179,6 +180,7 @@ impl std::fmt::Display for ProviderType {
             Self::Cohere => write!(f, "cohere"),
             Self::TogetherAi => write!(f, "togetherai"),
             Self::Deepgram => write!(f, "deepgram"),
+            Self::ElevenLabs => write!(f, "elevenlabs"),
             Self::Bedrock => write!(f, "bedrock"),
             Self::Mistral => write!(f, "mistral"),
             Self::Fireworks => write!(f, "fireworks"),
@@ -212,6 +214,7 @@ impl ProviderType {
             "cohere" => Self::Cohere,
             "togetherai" => Self::TogetherAi,
             "deepgram" => Self::Deepgram,
+            "elevenlabs" => Self::ElevenLabs,
             "bedrock" => Self::Bedrock,
             "mistral" => Self::Mistral,
             "fireworks" => Self::Fireworks,
@@ -505,6 +508,15 @@ mod tests {
     fn provider_type_maps_deepgram_name() {
         assert_eq!(ProviderType::from_name("deepgram"), ProviderType::Deepgram);
         assert_eq!(ProviderType::Deepgram.to_string(), "deepgram");
+    }
+
+    #[test]
+    fn provider_type_maps_elevenlabs_name() {
+        assert_eq!(
+            ProviderType::from_name("elevenlabs"),
+            ProviderType::ElevenLabs
+        );
+        assert_eq!(ProviderType::ElevenLabs.to_string(), "elevenlabs");
     }
 
     #[test]

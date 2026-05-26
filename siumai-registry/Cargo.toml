@@ -40,6 +40,7 @@ siumai-provider-togetherai = { version = "0.11.0-beta.8", path = "../siumai-prov
 siumai-provider-amazon-bedrock = { version = "0.11.0-beta.8", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
 siumai-provider-gateway = { version = "0.11.0-beta.8", path = "../siumai-provider-gateway", default-features = false, optional = true }
 siumai-provider-deepgram = { version = "0.11.0-beta.8", path = "../siumai-provider-deepgram", default-features = false, optional = true }
+siumai-provider-elevenlabs = { version = "0.11.0-beta.8", path = "../siumai-provider-elevenlabs", default-features = false, optional = true }
 
 async-trait.workspace = true
 serde.workspace = true
@@ -86,6 +87,7 @@ structured-messages = [
     "siumai-provider-amazon-bedrock?/structured-messages",
     "siumai-provider-gateway?/structured-messages",
     "siumai-provider-deepgram?/structured-messages",
+    "siumai-provider-elevenlabs?/structured-messages",
     "builtins",
 ]
 
@@ -197,6 +199,12 @@ deepgram = [
     "dep:siumai-provider-deepgram",
     "siumai-provider-deepgram/deepgram",
 ]
+elevenlabs = [
+    "builtins",
+    "siumai-core/elevenlabs",
+    "dep:siumai-provider-elevenlabs",
+    "siumai-provider-elevenlabs/elevenlabs",
+]
 
 gcp = ["builtins", "siumai-core/gcp", "google", "google-vertex", "siumai-provider-google-vertex/gcp"]
 json-repair = ["builtins", "siumai-core/json-repair", "google", "siumai-provider-gemini/json-repair"]
@@ -221,6 +229,7 @@ all-providers = [
     "bedrock",
     "gateway",
     "deepgram",
+    "elevenlabs",
 ]
 
 [dev-dependencies]

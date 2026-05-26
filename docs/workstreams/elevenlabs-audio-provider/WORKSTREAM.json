@@ -48,10 +48,10 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "ELA-030",
-  "next_task": "Wire ElevenLabs into registry feature flags, provider metadata, provider catalog, and speech/transcription factory handles.",
+  "current_task": "ELA-040",
+  "next_task": "Expose ElevenLabs through the facade public surface without widening prelude::unified.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with ELA-030 while the scope stays limited to native ElevenLabs speech/transcription. Split voice resources, live credential gates, and queued media behavior into follow-ons."
+    "notes": "Continue with ELA-040 while the scope stays limited to facade exports, feature wiring, public import tests, and examples for native ElevenLabs speech/transcription. Split voice resources, live credential gates, and queued media behavior into follow-ons."
   }
 }

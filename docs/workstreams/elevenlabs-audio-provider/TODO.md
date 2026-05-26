@@ -31,13 +31,17 @@ Last updated: 2026-05-26
 
 ## ELA-030 — Registry And Capability Wiring
 
-- [ ] ELA-030 [owner=worker] [deps=ELA-020] [scope=siumai-registry,siumai-core,Cargo.toml]
+- [x] ELA-030 [owner=worker] [deps=ELA-020] [scope=siumai-registry,siumai-core,siumai-spec,Cargo.toml]
   Goal: Wire ElevenLabs into feature flags, native metadata, provider catalog, registry factory, and stable
   speech/transcription model handles.
   Validation: `cargo nextest run -p siumai-registry --features elevenlabs elevenlabs --no-fail-fast`; `cargo fmt --check -p siumai-registry`.
   Review: review-workstream for capability metadata, unsupported family rejection, and registry context precedence.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Registry wiring should mirror Deepgram where possible while preserving ElevenLabs-specific auth and endpoints.
+  Handoff: DONE. ElevenLabs is wired into core/registry feature flags, provider ids, native
+  metadata, provider catalog, registry factory selection, builder routing, and speech/transcription
+  handles. `siumai-spec` was included only to add the legacy `ProviderType::ElevenLabs`
+  classification used by provider catalog compatibility metadata. Unsupported non-audio families
+  reject before transport use, and registry context overrides are covered by no-network request tests.
 
 ## ELA-040 — Facade, Public Surface, And Examples
 

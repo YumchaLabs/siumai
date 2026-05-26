@@ -436,6 +436,21 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
         capabilities: ProviderCapabilities::new().with_audio(),
     });
 
+    // ElevenLabs
+    #[cfg(feature = "elevenlabs")]
+    out.push(NativeProviderMetadata {
+        id: ids::ELEVENLABS,
+        name: "ElevenLabs",
+        description: "ElevenLabs AI SDK-aligned speech and transcription provider",
+        default_base_url: Some(
+            siumai_provider_elevenlabs::providers::elevenlabs::ElevenLabsConfig::DEFAULT_BASE_URL,
+        ),
+        default_model_policy: NativeProviderDefaultModelPolicy::ExplicitRequired(
+            "ElevenLabs requires an explicit speech or transcription model id",
+        ),
+        capabilities: ProviderCapabilities::new().with_audio(),
+    });
+
     // Amazon Bedrock (Converse + embedding + image + Rerank)
     #[cfg(feature = "bedrock")]
     out.push(NativeProviderMetadata {

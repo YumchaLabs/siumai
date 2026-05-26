@@ -19,7 +19,8 @@
     feature = "minimaxi",
     feature = "bedrock",
     feature = "gateway",
-    feature = "deepgram"
+    feature = "deepgram",
+    feature = "elevenlabs"
 ))]
 use std::sync::Arc;
 
@@ -40,7 +41,8 @@ use std::sync::Arc;
     feature = "minimaxi",
     feature = "bedrock",
     feature = "gateway",
-    feature = "deepgram"
+    feature = "deepgram",
+    feature = "elevenlabs"
 ))]
 use crate::compat::client::LlmClient;
 #[cfg(any(
@@ -60,7 +62,8 @@ use crate::compat::client::LlmClient;
     feature = "minimaxi",
     feature = "bedrock",
     feature = "gateway",
-    feature = "deepgram"
+    feature = "deepgram",
+    feature = "elevenlabs"
 ))]
 use crate::error::LlmError;
 
@@ -84,7 +87,8 @@ use crate::execution::http::client::build_http_client_from_config;
     feature = "minimaxi",
     feature = "bedrock",
     feature = "gateway",
-    feature = "deepgram"
+    feature = "deepgram",
+    feature = "elevenlabs"
 ))]
 use crate::registry::entry::ProviderFactory;
 #[cfg(any(
@@ -104,7 +108,8 @@ use crate::registry::entry::ProviderFactory;
     feature = "minimaxi",
     feature = "bedrock",
     feature = "gateway",
-    feature = "deepgram"
+    feature = "deepgram",
+    feature = "elevenlabs"
 ))]
 use crate::traits::ProviderCapabilities;
 
@@ -124,7 +129,8 @@ use crate::traits::ProviderCapabilities;
     feature = "minimaxi",
     feature = "bedrock",
     feature = "gateway",
-    feature = "deepgram"
+    feature = "deepgram",
+    feature = "elevenlabs"
 ))]
 use crate::registry::entry::BuildContext;
 
@@ -146,6 +152,8 @@ mod deepgram;
 mod deepinfra;
 #[cfg(feature = "deepseek")]
 mod deepseek;
+#[cfg(feature = "elevenlabs")]
+mod elevenlabs;
 #[cfg(feature = "openai")]
 mod fireworks;
 #[cfg(feature = "gateway")]
@@ -191,6 +199,8 @@ pub use deepgram::DeepgramProviderFactory;
 pub use deepinfra::DeepInfraProviderFactory;
 #[cfg(feature = "deepseek")]
 pub use deepseek::DeepSeekProviderFactory;
+#[cfg(feature = "elevenlabs")]
+pub use elevenlabs::ElevenLabsProviderFactory;
 #[cfg(feature = "openai")]
 pub use fireworks::FireworksProviderFactory;
 #[cfg(feature = "gateway")]

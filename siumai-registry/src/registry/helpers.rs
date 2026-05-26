@@ -398,6 +398,19 @@ pub fn builtin_provider_factory(provider_id: &str) -> Result<Arc<dyn ProviderFac
                 Err(unsupported_provider_feature("Deepgram", "deepgram"))
             }
         }
+        Some(ids::BuiltinProviderId::ElevenLabs) => {
+            #[cfg(feature = "elevenlabs")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::ElevenLabsProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "elevenlabs"))]
+            {
+                Err(unsupported_provider_feature("ElevenLabs", "elevenlabs"))
+            }
+        }
         Some(ids::BuiltinProviderId::Bedrock) => {
             #[cfg(feature = "bedrock")]
             {
@@ -576,6 +589,13 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     {
         insert_builtin_provider_factory(&mut providers, ids::DEEPGRAM)
             .expect("Deepgram factory should be available when the deepgram feature is enabled");
+    }
+
+    #[cfg(feature = "elevenlabs")]
+    {
+        insert_builtin_provider_factory(&mut providers, ids::ELEVENLABS).expect(
+            "ElevenLabs factory should be available when the elevenlabs feature is enabled",
+        );
     }
 
     #[cfg(feature = "bedrock")]
