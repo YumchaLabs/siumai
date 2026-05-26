@@ -23,6 +23,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   headers, custom transport, interceptors, and retry options.
 - Added ElevenLabs pronunciation dictionary `create_from_rules` resources with typed alias/phoneme
   rule requests and create responses exposing dictionary/version identifiers for TTS locator use.
+- Added ElevenLabs pronunciation dictionary `create_from_file` resources with multipart PLS upload
+  support and shared create response mapping.
 
 ### Changed
 

@@ -47,6 +47,7 @@ pub mod ext {
 /// Provider-specific resources not covered by the unified speech/transcription families.
 pub mod resources {
     pub use siumai_provider_elevenlabs::providers::elevenlabs::{
+        ElevenLabsCreatePronunciationDictionaryFromFileRequest,
         ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
         ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
         ElevenLabsPronunciationDictionaryCreateResponse,

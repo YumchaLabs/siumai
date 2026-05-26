@@ -14,7 +14,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::config::ElevenLabsConfig;
-use super::resource_http::{execute_get_json, execute_post_json};
+use super::resource_http::{execute_get_json, execute_multipart_json, execute_post_json};
 
 /// Provider-owned client for ElevenLabs pronunciation dictionary metadata resources.
 #[derive(Clone)]
@@ -72,6 +72,30 @@ impl ElevenLabsPronunciationDictionaries {
             body,
             request.http_config.as_ref(),
             "create pronunciation dictionary from rules",
+        )
+        .await
+    }
+
+    /// Create a pronunciation dictionary from a PLS file using
+    /// `POST /v1/pronunciation-dictionaries/add-from-file`.
+    pub async fn create_from_file(
+        &self,
+        request: ElevenLabsCreatePronunciationDictionaryFromFileRequest,
+    ) -> Result<ElevenLabsPronunciationDictionaryCreateResponse, LlmError> {
+        request.validate()?;
+        let url = join_url(
+            &self.base_url(),
+            "v1/pronunciation-dictionaries/add-from-file",
+        );
+        let request_clone = request.clone();
+        execute_multipart_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            move || request_clone.build_form(),
+            request.http_config.as_ref(),
+            "create pronunciation dictionary from file",
         )
         .await
     }
@@ -312,6 +336,98 @@ impl ElevenLabsCreatePronunciationDictionaryFromRulesRequest {
     }
 }
 
+/// Request body for creating a pronunciation dictionary from a caller-provided PLS file.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsCreatePronunciationDictionaryFromFileRequest {
+    pub name: String,
+    pub file: Vec<u8>,
+    pub filename: Option<String>,
+    pub mime_type: Option<String>,
+    pub description: Option<String>,
+    pub workspace_access: Option<String>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsCreatePronunciationDictionaryFromFileRequest {
+    pub fn new(name: impl Into<String>, file: Vec<u8>) -> Self {
+        Self {
+            name: name.into(),
+            file,
+            filename: None,
+            mime_type: None,
+            description: None,
+            workspace_access: None,
+            http_config: None,
+        }
+    }
+
+    pub fn with_filename(mut self, value: impl Into<String>) -> Self {
+        self.filename = Some(value.into());
+        self
+    }
+
+    pub fn with_mime_type(mut self, value: impl Into<String>) -> Self {
+        self.mime_type = Some(value.into());
+        self
+    }
+
+    pub fn with_description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    pub fn with_workspace_access(mut self, value: impl Into<String>) -> Self {
+        self.workspace_access = Some(value.into());
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.name.trim().is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary name cannot be empty".to_string(),
+            ));
+        }
+        if self.file.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary file cannot be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn build_form(&self) -> Result<reqwest::multipart::Form, LlmError> {
+        let mut file_part = reqwest::multipart::Part::bytes(self.file.clone());
+        if let Some(filename) = optional_trimmed(self.filename.as_deref()) {
+            file_part = file_part.file_name(filename.to_string());
+        }
+        if let Some(mime_type) = optional_trimmed(self.mime_type.as_deref()) {
+            file_part = file_part.mime_str(mime_type).map_err(|e| {
+                LlmError::InvalidInput(format!(
+                    "Invalid ElevenLabs pronunciation dictionary file MIME type '{mime_type}': {e}"
+                ))
+            })?;
+        }
+
+        let mut form = reqwest::multipart::Form::new()
+            .text("name", self.name.trim().to_string())
+            .part("file", file_part);
+
+        if let Some(description) = optional_trimmed(self.description.as_deref()) {
+            form = form.text("description", description.to_string());
+        }
+        if let Some(workspace_access) = optional_trimmed(self.workspace_access.as_deref()) {
+            form = form.text("workspace_access", workspace_access.to_string());
+        }
+
+        Ok(form)
+    }
+}
+
 /// Alias or phoneme rule used when creating or mutating pronunciation dictionaries.
 #[derive(Debug, Clone, Serialize)]
 pub struct ElevenLabsPronunciationDictionaryRuleRequest {
@@ -495,7 +611,8 @@ pub struct ElevenLabsPronunciationDictionaryRule {
 mod tests {
     use super::*;
     use crate::execution::http::transport::{
-        HttpTransport, HttpTransportGetRequest, HttpTransportRequest, HttpTransportResponse,
+        HttpTransport, HttpTransportGetRequest, HttpTransportMultipartRequest,
+        HttpTransportRequest, HttpTransportResponse,
     };
     use async_trait::async_trait;
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -509,6 +626,7 @@ mod tests {
         response: Value,
         last_json: Arc<Mutex<Option<HttpTransportRequest>>>,
         last_get: Arc<Mutex<Option<HttpTransportGetRequest>>>,
+        last_multipart: Arc<Mutex<Option<HttpTransportMultipartRequest>>>,
     }
 
     impl JsonGetTransport {
@@ -517,6 +635,7 @@ mod tests {
                 response,
                 last_json: Arc::new(Mutex::new(None)),
                 last_get: Arc::new(Mutex::new(None)),
+                last_multipart: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -534,6 +653,14 @@ mod tests {
                 .expect("get transport lock")
                 .take()
                 .expect("captured get request")
+        }
+
+        fn take_multipart(&self) -> HttpTransportMultipartRequest {
+            self.last_multipart
+                .lock()
+                .expect("multipart transport lock")
+                .take()
+                .expect("captured multipart request")
         }
     }
 
@@ -558,6 +685,23 @@ mod tests {
             request: HttpTransportGetRequest,
         ) -> Result<HttpTransportResponse, LlmError> {
             *self.last_get.lock().expect("get transport lock") = Some(request);
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&self.response).expect("serialize response"),
+            })
+        }
+
+        async fn execute_multipart(
+            &self,
+            request: HttpTransportMultipartRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self
+                .last_multipart
+                .lock()
+                .expect("multipart transport lock") = Some(request);
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
             Ok(HttpTransportResponse {
@@ -852,6 +996,102 @@ mod tests {
         assert_eq!(response.version_rules_num, Some(2));
         assert_eq!(response.description.as_deref(), Some("Brand pronunciation"));
         assert_eq!(response.permission_on_resource.as_deref(), Some("viewer"));
+        assert_eq!(response.extra.get("unknown_create"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn pronunciation_dictionaries_create_from_file_posts_multipart_and_maps_response() {
+        let transport = JsonGetTransport::new(json!({
+            "id": "dict-2",
+            "name": "File terms",
+            "created_by": "user-2",
+            "creation_time_unix": 1_700_000_001,
+            "version_id": "version-2",
+            "version_rules_num": 3,
+            "description": "PLS pronunciation",
+            "permission_on_resource": "editor",
+            "unknown_create": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+        request_http
+            .headers
+            .insert("x-shared".to_string(), "request-wins".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_header("x-global-header", "global")
+            .with_header("x-shared", "global")
+            .with_http_transport(Arc::new(transport.clone()));
+        let dictionaries = ElevenLabsPronunciationDictionaries::new(
+            config,
+            reqwest::Client::new(),
+            Some(RetryOptions::policy_default().with_max_attempts(1)),
+        );
+
+        let response = dictionaries
+            .create_from_file(
+                ElevenLabsCreatePronunciationDictionaryFromFileRequest::new(
+                    "File terms",
+                    b"<lexicon><lexeme>route</lexeme></lexicon>".to_vec(),
+                )
+                .with_filename("terms.pls")
+                .with_mime_type("application/pls+xml")
+                .with_description("PLS pronunciation")
+                .with_workspace_access("editor")
+                .with_http_config(request_http),
+            )
+            .await
+            .expect("pronunciation dictionary create-from-file response");
+
+        let captured = transport.take_multipart();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/pronunciation-dictionaries/add-from-file"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert!(
+            header_value(&captured.headers, "content-type")
+                .is_some_and(|value| value.starts_with("multipart/form-data; boundary="))
+        );
+        assert!(header_value(&captured.headers, "content-length").is_some());
+        assert_eq!(
+            header_value(&captured.headers, "x-global-header"),
+            Some("global")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-shared"),
+            Some("request-wins")
+        );
+
+        let body = String::from_utf8_lossy(&captured.body);
+        assert!(body.contains("name=\"name\""));
+        assert!(body.contains("File terms"));
+        assert!(body.contains("name=\"description\""));
+        assert!(body.contains("PLS pronunciation"));
+        assert!(body.contains("name=\"workspace_access\""));
+        assert!(body.contains("editor"));
+        assert!(body.contains("name=\"file\"; filename=\"terms.pls\""));
+        assert!(body.contains("Content-Type: application/pls+xml"));
+        assert!(body.contains("<lexicon><lexeme>route</lexeme></lexicon>"));
+
+        assert_eq!(response.id, "dict-2");
+        assert_eq!(response.name.as_deref(), Some("File terms"));
+        assert_eq!(response.created_by.as_deref(), Some("user-2"));
+        assert_eq!(response.creation_time_unix, Some(1_700_000_001));
+        assert_eq!(response.version_id, "version-2");
+        assert_eq!(response.version_rules_num, Some(3));
+        assert_eq!(response.description.as_deref(), Some("PLS pronunciation"));
+        assert_eq!(response.permission_on_resource.as_deref(), Some("editor"));
         assert_eq!(response.extra.get("unknown_create"), Some(&json!("kept")));
     }
 }

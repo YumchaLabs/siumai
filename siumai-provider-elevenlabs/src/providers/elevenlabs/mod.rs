@@ -21,6 +21,7 @@ pub use options::{
     ElevenLabsVoiceSettings,
 };
 pub use pronunciation_dictionaries::{
+    ElevenLabsCreatePronunciationDictionaryFromFileRequest,
     ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsPronunciationDictionaries,
     ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
     ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,

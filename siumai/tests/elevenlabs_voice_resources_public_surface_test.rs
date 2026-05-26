@@ -1,6 +1,7 @@
 #![cfg(feature = "elevenlabs")]
 
 use siumai::provider_ext::elevenlabs::resources::{
+    ElevenLabsCreatePronunciationDictionaryFromFileRequest,
     ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsPronunciationDictionaries,
     ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
     ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
@@ -25,6 +26,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsPronunciationDictionaryListResponse>();
     assert_type::<ElevenLabsPronunciationDictionary>();
     assert_type::<ElevenLabsPronunciationDictionaryRule>();
+    assert_type::<ElevenLabsCreatePronunciationDictionaryFromFileRequest>();
     assert_type::<ElevenLabsCreatePronunciationDictionaryFromRulesRequest>();
     assert_type::<ElevenLabsPronunciationDictionaryRuleRequest>();
     assert_type::<ElevenLabsPronunciationDictionaryCreateResponse>();
@@ -33,6 +35,9 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
     assert_type::<
         siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
+    >();
+    assert_type::<
+        siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromFileRequest,
     >();
 
     let config = ElevenLabsConfig::new("test-key").with_base_url("https://api.elevenlabs.test");
@@ -55,10 +60,18 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
             "Siumai", "sue my",
         )],
     );
+    let create_dictionary_from_file_request =
+        ElevenLabsCreatePronunciationDictionaryFromFileRequest::new(
+            "File terms",
+            b"<lexicon />".to_vec(),
+        )
+        .with_filename("terms.pls")
+        .with_mime_type("application/pls+xml");
 
     drop(query);
     drop(dictionary_query);
     drop(create_dictionary_request);
+    drop(create_dictionary_from_file_request);
     drop(voices);
     drop(pronunciation_dictionaries);
 }

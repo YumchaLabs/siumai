@@ -1,6 +1,7 @@
 use crate::error::LlmError;
 use crate::execution::executors::common::{
     HttpBody, HttpExecutionConfig, execute_get_request, execute_json_request,
+    execute_multipart_request,
 };
 use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::execution::wiring::HttpExecutionWiring;
@@ -118,6 +119,37 @@ where
         async move {
             let result =
                 execute_json_request(&cfg, &url, HttpBody::Json(body), http_config, false).await?;
+            serde_json::from_value(result.json).map_err(|e| {
+                LlmError::ParseError(format!(
+                    "Failed to parse ElevenLabs {operation} response: {e}"
+                ))
+            })
+        }
+    };
+
+    crate::retry_api::maybe_retry(retry_options, call).await
+}
+
+pub(crate) async fn execute_multipart_json<T, F>(
+    config: &ElevenLabsConfig,
+    http_client: reqwest::Client,
+    retry_options: Option<RetryOptions>,
+    url: &str,
+    build_form: F,
+    http_config: Option<&HttpConfig>,
+    operation: &str,
+) -> Result<T, LlmError>
+where
+    T: for<'de> Deserialize<'de> + Send,
+    F: Fn() -> Result<reqwest::multipart::Form, LlmError> + Send + Sync,
+{
+    let cfg = build_http_config(config, http_client, retry_options.clone());
+    let call = || {
+        let cfg = cfg.clone();
+        let url = url.to_string();
+        let build_form = &build_form;
+        async move {
+            let result = execute_multipart_request(&cfg, &url, build_form, http_config).await?;
             serde_json::from_value(result.json).map_err(|e| {
                 LlmError::ParseError(format!(
                     "Failed to parse ElevenLabs {operation} response: {e}"

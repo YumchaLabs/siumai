@@ -31,14 +31,16 @@ Last updated: 2026-05-26
 
 ## EPDM-030 — Create From File
 
-- [ ] EPDM-030 [owner=worker] [deps=EPDM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] EPDM-030 [owner=worker] [deps=EPDM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Add typed multipart `create_from_file` support for
   `POST /v1/pronunciation-dictionaries/add-from-file`.
   Validation: focused provider nextest filter for multipart dictionary creation; facade compile test if public types are added; `cargo fmt --check`.
   Review: review-workstream for filename/MIME behavior, content-length/body capture, and request
   header merge.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Keep PLS parsing out of scope; send caller-provided bytes and metadata.
+  Handoff: DONE. Implemented `create_from_file` with caller-provided bytes, optional filename,
+  MIME type, description, workspace access, and request-level HTTP config. No PLS parsing was added;
+  the multipart body forwards bytes as supplied. Next executable task is EPDM-040 metadata update.
 
 ## EPDM-040 — Metadata Update
 

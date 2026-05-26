@@ -48,10 +48,10 @@
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "EPDM-030",
-  "next_task": "Implement create_from_file on ElevenLabsPronunciationDictionaries with no-network multipart provider coverage.",
+  "current_task": "EPDM-040",
+  "next_task": "Implement metadata update on ElevenLabsPronunciationDictionaries with no-network JSON provider coverage.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with EPDM-030 next. Keep metadata update, rule mutation, download-by-version, and voice mutation as separate slices unless explicitly accepted."
+    "notes": "Continue with EPDM-040 next. Keep rule mutation, download-by-version, and voice mutation as separate slices unless explicitly accepted."
   }
 }
