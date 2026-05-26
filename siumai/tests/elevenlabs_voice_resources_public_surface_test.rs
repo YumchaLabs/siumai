@@ -4,8 +4,9 @@ use siumai::provider_ext::elevenlabs::resources::{
     ElevenLabsCreatePronunciationDictionaryFromFileRequest,
     ElevenLabsCreatePronunciationDictionaryFromRulesRequest, ElevenLabsPronunciationDictionaries,
     ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
-    ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
-    ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
+    ElevenLabsPronunciationDictionaryDownloadResponse, ElevenLabsPronunciationDictionaryListQuery,
+    ElevenLabsPronunciationDictionaryListResponse, ElevenLabsPronunciationDictionaryRule,
+    ElevenLabsPronunciationDictionaryRuleRequest,
     ElevenLabsPronunciationDictionaryRulesMutationRequest,
     ElevenLabsPronunciationDictionaryRulesMutationResponse,
     ElevenLabsRemovePronunciationDictionaryRulesRequest,
@@ -34,6 +35,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsCreatePronunciationDictionaryFromRulesRequest>();
     assert_type::<ElevenLabsPronunciationDictionaryRuleRequest>();
     assert_type::<ElevenLabsPronunciationDictionaryCreateResponse>();
+    assert_type::<ElevenLabsPronunciationDictionaryDownloadResponse>();
     assert_type::<ElevenLabsUpdatePronunciationDictionaryRequest>();
     assert_type::<ElevenLabsPronunciationDictionaryRulesMutationRequest>();
     assert_type::<ElevenLabsRemovePronunciationDictionaryRulesRequest>();

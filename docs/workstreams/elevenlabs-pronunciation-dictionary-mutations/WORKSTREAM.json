@@ -48,10 +48,10 @@
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "EPDM-060",
-  "next_task": "Re-audit download-by-version docs and decide whether to implement binary PLS download in this lane.",
+  "current_task": "EPDM-070",
+  "next_task": "Close the pronunciation dictionary mutation lane or split any residual follow-ons.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with EPDM-060 next. Keep voice mutation as a separate workstream unless explicitly accepted."
+    "notes": "Continue with EPDM-070 closeout next. Voice mutation remains a separate workstream unless explicitly accepted."
   }
 }

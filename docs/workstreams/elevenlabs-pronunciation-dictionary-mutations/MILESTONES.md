@@ -52,8 +52,8 @@ Gate:
 
 ## M3 — Rule Mutation And Download Decision
 
-Status: In progress. Rule mutation completed on 2026-05-26; download-by-version re-audit remains
-the next slice.
+Status: Complete on 2026-05-26. Rule mutation and binary download-by-version are implemented with
+no-network evidence recorded under EPDM-050 and EPDM-060.
 
 Exit criteria:
 

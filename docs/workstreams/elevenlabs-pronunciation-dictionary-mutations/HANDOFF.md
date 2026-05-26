@@ -5,20 +5,18 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open and scope is frozen. EPDM-010 through EPDM-050 are complete. Siumai now has
+The workstream is open and scope is frozen. EPDM-010 through EPDM-060 are complete. Siumai now has
 provider-owned create-from-rules, create-from-file, metadata update, and rule mutation
-pronunciation dictionary APIs.
+pronunciation dictionary APIs, plus binary PLS download by dictionary/version id.
 
 ## Active Task
 
-- Task ID: EPDM-060
-- Owner: planner/worker
-- Files: `siumai-provider-elevenlabs`, `siumai`, `siumai/tests`,
-  `docs/workstreams/elevenlabs-pronunciation-dictionary-mutations`
-- Validation: official docs accessible or fallback source is recorded; if implemented, focused
-  binary GET test proves path/query encoding and bytes mapping.
+- Task ID: EPDM-070
+- Owner: planner
+- Files: `docs/workstreams/elevenlabs-pronunciation-dictionary-mutations`, `CHANGELOG.md`
+- Validation: verify-rust-workstream records fresh final gate evidence.
 - Status: READY
-- Review: review-workstream before accepting completion
+- Review: review-workstream has no blocking findings before closure.
 - Evidence: `docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Opening
@@ -36,8 +34,8 @@ pronunciation dictionary APIs.
 - Rule mutation is implemented for add/set/remove in one slice because all three endpoints share
   version response semantics. Add/set reuse the alias/phoneme rule request struct; remove uses
   `rule_strings`.
-- Download-by-version is not first because the official `download.mdx` page returned HTTP 500 during
-  opening even though `llms.txt` lists it.
+- Download-by-version was re-audited after the opening transient HTTP 500. The official
+  `download.mdx` page is accessible and implemented as binary PLS download.
 - Voice mutation APIs are a separate workstream.
 
 ## Blockers
@@ -46,6 +44,5 @@ pronunciation dictionary APIs.
 
 ## Next Recommended Action
 
-- Re-audit the official download-by-version docs for EPDM-060. If the endpoint contract is stable,
-  implement the binary PLS download with no-network custom transport coverage; otherwise record the
-  fallback source and split the download task.
+- Run closeout/review for EPDM-070. If accepted, close this pronunciation dictionary mutation lane
+  and open or resume the separate ElevenLabs voice mutation workstream.

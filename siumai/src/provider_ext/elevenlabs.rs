@@ -51,6 +51,7 @@ pub mod resources {
         ElevenLabsCreatePronunciationDictionaryFromRulesRequest,
         ElevenLabsPronunciationDictionaries, ElevenLabsPronunciationDictionary,
         ElevenLabsPronunciationDictionaryCreateResponse,
+        ElevenLabsPronunciationDictionaryDownloadResponse,
         ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
         ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
         ElevenLabsPronunciationDictionaryRulesMutationRequest,

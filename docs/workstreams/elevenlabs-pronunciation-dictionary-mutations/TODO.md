@@ -70,15 +70,17 @@ Last updated: 2026-05-26
 
 ## EPDM-060 — Download By Version Decision
 
-- [ ] EPDM-060 [owner=planner/worker] [deps=EPDM-020] [scope=docs/workstreams/elevenlabs-pronunciation-dictionary-mutations,siumai-provider-elevenlabs,siumai]
+- [x] EPDM-060 [owner=planner/worker] [deps=EPDM-020] [scope=docs/workstreams/elevenlabs-pronunciation-dictionary-mutations,siumai-provider-elevenlabs,siumai]
   Goal: Re-audit the official download-by-version docs and decide whether to implement binary PLS
   download in this lane or split it.
   Validation: official docs accessible or fallback source is recorded; if implemented, focused binary
   GET test proves path/query encoding and bytes mapping.
   Review: review-workstream for docs stability and binary response shape.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Opening audit saw `download.mdx` listed in `llms.txt` but direct page fetch returned HTTP
-  500, so do not implement from guesswork without a stable source.
+  Handoff: DONE. Re-audit found `download.mdx` accessible and documenting
+  `GET /v1/pronunciation-dictionaries/{dictionary_id}/{version_id}/download` returning binary
+  PLS content. Implemented `download` and `download_with_http_config` with binary GET coverage,
+  content-type/header metadata, path encoding, and facade exports.
 
 ## EPDM-070 — Closeout
 

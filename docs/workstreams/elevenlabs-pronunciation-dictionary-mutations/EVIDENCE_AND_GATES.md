@@ -12,7 +12,8 @@ Last updated: 2026-05-26
 | `https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/create-from-file.mdx` | Documents multipart `POST /v1/pronunciation-dictionaries/add-from-file`. | Second slice candidate after JSON mutation wiring is proven. |
 | `https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/update.mdx` | Documents `PATCH /v1/pronunciation-dictionaries/{pronunciation_dictionary_id}` for `archived` and `name` without changing version. | Bounded metadata update slice. |
 | `https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/rules/{add,remove,set}.mdx` | Documents JSON rule mutation endpoints returning `id`, `version_id`, and `version_rules_num`. | Candidate shared rule-mutation slice after create-from-rules. |
-| `https://elevenlabs.io/docs/llms.txt` | Lists `download.mdx` as "Get pronunciation dictionary by version". | Download is a candidate, but the direct page returned HTTP 500 during opening and needs re-audit. |
+| `https://elevenlabs.io/docs/llms.txt` | Lists `download.mdx` as "Get pronunciation dictionary by version". | Opening audit saw a transient direct-page HTTP 500; EPDM-060 re-audit found the endpoint docs accessible. |
+| `https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/download.mdx` | Documents `GET /v1/pronunciation-dictionaries/{dictionary_id}/{version_id}/download` returning binary PLS content. | Implemented as binary provider-owned download under `ElevenLabsPronunciationDictionaries`. |
 
 ## Baseline Gates
 
@@ -79,3 +80,9 @@ git diff --check
 | 2026-05-26 | EPDM-050 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with rule mutation request/response types. |
 | 2026-05-26 | EPDM-050 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
 | 2026-05-26 | EPDM-050 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |
+| 2026-05-26 | EPDM-060 | `Invoke-WebRequest https://elevenlabs.io/docs/api-reference/pronunciation-dictionaries/download.mdx` | Passed: official page is accessible and documents binary PLS download by dictionary/version id. |
+| 2026-05-26 | EPDM-060 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation_dictionaries_download --no-fail-fast` | Passed: binary GET download covers path encoding, auth/header merge, bytes mapping, content type, and response headers. |
+| 2026-05-26 | EPDM-060 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast` | Passed: 8 pronunciation dictionary provider tests. |
+| 2026-05-26 | EPDM-060 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with download response type. |
+| 2026-05-26 | EPDM-060 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
+| 2026-05-26 | EPDM-060 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |

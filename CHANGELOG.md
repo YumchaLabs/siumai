@@ -29,6 +29,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   dictionaries.
 - Added ElevenLabs pronunciation dictionary rule mutation resources for add, set, and remove
   operations.
+- Added ElevenLabs pronunciation dictionary binary PLS download resources by dictionary and version
+  ID.
 
 ### Changed
 

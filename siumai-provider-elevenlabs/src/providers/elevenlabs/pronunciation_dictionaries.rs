@@ -4,6 +4,7 @@
 //! Siumai's unified speech/transcription families.
 
 use crate::error::LlmError;
+use crate::execution::http::headers::headermap_to_hashmap;
 use crate::provider_utils::url::join_url;
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
@@ -15,7 +16,8 @@ use std::collections::HashMap;
 
 use super::config::ElevenLabsConfig;
 use super::resource_http::{
-    execute_get_json, execute_multipart_json, execute_patch_json, execute_post_json,
+    execute_get_bytes, execute_get_json, execute_multipart_json, execute_patch_json,
+    execute_post_json,
 };
 
 /// Provider-owned client for ElevenLabs pronunciation dictionary metadata resources.
@@ -201,6 +203,44 @@ impl ElevenLabsPronunciationDictionaries {
         .await
     }
 
+    /// Download a PLS file for a pronunciation dictionary version using
+    /// `GET /v1/pronunciation-dictionaries/{dictionary_id}/{version_id}/download`.
+    pub async fn download(
+        &self,
+        dictionary_id: impl AsRef<str>,
+        version_id: impl AsRef<str>,
+    ) -> Result<ElevenLabsPronunciationDictionaryDownloadResponse, LlmError> {
+        self.download_with_http_config(dictionary_id, version_id, None)
+            .await
+    }
+
+    /// Download a PLS file for a pronunciation dictionary version with per-request HTTP config.
+    pub async fn download_with_http_config(
+        &self,
+        dictionary_id: impl AsRef<str>,
+        version_id: impl AsRef<str>,
+        http_config: Option<&HttpConfig>,
+    ) -> Result<ElevenLabsPronunciationDictionaryDownloadResponse, LlmError> {
+        let url = self.dictionary_download_url(dictionary_id, version_id)?;
+        let result = execute_get_bytes(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            http_config,
+        )
+        .await?;
+
+        let headers = headermap_to_hashmap(&result.headers);
+        let content_type = headers.get("content-type").cloned();
+        Ok(ElevenLabsPronunciationDictionaryDownloadResponse {
+            bytes: result.bytes,
+            status: result.status,
+            content_type,
+            headers,
+        })
+    }
+
     /// List pronunciation dictionary metadata using `GET /v1/pronunciation-dictionaries`.
     pub async fn list(
         &self,
@@ -278,6 +318,32 @@ impl ElevenLabsPronunciationDictionaries {
         Ok(join_url(
             &self.base_url(),
             &format!("v1/pronunciation-dictionaries/{encoded}/{action}"),
+        ))
+    }
+
+    fn dictionary_download_url(
+        &self,
+        dictionary_id: impl AsRef<str>,
+        version_id: impl AsRef<str>,
+    ) -> Result<String, LlmError> {
+        let dictionary_id = dictionary_id.as_ref().trim();
+        if dictionary_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs dictionary_id cannot be empty".to_string(),
+            ));
+        }
+        let version_id = version_id.as_ref().trim();
+        if version_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs version_id cannot be empty".to_string(),
+            ));
+        }
+
+        let dictionary_id = urlencoding::encode(dictionary_id);
+        let version_id = urlencoding::encode(version_id);
+        Ok(join_url(
+            &self.base_url(),
+            &format!("v1/pronunciation-dictionaries/{dictionary_id}/{version_id}/download"),
         ))
     }
 
@@ -850,6 +916,15 @@ pub struct ElevenLabsPronunciationDictionaryRulesMutationResponse {
     pub extra: HashMap<String, Value>,
 }
 
+/// Binary PLS download response for a pronunciation dictionary version.
+#[derive(Debug, Clone)]
+pub struct ElevenLabsPronunciationDictionaryDownloadResponse {
+    pub bytes: Vec<u8>,
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub headers: HashMap<String, String>,
+}
+
 /// Response body for `GET /v1/pronunciation-dictionaries`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ElevenLabsPronunciationDictionaryListResponse {
@@ -927,6 +1002,8 @@ mod tests {
     #[derive(Clone)]
     struct JsonGetTransport {
         response: Value,
+        get_body: Option<Vec<u8>>,
+        get_content_type: HeaderValue,
         last_json: Arc<Mutex<Option<HttpTransportRequest>>>,
         last_get: Arc<Mutex<Option<HttpTransportGetRequest>>>,
         last_multipart: Arc<Mutex<Option<HttpTransportMultipartRequest>>>,
@@ -936,6 +1013,19 @@ mod tests {
         fn new(response: Value) -> Self {
             Self {
                 response,
+                get_body: None,
+                get_content_type: HeaderValue::from_static("application/json"),
+                last_json: Arc::new(Mutex::new(None)),
+                last_get: Arc::new(Mutex::new(None)),
+                last_multipart: Arc::new(Mutex::new(None)),
+            }
+        }
+
+        fn new_binary(body: Vec<u8>, content_type: &'static str) -> Self {
+            Self {
+                response: Value::Null,
+                get_body: Some(body),
+                get_content_type: HeaderValue::from_static(content_type),
                 last_json: Arc::new(Mutex::new(None)),
                 last_get: Arc::new(Mutex::new(None)),
                 last_multipart: Arc::new(Mutex::new(None)),
@@ -989,11 +1079,15 @@ mod tests {
         ) -> Result<HttpTransportResponse, LlmError> {
             *self.last_get.lock().expect("get transport lock") = Some(request);
             let mut headers = HeaderMap::new();
-            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert(CONTENT_TYPE, self.get_content_type.clone());
+            let body = self
+                .get_body
+                .clone()
+                .unwrap_or_else(|| serde_json::to_vec(&self.response).expect("serialize response"));
             Ok(HttpTransportResponse {
                 status: 200,
                 headers,
-                body: serde_json::to_vec(&self.response).expect("serialize response"),
+                body,
             })
         }
 
@@ -1641,5 +1735,70 @@ mod tests {
             })
         );
         assert_eq!(remove_response.version_id, "version-next");
+    }
+
+    #[tokio::test]
+    async fn pronunciation_dictionaries_download_fetches_binary_version() {
+        let pls = b"<?xml version=\"1.0\"?><lexicon><lexeme>route</lexeme></lexicon>".to_vec();
+        let transport = JsonGetTransport::new_binary(pls.clone(), "application/pls+xml");
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+        request_http
+            .headers
+            .insert("x-shared".to_string(), "request-wins".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_header("x-global-header", "global")
+            .with_header("x-shared", "global")
+            .with_http_transport(Arc::new(transport.clone()));
+        let dictionaries = ElevenLabsPronunciationDictionaries::new(
+            config,
+            reqwest::Client::new(),
+            Some(RetryOptions::policy_default().with_max_attempts(1)),
+        );
+
+        let response = dictionaries
+            .download_with_http_config(
+                "dict/id with space",
+                "version/id with space",
+                Some(&request_http),
+            )
+            .await
+            .expect("pronunciation dictionary download response");
+
+        let captured = transport.take_get();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/pronunciation-dictionaries/dict%2Fid%20with%20space/version%2Fid%20with%20space/download"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-global-header"),
+            Some("global")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-shared"),
+            Some("request-wins")
+        );
+        assert_eq!(response.bytes, pls);
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            response.content_type.as_deref(),
+            Some("application/pls+xml")
+        );
+        assert_eq!(
+            response.headers.get("content-type").map(String::as_str),
+            Some("application/pls+xml")
+        );
     }
 }
