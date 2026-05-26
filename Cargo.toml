@@ -28,6 +28,7 @@ members = [
     "siumai-provider-amazon-bedrock",
     "siumai-provider-gateway",
     "siumai-provider-deepgram",
+    "siumai-provider-elevenlabs",
 ]
 
 [workspace.package]

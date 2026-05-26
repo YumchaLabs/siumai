@@ -48,10 +48,10 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "ELA-020",
-  "next_task": "Add the provider-owned crate and no-network speech/transcription request tests.",
+  "current_task": "ELA-030",
+  "next_task": "Wire ElevenLabs into registry feature flags, provider metadata, provider catalog, and speech/transcription factory handles.",
   "continue_policy": {
     "default_action": "continue",
-    "notes": "Continue with ELA-020 while the scope stays limited to native ElevenLabs speech/transcription. Split voice resources, live credential gates, and queued media behavior into follow-ons."
+    "notes": "Continue with ELA-030 while the scope stays limited to native ElevenLabs speech/transcription. Split voice resources, live credential gates, and queued media behavior into follow-ons."
   }
 }

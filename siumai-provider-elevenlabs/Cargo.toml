@@ -1,0 +1,39 @@
+[package]
+name = "siumai-provider-elevenlabs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "ElevenLabs provider implementation for siumai (speech and transcription)"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-provider-elevenlabs"
+readme = "../README.md"
+keywords = ["llm", "ai", "elevenlabs", "speech", "transcription"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+siumai-provider-utils = { workspace = true, default-features = false }
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+chrono.workspace = true
+secrecy.workspace = true
+urlencoding.workspace = true
+
+[features]
+default = []
+elevenlabs = []
+structured-messages = ["siumai-core/structured-messages", "siumai-provider-utils/structured-messages"]
+
+[dev-dependencies]
+tokio-test.workspace = true

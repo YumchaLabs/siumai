@@ -16,14 +16,18 @@ Last updated: 2026-05-26
 
 ## ELA-020 — Provider Crate And Speech/Transcription Core
 
-- [ ] ELA-020 [owner=worker] [deps=ELA-010] [scope=siumai-provider-elevenlabs,Cargo.toml]
+- [x] ELA-020 [owner=worker] [deps=ELA-010] [scope=siumai-provider-elevenlabs,Cargo.toml]
   Goal: Add `siumai-provider-elevenlabs` with provider settings, auth/base URL handling, model constants,
   typed speech/transcription options, error mapping, and no-network client tests for
   `/v1/text-to-speech/{voiceId}` and `/v1/speech-to-text`.
   Validation: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs --no-fail-fast`; `cargo fmt --check -p siumai-provider-elevenlabs`.
   Review: review-workstream for provider crate boundary, option mapping, multipart request handling, and voice id behavior.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Worker must record whether multipart transport stayed provider-local or required shared infrastructure.
+  Handoff: DONE. `siumai-provider-elevenlabs` now owns config, auth/base URL/header handling,
+  model constants, typed speech/transcription options, request extension traits, speech/transcription
+  family model wrappers, and no-network `/v1/text-to-speech/{voiceId}` plus `/v1/speech-to-text`
+  request/response tests. Multipart materialization stayed provider-local for this slice; shared
+  multipart infrastructure was not required.
 
 ## ELA-030 — Registry And Capability Wiring
 
