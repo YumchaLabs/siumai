@@ -1,6 +1,6 @@
 # ElevenLabs Audio Provider — TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## ELA-010 — Scope And Contract Freeze
@@ -59,9 +59,11 @@ Last updated: 2026-05-26
 
 ## ELA-050 — Closeout
 
-- [ ] ELA-050 [owner=planner] [deps=ELA-020,ELA-030,ELA-040] [scope=docs/workstreams/elevenlabs-audio-provider]
+- [x] ELA-050 [owner=planner] [deps=ELA-020,ELA-030,ELA-040] [scope=docs/workstreams/elevenlabs-audio-provider]
   Goal: Close the ElevenLabs lane or split any residual option/resource gaps into narrow follow-ons.
   Validation: verify-rust-workstream records fresh final gate evidence.
   Review: review-workstream has no blocking findings.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`
-  Handoff: Summarize shipped behavior, deferred voice/resources work, and next media-provider recommendation.
+  Handoff: DONE. The ElevenLabs lane is closed after fresh provider-crate, registry, facade,
+  formatting, JSON, and whitespace gates. Voice listing/cloning/resources, live credential smoke
+  tests, and queued media polling foundations remain separate follow-ons.

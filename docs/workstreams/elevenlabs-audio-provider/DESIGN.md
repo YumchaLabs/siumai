@@ -1,6 +1,6 @@
 # ElevenLabs Audio Provider
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Why This Lane Exists
@@ -135,3 +135,7 @@ explicit:
 This lane can close when ElevenLabs has speech and transcription support through provider crate, registry,
 and facade paths, with no-network gates proving AI SDK-aligned request behavior and explicit documentation
 for deferred resources or intentional Rust API divergences.
+
+Closeout status: CLOSED on 2026-05-26 after fresh provider-crate, registry, facade, formatting,
+JSON, and whitespace gates. Voice resources, live credential tests, and queued media foundations
+remain separate follow-ons.

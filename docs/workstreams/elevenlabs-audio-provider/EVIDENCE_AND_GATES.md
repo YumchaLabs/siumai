@@ -1,6 +1,6 @@
 # ElevenLabs Audio Provider — Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Market Evidence
@@ -97,3 +97,8 @@ git diff --check
 | 2026-05-26 | ELA-040 | `cargo nextest run -p siumai --features elevenlabs elevenlabs --no-fail-fast` | Pass: 2 focused ElevenLabs facade tests ran successfully under the `elevenlabs` feature; build-time provider accounting reports `openai, elevenlabs` with default features. |
 | 2026-05-26 | ELA-040 | `cargo fmt --check -p siumai` | Pass: facade package formatting check completed. |
 | 2026-05-26 | ELA-040 | `git diff --check` | Pass: no whitespace errors; Git reported expected LF-to-CRLF working-copy warnings for touched Cargo, docs, and Rust files. |
+| 2026-05-26 | ELA-050 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs --no-fail-fast` | Pass: 10 provider-crate tests covered typed options, request option merging, env key constant, explicit key override, header merging, runtime helpers, `/v1/text-to-speech/{voiceId}` JSON request/auth/query/body behavior, `/v1/speech-to-text` multipart request/auth/body behavior, and transcription response mapping. |
+| 2026-05-26 | ELA-050 | `cargo nextest run -p siumai-registry --features elevenlabs elevenlabs --no-fail-fast` | Pass: 10 focused registry tests covered native metadata/catalog output, builder provider-id routing, speech/transcription family handles, registry request override precedence, ElevenLabs TTS and STT request mapping, and unsupported non-audio family rejection before transport use. Existing unused warnings remain outside this task. |
+| 2026-05-26 | ELA-050 | `cargo nextest run -p siumai --features elevenlabs elevenlabs --no-fail-fast` | Pass: 2 facade public-surface tests passed under the `elevenlabs` feature. |
+| 2026-05-26 | ELA-050 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai-registry -p siumai` | Pass: formatting check completed for all packages touched by the lane. |
+| 2026-05-26 | ELA-050 | `python -m json.tool docs\workstreams\elevenlabs-audio-provider\WORKSTREAM.json`; `git diff --check` | Pass: WORKSTREAM.json parsed successfully; no whitespace errors. |

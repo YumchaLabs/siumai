@@ -1,25 +1,31 @@
 # ElevenLabs Audio Provider — Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open, scope is frozen, and ELA-020 through ELA-040 are complete.
-`siumai-provider-elevenlabs` provides the native speech/transcription provider crate,
-`siumai-registry` wires ElevenLabs into provider metadata and family routing, and the `siumai`
-facade now exposes `provider_ext::elevenlabs`, `providers::elevenlabs`, `Provider::elevenlabs()`,
-model constants, typed options, request extension traits, and build-time provider accounting without
-widening `prelude::unified`.
+The workstream is closed. ELA-010 froze the speech/transcription-only scope, ELA-020 added the
+native ElevenLabs provider crate, ELA-030 wired ElevenLabs into registry metadata and family routing,
+ELA-040 exposed the facade/public surface, and ELA-050 reran fresh focused gates and closed the lane.
 
 ## Active Task
 
-- Task ID: ELA-050
-- Owner: planner
-- Files: `docs/workstreams/elevenlabs-audio-provider`
-- Validation: closeout gate set in `EVIDENCE_AND_GATES.md`
-- Status: READY
-- Review: review-workstream for final lane acceptance
+- Task ID: none
+- Owner: n/a
+- Files:
+  - `docs/workstreams/elevenlabs-audio-provider/*`
+- Validation:
+  - `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs --no-fail-fast`
+  - `cargo nextest run -p siumai-registry --features elevenlabs elevenlabs --no-fail-fast`
+  - `cargo nextest run -p siumai --features elevenlabs elevenlabs --no-fail-fast`
+  - `cargo fmt --check -p siumai-provider-elevenlabs`
+  - `cargo fmt --check -p siumai-registry`
+  - `cargo fmt --check -p siumai`
+  - `python -m json.tool docs\workstreams\elevenlabs-audio-provider\WORKSTREAM.json`
+  - `git diff --check`
+- Status: CLOSED
+- Review: Closeout review found no blocking findings.
 - Evidence: `docs/workstreams/elevenlabs-audio-provider/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Last Update
@@ -44,5 +50,6 @@ widening `prelude::unified`.
 
 ## Next Recommended Action
 
-- Start ELA-050 closeout: run final verification, review the task ledger and evidence, then either
-  close the lane or split any residual voice/resource/live-credential gaps into follow-ons.
+- Start separate follow-ons if needed: `elevenlabs-voice-resources` for voice listing/cloning and
+  pronunciation-dictionary resources, `live-credential-smoke-tests` for optional provider smoke
+  gates, or `media-task-polling-foundation` for queued media providers such as Fal or Replicate.

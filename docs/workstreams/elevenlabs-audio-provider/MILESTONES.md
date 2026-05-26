@@ -1,6 +1,6 @@
 # ElevenLabs Audio Provider — Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 — Scope Freeze
@@ -60,9 +60,9 @@ Gate:
 
 Exit criteria:
 
-- All task ledger items are done, split, or explicitly deferred.
-- Evidence gates are refreshed.
-- HANDOFF.md states the next task or lane closure.
+- All task ledger items are done, split, or explicitly deferred. DONE.
+- Evidence gates are refreshed. DONE.
+- HANDOFF.md states the next task or lane closure. DONE.
 
 Gate:
 

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "elevenlabs-audio-provider",
   "title": "ElevenLabs Audio Provider",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai needs a first-class ElevenLabs audio provider aligned with the AI SDK package surface for speech and transcription.",
@@ -48,10 +48,15 @@
     "docs/adr/0003-provider-ext-export-policy.md",
     "docs/adr/0004-experimental-surface-policy.md"
   ],
-  "current_task": "ELA-050",
-  "next_task": "Close the ElevenLabs lane or split any residual option/resource gaps into narrow follow-ons.",
+  "current_task": null,
+  "next_task": "Lane closed. Open separate follow-ons for voice resources, live credential smoke tests, or queued media polling foundations.",
+  "follow_on": [
+    "elevenlabs-voice-resources",
+    "live-credential-smoke-tests",
+    "media-task-polling-foundation"
+  ],
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue with ELA-050 closeout. Refresh final verification, review evidence and public-surface policy, then close the lane or split voice resources, live credential gates, and queued media behavior into follow-ons."
+    "default_action": "closed",
+    "notes": "ElevenLabs speech/transcription provider, registry wiring, facade exports, and closeout gates are complete. Future voice resources, live credential tests, or queued media work should start separate workstreams."
   }
 }
