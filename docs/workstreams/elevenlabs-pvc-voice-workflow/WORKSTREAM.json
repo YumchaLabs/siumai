@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "slug": "elevenlabs-pvc-voice-workflow",
+  "title": "ElevenLabs PVC Voice Workflow",
+  "status": "active",
+  "updated": "2026-05-26",
+  "scope_kind": "execution",
+  "problem": "Siumai lacks provider-owned resources for the documented ElevenLabs Professional Voice Cloning workflow.",
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/elevenlabs-pvc-voice-workflow/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/elevenlabs-pvc-voice-workflow/TODO.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/elevenlabs-pvc-voice-workflow/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/elevenlabs-pvc-voice-workflow/MILESTONES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/elevenlabs-pvc-voice-workflow/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "python .agents\\skills\\siumai-ai-sdk-maintenance\\scripts\\resolve_ai_sdk_repo.py",
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_metadata --no-fail-fast",
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_samples --no-fail-fast",
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices_pvc_verification --no-fail-fast",
+    "cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast",
+    "cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast",
+    "cargo fmt --check -p siumai-provider-elevenlabs -p siumai",
+    "python -m json.tool docs\\workstreams\\elevenlabs-pvc-voice-workflow\\WORKSTREAM.json",
+    "git diff --check"
+  ],
+  "evidence": [
+    "docs/workstreams/elevenlabs-voice-resources",
+    "docs/workstreams/elevenlabs-voice-mutation-resources",
+    "repo-ref/ai/packages/elevenlabs",
+    "https://elevenlabs.io/docs/llms.txt",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/create.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/update.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/train.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/create.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/update.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/delete.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/get-audio.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/get-waveform.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/get-speaker-separation-status.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/separate-speakers.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/samples/get-separated-speaker-audio.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/verification/request.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/verification/captcha.mdx",
+    "https://elevenlabs.io/docs/api-reference/voices/pvc/verification/captcha/verify.mdx"
+  ],
+  "adr_refs": [
+    "docs/adr/0003-provider-ext-export-policy.md"
+  ],
+  "current_task": "EPVC-020",
+  "next_task": "Implement PVC create/update/train JSON resources.",
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue this lane until the PVC workflow target state and gates are complete. Split ordinary voice edit into the next follow-on after closeout."
+  }
+}
