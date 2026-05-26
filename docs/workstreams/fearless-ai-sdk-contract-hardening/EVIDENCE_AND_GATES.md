@@ -78,6 +78,8 @@ Run `review-workstream` before accepting a completed implementation slice, and
   `siumai-core/src/retry_api.rs`
 - Tool contracts: `siumai-spec/src/types/tools`, `siumai-spec/src/types/prompt.rs`
 - Usage contract: `siumai-spec/src/types/usage.rs`, `siumai-core/src/streaming/processor.rs`
+- Unsupported capability contract: `siumai-spec/src/types/common.rs`,
+  `siumai-core/src/traits/capabilities.rs`, `siumai-core/src/error/helpers.rs`
 - Changelog tracking: `CHANGELOG.md` plus touched crate changelogs.
 
 ## Evidence Log
@@ -113,3 +115,9 @@ Run `review-workstream` before accepting a completed implementation slice, and
 | 2026-05-26 | AICH-080 | `cargo nextest run -p siumai-spec usage --no-fail-fast` | Pass | 8 usage-related tests passed, including explicit multi-call aggregation semantics. |
 | 2026-05-26 | AICH-080 | `cargo nextest run -p siumai-core streaming::processor --no-fail-fast` | Pass | 15 stream processor tests passed, including repeated cumulative finish usage snapshot replacement. |
 | 2026-05-26 | AICH-080 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_event_converter_repeated_usage_keeps_latest_snapshot --no-fail-fast` | Pass | 1 OpenAI Responses SSE fixture passed, proving repeated usage events preserve the latest cumulative snapshot through stream processing. |
+| 2026-05-26 | AICH-090 | Static comparison with `repo-ref/ai/packages/provider/src/shared/v4/shared-v4-warning.ts` and `repo-ref/ai/packages/provider/src/language-model/v2/language-model-v2-call-warning.ts`. | Pass | AI SDK exposes non-fatal unsupported behavior as warnings; Siumai now adds an explicit reject/warn/provider-fallback policy before warning/error projection. |
+| 2026-05-26 | AICH-090 | `cargo fmt --check -p siumai-spec -p siumai-core` | Pass | Formatting passed for the touched spec/core crates. |
+| 2026-05-26 | AICH-090 | `cargo nextest run -p siumai-spec unsupported_capability --no-fail-fast` | Pass | 4 unsupported-capability policy serialization and warning-projection tests passed. |
+| 2026-05-26 | AICH-090 | `cargo nextest run -p siumai-core unsupported_capability --no-fail-fast` | Pass | 2 runtime policy projection tests passed, covering reject-to-error and warn-to-warning behavior. |
+| 2026-05-26 | AICH-090 | `cargo nextest run -p siumai-core reject_if_unsupported --no-fail-fast` | Pass | 2 provider capability helper tests passed, covering supported and missing capability policies. |
+| 2026-05-26 | AICH-090 | `cargo nextest run -p siumai-core rerank_guard_blocks_unsupported_provider_before_transform --no-fail-fast` | Pass | 1 executor guard regression stayed green after routing hard capability rejection through the shared policy. |

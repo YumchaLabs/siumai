@@ -1,5 +1,6 @@
 //! ProviderCapabilities structure
 
+use crate::types::UnsupportedCapabilityPolicy;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
@@ -124,5 +125,51 @@ impl ProviderCapabilities {
             "file_management" => self.file_management,
             _ => self.custom_features.get(feature).copied().unwrap_or(false),
         }
+    }
+
+    /// Return a reject policy when a declared capability is missing.
+    ///
+    /// This helper is for hard capability guards where continuing would call the wrong family or
+    /// transport path. Lossy request-option projection should instead create
+    /// `UnsupportedCapabilityPolicy::warn(...)`, and provider-owned uncertainty should use
+    /// `UnsupportedCapabilityPolicy::provider_fallback(...)`.
+    pub fn reject_if_unsupported(
+        &self,
+        feature: &str,
+        details: Option<&str>,
+    ) -> Option<UnsupportedCapabilityPolicy> {
+        if self.supports(feature) {
+            None
+        } else {
+            Some(UnsupportedCapabilityPolicy::reject(feature, details))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::UnsupportedCapabilityBehavior;
+
+    #[test]
+    fn reject_if_unsupported_returns_none_for_supported_capability() {
+        let caps = ProviderCapabilities::new().with_chat();
+
+        assert_eq!(caps.reject_if_unsupported("chat", None), None);
+    }
+
+    #[test]
+    fn reject_if_unsupported_returns_reject_policy_for_missing_capability() {
+        let caps = ProviderCapabilities::new().with_chat();
+        let policy = caps
+            .reject_if_unsupported("streaming", Some("provider has no streaming endpoint"))
+            .expect("missing capability should produce policy");
+
+        assert_eq!(policy.feature, "streaming");
+        assert_eq!(policy.behavior, UnsupportedCapabilityBehavior::Reject);
+        assert_eq!(
+            policy.details.as_deref(),
+            Some("provider has no streaming endpoint")
+        );
     }
 }

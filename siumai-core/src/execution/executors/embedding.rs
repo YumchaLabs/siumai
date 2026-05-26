@@ -1,6 +1,6 @@
 //! Embedding executor traits
 
-use crate::error::LlmError;
+use crate::error::{LlmError, resolve_unsupported_capability_policy};
 use crate::execution::http::headers::headermap_to_hashmap;
 use crate::execution::transformers::{request::RequestTransformer, response::ResponseTransformer};
 use crate::types::{EmbeddingRequest, EmbeddingResponse};
@@ -28,10 +28,11 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
     async fn execute(&self, req: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
         // Capability guard to avoid calling unimplemented ProviderSpec defaults
         let caps = self.provider_spec.capabilities();
-        if !caps.supports("embedding") {
-            return Err(LlmError::UnsupportedOperation(
-                "Embedding is not supported by this provider".to_string(),
-            ));
+        if let Some(policy) = caps.reject_if_unsupported(
+            "embedding",
+            Some("Embedding is not supported by this provider"),
+        ) {
+            resolve_unsupported_capability_policy(policy)?;
         }
         let retry_options = self.policy.retry_options.clone();
         let run_once = move || {

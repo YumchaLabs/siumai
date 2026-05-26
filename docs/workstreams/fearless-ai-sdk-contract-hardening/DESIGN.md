@@ -125,6 +125,25 @@ facade. The facade should expose safe defaults and documentation, not provider r
 Prefer contract tests over adapter-specific patches. When a field can carry raw provider data, keep
 the raw value available for diagnostics but make the safe public projection explicit.
 
+## Unsupported Capability Policy
+
+Siumai follows AI SDK's warning surface for non-fatal unsupported behavior: unsupported settings and
+compatibility fallbacks are returned as call warnings, including stream-start warnings. The Siumai
+contract adds an explicit policy step before warning/error projection so request projection cannot
+silently ignore caller settings that change semantics:
+
+- `reject`: fail before provider execution when continuing would call the wrong model family,
+  endpoint, transport, or tool execution owner.
+- `warn`: continue only when Siumai can name the unsupported feature and surface an AI SDK-style
+  `Warning::Unsupported { feature, details }`.
+- `provider-fallback`: continue when support is intentionally delegated to the provider; surface a
+  compatibility warning when Siumai reports that delegation, and treat the provider response/error
+  as authoritative.
+
+Provider-specific request projection can still decide which behavior applies to each option, but it
+must make that decision explicitly. Broad provider-by-provider rewrites are follow-on work if a
+single adapter has many unsupported option cases.
+
 ## Closeout Condition
 
 This lane can close when:

@@ -15,20 +15,21 @@ abort. AICH-050 defined public provider metadata versus private raw diagnostics 
 AICH-060 split safe user-facing error messages from raw diagnostics. AICH-070 added explicit tool
 validation/failure helpers, documented provider-executed ownership, and locked `ToolInputStart`
 stable projection away from provider replay indexes. AICH-080 defined usage as a per-provider-call
-cumulative snapshot and stopped repeated finish usage snapshots from being over-counted.
+cumulative snapshot and stopped repeated finish usage snapshots from being over-counted. AICH-090
+added explicit unsupported-capability policy behaviors for reject, warn, and provider fallback, and
+routed core hard family guards through the shared reject policy.
 
 ## Active Task
 
-- Task ID: AICH-090
-- Owner: unassigned
+- Task ID: AICH-100
+- Owner: planner
 - Files:
-  - `siumai-spec/src/types/common.rs`
-  - `siumai-core/src`
-  - provider crates as needed
-  - `docs`
   - `CHANGELOG.md`
+  - touched crate changelogs
+  - `docs/workstreams/fearless-ai-sdk-contract-hardening`
 - Validation:
-  - targeted package tests for warnings/errors touched by the slice
+  - `verify-rust-workstream` records fresh final gate evidence
+  - `review-workstream` has no blocking findings
 - Status: READY
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -58,6 +59,10 @@ cumulative snapshot and stopped repeated finish usage snapshots from being over-
 - AICH-080 established `Usage` as one provider/model-call cumulative snapshot. Stream processor
   usage updates now replace earlier same-call snapshots, while `Usage::merge()` remains explicit
   multi-call aggregation and drops provider-native raw usage.
+- AICH-090 established `UnsupportedCapabilityPolicy` / `UnsupportedCapabilityBehavior` as the
+  shared decision point before unsupported capabilities become errors or warnings. Hard capability
+  guards use `reject`; lossy unsupported option projection should use `warn`; provider-owned
+  uncertainty should use `provider-fallback`.
 
 ## Blockers
 
@@ -65,5 +70,5 @@ cumulative snapshot and stopped repeated finish usage snapshots from being over-
 
 ## Next Recommended Action
 
-- Execute AICH-090 with `run-workstream-task`: make unsupported provider capability behavior
-  explicit as reject, warn, or provider fallback, and add shared tests for touched behavior.
+- Execute AICH-100 with `close-workstream` / `verify-rust-workstream`: run fresh final gates, review
+  the lane, reconcile changelogs, and close or split provider-specific unsupported option follow-ons.

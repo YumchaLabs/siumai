@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider replay indexes and raw replay items stay out of public provider metadata.
 - Treat repeated stream finish usage as replacement cumulative snapshots for the same provider call,
   preventing accidental double-counting while preserving final raw usage.
+- Routed hard capability guards through the shared unsupported-capability policy so missing family
+  endpoints reject consistently while warning and provider-fallback behaviors stay explicit.
 - Moved spec-only provider/protocol helper implementations to `siumai-provider-utils`; matching
   `siumai-core::utils::*` alias modules for those helpers were removed.
 - Kept only core-owned utility behavior in core: cancellation/abort stream wiring remains stable

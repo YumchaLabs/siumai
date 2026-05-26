@@ -64,6 +64,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   replay hints instead of public stream parts.
 - Defined stream usage as a per-provider-call cumulative snapshot and stopped repeated cumulative
   finish usage parts from being over-counted by the stream processor.
+- Added an explicit unsupported-capability policy for request projection: providers must choose
+  reject, warning, or provider fallback behavior instead of silently ignoring semantic settings.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can

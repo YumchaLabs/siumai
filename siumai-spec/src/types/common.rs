@@ -129,6 +129,137 @@ impl Warning {
     }
 }
 
+/// Shared behavior chosen when a requested provider/model capability is unsupported or unknown.
+///
+/// Siumai keeps this decision separate from AI SDK-compatible warning serialization because
+/// `SharedV4Warning` only exposes `unsupported`, `compatibility`, `deprecated`, and `other`.
+/// Provider and protocol code should choose one of these behaviors before projecting to a warning
+/// or error so unsupported settings are not silently ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UnsupportedCapabilityBehavior {
+    /// Reject before sending the request because continuing would change caller intent.
+    Reject,
+    /// Continue the request while surfacing an AI SDK-style unsupported warning.
+    Warn,
+    /// Let the provider decide support while surfacing a compatibility warning when reported.
+    ProviderFallback,
+}
+
+impl UnsupportedCapabilityBehavior {
+    /// Returns true when the request must be rejected before provider execution.
+    pub fn is_reject(self) -> bool {
+        matches!(self, Self::Reject)
+    }
+
+    /// Returns true when Siumai will continue locally and surface an unsupported warning.
+    pub fn is_warn(self) -> bool {
+        matches!(self, Self::Warn)
+    }
+
+    /// Returns true when support is delegated to the provider response/error path.
+    pub fn is_provider_fallback(self) -> bool {
+        matches!(self, Self::ProviderFallback)
+    }
+
+    /// Stable string used in diagnostics and docs.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reject => "reject",
+            Self::Warn => "warn",
+            Self::ProviderFallback => "provider-fallback",
+        }
+    }
+}
+
+impl fmt::Display for UnsupportedCapabilityBehavior {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Explicit policy for an unsupported provider/model capability.
+///
+/// Use this when request projection discovers that a provider cannot guarantee a requested
+/// semantic, such as an unsupported call option, tool family, transport mode, or model capability.
+/// The policy records the chosen behavior before it is projected to either `LlmError` in runtime
+/// code or an AI SDK-compatible `Warning` in response/stream payloads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsupportedCapabilityPolicy {
+    /// Requested feature, setting, tool family, or capability.
+    pub feature: String,
+    /// Behavior chosen for this unsupported capability.
+    pub behavior: UnsupportedCapabilityBehavior,
+    /// Optional public details explaining why the behavior was chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+}
+
+impl UnsupportedCapabilityPolicy {
+    /// Create a policy that rejects the request before provider execution.
+    pub fn reject(feature: impl Into<String>, details: Option<impl Into<String>>) -> Self {
+        Self::new(
+            feature,
+            UnsupportedCapabilityBehavior::Reject,
+            details.map(Into::into),
+        )
+    }
+
+    /// Create a policy that continues with an unsupported warning.
+    pub fn warn(feature: impl Into<String>, details: Option<impl Into<String>>) -> Self {
+        Self::new(
+            feature,
+            UnsupportedCapabilityBehavior::Warn,
+            details.map(Into::into),
+        )
+    }
+
+    /// Create a policy that delegates final support/failure behavior to the provider.
+    pub fn provider_fallback(
+        feature: impl Into<String>,
+        details: Option<impl Into<String>>,
+    ) -> Self {
+        Self::new(
+            feature,
+            UnsupportedCapabilityBehavior::ProviderFallback,
+            details.map(Into::into),
+        )
+    }
+
+    /// Create a policy with an explicit behavior.
+    pub fn new(
+        feature: impl Into<String>,
+        behavior: UnsupportedCapabilityBehavior,
+        details: Option<String>,
+    ) -> Self {
+        Self {
+            feature: feature.into(),
+            behavior,
+            details,
+        }
+    }
+
+    /// Project non-reject policies to the AI SDK-compatible warning surface.
+    ///
+    /// `Warn` becomes `Warning::Unsupported`, matching AI SDK `SharedV4Warning`. Provider fallback
+    /// becomes `Warning::Compatibility`, because Siumai is explicitly delegating the final support
+    /// decision to the provider instead of claiming a known unsupported feature.
+    pub fn warning(&self) -> Option<Warning> {
+        match self.behavior {
+            UnsupportedCapabilityBehavior::Reject => None,
+            UnsupportedCapabilityBehavior::Warn => Some(Warning::unsupported(
+                self.feature.clone(),
+                self.details.clone(),
+            )),
+            UnsupportedCapabilityBehavior::ProviderFallback => Some(Warning::compatibility(
+                self.feature.clone(),
+                self.details.clone(),
+            )),
+        }
+    }
+}
+
 /// Legacy compatibility provider classification.
 ///
 /// Provider ids are open strings and are the primary identity for registry handles, provider
@@ -485,7 +616,10 @@ impl ResponseMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::{FinishReason, ProviderType, ResponseMetadata, Warning};
+    use super::{
+        FinishReason, ProviderType, ResponseMetadata, UnsupportedCapabilityBehavior,
+        UnsupportedCapabilityPolicy, Warning,
+    };
     use chrono::{DateTime, Utc};
     use std::collections::HashMap;
 
@@ -690,6 +824,77 @@ mod tests {
             value["details"],
             serde_json::json!("This model does not support the `size` option.")
         );
+    }
+
+    #[test]
+    fn unsupported_capability_policy_serializes_behavior() {
+        let policy = UnsupportedCapabilityPolicy::provider_fallback(
+            "response_format.json_schema",
+            Some("provider owns strict schema support"),
+        );
+
+        let value = serde_json::to_value(&policy).expect("serialize capability policy");
+        assert_eq!(
+            value["feature"],
+            serde_json::json!("response_format.json_schema")
+        );
+        assert_eq!(value["behavior"], serde_json::json!("provider-fallback"));
+        assert_eq!(
+            value["details"],
+            serde_json::json!("provider owns strict schema support")
+        );
+
+        let roundtrip: UnsupportedCapabilityPolicy =
+            serde_json::from_value(value).expect("deserialize capability policy");
+        assert_eq!(roundtrip, policy);
+        assert!(roundtrip.behavior.is_provider_fallback());
+        assert_eq!(
+            UnsupportedCapabilityBehavior::ProviderFallback.to_string(),
+            "provider-fallback"
+        );
+    }
+
+    #[test]
+    fn unsupported_capability_warn_projects_to_unsupported_warning() {
+        let policy = UnsupportedCapabilityPolicy::warn(
+            "size",
+            Some("This model does not support the `size` option."),
+        );
+
+        assert_eq!(
+            policy.warning(),
+            Some(Warning::Unsupported {
+                feature: "size".to_string(),
+                details: Some("This model does not support the `size` option.".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn unsupported_capability_provider_fallback_projects_to_compatibility_warning() {
+        let policy = UnsupportedCapabilityPolicy::provider_fallback(
+            "tool_choice=required",
+            Some("provider decides whether required tools are supported"),
+        );
+
+        assert_eq!(
+            policy.warning(),
+            Some(Warning::Compatibility {
+                feature: "tool_choice=required".to_string(),
+                details: Some("provider decides whether required tools are supported".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn unsupported_capability_reject_has_no_warning_projection() {
+        let policy = UnsupportedCapabilityPolicy::reject(
+            "streaming",
+            Some("provider has no streaming endpoint"),
+        );
+
+        assert!(policy.behavior.is_reject());
+        assert_eq!(policy.warning(), None);
     }
 
     #[test]

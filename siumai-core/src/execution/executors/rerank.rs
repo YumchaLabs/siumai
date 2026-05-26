@@ -1,6 +1,6 @@
 //! Rerank executor traits
 
-use crate::error::LlmError;
+use crate::error::{LlmError, resolve_unsupported_capability_policy};
 use crate::execution::http::headers::headermap_to_hashmap;
 // use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::transformers::rerank_request::RerankRequestTransformer;
@@ -142,10 +142,10 @@ impl RerankExecutor for HttpRerankExecutor {
     async fn execute(&self, req: RerankRequest) -> Result<RerankResponse, LlmError> {
         // Capability guard to avoid calling unimplemented ProviderSpec defaults
         let caps = self.provider_spec.capabilities();
-        if !caps.supports("rerank") {
-            return Err(LlmError::UnsupportedOperation(
-                "Rerank is not supported by this provider".to_string(),
-            ));
+        if let Some(policy) =
+            caps.reject_if_unsupported("rerank", Some("Rerank is not supported by this provider"))
+        {
+            resolve_unsupported_capability_policy(policy)?;
         }
 
         let retry_options = self.policy.retry_options.clone();

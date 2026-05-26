@@ -8,8 +8,8 @@
   "scope_kind": "execution",
   "problem": "Siumai preserves AI SDK-style stream, metadata, tool, usage, cancellation, and error data but leaves several replay, diagnostics, safety, and capability semantics implicit.",
   "objective": "Make the shared contracts explicit, tested, documented, and reflected in changelogs so downstream adapters can consume Siumai without undocumented replay or raw-data assumptions.",
-  "current_task": "AICH-090",
-  "next_task": "AICH-090",
+  "current_task": "AICH-100",
+  "next_task": "AICH-100",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -91,6 +91,12 @@
       "kind": "task",
       "task": "AICH-080",
       "summary": "Defined Usage as a per-provider-call cumulative snapshot, replaced repeated finish usage snapshots in the stream processor, and added an OpenAI Responses repeated-usage fixture."
+    },
+    {
+      "date": "2026-05-26",
+      "kind": "task",
+      "task": "AICH-090",
+      "summary": "Added explicit unsupported-capability policy behaviors for reject, warn, and provider fallback; core hard family guards now reject through the shared policy while provider-specific option rewrites remain follow-ons."
     }
   ],
   "adr_refs": [

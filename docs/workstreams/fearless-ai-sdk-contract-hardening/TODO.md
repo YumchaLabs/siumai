@@ -64,12 +64,14 @@ Last updated: 2026-05-26
   Evidence: Usage docs and repeated-finish usage regression test.
   Handoff: DONE. `Usage` is documented as one provider/model-call cumulative snapshot. Stream processor finish usage now replaces earlier same-call snapshots instead of merging, preserving final raw usage. `Usage::merge()` remains explicit multi-call aggregation and drops raw.
 
-- [ ] AICH-090 [owner=unassigned] [deps=AICH-050,AICH-070,AICH-080] [scope=siumai-spec/src/types/common.rs,siumai-core/src,provider crates as needed,docs,CHANGELOG.md]
+- [x] AICH-090 [owner=codex] [deps=AICH-050,AICH-070,AICH-080] [scope=siumai-spec/src/types/common.rs,siumai-core/src,provider crates as needed,docs,CHANGELOG.md]
   Goal: Make unsupported provider capability behavior explicit: reject, warn, or provider fallback, with shared tests for common behavior.
   Validation: targeted package tests for warnings/errors touched by the slice.
   Review: Do not silently ignore caller settings that change requested semantics.
   Evidence: Warning/error docs, capability tests, changelog entries.
-  Handoff: Split provider-specific unsupported behavior into follow-ons if it grows beyond shared contract work.
+  Handoff: DONE. Added `UnsupportedCapabilityPolicy` / `UnsupportedCapabilityBehavior` with
+  reject, warn, and provider-fallback projections; core hard family guards now route through the
+  shared reject policy while provider-specific unsupported option rewrites remain follow-ons.
 
 ## M3 - Integration And Closeout
 

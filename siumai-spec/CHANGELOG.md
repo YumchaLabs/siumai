@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hints.
 - Documented `Usage` as a single provider/model-call cumulative snapshot; explicit multi-call
   aggregation still uses `Usage::merge()` and drops provider-native raw usage.
+- Added `UnsupportedCapabilityPolicy` and `UnsupportedCapabilityBehavior` so request projection can
+  explicitly choose reject, warning, or provider fallback behavior before projecting to warnings or
+  runtime errors.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 

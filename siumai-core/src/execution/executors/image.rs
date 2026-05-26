@@ -1,6 +1,6 @@
 //! Image generation executor traits
 
-use crate::error::LlmError;
+use crate::error::{LlmError, resolve_unsupported_capability_policy};
 use crate::execution::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
@@ -288,10 +288,11 @@ impl ImageExecutor for HttpImageExecutor {
     ) -> Result<ImageGenerationResponse, LlmError> {
         // Capability guard: image generation is a custom feature
         let caps = self.provider_spec.capabilities();
-        if !caps.supports("image_generation") {
-            return Err(LlmError::UnsupportedOperation(
-                "Image generation is not supported by this provider".to_string(),
-            ));
+        if let Some(policy) = caps.reject_if_unsupported(
+            "image_generation",
+            Some("Image generation is not supported by this provider"),
+        ) {
+            resolve_unsupported_capability_policy(policy)?;
         }
         let retry_options = self.policy.retry_options.clone();
         let run_once = move || {
@@ -363,10 +364,11 @@ impl ImageExecutor for HttpImageExecutor {
         req: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if !caps.supports("image_generation") {
-            return Err(LlmError::UnsupportedOperation(
-                "Image editing is not supported by this provider".to_string(),
-            ));
+        if let Some(policy) = caps.reject_if_unsupported(
+            "image_generation",
+            Some("Image editing is not supported by this provider"),
+        ) {
+            resolve_unsupported_capability_policy(policy)?;
         }
         let req = if self
             .provider_spec
@@ -450,10 +452,11 @@ impl ImageExecutor for HttpImageExecutor {
         req: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if !caps.supports("image_generation") {
-            return Err(LlmError::UnsupportedOperation(
-                "Image variation is not supported by this provider".to_string(),
-            ));
+        if let Some(policy) = caps.reject_if_unsupported(
+            "image_generation",
+            Some("Image variation is not supported by this provider"),
+        ) {
+            resolve_unsupported_capability_policy(policy)?;
         }
         let req = if self
             .provider_spec
