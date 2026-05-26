@@ -1,6 +1,6 @@
 # Workstream Index
 
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 This index is the navigation surface for `docs/workstreams/`. It records what can be inferred from existing workstream files; it does not rewrite historical status by assumption.
 
@@ -18,10 +18,10 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 ## Summary
 
-- Total workstream directories: 81
-- Machine-readable status files: 81
-- Closed or closed-like lanes: 81
-- Active-like lanes: 0
+- Total workstream directories: 90
+- Machine-readable status files: 90
+- Closed or closed-like lanes: 89
+- Active-like lanes: 1
 - Deferred lanes: 0
 - Unknown legacy lanes: 0
 
@@ -30,6 +30,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | Workstream | Status | Source | Machine-readable |
 | --- | --- | --- | --- |
 | `docs/workstreams/ai-sdk-provider-interface-convergence` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/ai-sdk-provider-market-expansion` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/ai-sdk-structural-alignment` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/anthropic-files-shared-contract-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/anthropic-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
@@ -45,9 +46,16 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/completion-family-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/completion-metadata-boundary-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/data-content-error-surface-alignment` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/deepgram-audio-provider` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/deepinfra-unified-provider-surface` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/deepseek-package-surface-alignment` | superseded | `WORKSTREAM.json` | yes |
+| `docs/workstreams/elevenlabs-audio-provider` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/elevenlabs-pronunciation-dictionary-mutations` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/elevenlabs-pvc-voice-workflow` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/elevenlabs-voice-mutation-resources` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/elevenlabs-voice-resources` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-architecture-convergence` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-ai-sdk-contract-hardening` | active | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-boundary-hardening` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-clean-architecture-boundaries` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-content-part-boundary-split` | closed | `WORKSTREAM.json` | yes |
@@ -86,6 +94,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/prompt-model-message-surface-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/protocol-bridge-gateway` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/protocol-response-generated-output-boundary` | closed | `WORKSTREAM.json` | yes |
+| `docs/workstreams/provider-model-catalog-ai-sdk-refresh` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-native-extension-overrides` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-option-alias-alignment` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/provider-settings-surface-alignment` | closed | `WORKSTREAM.json` | yes |

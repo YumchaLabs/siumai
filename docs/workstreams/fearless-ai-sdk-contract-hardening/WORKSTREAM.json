@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "fearless-ai-sdk-contract-hardening",
+  "title": "Fearless AI SDK Contract Hardening",
+  "status": "active",
+  "opened": "2026-05-26",
+  "updated": "2026-05-26",
+  "scope_kind": "execution",
+  "problem": "Siumai preserves AI SDK-style stream, metadata, tool, usage, cancellation, and error data but leaves several replay, diagnostics, safety, and capability semantics implicit.",
+  "objective": "Make the shared contracts explicit, tested, documented, and reflected in changelogs so downstream adapters can consume Siumai without undocumented replay or raw-data assumptions.",
+  "current_task": "AICH-020",
+  "next_task": "AICH-020",
+  "blocked": false,
+  "reference_repo": {
+    "name": "vercel-ai",
+    "path": "repo-ref/ai",
+    "source": "local"
+  },
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/fearless-ai-sdk-contract-hardening/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/fearless-ai-sdk-contract-hardening/TODO.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/fearless-ai-sdk-contract-hardening/MILESTONES.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/fearless-ai-sdk-contract-hardening/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/fearless-ai-sdk-contract-hardening/HANDOFF.md"
+    }
+  ],
+  "gates": [
+    "python -m json.tool docs/workstreams/fearless-ai-sdk-contract-hardening/WORKSTREAM.json",
+    "git diff --check -- CHANGELOG.md docs/workstreams/fearless-ai-sdk-contract-hardening docs/workstreams/INDEX.md",
+    "cargo fmt --check",
+    "cargo nextest run -p siumai-spec -p siumai-core -p siumai-protocol-openai --no-fail-fast"
+  ],
+  "evidence": [
+    {
+      "date": "2026-05-26",
+      "kind": "audit",
+      "summary": "Recorded 12 AI SDK contract gaps across stream replay, reasoning/text separation, cancellation, raw diagnostics, tool contracts, usage, error safety, and capability failure behavior."
+    }
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0006-family-model-first-trait-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
+  ],
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue through AICH tasks while the 12-gap contract scope remains valid. Split provider-specific or Hajimi adapter work into follow-ons."
+  }
+}

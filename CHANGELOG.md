@@ -46,6 +46,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Changed
 
+- Started tracking the fearless AI SDK contract hardening workstream for stream replay semantics,
+  raw/private diagnostics, tool ownership, usage snapshots, cancellation, error safety, and provider
+  capability failure behavior.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can
