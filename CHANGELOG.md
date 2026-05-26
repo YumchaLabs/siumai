@@ -53,6 +53,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible
   text that appears only in the terminal response snapshot.
+- Documented `stream_with_cancel` as the recommended cancelable stream entry, with local
+  stream-consumption cancellation separated from provider-specific remote abort.
 - Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
   exercise PATCH endpoints without live network calls.
 - Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can

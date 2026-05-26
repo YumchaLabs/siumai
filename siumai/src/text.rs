@@ -272,6 +272,11 @@ pub async fn stream<M: TextModel + ?Sized>(
 }
 
 /// Generate a streaming text response with cancellation support.
+///
+/// This is the recommended facade helper when callers need to cancel an in-flight text stream.
+/// The returned handle always stops local stream consumption. If `StreamOptions.request_options`
+/// contains an abort signal, that signal is linked to the handle. Provider remote abort remains
+/// provider-specific and is only guaranteed when the provider implementation documents and tests it.
 pub async fn stream_with_cancel<M: TextModel + ?Sized>(
     model: &M,
     request: TextRequest,

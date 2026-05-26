@@ -8,8 +8,8 @@
   "scope_kind": "execution",
   "problem": "Siumai preserves AI SDK-style stream, metadata, tool, usage, cancellation, and error data but leaves several replay, diagnostics, safety, and capability semantics implicit.",
   "objective": "Make the shared contracts explicit, tested, documented, and reflected in changelogs so downstream adapters can consume Siumai without undocumented replay or raw-data assumptions.",
-  "current_task": "AICH-040",
-  "next_task": "AICH-040",
+  "current_task": "AICH-050",
+  "next_task": "AICH-050",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -61,6 +61,12 @@
       "kind": "task",
       "task": "AICH-030",
       "summary": "Added an OpenAI Responses SSE fixture proving reasoning deltas and terminal-only final visible text are both preserved."
+    },
+    {
+      "date": "2026-05-26",
+      "kind": "task",
+      "task": "AICH-040",
+      "summary": "Documented stream_with_cancel as the recommended cancelable stream entry, separated local cancellation from provider-specific remote abort, and added a core local cancellation regression test."
     }
   ],
   "adr_refs": [

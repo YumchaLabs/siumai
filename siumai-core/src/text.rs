@@ -55,6 +55,11 @@ pub trait TextModel: Send + Sync {
     async fn stream(&self, request: TextRequest) -> Result<TextStream, LlmError>;
 
     /// Generate a streaming response with a first-class cancellation handle.
+    ///
+    /// This is the recommended entry point when the caller needs to cancel a stream after it has
+    /// started. The returned handle always cancels local stream consumption. Provider-specific
+    /// implementations may also propagate cancellation to a remote request, but that remote abort is
+    /// only guaranteed for providers that document and test it.
     async fn stream_with_cancel(&self, request: TextRequest) -> Result<TextStreamHandle, LlmError>;
 }
 
@@ -135,6 +140,11 @@ mod tests {
     use async_trait::async_trait;
     use futures::StreamExt;
     use siumai_provider_utils::UrlSupportRegex;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::Duration;
 
     struct FakeChat;
 
@@ -187,6 +197,61 @@ mod tests {
         }
     }
 
+    struct SlowChat {
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl crate::traits::ModelMetadata for SlowChat {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "slow-chat"
+        }
+    }
+
+    #[async_trait]
+    impl ChatCapability for SlowChat {
+        async fn chat_with_tools(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<crate::types::Tool>>,
+        ) -> Result<crate::types::ChatResponse, LlmError> {
+            Ok(crate::types::ChatResponse::new(MessageContent::Text(
+                "ok".to_string(),
+            )))
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<crate::types::Tool>>,
+        ) -> Result<ChatStream, LlmError> {
+            struct MarkDropped(Arc<AtomicBool>);
+
+            impl Drop for MarkDropped {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::SeqCst);
+                }
+            }
+
+            let dropped = self.dropped.clone();
+            let stream = async_stream::stream! {
+                let _guard = MarkDropped(dropped);
+                yield Ok(ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
+                        delta: "o".to_string(),
+                        provider_metadata: None,
+                    },
+                });
+                std::future::pending::<()>().await;
+            };
+            Ok(Box::pin(stream))
+        }
+    }
+
     #[tokio::test]
     async fn adapter_generate_calls_chat_request() {
         let model = FakeChat;
@@ -234,6 +299,44 @@ mod tests {
 
         let items: Vec<_> = handle.stream.collect().await;
         assert!(!items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stream_with_cancel_handle_stops_local_stream_consumption() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let model = SlowChat {
+            dropped: dropped.clone(),
+        };
+        let mut handle = TextModel::stream_with_cancel(
+            &model,
+            ChatRequest::new(vec![ChatMessage::user("hi").build()]),
+        )
+        .await
+        .unwrap();
+
+        let first = handle
+            .stream
+            .next()
+            .await
+            .expect("first item")
+            .expect("first item ok");
+        assert_eq!(first.text_delta(), Some("o"));
+
+        handle.cancel.cancel();
+
+        let next = tokio::time::timeout(Duration::from_secs(1), handle.stream.next())
+            .await
+            .expect("cancelled stream should resolve promptly");
+        assert!(next.is_none());
+        assert!(handle.cancel.is_cancelled());
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !dropped.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("inner stream should be dropped after cancellation");
     }
 
     #[test]

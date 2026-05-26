@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Locked the stream processor contract that terminal `StreamEnd.response.content` is reconciled as
   final replay/fallback content instead of appended as another text delta.
+- Documented `stream_with_cancel` as the recommended cancelable text-stream path and guarded the
+  default local stream-consumption cancellation behavior.
 - Moved spec-only provider/protocol helper implementations to `siumai-provider-utils`; matching
   `siumai-core::utils::*` alias modules for those helpers were removed.
 - Kept only core-owned utility behavior in core: cancellation/abort stream wiring remains stable

@@ -27,12 +27,12 @@ Last updated: 2026-05-26
   Evidence: OpenAI Responses or OpenAI-compatible stream fixture.
   Handoff: DONE. OpenAI Responses SSE now has a fixture where reasoning deltas stream first, no text deltas are emitted, and terminal `response.completed` supplies final visible text without losing reasoning.
 
-- [ ] AICH-040 [owner=unassigned] [deps=AICH-010] [scope=siumai-core/src/text.rs,siumai-core/src/traits/chat.rs,siumai/src/text.rs,docs,CHANGELOG.md,siumai-core/CHANGELOG.md]
+- [x] AICH-040 [owner=codex] [deps=AICH-010] [scope=siumai-core/src/text.rs,siumai-core/src/traits/chat.rs,siumai/src/text.rs,docs,CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Document and test `stream_with_cancel` as the recommended cancelable text stream entry, with local vs remote cancel semantics separated.
   Validation: `cargo nextest run -p siumai-core stream_with_cancel --no-fail-fast`; existing OpenAI remote cancel test remains green.
   Review: Do not promise provider remote abort unless the provider has a direct test.
   Evidence: API docs and cancellation tests.
-  Handoff: Consumer adapters should use the handle instead of only checking cancellation between events.
+  Handoff: DONE. `stream_with_cancel` is documented as the recommended cancelable stream entry; default implementations guarantee local stream-consumption cancellation, while remote abort remains provider-specific and covered by the OpenAI Responses regression test.
 
 ## M2 - Diagnostics, Tools, Usage, And Capability Contracts
 

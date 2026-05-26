@@ -23,6 +23,11 @@ pub trait ChatCapability: Send + Sync {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError>;
 
+    /// Stream chat output with a first-class cancellation handle.
+    ///
+    /// The default implementation wraps `chat_stream` and guarantees local stream-consumption
+    /// cancellation. Providers that can abort an in-flight remote request should override this
+    /// method and document that stronger provider-specific behavior.
     async fn chat_stream_with_cancel(
         &self,
         messages: Vec<ChatMessage>,
@@ -46,6 +51,11 @@ pub trait ChatCapability: Send + Sync {
         self.chat_stream(request.messages, request.tools).await
     }
 
+    /// Full streaming chat request with a first-class cancellation handle.
+    ///
+    /// The default implementation wraps `chat_stream_request` and guarantees local
+    /// stream-consumption cancellation. Remote provider abort is provider-specific and requires an
+    /// override that forwards cancellation to the provider transport.
     async fn chat_stream_request_with_cancel(
         &self,
         request: ChatRequest,
