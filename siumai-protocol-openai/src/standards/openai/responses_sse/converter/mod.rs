@@ -17,6 +17,8 @@ mod pending;
 use pending::TerminalEventBuffer;
 mod provider_tools;
 mod reasoning;
+mod replay;
+use replay::OpenAiResponsesEventExtras;
 mod stream_meta;
 mod tool_events;
 
@@ -102,12 +104,6 @@ pub struct OpenAiResponsesEventConverter {
     emitted_tool_search_input_start_ids: Arc<Mutex<HashSet<String>>>,
 
     serialize_state: Arc<Mutex<OpenAiResponsesSerializeState>>,
-}
-
-#[derive(Debug, Default, Clone)]
-pub(super) struct OpenAiResponsesEventExtras {
-    pub(super) output_index: Option<u64>,
-    pub(super) raw_item: Option<serde_json::Value>,
 }
 
 impl Default for OpenAiResponsesEventConverter {

@@ -1,4 +1,5 @@
 use super::OpenAiResponsesEventConverter;
+use super::replay;
 use super::state::{
     OpenAiResponsesFunctionCallSerializeState, OpenAiResponsesReasoningItemSerializeState,
     OpenAiResponsesSerializeState,
@@ -753,19 +754,7 @@ pub(super) fn serialize_event(
             return Ok(Vec::new());
         };
 
-        if let Some(replay) = event
-            .replay_ref()
-            .and_then(crate::types::ChatStreamReplay::openai_responses_ref)
-            && let crate::streaming::ChatStreamEvent::Custom { data, .. } = &mut custom_event
-            && let Some(obj) = data.as_object_mut()
-        {
-            if let Some(output_index) = replay.output_index {
-                obj.insert("outputIndex".to_string(), serde_json::json!(output_index));
-            }
-            if let Some(raw_item) = replay.raw_item.clone() {
-                obj.insert("rawItem".to_string(), raw_item);
-            }
-        }
+        replay::apply_event_replay_to_custom_event(event, &mut custom_event);
 
         return serialize_event(this, &custom_event);
     }

@@ -1,5 +1,6 @@
 use super::*;
 
+use super::replay::attach_event_extras;
 use crate::streaming::{
     TypedStreamPart, TypedStreamProviderMetadata, TypedStreamToolApprovalRequest,
     TypedStreamToolCall, TypedStreamToolResult,
@@ -23,25 +24,6 @@ fn into_provider_metadata(value: Option<serde_json::Value>) -> Option<TypedStrea
 impl OpenAiResponsesEventConverter {
     fn openai_stream_part_event(&self, part: TypedStreamPart) -> crate::types::ChatStreamEvent {
         part.to_part_event()
-    }
-
-    fn attach_event_extras(
-        &self,
-        event: crate::types::ChatStreamEvent,
-        extras: OpenAiResponsesEventExtras,
-    ) -> crate::types::ChatStreamEvent {
-        let Some(replay) =
-            crate::types::ChatStreamReplay::openai_responses(extras.output_index, extras.raw_item)
-        else {
-            return event;
-        };
-
-        match event {
-            crate::types::ChatStreamEvent::Part { part } => {
-                crate::types::ChatStreamEvent::PartWithReplay { part, replay }
-            }
-            other => other,
-        }
     }
 
     pub(super) fn openai_tool_input_start_event(
@@ -105,7 +87,7 @@ impl OpenAiResponsesEventConverter {
             dynamic,
             provider_metadata: into_provider_metadata(provider_metadata),
         }));
-        self.attach_event_extras(event, extras)
+        attach_event_extras(event, extras)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -154,7 +136,7 @@ impl OpenAiResponsesEventConverter {
                 dynamic,
                 provider_metadata: into_provider_metadata(provider_metadata),
             }));
-        self.attach_event_extras(event, extras)
+        attach_event_extras(event, extras)
     }
 
     pub(super) fn openai_tool_approval_request_event(
@@ -171,6 +153,6 @@ impl OpenAiResponsesEventConverter {
                 provider_metadata: into_provider_metadata(provider_metadata),
             },
         ));
-        self.attach_event_extras(event, extras)
+        attach_event_extras(event, extras)
     }
 }

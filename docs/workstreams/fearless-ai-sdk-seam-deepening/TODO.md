@@ -19,7 +19,7 @@ Last updated: 2026-05-27
   Validation: `cargo fmt --check -p siumai-protocol-openai`; `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast`.
   Review: Confirm no loss of StreamEnd replay, terminal-only final text, raw replay diagnostics, provider-executed tool events, or repeated usage behavior.
   Evidence: `EVIDENCE_AND_GATES.md`, protocol changelog, focused fixtures.
-  Handoff: IN_PROGRESS. Terminal buffering is now owned by `TerminalEventBuffer`; remaining work should deepen replay, reasoning lifecycle, provider tool state, and serializer state before marking the task done.
+  Handoff: IN_PROGRESS. Terminal buffering is owned by `TerminalEventBuffer`, and replay hint attach/apply logic is owned by `converter::replay`; remaining work should deepen reasoning lifecycle, provider tool state, and serializer state before marking the task done.
 
 - [ ] AISD-030 [owner=codex] [deps=AISD-020] [scope=siumai-spec/src/types,siumai-core/src/streaming,siumai-protocol-openai/src,CHANGELOG.md,crate changelogs]
   Goal: Make public provider metadata versus private diagnostics an executable projection seam used by protocol/core output paths.
