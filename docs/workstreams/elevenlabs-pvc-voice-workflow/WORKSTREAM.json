@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "elevenlabs-pvc-voice-workflow",
   "title": "ElevenLabs PVC Voice Workflow",
-  "status": "active",
+  "status": "closed",
   "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai lacks provider-owned resources for the documented ElevenLabs Professional Voice Cloning workflow.",
@@ -62,10 +62,10 @@
   "adr_refs": [
     "docs/adr/0003-provider-ext-export-policy.md"
   ],
-  "current_task": "EPVC-050",
-  "next_task": "Close the PVC workflow workstream and hand off edit_voice.",
+  "current_task": "closed",
+  "next_task": "Start the ordinary voice edit_voice follow-on.",
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue this lane until the PVC workflow target state and gates are complete. Split ordinary voice edit into the next follow-on after closeout."
+    "default_action": "stop",
+    "notes": "PVC workflow lane is closed. Start a new narrow follow-on for ordinary voice edit_voice."
   }
 }

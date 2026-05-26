@@ -1,6 +1,6 @@
 # ElevenLabs PVC Voice Workflow - Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Smallest Current Repro
@@ -111,8 +111,33 @@ gates, and residual risks here or in the closeout notes.
 - 2026-05-26: `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`
   - Result: PASS.
   - Covers: formatting for the crates touched by EPVC-040.
+- 2026-05-26: `python .agents\skills\siumai-ai-sdk-maintenance\scripts\resolve_ai_sdk_repo.py`
+  - Result: PASS. Resolved AI SDK reference repo at `repo-ref/ai`.
+  - Covers: final public-surface boundary check that AI SDK still has no voice resource client
+    owner for these PVC APIs.
+- 2026-05-26: `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs voices --no-fail-fast`
+  - Result: PASS. 16 tests passed, 18 skipped.
+  - Covers: final provider voice resource gate across list/get/settings/delete/IVC/PVC behavior.
+- 2026-05-26: `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast`
+  - Result: PASS. 1 test passed, 546 skipped across 213 binaries.
+  - Covers: final facade public-surface gate for ElevenLabs resource exports.
+- 2026-05-26: `cargo fmt --check -p siumai-provider-elevenlabs -p siumai`
+  - Result: PASS.
+  - Covers: final formatting gate for touched Rust packages.
+- 2026-05-26: `python -m json.tool docs\workstreams\elevenlabs-pvc-voice-workflow\WORKSTREAM.json`
+  - Result: PASS.
+  - Covers: closeout workstream metadata is valid JSON.
+- 2026-05-26: `git diff --check`
+  - Result: PASS.
+  - Covers: closeout whitespace hygiene.
+- 2026-05-26: closeout review
+  - Result: no blocking workstream compliance or code-quality findings.
+  - Residual risk: `start_pvc_voice_sample_speaker_separation` sends `{}` via the existing JSON
+    POST helper although the official endpoint has no request body. This is accepted for this lane
+    because adding a no-body POST transport contract would broaden core scope; revisit if live API
+    behavior rejects `{}`.
 
 ## Notes
 
-Fresh verification is required before marking EPVC-020, EPVC-030, EPVC-040, EPVC-050, or the goal
-complete.
+This lane is closed. Ordinary voice `edit_voice` is the next follow-on and should stay outside this
+PVC workflow boundary.

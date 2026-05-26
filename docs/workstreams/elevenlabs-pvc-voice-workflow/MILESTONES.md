@@ -1,6 +1,6 @@
 # ElevenLabs PVC Voice Workflow - Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 - Scope And Evidence Freeze

@@ -1,22 +1,22 @@
 # ElevenLabs PVC Voice Workflow - Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open. EPVC-010 through EPVC-040 are complete. Siumai now exposes PVC metadata,
+The workstream is closed. EPVC-010 through EPVC-050 are complete. Siumai now exposes PVC metadata,
 training, sample, speaker separation, and verification resources on `ElevenLabsVoices` with facade
 exports and focused no-network tests.
 
 ## Active Task
 
-- Task ID: EPVC-050
-- Owner: planner
-- Files: `docs/workstreams/elevenlabs-pvc-voice-workflow`, `CHANGELOG.md`
-- Validation: final closeout gate set from `EVIDENCE_AND_GATES.md`
-- Status: NEEDS_CONTEXT
-- Review: pending
+- Task ID: none
+- Owner: none
+- Files: none
+- Validation: final closeout gates recorded in `EVIDENCE_AND_GATES.md`
+- Status: CLOSED
+- Review: closeout review found no blocking workstream or code-quality findings
 - Evidence: `docs/workstreams/elevenlabs-pvc-voice-workflow/EVIDENCE_AND_GATES.md`
 
 ## Decisions Since Opening
@@ -40,9 +40,14 @@ exports and focused no-network tests.
 
 ## Blockers
 
-- None.
+- None remaining for this lane.
+
+## Residual Risks
+
+- `start_pvc_voice_sample_speaker_separation` sends `{}` through the existing JSON POST helper
+  even though the official endpoint documents no request body. If live API behavior rejects `{}`,
+  add a no-body POST path to the shared HTTP resource helpers and switch this method to it.
 
 ## Next Recommended Action
 
-- Run closeout verification, update final evidence, close this workstream, then start the ordinary
-  `edit_voice` follow-on.
+- Start the ordinary voice `edit_voice` follow-on.

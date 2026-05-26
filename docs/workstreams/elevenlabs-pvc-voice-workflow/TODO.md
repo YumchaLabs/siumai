@@ -1,6 +1,6 @@
 # ElevenLabs PVC Voice Workflow - TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 - Scope And Evidence Freeze
@@ -56,9 +56,10 @@ Last updated: 2026-05-26
 
 ## M4 - Closeout
 
-- [ ] EPVC-050 [owner=planner] [deps=EPVC-040] [scope=docs/workstreams/elevenlabs-pvc-voice-workflow,CHANGELOG.md]
+- [x] EPVC-050 [owner=planner] [deps=EPVC-040] [scope=docs/workstreams/elevenlabs-pvc-voice-workflow,CHANGELOG.md]
   Goal: Close the PVC lane and hand off the ordinary voice edit follow-on.
   Validation: verify-rust-workstream records fresh final gate evidence.
   Review: review-workstream has no blocking findings.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`, `CHANGELOG.md`
-  Handoff: Summarize remaining risks and the next `edit_voice` task.
+  Handoff: DONE. Closed this lane after implementing PVC metadata, training, samples, speaker
+  separation, and verification resources. Ordinary voice `edit_voice` remains the next follow-on.
