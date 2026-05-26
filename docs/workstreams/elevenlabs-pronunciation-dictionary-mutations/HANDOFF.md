@@ -5,16 +5,18 @@ Last updated: 2026-05-26
 
 ## Current State
 
-The workstream is open and scope is frozen. EPDM-010, EPDM-020, and EPDM-030 are complete. Siumai
-now has provider-owned create-from-rules and create-from-file pronunciation dictionary mutations.
+The workstream is open and scope is frozen. EPDM-010 through EPDM-040 are complete. Siumai now has
+provider-owned create-from-rules, create-from-file, and metadata update pronunciation dictionary
+mutations.
 
 ## Active Task
 
-- Task ID: EPDM-040
+- Task ID: EPDM-050
 - Owner: worker
-- Files: `siumai-provider-elevenlabs`, `siumai`, `siumai/tests`
-- Validation: focused provider/facade nextest filter for update path encoding, JSON body, and
-  metadata response mapping; `cargo fmt --check`
+- Files: `siumai-provider-elevenlabs`, `siumai`, `siumai/tests`,
+  `docs/workstreams/elevenlabs-pronunciation-dictionary-mutations`
+- Validation: focused provider/facade nextest filter for accepted rule mutation endpoints;
+  `cargo fmt --check`
 - Status: READY
 - Review: review-workstream before accepting completion
 - Evidence: `docs/workstreams/elevenlabs-pronunciation-dictionary-mutations/EVIDENCE_AND_GATES.md`
@@ -28,7 +30,10 @@ now has provider-owned create-from-rules and create-from-file pronunciation dict
   exposes `id`, `version_id`, `version_rules_num`, metadata, and unknown provider fields.
 - Create-from-file is implemented with caller-provided bytes plus optional filename, MIME type,
   description, workspace access, and request-level HTTP config. PLS parsing stays out of scope.
-- Update metadata and rule mutation can be implemented after create-from-rules shares rule structs.
+- Metadata update is implemented with typed `name`/`archived` fields and local empty-update
+  rejection.
+- Shared PATCH JSON execution now supports custom transport, preserving no-network resource tests.
+- Rule mutation can reuse the create-from-rules alias/phoneme rule request struct.
 - Download-by-version is not first because the official `download.mdx` page returned HTTP 500 during
   opening even though `llms.txt` lists it.
 - Voice mutation APIs are a separate workstream.
@@ -39,6 +44,6 @@ now has provider-owned create-from-rules and create-from-file pronunciation dict
 
 ## Next Recommended Action
 
-- Use TDD for EPDM-040: first add a no-network provider test for metadata update proving path
-  encoding, JSON body shape for `name`/`archived`, empty update rejection, request header merge, and
-  dictionary metadata response mapping.
+- Use TDD for EPDM-050: first decide whether add/remove/set rules all stay in this lane. The
+  smallest cohesive slice is likely `add_rules`, `remove_rules`, and `set_rules` together because
+  they share version response semantics and reuse the rule request struct.

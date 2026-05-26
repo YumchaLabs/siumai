@@ -53,8 +53,9 @@ pub mod resources {
         ElevenLabsPronunciationDictionaryCreateResponse,
         ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
         ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
-        ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
-        ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse, ElevenLabsVoices,
+        ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsVerifiedLanguage,
+        ElevenLabsVoice, ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse,
+        ElevenLabsVoiceSettingsResponse, ElevenLabsVoices,
     };
 }
 

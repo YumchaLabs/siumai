@@ -68,3 +68,9 @@ git diff --check
 | 2026-05-26 | EPDM-030 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed: facade resource imports compile with create-from-file request type. |
 | 2026-05-26 | EPDM-030 | `cargo fmt --check -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
 | 2026-05-26 | EPDM-030 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |
+| 2026-05-26 | EPDM-040 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation_dictionaries_update --no-fail-fast` | Passed: metadata update covers path encoding, `xi-api-key`, JSON body shape, request header merge, dictionary metadata response mapping, and empty update rejection. |
+| 2026-05-26 | EPDM-040 | `cargo nextest run -p siumai-provider-elevenlabs --features elevenlabs pronunciation --no-fail-fast` | Passed: 6 pronunciation dictionary provider tests. |
+| 2026-05-26 | EPDM-040 | `cargo nextest run -p siumai-core http_request --no-fail-fast` | Passed: 19 shared HTTP request helper tests after adding custom-transport support to PATCH JSON execution. |
+| 2026-05-26 | EPDM-040 | `cargo nextest run -p siumai --features elevenlabs elevenlabs_voice_resources --no-fail-fast` | Passed on standalone rerun after an earlier timeout: facade resource imports compile with metadata update request type. |
+| 2026-05-26 | EPDM-040 | `cargo fmt --check -p siumai-core -p siumai-provider-elevenlabs -p siumai` | Passed for touched Rust packages. |
+| 2026-05-26 | EPDM-040 | `git diff --check` | Passed with only Git CRLF working-copy warnings. |

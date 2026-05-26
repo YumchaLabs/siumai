@@ -14,7 +14,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::config::ElevenLabsConfig;
-use super::resource_http::{execute_get_json, execute_multipart_json, execute_post_json};
+use super::resource_http::{
+    execute_get_json, execute_multipart_json, execute_patch_json, execute_post_json,
+};
 
 /// Provider-owned client for ElevenLabs pronunciation dictionary metadata resources.
 #[derive(Clone)]
@@ -96,6 +98,39 @@ impl ElevenLabsPronunciationDictionaries {
             move || request_clone.build_form(),
             request.http_config.as_ref(),
             "create pronunciation dictionary from file",
+        )
+        .await
+    }
+
+    /// Update pronunciation dictionary metadata using
+    /// `PATCH /v1/pronunciation-dictionaries/{pronunciation_dictionary_id}`.
+    pub async fn update(
+        &self,
+        pronunciation_dictionary_id: impl AsRef<str>,
+        request: ElevenLabsUpdatePronunciationDictionaryRequest,
+    ) -> Result<ElevenLabsPronunciationDictionary, LlmError> {
+        let pronunciation_dictionary_id = pronunciation_dictionary_id.as_ref().trim();
+        if pronunciation_dictionary_id.is_empty() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation_dictionary_id cannot be empty".to_string(),
+            ));
+        }
+        request.validate()?;
+
+        let encoded = urlencoding::encode(pronunciation_dictionary_id);
+        let url = join_url(
+            &self.base_url(),
+            &format!("v1/pronunciation-dictionaries/{encoded}"),
+        );
+        let body = request.body()?;
+        execute_patch_json(
+            &self.config,
+            self.http_client.clone(),
+            self.retry_options.clone(),
+            &url,
+            body,
+            request.http_config.as_ref(),
+            "update pronunciation dictionary",
         )
         .await
     }
@@ -425,6 +460,73 @@ impl ElevenLabsCreatePronunciationDictionaryFromFileRequest {
         }
 
         Ok(form)
+    }
+}
+
+/// Request body for updating pronunciation dictionary metadata.
+#[derive(Debug, Clone, Default)]
+pub struct ElevenLabsUpdatePronunciationDictionaryRequest {
+    pub name: Option<String>,
+    pub archived: Option<bool>,
+    pub http_config: Option<HttpConfig>,
+}
+
+impl ElevenLabsUpdatePronunciationDictionaryRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_name(mut self, value: impl Into<String>) -> Self {
+        self.name = Some(value.into());
+        self
+    }
+
+    pub fn with_archived(mut self, value: bool) -> Self {
+        self.archived = Some(value);
+        self
+    }
+
+    pub fn with_http_config(mut self, value: HttpConfig) -> Self {
+        self.http_config = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), LlmError> {
+        if self.name.is_none() && self.archived.is_none() {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary update request cannot be empty".to_string(),
+            ));
+        }
+        if self
+            .name
+            .as_deref()
+            .is_some_and(|name| name.trim().is_empty())
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary name cannot be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn body(&self) -> Result<Value, LlmError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            archived: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            name: Option<&'a str>,
+        }
+
+        serde_json::to_value(Body {
+            archived: self.archived,
+            name: self.name.as_deref().map(str::trim),
+        })
+        .map_err(|e| {
+            LlmError::InvalidInput(format!(
+                "Invalid ElevenLabs pronunciation dictionary update request: {e}"
+            ))
+        })
     }
 }
 
@@ -1093,5 +1195,113 @@ mod tests {
         assert_eq!(response.description.as_deref(), Some("PLS pronunciation"));
         assert_eq!(response.permission_on_resource.as_deref(), Some("editor"));
         assert_eq!(response.extra.get("unknown_create"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn pronunciation_dictionaries_update_patches_metadata_and_maps_response() {
+        let transport = JsonGetTransport::new(json!({
+            "id": "dict/id with space",
+            "latest_version_id": "version-3",
+            "latest_version_rules_num": 3,
+            "name": "Updated terms",
+            "permission_on_resource": "admin",
+            "created_by": "user-3",
+            "creation_time_unix": 1_700_000_002,
+            "archived_time_unix": null,
+            "description": "Updated description",
+            "unknown_dict": "kept"
+        }));
+        let mut request_http = HttpConfig::empty();
+        request_http
+            .headers
+            .insert("x-request-header".to_string(), "request".to_string());
+        request_http
+            .headers
+            .insert("x-shared".to_string(), "request-wins".to_string());
+
+        let config = ElevenLabsConfig::new("test-key")
+            .with_base_url("https://api.elevenlabs.test")
+            .with_header("x-global-header", "global")
+            .with_header("x-shared", "global")
+            .with_http_transport(Arc::new(transport.clone()));
+        let dictionaries = ElevenLabsPronunciationDictionaries::new(
+            config,
+            reqwest::Client::new(),
+            Some(RetryOptions::policy_default().with_max_attempts(1)),
+        );
+
+        let response = dictionaries
+            .update(
+                "dict/id with space",
+                ElevenLabsUpdatePronunciationDictionaryRequest::new()
+                    .with_name(" Updated terms ")
+                    .with_archived(false)
+                    .with_http_config(request_http),
+            )
+            .await
+            .expect("pronunciation dictionary update response");
+
+        let captured = transport.take_json();
+        assert_eq!(
+            captured.url,
+            "https://api.elevenlabs.test/v1/pronunciation-dictionaries/dict%2Fid%20with%20space"
+        );
+        assert_eq!(
+            header_value(&captured.headers, XI_API_KEY),
+            Some("test-key")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "content-type"),
+            Some("application/json")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-global-header"),
+            Some("global")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-request-header"),
+            Some("request")
+        );
+        assert_eq!(
+            header_value(&captured.headers, "x-shared"),
+            Some("request-wins")
+        );
+        assert_eq!(
+            captured.body,
+            json!({
+                "archived": false,
+                "name": "Updated terms"
+            })
+        );
+
+        assert_eq!(response.id, "dict/id with space");
+        assert_eq!(response.latest_version_id.as_deref(), Some("version-3"));
+        assert_eq!(response.latest_version_rules_num, Some(3));
+        assert_eq!(response.name.as_deref(), Some("Updated terms"));
+        assert_eq!(response.permission_on_resource.as_deref(), Some("admin"));
+        assert_eq!(response.created_by.as_deref(), Some("user-3"));
+        assert_eq!(response.creation_time_unix, Some(1_700_000_002));
+        assert_eq!(response.description.as_deref(), Some("Updated description"));
+        assert_eq!(response.extra.get("unknown_dict"), Some(&json!("kept")));
+    }
+
+    #[tokio::test]
+    async fn pronunciation_dictionaries_update_rejects_empty_request() {
+        let config = ElevenLabsConfig::new("test-key").with_base_url("https://api.elevenlabs.test");
+        let dictionaries = ElevenLabsPronunciationDictionaries::new(
+            config,
+            reqwest::Client::new(),
+            Some(RetryOptions::policy_default().with_max_attempts(1)),
+        );
+
+        let error = dictionaries
+            .update(
+                "dict-1",
+                ElevenLabsUpdatePronunciationDictionaryRequest::new(),
+            )
+            .await
+            .expect_err("empty update should fail before transport");
+
+        assert!(matches!(error, LlmError::InvalidInput(_)));
     }
 }

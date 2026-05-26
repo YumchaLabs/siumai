@@ -6,8 +6,9 @@ use siumai::provider_ext::elevenlabs::resources::{
     ElevenLabsPronunciationDictionary, ElevenLabsPronunciationDictionaryCreateResponse,
     ElevenLabsPronunciationDictionaryListQuery, ElevenLabsPronunciationDictionaryListResponse,
     ElevenLabsPronunciationDictionaryRule, ElevenLabsPronunciationDictionaryRuleRequest,
-    ElevenLabsVerifiedLanguage, ElevenLabsVoice, ElevenLabsVoiceListQuery,
-    ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse, ElevenLabsVoices,
+    ElevenLabsUpdatePronunciationDictionaryRequest, ElevenLabsVerifiedLanguage, ElevenLabsVoice,
+    ElevenLabsVoiceListQuery, ElevenLabsVoiceListResponse, ElevenLabsVoiceSettingsResponse,
+    ElevenLabsVoices,
 };
 use siumai::provider_ext::elevenlabs::{ElevenLabsClient, ElevenLabsConfig};
 
@@ -30,6 +31,7 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     assert_type::<ElevenLabsCreatePronunciationDictionaryFromRulesRequest>();
     assert_type::<ElevenLabsPronunciationDictionaryRuleRequest>();
     assert_type::<ElevenLabsPronunciationDictionaryCreateResponse>();
+    assert_type::<ElevenLabsUpdatePronunciationDictionaryRequest>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoices>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsVoiceListQuery>();
     assert_type::<siumai::providers::elevenlabs::resources::ElevenLabsPronunciationDictionaries>();
@@ -38,6 +40,9 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
     >();
     assert_type::<
         siumai::providers::elevenlabs::resources::ElevenLabsCreatePronunciationDictionaryFromFileRequest,
+    >();
+    assert_type::<
+        siumai::providers::elevenlabs::resources::ElevenLabsUpdatePronunciationDictionaryRequest,
     >();
 
     let config = ElevenLabsConfig::new("test-key").with_base_url("https://api.elevenlabs.test");
@@ -67,11 +72,15 @@ fn elevenlabs_voice_resources_are_exported_from_facade_modules() {
         )
         .with_filename("terms.pls")
         .with_mime_type("application/pls+xml");
+    let update_dictionary_request = ElevenLabsUpdatePronunciationDictionaryRequest::new()
+        .with_name("Updated terms")
+        .with_archived(false);
 
     drop(query);
     drop(dictionary_query);
     drop(create_dictionary_request);
     drop(create_dictionary_from_file_request);
+    drop(update_dictionary_request);
     drop(voices);
     drop(pronunciation_dictionaries);
 }

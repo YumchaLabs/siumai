@@ -36,8 +36,8 @@ Gate:
 
 ## M2 — Multipart And Metadata Updates
 
-Status: In progress. Create-from-file completed on 2026-05-26; metadata update remains the next
-slice.
+Status: Complete on 2026-05-26. Create-from-file and metadata update are implemented with
+no-network evidence recorded under EPDM-030 and EPDM-040.
 
 Exit criteria:
 

@@ -1,7 +1,7 @@
 use crate::error::LlmError;
 use crate::execution::executors::common::{
     HttpBody, HttpExecutionConfig, execute_get_request, execute_json_request,
-    execute_multipart_request,
+    execute_multipart_request, execute_patch_json_request,
 };
 use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::execution::wiring::HttpExecutionWiring;
@@ -119,6 +119,36 @@ where
         async move {
             let result =
                 execute_json_request(&cfg, &url, HttpBody::Json(body), http_config, false).await?;
+            serde_json::from_value(result.json).map_err(|e| {
+                LlmError::ParseError(format!(
+                    "Failed to parse ElevenLabs {operation} response: {e}"
+                ))
+            })
+        }
+    };
+
+    crate::retry_api::maybe_retry(retry_options, call).await
+}
+
+pub(crate) async fn execute_patch_json<T>(
+    config: &ElevenLabsConfig,
+    http_client: reqwest::Client,
+    retry_options: Option<RetryOptions>,
+    url: &str,
+    body: Value,
+    http_config: Option<&HttpConfig>,
+    operation: &str,
+) -> Result<T, LlmError>
+where
+    T: for<'de> Deserialize<'de> + Send,
+{
+    let cfg = build_http_config(config, http_client, retry_options.clone());
+    let call = || {
+        let cfg = cfg.clone();
+        let url = url.to_string();
+        let body = body.clone();
+        async move {
+            let result = execute_patch_json_request(&cfg, &url, body, http_config).await?;
             serde_json::from_value(result.json).map_err(|e| {
                 LlmError::ParseError(format!(
                     "Failed to parse ElevenLabs {operation} response: {e}"

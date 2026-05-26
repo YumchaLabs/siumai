@@ -25,9 +25,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   rule requests and create responses exposing dictionary/version identifiers for TTS locator use.
 - Added ElevenLabs pronunciation dictionary `create_from_file` resources with multipart PLS upload
   support and shared create response mapping.
+- Added ElevenLabs pronunciation dictionary metadata update resources for renaming and archiving
+  dictionaries.
 
 ### Changed
 
+- Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
+  exercise PATCH endpoints without live network calls.
 - Hardened the clean architecture boundaries across registry, core, provider-utils, protocol,
   provider, bridge, and facade crates.
 - Split registry provider construction into family-first, compatibility, and extension facets so

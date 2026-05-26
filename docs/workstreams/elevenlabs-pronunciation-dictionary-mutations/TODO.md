@@ -44,14 +44,16 @@ Last updated: 2026-05-26
 
 ## EPDM-040 — Metadata Update
 
-- [ ] EPDM-040 [owner=worker] [deps=EPDM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
+- [x] EPDM-040 [owner=worker] [deps=EPDM-020] [scope=siumai-provider-elevenlabs,siumai,siumai/tests]
   Goal: Add `PATCH /v1/pronunciation-dictionaries/{id}` metadata update for `archived` and/or
   `name`.
   Validation: focused provider/facade nextest filter for update path encoding, JSON body, and
   metadata response mapping.
   Review: review-workstream for partial update semantics and empty-body validation.
   Evidence: `EVIDENCE_AND_GATES.md`
-  Handoff: Reject empty update requests locally.
+  Handoff: DONE. Implemented `update` with typed `name`/`archived` request body, empty update
+  rejection, path encoding, request header merge, dictionary metadata response mapping, facade
+  exports, and shared PATCH JSON custom-transport support in `siumai-core`.
 
 ## EPDM-050 — Rule Mutation
 
