@@ -14,12 +14,12 @@ Last updated: 2026-05-27
 
 ## M1 - Protocol Stream State
 
-- [ ] AISD-020 [owner=codex] [deps=AISD-010] [scope=siumai-protocol-openai/src/standards/openai/responses_sse/converter,CHANGELOG.md,siumai-protocol-openai/CHANGELOG.md]
+- [x] AISD-020 [owner=codex] [deps=AISD-010] [scope=siumai-protocol-openai/src/standards/openai/responses_sse/converter,CHANGELOG.md,siumai-protocol-openai/CHANGELOG.md]
   Goal: Deepen the OpenAI Responses stream state module so reasoning lifecycle, replay hints, terminal buffering, provider tool ownership, and serializer state are no longer one shallow converter interface.
   Validation: `cargo fmt --check -p siumai-protocol-openai`; `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast`.
   Review: Confirm no loss of StreamEnd replay, terminal-only final text, raw replay diagnostics, provider-executed tool events, or repeated usage behavior.
   Evidence: `EVIDENCE_AND_GATES.md`, protocol changelog, focused fixtures.
-  Handoff: IN_PROGRESS. Terminal buffering is owned by `TerminalEventBuffer`, replay hint attach/apply logic is owned by `converter::replay`, reasoning state is owned by `ReasoningLifecycleState`, and provider/custom tool ownership state is owned by `ProviderToolState` and `CustomToolState`; remaining work should deepen serializer state before marking the task done.
+  Handoff: DONE. Terminal buffering is owned by `TerminalEventBuffer`, replay hint attach/apply logic is owned by `converter::replay`, reasoning state is owned by `ReasoningLifecycleState`, provider/custom tool ownership state is owned by `ProviderToolState` and `CustomToolState`, and serializer allocation rules are owned by `OpenAiResponsesSerializeState`.
 
 - [ ] AISD-030 [owner=codex] [deps=AISD-020] [scope=siumai-spec/src/types,siumai-core/src/streaming,siumai-protocol-openai/src,CHANGELOG.md,crate changelogs]
   Goal: Make public provider metadata versus private diagnostics an executable projection seam used by protocol/core output paths.

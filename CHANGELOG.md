@@ -51,7 +51,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   capability failure behavior.
 - Started the follow-up fearless AI SDK seam deepening workstream, extracting OpenAI Responses SSE
   terminal buffering, replay hints, reasoning lifecycle state, and provider/custom tool ownership
-  state behind named converter modules.
+  state plus serializer allocation rules behind named converter modules.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use chrono::{TimeZone, Utc};
 
 mod state;
-use state::OpenAiResponsesSerializeState;
+use state::OpenAiResponsesSerializeStateCell;
 pub use state::{StreamPartsStyle, WebSearchStreamMode};
 
 mod apply_patch;
@@ -92,7 +92,7 @@ pub struct OpenAiResponsesEventConverter {
     /// Maps custom tool call names (e.g. xAI internal tool names) to the user-facing tool name.
     custom_tools: CustomToolState,
 
-    serialize_state: Arc<Mutex<OpenAiResponsesSerializeState>>,
+    serialize_state: OpenAiResponsesSerializeStateCell,
 }
 
 impl Default for OpenAiResponsesEventConverter {
@@ -137,7 +137,7 @@ impl Default for OpenAiResponsesEventConverter {
             requested_store: None,
             provider_metadata_key: "openai".to_string(),
             custom_tools: CustomToolState::default(),
-            serialize_state: Arc::new(Mutex::new(OpenAiResponsesSerializeState::default())),
+            serialize_state: OpenAiResponsesSerializeStateCell::default(),
         }
     }
 }

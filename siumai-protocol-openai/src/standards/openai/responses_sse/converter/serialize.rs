@@ -1,9 +1,6 @@
 use super::OpenAiResponsesEventConverter;
 use super::replay;
-use super::state::{
-    OpenAiResponsesFunctionCallSerializeState, OpenAiResponsesReasoningItemSerializeState,
-    OpenAiResponsesSerializeState,
-};
+use super::state::{OpenAiResponsesFunctionCallSerializeState, OpenAiResponsesSerializeState};
 
 pub(super) fn serialize_event(
     this: &super::OpenAiResponsesEventConverter,
@@ -221,12 +218,6 @@ pub(super) fn serialize_event(
         chrono::Utc::now().timestamp()
     }
 
-    fn next_sequence_number(state: &mut OpenAiResponsesSerializeState) -> u64 {
-        let n = state.next_sequence_number;
-        state.next_sequence_number = state.next_sequence_number.saturating_add(1);
-        n
-    }
-
     fn ensure_response_metadata(
         this: &OpenAiResponsesEventConverter,
         state: &mut OpenAiResponsesSerializeState,
@@ -266,7 +257,7 @@ pub(super) fn serialize_event(
 
         let payload = serde_json::json!({
             "type": "response.created",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "response": {
                 "id": response_id,
                 "object": "response",
@@ -282,187 +273,6 @@ pub(super) fn serialize_event(
         sse_event_frame("response.created", &payload)
     }
 
-    fn alloc_output_index(state: &mut OpenAiResponsesSerializeState) -> u64 {
-        let mut candidate = state.next_output_index;
-        loop {
-            if !state.used_output_indices.contains(&candidate) {
-                state.used_output_indices.insert(candidate);
-                state.next_output_index = candidate.saturating_add(1);
-                return candidate;
-            }
-            candidate = candidate.saturating_add(1);
-        }
-    }
-
-    fn alloc_or_reuse_output_index(
-        state: &mut OpenAiResponsesSerializeState,
-        requested: Option<u64>,
-    ) -> u64 {
-        if let Some(idx) = requested
-            && !state.used_output_indices.contains(&idx)
-        {
-            state.used_output_indices.insert(idx);
-            state.next_output_index = std::cmp::max(state.next_output_index, idx.saturating_add(1));
-            return idx;
-        }
-        alloc_output_index(state)
-    }
-
-    fn provider_tool_output_index(
-        state: &mut OpenAiResponsesSerializeState,
-        tool_call_id: Option<&str>,
-        requested: Option<u64>,
-    ) -> u64 {
-        if let Some(req) = requested {
-            let idx = alloc_or_reuse_output_index(state, Some(req));
-            if let Some(id) = tool_call_id
-                && !id.is_empty()
-            {
-                state
-                    .provider_tool_output_index_by_tool_call_id
-                    .insert(id.to_string(), idx);
-            }
-            return idx;
-        }
-
-        if let Some(id) = tool_call_id
-            && !id.is_empty()
-        {
-            if let Some(idx) = state.provider_tool_output_index_by_tool_call_id.get(id) {
-                return *idx;
-            }
-
-            let idx = alloc_output_index(state);
-            state
-                .provider_tool_output_index_by_tool_call_id
-                .insert(id.to_string(), idx);
-            return idx;
-        }
-
-        alloc_output_index(state)
-    }
-
-    fn ensure_reasoning_item(
-        state: &mut OpenAiResponsesSerializeState,
-        requested_item_id: Option<&str>,
-    ) -> (String, u64) {
-        if let Some(item_id) = requested_item_id.filter(|s| !s.is_empty()) {
-            if let Some(existing) = state.reasoning_items_by_item_id.get(item_id) {
-                state.latest_reasoning_item_id = Some(item_id.to_string());
-                return (item_id.to_string(), existing.output_index);
-            }
-
-            let output_index = alloc_output_index(state);
-            state.reasoning_items_by_item_id.insert(
-                item_id.to_string(),
-                OpenAiResponsesReasoningItemSerializeState { output_index },
-            );
-            state.latest_reasoning_item_id = Some(item_id.to_string());
-            return (item_id.to_string(), output_index);
-        }
-
-        if let Some(item_id) = state.latest_reasoning_item_id.clone()
-            && let Some(existing) = state.reasoning_items_by_item_id.get(&item_id)
-        {
-            return (item_id, existing.output_index);
-        }
-
-        if let Some(item_id) = state.fallback_reasoning_item_id.clone() {
-            if let Some(existing) = state.reasoning_items_by_item_id.get(&item_id) {
-                state.latest_reasoning_item_id = Some(item_id.clone());
-                return (item_id, existing.output_index);
-            }
-
-            let output_index = alloc_output_index(state);
-            state.reasoning_items_by_item_id.insert(
-                item_id.clone(),
-                OpenAiResponsesReasoningItemSerializeState { output_index },
-            );
-            state.latest_reasoning_item_id = Some(item_id.clone());
-            return (item_id, output_index);
-        }
-
-        let output_index = alloc_output_index(state);
-        let item_id = format!("rs_siumai_{output_index}");
-        state.reasoning_items_by_item_id.insert(
-            item_id.clone(),
-            OpenAiResponsesReasoningItemSerializeState { output_index },
-        );
-        state.fallback_reasoning_item_id = Some(item_id.clone());
-        state.latest_reasoning_item_id = Some(item_id.clone());
-        (item_id, output_index)
-    }
-
-    fn ensure_function_call_state<'a>(
-        state: &'a mut OpenAiResponsesSerializeState,
-        call_id: &str,
-        output_index_seed: Option<u64>,
-        default_name: Option<&str>,
-    ) -> &'a mut OpenAiResponsesFunctionCallSerializeState {
-        if state.function_calls_by_call_id.contains_key(call_id) {
-            return state
-                .function_calls_by_call_id
-                .get_mut(call_id)
-                .unwrap_or_else(|| unreachable!("function call state must exist"));
-        }
-
-        let output_index = output_index_seed.unwrap_or_else(|| alloc_output_index(state));
-        state.function_calls_by_call_id.insert(
-            call_id.to_string(),
-            OpenAiResponsesFunctionCallSerializeState {
-                item_id: format!("fc_siumai_{output_index}"),
-                output_index,
-                name: default_name.map(ToString::to_string),
-                arguments: String::new(),
-                arguments_done: false,
-            },
-        );
-        state
-            .function_calls_by_call_id
-            .get_mut(call_id)
-            .unwrap_or_else(|| unreachable!("function call state must exist"))
-    }
-
-    fn ensure_message_item(
-        state: &mut OpenAiResponsesSerializeState,
-        requested_item_id: Option<&str>,
-        response_id_fallback: Option<&str>,
-        prefer_requested_item_id: bool,
-    ) -> (String, u64) {
-        if state.message.output_index.is_none() {
-            state.message.output_index = Some(alloc_output_index(state));
-        }
-        let output_index = state.message.output_index.unwrap_or(0);
-
-        let requested_item_id = requested_item_id.filter(|item_id| !item_id.is_empty());
-        if prefer_requested_item_id {
-            if let Some(item_id) = requested_item_id {
-                state.message.item_id = Some(item_id.to_string());
-            }
-        } else if state.message.item_id.is_none()
-            && let Some(item_id) = requested_item_id
-        {
-            state.message.item_id = Some(item_id.to_string());
-        }
-
-        if state.message.item_id.is_none() {
-            let fallback_id = response_id_fallback
-                .filter(|response_id| !response_id.is_empty())
-                .map(|response_id| format!("msg_{response_id}_0"))
-                .unwrap_or_else(|| format!("msg_siumai_{output_index}"));
-            state.message.item_id = Some(fallback_id);
-        }
-
-        (
-            state
-                .message
-                .item_id
-                .clone()
-                .unwrap_or_else(|| format!("msg_siumai_{output_index}")),
-            output_index,
-        )
-    }
-
     fn ensure_message_scaffold_emitted(
         state: &mut OpenAiResponsesSerializeState,
         item_id: &str,
@@ -474,7 +284,7 @@ pub(super) fn serialize_event(
 
         let added = serde_json::json!({
             "type": "response.output_item.added",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "output_index": output_index,
             "item": {
                 "id": item_id,
@@ -486,7 +296,7 @@ pub(super) fn serialize_event(
         });
         let part_added = serde_json::json!({
             "type": "response.content_part.added",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "item_id": item_id,
             "output_index": output_index,
             "content_index": state.message.content_index,
@@ -518,7 +328,7 @@ pub(super) fn serialize_event(
     ) -> Result<(Vec<u8>, serde_json::Value), LlmError> {
         let output_text_done = serde_json::json!({
             "type": "response.output_text.done",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "item_id": item_id,
             "output_index": output_index,
             "content_index": state.message.content_index,
@@ -537,7 +347,7 @@ pub(super) fn serialize_event(
 
         let part_done = serde_json::json!({
             "type": "response.content_part.done",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "item_id": item_id,
             "output_index": output_index,
             "content_index": state.message.content_index,
@@ -552,7 +362,7 @@ pub(super) fn serialize_event(
         });
         let item_done = serde_json::json!({
             "type": "response.output_item.done",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "output_index": output_index,
             "item": item.clone(),
         });
@@ -581,7 +391,7 @@ pub(super) fn serialize_event(
     ) -> Result<Vec<u8>, LlmError> {
         let payload = serde_json::json!({
             "type": event_name,
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "output_index": output_index,
             "item": item,
         });
@@ -702,7 +512,7 @@ pub(super) fn serialize_event(
     ) -> Result<Vec<u8>, LlmError> {
         let payload = serde_json::json!({
             "type": "response.function_call_arguments.delta",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "item_id": item_id,
             "output_index": output_index,
             "delta": delta,
@@ -718,7 +528,7 @@ pub(super) fn serialize_event(
     ) -> Result<Vec<u8>, LlmError> {
         let payload = serde_json::json!({
             "type": "response.function_call_arguments.done",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "item_id": item_id,
             "output_index": output_index,
             "arguments": arguments,
@@ -734,7 +544,7 @@ pub(super) fn serialize_event(
     ) -> Result<Vec<u8>, LlmError> {
         let payload = serde_json::json!({
             "type": "response.mcp_call_arguments.done",
-            "sequence_number": next_sequence_number(state),
+            "sequence_number": state.next_sequence_number(),
             "item_id": item_id,
             "output_index": output_index,
             "arguments": arguments,
@@ -759,14 +569,11 @@ pub(super) fn serialize_event(
         return serialize_event(this, &custom_event);
     }
 
-    let mut state = this
-        .serialize_state
-        .lock()
-        .map_err(|_| LlmError::InternalError("serialize_state lock poisoned".to_string()))?;
+    let mut state = this.serialize_state.lock()?;
 
     match event {
         crate::streaming::ChatStreamEvent::StreamStart { metadata } => {
-            *state = OpenAiResponsesSerializeState::default();
+            state.reset();
 
             let response_id = metadata
                 .id
@@ -790,7 +597,7 @@ pub(super) fn serialize_event(
 
             let payload = serde_json::json!({
                 "type": "response.created",
-                "sequence_number": next_sequence_number(&mut state),
+                "sequence_number": state.next_sequence_number(),
                 "response": {
                     "id": response_id,
                     "object": "response",
@@ -806,7 +613,7 @@ pub(super) fn serialize_event(
         }
         crate::streaming::ChatStreamEvent::StreamEnd { response } => {
             if state.response_completed_emitted {
-                *state = OpenAiResponsesSerializeState::default();
+                state.reset();
                 return Ok(Vec::new());
             }
 
@@ -901,7 +708,7 @@ pub(super) fn serialize_event(
 
             let payload = serde_json::json!({
                 "type": response_event_name,
-                "sequence_number": next_sequence_number(&mut state),
+                "sequence_number": state.next_sequence_number(),
                 "response": {
                     "id": response_id,
                     "object": "response",
@@ -930,7 +737,7 @@ pub(super) fn serialize_event(
             state.latest_error_message = Some(error.clone());
             let payload = serde_json::json!({
                 "type": "error",
-                "sequence_number": next_sequence_number(&mut state),
+                "sequence_number": state.next_sequence_number(),
                 "error": { "message": error },
             });
             sse_event_frame("response.error", &payload)
@@ -1376,7 +1183,7 @@ pub(super) fn serialize_event(
                 "openai:stream-start" => {
                     // Vercel stream part; OpenAI SSE has no direct equivalent.
                     // Reset state so subsequent parts start a fresh response.
-                    *state = OpenAiResponsesSerializeState::default();
+                    state.reset();
                     Ok(Vec::new())
                 }
                 "openai:response-metadata" => {
@@ -1408,8 +1215,7 @@ pub(super) fn serialize_event(
                     maybe_emit_response_created(this, &mut state)?;
                     let (response_id, _, _) = ensure_response_metadata(this, &mut state);
                     let requested_item_id = data.get("id").and_then(|v| v.as_str());
-                    let (item_id, output_index) = ensure_message_item(
-                        &mut state,
+                    let (item_id, output_index) = state.ensure_message_item(
                         requested_item_id,
                         Some(response_id.as_str()),
                         false,
@@ -1420,7 +1226,7 @@ pub(super) fn serialize_event(
                     state.message.text.push_str(delta);
                     let payload = serde_json::json!({
                         "type": "response.output_text.delta",
-                        "sequence_number": next_sequence_number(&mut state),
+                        "sequence_number": state.next_sequence_number(),
                         "item_id": item_id,
                         "output_index": output_index,
                         "content_index": state.message.content_index,
@@ -1450,7 +1256,7 @@ pub(super) fn serialize_event(
                     }
 
                     let (item_id, output_index) =
-                        ensure_message_item(&mut state, Some(item_id), None, true);
+                        state.ensure_message_item(Some(item_id), None, true);
                     ensure_message_scaffold_emitted(&mut state, &item_id, output_index)
                 }
                 "openai:text-end" => {
@@ -1469,7 +1275,7 @@ pub(super) fn serialize_event(
                     }
 
                     let (item_id, output_index) =
-                        ensure_message_item(&mut state, Some(item_id), None, false);
+                        state.ensure_message_item(Some(item_id), None, false);
                     let mut out =
                         ensure_message_scaffold_emitted(&mut state, &item_id, output_index)?;
                     let final_text = state.message.text.clone();
@@ -1494,7 +1300,7 @@ pub(super) fn serialize_event(
 
                     let requested_item_id = reasoning_item_id_from_part(data);
                     let (item_id, output_index) =
-                        ensure_reasoning_item(&mut state, requested_item_id.as_deref());
+                        state.ensure_reasoning_item(requested_item_id.as_deref());
                     let emit_added = state.emitted_output_item_added_ids.insert(item_id.clone());
 
                     let summary_index = data
@@ -1516,7 +1322,7 @@ pub(super) fn serialize_event(
 
                     let payload = serde_json::json!({
                         "type": "response.reasoning_summary_text.delta",
-                        "sequence_number": next_sequence_number(&mut state),
+                        "sequence_number": state.next_sequence_number(),
                         "item_id": item_id,
                         "output_index": output_index,
                         "summary_index": summary_index,
@@ -1535,7 +1341,7 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     };
                     let (item_id, output_index) =
-                        ensure_reasoning_item(&mut state, Some(item_id.as_str()));
+                        state.ensure_reasoning_item(Some(item_id.as_str()));
 
                     if !state.emitted_output_item_added_ids.insert(item_id.clone()) {
                         return Ok(Vec::new());
@@ -1555,7 +1361,7 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     };
                     let (item_id, output_index) =
-                        ensure_reasoning_item(&mut state, Some(item_id.as_str()));
+                        state.ensure_reasoning_item(Some(item_id.as_str()));
 
                     if !state.emitted_output_item_done_ids.insert(item_id.clone()) {
                         return Ok(Vec::new());
@@ -1582,7 +1388,7 @@ pub(super) fn serialize_event(
                     maybe_emit_response_created(this, &mut state)?;
                     let (response_id, _, _) = ensure_response_metadata(this, &mut state);
                     let (item_id, output_index) =
-                        ensure_message_item(&mut state, None, Some(response_id.as_str()), false);
+                        state.ensure_message_item(None, Some(response_id.as_str()), false);
                     let mut out =
                         ensure_message_scaffold_emitted(&mut state, &item_id, output_index)?;
 
@@ -1674,7 +1480,7 @@ pub(super) fn serialize_event(
 
                     let payload = serde_json::json!({
                         "type": "response.output_text.annotation.added",
-                        "sequence_number": next_sequence_number(&mut state),
+                        "sequence_number": state.next_sequence_number(),
                         "item_id": item_id,
                         "output_index": output_index,
                         "content_index": state.message.content_index,
@@ -1715,7 +1521,7 @@ pub(super) fn serialize_event(
 
                     let payload = serde_json::json!({
                         "type": "error",
-                        "sequence_number": next_sequence_number(&mut state),
+                        "sequence_number": state.next_sequence_number(),
                         "error": error_obj,
                     });
                     sse_event_frame("response.error", &payload)
@@ -1764,7 +1570,7 @@ pub(super) fn serialize_event(
                         if !call.arguments.is_empty() && !call.arguments_done {
                             let done = serde_json::json!({
                                 "type": "response.function_call_arguments.done",
-                                "sequence_number": next_sequence_number(&mut state),
+                                "sequence_number": state.next_sequence_number(),
                                 "item_id": call.item_id,
                                 "output_index": call.output_index,
                                 "arguments": call.arguments,
@@ -1777,7 +1583,7 @@ pub(super) fn serialize_event(
 
                         let item_done = serde_json::json!({
                             "type": "response.output_item.done",
-                            "sequence_number": next_sequence_number(&mut state),
+                            "sequence_number": state.next_sequence_number(),
                             "output_index": call.output_index,
                             "item": {
                                 "id": call.item_id,
@@ -1848,7 +1654,7 @@ pub(super) fn serialize_event(
 
                     let payload = serde_json::json!({
                         "type": response_event_name,
-                        "sequence_number": next_sequence_number(&mut state),
+                        "sequence_number": state.next_sequence_number(),
                         "response": {
                             "id": response_id,
                             "object": "response",
@@ -1887,7 +1693,7 @@ pub(super) fn serialize_event(
                     ensure_response_metadata(this, &mut state);
 
                     let (item_id, output_index) = {
-                        let call = ensure_function_call_state(&mut state, call_id, None, None);
+                        let call = state.ensure_function_call_state(call_id, None, None);
 
                         if call.name.is_some() {
                             return Ok(Vec::new());
@@ -1920,8 +1726,7 @@ pub(super) fn serialize_event(
                     ensure_response_metadata(this, &mut state);
 
                     let (item_id, output_index, name, has_name) = {
-                        let call =
-                            ensure_function_call_state(&mut state, call_id, None, Some("tool"));
+                        let call = state.ensure_function_call_state(call_id, None, Some("tool"));
 
                         call.arguments.push_str(delta);
 
@@ -2004,8 +1809,7 @@ pub(super) fn serialize_event(
                                 .and_then(|v| v.as_str())
                         });
 
-                    let output_index = provider_tool_output_index(
-                        &mut state,
+                    let output_index = state.provider_tool_output_index(
                         tool_call_id_for_index,
                         data.get("outputIndex").and_then(|v| v.as_u64()),
                     );
@@ -2068,8 +1872,7 @@ pub(super) fn serialize_event(
                         } else {
                             "server"
                         };
-                        let output_index = provider_tool_output_index(
-                            &mut state,
+                        let output_index = state.provider_tool_output_index(
                             Some(call_id),
                             data.get("outputIndex").and_then(|v| v.as_u64()),
                         );
@@ -2094,8 +1897,7 @@ pub(super) fn serialize_event(
                     }
 
                     if let Some(mcp_name) = tool_name.strip_prefix("mcp.") {
-                        let output_index = provider_tool_output_index(
-                            &mut state,
+                        let output_index = state.provider_tool_output_index(
                             Some(call_id),
                             data.get("outputIndex").and_then(|v| v.as_u64()),
                         );
@@ -2141,12 +1943,8 @@ pub(super) fn serialize_event(
                     }
 
                     let (item_id, output_index, name, arguments, emit_added, emit_done) = {
-                        let call = ensure_function_call_state(
-                            &mut state,
-                            call_id,
-                            Some(output_index),
-                            None,
-                        );
+                        let call =
+                            state.ensure_function_call_state(call_id, Some(output_index), None);
 
                         let mut emit_added = false;
                         if call.name.is_none() {
@@ -2206,8 +2004,7 @@ pub(super) fn serialize_event(
                             .and_then(|v| v.as_str())
                             .or_else(|| item.get("id").and_then(|v| v.as_str()));
 
-                        let output_index = provider_tool_output_index(
-                            &mut state,
+                        let output_index = state.provider_tool_output_index(
                             tool_call_id_for_index,
                             data.get("outputIndex").and_then(|v| v.as_u64()),
                         );
@@ -2267,8 +2064,7 @@ pub(super) fn serialize_event(
                         {
                             *output_index
                         } else {
-                            provider_tool_output_index(
-                                &mut state,
+                            state.provider_tool_output_index(
                                 Some(call_id),
                                 data.get("outputIndex").and_then(|v| v.as_u64()),
                             )
@@ -2280,7 +2076,7 @@ pub(super) fn serialize_event(
                             .unwrap_or(0);
                         let payload = serde_json::json!({
                             "type": "response.image_generation_call.partial_image",
-                            "sequence_number": next_sequence_number(&mut state),
+                            "sequence_number": state.next_sequence_number(),
                             "output_index": output_index,
                             "item_id": call_id,
                             "partial_image_index": partial_image_index,
@@ -2297,8 +2093,7 @@ pub(super) fn serialize_event(
                         .unwrap_or_else(|| serde_json::Value::String("{}".to_string()));
 
                     if let Some(mcp_name) = tool_name.strip_prefix("mcp.") {
-                        let output_index = provider_tool_output_index(
-                            &mut state,
+                        let output_index = state.provider_tool_output_index(
                             Some(call_id),
                             data.get("outputIndex").and_then(|v| v.as_u64()),
                         );
@@ -2354,8 +2149,7 @@ pub(super) fn serialize_event(
                         let item_id = provider_metadata_item_id(data)
                             .map(ToString::to_string)
                             .unwrap_or_else(|| format!("tso_{call_id}"));
-                        let output_index = alloc_or_reuse_output_index(
-                            &mut state,
+                        let output_index = state.alloc_or_reuse_output_index(
                             data.get("outputIndex").and_then(|v| v.as_u64()),
                         );
                         let execution = data
@@ -2391,8 +2185,7 @@ pub(super) fn serialize_event(
                     if let Some(item) =
                         hosted_dynamic_tool_result_item(tool_name, call_id, item_id, &result)
                     {
-                        let output_index = alloc_or_reuse_output_index(
-                            &mut state,
+                        let output_index = state.alloc_or_reuse_output_index(
                             data.get("outputIndex").and_then(|v| v.as_u64()),
                         );
                         if let Some(done) = emit_deduped_output_item_frame(
@@ -2406,8 +2199,7 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
-                    let output_index = provider_tool_output_index(
-                        &mut state,
+                    let output_index = state.provider_tool_output_index(
                         Some(call_id),
                         data.get("outputIndex").and_then(|v| v.as_u64()),
                     );
@@ -2434,8 +2226,7 @@ pub(super) fn serialize_event(
                     maybe_emit_response_created(this, &mut state)?;
                     ensure_response_metadata(this, &mut state);
 
-                    let output_index = alloc_or_reuse_output_index(
-                        &mut state,
+                    let output_index = state.alloc_or_reuse_output_index(
                         data.get("outputIndex").and_then(|v| v.as_u64()),
                     );
 

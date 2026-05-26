@@ -8,8 +8,8 @@
   "scope_kind": "architecture",
   "problem": "AI SDK contract hardening made behavior explicit, but several stream, diagnostics, tool, usage, and capability rules remain shallow caller knowledge.",
   "objective": "Deepen the remaining AI SDK contract seams into named modules with stronger locality, better leverage, executable projection rules, and less obsolete pass-through code.",
-  "current_task": "AISD-020",
-  "next_task": "AISD-020",
+  "current_task": "AISD-030",
+  "next_task": "AISD-030",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -60,6 +60,12 @@
       "kind": "adr",
       "task": "AISD-010",
       "summary": "ADR-0009 records crate-owned seam deepening as the architecture direction for the remaining AI SDK contract rules."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "implementation",
+      "task": "AISD-020",
+      "summary": "OpenAI Responses SSE converter state now has named owners for terminal buffering, replay hints, reasoning lifecycle, provider/custom tool ownership, and serializer allocation rules."
     }
   ],
   "adr_refs": [
