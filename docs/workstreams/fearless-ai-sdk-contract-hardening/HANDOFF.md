@@ -1,11 +1,11 @@
 # Fearless AI SDK Contract Hardening - Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
-## Current State
+## Final State
 
-The workstream is open. AICH-010 through AICH-080 are complete. The bootstrap captured the 12-gap
+The workstream is closed. AICH-010 through AICH-100 are complete. The bootstrap captured the 12-gap
 audit, linked the local AI SDK reference under `repo-ref/ai`, and made changelog tracking part of
 the task ledger. AICH-020 documented `StreamEnd.response.content` as final replay/fallback.
 AICH-030 added an OpenAI Responses SSE fixture proving reasoning deltas and terminal-only final
@@ -19,20 +19,19 @@ cumulative snapshot and stopped repeated finish usage snapshots from being over-
 added explicit unsupported-capability policy behaviors for reject, warn, and provider fallback, and
 routed core hard family guards through the shared reject policy.
 
-## Active Task
+## Closeout Evidence
 
-- Task ID: AICH-100
-- Owner: planner
-- Files:
-  - `CHANGELOG.md`
-  - touched crate changelogs
-  - `docs/workstreams/fearless-ai-sdk-contract-hardening`
-- Validation:
-  - `verify-rust-workstream` records fresh final gate evidence
-  - `review-workstream` has no blocking findings
-- Status: READY
-- Review: not started
-- Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
+- `python -m json.tool docs\workstreams\fearless-ai-sdk-contract-hardening\WORKSTREAM.json`
+- `git diff --check -- CHANGELOG.md siumai-spec\CHANGELOG.md siumai-core\CHANGELOG.md docs\workstreams\fearless-ai-sdk-contract-hardening siumai-core\src siumai-core\tests`
+- `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
+- `cargo nextest run -p siumai-core --no-fail-fast`
+- `cargo nextest run -p siumai-spec --no-fail-fast`
+- `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses --no-fail-fast`
+- `cargo nextest run -p siumai-spec -p siumai-core -p siumai-protocol-openai --no-fail-fast`
+
+Full workspace `cargo fmt --check` was attempted and failed with Windows path-length error 206.
+This is the same environment limit seen earlier in the lane, so the crate-scoped fmt gate is the
+recorded formatting evidence.
 
 ## Decisions Since Last Update
 
@@ -68,7 +67,9 @@ routed core hard family guards through the shared reject policy.
 
 - None.
 
-## Next Recommended Action
+## Follow-Ons
 
-- Execute AICH-100 with `close-workstream` / `verify-rust-workstream`: run fresh final gates, review
-  the lane, reconcile changelogs, and close or split provider-specific unsupported option follow-ons.
+- No split Siumai follow-up is required for the 12-gap contract-hardening scope.
+- Provider-specific unsupported option rewrites should be opened as new provider-scoped workstreams
+  only when a concrete behavior gap is found.
+- Hajimi adapter changes remain out of scope and should be handled after this Siumai lane lands.

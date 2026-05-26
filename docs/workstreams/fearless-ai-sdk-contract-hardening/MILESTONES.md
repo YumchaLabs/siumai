@@ -1,6 +1,6 @@
 # Fearless AI SDK Contract Hardening - Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 - Scope And Evidence Freeze
@@ -67,3 +67,11 @@ Primary gates:
 - `cargo fmt --check`
 - Focused package `cargo nextest` gates for touched crates.
 - `git diff --check -- CHANGELOG.md docs/workstreams/fearless-ai-sdk-contract-hardening docs/workstreams/INDEX.md`
+
+Result:
+
+- Closed. Fresh closeout verification passed for the focused package gates and the combined
+  `siumai-spec` / `siumai-core` / `siumai-protocol-openai` gate.
+- Full workspace `cargo fmt --check` was attempted and failed with Windows path-length error 206;
+  crate-scoped `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai` passed
+  and is the recorded formatting evidence for this lane.

@@ -1,6 +1,6 @@
 # Fearless AI SDK Contract Hardening - TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## M0 - Scope And Evidence Freeze
@@ -75,9 +75,12 @@ Last updated: 2026-05-26
 
 ## M3 - Integration And Closeout
 
-- [ ] AICH-100 [owner=planner] [deps=AICH-020,AICH-030,AICH-040,AICH-050,AICH-060,AICH-070,AICH-080,AICH-090] [scope=docs/workstreams/fearless-ai-sdk-contract-hardening,CHANGELOG.md,crate changelogs]
+- [x] AICH-100 [owner=planner] [deps=AICH-020,AICH-030,AICH-040,AICH-050,AICH-060,AICH-070,AICH-080,AICH-090] [scope=docs/workstreams/fearless-ai-sdk-contract-hardening,CHANGELOG.md,crate changelogs]
   Goal: Close or split the lane after fresh verification, review, and changelog reconciliation.
   Validation: `verify-rust-workstream` records fresh final gate evidence; `review-workstream` has no blocking findings.
   Review: Confirm root and touched crate changelogs mention shipped contract changes.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`, changelog diffs.
-  Handoff: Remaining Hajimi adapter changes are out of scope and should be handled after this Siumai lane lands.
+  Handoff: DONE. Fresh closeout gates passed for touched crates and the combined
+  `siumai-spec`/`siumai-core`/`siumai-protocol-openai` lane. Full workspace fmt remains blocked by
+  Windows path-length error 206, so crate-scoped fmt is the recorded formatting evidence. Remaining
+  Hajimi adapter changes are out of scope and should be handled after this Siumai lane lands.

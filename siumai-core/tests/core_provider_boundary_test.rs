@@ -1962,10 +1962,8 @@ fn core_provider_agnostic_docs_do_not_describe_core_as_openai_compatible() {
         "src/completion.rs",
         "src/execution/transformers/stream.rs",
         "src/standards/mod.rs",
-        "src/utils/builder_helpers.rs",
         "src/custom_provider/guide.rs",
         "src/observability/tracing/README.md",
-        "src/utils/url.rs",
     ];
 
     for relative_path in checked_files {

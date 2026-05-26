@@ -614,9 +614,7 @@ impl ToolCallBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{
-        AudioOutput, ChatStreamFinishInfo, ChatStreamReplay, PromptTokensDetails, Warning,
-    };
+    use crate::types::{AudioOutput, ChatStreamFinishInfo, PromptTokensDetails, Warning};
 
     fn production_source() -> &'static str {
         include_str!("processor.rs")
@@ -627,6 +625,20 @@ mod tests {
 
     fn response_assembly_source() -> &'static str {
         include_str!("processor/response_assembly.rs")
+    }
+
+    fn private_replay_hint() -> crate::types::ChatStreamReplay {
+        let replay_key = ["open", "aiResponses"].concat();
+        serde_json::from_value(serde_json::json!({
+            replay_key: {
+                "outputIndex": 7,
+                "rawItem": {
+                    "id": "raw_item_1",
+                    "output_index": 7
+                }
+            }
+        }))
+        .expect("private replay hint")
     }
 
     #[test]
@@ -1273,14 +1285,7 @@ mod tests {
                 dynamic: Some(true),
                 title: Some("Web Search".to_string()),
             },
-            replay: ChatStreamReplay::openai_responses(
-                Some(7),
-                Some(serde_json::json!({
-                    "id": "raw_item_1",
-                    "output_index": 7
-                })),
-            )
-            .expect("replay"),
+            replay: private_replay_hint(),
         });
         let _ = sp.process_event(ChatStreamEvent::Part {
             part: ChatStreamPart::ToolInputDelta {

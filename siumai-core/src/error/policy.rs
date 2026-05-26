@@ -534,7 +534,7 @@ mod tests {
             LlmError::HttpError(raw.to_string()),
             LlmError::ParseError(raw.to_string()),
             LlmError::ProviderError {
-                provider: "openai".to_string(),
+                provider: "provider-a".to_string(),
                 message: raw.to_string(),
                 error_code: Some("bad_request".to_string()),
             },

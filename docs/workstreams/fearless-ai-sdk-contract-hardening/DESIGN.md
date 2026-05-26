@@ -1,6 +1,6 @@
 # Fearless AI SDK Contract Hardening
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Why This Lane Exists
@@ -153,3 +153,6 @@ This lane can close when:
 - root and touched crate changelogs describe the contract changes,
 - workstream docs and `WORKSTREAM.json` agree on final status,
 - and Hajimi can safely consume Siumai without relying on undocumented replay or raw-data behavior.
+
+Result: closed on 2026-05-26. All AICH tasks are complete, fresh spec/core/protocol gates passed,
+and any remaining Hajimi adapter work is explicitly out of scope.

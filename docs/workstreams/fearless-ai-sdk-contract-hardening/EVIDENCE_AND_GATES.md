@@ -1,6 +1,6 @@
 # Fearless AI SDK Contract Hardening - Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-26
 
 ## Smallest Current Repro
@@ -54,8 +54,8 @@ cargo fmt --check
 cargo nextest run -p siumai-spec -p siumai-core -p siumai-protocol-openai --no-fail-fast
 ```
 
-Use narrower package gates when a slice touches a provider crate and the workspace gate is too large.
-Record the reason when a broader gate is deferred.
+Full workspace formatting may hit Windows path-length error 206 in this checkout. When that happens,
+record the failure and use crate-scoped `cargo fmt --check -p <crate>` for touched crates.
 
 ### Review Gate
 
@@ -121,3 +121,10 @@ Run `review-workstream` before accepting a completed implementation slice, and
 | 2026-05-26 | AICH-090 | `cargo nextest run -p siumai-core unsupported_capability --no-fail-fast` | Pass | 2 runtime policy projection tests passed, covering reject-to-error and warn-to-warning behavior. |
 | 2026-05-26 | AICH-090 | `cargo nextest run -p siumai-core reject_if_unsupported --no-fail-fast` | Pass | 2 provider capability helper tests passed, covering supported and missing capability policies. |
 | 2026-05-26 | AICH-090 | `cargo nextest run -p siumai-core rerank_guard_blocks_unsupported_provider_before_transform --no-fail-fast` | Pass | 1 executor guard regression stayed green after routing hard capability rejection through the shared policy. |
+| 2026-05-26 | AICH-100 | `cargo nextest run -p siumai-core --no-fail-fast` | Pass | 360 tests passed. Initial closeout attempt exposed stale provider-neutral boundary tests and provider-specific core fixtures; those were fixed before this passing run. |
+| 2026-05-26 | AICH-100 | `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai` | Pass | Formatting passed for the touched closeout crates. |
+| 2026-05-26 | AICH-100 | `cargo nextest run -p siumai-spec --no-fail-fast` | Pass | 290 spec tests passed, covering stream, metadata, tools, usage, and unsupported capability policy. |
+| 2026-05-26 | AICH-100 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses --no-fail-fast` | Pass | 477 protocol tests passed, including OpenAI Responses replay/raw diagnostics fixtures. |
+| 2026-05-26 | AICH-100 | `cargo fmt --check` | Blocked | Full workspace formatting still fails on Windows with path-length error 206; crate-scoped formatting above passed for touched crates. |
+| 2026-05-26 | AICH-100 | `cargo nextest run -p siumai-spec -p siumai-core -p siumai-protocol-openai --no-fail-fast` | Pass | 664 combined closeout tests passed across 13 binaries. |
+| 2026-05-26 | AICH-100 | Closeout review of `TODO.md`, `DESIGN.md`, `MILESTONES.md`, `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`, and root/spec/core/protocol changelog coverage. | Pass | No blocking findings. Changelogs cover shipped stream replay, reasoning fixture, cancellation, diagnostics, error safety, tool ownership/validation, usage snapshots, and unsupported capability policy. |

@@ -2,14 +2,14 @@
   "schema_version": 1,
   "slug": "fearless-ai-sdk-contract-hardening",
   "title": "Fearless AI SDK Contract Hardening",
-  "status": "active",
+  "status": "closed",
   "opened": "2026-05-26",
   "updated": "2026-05-26",
   "scope_kind": "execution",
   "problem": "Siumai preserves AI SDK-style stream, metadata, tool, usage, cancellation, and error data but leaves several replay, diagnostics, safety, and capability semantics implicit.",
   "objective": "Make the shared contracts explicit, tested, documented, and reflected in changelogs so downstream adapters can consume Siumai without undocumented replay or raw-data assumptions.",
-  "current_task": "AICH-100",
-  "next_task": "AICH-100",
+  "current_task": null,
+  "next_task": "No split Siumai follow-up. Provider-specific unsupported option rewrites may be opened as new provider-scoped workstreams if concrete behavior gaps are found; Hajimi adapter changes remain out of scope.",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -97,6 +97,12 @@
       "kind": "task",
       "task": "AICH-090",
       "summary": "Added explicit unsupported-capability policy behaviors for reject, warn, and provider fallback; core hard family guards now reject through the shared policy while provider-specific option rewrites remain follow-ons."
+    },
+    {
+      "date": "2026-05-26",
+      "kind": "closeout",
+      "task": "AICH-100",
+      "summary": "Closed the lane after fresh spec/core/protocol gates passed, changelogs were reconciled, and full workspace formatting was recorded as blocked by Windows path-length error 206 with crate-scoped fmt passing."
     }
   ],
   "adr_refs": [
@@ -105,7 +111,7 @@
     "docs/adr/0008-legacy-content-part-compatibility-boundary.md"
   ],
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue through AICH tasks while the 12-gap contract scope remains valid. Split provider-specific or Hajimi adapter work into follow-ons."
+    "default_action": "closed",
+    "notes": "The Siumai contract-hardening scope is complete. Open new provider-scoped workstreams for concrete unsupported-option behavior gaps. Hajimi adapter changes remain out of scope."
   }
 }

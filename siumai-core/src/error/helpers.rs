@@ -392,7 +392,7 @@ mod tests {
             })),
         };
 
-        let summary = summarize_error(&e, Some("openai:gpt-4o"), Some("openai"));
+        let summary = summarize_error(&e, Some("provider-a:model-a"), Some("provider-a"));
 
         assert_eq!(
             summary.message,
