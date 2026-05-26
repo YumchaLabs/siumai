@@ -17,6 +17,7 @@ mod pending;
 use pending::TerminalEventBuffer;
 mod provider_tools;
 mod reasoning;
+use reasoning::ReasoningLifecycleState;
 mod replay;
 use replay::OpenAiResponsesEventExtras;
 mod stream_meta;
@@ -39,11 +40,7 @@ pub struct OpenAiResponsesEventConverter {
     mcp_approval_tool_call_id_by_approval_id: Arc<Mutex<HashMap<String, String>>>,
     next_mcp_approval_tool_call_index: Arc<Mutex<u64>>,
     emitted_mcp_approval_request_ids: Arc<Mutex<HashSet<String>>>,
-    reasoning_encrypted_content_by_item_id: Arc<Mutex<HashMap<String, Option<String>>>>,
-    reasoning_part_ids_by_item_id: Arc<Mutex<HashMap<String, HashSet<String>>>>,
-    emitted_reasoning_start_ids: Arc<Mutex<HashSet<String>>>,
-    emitted_reasoning_end_ids: Arc<Mutex<HashSet<String>>>,
-    can_conclude_reasoning_part_ids_by_item_id: Arc<Mutex<HashMap<String, HashSet<String>>>>,
+    reasoning_lifecycle: ReasoningLifecycleState,
     apply_patch_call_id_by_item_id: Arc<Mutex<HashMap<String, String>>>,
     apply_patch_operation_by_item_id: Arc<Mutex<HashMap<String, serde_json::Value>>>,
     apply_patch_diff_seen_call_ids: Arc<Mutex<HashSet<String>>>,
@@ -120,11 +117,7 @@ impl Default for OpenAiResponsesEventConverter {
             mcp_approval_tool_call_id_by_approval_id: Arc::new(Mutex::new(HashMap::new())),
             next_mcp_approval_tool_call_index: Arc::new(Mutex::new(0)),
             emitted_mcp_approval_request_ids: Arc::new(Mutex::new(HashSet::new())),
-            reasoning_encrypted_content_by_item_id: Arc::new(Mutex::new(HashMap::new())),
-            reasoning_part_ids_by_item_id: Arc::new(Mutex::new(HashMap::new())),
-            emitted_reasoning_start_ids: Arc::new(Mutex::new(HashSet::new())),
-            emitted_reasoning_end_ids: Arc::new(Mutex::new(HashSet::new())),
-            can_conclude_reasoning_part_ids_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            reasoning_lifecycle: ReasoningLifecycleState::default(),
             apply_patch_call_id_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             apply_patch_operation_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             apply_patch_diff_seen_call_ids: Arc::new(Mutex::new(HashSet::new())),

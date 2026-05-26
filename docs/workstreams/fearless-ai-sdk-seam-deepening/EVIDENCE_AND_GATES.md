@@ -14,6 +14,8 @@ Last updated: 2026-05-27
 | 2026-05-27 | AISD-020 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast` | Pass | 71 Responses SSE tests passed, covering terminal buffering, StreamEnd replay, reasoning/text separation, raw replay serialization, provider-executed tool events, and repeated usage behavior. |
 | 2026-05-27 | AISD-020 | `cargo fmt --check -p siumai-protocol-openai` | Pass | Replay hint refactor is formatted after extracting `converter::replay`. |
 | 2026-05-27 | AISD-020 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast` | Pass | 71 Responses SSE tests passed after moving PartWithReplay attach/apply rules behind `converter::replay`. |
+| 2026-05-27 | AISD-020 | `cargo fmt --check -p siumai-protocol-openai` | Pass | Reasoning lifecycle refactor is formatted after extracting `ReasoningLifecycleState`. |
+| 2026-05-27 | AISD-020 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast` | Pass | 71 Responses SSE tests passed after moving reasoning lifecycle state behind the reasoning module. |
 
 ## Required Gates
 
