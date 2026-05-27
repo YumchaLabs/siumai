@@ -15,6 +15,10 @@ Last updated: 2026-05-27
 | 2026-05-27 | FRAD-020 | `cargo check -p siumai-registry --no-default-features` | Pass | Feature-minimal registry still compiles; existing unused compatibility warnings remain unrelated. |
 | 2026-05-27 | FRAD-020 | `cargo nextest run -p siumai-registry provider_catalog --no-fail-fast` | Pass | 1 provider catalog boundary test passed. |
 | 2026-05-27 | FRAD-020 | `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-fail-fast` | Pass | 36 registry architecture boundary tests passed, including the new provider descriptor source guard. |
+| 2026-05-27 | FRAD-030 | `cargo fmt --check -p siumai-protocol-openai` | Pass | Protocol formatting is clean after extracting message dialect conversion and tests. |
+| 2026-05-27 | FRAD-030 | `cargo check -p siumai-protocol-openai --features openai-standard,openai-responses` | Pass | OpenAI protocol crate compiles with Chat Completions and Responses surfaces enabled. |
+| 2026-05-27 | FRAD-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses standards::openai::utils::message_dialect --no-fail-fast` | Pass | 23 dialect-local tests passed for OpenAI Chat, OpenAI-compatible, Perplexity, DeepSeek, xAI, and Mistral message conversion. |
+| 2026-05-27 | FRAD-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses openai --no-fail-fast` | Pass | 477 OpenAI protocol tests passed, with 2 expected skips. |
 
 ## Required Gates
 

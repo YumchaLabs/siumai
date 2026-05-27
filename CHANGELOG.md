@@ -67,6 +67,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Started the fearless residual architecture deepening workstream and moved registry built-in
   provider default-model lookup, factory resolution, enabled-factory registration, and catalog
   projection behind named provider descriptor seams.
+- Moved OpenAI-compatible chat message dialect conversion for OpenAI Chat, OpenAI-compatible,
+  Perplexity, DeepSeek, xAI, and Mistral into a named protocol module with dialect-local tests while
+  keeping `utils::*` compatibility re-exports stable.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible

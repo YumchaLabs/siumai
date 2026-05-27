@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   crate so provider runtimes delegate protocol conversion instead of owning local parser copies.
 - Added protocol-owned `response_content` compatibility adapters for legacy chat response payloads,
   keeping response-side `ContentPart` construction behind named adapter seams.
+- Moved OpenAI-compatible chat message dialect conversion into `utils::message_dialect`, covering
+  OpenAI Chat, OpenAI-compatible, Perplexity, DeepSeek, xAI, and Mistral with dialect-local tests
+  while keeping existing `utils::*` request conversion entry points stable.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.7...siumai-protocol-openai-v0.11.0-beta.8) - 2026-05-18
 

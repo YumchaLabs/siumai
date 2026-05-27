@@ -26,12 +26,14 @@ Last updated: 2026-05-27
 
 ## M2 - Protocol And Bridge Conversion Seams
 
-- [ ] FRAD-030 [owner=codex] [deps=FRAD-010] [scope=siumai-protocol-openai/src/standards/openai,CHANGELOG.md,siumai-protocol-openai/CHANGELOG.md]
+- [x] FRAD-030 [owner=codex] [deps=FRAD-010] [scope=siumai-protocol-openai/src/standards/openai,CHANGELOG.md,siumai-protocol-openai/CHANGELOG.md]
   Goal: Deepen OpenAI-compatible message dialect conversion so `utils.rs` no longer owns tools, messages, dialect-specific conversion, response formats, finish reasons, and usage as one broad Interface.
   Validation: `cargo fmt --check -p siumai-protocol-openai`; `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses openai --no-fail-fast`.
   Review: Confirm Perplexity, DeepSeek, xAI, Mistral, OpenAI Chat, and Responses conversion still preserve provider-specific behavior through dialect-focused tests.
   Evidence: `EVIDENCE_AND_GATES.md`, protocol changelog.
-  Handoff: TBD.
+  Handoff: DONE. `utils::message_dialect` now owns OpenAI-compatible, OpenAI Chat,
+  Perplexity, DeepSeek, xAI, and Mistral message conversion plus dialect-local tests; `utils::*`
+  remains a compatibility re-export surface for existing call sites.
 
 - [ ] FRAD-040 [owner=codex] [deps=FRAD-030] [scope=siumai-bridge/src/request,siumai-bridge/src/request/tests.rs,CHANGELOG.md,siumai-bridge/CHANGELOG.md]
   Goal: Split bridge request normalization into per-wire-format codec Modules while keeping public bridge helper functions stable.
