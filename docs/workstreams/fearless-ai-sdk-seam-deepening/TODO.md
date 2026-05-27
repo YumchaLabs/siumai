@@ -1,6 +1,6 @@
 # Fearless AI SDK Seam Deepening - TODO
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-27
 
 ## M0 - Planning And Decision Record
@@ -66,9 +66,10 @@ Last updated: 2026-05-27
   assembly, and `response_assembly` no longer reads the low-level text/reasoning/tool/stream-part
   buffers directly.
 
-- [ ] AISD-080 [owner=planner] [deps=AISD-020,AISD-030,AISD-040,AISD-050,AISD-060,AISD-070] [scope=docs/workstreams/fearless-ai-sdk-seam-deepening,CHANGELOG.md,crate changelogs]
+- [x] AISD-080 [owner=planner] [deps=AISD-020,AISD-030,AISD-040,AISD-050,AISD-060,AISD-070] [scope=docs/workstreams/fearless-ai-sdk-seam-deepening,CHANGELOG.md,crate changelogs]
   Goal: Review, verify, close, or split any residual provider-specific follow-ons.
   Validation: `verify-rust-workstream` records fresh final gates; `review-workstream` has no blocking findings.
   Review: Confirm ADR/workstream/changelogs agree on final architecture.
   Evidence: `EVIDENCE_AND_GATES.md`, `WORKSTREAM.json`, `HANDOFF.md`.
-  Handoff: Hajimi adapter changes remain out of scope.
+  Handoff: DONE. Review found no blocking findings, closeout gates passed, no Siumai follow-up was
+  split, and Hajimi adapter changes remain out of scope.

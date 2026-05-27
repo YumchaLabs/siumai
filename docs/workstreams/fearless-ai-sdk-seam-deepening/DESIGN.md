@@ -1,6 +1,6 @@
 # Fearless AI SDK Seam Deepening
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-27
 
 ## Why This Lane Exists
@@ -70,3 +70,10 @@ locality.
   error 206.
 - Every implementation task must update root and touched crate changelogs when behavior or public
   contracts change.
+
+## Closeout Result
+
+Closed on 2026-05-27. The target state is met: OpenAI Responses stream state, diagnostics
+projection, tool ownership, capability gates, usage snapshots, and final stream assembly now each
+cross named crate-owned seams with focused regressions. No Siumai follow-up is split from this
+lane; Hajimi adapter changes remain out of scope.

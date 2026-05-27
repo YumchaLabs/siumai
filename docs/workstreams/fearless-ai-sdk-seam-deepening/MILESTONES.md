@@ -1,6 +1,6 @@
 # Fearless AI SDK Seam Deepening - Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-27
 
 ## M0 - Planning And Decision Record
@@ -37,3 +37,9 @@ Exit criteria:
 - Any obsolete shallow helpers are deleted or explicitly retained with compatibility rationale.
 - Fresh closeout gates pass or blocked workspace-wide gates are recorded with a concrete reason.
 - `WORKSTREAM.json`, `TODO.md`, `HANDOFF.md`, and `EVIDENCE_AND_GATES.md` agree on final state.
+
+Result:
+
+- Met. `AccumulatedStreamRecord` narrows final assembly input, stale shallow helper paths were
+  removed or demoted to documented compatibility, fresh closeout gates passed, and workstream docs
+  agree on closed status.

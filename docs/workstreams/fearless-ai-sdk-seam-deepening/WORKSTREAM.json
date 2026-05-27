@@ -2,14 +2,14 @@
   "schema_version": 1,
   "slug": "fearless-ai-sdk-seam-deepening",
   "title": "Fearless AI SDK Seam Deepening",
-  "status": "active",
+  "status": "closed",
   "opened": "2026-05-27",
   "updated": "2026-05-27",
   "scope_kind": "architecture",
   "problem": "AI SDK contract hardening made behavior explicit, but several stream, diagnostics, tool, usage, and capability rules remain shallow caller knowledge.",
   "objective": "Deepen the remaining AI SDK contract seams into named modules with stronger locality, better leverage, executable projection rules, and less obsolete pass-through code.",
-  "current_task": "AISD-080",
-  "next_task": "AISD-080",
+  "current_task": null,
+  "next_task": "No split Siumai follow-up. Provider-specific quirks should open provider-scoped workstreams only when concrete behavior gaps appear; Hajimi adapter changes remain out of scope.",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -96,6 +96,12 @@
       "kind": "implementation",
       "task": "AISD-070",
       "summary": "Core final response assembly now consumes an AccumulatedStreamRecord snapshot instead of reading low-level StreamProcessor delta buffers directly."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "closeout",
+      "task": "AISD-080",
+      "summary": "Closed the lane after review found no blocking issues and closeout gates passed for formatting, spec/core/protocol tests, and OpenAI Responses feature tests."
     }
   ],
   "adr_refs": [
@@ -105,7 +111,7 @@
     "docs/adr/0009-ai-sdk-contract-seam-deepening.md"
   ],
   "continue_policy": {
-    "default_action": "continue",
-    "notes": "Continue through AISD tasks in dependency order. Split provider-specific behavior only when a task proves the seam belongs outside the current crate. Hajimi adapter changes remain out of scope."
+    "default_action": "closed",
+    "notes": "The Siumai seam-deepening scope is complete. Open new provider-scoped workstreams only for concrete provider behavior gaps. Hajimi adapter changes remain out of scope."
   }
 }

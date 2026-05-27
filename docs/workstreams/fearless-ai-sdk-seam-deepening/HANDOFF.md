@@ -1,13 +1,23 @@
 # Fearless AI SDK Seam Deepening - Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-27
 
-## Current State
+## Final State
 
-The workstream is open. AISD-010 created ADR-0009 and the task ledger for all architecture review
-candidates. The lane follows the closed `fearless-ai-sdk-contract-hardening` workstream and keeps
-Hajimi adapter changes out of scope.
+The workstream is closed. AISD-010 through AISD-080 are complete. ADR-0009 chose crate-owned seam
+deepening; the implementation split OpenAI Responses stream state, diagnostics projection, tool
+ownership, capability gates, usage snapshots, and core stream final assembly into named seams with
+focused regressions. Hajimi adapter changes remain out of scope.
+
+## Closeout Evidence
+
+- `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
+- `cargo nextest run -p siumai-spec -p siumai-core -p siumai-protocol-openai --no-fail-fast`
+- `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses --no-fail-fast`
+- `python -m json.tool docs\workstreams\fearless-ai-sdk-seam-deepening\WORKSTREAM.json`
+- Closeout consistency script for `Status: Closed`, completed AISD ledger, and `INDEX.md` closed row
+- `git diff --check -- CHANGELOG.md siumai-spec/CHANGELOG.md siumai-core/CHANGELOG.md siumai-protocol-openai/CHANGELOG.md docs/workstreams/fearless-ai-sdk-seam-deepening docs/workstreams/INDEX.md`
 
 ## Completed Task
 
@@ -87,21 +97,6 @@ Hajimi adapter changes out of scope.
   - `cargo fmt --check -p siumai-protocol-openai`
   - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_sse --no-fail-fast`
 
-## Active Task
-
-- Task ID: AISD-080
-- Owner: codex
-- Files:
-  - `docs/workstreams/fearless-ai-sdk-seam-deepening`
-  - `CHANGELOG.md`
-  - crate changelogs
-- Validation:
-  - `verify-rust-workstream` records fresh final gates
-  - `review-workstream` has no blocking findings
-- Status: READY
-- Review: not started
-- Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
-
 ## Decisions
 
 - ADR-0009 chooses crate-owned seam deepening over pushing provider-specific replay behavior into
@@ -110,8 +105,9 @@ Hajimi adapter changes out of scope.
   code only when parity tests prove the deepened module owns the behavior.
 - Public behavior should remain stable unless a task explicitly states a breaking cleanup.
 
-## Next Recommended Action
+## Follow-Ons
 
-Continue AISD-080 with `review-workstream` and `verify-rust-workstream`. The implementation slices
-are complete; closeout should confirm ADR/workstream/changelog alignment, run final gates, and
-either close the lane or split any residual provider-specific follow-ons.
+- No Siumai follow-up is required for this seam-deepening scope.
+- Provider-specific quirks should be opened as provider-scoped workstreams only if a concrete
+  behavior gap appears.
+- Hajimi adapter changes remain out of scope and should be handled after the Siumai side lands.
