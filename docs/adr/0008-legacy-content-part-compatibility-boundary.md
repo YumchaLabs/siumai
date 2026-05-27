@@ -92,6 +92,14 @@ small executable serde fixture for the next breaking slice. It proves the curren
 a gate, not permission to move the root path by itself; provider/protocol response fixture parity
 still needs to be completed before the low-level root namespace changes.
 
+2026-05-27 update: FRAD-060 rechecked the low-level root move and kept the root paths in place.
+High-value production call sites that intentionally build or project legacy `ContentPart` values now
+import them through explicit compatibility namespaces, and
+`adr_0008_production_legacy_content_part_paths_use_explicit_compat_imports` guards that rule. The
+low-level root move remains blocked by `ChatMessage` / `ChatResponse` serde payload identity,
+spec/core blanket root re-exports, provider/protocol/bridge response parity, and the missing
+full-root-move fixture suite.
+
 New architecture work should follow these rules:
 
 1. Request-side construction should prefer `ModelMessage`, `UserContentPart`,

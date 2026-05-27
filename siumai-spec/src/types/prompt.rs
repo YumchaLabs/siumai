@@ -6,10 +6,10 @@
 //! messages, audio/source parts, image detail, and various provider/runtime-specific tool
 //! extensions remain outside this shared prompt contract.
 
+use super::compat::content::{ContentPart, FilePartSource, MediaSource};
 use super::{
-    ChatMessage, ChatRequest, ContentPart, FilePartSource, MediaSource, MessageContent,
-    MessageMetadata, MessageRole, ProviderMetadataMap, ProviderOptionsMap, ToolExecutionOwner,
-    ToolResultOutput,
+    ChatMessage, ChatRequest, MessageContent, MessageMetadata, MessageRole, ProviderMetadataMap,
+    ProviderOptionsMap, ToolExecutionOwner, ToolResultOutput,
 };
 use base64::Engine;
 use serde::{Deserialize, Deserializer, Serialize};

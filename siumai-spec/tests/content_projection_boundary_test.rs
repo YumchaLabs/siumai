@@ -21,6 +21,18 @@ fn read_source(relative_path: &str) -> String {
         .unwrap_or_else(|error| panic!("failed to read {relative_path}: {error}"))
 }
 
+fn workspace_root() -> PathBuf {
+    crate_root()
+        .parent()
+        .expect("siumai-spec should live under workspace root")
+        .to_path_buf()
+}
+
+fn read_workspace_source(relative_path: &str) -> String {
+    fs::read_to_string(workspace_root().join(relative_path))
+        .unwrap_or_else(|error| panic!("failed to read {relative_path}: {error}"))
+}
+
 fn content_part_variant_block(source: &str, variant: &str) -> String {
     let variants = [
         "Text",
@@ -192,25 +204,14 @@ fn adr_0008_full_contentpart_namespace_break_blockers_are_guarded() {
     let types_source = read_source("src/types.rs");
     let chat_source = read_source("src/types/chat/mod.rs");
     let chat_content_source = read_source("src/types/chat/content/mod.rs");
-    let workspace_root = crate_root()
-        .parent()
-        .expect("siumai-spec should live under workspace root")
-        .to_path_buf();
-    let core_compat_source =
-        fs::read_to_string(workspace_root.join("siumai-core/src/compat/mod.rs"))
-            .expect("read siumai-core compat source");
-    let facade_compat_source = fs::read_to_string(workspace_root.join("siumai/src/compat.rs"))
-        .expect("read siumai facade compat source");
-    let facade_prelude_source = fs::read_to_string(workspace_root.join("siumai/src/prelude.rs"))
-        .expect("read siumai facade prelude source");
-    let adr_source = fs::read_to_string(
-        workspace_root.join("docs/adr/0008-legacy-content-part-compatibility-boundary.md"),
-    )
-    .expect("read ADR-0008");
-    let decision_source = fs::read_to_string(workspace_root.join(
+    let core_compat_source = read_workspace_source("siumai-core/src/compat/mod.rs");
+    let facade_compat_source = read_workspace_source("siumai/src/compat.rs");
+    let facade_prelude_source = read_workspace_source("siumai/src/prelude.rs");
+    let adr_source =
+        read_workspace_source("docs/adr/0008-legacy-content-part-compatibility-boundary.md");
+    let decision_source = read_workspace_source(
         "docs/workstreams/compatibility-surface-breaking-convergence/CSBC-050-content-part-decision.md",
-    ))
-    .expect("read CSBC-050 decision");
+    );
 
     assert!(
         types_source.contains("pub mod compat")
@@ -262,6 +263,48 @@ fn adr_0008_full_contentpart_namespace_break_blockers_are_guarded() {
             decision_source.contains(blocker),
             "CSBC-050 decision should name root ContentPart blocker `{blocker}`"
         );
+    }
+}
+
+#[test]
+fn adr_0008_production_legacy_content_part_paths_use_explicit_compat_imports() {
+    let production_files = [
+        "siumai-spec/src/types/prompt.rs",
+        "siumai-spec/src/types/ai_sdk/source.rs",
+        "siumai-spec/src/types/ai_sdk/response_compat_projection.rs",
+        "siumai-core/src/custom_provider/mod.rs",
+        "siumai-core/src/structured_output.rs",
+        "siumai-core/src/ui/conversion.rs",
+        "siumai-core/src/streaming/processor.rs",
+        "siumai-core/src/streaming/processor/accumulated.rs",
+        "siumai-core/src/streaming/processor/response_assembly.rs",
+        "siumai-core/src/execution/middleware/presets/extract_reasoning.rs",
+        "siumai/src/macros.rs",
+    ];
+    let forbidden_root_fragments = [
+        "use crate::types::ContentPart",
+        "use crate::types::{ContentPart",
+        " ContentPart,",
+        "crate::types::ContentPart",
+        "siumai_core::types::ContentPart",
+        "siumai_spec::types::ContentPart",
+        "__private::types::ContentPart",
+    ];
+
+    for relative_path in production_files {
+        let source = read_workspace_source(relative_path);
+        assert!(
+            source.contains("compat::content::ContentPart")
+                || source.contains("compat::content::{ContentPart")
+                || source.contains("compat::{ContentPart"),
+            "{relative_path} should make legacy ContentPart compatibility usage explicit"
+        );
+        for forbidden in forbidden_root_fragments {
+            assert!(
+                !source.contains(forbidden),
+                "{relative_path} should not use root ContentPart path fragment `{forbidden}`"
+            );
+        }
     }
 }
 

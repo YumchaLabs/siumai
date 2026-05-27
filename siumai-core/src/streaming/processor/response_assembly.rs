@@ -1,8 +1,9 @@
+use crate::compat::content::ContentPart;
 use crate::streaming::processor::{AccumulatedStreamRecord, StreamProcessor, ToolCallBuilder};
 use crate::types::{
-    ChatResponse, ChatStreamFileData, ContentPart, FinishReason, MessageContent,
-    ProviderMetadataMap, ResponseMetadata, ToolExecutionOwner, merge_provider_metadata,
-    provider_metadata_from_object, provider_metadata_without_private_diagnostics,
+    ChatResponse, ChatStreamFileData, FinishReason, MessageContent, ProviderMetadataMap,
+    ResponseMetadata, ToolExecutionOwner, merge_provider_metadata, provider_metadata_from_object,
+    provider_metadata_without_private_diagnostics,
 };
 use std::collections::HashMap;
 

@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `UnsupportedCapabilityPolicy` and `UnsupportedCapabilityBehavior` so request projection can
   explicitly choose reject, warning, or provider fallback behavior before projecting to warnings or
   runtime errors.
+- Moved prompt, source, and response compatibility adapters to explicit
+  `types::compat::content` imports for legacy `ContentPart`, and added an ADR-0008 guard requiring
+  high-value production uses to avoid the root path while the root move remains blocked.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 

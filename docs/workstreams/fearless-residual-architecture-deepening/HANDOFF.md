@@ -5,27 +5,20 @@ Last updated: 2026-05-27
 
 ## Current State
 
-The workstream is open for five residual architecture-review candidates. FRAD-010 through FRAD-050
-are complete. The next executable task is FRAD-060, the ADR-0008 `ContentPart` root compatibility
-decision or move.
+The workstream is open for five residual architecture-review candidates. FRAD-010 through FRAD-060
+are complete. The next executable task is FRAD-070, review and closeout.
 
 ## Active Task
 
-- Task ID: FRAD-060
+- Task ID: FRAD-070
 - Owner: codex
 - Files:
-  - `siumai-spec/src/types`
-  - `siumai-core/src`
-  - `siumai/src`
-  - `siumai-protocol-*/src`
-  - `siumai/tests/public_surface_imports_test.rs`
+  - `docs/workstreams/fearless-residual-architecture-deepening`
   - `CHANGELOG.md`
   - crate changelogs
 - Validation:
-  - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai`
-  - `cargo nextest run -p siumai-spec content --no-fail-fast`
-  - `cargo nextest run -p siumai --test public_surface_imports_test --no-fail-fast`
-  - provider/protocol fixture parity gates identified during implementation
+  - `review-workstream`
+  - `verify-rust-workstream` final gates recorded in `EVIDENCE_AND_GATES.md`
 - Status: READY
 - Review: not started
 - Evidence: `EVIDENCE_AND_GATES.md`
@@ -52,8 +45,10 @@ decision or move.
   `FactoryFamilyOverrideContract` scenarios, provider public-path source guards use a
   `ProviderPublicPathModule` manifest object, and built-in registry parity setup crosses
   `BuiltInProviderRegistryHarness`.
+- FRAD-060 moved high-value production legacy `ContentPart` usage to explicit compat imports and
+  recorded `FRAD-060-content-part-root-move-decision.md`: the low-level root move remains blocked
+  until a full provider/protocol/bridge root-move fixture suite exists.
 
 ## Next Recommended Action
 
-Commit FRAD-050, then run FRAD-060 by proving ADR-0008 root-move gates before changing any
-`ContentPart` compatibility path.
+Commit FRAD-060, then run FRAD-070 review and closeout.

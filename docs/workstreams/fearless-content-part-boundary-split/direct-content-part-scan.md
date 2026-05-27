@@ -36,6 +36,8 @@ allowlist for future hits.
 | `siumai-bridge/src/stream/tests.rs` | inline bridge stream tests |
 | `siumai-core/src/custom_provider/mod.rs` | custom-provider module shell and docs |
 | `siumai-core/src/streaming/builder.rs` | already guarded core stream helper path |
+| `siumai-core/src/tooling/tests.rs` | inline tooling tests |
+| `siumai-core/src/ui/tests.rs` | inline UI conversion tests |
 | `siumai-core/src/utils/mod.rs` | utility module shell |
 | `siumai-protocol-anthropic/src/standards/anthropic/streaming/tests.rs` | inline Anthropic streaming tests |
 | `siumai-protocol-anthropic/src/standards/anthropic/utils/mod.rs` | Anthropic utility module shell |
@@ -66,6 +68,7 @@ allowlist for future hits.
 | `siumai/src/provider_ext/cohere.rs` | facade provider extension re-export shell |
 | `siumai/src/provider_ext/deepseek.rs` | facade provider extension re-export shell |
 | `siumai/src/provider_ext/fireworks.rs` | facade provider extension re-export shell |
+| `siumai/src/provider_ext/gateway.rs` | facade provider extension re-export shell |
 | `siumai/src/provider_ext/gemini.rs` | facade provider extension re-export shell |
 | `siumai/src/provider_ext/google_vertex.rs` | facade provider extension re-export shell |
 | `siumai/src/provider_ext/groq.rs` | facade provider extension re-export shell |

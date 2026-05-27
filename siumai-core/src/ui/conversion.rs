@@ -1,9 +1,9 @@
+use crate::compat::content::{ContentPart, FilePartSource, MediaSource};
 use crate::tooling::{ExecutableTools, ToolModelOutputContext};
 use crate::types::{
-    ChatMessage, ChatRequest, ContentPart, FilePartSource, MediaSource, MessageContent,
-    MessageRole, ProviderOptionsMap, ToolExecutionOwner, ToolResultOutput, UiDataPart, UiFilePart,
-    UiMessage, UiMessagePart, UiMessageRole, UiReasoningFilePart, UiToolKind, UiToolPart,
-    UiToolPartState,
+    ChatMessage, ChatRequest, MessageContent, MessageRole, ProviderOptionsMap, ToolExecutionOwner,
+    ToolResultOutput, UiDataPart, UiFilePart, UiMessage, UiMessagePart, UiMessageRole,
+    UiReasoningFilePart, UiToolKind, UiToolPart, UiToolPartState,
 };
 use serde_json::Value;
 

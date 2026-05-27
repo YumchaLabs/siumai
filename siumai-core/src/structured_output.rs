@@ -4,9 +4,10 @@
 //! schema enforcement lives at the protocol/provider layers through provider-owned response-format
 //! options, JSON-mode settings, or reserved tool strategies.
 
+use crate::compat::content::ContentPart;
 use crate::error::LlmError;
 use crate::streaming::{ChatStream, StreamProcessor};
-use crate::types::{ChatResponse, ChatStreamEvent, ContentPart, FinishReason, MessageContent};
+use crate::types::{ChatResponse, ChatStreamEvent, FinishReason, MessageContent};
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
 

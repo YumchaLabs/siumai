@@ -6,6 +6,7 @@
 mod accumulated;
 mod response_assembly;
 
+use crate::compat::content::ContentPart;
 use crate::error::LlmError;
 use crate::streaming::processor::accumulated::AccumulatedStreamRecord;
 #[cfg(test)]
@@ -15,7 +16,7 @@ use crate::streaming::processor::response_assembly::tool_input_from_builder;
 #[cfg(test)]
 use crate::types::MessageContent;
 use crate::types::{
-    ChatResponse, ChatStreamEvent, ChatStreamPart, ContentPart, FinishReason, ProviderMetadataMap,
+    ChatResponse, ChatStreamEvent, ChatStreamPart, FinishReason, ProviderMetadataMap,
     ResponseMetadata, ToolExecutionOwner, Usage, UsageSnapshotLedger, Warning,
     merge_provider_metadata, provider_metadata_without_private_diagnostics,
 };

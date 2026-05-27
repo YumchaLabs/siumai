@@ -1,5 +1,5 @@
+use crate::compat::content::ContentPart;
 use crate::streaming::processor::{StreamProcessor, ToolCallBuilder};
-use crate::types::ContentPart;
 
 /// Compact snapshot of stream deltas needed by final response assembly.
 #[derive(Debug, Clone, Default)]

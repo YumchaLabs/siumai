@@ -8,8 +8,8 @@
   "scope_kind": "architecture",
   "problem": "Post-AI-SDK seam review found five remaining shallow Modules: registry provider metadata/factory wiring, OpenAI-compatible message dialect conversion, bridge request normalization, provider contract/public path harnesses, and the ADR-0008 ContentPart root compatibility move.",
   "objective": "Deepen all five residual seams into named Modules with smaller Interfaces, stronger locality, focused tests, changelog/evidence tracking, and justified deletion of obsolete pass-through code.",
-  "current_task": "FRAD-060",
-  "next_task": "FRAD-060",
+  "current_task": "FRAD-070",
+  "next_task": "FRAD-070",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -89,6 +89,12 @@
       "kind": "implementation",
       "task": "FRAD-050",
       "summary": "Provider contract and public-path parity tests now use named family override scenarios, provider module manifests, and a built-in registry harness for shared public-path setup."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "implementation",
+      "task": "FRAD-060",
+      "summary": "High-value production legacy ContentPart usage now crosses explicit compat imports, and the low-level root move is recorded as ADR-0008-blocked until a full provider/protocol/bridge root-move fixture suite exists."
     }
   ],
   "adr_refs": [

@@ -233,7 +233,7 @@ impl CustomChatResponse {
 
     /// Convert to standard `ChatResponse`
     pub fn to_chat_response(&self, _provider_id: &str) -> ChatResponse {
-        use crate::types::ContentPart;
+        use crate::compat::content::ContentPart;
 
         // Build content with tool calls if present
         let mut content_parts = vec![ContentPart::text(&self.content)];

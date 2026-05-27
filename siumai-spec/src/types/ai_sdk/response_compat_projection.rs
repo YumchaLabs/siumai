@@ -6,7 +6,8 @@
 //! and rejects ambiguous legacy carriers instead of treating `ContentPart` as the canonical output
 //! model.
 
-use crate::types::{ChatResponse, ContentPart, FilePartSource, MediaSource, MessageContent};
+use crate::types::compat::content::{ContentPart, FilePartSource, MediaSource};
+use crate::types::{ChatResponse, MessageContent};
 
 use super::{
     CustomOutput, FileOutput, GenerateTextContentPart, GenerateTextContentPartProjectionError,

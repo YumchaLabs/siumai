@@ -58,12 +58,16 @@ Last updated: 2026-05-27
 
 ## M4 - ADR-0008 ContentPart Decision Or Move
 
-- [ ] FRAD-060 [owner=codex] [deps=FRAD-010,FRAD-040] [scope=siumai-spec/src/types,siumai-core/src,siumai/src,siumai-protocol-*/src,CHANGELOG.md,crate changelogs]
+- [x] FRAD-060 [owner=codex] [deps=FRAD-010,FRAD-040] [scope=siumai-spec/src/types,siumai-core/src,siumai/src,siumai-protocol-*/src,CHANGELOG.md,crate changelogs]
   Goal: Prove ADR-0008 root-move gates and complete the remaining low-level `ContentPart` root compatibility move, or record the exact blocking gate with executable evidence.
   Validation: `cargo fmt --check -p siumai-spec -p siumai-core -p siumai`; `cargo nextest run -p siumai-spec content --no-fail-fast`; `cargo nextest run -p siumai --test public_surface_imports_test --no-fail-fast`; provider/protocol fixture parity gates identified during implementation.
   Review: Confirm request-side code uses prompt parts, response-side code uses generated output parts, and compatibility payload serde remains stable.
   Evidence: `EVIDENCE_AND_GATES.md`, ADR-0008 gate record, changelogs.
-  Handoff: TBD.
+  Handoff: DONE_WITH_CONCERNS. High-value production legacy `ContentPart` usage now imports through
+  explicit compatibility namespaces, and ADR/workstream evidence records that the low-level root
+  move remains blocked by serde-facing `ChatMessage` / `ChatResponse` identity, blanket
+  spec/core root re-exports, provider/protocol/bridge response parity, and a missing full-root-move
+  fixture suite.
 
 ## M5 - Review And Closeout
 

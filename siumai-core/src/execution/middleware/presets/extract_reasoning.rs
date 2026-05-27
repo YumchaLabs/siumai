@@ -183,7 +183,7 @@ impl LanguageModelMiddleware for ExtractReasoningMiddleware {
         _req: &ChatRequest,
         mut resp: ChatResponse,
     ) -> Result<ChatResponse, LlmError> {
-        use crate::types::ContentPart;
+        use crate::compat::content::ContentPart;
 
         // 1. Priority: check if reasoning already exists in content
         if resp.has_reasoning() {
@@ -385,7 +385,8 @@ mod tests {
 
     #[test]
     fn test_provider_already_extracted() {
-        use crate::types::{ContentPart, MessageContent};
+        use crate::compat::content::ContentPart;
+        use crate::types::MessageContent;
 
         let middleware = ExtractReasoningMiddleware::default();
         let req = ChatRequest::default();

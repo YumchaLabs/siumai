@@ -111,7 +111,7 @@ pub mod __private {
         message
     }
 
-    pub use siumai_core::types;
+    pub use siumai_core::{compat, types};
 }
 
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).

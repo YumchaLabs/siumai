@@ -84,7 +84,9 @@ macro_rules! tool {
         $crate::__private::types::ChatMessage {
             role: $crate::__private::types::MessageRole::Tool,
             content: $crate::__private::types::MessageContent::MultiModal(vec![
-                $crate::__private::types::ContentPart::tool_result_text($id, $name, $content),
+                $crate::__private::compat::content::ContentPart::tool_result_text(
+                    $id, $name, $content,
+                ),
             ]),
             provider_options: $crate::__private::types::ProviderOptionsMap::default(),
             metadata: $crate::__private::types::MessageMetadata::default(),

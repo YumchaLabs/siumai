@@ -75,6 +75,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   parent module focused on public wrappers, hook/loss-policy flow, and shared helpers.
 - Deepened provider contract and public-path parity harnesses so factory family requirements use
   named scenario objects and built-in registry parity setup crosses a shared provider harness.
+- Moved high-value production legacy `ContentPart` usage to explicit compatibility imports and
+  recorded that the low-level root `ContentPart` move remains ADR-0008-blocked by serde and
+  provider/protocol parity gates.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible

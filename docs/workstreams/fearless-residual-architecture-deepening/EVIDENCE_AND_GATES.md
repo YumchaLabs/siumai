@@ -25,6 +25,13 @@ Last updated: 2026-05-27
 | 2026-05-27 | FRAD-050 | `cargo fmt --check -p siumai-registry -p siumai` | Pass | Registry and facade formatting is clean after deepening provider contract/public-path harnesses. |
 | 2026-05-27 | FRAD-050 | `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-fail-fast` | Pass | 37 registry architecture boundary tests passed, including named family override scenario and provider public-path harness guards; existing unused compatibility warnings remain unrelated. |
 | 2026-05-27 | FRAD-050 | `cargo nextest run -p siumai --test provider_public_path_parity_test --features openai,azure,anthropic,google,google-vertex,xai,groq,cohere,togetherai,deepinfra,bedrock,deepseek,ollama,minimaxi --no-fail-fast` | Pass | 506 facade public-path parity tests passed across built-in provider families. |
+| 2026-05-27 | FRAD-060 | `cargo fmt --check -p siumai-spec -p siumai-core -p siumai` | Pass | Spec/core/facade formatting is clean after moving production legacy `ContentPart` paths to explicit compat imports. |
+| 2026-05-27 | FRAD-060 | `cargo check -p siumai-core -p siumai-spec -p siumai` | Pass | Spec/core/facade crates compile with default provider features after compat import migration. |
+| 2026-05-27 | FRAD-060 | `cargo nextest run -p siumai-spec --no-default-features --test content_projection_boundary_test adr_0008 --no-fail-fast` | Pass | 3 ADR-0008 focused tests passed, including serde parity, documented root-move blockers, and explicit production compat import guards. |
+| 2026-05-27 | FRAD-060 | `cargo nextest run -p siumai-spec content --no-fail-fast` | Pass | 39 content/projection tests passed, including the new ADR-0008 production compat import guard. |
+| 2026-05-27 | FRAD-060 | `cargo nextest run -p siumai --test public_surface_imports_test --no-fail-fast` | Pass | 23 public-surface import tests passed; legacy `ContentPart` remains outside the stable unified prelude and explicit compat imports compile. |
+| 2026-05-27 | FRAD-060 | `cargo nextest run -p siumai --test facade_architecture_boundary_test content --no-fail-fast` | Pass | 6 content facade architecture tests passed after updating content-part audit records for FRAD-030/040 codec/dialect splits and FRAD-060 compat imports. |
+| 2026-05-27 | FRAD-060 | `cargo nextest run -p siumai test_macros --no-fail-fast` | Pass | Facade macro expansion still compiles while `tool!` now uses the private compat content path. |
 
 ## Required Gates
 

@@ -1,4 +1,4 @@
-use crate::types::chat::{ContentPart, SourcePart};
+use crate::types::compat::content::{ContentPart, SourcePart};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::ProviderMetadata;
