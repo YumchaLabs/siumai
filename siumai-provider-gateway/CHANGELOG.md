@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-utils-v0.11.0-beta.8...siumai-provider-utils-v0.11.0-beta.9) - 2026-05-27
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-gateway-v0.11.0-beta.8...siumai-provider-gateway-v0.11.0-beta.9) - 2026-05-27
 
 ### Added
 
+- *(gateway)* add vercel ai gateway provider
 - *(openai)* ws connection aging
 - *(openai)* remote cancel for websocket session
 - *(openai)* add WebSocket mode for responses streaming
@@ -53,8 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- update changelogs for architecture boundary refactor
-- harden clean architecture boundaries
 - *(release)* prepare v0.11.0-beta.8
 - converge provider boundary architecture
 - *(examples)* move extras example index
@@ -97,13 +96,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - separate type file
 - release v0.4.0
 - change interface
-
-### Added
-
-- Added the new `siumai-provider-utils` crate as the canonical home for AI SDK-style
-  provider/protocol helper behavior.
-- Initial helper coverage includes builder defaults, chat request normalization, data/base64
-  helpers, downloads, error-message extraction, headers, IDs, JSON instruction/parse helpers, MIME
-  detection, optional-value helpers, provider options/references, reasoning mapping, runtime
-  metadata, serial jobs, settings, URL composition, UTF-8 decoding, runtime validation helpers, and
-  `standards::ToolNameMapping`.

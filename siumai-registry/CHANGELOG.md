@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-registry-v0.11.0-beta.8...siumai-registry-v0.11.0-beta.9) - 2026-05-27
+
+### Added
+
+- *(elevenlabs)* wire registry audio provider
+- *(deepgram)* wire registry audio provider
+- *(cerebras)* add openai compatible provider surface
+- *(gateway)* add vercel ai gateway provider
+
+### Fixed
+
+- gate registry compatibility facet
+- *(bedrock)* align enterprise provider package surface
+
+### Other
+
+- polish release changelog
+- deepen provider harness contracts
+- centralize registry provider descriptors
+- refresh provider model catalogs
+- retire minimaxi ollama model constants
+- isolate registry typed builders
+- remove noop builder capability flags
+- route native extensions through provider factories
+- guard generic client retirement gates
+- route hybrid image extras through native factories
+- route registry extras through extension facets
+- narrow builder compatibility factory path
+- narrow registry and provider utility boundaries
+- update changelogs for architecture boundary refactor
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- deepen provider and bridge module boundaries
+
 ### Changed
 
 - Registry family handles now use family-first provider construction instead of primary compatibility `LlmClient` routes.

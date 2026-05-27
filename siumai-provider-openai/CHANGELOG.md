@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-v0.11.0-beta.8...siumai-provider-openai-v0.11.0-beta.9) - 2026-05-27
+
+### Other
+
+- guard protocol-owned provider metadata
+- move openai audio sse helpers to protocol
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- deepen provider and bridge module boundaries
+
 ### Changed
 
 - Clarified that typed OpenAI response metadata is protocol-owned and kept here only as a stable

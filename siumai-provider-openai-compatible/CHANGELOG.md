@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-compatible-v0.11.0-beta.8...siumai-provider-openai-compatible-v0.11.0-beta.9) - 2026-05-27
+
+### Added
+
+- *(cerebras)* add openai compatible provider surface
+
+### Other
+
+- refresh provider model catalogs
+- update changelogs for architecture boundary refactor
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- deepen provider and bridge module boundaries
+
 ### Changed
 
 - OpenAI-compatible completion runtime now delegates `/completions` response conversion and SSE

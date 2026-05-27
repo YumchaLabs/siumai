@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-extras-v0.11.0-beta.8...siumai-extras-v0.11.0-beta.9) - 2026-05-27
+
+### Fixed
+
+- clean ci all-features failures
+
+### Other
+
+- harden clean architecture boundaries
+
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-extras-v0.11.0-beta.7...siumai-extras-v0.11.0-beta.8) - 2026-05-18
 
 ### Other

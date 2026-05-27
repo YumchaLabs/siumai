@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-minimaxi-v0.11.0-beta.8...siumai-provider-minimaxi-v0.11.0-beta.9) - 2026-05-27
+
+### Other
+
+- retire minimaxi ollama model constants
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- deepen provider and bridge module boundaries
+
 ### Removed
 
 - Removed the legacy provider-local `providers::minimaxi::model_constants` module. Use the curated
