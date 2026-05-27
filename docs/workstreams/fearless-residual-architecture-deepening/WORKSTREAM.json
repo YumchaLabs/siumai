@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slug": "fearless-residual-architecture-deepening",
+  "title": "Fearless Residual Architecture Deepening",
+  "status": "active",
+  "opened": "2026-05-27",
+  "updated": "2026-05-27",
+  "scope_kind": "architecture",
+  "problem": "Post-AI-SDK seam review found five remaining shallow Modules: registry provider metadata/factory wiring, OpenAI-compatible message dialect conversion, bridge request normalization, provider contract/public path harnesses, and the ADR-0008 ContentPart root compatibility move.",
+  "objective": "Deepen all five residual seams into named Modules with smaller Interfaces, stronger locality, focused tests, changelog/evidence tracking, and justified deletion of obsolete pass-through code.",
+  "current_task": "FRAD-020",
+  "next_task": "FRAD-020",
+  "blocked": false,
+  "reference_repo": {
+    "name": "vercel-ai",
+    "path": "repo-ref/ai",
+    "source": "local"
+  },
+  "authoritative_docs": [
+    {
+      "role": "design",
+      "path": "docs/workstreams/fearless-residual-architecture-deepening/DESIGN.md"
+    },
+    {
+      "role": "execution",
+      "path": "docs/workstreams/fearless-residual-architecture-deepening/TODO.md"
+    },
+    {
+      "role": "milestones",
+      "path": "docs/workstreams/fearless-residual-architecture-deepening/MILESTONES.md"
+    },
+    {
+      "role": "gates",
+      "path": "docs/workstreams/fearless-residual-architecture-deepening/EVIDENCE_AND_GATES.md"
+    },
+    {
+      "role": "handoff",
+      "path": "docs/workstreams/fearless-residual-architecture-deepening/HANDOFF.md"
+    }
+  ],
+  "tasks": [
+    "FRAD-010",
+    "FRAD-020",
+    "FRAD-030",
+    "FRAD-040",
+    "FRAD-050",
+    "FRAD-060",
+    "FRAD-070"
+  ],
+  "gates": [
+    "python -m json.tool docs/workstreams/fearless-residual-architecture-deepening/WORKSTREAM.json",
+    "git diff --check -- docs/workstreams/fearless-residual-architecture-deepening docs/workstreams/INDEX.md",
+    "cargo fmt --check -p siumai-registry -p siumai-protocol-openai -p siumai-bridge -p siumai-spec -p siumai-core -p siumai",
+    "cargo nextest run -p siumai-registry -p siumai-protocol-openai -p siumai-bridge -p siumai-spec -p siumai-core -p siumai --no-fail-fast"
+  ],
+  "evidence": [
+    {
+      "date": "2026-05-27",
+      "kind": "architecture-review",
+      "task": "FRAD-010",
+      "summary": "Improve-codebase-architecture report identified registry descriptor, OpenAI-compatible message dialect, bridge codec, provider contract harness, and ADR-0008 ContentPart root move candidates."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "planning",
+      "task": "FRAD-010",
+      "summary": "Opened the durable residual architecture deepening workstream, task ledger, gates, handoff, and workstream index entry."
+    }
+  ],
+  "adr_refs": [
+    "docs/adr/0001-vercel-aligned-modular-split.md",
+    "docs/adr/0002-provider-crates-by-provider.md",
+    "docs/adr/0006-family-model-first-trait-policy.md",
+    "docs/adr/0007-llmclient-demotion-policy.md",
+    "docs/adr/0008-legacy-content-part-compatibility-boundary.md",
+    "docs/adr/0009-ai-sdk-contract-seam-deepening.md"
+  ],
+  "continue_policy": {
+    "default_action": "continue",
+    "notes": "Continue through FRAD tasks in dependency order. Split only concrete provider/protocol follow-ons that prove a narrower scope. Hajimi adapter changes remain out of scope."
+  }
+}
