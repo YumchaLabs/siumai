@@ -5,27 +5,21 @@ Last updated: 2026-05-27
 
 ## Current State
 
-The workstream is open for five residual architecture-review candidates. FRAD-010 completed planning
-and documentation. The first executable code task is FRAD-020, the registry provider descriptor
+The workstream is open for five residual architecture-review candidates. FRAD-010 and FRAD-020 are
+complete. The next executable task is FRAD-030, the OpenAI-compatible message dialect conversion
 seam.
 
 ## Active Task
 
-- Task ID: FRAD-020
+- Task ID: FRAD-030
 - Owner: codex
 - Files:
-  - `siumai-registry/src/provider_catalog.rs`
-  - `siumai-registry/src/native_provider_metadata.rs`
-  - `siumai-registry/src/provider/catalog_ids.rs`
-  - `siumai-registry/src/registry/helpers.rs`
-  - `siumai-registry/src/registry/mod.rs`
-  - `siumai-registry/src/registry/factories`
+  - `siumai-protocol-openai/src/standards/openai`
   - `CHANGELOG.md`
-  - `siumai-registry/CHANGELOG.md`
+  - `siumai-protocol-openai/CHANGELOG.md`
 - Validation:
-  - `cargo fmt --check -p siumai-registry`
-  - `cargo nextest run -p siumai-registry provider_catalog --no-fail-fast`
-  - `cargo nextest run -p siumai-registry factory_architecture_boundary_test --no-fail-fast`
+  - `cargo fmt --check -p siumai-protocol-openai`
+  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses openai --no-fail-fast`
 - Status: READY
 - Review: not started
 - Evidence: `EVIDENCE_AND_GATES.md`
@@ -38,7 +32,10 @@ seam.
   ADR-0008.
 - Execute in dependency order: registry descriptor first, protocol dialects second, bridge codecs
   third, test harness fourth, `ContentPart` gate/move fifth.
+- FRAD-020 concentrated built-in provider default-model lookup, factory resolution, and enabled
+  factory registration in `registry::provider_descriptor`; the public helper functions now cross
+  that seam, and catalog projection uses `ProviderCatalogDescriptor`.
 
 ## Next Recommended Action
 
-Commit FRAD-010, then run FRAD-020 with the registry crate as the bounded scope.
+Commit FRAD-020, then run FRAD-030 with the OpenAI protocol crate as the bounded scope.

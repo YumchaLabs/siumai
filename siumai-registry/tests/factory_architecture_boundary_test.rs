@@ -63,6 +63,66 @@ fn read_factory_source(file_name: &str) -> String {
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
 }
 
+#[test]
+fn registry_helpers_cross_builtin_provider_descriptor_seam() {
+    let root = crate_root();
+    let helpers =
+        fs::read_to_string(root.join("src/registry/helpers.rs")).expect("read registry helpers");
+    let registry_mod =
+        fs::read_to_string(root.join("src/registry/mod.rs")).expect("read registry module");
+    let descriptor = fs::read_to_string(root.join("src/registry/provider_descriptor.rs"))
+        .expect("read provider descriptor module");
+
+    assert!(
+        registry_mod.contains("pub(crate) mod provider_descriptor;"),
+        "registry should expose an internal provider descriptor seam"
+    );
+    assert!(
+        descriptor.contains("pub(crate) fn builtin_provider_default_model(")
+            && descriptor.contains("pub(crate) fn builtin_provider_factory(")
+            && descriptor.contains("pub(crate) fn register_enabled_builtin_provider_factories("),
+        "provider_descriptor should own default-model lookup, factory resolution, and enabled built-in registration"
+    );
+
+    for expected_call in [
+        "provider_descriptor::builtin_provider_default_model(",
+        "provider_descriptor::openai_compatible_provider_factory(",
+        "provider_descriptor::builtin_provider_factory(",
+        "provider_descriptor::register_enabled_builtin_provider_factories(",
+    ] {
+        assert!(
+            helpers.contains(expected_call),
+            "registry helpers should cross provider_descriptor for `{expected_call}`"
+        );
+    }
+
+    for forbidden in [
+        "BuiltinProviderId::",
+        "OpenAIProviderFactory",
+        "AnthropicProviderFactory",
+        "GeminiProviderFactory",
+        "insert_builtin_provider_factory(",
+    ] {
+        assert!(
+            !helpers.contains(forbidden),
+            "registry helpers should not own provider facts after the descriptor split: `{forbidden}`"
+        );
+    }
+
+    let provider_catalog =
+        fs::read_to_string(root.join("src/provider_catalog.rs")).expect("read provider catalog");
+    assert!(
+        provider_catalog.contains("struct ProviderCatalogDescriptor")
+            && provider_catalog.contains("fn into_provider_info(")
+            && provider_catalog.contains("descriptor.into_provider_info("),
+        "provider catalog views should cross a named descriptor before producing ProviderInfo"
+    );
+    assert!(
+        !provider_catalog.contains("ProviderInfoBody"),
+        "provider catalog should not keep the old shallow ProviderInfoBody carrier"
+    );
+}
+
 fn async_method_source<'a>(source: &'a str, file_name: &str, method_name: &str) -> &'a str {
     let marker = format!("    async fn {method_name}(");
     let start = source

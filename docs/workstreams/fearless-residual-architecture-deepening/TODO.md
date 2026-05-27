@@ -14,12 +14,15 @@ Last updated: 2026-05-27
 
 ## M1 - Registry Provider Descriptor Seam
 
-- [ ] FRAD-020 [owner=codex] [deps=FRAD-010] [scope=siumai-registry/src/provider_catalog.rs,siumai-registry/src/native_provider_metadata.rs,siumai-registry/src/provider/catalog_ids.rs,siumai-registry/src/registry/helpers.rs,siumai-registry/src/registry/mod.rs,siumai-registry/src/registry/factories,CHANGELOG.md,siumai-registry/CHANGELOG.md]
+- [x] FRAD-020 [owner=codex] [deps=FRAD-010] [scope=siumai-registry/src/provider_catalog.rs,siumai-registry/src/native_provider_metadata.rs,siumai-registry/src/provider/catalog_ids.rs,siumai-registry/src/registry/helpers.rs,siumai-registry/src/registry/mod.rs,siumai-registry/src/registry/factories,CHANGELOG.md,siumai-registry/CHANGELOG.md]
   Goal: Collapse provider identity, aliases, metadata, model lists, default-model policy, feature-gated factory resolution, and catalog views behind one registry-owned descriptor seam.
   Validation: `cargo fmt --check -p siumai-registry`; `cargo nextest run -p siumai-registry provider_catalog --no-fail-fast`; `cargo nextest run -p siumai-registry factory_architecture_boundary_test --no-fail-fast`.
   Review: Confirm adding one built-in provider no longer requires editing unrelated catalog, helper, and test matrices with repeated provider facts.
   Evidence: `EVIDENCE_AND_GATES.md`, registry changelog.
-  Handoff: TBD.
+  Handoff: DONE. `registry::provider_descriptor` owns built-in provider default-model lookup,
+  factory resolution, and enabled-factory registration; `ProviderCatalogDescriptor` owns catalog
+  projection into public `ProviderInfo`, and source guards prevent `helpers.rs` from growing
+  concrete provider factory facts again.
 
 ## M2 - Protocol And Bridge Conversion Seams
 

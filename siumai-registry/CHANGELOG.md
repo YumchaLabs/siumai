@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of passing the broad `ProviderFactory` trait object into generic-client selection.
 - Centralized built-in provider typed-client projection helpers so registry factories share one
   provider-owned family construction path per supported family.
+- Moved built-in provider default-model lookup, factory resolution, enabled-factory registration,
+  and provider catalog projection behind named provider descriptor seams.
 - Documented Video as a stable registry family for this release line while keeping Music available
   only through explicit extension/capability paths.
 - Removed registry/default-model references to MiniMaxi and Ollama legacy `model_constants`

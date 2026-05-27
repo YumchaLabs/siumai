@@ -79,7 +79,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -103,7 +103,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -213,7 +213,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -284,7 +284,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -315,7 +315,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -339,7 +339,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -370,7 +370,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -397,7 +397,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -422,7 +422,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -450,7 +450,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     out.push(provider_info_from_record(
                         &rec,
                         provider_type.clone(),
-                        ProviderInfoBody {
+                        ProviderCatalogDescriptor {
                             name: Cow::Borrowed(meta.name),
                             description: Cow::Borrowed(meta.description),
                             capabilities: rec.capabilities.clone(),
@@ -477,7 +477,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                                 models.push(Cow::Borrowed(model));
                             }
                         }
-                        out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderInfoBody {
+                        out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderCatalogDescriptor {
                             name: Cow::Owned(cfg.name),
                             description: Cow::Borrowed(
                                 "OpenAI-compatible provider with DeepSeek-specific routing",
@@ -493,7 +493,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Owned(rec.name.clone()),
                         description: Cow::Owned(rec.id.clone()),
                         capabilities: rec.capabilities.clone(),
@@ -527,7 +527,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -562,7 +562,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -618,7 +618,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -652,7 +652,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -687,7 +687,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -716,7 +716,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderInfoBody {
+                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderCatalogDescriptor {
                     name: Cow::Owned(rec.name.clone()),
                     description: Cow::Borrowed(
                         "Mistral AI provider surface via OpenAI-compatible chat and embedding endpoints",
@@ -749,7 +749,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderInfoBody {
+                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderCatalogDescriptor {
                     name: Cow::Owned(rec.name.clone()),
                     description: Cow::Borrowed(
                         "Fireworks AI unified provider surface via OpenAI-compatible chat, completion, embedding, and transcription endpoints plus provider-owned image generation and edit workflows",
@@ -775,7 +775,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
 
-                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderInfoBody {
+                out.push(provider_info_from_record(&rec, provider_type.clone(), ProviderCatalogDescriptor {
                     name: Cow::Owned(rec.name.clone()),
                     description: Cow::Borrowed(
                         "Perplexity language models on the hosted-search OpenAI-compatible chat surface",
@@ -804,7 +804,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Owned(rec.name.clone()),
                         description: Cow::Borrowed(
                             "Cerebras language models via the OpenAI-compatible chat surface",
@@ -833,7 +833,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -851,7 +851,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -873,7 +873,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -896,7 +896,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -940,7 +940,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Borrowed(meta.name),
                         description: Cow::Borrowed(meta.description),
                         capabilities: rec.capabilities.clone(),
@@ -963,7 +963,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     out.push(provider_info_from_record(
                         &rec,
                         provider_type.clone(),
-                        ProviderInfoBody {
+                        ProviderCatalogDescriptor {
                             name: Cow::Borrowed(meta.name),
                             description: Cow::Borrowed(meta.description),
                             capabilities: rec.capabilities.clone(),
@@ -1022,16 +1022,17 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         out.push(provider_info(
                             Cow::Owned(provider_id.clone()),
                             crate::provider::legacy::provider_type_for_id(&provider_id),
-                            ProviderInfoBody {
-                            name: Cow::Owned(cfg.name),
-                            description: Cow::Owned(format!(
-                                "OpenAI-compatible provider (via adapter): {}",
-                                rec.id
-                            )),
-                            capabilities: rec.capabilities.clone(),
-                            default_base_url: Cow::Owned(cfg.base_url),
-                            supported_models: models,
-                        }));
+                            ProviderCatalogDescriptor {
+                                name: Cow::Owned(cfg.name),
+                                description: Cow::Owned(format!(
+                                    "OpenAI-compatible provider (via adapter): {}",
+                                    rec.id
+                                )),
+                                capabilities: rec.capabilities.clone(),
+                                default_base_url: Cow::Owned(cfg.base_url),
+                                supported_models: models,
+                            },
+                        ));
                         continue;
                     }
                 }
@@ -1040,7 +1041,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Owned(rec.name.clone()),
                         description: Cow::Borrowed("Custom provider"),
                         capabilities: rec.capabilities.clone(),
@@ -1056,7 +1057,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 out.push(provider_info_from_record(
                     &rec,
                     provider_type.clone(),
-                    ProviderInfoBody {
+                    ProviderCatalogDescriptor {
                         name: Cow::Owned(rec.name.clone()),
                         description: Cow::Owned(rec.id.clone()),
                         capabilities: rec.capabilities.clone(),
@@ -1071,7 +1072,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
     out
 }
 
-struct ProviderInfoBody {
+struct ProviderCatalogDescriptor {
     name: Cow<'static, str>,
     description: Cow<'static, str>,
     capabilities: ProviderCapabilities,
@@ -1079,28 +1080,38 @@ struct ProviderInfoBody {
     supported_models: Vec<Cow<'static, str>>,
 }
 
+impl ProviderCatalogDescriptor {
+    fn into_provider_info(
+        self,
+        provider_id: Cow<'static, str>,
+        provider_type: ProviderType,
+    ) -> ProviderInfo {
+        ProviderInfo {
+            provider_id,
+            provider_type,
+            name: self.name,
+            description: self.description,
+            capabilities: self.capabilities,
+            default_base_url: self.default_base_url,
+            supported_models: self.supported_models,
+        }
+    }
+}
+
 fn provider_info_from_record(
     record: &crate::registry::ProviderRecord,
     provider_type: ProviderType,
-    body: ProviderInfoBody,
+    descriptor: ProviderCatalogDescriptor,
 ) -> ProviderInfo {
-    provider_info(Cow::Owned(record.id.clone()), provider_type, body)
+    provider_info(Cow::Owned(record.id.clone()), provider_type, descriptor)
 }
 
 fn provider_info(
     provider_id: Cow<'static, str>,
     provider_type: ProviderType,
-    body: ProviderInfoBody,
+    descriptor: ProviderCatalogDescriptor,
 ) -> ProviderInfo {
-    ProviderInfo {
-        provider_id,
-        provider_type,
-        name: body.name,
-        description: body.description,
-        capabilities: body.capabilities,
-        default_base_url: body.default_base_url,
-        supported_models: body.supported_models,
-    }
+    descriptor.into_provider_info(provider_id, provider_type)
 }
 
 /// Get provider information by provider type

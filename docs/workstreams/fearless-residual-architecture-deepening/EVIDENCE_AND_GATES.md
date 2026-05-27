@@ -10,6 +10,11 @@ Last updated: 2026-05-27
 | 2026-05-27 | FRAD-010 | Architecture review using `improve-codebase-architecture`; report opened from the OS temp directory. | Pass | Found five candidates: registry descriptor, OpenAI-compatible message dialects, bridge codecs, provider contract harness, and ADR-0008 `ContentPart` root move. |
 | 2026-05-27 | FRAD-010 | `python -m json.tool docs\workstreams\fearless-residual-architecture-deepening\WORKSTREAM.json` | Pass | Workstream metadata parses and records FRAD-020 as the first executable task. |
 | 2026-05-27 | FRAD-010 | `git diff --check -- docs\workstreams\fearless-residual-architecture-deepening docs\workstreams\INDEX.md` | Pass | Diff check reported only expected LF-to-CRLF working-copy warnings for `INDEX.md`. |
+| 2026-05-27 | FRAD-020 | `cargo fmt --check -p siumai-registry` | Pass | Registry formatting is clean after extracting provider descriptor seams. |
+| 2026-05-27 | FRAD-020 | `cargo check -p siumai-registry --features openai,azure,anthropic,google,google-vertex,ollama,xai,groq,deepseek,deepinfra,minimaxi,cohere,togetherai,bedrock,gateway,deepgram,elevenlabs` | Pass | Full built-in provider feature set compiles through the descriptor split. |
+| 2026-05-27 | FRAD-020 | `cargo check -p siumai-registry --no-default-features` | Pass | Feature-minimal registry still compiles; existing unused compatibility warnings remain unrelated. |
+| 2026-05-27 | FRAD-020 | `cargo nextest run -p siumai-registry provider_catalog --no-fail-fast` | Pass | 1 provider catalog boundary test passed. |
+| 2026-05-27 | FRAD-020 | `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-fail-fast` | Pass | 36 registry architecture boundary tests passed, including the new provider descriptor source guard. |
 
 ## Required Gates
 

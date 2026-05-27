@@ -8,8 +8,8 @@
   "scope_kind": "architecture",
   "problem": "Post-AI-SDK seam review found five remaining shallow Modules: registry provider metadata/factory wiring, OpenAI-compatible message dialect conversion, bridge request normalization, provider contract/public path harnesses, and the ADR-0008 ContentPart root compatibility move.",
   "objective": "Deepen all five residual seams into named Modules with smaller Interfaces, stronger locality, focused tests, changelog/evidence tracking, and justified deletion of obsolete pass-through code.",
-  "current_task": "FRAD-020",
-  "next_task": "FRAD-020",
+  "current_task": "FRAD-030",
+  "next_task": "FRAD-030",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -65,6 +65,12 @@
       "kind": "planning",
       "task": "FRAD-010",
       "summary": "Opened the durable residual architecture deepening workstream, task ledger, gates, handoff, and workstream index entry."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "implementation",
+      "task": "FRAD-020",
+      "summary": "Registry built-in provider default-model lookup, factory resolution, enabled-factory registration, and provider catalog projection now cross named provider descriptor seams."
     }
   ],
   "adr_refs": [
