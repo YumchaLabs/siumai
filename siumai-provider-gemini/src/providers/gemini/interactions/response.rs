@@ -163,19 +163,21 @@ fn image_block_to_file_part(
         .to_string();
 
     if let Some(data) = string_field(block, "data").filter(|value| !value.is_empty()) {
-        return Some(response_content::file_base64(
+        Some(response_content::file_base64(
             data,
             media_type,
             part_provider_metadata(None, interaction_id),
-        ));
-    } else if let Some(uri) = string_field(block, "uri").filter(|value| !value.is_empty()) {
-        return Some(response_content::file_url(
-            uri,
-            media_type,
-            part_provider_metadata(None, interaction_id),
-        ));
+        ))
     } else {
-        return None;
+        string_field(block, "uri")
+            .filter(|value| !value.is_empty())
+            .map(|uri| {
+                response_content::file_url(
+                    uri,
+                    media_type,
+                    part_provider_metadata(None, interaction_id),
+                )
+            })
     }
 }
 

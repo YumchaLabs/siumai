@@ -34,6 +34,7 @@ use axum::{Router, extract::Query, response::Response, routing::get};
 use futures::stream;
 use serde::Deserialize;
 use serde_json::json;
+use siumai::content::compat::ContentPart;
 use siumai::experimental::bridge::{
     BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptionsOverride, BridgeReport,
     BridgeTarget, RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext,

@@ -411,13 +411,13 @@ impl ElevenLabsPronunciationDictionaryListQuery {
     }
 
     fn validate(&self) -> Result<(), LlmError> {
-        if let Some(page_size) = self.page_size {
-            if page_size == 0 || page_size > 100 {
-                return Err(LlmError::InvalidInput(
-                    "ElevenLabs pronunciation dictionary page_size must be between 1 and 100"
-                        .to_string(),
-                ));
-            }
+        if let Some(page_size) = self.page_size
+            && (page_size == 0 || page_size > 100)
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs pronunciation dictionary page_size must be between 1 and 100"
+                    .to_string(),
+            ));
         }
         Ok(())
     }

@@ -1,6 +1,12 @@
 //! Request bridge implementation.
 
 mod inspect;
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex"
+))]
 mod legacy_content;
 #[cfg(any(
     feature = "openai",

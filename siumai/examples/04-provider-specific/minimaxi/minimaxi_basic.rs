@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n\n=== Testing Audio (TTS) ===");
     let tts_request = MinimaxiTtsRequestBuilder::new("你好，这是一个测试。")
         .model(models::minimaxi::SPEECH_2_6_HD)
-        .voice_id(models::minimaxi::MALE_QN_QINGSE)
+        .voice_id("male-qn-qingse")
         .format("mp3")
         .build();
 

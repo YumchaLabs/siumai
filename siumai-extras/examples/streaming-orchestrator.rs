@@ -9,6 +9,7 @@
 //! Run with: cargo run -p siumai-extras --example streaming-orchestrator
 
 use futures::StreamExt;
+use siumai::content::compat::ContentPart;
 use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 

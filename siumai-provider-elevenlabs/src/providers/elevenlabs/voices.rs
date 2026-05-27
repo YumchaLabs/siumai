@@ -742,13 +742,13 @@ impl ElevenLabsVoices {
             LlmError::InvalidInput(format!("Invalid ElevenLabs PVC audio URL: {e}"))
         })?;
 
-        if let Some(query) = query {
-            if let Some(remove_background_noise) = query.remove_background_noise {
-                url.query_pairs_mut().append_pair(
-                    "remove_background_noise",
-                    &remove_background_noise.to_string(),
-                );
-            }
+        if let Some(query) = query
+            && let Some(remove_background_noise) = query.remove_background_noise
+        {
+            url.query_pairs_mut().append_pair(
+                "remove_background_noise",
+                &remove_background_noise.to_string(),
+            );
         }
 
         Ok(url.to_string())
@@ -1708,12 +1708,12 @@ impl ElevenLabsUpdatePvcVoiceSampleRequest {
     }
 
     fn validate(&self) -> Result<(), LlmError> {
-        if let Some(speaker_ids) = &self.selected_speaker_ids {
-            if speaker_ids.iter().any(|value| value.trim().is_empty()) {
-                return Err(LlmError::InvalidInput(
-                    "ElevenLabs PVC selected speaker IDs cannot be empty".to_string(),
-                ));
-            }
+        if let Some(speaker_ids) = &self.selected_speaker_ids
+            && speaker_ids.iter().any(|value| value.trim().is_empty())
+        {
+            return Err(LlmError::InvalidInput(
+                "ElevenLabs PVC selected speaker IDs cannot be empty".to_string(),
+            ));
         }
         if self
             .file_name
