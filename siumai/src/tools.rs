@@ -39,6 +39,8 @@ pub mod xai {
 /// This is a facade-only compatibility helper. The canonical catalogs live in the relevant
 /// protocol/provider crates.
 pub fn provider_defined_tool(id: &str) -> Option<Tool> {
+    let _ = id;
+
     #[cfg(any(feature = "openai", feature = "protocol-openai"))]
     if let Some(tool) = openai::provider_defined_tool(id) {
         return Some(tool);

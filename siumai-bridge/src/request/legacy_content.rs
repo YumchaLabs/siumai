@@ -4,8 +4,13 @@
 //! compatibility. These helpers are the request-side boundary: they may carry request
 //! `provider_options`, but they deliberately keep response `provider_metadata` empty.
 
-use siumai_core::types::chat::{FilePartSource, ImageDetail, MediaSource};
-use siumai_core::types::{ContentPart, ProviderOptionsMap, ToolResultOutput};
+#[cfg(any(feature = "openai", feature = "anthropic"))]
+use siumai_core::types::ToolResultOutput;
+#[cfg(feature = "openai")]
+use siumai_core::types::chat::MediaSource;
+#[cfg(any(feature = "openai", feature = "anthropic"))]
+use siumai_core::types::chat::{FilePartSource, ImageDetail};
+use siumai_core::types::{ContentPart, ProviderOptionsMap};
 
 pub(super) fn request_text_part(
     text: impl Into<String>,
@@ -29,6 +34,7 @@ pub(super) fn request_reasoning_part(
     }
 }
 
+#[cfg(any(feature = "openai", feature = "anthropic"))]
 pub(super) fn request_image_part(
     source: FilePartSource,
     media_type: Option<String>,
@@ -44,6 +50,7 @@ pub(super) fn request_image_part(
     }
 }
 
+#[cfg(feature = "openai")]
 pub(super) fn request_audio_part(
     source: MediaSource,
     media_type: Option<String>,
@@ -57,6 +64,7 @@ pub(super) fn request_audio_part(
     }
 }
 
+#[cfg(any(feature = "openai", feature = "anthropic"))]
 pub(super) fn request_file_part(
     source: FilePartSource,
     media_type: impl Into<String>,
@@ -72,6 +80,7 @@ pub(super) fn request_file_part(
     }
 }
 
+#[cfg(any(feature = "openai", feature = "anthropic"))]
 pub(super) fn request_tool_call_part(
     tool_call_id: impl Into<String>,
     tool_name: impl Into<String>,
@@ -94,6 +103,7 @@ pub(super) fn request_tool_call_part(
     }
 }
 
+#[cfg(any(feature = "openai", feature = "anthropic"))]
 pub(super) fn request_tool_result_part(
     tool_call_id: impl Into<String>,
     tool_name: impl Into<String>,

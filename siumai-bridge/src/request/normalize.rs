@@ -7,22 +7,31 @@ use crate::lifecycle::{new_bridge_report, new_request_normalize_context, reject_
 use crate::request::legacy_content;
 #[cfg(feature = "anthropic")]
 use base64::Engine;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
+#[cfg(feature = "openai")]
+use std::collections::HashMap;
 #[cfg(feature = "anthropic")]
 use std::time::Duration;
 
 use crate::{BridgeOptions, BridgeResult, BridgeTarget};
-use serde_json::{Map, Value, json};
+#[cfg(any(feature = "openai", feature = "anthropic"))]
+use serde_json::json;
+use serde_json::{Map, Value};
 use siumai_core::LlmError;
 #[cfg(feature = "anthropic")]
 use siumai_core::types::CacheControl;
-use siumai_core::types::chat::{
-    FilePartSource, ImageDetail, MediaSource, ProviderReference, ResponseFormat,
-};
+#[cfg(feature = "openai")]
+use siumai_core::types::chat::ImageDetail;
+#[cfg(not(any(feature = "openai", feature = "anthropic")))]
+use siumai_core::types::chat::ResponseFormat;
+#[cfg(any(feature = "openai", feature = "anthropic"))]
+use siumai_core::types::chat::{FilePartSource, MediaSource, ProviderReference, ResponseFormat};
 use siumai_core::types::{
     ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole,
-    ProviderOptionsMap, Tool, ToolChoice, ToolFunction, ToolResultContentPart, ToolResultOutput,
+    ProviderOptionsMap, Tool, ToolFunction, ToolResultOutput,
 };
+#[cfg(any(feature = "openai", feature = "anthropic"))]
+use siumai_core::types::{ToolChoice, ToolResultContentPart};
 
 #[cfg(any(feature = "google", feature = "google-vertex"))]
 mod gemini_generate_content;
