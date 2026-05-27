@@ -1,4 +1,4 @@
-use crate::streaming::processor::{StreamProcessor, ToolCallBuilder};
+use crate::streaming::processor::{AccumulatedStreamRecord, StreamProcessor, ToolCallBuilder};
 use crate::types::{
     ChatResponse, ChatStreamFileData, ContentPart, FinishReason, MessageContent,
     ProviderMetadataMap, ResponseMetadata, ToolExecutionOwner, merge_provider_metadata,
@@ -25,16 +25,17 @@ impl StreamProcessor {
         finish_reason: Option<FinishReason>,
     ) -> ChatResponse {
         let terminal_response = self.terminal_response.as_ref();
+        let accumulated = self.accumulated_stream_record();
         let mut stream_metadata = HashMap::new();
 
-        if !self.thinking_buffer.is_empty() {
+        if !accumulated.reasoning.is_empty() {
             stream_metadata.insert(
                 "thinking".to_string(),
-                serde_json::Value::String(self.thinking_buffer.clone()),
+                serde_json::Value::String(accumulated.reasoning.clone()),
             );
         }
 
-        let content = self.build_final_content(terminal_response);
+        let content = build_final_content(&accumulated, terminal_response);
 
         // Convert to nested provider_metadata structure
         let mut provider_metadata = self.final_provider_metadata.clone().unwrap_or_default();
@@ -92,97 +93,95 @@ impl StreamProcessor {
             provider_metadata,
         }
     }
+}
 
-    fn build_final_content(&self, terminal_response: Option<&ChatResponse>) -> MessageContent {
-        let has_accumulated_content = !self.buffer.is_empty()
-            || !self.tool_calls.is_empty()
-            || !self.thinking_buffer.is_empty()
-            || !self.stream_parts.is_empty();
+fn build_final_content(
+    accumulated: &AccumulatedStreamRecord,
+    terminal_response: Option<&ChatResponse>,
+) -> MessageContent {
+    if !accumulated.has_accumulated_content() {
+        return terminal_response
+            .map(|response| response.content.clone())
+            .unwrap_or_else(|| MessageContent::Text(String::new()));
+    }
 
-        if !has_accumulated_content {
-            return terminal_response
-                .map(|response| response.content.clone())
-                .unwrap_or_else(|| MessageContent::Text(String::new()));
-        }
+    #[cfg(feature = "structured-messages")]
+    if matches!(
+        terminal_response.map(|response| &response.content),
+        Some(MessageContent::Json(_))
+    ) {
+        return terminal_response
+            .map(|response| response.content.clone())
+            .unwrap_or_else(|| MessageContent::Text(String::new()));
+    }
 
-        #[cfg(feature = "structured-messages")]
-        if matches!(
-            terminal_response.map(|response| &response.content),
-            Some(MessageContent::Json(_))
-        ) {
-            return terminal_response
-                .map(|response| response.content.clone())
-                .unwrap_or_else(|| MessageContent::Text(String::new()));
-        }
+    let mut parts = if !accumulated.text.is_empty() {
+        vec![build_text_part(&accumulated.text, terminal_response)]
+    } else {
+        terminal_response
+            .map(|response| extract_terminal_text_parts(&response.content))
+            .unwrap_or_default()
+    };
 
-        let mut parts = if !self.buffer.is_empty() {
-            vec![build_text_part(&self.buffer, terminal_response)]
-        } else {
-            terminal_response
-                .map(|response| extract_terminal_text_parts(&response.content))
-                .unwrap_or_default()
-        };
-
-        if !self.tool_calls.is_empty() {
-            parts.extend(self.build_accumulated_tool_call_parts(terminal_response));
-        } else if let Some(response) = terminal_response {
-            parts.extend(extract_terminal_tool_call_parts(&response.content));
-        }
-
-        if !self.thinking_buffer.is_empty() {
-            parts.push(build_reasoning_part(
-                &self.thinking_buffer,
-                terminal_response,
-            ));
-        } else if let Some(response) = terminal_response {
-            parts.extend(extract_terminal_reasoning_parts(&response.content));
-        }
-
-        if let Some(response) = terminal_response {
-            parts.extend(extract_terminal_extra_parts(&response.content));
-        }
-
-        parts.extend(extract_stream_tool_call_parts(
-            &self.stream_parts,
-            &self.tool_call_order,
+    if accumulated.has_tool_call_builders() {
+        parts.extend(build_accumulated_tool_call_parts(
+            accumulated,
+            terminal_response,
         ));
-        parts.extend(extract_stream_reasoning_extra_parts(&self.stream_parts));
-        parts.extend(extract_stream_extra_parts(&self.stream_parts));
-
-        message_content_from_parts(parts)
+    } else if let Some(response) = terminal_response {
+        parts.extend(extract_terminal_tool_call_parts(&response.content));
     }
 
-    fn build_accumulated_tool_call_parts(
-        &self,
-        terminal_response: Option<&ChatResponse>,
-    ) -> Vec<ContentPart> {
-        let mut parts = Vec::new();
+    if !accumulated.reasoning.is_empty() {
+        parts.push(build_reasoning_part(
+            &accumulated.reasoning,
+            terminal_response,
+        ));
+    } else if let Some(response) = terminal_response {
+        parts.extend(extract_terminal_reasoning_parts(&response.content));
+    }
 
-        for (tool_index, id) in self.tool_call_order.iter().enumerate() {
-            if self
-                .stream_parts
-                .iter()
-                .any(|part| matches!(part, ContentPart::ToolCall { tool_call_id, .. } if tool_call_id == id))
-            {
-                continue;
-            }
+    if let Some(response) = terminal_response {
+        parts.extend(extract_terminal_extra_parts(&response.content));
+    }
 
-            if let Some(builder) = self.tool_calls.get(id)
-                && !builder.name.is_empty()
-            {
-                let arguments = serde_json::from_str(&builder.arguments)
-                    .unwrap_or_else(|_| serde_json::Value::String(builder.arguments.clone()));
+    parts.extend(extract_stream_tool_call_parts(&accumulated.stream_parts));
+    parts.extend(extract_stream_reasoning_extra_parts(
+        &accumulated.stream_parts,
+    ));
+    parts.extend(extract_stream_extra_parts(&accumulated.stream_parts));
 
-                let terminal_match = terminal_response.and_then(|response| {
-                    find_terminal_tool_call_part(&response.content, builder, tool_index)
-                });
+    message_content_from_parts(parts)
+}
 
-                parts.push(build_tool_call_part(builder, arguments, terminal_match));
-            }
+fn build_accumulated_tool_call_parts(
+    accumulated: &AccumulatedStreamRecord,
+    terminal_response: Option<&ChatResponse>,
+) -> Vec<ContentPart> {
+    let mut parts = Vec::new();
+
+    for (tool_index, builder) in accumulated.tool_calls.iter().enumerate() {
+        if accumulated.stream_parts.iter().any(
+            |part| matches!(part, ContentPart::ToolCall { tool_call_id, .. } if tool_call_id == &builder.id),
+        ) {
+            continue;
         }
 
-        parts
+        if builder.name.is_empty() {
+            continue;
+        }
+
+        let arguments = serde_json::from_str(&builder.arguments)
+            .unwrap_or_else(|_| serde_json::Value::String(builder.arguments.clone()));
+
+        let terminal_match = terminal_response.and_then(|response| {
+            find_terminal_tool_call_part(&response.content, builder, tool_index)
+        });
+
+        parts.push(build_tool_call_part(builder, arguments, terminal_match));
     }
+
+    parts
 }
 
 pub(super) fn stream_file_part_to_content_part(
@@ -378,10 +377,7 @@ fn extract_terminal_extra_parts(content: &MessageContent) -> Vec<ContentPart> {
     }
 }
 
-fn extract_stream_tool_call_parts(
-    parts: &[ContentPart],
-    _accumulated_tool_call_ids: &[String],
-) -> Vec<ContentPart> {
+fn extract_stream_tool_call_parts(parts: &[ContentPart]) -> Vec<ContentPart> {
     parts
         .iter()
         .filter(|part| matches!(part, ContentPart::ToolCall { .. }))

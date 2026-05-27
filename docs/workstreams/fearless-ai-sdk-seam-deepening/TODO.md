@@ -57,12 +57,14 @@ Last updated: 2026-05-27
 
 ## M3 - Core Stream Assembly And Closeout
 
-- [ ] AISD-070 [owner=codex] [deps=AISD-020,AISD-060] [scope=siumai-core/src/streaming/processor.rs,siumai-core/src/streaming/processor,CHANGELOG.md,siumai-core/CHANGELOG.md]
+- [x] AISD-070 [owner=codex] [deps=AISD-020,AISD-060] [scope=siumai-core/src/streaming/processor.rs,siumai-core/src/streaming/processor,CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Separate delta accumulation from final response assembly so terminal replay reconciliation owns a compact accumulated record instead of broad processor internals.
   Validation: `cargo fmt --check -p siumai-core`; `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`; core provider boundary tests.
   Review: Confirm StreamEnd replay, ToolInputStart projection, repeated usage, and terminal extra parts remain covered.
   Evidence: `EVIDENCE_AND_GATES.md`, changelogs.
-  Handoff: This task may be skipped or narrowed if AISD-020/AISD-060 make the remaining core seam deep enough.
+  Handoff: DONE. `AccumulatedStreamRecord` now snapshots processor deltas for final response
+  assembly, and `response_assembly` no longer reads the low-level text/reasoning/tool/stream-part
+  buffers directly.
 
 - [ ] AISD-080 [owner=planner] [deps=AISD-020,AISD-030,AISD-040,AISD-050,AISD-060,AISD-070] [scope=docs/workstreams/fearless-ai-sdk-seam-deepening,CHANGELOG.md,crate changelogs]
   Goal: Review, verify, close, or split any residual provider-specific follow-ons.

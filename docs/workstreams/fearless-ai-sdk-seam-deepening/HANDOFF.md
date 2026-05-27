@@ -11,6 +11,18 @@ Hajimi adapter changes out of scope.
 
 ## Completed Task
 
+- Task ID: AISD-070
+- Result: DONE
+- Summary: Core stream final response assembly now consumes an `AccumulatedStreamRecord` snapshot
+  instead of reading `StreamProcessor`'s low-level text, reasoning, tool-call, order, and stream-part
+  buffers directly. Terminal replay reconciliation, stable tool-call projection, repeated usage,
+  and extra terminal parts remain covered by processor and provider-boundary tests.
+- Validation:
+  - `cargo check -p siumai-core`
+  - `cargo fmt --check -p siumai-core`
+  - `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`
+  - `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-fail-fast`
+
 - Task ID: AISD-060
 - Result: DONE
 - Summary: Same-provider-call stream usage is now tracked by `UsageSnapshotLedger` in
@@ -77,16 +89,15 @@ Hajimi adapter changes out of scope.
 
 ## Active Task
 
-- Task ID: AISD-070
+- Task ID: AISD-080
 - Owner: codex
 - Files:
-  - `siumai-core/src/streaming`
+  - `docs/workstreams/fearless-ai-sdk-seam-deepening`
   - `CHANGELOG.md`
-  - `siumai-core/CHANGELOG.md`
+  - crate changelogs
 - Validation:
-  - `cargo fmt --check -p siumai-core`
-  - `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`
-  - core provider boundary tests
+  - `verify-rust-workstream` records fresh final gates
+  - `review-workstream` has no blocking findings
 - Status: READY
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -101,7 +112,6 @@ Hajimi adapter changes out of scope.
 
 ## Next Recommended Action
 
-Continue AISD-070 with `run-workstream-task`. Inspect `StreamProcessor` state, `response_assembly`,
-and existing processor tests before editing; the goal is to decide whether remaining delta
-accumulation versus final response assembly boundaries need a compact accumulated-record module, or
-whether AISD-020 and AISD-060 already made the remaining seam deep enough to narrow or skip.
+Continue AISD-080 with `review-workstream` and `verify-rust-workstream`. The implementation slices
+are complete; closeout should confirm ADR/workstream/changelog alignment, run final gates, and
+either close the lane or split any residual provider-specific follow-ons.

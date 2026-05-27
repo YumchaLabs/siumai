@@ -3,9 +3,11 @@
 //! Processes and transforms streaming events, accumulating content, tool calls,
 //! and thinking buffers with configurable limits and overflow handling.
 
+mod accumulated;
 mod response_assembly;
 
 use crate::error::LlmError;
+use crate::streaming::processor::accumulated::AccumulatedStreamRecord;
 #[cfg(test)]
 use crate::streaming::processor::response_assembly::extract_terminal_text_parts;
 use crate::streaming::processor::response_assembly::stream_file_part_to_content_part;
@@ -643,6 +645,10 @@ mod tests {
         include_str!("processor/response_assembly.rs")
     }
 
+    fn accumulated_source() -> &'static str {
+        include_str!("processor/accumulated.rs")
+    }
+
     #[test]
     fn stream_processor_usage_updates_cross_snapshot_ledger() {
         let source = production_source();
@@ -653,6 +659,28 @@ mod tests {
         assert!(response_assembly.contains(".usage_ledger"));
         assert!(!source.contains(".merge(&usage"));
         assert!(!response_assembly.contains(".merge(&usage"));
+    }
+
+    #[test]
+    fn response_assembly_reads_accumulated_record_not_processor_buffers() {
+        let response_assembly = response_assembly_source();
+        let accumulated = accumulated_source();
+
+        assert!(accumulated.contains("struct AccumulatedStreamRecord"));
+        assert!(response_assembly.contains("AccumulatedStreamRecord"));
+        assert!(response_assembly.contains("accumulated_stream_record()"));
+        for forbidden in [
+            "self.buffer",
+            "self.tool_calls",
+            "self.tool_call_order",
+            "self.thinking_buffer",
+            "self.stream_parts",
+        ] {
+            assert!(
+                !response_assembly.contains(forbidden),
+                "response assembly should use AccumulatedStreamRecord instead of `{forbidden}`"
+            );
+        }
     }
 
     fn private_replay_hint() -> crate::types::ChatStreamReplay {

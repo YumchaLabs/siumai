@@ -42,6 +42,10 @@ Last updated: 2026-05-27
 | 2026-05-27 | AISD-060 | `cargo nextest run -p siumai-core streaming::processor --no-fail-fast` | Pass | 17 stream processor tests passed, including the usage ledger boundary test. |
 | 2026-05-27 | AISD-060 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_event_converter_repeated_usage_keeps_latest_snapshot --no-fail-fast` | Pass | Responses repeated-usage fixture preserved the latest cumulative snapshot through stream processing. |
 | 2026-05-27 | AISD-060 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_serializer_state_uses_usage_snapshot_ledger --no-fail-fast` | Pass | Responses serializer state boundary test proves `UsageSnapshotLedger` owns latest usage replacement. |
+| 2026-05-27 | AISD-070 | `cargo check -p siumai-core` | Pass | Core compiles after extracting `AccumulatedStreamRecord`. |
+| 2026-05-27 | AISD-070 | `cargo fmt --check -p siumai-core` | Pass | Core formatting is clean after stream response assembly split. |
+| 2026-05-27 | AISD-070 | `cargo nextest run -p siumai-core streaming::processor --no-fail-fast` | Pass | 18 stream processor tests passed, including the accumulated-record boundary regression. |
+| 2026-05-27 | AISD-070 | `cargo nextest run -p siumai-core --test core_provider_boundary_test --no-fail-fast` | Pass | 48 core provider boundary tests passed after the stream assembly split. |
 
 ## Required Gates
 

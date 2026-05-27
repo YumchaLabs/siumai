@@ -8,8 +8,8 @@
   "scope_kind": "architecture",
   "problem": "AI SDK contract hardening made behavior explicit, but several stream, diagnostics, tool, usage, and capability rules remain shallow caller knowledge.",
   "objective": "Deepen the remaining AI SDK contract seams into named modules with stronger locality, better leverage, executable projection rules, and less obsolete pass-through code.",
-  "current_task": "AISD-070",
-  "next_task": "AISD-070",
+  "current_task": "AISD-080",
+  "next_task": "AISD-080",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -90,6 +90,12 @@
       "kind": "implementation",
       "task": "AISD-060",
       "summary": "Stream usage snapshots now flow through UsageSnapshotLedger so same-call cumulative usage replaces previous snapshots while Usage::merge remains explicit aggregation."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "implementation",
+      "task": "AISD-070",
+      "summary": "Core final response assembly now consumes an AccumulatedStreamRecord snapshot instead of reading low-level StreamProcessor delta buffers directly."
     }
   ],
   "adr_refs": [
