@@ -1,27 +1,16 @@
 # Fearless Residual Architecture Deepening - Handoff
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-27
 
 ## Current State
 
-The workstream is open for five residual architecture-review candidates. FRAD-010 through FRAD-060
-are complete. The next executable task is FRAD-070, review and closeout.
+The workstream is closed. FRAD-010 through FRAD-070 are complete, and the final closeout gates pass.
 
 ## Active Task
 
-- Task ID: FRAD-070
-- Owner: codex
-- Files:
-  - `docs/workstreams/fearless-residual-architecture-deepening`
-  - `CHANGELOG.md`
-  - crate changelogs
-- Validation:
-  - `review-workstream`
-  - `verify-rust-workstream` final gates recorded in `EVIDENCE_AND_GATES.md`
-- Status: READY
-- Review: not started
-- Evidence: `EVIDENCE_AND_GATES.md`
+None. Do not reopen this lane for mechanical cleanup; open a narrower follow-on only if new
+behavioral evidence requires it.
 
 ## Decisions
 
@@ -48,7 +37,12 @@ are complete. The next executable task is FRAD-070, review and closeout.
 - FRAD-060 moved high-value production legacy `ContentPart` usage to explicit compat imports and
   recorded `FRAD-060-content-part-root-move-decision.md`: the low-level root move remains blocked
   until a full provider/protocol/bridge root-move fixture suite exists.
+- FRAD-070 reviewed and closed the lane. The closeout gate initially exposed
+  OpenAI Responses hosted tool-result `providerExecuted` loss, a stale video facade source guard,
+  and a feature-gated Vertex xAI audio guard; all were fixed and the six-crate closeout gate now
+  passes.
 
 ## Next Recommended Action
 
-Commit FRAD-060, then run FRAD-070 review and closeout.
+No active action for this workstream. The only known residual risk is the ADR-0008 `ContentPart`
+root move blocker recorded by FRAD-060.

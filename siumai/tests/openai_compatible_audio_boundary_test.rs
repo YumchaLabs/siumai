@@ -26,6 +26,8 @@ fn has_native_audio_registry_override(provider_id: &str) -> bool {
             | "gemini"
             | "vertex"
             | "anthropic-vertex"
+            | "vertex-maas"
+            | "google-vertex-xai"
             | "groq"
             | "xai"
             | "minimaxi"

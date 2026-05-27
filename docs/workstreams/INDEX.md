@@ -20,8 +20,8 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 
 - Total workstream directories: 92
 - Machine-readable status files: 92
-- Closed or closed-like lanes: 91
-- Active-like lanes: 1
+- Closed or closed-like lanes: 92
+- Active-like lanes: 0
 - Deferred lanes: 0
 - Unknown legacy lanes: 0
 
@@ -68,7 +68,7 @@ This index is the navigation surface for `docs/workstreams/`. It records what ca
 | `docs/workstreams/fearless-refactor` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-refactor-v3` | superseded | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-refactor-v4` | closed | `WORKSTREAM.json` | yes |
-| `docs/workstreams/fearless-residual-architecture-deepening` | active | `WORKSTREAM.json` | yes |
+| `docs/workstreams/fearless-residual-architecture-deepening` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-registry-facade-construction-boundary` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-spec-core-boundary-convergence` | closed | `WORKSTREAM.json` | yes |
 | `docs/workstreams/fearless-vision-compat-removal` | closed | `WORKSTREAM.json` | yes |

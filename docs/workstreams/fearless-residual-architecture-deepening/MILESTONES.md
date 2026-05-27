@@ -1,6 +1,6 @@
 # Fearless Residual Architecture Deepening - Milestones
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-27
 
 ## M0 - Planning
@@ -53,3 +53,10 @@ Exit criteria:
 - Fresh targeted gates pass for all touched crates.
 - Workstream docs, changelogs, and evidence agree on final state.
 - Any follow-on is split only when it has a narrower scope and concrete evidence.
+
+Result:
+
+- Complete. Final closeout gates passed across registry, protocol-openai, bridge, spec, core, and
+  facade crates.
+- No new follow-on workstream is opened from this lane. The only residual item is the ADR-0008
+  `ContentPart` root move blocker already recorded by FRAD-060.

@@ -117,6 +117,9 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         // - web_search_call
         // - file_search_call
         // - computer_call
+        // - code_interpreter_call
+        // - image_generation_call
+        // - mcp_call
         //
         // We translate them into legacy tool-call + tool-result compatibility parts with
         // `provider_executed = Some(true)`.
@@ -285,13 +288,14 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     };
 
                     content_parts.push(
-                        response_content::tool_result(
+                        response_content::tool_result_with_provider_executed(
                             tool_call_id,
                             tool_name,
                             provider_metadata,
                             crate::types::ToolResultOutput::json(serde_json::Value::Object(
                                 result_obj,
                             )),
+                            provider_executed_flag(true),
                         )
                         .with_tool_result_input(input)
                         .with_tool_dynamic(true),
@@ -1028,11 +1032,12 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
                 if emit_tool_result {
                     content_parts.push(
-                        response_content::tool_result(
+                        response_content::tool_result_with_provider_executed(
                             tool_call_id,
                             tool_name.to_string(),
                             None,
                             crate::types::ToolResultOutput::json(result),
+                            provider_executed_flag(true),
                         )
                         .with_tool_result_input(result_input)
                         .with_tool_dynamic(true),

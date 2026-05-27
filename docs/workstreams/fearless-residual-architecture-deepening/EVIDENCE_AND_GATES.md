@@ -1,6 +1,6 @@
 # Fearless Residual Architecture Deepening - Evidence And Gates
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-27
 
 ## Baseline Evidence
@@ -32,6 +32,16 @@ Last updated: 2026-05-27
 | 2026-05-27 | FRAD-060 | `cargo nextest run -p siumai --test public_surface_imports_test --no-fail-fast` | Pass | 23 public-surface import tests passed; legacy `ContentPart` remains outside the stable unified prelude and explicit compat imports compile. |
 | 2026-05-27 | FRAD-060 | `cargo nextest run -p siumai --test facade_architecture_boundary_test content --no-fail-fast` | Pass | 6 content facade architecture tests passed after updating content-part audit records for FRAD-030/040 codec/dialect splits and FRAD-060 compat imports. |
 | 2026-05-27 | FRAD-060 | `cargo nextest run -p siumai test_macros --no-fail-fast` | Pass | Facade macro expansion still compiles while `tool!` now uses the private compat content path. |
+| 2026-05-27 | FRAD-070 | `review-workstream` closeout review | Pass | No blocking workstream or code-quality findings remained after fixing closeout-gate findings. Residual ADR-0008 root move blocker remains recorded as an intentional follow-on condition, not open work in this lane. |
+| 2026-05-27 | FRAD-070 | `cargo nextest run -p siumai-registry -p siumai-protocol-openai -p siumai-bridge -p siumai-spec -p siumai-core -p siumai --no-fail-fast` | Initial fail | 1995 passed, 4 failed. The failed gates exposed OpenAI Responses hosted tool-result `providerExecuted` loss, a stale video facade guard, and a feature-gated Vertex xAI audio boundary guard. These were fixed before closeout. |
+| 2026-05-27 | FRAD-070 | `cargo fmt --check -p siumai-registry -p siumai-protocol-openai -p siumai-bridge -p siumai-spec -p siumai-core -p siumai` | Pass | Six touched crates are formatting-clean after closeout fixes. |
+| 2026-05-27 | FRAD-070 | `cargo nextest run -p siumai --test facade_architecture_boundary_test facade_video_metadata_projection_avoids_legacy_request_provider_options --no-fail-fast` | Pass | Stale facade video source guard now follows the workflow helper seam without cutting production source at an early test-only import. |
+| 2026-05-27 | FRAD-070 | `cargo nextest run -p siumai --test openai_compatible_audio_boundary_test compat_registry_audio_handles_follow_declared_capability_split --no-fail-fast` | Pass | Feature-gated Vertex MaaS / Vertex xAI registry paths are no longer misclassified as default OpenAI-compatible audio handles. |
+| 2026-05-27 | FRAD-070 | `cargo nextest run -p siumai --test openai_responses_response_fixtures_alignment_test openai_responses_response_fixtures_match --no-fail-fast` | Pass | OpenAI Responses hosted MCP/code/image/file/web tool-result fixtures keep provider-executed ownership in compatibility `ContentPart` projection. |
+| 2026-05-27 | FRAD-070 | `cargo nextest run -p siumai --test openai_responses_response_bridge_roundtrip_fixtures_alignment_test openai_responses_response_bridge_roundtrip_fixture_exact_cases_match --no-fail-fast` | Pass | Bridge roundtrips preserve provider-executed hosted tool results for exact OpenAI Responses fixtures. |
+| 2026-05-27 | FRAD-070 | `cargo nextest run -p siumai-registry -p siumai-protocol-openai -p siumai-bridge -p siumai-spec -p siumai-core -p siumai --no-fail-fast` | Pass | Final closeout gate: 1999 tests passed, 6 skipped. |
+| 2026-05-27 | FRAD-070 | `python -m json.tool docs\workstreams\fearless-residual-architecture-deepening\WORKSTREAM.json` | Pass | Closed workstream metadata parses. |
+| 2026-05-27 | FRAD-070 | `git diff --check -- docs\workstreams\fearless-residual-architecture-deepening docs\workstreams\INDEX.md` | Pass | Closeout docs diff check is clean aside from expected LF-to-CRLF working-copy warnings. |
 
 ## Required Gates
 

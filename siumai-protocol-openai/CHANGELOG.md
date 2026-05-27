@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   crate so provider runtimes delegate protocol conversion instead of owning local parser copies.
 - Added protocol-owned `response_content` compatibility adapters for legacy chat response payloads,
   keeping response-side `ContentPart` construction behind named adapter seams.
+- Preserved `providerExecuted` ownership on OpenAI Responses synthetic hosted tool-result
+  compatibility parts so fixture roundtrips keep provider-executed tool outputs intact.
 - Moved OpenAI-compatible chat message dialect conversion into `utils::message_dialect`, covering
   OpenAI Chat, OpenAI-compatible, Perplexity, DeepSeek, xAI, and Mistral with dialect-local tests
   while keeping existing `utils::*` request conversion entry points stable.

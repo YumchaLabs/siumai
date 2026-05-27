@@ -549,12 +549,12 @@ fn facade_audio_and_structured_helpers_do_not_read_request_provider_options() {
 fn facade_video_metadata_projection_avoids_legacy_request_provider_options() {
     let source = read_source("src/video.rs");
     let production_source = source
-        .split("#[cfg(test)]")
+        .split("\n#[cfg(test)]\nmod tests")
         .next()
         .expect("production source section");
 
     assert!(
-        production_source.contains("model.polling_options(request)")
+        production_source.contains("resolve_generate_polling_options")
             && production_source.contains("build_call_provider_metadata")
             && production_source.contains("merge_provider_metadata"),
         "facade video should keep high-level polling options separate from response metadata aggregation"

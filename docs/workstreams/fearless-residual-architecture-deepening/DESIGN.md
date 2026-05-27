@@ -1,6 +1,6 @@
 # Fearless Residual Architecture Deepening
 
-Status: Active
+Status: Closed
 Last updated: 2026-05-27
 
 ## Why This Lane Exists
@@ -43,6 +43,16 @@ tests prove the new seam owns the behavior.
   matrices where one test Interface is nearly as large as the implementation.
 - `ContentPart` root compatibility is either completed under ADR-0008 gates or blocked by a
   concrete gate record that future work can satisfy without rediscovery.
+
+## Closeout Result
+
+FRAD-020 through FRAD-060 completed all five residual candidates. FRAD-070 review found no
+blocking architecture gaps after fixing closeout-gate findings in OpenAI Responses hosted
+tool-result ownership projection and stale facade/feature boundary guards.
+
+The remaining `ContentPart` root move is intentionally not folded into this lane: ADR-0008 and
+`FRAD-060-content-part-root-move-decision.md` record the concrete fixture and serde gates required
+before that public compatibility break can safely happen.
 
 ## Non-Goals
 

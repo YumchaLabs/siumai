@@ -57,6 +57,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Added a shared `ToolExecutionOwner` contract so provider-executed tool ownership is routed
   through one semantic owner while AI SDK `providerExecuted` / `isProviderExecuted` remain compact
   wire flags.
+- Preserved provider-executed ownership on OpenAI Responses synthetic hosted tool-result
+  compatibility parts, keeping response fixture roundtrips aligned with the AI SDK-style
+  `providerExecuted` contract.
 - Deepened unsupported capability choreography behind named executor requirements so family
   executors no longer rebuild feature strings, failure details, and reject/warn/provider-fallback
   policy resolution locally.
