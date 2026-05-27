@@ -5,21 +5,25 @@ Last updated: 2026-05-27
 
 ## Current State
 
-The workstream is open for five residual architecture-review candidates. FRAD-010, FRAD-020, and
-FRAD-030 are complete. The next executable task is FRAD-040, the bridge request codec split.
+The workstream is open for five residual architecture-review candidates. FRAD-010 through FRAD-040
+are complete. The next executable task is FRAD-050, the provider contract/public-path harness
+deepening.
 
 ## Active Task
 
-- Task ID: FRAD-040
+- Task ID: FRAD-050
 - Owner: codex
 - Files:
-  - `siumai-bridge/src/request`
-  - `siumai-bridge/src/request/tests.rs`
+  - `siumai-registry/src/registry/factories/contract_tests.rs`
+  - `siumai-registry/tests/factory_architecture_boundary_test.rs`
+  - `siumai/tests/provider_public_path_parity`
+  - `siumai/tests/public_surface_imports_test.rs`
   - `CHANGELOG.md`
-  - `siumai-bridge/CHANGELOG.md`
+  - crate changelogs
 - Validation:
-  - `cargo fmt --check -p siumai-bridge`
-  - `cargo nextest run -p siumai-bridge --features openai,anthropic,google request --no-fail-fast`
+  - `cargo fmt --check -p siumai-registry -p siumai`
+  - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-fail-fast`
+  - targeted public path parity tests for touched providers
 - Status: READY
 - Review: not started
 - Evidence: `EVIDENCE_AND_GATES.md`
@@ -38,7 +42,12 @@ FRAD-030 are complete. The next executable task is FRAD-040, the bridge request 
 - FRAD-030 moved OpenAI-compatible, OpenAI Chat, Perplexity, DeepSeek, xAI, and Mistral message
   conversion into `utils::message_dialect` with dialect-local tests, while `utils::*` keeps stable
   compatibility re-exports for existing call sites.
+- FRAD-040 split bridge request normalization into per-wire-format codec modules for OpenAI
+  Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini GenerateContent. The parent
+  `normalize.rs` now keeps public wrapper functions, request hook/loss-policy flow, and shared
+  helpers.
 
 ## Next Recommended Action
 
-Commit FRAD-030, then run FRAD-040 with the bridge request codec split as the bounded scope.
+Commit FRAD-040, then run FRAD-050 with provider contract and public path harnesses as the bounded
+scope.

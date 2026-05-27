@@ -35,12 +35,14 @@ Last updated: 2026-05-27
   Perplexity, DeepSeek, xAI, and Mistral message conversion plus dialect-local tests; `utils::*`
   remains a compatibility re-export surface for existing call sites.
 
-- [ ] FRAD-040 [owner=codex] [deps=FRAD-030] [scope=siumai-bridge/src/request,siumai-bridge/src/request/tests.rs,CHANGELOG.md,siumai-bridge/CHANGELOG.md]
+- [x] FRAD-040 [owner=codex] [deps=FRAD-030] [scope=siumai-bridge/src/request,siumai-bridge/src/request/tests.rs,CHANGELOG.md,siumai-bridge/CHANGELOG.md]
   Goal: Split bridge request normalization into per-wire-format codec Modules while keeping public bridge helper functions stable.
   Validation: `cargo fmt --check -p siumai-bridge`; `cargo nextest run -p siumai-bridge --features openai,anthropic,google request --no-fail-fast`.
   Review: Confirm OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini GenerateContent fixtures still normalize to the same `ChatRequest` shape.
   Evidence: `EVIDENCE_AND_GATES.md`, bridge changelog.
-  Handoff: TBD.
+  Handoff: DONE. Request normalization now delegates to `normalize::openai_responses`,
+  `normalize::openai_chat_completions`, `normalize::anthropic_messages`, and the existing
+  `normalize::gemini_generate_content` codec shim while preserving the public bridge helpers.
 
 ## M3 - Test Harness Depth
 

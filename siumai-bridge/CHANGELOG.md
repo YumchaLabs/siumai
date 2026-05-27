@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gemini GenerateContent request normalization now delegates to the protocol-owned
   `siumai-protocol-gemini` adapter. `siumai-bridge` keeps bridge reports, loss policy, hooks,
   lifecycle, customization, and target dispatch.
+- Split request JSON normalization into per-wire-format codec modules for OpenAI Responses, OpenAI
+  Chat Completions, Anthropic Messages, and Gemini GenerateContent while keeping the existing public
+  bridge helper functions stable.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/releases/tag/siumai-bridge-v0.11.0-beta.8) - 2026-05-18
 

@@ -70,6 +70,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Moved OpenAI-compatible chat message dialect conversion for OpenAI Chat, OpenAI-compatible,
   Perplexity, DeepSeek, xAI, and Mistral into a named protocol module with dialect-local tests while
   keeping `utils::*` compatibility re-exports stable.
+- Split bridge request JSON normalization into per-wire-format codec modules for OpenAI Responses,
+  OpenAI Chat Completions, Anthropic Messages, and Gemini GenerateContent, leaving the bridge
+  parent module focused on public wrappers, hook/loss-policy flow, and shared helpers.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible

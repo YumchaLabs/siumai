@@ -2418,42 +2418,36 @@ fn bridge_anthropic_messages_json_to_chat_request_restores_latest_provider_defin
 
 #[test]
 fn request_normalization_source_never_populates_legacy_provider_metadata() {
-    let source = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/request/normalize.rs"
-    ));
-
-    for forbidden in [
-        "providerMetadata",
-        ".get(\"provider_metadata\")",
-        ".get(\"providerMetadata\")",
-        "[\"provider_metadata\"]",
-        "[\"providerMetadata\"]",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "request normalization must not read legacy provider metadata via {forbidden}"
-        );
-    }
-
-    for (index, line) in source.lines().enumerate() {
-        if line.contains("provider_metadata") {
-            assert_eq!(
-                line.trim(),
-                "provider_metadata: None,",
-                "request normalization must not populate legacy provider_metadata at normalize.rs line {}",
-                index + 1
+    for (path, source) in request_normalize_sources() {
+        for forbidden in [
+            "providerMetadata",
+            ".get(\"provider_metadata\")",
+            ".get(\"providerMetadata\")",
+            "[\"provider_metadata\"]",
+            "[\"providerMetadata\"]",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{path} must not read legacy provider metadata via {forbidden}"
             );
+        }
+
+        for (index, line) in source.lines().enumerate() {
+            if line.contains("provider_metadata") {
+                assert_eq!(
+                    line.trim(),
+                    "provider_metadata: None,",
+                    "{path} must not populate legacy provider_metadata at line {}",
+                    index + 1
+                );
+            }
         }
     }
 }
 
 #[test]
 fn request_normalization_centralizes_legacy_request_content_constructors() {
-    let normalize_source = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/request/normalize.rs"
-    ));
+    let normalize_sources = request_normalize_sources();
     let request_mod_source =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/request/mod.rs"));
     let adapter_source = include_str!(concat!(
@@ -2466,8 +2460,10 @@ fn request_normalization_centralizes_legacy_request_content_constructors() {
         "request module should own the request-side legacy ContentPart adapter module"
     );
     assert!(
-        normalize_source.contains("legacy_content::"),
-        "request normalization should call the request-side legacy ContentPart adapter module"
+        normalize_sources
+            .iter()
+            .any(|(_, source)| source.contains("legacy_content::")),
+        "request normalization codecs should call the request-side legacy ContentPart adapter module"
     );
     assert!(
         adapter_source.contains("pub(super) fn request_text_part"),
@@ -2483,16 +2479,24 @@ fn request_normalization_centralizes_legacy_request_content_constructors() {
         "fn request_tool_call_part",
         "fn request_tool_result_part",
     ] {
-        assert!(
-            !normalize_source.contains(forbidden),
-            "request normalization should not own legacy ContentPart adapter helper `{forbidden}`"
-        );
+        for (path, source) in &normalize_sources {
+            assert!(
+                !source.contains(forbidden),
+                "{path} should not own legacy ContentPart adapter helper `{forbidden}`"
+            );
+        }
     }
 
     let mut outside_helper_provider_metadata_lines = Vec::new();
-    for (index, line) in normalize_source.lines().enumerate() {
-        if line.contains("provider_metadata: None,") {
-            outside_helper_provider_metadata_lines.push((index + 1, line.trim().to_string()));
+    for (path, source) in &normalize_sources {
+        for (index, line) in source.lines().enumerate() {
+            if line.contains("provider_metadata: None,") {
+                outside_helper_provider_metadata_lines.push((
+                    *path,
+                    index + 1,
+                    line.trim().to_string(),
+                ));
+            }
         }
     }
 
@@ -2502,7 +2506,7 @@ fn request_normalization_centralizes_legacy_request_content_constructors() {
         "legacy request ContentPart provider_metadata construction should stay in request/legacy_content.rs; the only normalize.rs occurrence is the plain-text collapse match: {outside_helper_provider_metadata_lines:?}"
     );
     assert_eq!(
-        outside_helper_provider_metadata_lines[0].1,
+        outside_helper_provider_metadata_lines[0].2,
         "provider_metadata: None,"
     );
 
@@ -2514,6 +2518,97 @@ fn request_normalization_centralizes_legacy_request_content_constructors() {
             line.trim(),
             "provider_metadata: None,",
             "request-side legacy ContentPart adapters must never populate response provider_metadata"
+        );
+    }
+}
+
+fn request_normalize_sources() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "src/request/normalize.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/request/normalize.rs"
+            )),
+        ),
+        (
+            "src/request/normalize/anthropic_messages.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/request/normalize/anthropic_messages.rs"
+            )),
+        ),
+        (
+            "src/request/normalize/openai_chat_completions.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/request/normalize/openai_chat_completions.rs"
+            )),
+        ),
+        (
+            "src/request/normalize/openai_responses.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/request/normalize/openai_responses.rs"
+            )),
+        ),
+        (
+            "src/request/normalize/gemini_generate_content.rs",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/request/normalize/gemini_generate_content.rs"
+            )),
+        ),
+    ]
+}
+
+#[test]
+fn request_normalization_uses_wire_codec_modules() {
+    let normalize_source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/request/normalize.rs"
+    ));
+
+    for (module, call) in [
+        (
+            "mod anthropic_messages;",
+            "anthropic_messages::parse_json_to_chat_request",
+        ),
+        (
+            "mod openai_chat_completions;",
+            "openai_chat_completions::parse_json_to_chat_request",
+        ),
+        (
+            "mod openai_responses;",
+            "openai_responses::parse_json_to_chat_request",
+        ),
+        (
+            "mod gemini_generate_content;",
+            "gemini_generate_content::parse_json_to_chat_request",
+        ),
+    ] {
+        assert!(normalize_source.contains(module));
+        assert!(normalize_source.contains(call));
+    }
+
+    for forbidden in [
+        "fn parse_anthropic_messages_json_to_chat_request",
+        "fn parse_openai_chat_completions_json_to_chat_request",
+        "fn parse_openai_responses_json_to_chat_request",
+    ] {
+        assert!(
+            !normalize_source.contains(forbidden),
+            "wire-format parser should live in a codec module: {forbidden}"
+        );
+    }
+
+    for (path, source) in request_normalize_sources()
+        .into_iter()
+        .filter(|(path, _)| path.contains("/normalize/"))
+    {
+        assert!(
+            source.contains("pub(super) fn parse_json_to_chat_request"),
+            "{path} should expose a narrow parser entry point to normalize.rs"
         );
     }
 }

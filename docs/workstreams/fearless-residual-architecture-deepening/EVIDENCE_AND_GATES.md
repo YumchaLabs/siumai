@@ -19,6 +19,9 @@ Last updated: 2026-05-27
 | 2026-05-27 | FRAD-030 | `cargo check -p siumai-protocol-openai --features openai-standard,openai-responses` | Pass | OpenAI protocol crate compiles with Chat Completions and Responses surfaces enabled. |
 | 2026-05-27 | FRAD-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses standards::openai::utils::message_dialect --no-fail-fast` | Pass | 23 dialect-local tests passed for OpenAI Chat, OpenAI-compatible, Perplexity, DeepSeek, xAI, and Mistral message conversion. |
 | 2026-05-27 | FRAD-030 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses openai --no-fail-fast` | Pass | 477 OpenAI protocol tests passed, with 2 expected skips. |
+| 2026-05-27 | FRAD-040 | `cargo check -p siumai-bridge --features openai,anthropic,google` | Pass | Bridge crate compiles with all request codec families enabled. |
+| 2026-05-27 | FRAD-040 | `cargo fmt --check -p siumai-bridge` | Pass | Bridge formatting is clean after splitting request codecs. |
+| 2026-05-27 | FRAD-040 | `cargo nextest run -p siumai-bridge --features openai,anthropic,google request --no-fail-fast` | Pass | 49 request bridge tests passed, including the new per-wire-format codec source guard; 63 skipped by filter. |
 
 ## Required Gates
 
