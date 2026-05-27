@@ -9,42 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added `ToolExecutionOwner` as the semantic contract behind AI SDK `providerExecuted` and
-  `isProviderExecuted` flags, with helper projections on provider tools, prompt tool calls,
-  stream tool calls, UI tool parts, and legacy `ContentPart` tool views.
-- Added `UsageSnapshotLedger` as the named contract for same-provider-call cumulative stream usage
-  snapshots, keeping replacement separate from explicit `Usage::merge()` aggregation.
-- Added portable tool-name and provider-tool-id validation helpers plus fallible constructors and
-  `validate_contract()` methods for function tools, provider tools, and named tool choices.
-- Added directional content namespaces for prompt/request parts, generated output parts, and legacy
-  compatibility content. New code should navigate through `content::prompt`, `content::output`, and
-  explicit `content::compat` paths instead of treating legacy `ContentPart` as the default content
-  carrier.
-- Add `ProviderType::Cerebras` so catalog, retry, and compatibility metadata can classify the
-  audited Cerebras OpenAI-compatible provider as a first-class package surface.
-- Add `ProviderType::Gateway` so the native Vercel AI Gateway proof can be classified across
-  catalog, retry, and compatibility metadata.
+- Added `ToolExecutionOwner` helpers for AI SDK `providerExecuted` and `isProviderExecuted` ownership flags across tools, prompts, streams, UI parts, and legacy content views.
+- Added `UsageSnapshotLedger` for same-provider-call cumulative stream usage snapshots.
+- Added directional content namespaces for prompt/request parts, generated output parts, and legacy compatibility content.
+- Added provider classifications for Cerebras and Vercel AI Gateway.
+- Added portable tool-name and provider-tool-id validation helpers plus fallible constructors and `validate_contract()` methods.
 
 ### Changed
 
-- Documented streamed `ChatResponse` content carried by `ChatStreamEvent::StreamEnd` as final
-  replay/fallback content, not an append-only delta.
-- Defined raw/private diagnostics boundaries for `ProviderMetadataMap`, `ResponseMetadata`,
-  `HttpRequestInfo` / `HttpResponseInfo`, `ChatStreamPart::Raw`, replay hints, and raw/private
-  custom stream events.
-- Added executable public diagnostics projection helpers for provider metadata, chat responses, and
-  stream events so raw/private provider keys and transport diagnostics can be stripped consistently.
-- Documented provider-executed tool calls as provider/model-service owned execution and locked
-  `ToolInputStart` to stable public fields, keeping provider replay indexes and raw items in replay
-  hints.
-- Documented `Usage` as a single provider/model-call cumulative snapshot; explicit multi-call
-  aggregation still uses `Usage::merge()` and drops provider-native raw usage.
-- Added `UnsupportedCapabilityPolicy` and `UnsupportedCapabilityBehavior` so request projection can
-  explicitly choose reject, warning, or provider fallback behavior before projecting to warnings or
-  runtime errors.
-- Moved prompt, source, and response compatibility adapters to explicit
-  `types::compat::content` imports for legacy `ContentPart`, and added an ADR-0008 guard requiring
-  high-value production uses to avoid the root path while the root move remains blocked.
+- Stream end content, provider-executed tool calls, raw/private diagnostics, response metadata, usage snapshots, and unsupported-capability policy are now documented and guarded as stable AI SDK-aligned contracts.
+- Public diagnostics projection helpers can strip raw/private provider keys and transport diagnostics from chat responses and stream events.
+- Legacy `ContentPart` production usage in prompt/source/response compatibility adapters now imports from explicit `types::compat::content` paths while the root move remains ADR-0008 gated.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.7...siumai-spec-v0.11.0-beta.8) - 2026-05-18
 

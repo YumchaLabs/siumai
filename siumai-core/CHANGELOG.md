@@ -9,36 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Locked the stream processor contract that terminal `StreamEnd.response.content` is reconciled as
-  final replay/fallback content instead of appended as another text delta.
-- Documented `stream_with_cancel` as the recommended cancelable text-stream path and guarded the
-  default local stream-consumption cancellation behavior.
-- Split safe user-facing error messages from raw diagnostic details: `user_message()` and normal
-  error summaries now return safe generic copy while raw provider messages/bodies remain available
-  only through explicit diagnostics fields or verbose rendering.
-- Guarded tool stream projection so `ToolInputStart` stable fields flow into final tool parts while
-  provider replay indexes and raw replay items stay out of public provider metadata.
-- Routed stream processor final content through the public provider-metadata projection so raw,
-  private, diagnostic, header, and body fields cannot enter final public content parts.
-- Routed stream and UI provider-executed tool decisions through the shared `ToolExecutionOwner`
-  contract so `Some(false)` remains an explicit caller-owned override and provider-owned UI
-  results stay on the assistant side.
-- Treat repeated stream finish usage as replacement cumulative snapshots for the same provider call,
-  preventing accidental double-counting while preserving final raw usage. Stream processing now
-  routes this through the shared `UsageSnapshotLedger`.
-- Split stream final response assembly from low-level processor buffers through an
-  `AccumulatedStreamRecord`, so terminal replay reconciliation consumes a compact accumulated
-  snapshot instead of reading processor internals directly.
-- Routed hard capability guards through `execution::capability` named requirements so missing
-  family endpoints reject consistently while warning and provider-fallback behaviors stay explicit.
-- Moved spec-only provider/protocol helper implementations to `siumai-provider-utils`; matching
-  `siumai-core::utils::*` alias modules for those helpers were removed.
-- Kept only core-owned utility behavior in core: cancellation/abort stream wiring remains stable
-  core runtime behavior, while streaming tool-call delta helpers stay explicit compatibility helpers.
-- Moved `ToolNameMapping` implementation ownership to `siumai-provider-utils::standards`, with the
-  old core standards path retained as a compatibility re-export.
-- Moved core production legacy `ContentPart` usage in custom providers, UI conversion, structured
-  output, stream response assembly, and reasoning extraction to explicit `compat::content` imports.
+- Stream processing now reconciles terminal `StreamEnd.response.content` as final replay/fallback content instead of appending it as another text delta.
+- Cancelable text streaming now documents `stream_with_cancel` as the recommended path while keeping local stream-consumption cancellation guarded.
+- User-facing errors are safer by default; raw provider details remain available only through explicit diagnostics fields or verbose rendering.
+- Provider-executed tool ownership, repeated stream usage snapshots, unsupported capability handling, and public provider metadata projection now use shared contracts instead of local ad hoc handling.
+- Provider/protocol helper implementations moved to `siumai-provider-utils`, while core keeps only core-owned runtime utilities and compatibility re-exports.
+- Core production legacy `ContentPart` usage now imports through explicit `compat::content` paths.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-core-v0.11.0-beta.7...siumai-core-v0.11.0-beta.8) - 2026-05-18
 

@@ -6,175 +6,29 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
-- Added `siumai-provider-utils` as the canonical crate for AI SDK-style provider/protocol helpers
-  such as URL composition, MIME detection, downloads, headers, JSON parsing, provider options,
-  reasoning mapping, runtime metadata, settings, UTF-8 decoding, and validation helpers.
-- Added directional content namespaces across the public surface:
-  `siumai::content::prompt`, `siumai::content::output`, and `siumai::content::compat`.
-- Added Cerebras as an AI SDK-aligned OpenAI-compatible provider surface with curated chat model
-  constants, `provider_ext::cerebras`, registry/catalog resolution, and language-model-only
-  capability guards. The compat runtime also mirrors Cerebras package quirks for assistant
-  `reasoning_content` replay and GLM structured-output `tool_calls` finish normalization.
-- Added a native Vercel AI Gateway proof with provider-protocol language and embedding support,
-  typed Gateway provider options, registry/catalog integration, and public facade exports.
-- Added ElevenLabs provider-owned voice resources under
-  `provider_ext::elevenlabs::resources`, including read-only voice catalog/detail clients and
-  pronunciation dictionary metadata list/detail clients that reuse configured auth, base URL,
-  headers, custom transport, interceptors, and retry options.
-- Added ElevenLabs pronunciation dictionary `create_from_rules` resources with typed alias/phoneme
-  rule requests and create responses exposing dictionary/version identifiers for TTS locator use.
-- Added ElevenLabs pronunciation dictionary `create_from_file` resources with multipart PLS upload
-  support and shared create response mapping.
-- Added ElevenLabs pronunciation dictionary metadata update resources for renaming and archiving
-  dictionaries.
-- Added ElevenLabs pronunciation dictionary rule mutation resources for add, set, and remove
-  operations.
-- Added ElevenLabs pronunciation dictionary binary PLS download resources by dictionary and version
-  ID.
-- Added ElevenLabs voice settings resources for reading default/per-voice settings and updating
-  per-voice settings under `provider_ext::elevenlabs::resources`.
-- Added ElevenLabs voice and voice sample delete resources with shared status response mapping.
-- Added ElevenLabs IVC voice creation resources with multipart multi-sample upload support.
-- Added ElevenLabs PVC voice metadata and training resources with typed create, update, and train
-  requests under `provider_ext::elevenlabs::resources`.
-- Added ElevenLabs PVC sample and speaker separation resources for sample upload, metadata update,
-  deletion, preview audio, waveform, speaker status/start, and separated speaker audio retrieval.
-- Added ElevenLabs PVC verification resources for manual verification requests, captcha retrieval,
-  and captcha recording submission.
-- Added ElevenLabs voice edit resources with multipart name, sample upload, labels, description,
-  background-noise removal, and metadata moderation support.
+- Added `siumai-provider-utils` as the shared home for AI SDK-style provider/protocol helpers.
+- Added explicit content namespaces: `siumai::content::prompt`, `siumai::content::output`, and `siumai::content::compat`.
+- Added first-class provider surfaces for Cerebras, Vercel AI Gateway, and ElevenLabs voice/pronunciation-dictionary resources.
 
 ### Changed
 
-- Started tracking the fearless AI SDK contract hardening workstream for stream replay semantics,
-  raw/private diagnostics, tool ownership, usage snapshots, cancellation, error safety, and provider
-  capability failure behavior.
-- Started the follow-up fearless AI SDK seam deepening workstream, extracting OpenAI Responses SSE
-  terminal buffering, replay hints, reasoning lifecycle state, and provider/custom tool ownership
-  state plus serializer allocation rules behind named converter modules.
-- Added an executable public/private diagnostics projection seam that strips raw/private provider
-  metadata keys and exposes public projections for chat responses and stream events.
-- Added a shared `ToolExecutionOwner` contract so provider-executed tool ownership is routed
-  through one semantic owner while AI SDK `providerExecuted` / `isProviderExecuted` remain compact
-  wire flags.
-- Preserved provider-executed ownership on OpenAI Responses synthetic hosted tool-result
-  compatibility parts, keeping response fixture roundtrips aligned with the AI SDK-style
-  `providerExecuted` contract.
-- Deepened unsupported capability choreography behind named executor requirements so family
-  executors no longer rebuild feature strings, failure details, and reject/warn/provider-fallback
-  policy resolution locally.
-- Added a named usage snapshot ledger so stream usage updates replace same-call cumulative
-  snapshots while `Usage::merge()` remains the explicit multi-call aggregation path.
-- Split core stream final response assembly from low-level delta buffers through an
-  `AccumulatedStreamRecord`, keeping terminal replay reconciliation off processor internals.
-- Started the fearless residual architecture deepening workstream and moved registry built-in
-  provider default-model lookup, factory resolution, enabled-factory registration, and catalog
-  projection behind named provider descriptor seams.
-- Moved OpenAI-compatible chat message dialect conversion for OpenAI Chat, OpenAI-compatible,
-  Perplexity, DeepSeek, xAI, and Mistral into a named protocol module with dialect-local tests while
-  keeping `utils::*` compatibility re-exports stable.
-- Split bridge request JSON normalization into per-wire-format codec modules for OpenAI Responses,
-  OpenAI Chat Completions, Anthropic Messages, and Gemini GenerateContent, leaving the bridge
-  parent module focused on public wrappers, hook/loss-policy flow, and shared helpers.
-- Deepened provider contract and public-path parity harnesses so factory family requirements use
-  named scenario objects and built-in registry parity setup crosses a shared provider harness.
-- Moved high-value production legacy `ContentPart` usage to explicit compatibility imports and
-  recorded that the low-level root `ContentPart` move remains ADR-0008-blocked by serde and
-  provider/protocol parity gates.
-- Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
-  response rather than an append-only stream delta.
-- Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible
-  text that appears only in the terminal response snapshot.
-- Documented `stream_with_cancel` as the recommended cancelable stream entry, with local
-  stream-consumption cancellation separated from provider-specific remote abort.
-- Defined raw/private diagnostics boundaries for provider metadata, response headers/bodies,
-  raw stream parts, replay hints, and raw/private custom stream events.
-- Split safe user-facing error messages from raw diagnostic details so `user_message()` and normal
-  error summaries no longer fall back to provider raw messages, bodies, headers, or request data.
-- Hardened tool contract semantics with explicit validation/failure helpers, provider-executed
-  execution ownership, and stable `ToolInputStart` projection that keeps provider replay indexes in
-  replay hints instead of public stream parts.
-- Defined stream usage as a per-provider-call cumulative snapshot and stopped repeated cumulative
-  finish usage parts from being over-counted by the stream processor.
-- Added an explicit unsupported-capability policy for request projection: providers must choose
-  reject, warning, or provider fallback behavior instead of silently ignoring semantic settings.
-- Aligned common PATCH JSON execution with custom HTTP transports so provider resource tests can
-  exercise PATCH endpoints without live network calls.
-- Aligned common DELETE JSON execution with custom HTTP transports so provider resource tests can
-  exercise DELETE endpoints without live network calls.
-- Hardened the clean architecture boundaries across registry, core, provider-utils, protocol,
-  provider, bridge, and facade crates.
-- Split registry provider construction into family-first, compatibility, and extension facets so
-  stable family handles no longer use compatibility `LlmClient` paths as their primary execution
-  route.
-- Moved built-in provider typed-client construction helpers behind an internal
-  `siumai_registry::registry::typed_builders` module. The legacy
-  `siumai_registry::registry::factory` module now acts as a compatibility wrapper surface for these
-  typed helper paths and for deprecated generic-client construction helpers.
-- Moved OpenAI-compatible `/completions` response conversion and SSE parser state into
-  `siumai-protocol-openai`; OpenAI-compatible provider runtime now delegates protocol conversion.
-- Moved Gemini GenerateContent request normalization into `siumai-protocol-gemini`, leaving
-  `siumai-bridge` focused on bridge reports, policy, lifecycle, customization, and dispatch.
-- Moved TogetherAI image request/response execution into the TogetherAI provider crate instead of
-  the registry factory.
-- Narrowed the stable facade and unified prelude around family-first APIs, explicit protocol paths,
-  explicit compatibility imports, and named experimental modules.
-- Moved prompt `DataContent` projection helpers out of `prelude::unified::*`; import
-  `convert_data_content_to_base64_string`, `convert_data_content_to_uint8_array`, and
-  `convert_uint8_array_to_text` from the explicit `siumai::{...}` facade root.
-- Scoped legacy OpenAI/Anthropic/Gemini provider parameter structs under
-  `siumai::provider_ext::<provider>::legacy_params::*` so provider extension roots keep typed
-  request options and metadata separate from migration-only client defaults.
-- Documented and guarded `siumai::provider_ext::google` as the Google package facade over the
-  Gemini runtime, including the mirrored `google::legacy_params::*` migration path.
-- Narrowed `siumai::ui` to an explicit UI message validation/conversion facade instead of
-  wildcard-mirroring every `siumai-core::ui` helper.
-- Narrowed `siumai::retry_api` to an explicit retry control facade while keeping provider-aware
-  retry defaults facade-owned.
-- Split `siumai-core::ui` into named type, validation, conversion, and test modules while keeping
-  the public `siumai_core::ui::*` surface unchanged.
-- Split `siumai-core::tooling` into named context, factory, runtime, collection, and test modules
-  while keeping the public `siumai_core::tooling::*` surface unchanged.
-- Split `siumai-core::streaming::StreamProcessor` final response assembly into a named helper
-  module while keeping stream processing behavior unchanged.
-- Narrowed `siumai::tooling` to an explicit runtime-tool facade instead of wildcard-mirroring every
-  future `siumai-core::tooling` helper.
-- Split facade root namespace modules (`hosted_tools`, `protocol`, `content`, and `extensions`)
-  into named source files while preserving the existing `siumai::*` public paths.
-- Split `siumai::experimental` into a named source file while preserving the advanced bridge,
-  execution, provider, and utility facade paths.
-- Split the `siumai::prelude` facade into a named source file while preserving unified,
-  compatibility, and extension prelude imports.
-- Split `siumai::image` workflow and projection helpers into named private modules while
-  preserving the stable `siumai::image::*` facade.
-- Split `siumai::video` workflow, materialization, and projection helpers into named private
-  modules while preserving the stable `siumai::video::*` facade.
-- Guarded OpenAI-compatible provider extension `*Client` / `*Config` exports as lower-level compat
-  aliases beside the package-level `provider()` / `create_provider()` builder helpers.
-- Finalized the release-line family taxonomy: Language, Embedding, Image, Rerank, Speech,
-  Transcription, and Video are stable families; Music remains extension-only unless a future ADR
-  promotes it.
+- Aligned streaming, tool ownership, usage, diagnostics, and unsupported-capability behavior with Vercel AI SDK semantics across spec, core, protocol, bridge, registry, and facade APIs.
+- OpenAI Responses now preserves provider-executed hosted tool results, final response text/reasoning replay, cumulative usage snapshots, and private raw diagnostics more consistently.
+- Registry and provider construction now prefer family-first handles for language, embedding, image, rerank, speech, transcription, and video models, while compatibility `LlmClient` paths stay scoped to migration and extension use.
+- Bridge request normalization and OpenAI-compatible message conversion now preserve existing public helpers while improving provider-specific OpenAI Responses, Chat Completions, Anthropic Messages, Gemini GenerateContent, Perplexity, DeepSeek, xAI, and Mistral behavior.
+- Errors shown through normal user-facing APIs are safer by default; raw provider messages, headers, bodies, and request/response details stay in explicit diagnostics paths.
+- Legacy `ContentPart` remains available from explicit compatibility namespaces, and high-value production use now imports those paths directly while the broader root-path move remains gated by ADR-0008.
 
 ### Removed
 
-- Removed the no-op `SiumaiBuilder` capability flag surface: `with_capability()`, `with_audio()`,
-  `with_embedding()`, `with_image_generation()`, and the internal write-only capability string
-  storage. Provider capabilities are now exposed only as provider/factory metadata or explicit
-  family/extension handles.
+- Removed the no-op `SiumaiBuilder` capability flag methods: `with_capability()`, `with_audio()`, `with_embedding()`, and `with_image_generation()`.
 
 ### Migration Notes
 
-- New code should prefer `siumai-provider-utils` for provider/protocol helper imports instead of
-  relying on `siumai-core::utils::*`. The old core utility alias modules for spec-only helpers have
-  been removed; import those helpers from `siumai-provider-utils` or the explicit facade root.
-- If migration code still needs legacy `ContentPart`, import it from explicit compatibility paths
-  such as `siumai::compat::content::ContentPart` or `siumai::content::compat::ContentPart`.
-- Prefer registry family handles and family-first factory methods for stable model execution. Keep
-  generic `LlmClient` construction for compatibility or extension-only integration paths.
-- Replace old `SiumaiBuilder::with_*` capability flags with explicit construction paths:
-  provider-specific builder helpers for provider selection, registry family handles for stable
-  model families, and `siumai::extensions::*` / provider extension modules for non-unified
-  capabilities. The removed flags were write-only and did not affect `build()`.
+- New provider/protocol code should import shared helpers from `siumai-provider-utils` instead of older `siumai-core::utils::*` paths.
+- Import legacy `ContentPart` from explicit compatibility paths such as `siumai::compat::content::ContentPart` or `siumai::content::compat::ContentPart`.
+- Prefer registry family handles and provider-specific builders for stable model execution; keep generic `LlmClient` construction for compatibility or extension-only integration paths.
+- Replace removed `SiumaiBuilder::with_*` capability flags with explicit provider builders, registry family handles, or extension modules.
 
 ## [0.11.0-beta.8] - 2026-05-18
 

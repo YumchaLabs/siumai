@@ -9,35 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Guarded typed OpenAI response metadata as protocol-owned while provider packages keep only stable
-  re-export paths.
-- Extracted OpenAI Responses SSE terminal buffering, replay hint projection, and reasoning lifecycle
-  state plus provider/custom tool ownership and serializer allocation rules into named converter
-  modules while preserving AI SDK-compatible stream output.
-- Added a Responses SSE diagnostics projection regression proving raw replay hints stay private and
-  public stream projection drops reserved raw provider metadata keys.
-- Routed OpenAI Responses provider-executed stream/request/response tool ownership through the
-  shared `ToolExecutionOwner` contract and removed the misleading ignored provider-executed
-  parameter from stream tool-result event construction.
-- Added a Responses SSE contract fixture proving streamed reasoning deltas remain compatible with
-  final visible text that is only available in the terminal `response.completed` payload.
-- Added a Responses SSE usage fixture proving repeated usage events are cumulative snapshots and
-  the latest snapshot is preserved through stream processing.
-- Routed OpenAI Responses serializer usage state through `UsageSnapshotLedger` so repeated
-  `openai:finish` usage payloads follow the same same-call replacement rule as incoming streams.
-- Guarded the OpenAI-compatible raw chunk fixture so stable `ChatStreamPart::Raw` events are marked
-  as private diagnostics rather than public stream projection.
-- Moved OpenAI speech/transcription SSE wire-format helpers and transcription stream event types
-  into the protocol crate; provider crates now re-export or call the protocol-owned helpers.
-- Moved OpenAI-compatible `/completions` response conversion and SSE parser state into the protocol
-  crate so provider runtimes delegate protocol conversion instead of owning local parser copies.
-- Added protocol-owned `response_content` compatibility adapters for legacy chat response payloads,
-  keeping response-side `ContentPart` construction behind named adapter seams.
-- Preserved `providerExecuted` ownership on OpenAI Responses synthetic hosted tool-result
-  compatibility parts so fixture roundtrips keep provider-executed tool outputs intact.
-- Moved OpenAI-compatible chat message dialect conversion into `utils::message_dialect`, covering
-  OpenAI Chat, OpenAI-compatible, Perplexity, DeepSeek, xAI, and Mistral with dialect-local tests
-  while keeping existing `utils::*` request conversion entry points stable.
+- OpenAI Responses stream and response conversion now preserves final replay/fallback content, reasoning lifecycle events, cumulative usage snapshots, raw/private diagnostics, and provider-executed tool ownership more consistently.
+- OpenAI Responses hosted tool-result compatibility parts now preserve `providerExecuted`, including MCP, code interpreter, image generation, file search, web search, and computer-use outputs.
+- OpenAI and OpenAI-compatible speech/transcription stream helpers and `/completions` response conversion now live in the protocol crate, with provider crates delegating to the shared implementation.
+- OpenAI-compatible chat message conversion now handles OpenAI Chat, OpenAI-compatible, Perplexity, DeepSeek, xAI, and Mistral dialects through the shared protocol path while keeping existing `utils::*` entry points stable.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.7...siumai-protocol-openai-v0.11.0-beta.8) - 2026-05-18
 

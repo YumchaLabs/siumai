@@ -9,24 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Split provider construction into family-first, compatibility, and extension factory facets.
-  Stable registry handles now call the family/extension facets directly instead of using
-  compatibility `LlmClient` paths as the primary execution route.
-- Adapt registered `ProviderFactory` implementations into internal facet containers so stable
-  handles hold only the family/compatibility/extension factory surface they need.
-- Adapt legacy `SiumaiBuilder` compatibility construction through the compatibility factory facet
-  instead of passing the broad `ProviderFactory` trait object into generic-client selection.
-- Centralized built-in provider typed-client projection helpers so registry factories share one
-  provider-owned family construction path per supported family.
-- Moved built-in provider default-model lookup, factory resolution, enabled-factory registration,
-  and provider catalog projection behind named provider descriptor seams.
-- Deepened factory architecture tests with named family override contract scenarios and
-  public-path parity harness guards for built-in provider registry setup.
-- Documented Video as a stable registry family for this release line while keeping Music available
-  only through explicit extension/capability paths.
-- Removed registry/default-model references to MiniMaxi and Ollama legacy `model_constants`
-  modules; built-in metadata and catalog output now depend only on provider-owned curated
-  `models.rs` surfaces for those providers.
+- Registry family handles now use family-first provider construction instead of primary compatibility `LlmClient` routes.
+- Built-in provider defaults, factory resolution, enabled-provider registration, and catalog projection now share one registry-owned provider descriptor path.
+- Video is documented as a stable registry family for this release line; Music remains extension-only.
+- MiniMaxi and Ollama catalog/default-model data now come from provider-owned curated model surfaces instead of legacy `model_constants` modules.
 
 ## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-registry-v0.11.0-beta.7...siumai-registry-v0.11.0-beta.8) - 2026-05-18
 
