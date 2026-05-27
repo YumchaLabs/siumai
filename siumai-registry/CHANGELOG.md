@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider-owned family construction path per supported family.
 - Moved built-in provider default-model lookup, factory resolution, enabled-factory registration,
   and provider catalog projection behind named provider descriptor seams.
+- Deepened factory architecture tests with named family override contract scenarios and
+  public-path parity harness guards for built-in provider registry setup.
 - Documented Video as a stable registry family for this release line while keeping Music available
   only through explicit extension/capability paths.
 - Removed registry/default-model references to MiniMaxi and Ollama legacy `model_constants`

@@ -73,6 +73,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Split bridge request JSON normalization into per-wire-format codec modules for OpenAI Responses,
   OpenAI Chat Completions, Anthropic Messages, and Gemini GenerateContent, leaving the bridge
   parent module focused on public wrappers, hook/loss-policy flow, and shared helpers.
+- Deepened provider contract and public-path parity harnesses so factory family requirements use
+  named scenario objects and built-in registry parity setup crosses a shared provider harness.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible

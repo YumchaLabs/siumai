@@ -80,6 +80,40 @@ fn provider_factories_use_explicit_compat_for_generic_self_calls() {
     }
 }
 
+#[derive(Clone, Copy)]
+struct FactoryFamilyOverrideContract {
+    file_name: &'static str,
+    methods: &'static [&'static str],
+}
+
+impl FactoryFamilyOverrideContract {
+    const fn new(file_name: &'static str, methods: &'static [&'static str]) -> Self {
+        Self { file_name, methods }
+    }
+
+    fn assert_satisfied_by(self, factories_dir: &std::path::Path) {
+        let path = factories_dir.join(self.file_name);
+        let source = std::fs::read_to_string(&path).expect("read registry factory source");
+        for method in self.methods {
+            let expected = format!("async fn {method}(");
+            assert!(
+                source.contains(&expected),
+                "{} should expose a native `{method}` override for its declared family surface",
+                path.display()
+            );
+        }
+    }
+}
+
+fn assert_declared_family_override_contracts(
+    factories_dir: &std::path::Path,
+    contracts: &[FactoryFamilyOverrideContract],
+) {
+    for contract in contracts {
+        contract.assert_satisfied_by(factories_dir);
+    }
+}
+
 #[test]
 fn production_factories_with_declared_family_surfaces_use_native_family_overrides() {
     let factories_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -87,10 +121,13 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
         .join("registry")
         .join("factories");
 
-    let required: &[(&str, &[&str])] = &[
-        ("anthropic.rs", &["language_model_text_with_ctx"]),
-        ("anthropic_vertex.rs", &["language_model_text_with_ctx"]),
-        (
+    let required: &[FactoryFamilyOverrideContract] = &[
+        FactoryFamilyOverrideContract::new("anthropic.rs", &["language_model_text_with_ctx"]),
+        FactoryFamilyOverrideContract::new(
+            "anthropic_vertex.rs",
+            &["language_model_text_with_ctx"],
+        ),
+        FactoryFamilyOverrideContract::new(
             "azure.rs",
             &[
                 "language_model_text_with_ctx",
@@ -101,7 +138,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "transcription_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "bedrock.rs",
             &[
                 "language_model_text_with_ctx",
@@ -110,14 +147,14 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "reranking_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "gateway.rs",
             &[
                 "language_model_text_with_ctx",
                 "embedding_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "cohere.rs",
             &[
                 "language_model_text_with_ctx",
@@ -125,8 +162,8 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "reranking_model_family_with_ctx",
             ],
         ),
-        ("deepseek.rs", &["language_model_text_with_ctx"]),
-        (
+        FactoryFamilyOverrideContract::new("deepseek.rs", &["language_model_text_with_ctx"]),
+        FactoryFamilyOverrideContract::new(
             "deepinfra.rs",
             &[
                 "language_model_text_with_ctx",
@@ -135,21 +172,21 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "image_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "deepgram.rs",
             &[
                 "speech_model_family_with_ctx",
                 "transcription_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "elevenlabs.rs",
             &[
                 "speech_model_family_with_ctx",
                 "transcription_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "fireworks.rs",
             &[
                 "language_model_text_with_ctx",
@@ -159,7 +196,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "transcription_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "gemini.rs",
             &[
                 "language_model_text_with_ctx",
@@ -168,7 +205,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "video_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "google_vertex.rs",
             &[
                 "language_model_text_with_ctx",
@@ -177,7 +214,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "video_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "groq.rs",
             &[
                 "language_model_text_with_ctx",
@@ -185,7 +222,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "transcription_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "minimaxi.rs",
             &[
                 "language_model_text_with_ctx",
@@ -194,14 +231,14 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "video_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "ollama.rs",
             &[
                 "language_model_text_with_ctx",
                 "embedding_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "openai.rs",
             &[
                 "language_model_text_with_ctx",
@@ -212,7 +249,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "transcription_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "openai_compatible.rs",
             &[
                 "language_model_text_with_ctx",
@@ -224,7 +261,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "transcription_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "togetherai.rs",
             &[
                 "language_model_text_with_ctx",
@@ -236,7 +273,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "reranking_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "vertex_maas.rs",
             &[
                 "language_model_text_with_ctx",
@@ -244,7 +281,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
                 "embedding_model_family_with_ctx",
             ],
         ),
-        (
+        FactoryFamilyOverrideContract::new(
             "xai.rs",
             &[
                 "language_model_text_with_ctx",
@@ -255,18 +292,7 @@ fn production_factories_with_declared_family_surfaces_use_native_family_override
         ),
     ];
 
-    for (file, methods) in required {
-        let path = factories_dir.join(file);
-        let source = std::fs::read_to_string(&path).expect("read registry factory source");
-        for method in *methods {
-            let expected = format!("async fn {method}(");
-            assert!(
-                source.contains(&expected),
-                "{} should expose a native `{method}` override for its declared family surface",
-                path.display()
-            );
-        }
-    }
+    assert_declared_family_override_contracts(&factories_dir, required);
 }
 
 #[cfg(feature = "google-vertex")]

@@ -5,25 +5,27 @@ Last updated: 2026-05-27
 
 ## Current State
 
-The workstream is open for five residual architecture-review candidates. FRAD-010 through FRAD-040
-are complete. The next executable task is FRAD-050, the provider contract/public-path harness
-deepening.
+The workstream is open for five residual architecture-review candidates. FRAD-010 through FRAD-050
+are complete. The next executable task is FRAD-060, the ADR-0008 `ContentPart` root compatibility
+decision or move.
 
 ## Active Task
 
-- Task ID: FRAD-050
+- Task ID: FRAD-060
 - Owner: codex
 - Files:
-  - `siumai-registry/src/registry/factories/contract_tests.rs`
-  - `siumai-registry/tests/factory_architecture_boundary_test.rs`
-  - `siumai/tests/provider_public_path_parity`
+  - `siumai-spec/src/types`
+  - `siumai-core/src`
+  - `siumai/src`
+  - `siumai-protocol-*/src`
   - `siumai/tests/public_surface_imports_test.rs`
   - `CHANGELOG.md`
   - crate changelogs
 - Validation:
-  - `cargo fmt --check -p siumai-registry -p siumai`
-  - `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-fail-fast`
-  - targeted public path parity tests for touched providers
+  - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai`
+  - `cargo nextest run -p siumai-spec content --no-fail-fast`
+  - `cargo nextest run -p siumai --test public_surface_imports_test --no-fail-fast`
+  - provider/protocol fixture parity gates identified during implementation
 - Status: READY
 - Review: not started
 - Evidence: `EVIDENCE_AND_GATES.md`
@@ -46,8 +48,12 @@ deepening.
   Responses, OpenAI Chat Completions, Anthropic Messages, and Gemini GenerateContent. The parent
   `normalize.rs` now keeps public wrapper functions, request hook/loss-policy flow, and shared
   helpers.
+- FRAD-050 deepened test harnesses: factory family override requirements are named
+  `FactoryFamilyOverrideContract` scenarios, provider public-path source guards use a
+  `ProviderPublicPathModule` manifest object, and built-in registry parity setup crosses
+  `BuiltInProviderRegistryHarness`.
 
 ## Next Recommended Action
 
-Commit FRAD-040, then run FRAD-050 with provider contract and public path harnesses as the bounded
-scope.
+Commit FRAD-050, then run FRAD-060 by proving ADR-0008 root-move gates before changing any
+`ContentPart` compatibility path.

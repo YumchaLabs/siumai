@@ -46,12 +46,15 @@ Last updated: 2026-05-27
 
 ## M3 - Test Harness Depth
 
-- [ ] FRAD-050 [owner=codex] [deps=FRAD-020] [scope=siumai-registry/src/registry/factories/contract_tests.rs,siumai-registry/tests/factory_architecture_boundary_test.rs,siumai/tests/provider_public_path_parity,siumai/tests/public_surface_imports_test.rs,CHANGELOG.md,crate changelogs]
+- [x] FRAD-050 [owner=codex] [deps=FRAD-020] [scope=siumai-registry/src/registry/factories/contract_tests.rs,siumai-registry/tests/factory_architecture_boundary_test.rs,siumai/tests/provider_public_path_parity,siumai/tests/public_surface_imports_test.rs,CHANGELOG.md,crate changelogs]
   Goal: Replace manual provider contract/public-path matrices with scenario/harness seams where the test Interface is smaller than the implementation.
   Validation: `cargo fmt --check -p siumai-registry -p siumai`; `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-fail-fast`; targeted public path parity tests for touched providers.
   Review: Confirm provider behavior coverage is not reduced and future providers can add scenarios without copying large test blocks.
   Evidence: `EVIDENCE_AND_GATES.md`, changelogs.
-  Handoff: TBD.
+  Handoff: DONE. Factory family override requirements now use named
+  `FactoryFamilyOverrideContract` scenarios, provider public-path architecture guards use a
+  `ProviderPublicPathModule` manifest object, and root public-path parity helpers centralize
+  built-in provider map/builder setup through `BuiltInProviderRegistryHarness`.
 
 ## M4 - ADR-0008 ContentPart Decision Or Move
 

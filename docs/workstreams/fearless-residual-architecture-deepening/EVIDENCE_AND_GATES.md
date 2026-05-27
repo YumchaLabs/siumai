@@ -22,6 +22,9 @@ Last updated: 2026-05-27
 | 2026-05-27 | FRAD-040 | `cargo check -p siumai-bridge --features openai,anthropic,google` | Pass | Bridge crate compiles with all request codec families enabled. |
 | 2026-05-27 | FRAD-040 | `cargo fmt --check -p siumai-bridge` | Pass | Bridge formatting is clean after splitting request codecs. |
 | 2026-05-27 | FRAD-040 | `cargo nextest run -p siumai-bridge --features openai,anthropic,google request --no-fail-fast` | Pass | 49 request bridge tests passed, including the new per-wire-format codec source guard; 63 skipped by filter. |
+| 2026-05-27 | FRAD-050 | `cargo fmt --check -p siumai-registry -p siumai` | Pass | Registry and facade formatting is clean after deepening provider contract/public-path harnesses. |
+| 2026-05-27 | FRAD-050 | `cargo nextest run -p siumai-registry --test factory_architecture_boundary_test --no-fail-fast` | Pass | 37 registry architecture boundary tests passed, including named family override scenario and provider public-path harness guards; existing unused compatibility warnings remain unrelated. |
+| 2026-05-27 | FRAD-050 | `cargo nextest run -p siumai --test provider_public_path_parity_test --features openai,azure,anthropic,google,google-vertex,xai,groq,cohere,togetherai,deepinfra,bedrock,deepseek,ollama,minimaxi --no-fail-fast` | Pass | 506 facade public-path parity tests passed across built-in provider families. |
 
 ## Required Gates
 

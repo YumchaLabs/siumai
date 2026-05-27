@@ -42,31 +42,63 @@ use siumai_registry::compat::client::LlmClient;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone, Copy)]
+struct BuiltInProviderRegistryHarness<'a> {
+    registry_provider_id: &'a str,
+    built_in_provider_id: &'a str,
+}
+
+impl<'a> BuiltInProviderRegistryHarness<'a> {
+    const fn new(registry_provider_id: &'a str, built_in_provider_id: &'a str) -> Self {
+        Self {
+            registry_provider_id,
+            built_in_provider_id,
+        }
+    }
+
+    const fn same(provider_id: &'a str) -> Self {
+        Self::new(provider_id, provider_id)
+    }
+
+    fn factory(self) -> Arc<dyn siumai::registry::ProviderFactory> {
+        siumai::registry::builtin_provider_factory(self.built_in_provider_id).unwrap_or_else(
+            |err| {
+                panic!(
+                    "{} built-in provider factory: {err:?}",
+                    self.built_in_provider_id
+                )
+            },
+        )
+    }
+
+    fn providers(self) -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
+        let mut providers = HashMap::new();
+        providers.insert(self.registry_provider_id.to_string(), self.factory());
+        providers
+    }
+
+    fn registry_builder(self) -> siumai::registry::builder::RegistryBuilder {
+        siumai::registry::builder::RegistryBuilder::new(self.providers())
+    }
+}
+
 fn built_in_registry_factory(provider_id: &str) -> Arc<dyn siumai::registry::ProviderFactory> {
-    siumai::registry::builtin_provider_factory(provider_id)
-        .unwrap_or_else(|err| panic!("{provider_id} built-in provider factory: {err:?}"))
+    BuiltInProviderRegistryHarness::same(provider_id).factory()
 }
 
 fn built_in_registry_providers(
     registry_provider_id: &str,
     built_in_provider_id: &str,
 ) -> HashMap<String, Arc<dyn siumai::registry::ProviderFactory>> {
-    let mut providers = HashMap::new();
-    providers.insert(
-        registry_provider_id.to_string(),
-        built_in_registry_factory(built_in_provider_id),
-    );
-    providers
+    BuiltInProviderRegistryHarness::new(registry_provider_id, built_in_provider_id).providers()
 }
 
 fn built_in_registry_builder(
     registry_provider_id: &str,
     built_in_provider_id: &str,
 ) -> siumai::registry::builder::RegistryBuilder {
-    siumai::registry::builder::RegistryBuilder::new(built_in_registry_providers(
-        registry_provider_id,
-        built_in_provider_id,
-    ))
+    BuiltInProviderRegistryHarness::new(registry_provider_id, built_in_provider_id)
+        .registry_builder()
 }
 
 #[allow(dead_code)]

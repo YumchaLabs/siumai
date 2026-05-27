@@ -1939,6 +1939,23 @@ fn focused_public_facade_tests_use_registry_owned_builtin_factory_resolution() {
 }
 
 #[test]
+fn factory_contract_tests_use_named_family_override_scenarios() {
+    let source = read_factory_source("contract_tests.rs");
+
+    assert!(
+        source.contains("struct FactoryFamilyOverrideContract")
+            && source.contains("fn assert_satisfied_by(self")
+            && source.contains("FactoryFamilyOverrideContract::new("),
+        "factory contract tests should describe native family override requirements through named scenarios"
+    );
+    assert!(
+        !source.contains("contracts: &[(&str, &[&str])]")
+            && !source.contains("let required: &[(&str, &[&str])]"),
+        "factory contract tests should not keep anonymous tuple matrices for provider family requirements"
+    );
+}
+
+#[test]
 fn compatibility_builder_uses_registry_owned_default_model_resolution() {
     let root = crate_root();
     let build_source =
@@ -2095,94 +2112,139 @@ fn read_provider_public_path_module(module_name: &str) -> String {
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
 }
 
-fn provider_public_path_module_manifest() -> &'static [(&'static str, &'static str, &'static str)] {
-    &[
-        (
+#[derive(Clone, Copy)]
+struct ProviderPublicPathModule {
+    module_name: &'static str,
+    feature_name: &'static str,
+    override_shortcut: &'static str,
+}
+
+impl ProviderPublicPathModule {
+    const fn new(
+        module_name: &'static str,
+        feature_name: &'static str,
+        override_shortcut: &'static str,
+    ) -> Self {
+        Self {
+            module_name,
+            feature_name,
+            override_shortcut,
+        }
+    }
+
+    fn path_marker(self) -> String {
+        format!(
+            "#[path = \"provider_public_path_parity/{}.rs\"]",
+            self.module_name
+        )
+    }
+
+    fn mod_marker(self) -> String {
+        format!("mod {};", self.module_name)
+    }
+
+    fn inline_marker(self) -> String {
+        format!("mod {} {{", self.module_name)
+    }
+
+    fn feature_cfg_marker(self) -> String {
+        format!("#[cfg(feature = \"{}\")]", self.feature_name)
+    }
+
+    fn source(self) -> String {
+        read_provider_public_path_module(self.module_name)
+    }
+}
+
+fn provider_public_path_module_manifest() -> &'static [ProviderPublicPathModule] {
+    static MODULES: &[ProviderPublicPathModule] = &[
+        ProviderPublicPathModule::new(
             "openai_public_path",
             "openai",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "azure_public_path",
             "azure",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "gemini_public_path",
             "google",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "cohere_public_path",
             "cohere",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "togetherai_public_path",
             "togetherai",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "deepinfra_public_path",
             "deepinfra",
             "built_in_registry_builder(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "vertex_maas_public_path",
             "google-vertex",
             ".with_provider_base_url_http_config_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "google_vertex_xai_public_path",
             "google-vertex",
             ".with_provider_base_url_http_config_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "deepseek_public_path",
             "deepseek",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "openai_compatible_audio_public_path",
             "openai",
             ".with_provider_api_key_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "groq_public_path",
             "groq",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "ollama_public_path",
             "ollama",
             ".with_provider_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "minimaxi_public_path",
             "minimaxi",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "bedrock_public_path",
             "bedrock",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "anthropic_public_path",
             "anthropic",
             ".with_provider_api_key_base_url_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "vertex_public_path",
             "google-vertex",
             ".with_provider_base_url_http_config_fetch(",
         ),
-        (
+        ProviderPublicPathModule::new(
             "xai_public_path",
             "xai",
             ".with_provider_api_key_base_url_fetch(",
         ),
-    ]
+    ];
+    MODULES
 }
 
 fn provider_public_path_combined_source() -> String {
@@ -2190,9 +2252,9 @@ fn provider_public_path_combined_source() -> String {
         provider_public_path_test_root().join("provider_public_path_parity_test.rs"),
     )
     .expect("read provider public-path parity test root");
-    for &(module_name, _, _) in provider_public_path_module_manifest() {
+    for module in provider_public_path_module_manifest() {
         source.push('\n');
-        source.push_str(&read_provider_public_path_module(module_name));
+        source.push_str(&module.source());
     }
     source
 }
@@ -2204,48 +2266,62 @@ fn provider_public_path_parity_test_is_split_by_provider_module() {
     )
     .expect("read provider public-path parity test root");
 
-    for &(module_name, feature_name, _) in provider_public_path_module_manifest() {
-        let path_marker = format!("#[path = \"provider_public_path_parity/{module_name}.rs\"]");
-        let mod_marker = format!("mod {module_name};");
-        let inline_marker = format!("mod {module_name} {{");
-        let module_source = read_provider_public_path_module(module_name);
+    assert!(
+        root_source.contains("struct BuiltInProviderRegistryHarness")
+            && root_source.contains("const fn same(")
+            && root_source.contains("fn registry_builder(self)"),
+        "provider_public_path_parity_test.rs should expose a named registry harness instead of hand-rolling provider maps in each helper"
+    );
+
+    for module in provider_public_path_module_manifest() {
+        let module_source = module.source();
 
         assert!(
-            root_source.contains(&format!("#[cfg(feature = \"{feature_name}\")]")),
-            "provider_public_path_parity_test.rs should keep `{module_name}` feature-gated by `{feature_name}`"
+            root_source.contains(&module.feature_cfg_marker()),
+            "provider_public_path_parity_test.rs should keep `{}` feature-gated by `{}`",
+            module.module_name,
+            module.feature_name
         );
         assert!(
-            root_source.contains(&path_marker) && root_source.contains(&mod_marker),
-            "provider_public_path_parity_test.rs should load `{module_name}` from a provider-local module file"
+            root_source.contains(&module.path_marker())
+                && root_source.contains(&module.mod_marker()),
+            "provider_public_path_parity_test.rs should load `{}` from a provider-local module file",
+            module.module_name
         );
         assert!(
-            !root_source.contains(&inline_marker),
-            "provider_public_path_parity_test.rs should not keep oversized inline provider module `{module_name}`"
+            !root_source.contains(&module.inline_marker()),
+            "provider_public_path_parity_test.rs should not keep oversized inline provider module `{}`",
+            module.module_name
         );
         assert!(
             module_source.contains("use super::*;"),
-            "{module_name}.rs should reuse the shared parity-test harness from the root module"
+            "{}.rs should reuse the shared parity-test harness from the root module",
+            module.module_name
         );
     }
 }
 
 #[test]
 fn migrated_public_path_modules_use_registry_builder_shortcuts() {
-    for &(module_name, _, shortcut_marker) in provider_public_path_module_manifest() {
-        let module_source = read_provider_public_path_module(module_name);
+    for module in provider_public_path_module_manifest() {
+        let module_source = module.source();
         assert!(
-            module_source.contains("RegistryBuilder") && module_source.contains(shortcut_marker),
-            "{module_name} should route provider override setup through RegistryBuilder shortcuts"
+            module_source.contains("RegistryBuilder")
+                && module_source.contains(module.override_shortcut),
+            "{} should route provider override setup through RegistryBuilder shortcuts",
+            module.module_name
         );
         assert!(
             !module_source.contains("provider_build_overrides.insert(")
                 && !module_source.contains("RegistryOptions {")
                 && !module_source.contains("create_provider_registry("),
-            "{module_name} should not hand-roll raw RegistryOptions provider override plumbing"
+            "{} should not hand-roll raw RegistryOptions provider override plumbing",
+            module.module_name
         );
         assert!(
             !module_source.contains(".with_provider_build_overrides("),
-            "{module_name} should use provider-level RegistryBuilder shortcuts instead of generic provider build overrides"
+            "{} should use provider-level RegistryBuilder shortcuts instead of generic provider build overrides",
+            module.module_name
         );
     }
 }
