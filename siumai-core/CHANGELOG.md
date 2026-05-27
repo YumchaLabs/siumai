@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-core-v0.11.0-beta.8...siumai-core-v0.11.0-beta.9) - 2026-05-27
+
+### Added
+
+- define unsupported capability policy
+- harden tool contract semantics
+- *(elevenlabs)* add voice delete resources
+- *(elevenlabs)* add pronunciation dictionary metadata update
+- *(elevenlabs)* wire registry audio provider
+- *(deepgram)* wire registry audio provider
+
+### Fixed
+
+- treat stream usage as snapshots
+- separate safe error messages
+
+### Other
+
+- polish release changelog
+- route legacy content through compat imports
+- isolate stream assembly record
+- isolate usage snapshot ledger
+- centralize capability gates
+- centralize provider tool ownership
+- enforce diagnostics metadata projection
+- close ai sdk contract workstream
+- clarify cancelable stream contract
+- define stream end replay contract
+- deprecate core client aliases
+- split stream processor response assembly
+- split core tooling helpers
+- split core ui helpers
+- narrow registry and provider utility boundaries
+- update changelogs for architecture boundary refactor
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- isolate legacy content compatibility surface
+- deepen provider and bridge module boundaries
+
 ### Changed
 
 - Stream processing now reconciles terminal `StreamEnd.response.content` as final replay/fallback content instead of appending it as another text delta.

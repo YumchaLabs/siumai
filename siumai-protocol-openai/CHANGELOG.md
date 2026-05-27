@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.8...siumai-protocol-openai-v0.11.0-beta.9) - 2026-05-27
+
+### Added
+
+- *(cerebras)* add openai compatible provider surface
+
+### Fixed
+
+- preserve hosted tool result ownership
+- treat stream usage as snapshots
+- *(mistral)* align ai sdk request surface
+
+### Other
+
+- polish release changelog
+- extract openai message dialect conversion
+- isolate usage snapshot ledger
+- centralize provider tool ownership
+- enforce diagnostics metadata projection
+- deepen responses serializer state
+- isolate responses tool state
+- isolate responses reasoning lifecycle
+- isolate responses replay hints
+- isolate responses terminal buffer
+- define raw diagnostics contract
+- add responses reasoning terminal text fixture
+- guard protocol-owned provider metadata
+- move openai audio sse helpers to protocol
+- update changelogs for architecture boundary refactor
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- isolate openai response compatibility boundary
+- deepen provider and bridge module boundaries
+
 ### Changed
 
 - OpenAI Responses stream and response conversion now preserves final replay/fallback content, reasoning lifecycle events, cumulative usage snapshots, raw/private diagnostics, and provider-executed tool ownership more consistently.

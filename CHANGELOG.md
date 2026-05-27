@@ -4,6 +4,62 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.8...v0.11.0-beta.9) - 2026-05-27
+
+### Added
+
+- *(elevenlabs)* add voice edit resources
+- *(elevenlabs)* add PVC verification resources
+- *(elevenlabs)* add PVC sample resources
+- *(elevenlabs)* add PVC voice metadata resources
+- *(elevenlabs)* add IVC voice creation
+- *(elevenlabs)* add voice delete resources
+- *(elevenlabs)* add voice settings resources
+- *(elevenlabs)* add pronunciation dictionary download
+- *(elevenlabs)* add pronunciation dictionary rule mutations
+- *(elevenlabs)* add pronunciation dictionary metadata update
+- *(elevenlabs)* add pronunciation dictionary file creation
+- *(elevenlabs)* add pronunciation dictionary rule creation
+- *(elevenlabs)* add pronunciation dictionary resources
+- *(elevenlabs)* add voice resources
+- *(elevenlabs)* expose facade audio provider
+- *(deepgram)* expose facade provider surface
+- *(cerebras)* add openai compatible provider surface
+- *(gateway)* add vercel ai gateway provider
+
+### Fixed
+
+- harden feature matrix clippy
+- clean ci all-features failures
+- preserve hosted tool result ownership
+- *(bedrock)* align enterprise provider package surface
+
+### Other
+
+- route legacy content through compat imports
+- deepen provider harness contracts
+- clarify cancelable stream contract
+- refresh provider model catalogs
+- retire minimaxi ollama model constants
+- narrow facade compat types
+- classify compatibility shims
+- split video facade helpers
+- split image facade helpers
+- split prelude facade module
+- split experimental facade module
+- split facade namespace modules
+- narrow tooling facade exports
+- guard openai-compatible provider aliases
+- narrow retry facade exports
+- narrow ui facade exports
+- guard google provider facade alias
+- scope legacy provider params
+- scope prompt data helpers out of unified prelude
+- narrow registry and provider utility boundaries
+- harden clean architecture boundaries
+- isolate legacy content compatibility surface
+- deepen provider and bridge module boundaries
+
 ### Added
 
 - Added `siumai-provider-utils` as the shared home for AI SDK-style provider/protocol helpers.

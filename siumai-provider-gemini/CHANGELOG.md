@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-gemini-v0.11.0-beta.8...siumai-provider-gemini-v0.11.0-beta.9) - 2026-05-27
+
+### Fixed
+
+- clean ci all-features failures
+
+### Other
+
+- refresh provider model catalogs
+- move gemini provider metadata into protocol crate
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- isolate provider-owned response adapters
+- deepen provider and bridge module boundaries
+
 ### Changed
 
 - Re-export Gemini typed provider metadata from `siumai-protocol-gemini` so the provider crate no

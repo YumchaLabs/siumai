@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-spec-v0.11.0-beta.8...siumai-spec-v0.11.0-beta.9) - 2026-05-27
+
+### Added
+
+- define unsupported capability policy
+- harden tool contract semantics
+- *(elevenlabs)* wire registry audio provider
+- *(deepgram)* wire registry audio provider
+- *(cerebras)* add openai compatible provider surface
+- *(gateway)* add vercel ai gateway provider
+
+### Fixed
+
+- treat stream usage as snapshots
+
+### Other
+
+- polish release changelog
+- route legacy content through compat imports
+- isolate usage snapshot ledger
+- centralize provider tool ownership
+- enforce diagnostics metadata projection
+- define raw diagnostics contract
+- define stream end replay contract
+- add content part root move parity gate
+- record content part root move blockers
+- update changelogs for architecture boundary refactor
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- isolate legacy content compatibility surface
+- deepen provider and bridge module boundaries
+
 ### Added
 
 - Added `ToolExecutionOwner` helpers for AI SDK `providerExecuted` and `isProviderExecuted` ownership flags across tools, prompts, streams, UI parts, and legacy content views.
