@@ -11,6 +11,21 @@ Hajimi adapter changes out of scope.
 
 ## Completed Task
 
+- Task ID: AISD-060
+- Result: DONE
+- Summary: Same-provider-call stream usage is now tracked by `UsageSnapshotLedger` in
+  `siumai-spec::types::usage`. Core stream processing stores finish and terminal usage snapshots in
+  the ledger, final response assembly reads from it, and OpenAI Responses serializer state uses the
+  same ledger instead of a loose `latest_usage` field. `Usage::merge()` remains the explicit
+  multi-call aggregation API.
+- Validation:
+  - `cargo check -p siumai-spec -p siumai-core -p siumai-protocol-openai --features siumai-protocol-openai/openai-standard,siumai-protocol-openai/openai-responses`
+  - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
+  - `cargo nextest run -p siumai-spec usage --no-fail-fast`
+  - `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`
+  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_event_converter_repeated_usage_keeps_latest_snapshot --no-fail-fast`
+  - `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_serializer_state_uses_usage_snapshot_ledger --no-fail-fast`
+
 - Task ID: AISD-050
 - Result: DONE
 - Summary: Unsupported capability choreography now lives in
@@ -62,19 +77,16 @@ Hajimi adapter changes out of scope.
 
 ## Active Task
 
-- Task ID: AISD-060
+- Task ID: AISD-070
 - Owner: codex
 - Files:
-  - `siumai-spec/src/types/usage.rs`
   - `siumai-core/src/streaming`
-  - `siumai-protocol-openai/src/standards/openai/responses_sse`
   - `CHANGELOG.md`
-  - crate changelogs
+  - `siumai-core/CHANGELOG.md`
 - Validation:
-  - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
-  - `cargo nextest run -p siumai-spec usage --no-fail-fast`
+  - `cargo fmt --check -p siumai-core`
   - `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`
-  - OpenAI Responses repeated-usage fixture
+  - core provider boundary tests
 - Status: READY
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
@@ -89,7 +101,7 @@ Hajimi adapter changes out of scope.
 
 ## Next Recommended Action
 
-Continue AISD-060 with `run-workstream-task`. Inspect usage snapshot handling in spec, core stream
-processor, and OpenAI Responses SSE before editing; the goal is a named ledger module where
-same-provider-call stream usage snapshots replace each other, while explicit multi-call aggregation
-continues to use orchestration-level `Usage::merge()`.
+Continue AISD-070 with `run-workstream-task`. Inspect `StreamProcessor` state, `response_assembly`,
+and existing processor tests before editing; the goal is to decide whether remaining delta
+accumulation versus final response assembly boundaries need a compact accumulated-record module, or
+whether AISD-020 and AISD-060 already made the remaining seam deep enough to narrow or skip.

@@ -60,6 +60,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Deepened unsupported capability choreography behind named executor requirements so family
   executors no longer rebuild feature strings, failure details, and reject/warn/provider-fallback
   policy resolution locally.
+- Added a named usage snapshot ledger so stream usage updates replace same-call cumulative
+  snapshots while `Usage::merge()` remains the explicit multi-call aggregation path.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible

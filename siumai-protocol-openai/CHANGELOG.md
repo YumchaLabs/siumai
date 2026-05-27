@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   final visible text that is only available in the terminal `response.completed` payload.
 - Added a Responses SSE usage fixture proving repeated usage events are cumulative snapshots and
   the latest snapshot is preserved through stream processing.
+- Routed OpenAI Responses serializer usage state through `UsageSnapshotLedger` so repeated
+  `openai:finish` usage payloads follow the same same-call replacement rule as incoming streams.
 - Guarded the OpenAI-compatible raw chunk fixture so stable `ChatStreamPart::Raw` events are marked
   as private diagnostics rather than public stream projection.
 - Moved OpenAI speech/transcription SSE wire-format helpers and transcription stream event types

@@ -67,9 +67,8 @@ impl StreamProcessor {
                         .and_then(|metadata| metadata.model.clone())
                 }),
             usage: self
-                .current_usage
-                .clone()
-                .or_else(|| terminal_response.and_then(|response| response.usage.clone())),
+                .usage_ledger
+                .latest_or_else(terminal_response.and_then(|response| response.usage.as_ref())),
             finish_reason: finish_reason
                 .or_else(|| self.stream_finish_reason.clone())
                 .or_else(|| terminal_response.and_then(|response| response.finish_reason.clone())),

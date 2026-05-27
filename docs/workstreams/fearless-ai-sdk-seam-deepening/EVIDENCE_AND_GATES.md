@@ -36,6 +36,12 @@ Last updated: 2026-05-27
 | 2026-05-27 | AISD-050 | `cargo nextest run -p siumai-core unsupported_capability --no-fail-fast` | Pass | 2 unsupported-capability policy resolver tests passed. |
 | 2026-05-27 | AISD-050 | `cargo nextest run -p siumai-core reject_if_unsupported --no-fail-fast` | Pass | 4 low-level and executor-gate reject tests passed. |
 | 2026-05-27 | AISD-050 | `cargo nextest run -p siumai-core core_hard_family_executors_use_named_capability_requirements --no-fail-fast` | Pass | Boundary test proves audio, embedding, files, image, and rerank executors cross the named requirement seam instead of rebuilding policies locally. |
+| 2026-05-27 | AISD-060 | `cargo check -p siumai-spec -p siumai-core -p siumai-protocol-openai --features siumai-protocol-openai/openai-standard,siumai-protocol-openai/openai-responses` | Pass | Spec/core/protocol compile after introducing `UsageSnapshotLedger`. |
+| 2026-05-27 | AISD-060 | `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai` | Pass | Spec/core/protocol formatting is clean after usage ledger extraction. |
+| 2026-05-27 | AISD-060 | `cargo nextest run -p siumai-spec usage --no-fail-fast` | Pass | 10 usage tests passed, including ledger replacement and merge aggregation tests. |
+| 2026-05-27 | AISD-060 | `cargo nextest run -p siumai-core streaming::processor --no-fail-fast` | Pass | 17 stream processor tests passed, including the usage ledger boundary test. |
+| 2026-05-27 | AISD-060 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_event_converter_repeated_usage_keeps_latest_snapshot --no-fail-fast` | Pass | Responses repeated-usage fixture preserved the latest cumulative snapshot through stream processing. |
+| 2026-05-27 | AISD-060 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses responses_serializer_state_uses_usage_snapshot_ledger --no-fail-fast` | Pass | Responses serializer state boundary test proves `UsageSnapshotLedger` owns latest usage replacement. |
 
 ## Required Gates
 

@@ -12,6 +12,9 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
+mod ledger;
+pub use ledger::UsageSnapshotLedger;
+
 fn sum_option(target: &mut Option<u32>, source: Option<u32>) {
     if let Some(value) = source {
         *target = Some(target.unwrap_or(0).saturating_add(value));

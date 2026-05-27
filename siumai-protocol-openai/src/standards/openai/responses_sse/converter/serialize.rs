@@ -698,7 +698,7 @@ pub(super) fn serialize_event(
             let usage = response
                 .usage
                 .clone()
-                .or_else(|| state.latest_usage.clone());
+                .or_else(|| state.usage_ledger.latest_cloned());
             let usage_json = usage.as_ref().map(openai_responses_usage_json);
             let finish_reason = openai_finish_reason_str(response.finish_reason.as_ref());
             let incomplete_reason = openai_incomplete_reason_from_response(response);
@@ -1547,7 +1547,7 @@ pub(super) fn serialize_event(
                         .get("usage")
                         .and_then(|usage| this.parse_responses_usage_value(usage))
                     {
-                        state.latest_usage = Some(usage);
+                        state.usage_ledger.record_snapshot(usage);
                     }
 
                     maybe_emit_response_created(this, &mut state)?;
@@ -1635,7 +1635,7 @@ pub(super) fn serialize_event(
                         output.push(output_text);
                     }
 
-                    let usage = state.latest_usage.clone();
+                    let usage = state.usage_ledger.latest_cloned();
                     let usage_json = usage.as_ref().map(openai_responses_usage_json);
                     let finish_reason = openai_finish_reason_str_from_finish_payload(data);
                     let incomplete_reason = openai_incomplete_reason_from_finish_payload(data);

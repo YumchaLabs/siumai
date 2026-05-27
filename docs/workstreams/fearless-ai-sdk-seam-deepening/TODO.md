@@ -46,12 +46,14 @@ Last updated: 2026-05-27
   reject/warn/provider-fallback policy resolver, and a boundary test proving executors use the same
   seam instead of local feature strings or policy reconstruction.
 
-- [ ] AISD-060 [owner=codex] [deps=AISD-010] [scope=siumai-spec/src/types/usage.rs,siumai-core/src/streaming,siumai-protocol-openai/src/standards/openai/responses_sse,CHANGELOG.md,crate changelogs]
+- [x] AISD-060 [owner=codex] [deps=AISD-010] [scope=siumai-spec/src/types/usage.rs,siumai-core/src/streaming,siumai-protocol-openai/src/standards/openai/responses_sse,CHANGELOG.md,crate changelogs]
   Goal: Give stream usage snapshots a named ledger module that handles replacement separately from explicit multi-call aggregation.
   Validation: `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`; `cargo nextest run -p siumai-spec usage --no-fail-fast`; `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`; OpenAI Responses repeated-usage fixture.
   Review: Confirm stream paths cannot accidentally call `Usage::merge()` for same-call snapshots.
   Evidence: `EVIDENCE_AND_GATES.md`, changelogs.
-  Handoff: Keep `Usage::merge()` as orchestration aggregation.
+  Handoff: DONE. `UsageSnapshotLedger` now owns same-call snapshot replacement; core stream
+  processing and OpenAI Responses serializer state record usage through the ledger, while
+  `Usage::merge()` remains the explicit orchestration aggregation API.
 
 ## M3 - Core Stream Assembly And Closeout
 

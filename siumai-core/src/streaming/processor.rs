@@ -14,8 +14,8 @@ use crate::streaming::processor::response_assembly::tool_input_from_builder;
 use crate::types::MessageContent;
 use crate::types::{
     ChatResponse, ChatStreamEvent, ChatStreamPart, ContentPart, FinishReason, ProviderMetadataMap,
-    ResponseMetadata, ToolExecutionOwner, Usage, Warning, merge_provider_metadata,
-    provider_metadata_without_private_diagnostics,
+    ResponseMetadata, ToolExecutionOwner, Usage, UsageSnapshotLedger, Warning,
+    merge_provider_metadata, provider_metadata_without_private_diagnostics,
 };
 use std::collections::HashMap;
 
@@ -92,7 +92,7 @@ pub struct StreamProcessor {
     pub(super) stream_warnings: Vec<Warning>,
     pub(super) start_metadata: Option<ResponseMetadata>,
     pub(super) terminal_response: Option<ChatResponse>,
-    pub(super) current_usage: Option<Usage>,
+    pub(super) usage_ledger: UsageSnapshotLedger,
     pub(super) stream_finish_reason: Option<FinishReason>,
     pub(super) stream_raw_finish_reason: Option<String>,
     pub(super) final_provider_metadata: Option<ProviderMetadataMap>,
@@ -122,7 +122,7 @@ impl StreamProcessor {
             stream_warnings: Vec::new(),
             start_metadata: None,
             terminal_response: None,
-            current_usage: None,
+            usage_ledger: UsageSnapshotLedger::new(),
             stream_finish_reason: None,
             stream_raw_finish_reason: None,
             final_provider_metadata: None,
@@ -139,7 +139,7 @@ impl StreamProcessor {
             }
             ChatStreamEvent::StreamEnd { response } => {
                 if let Some(usage) = response.usage.clone() {
-                    self.current_usage = Some(usage);
+                    self.usage_ledger.record_snapshot(usage);
                 }
                 if let Some(provider_metadata) = response.provider_metadata.clone() {
                     if let Some(current) = self.final_provider_metadata.as_mut() {
@@ -481,7 +481,7 @@ impl StreamProcessor {
 
     /// Process usage update
     fn process_usage_update(&mut self, usage: Usage) -> ProcessedEvent {
-        self.current_usage = Some(usage.clone());
+        self.usage_ledger.record_snapshot(usage.clone());
         ProcessedEvent::UsageUpdate { usage }
     }
 
@@ -634,13 +634,25 @@ mod tests {
 
     fn production_source() -> &'static str {
         include_str!("processor.rs")
-            .split_once("#[cfg(test)]")
-            .expect("test marker should exist")
+            .split_once("\n#[cfg(test)]\nmod tests")
+            .expect("test module marker should exist")
             .0
     }
 
     fn response_assembly_source() -> &'static str {
         include_str!("processor/response_assembly.rs")
+    }
+
+    #[test]
+    fn stream_processor_usage_updates_cross_snapshot_ledger() {
+        let source = production_source();
+        let response_assembly = response_assembly_source();
+
+        assert!(source.contains("usage_ledger: UsageSnapshotLedger"));
+        assert!(source.contains("self.usage_ledger.record_snapshot(usage"));
+        assert!(response_assembly.contains(".usage_ledger"));
+        assert!(!source.contains(".merge(&usage"));
+        assert!(!response_assembly.contains(".merge(&usage"));
     }
 
     fn private_replay_hint() -> crate::types::ChatStreamReplay {

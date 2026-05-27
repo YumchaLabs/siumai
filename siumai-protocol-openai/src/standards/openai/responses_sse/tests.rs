@@ -284,6 +284,18 @@ fn responses_event_converter_repeated_usage_keeps_latest_snapshot() {
 }
 
 #[test]
+fn responses_serializer_state_uses_usage_snapshot_ledger() {
+    let state_source = include_str!("converter/state.rs");
+    let serialize_source = include_str!("converter/serialize.rs");
+
+    assert!(state_source.contains("usage_ledger: crate::types::UsageSnapshotLedger"));
+    assert!(!state_source.contains("latest_usage"));
+    assert!(serialize_source.contains("state.usage_ledger.record_snapshot(usage)"));
+    assert!(serialize_source.contains("state.usage_ledger.latest_cloned()"));
+    assert!(!serialize_source.contains(".merge(&usage"));
+}
+
+#[test]
 fn xai_responses_event_converter_usage_update_uses_xai_semantics() {
     let conv = OpenAiResponsesEventConverter::new().with_responses_transform_style(
         crate::standards::openai::transformers::ResponsesTransformStyle::Xai,
