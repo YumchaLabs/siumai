@@ -726,6 +726,7 @@ impl ProviderFactoryFacets {
     }
 }
 
+#[cfg(feature = "builtins")]
 pub(crate) fn compatibility_facet_from_provider_factory(
     factory: Arc<dyn ProviderFactory>,
 ) -> Arc<dyn ProviderCompatibilityFactory> {
