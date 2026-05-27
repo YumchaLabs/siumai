@@ -51,6 +51,7 @@
 //! are contained within this module for better encapsulation.
 
 // Actual implementation modules
+pub mod capability;
 pub mod executors;
 pub mod http;
 pub mod middleware;
@@ -80,5 +81,6 @@ pub use transformers::{
     stream::StreamChunkTransformer,
 };
 
+pub use capability::{CapabilityRequirement, UnsupportedCapabilityGate};
 pub use middleware::{LanguageModelMiddleware, MiddlewareBuilder, NamedMiddleware};
 pub use policy::ExecutionPolicy;

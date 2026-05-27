@@ -997,6 +997,91 @@ fn core_json_stream_executor_does_not_handle_provider_maps() {
 }
 
 #[test]
+fn core_hard_family_executors_use_named_capability_requirements() {
+    let manifest_dir = crate_root();
+    let capability_source = fs::read_to_string(
+        manifest_dir
+            .join("src")
+            .join("execution")
+            .join("capability.rs"),
+    )
+    .expect("read execution/capability.rs");
+    let checked_executors = [
+        (
+            "src/execution/executors/audio.rs",
+            ["SPEECH", "TRANSCRIPTION"].as_slice(),
+        ),
+        (
+            "src/execution/executors/embedding.rs",
+            ["EMBEDDING"].as_slice(),
+        ),
+        (
+            "src/execution/executors/files.rs",
+            [
+                "FILE_UPLOAD",
+                "FILE_LIST",
+                "FILE_RETRIEVE",
+                "FILE_DELETE",
+                "FILE_CONTENT",
+            ]
+            .as_slice(),
+        ),
+        (
+            "src/execution/executors/image.rs",
+            ["IMAGE_GENERATION", "IMAGE_EDIT", "IMAGE_VARIATION"].as_slice(),
+        ),
+        ("src/execution/executors/rerank.rs", ["RERANK"].as_slice()),
+    ];
+
+    for (_relative_path, requirements) in checked_executors {
+        for requirement in requirements {
+            assert!(
+                capability_source
+                    .contains(&format!("pub const {requirement}: CapabilityRequirement")),
+                "execution::capability must own the named `{requirement}` requirement"
+            );
+        }
+    }
+
+    let mut violations = Vec::new();
+    for (relative_path, requirements) in checked_executors {
+        let source = fs::read_to_string(manifest_dir.join(relative_path))
+            .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
+        let production_source = production_non_comment_source(&source);
+
+        if !production_source.contains("use crate::execution::capability::requirements;") {
+            violations.push(format!(
+                "{relative_path}: missing execution::capability::requirements import"
+            ));
+        }
+        for requirement in requirements {
+            if !production_source.contains(&format!(
+                "requirements::{requirement}.ensure_supported(&caps)?"
+            )) {
+                violations.push(format!(
+                    "{relative_path}: missing requirements::{requirement}.ensure_supported(&caps)?"
+                ));
+            }
+        }
+        for forbidden in [
+            "UnsupportedCapabilityPolicy::",
+            ".reject_if_unsupported(",
+            "resolve_unsupported_capability_policy(",
+        ] {
+            if production_source.contains(forbidden) {
+                violations.push(format!("{relative_path}: `{forbidden}`"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "hard family executor capability gates must cross execution::capability named requirements instead of rebuilding feature strings or policies locally:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn core_family_contract_and_tooling_sources_do_not_handle_provider_maps() {
     let manifest_dir = crate_root();
     let checked_files = [

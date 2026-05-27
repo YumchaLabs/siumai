@@ -5,7 +5,7 @@
 //! Cherry Studio's UX while keeping the logic library-first.
 
 use crate::error::{ErrorCategory, LlmError, LlmErrorExt};
-use crate::types::{UnsupportedCapabilityBehavior, UnsupportedCapabilityPolicy, Warning};
+pub use crate::execution::capability::resolve_unsupported_capability_policy;
 // Note: Do not import ProviderType here; helpers are provider-agnostic
 
 /// Error kind for presentation (coarse-grained)
@@ -37,33 +37,6 @@ pub struct ProviderHint {
     pub suggested_provider_id: Option<String>,
     /// Known aliases for this provider (if any)
     pub aliases: Vec<String>,
-}
-
-/// Resolve an unsupported-capability policy into the shared runtime outcome.
-///
-/// `Reject` becomes `LlmError::UnsupportedOperation`. Non-reject policies return a warning that
-/// callers can merge into response or stream-start warnings. Provider-specific execution remains
-/// responsible for deciding when to call this helper.
-pub fn resolve_unsupported_capability_policy(
-    policy: UnsupportedCapabilityPolicy,
-) -> Result<Option<Warning>, LlmError> {
-    match policy.behavior {
-        UnsupportedCapabilityBehavior::Reject => Err(LlmError::UnsupportedOperation(
-            unsupported_capability_message(&policy),
-        )),
-        UnsupportedCapabilityBehavior::Warn | UnsupportedCapabilityBehavior::ProviderFallback => {
-            Ok(policy.warning())
-        }
-    }
-}
-
-fn unsupported_capability_message(policy: &UnsupportedCapabilityPolicy) -> String {
-    match policy.details.as_deref() {
-        Some(details) if !details.is_empty() => {
-            format!("unsupported capability `{}`: {}", policy.feature, details)
-        }
-        _ => format!("unsupported capability `{}`", policy.feature),
-    }
 }
 
 /// Optional raw info extracted from provider/API error
@@ -321,6 +294,7 @@ fn diagnosis_note(err: &LlmError) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{UnsupportedCapabilityPolicy, Warning};
 
     #[test]
     fn unsupported_capability_reject_policy_becomes_unsupported_error() {

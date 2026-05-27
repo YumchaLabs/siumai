@@ -57,6 +57,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Added a shared `ToolExecutionOwner` contract so provider-executed tool ownership is routed
   through one semantic owner while AI SDK `providerExecuted` / `isProviderExecuted` remain compact
   wire flags.
+- Deepened unsupported capability choreography behind named executor requirements so family
+  executors no longer rebuild feature strings, failure details, and reject/warn/provider-fallback
+  policy resolution locally.
 - Documented `ChatStreamEvent::StreamEnd` response content as a final snapshot/replay or fallback
   response rather than an append-only stream delta.
 - Added an OpenAI Responses stream fixture proving reasoning deltas can be followed by final visible

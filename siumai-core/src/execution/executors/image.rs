@@ -1,6 +1,7 @@
 //! Image generation executor traits
 
-use crate::error::{LlmError, resolve_unsupported_capability_policy};
+use crate::error::LlmError;
+use crate::execution::capability::requirements;
 use crate::execution::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
@@ -288,12 +289,7 @@ impl ImageExecutor for HttpImageExecutor {
     ) -> Result<ImageGenerationResponse, LlmError> {
         // Capability guard: image generation is a custom feature
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "image_generation",
-            Some("Image generation is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::IMAGE_GENERATION.ensure_supported(&caps)?;
         let retry_options = self.policy.retry_options.clone();
         let run_once = move || {
             let req = req.clone();
@@ -364,12 +360,7 @@ impl ImageExecutor for HttpImageExecutor {
         req: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "image_generation",
-            Some("Image editing is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::IMAGE_EDIT.ensure_supported(&caps)?;
         let req = if self
             .provider_spec
             .materialize_image_edit_urls(&req, &self.provider_context)
@@ -452,12 +443,7 @@ impl ImageExecutor for HttpImageExecutor {
         req: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "image_generation",
-            Some("Image variation is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::IMAGE_VARIATION.ensure_supported(&caps)?;
         let req = if self
             .provider_spec
             .materialize_image_variation_urls(&req, &self.provider_context)

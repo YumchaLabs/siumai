@@ -11,6 +11,21 @@ Hajimi adapter changes out of scope.
 
 ## Completed Task
 
+- Task ID: AISD-050
+- Result: DONE
+- Summary: Unsupported capability choreography now lives in
+  `siumai-core::execution::capability`. Hard family executors use named requirements for audio,
+  embedding, files, image, and rerank; the shared gate owns reject, warning, and provider-fallback
+  policy resolution; `ProviderCapabilities::reject_if_unsupported` is documented as a low-level
+  compatibility/custom probe; and a boundary test prevents executors from rebuilding local feature
+  strings or policies.
+- Validation:
+  - `cargo check -p siumai-core -p siumai-spec`
+  - `cargo fmt --check -p siumai-core -p siumai-spec`
+  - `cargo nextest run -p siumai-core unsupported_capability --no-fail-fast`
+  - `cargo nextest run -p siumai-core reject_if_unsupported --no-fail-fast`
+  - `cargo nextest run -p siumai-core core_hard_family_executors_use_named_capability_requirements --no-fail-fast`
+
 - Task ID: AISD-040
 - Result: DONE
 - Summary: Provider-executed tool ownership now has a shared `ToolExecutionOwner` semantic
@@ -47,20 +62,20 @@ Hajimi adapter changes out of scope.
 
 ## Active Task
 
-- Task ID: AISD-050
+- Task ID: AISD-060
 - Owner: codex
 - Files:
-  - `siumai-core/src/execution`
-  - `siumai-core/src/traits/capabilities.rs`
-  - `siumai-core/src/error/helpers.rs`
-  - `siumai-spec/src/types/common.rs`
+  - `siumai-spec/src/types/usage.rs`
+  - `siumai-core/src/streaming`
+  - `siumai-protocol-openai/src/standards/openai/responses_sse`
   - `CHANGELOG.md`
   - crate changelogs
 - Validation:
-  - `cargo fmt --check -p siumai-core -p siumai-spec`
-  - `cargo nextest run -p siumai-core unsupported_capability --no-fail-fast`
-  - `cargo nextest run -p siumai-core reject_if_unsupported --no-fail-fast`
-- Status: IN_PROGRESS
+  - `cargo fmt --check -p siumai-spec -p siumai-core -p siumai-protocol-openai`
+  - `cargo nextest run -p siumai-spec usage --no-fail-fast`
+  - `cargo nextest run -p siumai-core streaming::processor --no-fail-fast`
+  - OpenAI Responses repeated-usage fixture
+- Status: READY
 - Review: not started
 - Evidence: `TODO.md`, `EVIDENCE_AND_GATES.md`
 
@@ -74,6 +89,7 @@ Hajimi adapter changes out of scope.
 
 ## Next Recommended Action
 
-Continue AISD-050 with `run-workstream-task`. Inspect existing unsupported-capability helpers and
-executor guards before editing; the goal is one shared gate module so hard rejects, warnings, and
-provider fallback behavior are explicit rather than repeated across executors.
+Continue AISD-060 with `run-workstream-task`. Inspect usage snapshot handling in spec, core stream
+processor, and OpenAI Responses SSE before editing; the goal is a named ledger module where
+same-provider-call stream usage snapshots replace each other, while explicit multi-call aggregation
+continues to use orchestration-level `Usage::merge()`.

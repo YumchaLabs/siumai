@@ -8,8 +8,8 @@
   "scope_kind": "architecture",
   "problem": "AI SDK contract hardening made behavior explicit, but several stream, diagnostics, tool, usage, and capability rules remain shallow caller knowledge.",
   "objective": "Deepen the remaining AI SDK contract seams into named modules with stronger locality, better leverage, executable projection rules, and less obsolete pass-through code.",
-  "current_task": "AISD-050",
-  "next_task": "AISD-050",
+  "current_task": "AISD-060",
+  "next_task": "AISD-060",
   "blocked": false,
   "reference_repo": {
     "name": "vercel-ai",
@@ -78,6 +78,12 @@
       "kind": "implementation",
       "task": "AISD-040",
       "summary": "Provider-executed tool ownership now flows through a shared ToolExecutionOwner contract across spec prompt/UI/stream/tool views, core UI and stream projection, and OpenAI protocol adapters."
+    },
+    {
+      "date": "2026-05-27",
+      "kind": "implementation",
+      "task": "AISD-050",
+      "summary": "Unsupported capability choreography now lives behind execution::capability named requirements and shared reject/warn/provider-fallback resolution for core hard family executors."
     }
   ],
   "adr_refs": [

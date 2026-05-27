@@ -1,6 +1,7 @@
 //! Files executor traits
 
-use crate::error::{LlmError, resolve_unsupported_capability_policy};
+use crate::error::LlmError;
+use crate::execution::capability::requirements;
 use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 use crate::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
@@ -117,12 +118,7 @@ impl FilesExecutor for HttpFilesExecutor {
     async fn upload(&self, req: FileUploadRequest) -> Result<FileObject, LlmError> {
         // Capability guard
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "file_management",
-            Some("File management is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::FILE_UPLOAD.ensure_supported(&caps)?;
         // 1. Get URL
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
         let endpoint = self.transformer.upload_endpoint(&req);
@@ -218,12 +214,7 @@ impl FilesExecutor for HttpFilesExecutor {
 
     async fn list(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "file_management",
-            Some("File listing is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::FILE_LIST.ensure_supported(&caps)?;
         // 1. Get URL from transformer
         let endpoint = self.transformer.list_endpoint(&query);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
@@ -286,12 +277,7 @@ impl FilesExecutor for HttpFilesExecutor {
 
     async fn retrieve(&self, file_id: String) -> Result<FileObject, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "file_management",
-            Some("File retrieve is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::FILE_RETRIEVE.ensure_supported(&caps)?;
         // 1. Get URL from transformer
         let endpoint = self.transformer.retrieve_endpoint(&file_id);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
@@ -347,12 +333,7 @@ impl FilesExecutor for HttpFilesExecutor {
 
     async fn delete(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "file_management",
-            Some("File delete is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::FILE_DELETE.ensure_supported(&caps)?;
         let id = file_id.trim_start_matches("files/").to_string();
         // 1. Get URL from transformer
         let endpoint = self.transformer.delete_endpoint(&file_id);
@@ -408,12 +389,7 @@ impl FilesExecutor for HttpFilesExecutor {
 
     async fn get_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "file_management",
-            Some("File content download is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::FILE_CONTENT.ensure_supported(&caps)?;
         let provider_id = self.provider_id.clone();
         let http_client = self.http_client.clone();
         let transformer = self.transformer.clone();

@@ -37,12 +37,14 @@ Last updated: 2026-05-27
   Evidence: `EVIDENCE_AND_GATES.md`, changelogs.
   Handoff: DONE. `ToolExecutionOwner` is the semantic contract; legacy AI SDK wire flags remain compatibility fields, prompt/UI/core/protocol decisions use the owner helper, and the obsolete ignored provider-executed stream-result parameter was removed.
 
-- [ ] AISD-050 [owner=codex] [deps=AISD-010] [scope=siumai-core/src/execution,siumai-core/src/traits/capabilities.rs,siumai-core/src/error/helpers.rs,siumai-spec/src/types/common.rs,CHANGELOG.md,siumai-core/CHANGELOG.md]
+- [x] AISD-050 [owner=codex] [deps=AISD-010] [scope=siumai-core/src/execution,siumai-core/src/traits/capabilities.rs,siumai-core/src/error/helpers.rs,siumai-spec/src/types/common.rs,CHANGELOG.md,siumai-core/CHANGELOG.md]
   Goal: Centralize unsupported capability guard choreography behind a deep module so executors do not repeat feature strings, details, policy creation, and policy resolution.
   Validation: `cargo fmt --check -p siumai-core -p siumai-spec`; `cargo nextest run -p siumai-core unsupported_capability --no-fail-fast`; `cargo nextest run -p siumai-core reject_if_unsupported --no-fail-fast`; focused executor guard tests.
   Review: Confirm every hard family executor gate crosses the same seam.
   Evidence: `EVIDENCE_AND_GATES.md`, changelogs.
-  Handoff: Delete duplicated helper code in executors once the shared gate proves parity.
+  Handoff: DONE. `execution::capability` now owns named hard family requirements, the shared
+  reject/warn/provider-fallback policy resolver, and a boundary test proving executors use the same
+  seam instead of local feature strings or policy reconstruction.
 
 - [ ] AISD-060 [owner=codex] [deps=AISD-010] [scope=siumai-spec/src/types/usage.rs,siumai-core/src/streaming,siumai-protocol-openai/src/standards/openai/responses_sse,CHANGELOG.md,crate changelogs]
   Goal: Give stream usage snapshots a named ledger module that handles replacement separately from explicit multi-call aggregation.

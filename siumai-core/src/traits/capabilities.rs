@@ -127,10 +127,11 @@ impl ProviderCapabilities {
         }
     }
 
-    /// Return a reject policy when a declared capability is missing.
+    /// Return a low-level reject policy when a declared capability is missing.
     ///
-    /// This helper is for hard capability guards where continuing would call the wrong family or
-    /// transport path. Lossy request-option projection should instead create
+    /// Executor hard guards should use the named requirements in
+    /// `crate::execution::capability`; this helper is retained for custom capability probes and
+    /// compatibility call sites. Lossy request-option projection should instead create
     /// `UnsupportedCapabilityPolicy::warn(...)`, and provider-owned uncertainty should use
     /// `UnsupportedCapabilityPolicy::provider_fallback(...)`.
     pub fn reject_if_unsupported(

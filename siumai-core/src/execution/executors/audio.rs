@@ -1,7 +1,8 @@
 //! Audio executor traits
 
-use crate::error::{LlmError, resolve_unsupported_capability_policy};
+use crate::error::LlmError;
 use crate::execution::ExecutionPolicy;
+use crate::execution::capability::requirements;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
 use crate::types::{HttpRequestInfo, HttpResponseInfo, SttRequest, TtsRequest};
 use reqwest::header::HeaderMap;
@@ -168,12 +169,7 @@ impl AudioExecutor for HttpAudioExecutor {
     async fn tts(&self, req: TtsRequest) -> Result<TtsExecutionResult, LlmError> {
         // Capability guard
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "speech",
-            Some("Text-to-speech is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::SPEECH.ensure_supported(&caps)?;
 
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = siumai_provider_utils::url::join_url(&base_url, self.transformer.tts_endpoint());
@@ -300,12 +296,7 @@ impl AudioExecutor for HttpAudioExecutor {
 
     async fn stt(&self, req: SttRequest) -> Result<SttExecutionResult, LlmError> {
         let caps = self.provider_spec.capabilities();
-        if let Some(policy) = caps.reject_if_unsupported(
-            "transcription",
-            Some("Speech-to-text is not supported by this provider"),
-        ) {
-            resolve_unsupported_capability_policy(policy)?;
-        }
+        requirements::TRANSCRIPTION.ensure_supported(&caps)?;
 
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = siumai_provider_utils::url::join_url(&base_url, self.transformer.stt_endpoint());

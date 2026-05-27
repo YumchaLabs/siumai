@@ -31,6 +31,11 @@ Last updated: 2026-05-27
 | 2026-05-27 | AISD-040 | `cargo nextest run -p siumai-spec provider_executed --no-fail-fast` | Pass | 3 spec provider-executed tests passed, including `ToolExecutionOwner` wire-flag conversion and prompt validation. |
 | 2026-05-27 | AISD-040 | `cargo nextest run -p siumai-core provider_executed --no-fail-fast` | Pass | 2 core UI provider-executed conversion tests passed. |
 | 2026-05-27 | AISD-040 | `cargo nextest run -p siumai-protocol-openai --features openai-standard,openai-responses provider_executed --no-fail-fast` | Pass | 6 protocol provider-executed tests passed across Responses SSE conversion, request/response transformers, and JSON response encoding. |
+| 2026-05-27 | AISD-050 | `cargo check -p siumai-core -p siumai-spec` | Pass | Core/spec compile after moving executor hard guards to `execution::capability`. |
+| 2026-05-27 | AISD-050 | `cargo fmt --check -p siumai-core -p siumai-spec` | Pass | Core/spec formatting is clean after named capability requirement extraction. |
+| 2026-05-27 | AISD-050 | `cargo nextest run -p siumai-core unsupported_capability --no-fail-fast` | Pass | 2 unsupported-capability policy resolver tests passed. |
+| 2026-05-27 | AISD-050 | `cargo nextest run -p siumai-core reject_if_unsupported --no-fail-fast` | Pass | 4 low-level and executor-gate reject tests passed. |
+| 2026-05-27 | AISD-050 | `cargo nextest run -p siumai-core core_hard_family_executors_use_named_capability_requirements --no-fail-fast` | Pass | Boundary test proves audio, embedding, files, image, and rerank executors cross the named requirement seam instead of rebuilding policies locally. |
 
 ## Required Gates
 
