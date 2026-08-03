@@ -10,6 +10,15 @@
       "target_allowed_workspace_dependencies": [],
       "transition_expires": "U2"
     },
+    "siumai-transport": {
+      "current_allowed_workspace_dependencies": [
+        "siumai-core"
+      ],
+      "target_allowed_workspace_dependencies": [
+        "siumai-core"
+      ],
+      "transition_expires": "U3"
+    },
     "siumai-registry": {
       "current_allowed_workspace_dependencies": [
         "siumai-core",

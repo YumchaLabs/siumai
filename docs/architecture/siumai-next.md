@@ -172,6 +172,26 @@ The concrete package rules are:
 7. MCP, server, and bridge packages are optional integrations above runtime and
    protocol layers.
 
+The transport contract is intentionally closed around replay and credentials.
+Provider code supplies a rebuildable immutable request plan plus one of three
+replay proofs: never, semantically idempotent, or a documented idempotency-key
+header. The transport generates one key per logical call, reuses it across that
+call's attempts, and shares one total attempt budget across network failures,
+401 refresh, rate limits, and transient server responses. `RetryIntent` may disable
+this behavior but cannot manufacture replay safety.
+
+Authenticated API clients disable automatic redirects, environment proxies,
+referer propagation, and reqwest's internal protocol retries. Credentials are
+bound to an exact scheme/host/effective-port audience and are marked sensitive in
+the HTTP header representation. Official endpoints additionally require an exact
+provider-owned `OfficialOrigin` proof. Public, official, and explicitly local
+endpoint policies validate every connector DNS result and defensively recheck the
+connected peer. Provider-returned resource URLs use a separate downloader that has
+no authentication or external client injection point and revalidates every manual
+redirect hop. `WebSocketTransport` owns guarded TCP/TLS/SNI and bounded handshakes;
+SSE, JSONL, and WebSocket sharing stops at bounded framing while terminal and event
+semantics remain in protocol-specific state machines.
+
 `config/architecture/dependency-policy.json` is the machine-readable dependency
 ratchet. Transitional allowances name the unit that removes them. The strict target
 policy becomes the release gate after the new vertical slices replace legacy paths.
