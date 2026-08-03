@@ -12,6 +12,9 @@
 //! quirks behind provider-owned presets/wrappers.
 #![deny(unsafe_code)]
 
+/// Canonical-core Chat Completions codec used by configured providers.
+pub mod chat_completions;
+
 // Keep provider-agnostic core modules available only to this crate's implementation.
 // Protocol crates must not publicly mirror `siumai-core`; downstream code should import
 // shared core types from `siumai-core` or the top-level `siumai` facade.

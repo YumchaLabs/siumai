@@ -377,7 +377,6 @@ impl OpenAiResponsesRequestTransformer {
                             tool_call_id,
                             tool_name,
                             output,
-                            provider_metadata: _,
                             ..
                         } => {
                             // Vercel parity: skip execution-denied tool results that carry an approval id.

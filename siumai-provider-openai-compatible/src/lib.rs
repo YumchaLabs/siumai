@@ -11,6 +11,15 @@
 
 mod macros;
 
+mod configured;
+
+pub use configured::{
+    BearerCredential, CredentialRequest, CredentialSourceError, DynamicCredentialSource,
+    OpenAiCompatibleConfigError, OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel,
+    OpenAiCompatibleProfile, OpenAiCompatibleProvider, OpenAiCompatibleProviderBuilder,
+    RetiredModelBehavior, profiles,
+};
+
 pub use siumai_protocol_openai::*;
 
 // Internal core aliases used by the compatibility provider implementation.

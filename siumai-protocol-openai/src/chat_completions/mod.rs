@@ -1,0 +1,18 @@
+//! OpenAI-compatible Chat Completions wire codec for the canonical core.
+
+mod dialect;
+mod request;
+mod response;
+mod stream;
+mod wire;
+
+pub use dialect::{ChatCompletionsDialect, DialectError, MaxOutputTokensField, ReasoningField};
+pub use request::{CHAT_COMPLETIONS_TARGET, encode_request, is_protected_option_field};
+pub use response::decode_response;
+pub use stream::ChatCompletionsStreamDecoder;
+
+/// Stable protocol identity used by configured-provider scopes.
+pub const PROTOCOL_ID: &str = "openai";
+
+/// Stable API-mode identity for the Chat Completions operation.
+pub const API_MODE_ID: &str = "chat-completions";
