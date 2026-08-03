@@ -39,5 +39,6 @@ pub use transport::{
     TransportStreamResponse,
 };
 pub use websocket::{
-    WebSocketConnection, WebSocketEndpoint, WebSocketTransport, WebSocketTransportBuilder,
+    WebSocketConnection, WebSocketEndpoint, WebSocketReceiver, WebSocketSender, WebSocketTransport,
+    WebSocketTransportBuilder,
 };

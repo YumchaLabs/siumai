@@ -1,15 +1,17 @@
 //! Owned WebSocket connection policy and bounded provider sessions.
 
 use std::fmt;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use http::Method;
 use http::header::HeaderMap;
 use reqwest::Url;
-use siumai_core::{CallOptions, Cancellation, Error, ErrorKind};
+use siumai_core::{CallOptions, Cancellation, Error, ErrorKind, ResponseDiagnostics};
 use tokio::net::TcpStream;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_tungstenite::tungstenite::Message;
@@ -20,7 +22,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_tls_with_c
 use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth, append_credential_query};
 use crate::endpoint::{CredentialAudience, EndpointConfig, Resolver, SystemResolver};
 use crate::framing::{WebSocketFrame, WebSocketFramer};
-use crate::transport::{effective_deadline, run_controlled};
+use crate::transport::{ResponseHeaders, effective_deadline, response_limit_error, run_controlled};
 use crate::{
     EndpointError, EndpointPolicy, LocalNetworkGrant, RequestBuildError, RequestHeaders,
     TransportConfigError, TransportLimits,
@@ -244,8 +246,9 @@ impl WebSocketTransport {
             .validate(&self.inner.limits)
             .map_err(websocket_request_error)?;
         let cancellation = options.cancellation().child();
-        let deadline = effective_deadline(options.deadline(), self.inner.session_timeout);
-        let permits = self.acquire(&cancellation, deadline).await?;
+        let session_deadline = effective_deadline(options.deadline(), self.inner.session_timeout);
+        let connect_deadline = effective_deadline(session_deadline, self.inner.connect_timeout);
+        let permits = self.acquire(&cancellation, connect_deadline).await?;
 
         let mut url = self.inner.endpoint.url.clone();
         let method = Method::GET;
@@ -263,7 +266,7 @@ impl WebSocketTransport {
                 AuthRefresh::Current,
             ),
             &cancellation,
-            deadline,
+            connect_deadline,
         )
         .await??;
         let (credential_headers, credential_query, _credential_revision) = patch.into_parts();
@@ -293,14 +296,16 @@ impl WebSocketTransport {
                 .connector_endpoint
                 .validated_addresses(self.inner.resolver.as_ref()),
             &cancellation,
-            deadline,
+            connect_deadline,
         )
         .await?
         .map_err(websocket_endpoint_error)?;
         let socket = self
-            .connect_tcp(&addresses, &cancellation, deadline)
+            .connect_tcp(&addresses, &cancellation, connect_deadline)
             .await?;
-        let remote = socket.peer_addr().map_err(|_| websocket_connect_error())?;
+        let remote = socket
+            .peer_addr()
+            .map_err(|error| websocket_connect_error(Some(error)))?;
         self.inner
             .endpoint
             .connector_endpoint
@@ -308,35 +313,51 @@ impl WebSocketTransport {
             .map_err(websocket_endpoint_error)?;
         socket
             .set_nodelay(true)
-            .map_err(|_| websocket_connect_error())?;
+            .map_err(|error| websocket_connect_error(Some(error)))?;
 
         let mut request = url
             .as_str()
             .into_client_request()
             .map_err(|_| websocket_request_error(RequestBuildError::InvalidTarget))?;
         merge_handshake_headers(request.headers_mut(), request_headers)?;
+        validate_handshake_headers(request.headers(), &self.inner.limits)?;
         let config = WebSocketConfig::default()
             .read_buffer_size(self.inner.limits.max_frame_bytes.min(64 * 1024))
             .write_buffer_size(0)
-            .max_write_buffer_size(self.inner.limits.max_request_bytes)
+            .max_write_buffer_size(self.inner.limits.max_frame_bytes.saturating_add(14))
             .max_message_size(Some(self.inner.limits.max_frame_bytes))
             .max_frame_size(Some(self.inner.limits.max_frame_bytes));
-        let (stream, _response) = run_controlled(
+        let (stream, response) = run_controlled(
             client_async_tls_with_config(request, socket, Some(config), None),
             &cancellation,
-            deadline,
+            connect_deadline,
         )
         .await?
-        .map_err(|_| websocket_handshake_error())?;
+        .map_err(websocket_handshake_error)?;
+        ResponseHeaders::validate(response.headers(), &self.inner.limits).map_err(|detail| {
+            response_limit_error(response.status(), response.headers(), Vec::new(), detail)
+        })?;
+
+        let (sender, receiver) = stream.split();
+        let state = Arc::new(WebSocketSessionState {
+            cancellation,
+            deadline: session_deadline,
+            io_timeout: self.inner.io_timeout,
+            permits: Mutex::new(Some(permits)),
+            terminated: AtomicBool::new(false),
+        });
 
         Ok(WebSocketConnection {
-            stream: Some(stream),
-            framer: WebSocketFramer::new(&self.inner.limits),
-            cancellation,
-            deadline,
-            permits: Some(permits),
-            maximum_outgoing_bytes: self.inner.limits.max_request_bytes,
-            io_timeout: self.inner.io_timeout,
+            sender: Some(WebSocketSender {
+                sink: Some(sender),
+                state: state.clone(),
+                maximum_outgoing_bytes: self.inner.limits.max_frame_bytes,
+            }),
+            receiver: Some(WebSocketReceiver {
+                stream: Some(receiver),
+                framer: WebSocketFramer::new(&self.inner.limits),
+                state,
+            }),
         })
     }
 
@@ -370,18 +391,14 @@ impl WebSocketTransport {
         cancellation: &Cancellation,
         deadline: Option<Instant>,
     ) -> Result<TcpStream, Error> {
+        let mut last_error = None;
         for address in addresses {
-            let attempt = run_controlled(
-                tokio::time::timeout(self.inner.connect_timeout, TcpStream::connect(address)),
-                cancellation,
-                deadline,
-            )
-            .await?;
-            if let Ok(Ok(socket)) = attempt {
-                return Ok(socket);
+            match run_controlled(TcpStream::connect(address), cancellation, deadline).await? {
+                Ok(socket) => return Ok(socket),
+                Err(error) => last_error = Some(error),
             }
         }
-        Err(websocket_connect_error())
+        Err(websocket_connect_error(last_error))
     }
 }
 
@@ -411,50 +428,200 @@ struct WebSocketTransportInner {
 }
 
 type RawWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type RawWebSocketSink = SplitSink<RawWebSocket, Message>;
+type RawWebSocketStream = SplitStream<RawWebSocket>;
 
 /// An established bounded WebSocket session with drop cancellation.
 pub struct WebSocketConnection {
-    stream: Option<RawWebSocket>,
-    framer: WebSocketFramer,
-    cancellation: Cancellation,
-    deadline: Option<Instant>,
-    permits: Option<WebSocketPermits>,
-    maximum_outgoing_bytes: usize,
-    io_timeout: Duration,
+    sender: Option<WebSocketSender>,
+    receiver: Option<WebSocketReceiver>,
 }
 
 impl WebSocketConnection {
     pub async fn send(&mut self, frame: WebSocketFrame) -> Result<(), Error> {
-        let message = encode_frame(frame);
-        if message.len() > self.maximum_outgoing_bytes {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "outgoing WebSocket message exceeds the configured limit",
-            ));
-        }
-        let cancellation = self.cancellation.clone();
-        let deadline = effective_deadline(self.deadline, self.io_timeout);
-        let stream = self.stream.as_mut().ok_or_else(websocket_closed_error)?;
-        run_controlled(stream.send(message), &cancellation, deadline)
-            .await?
-            .map_err(|_| websocket_io_error())
+        self.sender
+            .as_mut()
+            .ok_or_else(websocket_closed_error)?
+            .send(frame)
+            .await
     }
 
     pub async fn next(&mut self) -> Result<Option<WebSocketFrame>, Error> {
-        let cancellation = self.cancellation.clone();
-        let deadline = effective_deadline(self.deadline, self.io_timeout);
-        let stream = self.stream.as_mut().ok_or_else(websocket_closed_error)?;
-        let message = run_controlled(stream.next(), &cancellation, deadline).await?;
-        match message {
-            Some(Ok(message)) => self.framer.decode(message).map(Some).map_err(|_| {
-                Error::new(
-                    ErrorKind::ResponseLimit,
-                    "incoming WebSocket message exceeded a transport limit",
-                )
-            }),
-            Some(Err(_)) => {
+        self.receiver
+            .as_mut()
+            .ok_or_else(websocket_closed_error)?
+            .next()
+            .await
+    }
+
+    pub async fn close(&mut self) -> Result<(), Error> {
+        match self.sender.as_mut() {
+            Some(sender) => sender.close().await,
+            None => Ok(()),
+        }
+    }
+
+    /// Split the session into concurrently usable sending and receiving halves.
+    /// Dropping either half terminates the shared session.
+    pub fn split(mut self) -> (WebSocketSender, WebSocketReceiver) {
+        let sender = self.sender.take().expect("a connection owns one sender");
+        let receiver = self
+            .receiver
+            .take()
+            .expect("a connection owns one receiver");
+        (sender, receiver)
+    }
+}
+
+impl fmt::Debug for WebSocketConnection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let open = self
+            .sender
+            .as_ref()
+            .is_some_and(|sender| sender.state.is_open());
+        formatter
+            .debug_struct("WebSocketConnection")
+            .field("open", &open)
+            .finish()
+    }
+}
+
+/// Concurrent sending half of a bounded WebSocket session.
+pub struct WebSocketSender {
+    sink: Option<RawWebSocketSink>,
+    state: Arc<WebSocketSessionState>,
+    maximum_outgoing_bytes: usize,
+}
+
+impl WebSocketSender {
+    pub async fn send(&mut self, frame: WebSocketFrame) -> Result<(), Error> {
+        if !self.state.is_open() {
+            self.sink = None;
+            return Err(websocket_closed_error());
+        }
+        let closes_session = matches!(frame, WebSocketFrame::Close { .. });
+        let message = encode_frame(frame);
+        if message.len() > self.maximum_outgoing_bytes {
+            self.terminate();
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "outgoing WebSocket message exceeds the configured frame limit",
+            ));
+        }
+        let cancellation = self.state.cancellation.clone();
+        let deadline = self.state.io_deadline();
+        let Some(sink) = self.sink.as_mut() else {
+            self.state.terminate();
+            return Err(websocket_closed_error());
+        };
+        let result = run_controlled(sink.send(message), &cancellation, deadline).await;
+        match result {
+            Ok(Ok(())) => {
+                if closes_session {
+                    self.terminate();
+                }
+                Ok(())
+            }
+            Ok(Err(error)) => {
                 self.terminate();
-                Err(websocket_io_error())
+                Err(websocket_io_error(error))
+            }
+            Err(error) => {
+                self.terminate();
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn close(&mut self) -> Result<(), Error> {
+        if !self.state.is_open() {
+            self.sink = None;
+            return Ok(());
+        }
+        let cancellation = self.state.cancellation.clone();
+        let deadline = self.state.io_deadline();
+        let Some(mut sink) = self.sink.take() else {
+            self.state.terminate();
+            return Ok(());
+        };
+        let result = run_controlled(sink.close(), &cancellation, deadline).await;
+        self.state.terminate();
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(websocket_io_error(error)),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn terminate(&mut self) {
+        self.sink = None;
+        self.state.terminate();
+    }
+}
+
+impl fmt::Debug for WebSocketSender {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WebSocketSender")
+            .field("open", &self.state.is_open())
+            .field("maximum_outgoing_bytes", &self.maximum_outgoing_bytes)
+            .finish()
+    }
+}
+
+impl Drop for WebSocketSender {
+    fn drop(&mut self) {
+        self.terminate();
+    }
+}
+
+/// Concurrent receiving half of a bounded WebSocket session.
+pub struct WebSocketReceiver {
+    stream: Option<RawWebSocketStream>,
+    framer: WebSocketFramer,
+    state: Arc<WebSocketSessionState>,
+}
+
+impl WebSocketReceiver {
+    pub async fn next(&mut self) -> Result<Option<WebSocketFrame>, Error> {
+        if !self.state.is_open() {
+            self.stream = None;
+            return Ok(None);
+        }
+        let cancellation = self.state.cancellation.clone();
+        let deadline = self.state.io_deadline();
+        let Some(stream) = self.stream.as_mut() else {
+            self.state.terminate();
+            return Ok(None);
+        };
+        let message = match run_controlled(stream.next(), &cancellation, deadline).await {
+            Ok(message) => message,
+            Err(error) => {
+                self.terminate();
+                return Err(error);
+            }
+        };
+        match message {
+            Some(Ok(message)) => {
+                let frame = match self.framer.decode(message) {
+                    Ok(frame) => frame,
+                    Err(error) => {
+                        self.terminate();
+                        return Err(Error::new(
+                            ErrorKind::ResponseLimit,
+                            "incoming WebSocket message exceeded a transport limit",
+                        )
+                        .with_source(error));
+                    }
+                };
+                if matches!(frame, WebSocketFrame::Close { .. }) {
+                    self.terminate();
+                }
+                Ok(Some(frame))
+            }
+            Some(Err(error)) => {
+                self.terminate();
+                Err(websocket_io_error(error))
             }
             None => {
                 self.terminate();
@@ -463,41 +630,55 @@ impl WebSocketConnection {
         }
     }
 
-    pub async fn close(&mut self) -> Result<(), Error> {
-        let cancellation = self.cancellation.clone();
-        let deadline = effective_deadline(self.deadline, self.io_timeout);
-        let Some(mut stream) = self.stream.take() else {
-            self.terminate();
-            return Ok(());
-        };
-        let result = run_controlled(stream.close(None), &cancellation, deadline)
-            .await?
-            .map_err(|_| websocket_io_error());
-        self.terminate();
-        result
-    }
-
     fn terminate(&mut self) {
         self.stream = None;
-        self.permits = None;
+        self.state.terminate();
     }
 }
 
-impl fmt::Debug for WebSocketConnection {
+impl fmt::Debug for WebSocketReceiver {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("WebSocketConnection")
-            .field("open", &self.stream.is_some())
+            .debug_struct("WebSocketReceiver")
+            .field("open", &self.state.is_open())
             .field("framer", &self.framer)
-            .field("deadline", &self.deadline)
             .finish()
     }
 }
 
-impl Drop for WebSocketConnection {
+impl Drop for WebSocketReceiver {
     fn drop(&mut self) {
-        self.cancellation.cancel();
         self.terminate();
+    }
+}
+
+struct WebSocketSessionState {
+    cancellation: Cancellation,
+    deadline: Option<Instant>,
+    io_timeout: Duration,
+    permits: Mutex<Option<WebSocketPermits>>,
+    terminated: AtomicBool,
+}
+
+impl WebSocketSessionState {
+    fn is_open(&self) -> bool {
+        !self.terminated.load(Ordering::Acquire)
+    }
+
+    fn io_deadline(&self) -> Option<Instant> {
+        effective_deadline(self.deadline, self.io_timeout)
+    }
+
+    fn terminate(&self) {
+        if self.terminated.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.cancellation.cancel();
+        let mut permits = self
+            .permits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        permits.take();
     }
 }
 
@@ -515,6 +696,21 @@ fn merge_handshake_headers(destination: &mut HeaderMap, source: HeaderMap) -> Re
             return Err(websocket_request_error(RequestBuildError::ProtectedHeader));
         }
         destination.insert(name, value);
+    }
+    Ok(())
+}
+
+fn validate_handshake_headers(headers: &HeaderMap, limits: &TransportLimits) -> Result<(), Error> {
+    if headers.len() > limits.max_header_count {
+        return Err(websocket_request_error(RequestBuildError::TooManyHeaders));
+    }
+    if headers
+        .values()
+        .any(|value| value.as_bytes().len() > limits.max_header_value_bytes)
+    {
+        return Err(websocket_request_error(
+            RequestBuildError::HeaderValueTooLarge,
+        ));
     }
     Ok(())
 }
@@ -552,16 +748,26 @@ fn websocket_endpoint_error(error: EndpointError) -> Error {
     .with_source(error)
 }
 
-fn websocket_connect_error() -> Error {
-    Error::new(ErrorKind::Transport, "WebSocket TCP connection failed")
+fn websocket_connect_error(source: Option<std::io::Error>) -> Error {
+    let error = Error::new(ErrorKind::Transport, "WebSocket TCP connection failed");
+    match source {
+        Some(source) => error.with_source(source),
+        None => error,
+    }
 }
 
-fn websocket_handshake_error() -> Error {
-    Error::new(ErrorKind::Transport, "WebSocket handshake failed")
+fn websocket_handshake_error(source: tokio_tungstenite::tungstenite::Error) -> Error {
+    let mut error = Error::new(ErrorKind::Transport, "WebSocket handshake failed");
+    if let tokio_tungstenite::tungstenite::Error::Http(response) = &source {
+        error = error.with_diagnostics(
+            ResponseDiagnostics::default().with_status(response.status().as_u16()),
+        );
+    }
+    error.with_source(source)
 }
 
-fn websocket_io_error() -> Error {
-    Error::new(ErrorKind::Transport, "WebSocket session I/O failed")
+fn websocket_io_error(source: tokio_tungstenite::tungstenite::Error) -> Error {
+    Error::new(ErrorKind::Transport, "WebSocket session I/O failed").with_source(source)
 }
 
 fn websocket_closed_error() -> Error {
@@ -593,6 +799,20 @@ mod tests {
                     HeaderValue::from_static("Bearer canary-handshake-secret"),
                 )
                 .map_err(websocket_request_error)
+        }
+    }
+
+    #[derive(Debug)]
+    struct HangingAuth;
+
+    #[async_trait]
+    impl AuthApplier for HangingAuth {
+        async fn apply(
+            &self,
+            _context: AuthContext<'_>,
+            _refresh: AuthRefresh,
+        ) -> Result<crate::CredentialPatch, Error> {
+            std::future::pending().await
         }
     }
 
@@ -681,6 +901,197 @@ mod tests {
         assert!(matches!(&frame, WebSocketFrame::Text(text) if text == "canary-frame-payload"));
         assert!(!format!("{frame:?}").contains("canary-frame-payload"));
         connection.close().await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn split_halves_send_and_receive_concurrently_and_peer_close_is_terminal() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut stream = tokio_tungstenite::accept_async(socket).await.unwrap();
+            stream.send(Message::text("server-ready")).await.unwrap();
+            let message = stream.next().await.unwrap().unwrap();
+            assert_eq!(message.into_text().unwrap(), "client-ready");
+            stream
+                .send(Message::Close(Some(CloseFrame {
+                    code:
+                        tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Normal,
+                    reason: "done".into(),
+                })))
+                .await
+                .unwrap();
+        });
+        let transport = WebSocketTransport::builder(
+            WebSocketEndpoint::local_explicit(format!("ws://{address}/events")).unwrap(),
+        )
+        .build()
+        .unwrap();
+        let connection = transport
+            .connect(RequestHeaders::new(), CallOptions::default())
+            .await
+            .unwrap();
+        let (mut sender, mut receiver) = connection.split();
+
+        let (sent, received) = tokio::join!(
+            sender.send(WebSocketFrame::Text("client-ready".to_owned())),
+            receiver.next()
+        );
+        sent.unwrap();
+        assert!(matches!(
+            received.unwrap(),
+            Some(WebSocketFrame::Text(text)) if text == "server-ready"
+        ));
+        assert!(matches!(
+            receiver.next().await.unwrap(),
+            Some(WebSocketFrame::Close {
+                code: Some(1000),
+                ..
+            })
+        ));
+        assert_eq!(
+            sender
+                .send(WebSocketFrame::Text("after-close".to_owned()))
+                .await
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidInput
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn peer_close_releases_the_shared_session_permit_before_halves_drop() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for index in 0..2 {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut stream = tokio_tungstenite::accept_async(socket).await.unwrap();
+                if index == 0 {
+                    stream.send(Message::Close(None)).await.unwrap();
+                } else {
+                    stream.send(Message::text("second-session")).await.unwrap();
+                }
+            }
+        });
+        let limits = TransportLimits {
+            max_connections: 1,
+            max_in_flight_requests: 1,
+            max_queued_requests: 1,
+            ..TransportLimits::default()
+        };
+        let transport = WebSocketTransport::builder(
+            WebSocketEndpoint::local_explicit(format!("ws://{address}/events")).unwrap(),
+        )
+        .with_limits(limits)
+        .build()
+        .unwrap();
+        let first = transport
+            .connect(RequestHeaders::new(), CallOptions::default())
+            .await
+            .unwrap();
+        let (_sender, mut receiver) = first.split();
+        assert!(matches!(
+            receiver.next().await.unwrap(),
+            Some(WebSocketFrame::Close { .. })
+        ));
+
+        let mut second = tokio::time::timeout(
+            Duration::from_secs(1),
+            transport.connect(RequestHeaders::new(), CallOptions::default()),
+        )
+        .await
+        .expect("peer close must release the session permit")
+        .unwrap();
+        assert!(matches!(
+            second.next().await.unwrap(),
+            Some(WebSocketFrame::Text(text)) if text == "second-session"
+        ));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn outgoing_frame_limit_terminates_both_halves() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut stream = tokio_tungstenite::accept_async(socket).await.unwrap();
+            let _ = stream.next().await;
+        });
+        let transport = WebSocketTransport::builder(
+            WebSocketEndpoint::local_explicit(format!("ws://{address}/events")).unwrap(),
+        )
+        .with_limits(TransportLimits {
+            max_frame_bytes: 4,
+            ..TransportLimits::default()
+        })
+        .build()
+        .unwrap();
+        let connection = transport
+            .connect(RequestHeaders::new(), CallOptions::default())
+            .await
+            .unwrap();
+        let (mut sender, mut receiver) = connection.split();
+        let error = sender
+            .send(WebSocketFrame::Text("12345".to_owned()))
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert!(receiver.next().await.unwrap().is_none());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn connect_timeout_covers_authentication_work() {
+        let endpoint = WebSocketEndpoint::local_explicit("ws://127.0.0.1:9/events").unwrap();
+        let transport = WebSocketTransport::builder(endpoint)
+            .with_auth(Arc::new(HangingAuth))
+            .with_connect_timeout(Duration::from_millis(30))
+            .build()
+            .unwrap();
+        let error = tokio::time::timeout(
+            Duration::from_secs(1),
+            transport.connect(RequestHeaders::new(), CallOptions::default()),
+        )
+        .await
+        .expect("connect timeout must cover auth")
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Timeout);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::result_large_err)] // The tungstenite callback owns this result shape.
+    async fn oversized_upgrade_response_headers_are_rejected() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let _ = accept_hdr_async(socket, |_request: &Request, mut response: Response| {
+                response.headers_mut().insert(
+                    http::header::HeaderName::from_static("x-oversized"),
+                    HeaderValue::from_str(&"a".repeat(65)).unwrap(),
+                );
+                Ok(response)
+            })
+            .await;
+        });
+        let transport = WebSocketTransport::builder(
+            WebSocketEndpoint::local_explicit(format!("ws://{address}/events")).unwrap(),
+        )
+        .with_limits(TransportLimits {
+            max_header_value_bytes: 64,
+            ..TransportLimits::default()
+        })
+        .build()
+        .unwrap();
+        let error = transport
+            .connect(RequestHeaders::new(), CallOptions::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::ResponseLimit);
         server.await.unwrap();
     }
 }
