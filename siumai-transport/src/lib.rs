@@ -28,7 +28,7 @@ pub use request::{
 };
 pub use resource::{
     DownloadedResource, ResourceDownloadOptions, ResourceDownloader, ResourceDownloaderBuilder,
-    ResourceUrl, ResourceUrlError,
+    ResourceProvenance, ResourceUrl, ResourceUrlError,
 };
 pub use transport::{
     ProviderTransport, ProviderTransportBuilder, ResponseHeaders, RetryReason, TransportByteStream,

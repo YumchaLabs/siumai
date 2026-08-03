@@ -16,7 +16,7 @@ use reqwest::dns::{Addrs, Name, Resolve as ReqwestResolve, Resolving};
 use reqwest::redirect;
 use siumai_core::{
     CallOptions, Cancellation, Error, ErrorKind, ResponseDiagnostics, RetryIntent,
-    SafeResponseHeaders, SensitiveResponse,
+    SensitiveResponse,
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -156,6 +156,9 @@ impl ProviderTransportBuilder {
             if timeout.is_zero() {
                 return Err(TransportConfigError::ZeroTimeout { name });
             }
+            if Instant::now().checked_add(timeout).is_none() {
+                return Err(TransportConfigError::TimeoutTooLarge { name });
+            }
         }
         let admission_capacity = self
             .limits
@@ -245,7 +248,7 @@ impl ProviderTransport {
                 return Err(response_limit_error(
                     status,
                     headers.expose(),
-                    bounded_body_prefix(&body, Some(&chunk)),
+                    bounded_body_prefix(&body, Some(&chunk), self.inner.limits.max_response_bytes),
                     "response body exceeds the configured limit",
                 ));
             }
@@ -1037,15 +1040,8 @@ pub(crate) fn response_limit_error(
     partial_body: Vec<u8>,
     _detail: &'static str,
 ) -> Error {
-    let mut safe_headers = SafeResponseHeaders::default();
-    for (name, value) in headers {
-        if let Ok(value) = value.to_str() {
-            let _ = safe_headers.try_insert(name.as_str(), value.to_owned());
-        }
-    }
     let diagnostics = ResponseDiagnostics::default()
         .with_status(status.as_u16())
-        .with_headers(safe_headers)
         .with_body_truncated(true);
     let raw_headers = headers
         .iter()
@@ -1064,15 +1060,18 @@ pub(crate) fn response_limit_error(
     .with_sensitive_response(SensitiveResponse::new(raw_headers, partial_body))
 }
 
-pub(crate) fn bounded_body_prefix(current: &[u8], overflow: Option<&[u8]>) -> Vec<u8> {
+pub(crate) fn bounded_body_prefix(
+    current: &[u8],
+    overflow: Option<&[u8]>,
+    configured_maximum: usize,
+) -> Vec<u8> {
     let overflow_length = overflow.map_or(0, <[u8]>::len);
-    let mut prefix = Vec::with_capacity(
-        ERROR_BODY_CAPTURE_BYTES.min(current.len().saturating_add(overflow_length)),
-    );
-    let current_bytes = current.len().min(ERROR_BODY_CAPTURE_BYTES);
+    let maximum = ERROR_BODY_CAPTURE_BYTES.min(configured_maximum);
+    let mut prefix = Vec::with_capacity(maximum.min(current.len().saturating_add(overflow_length)));
+    let current_bytes = current.len().min(maximum);
     prefix.extend_from_slice(&current[..current_bytes]);
     if let Some(overflow) = overflow {
-        let remaining = ERROR_BODY_CAPTURE_BYTES.saturating_sub(prefix.len());
+        let remaining = maximum.saturating_sub(prefix.len());
         prefix.extend_from_slice(&overflow[..overflow.len().min(remaining)]);
     }
     prefix

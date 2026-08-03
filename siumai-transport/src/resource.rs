@@ -11,16 +11,15 @@ use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use http::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, LOCATION};
 use reqwest::Url;
-use siumai_core::{
-    Cancellation, Error, ErrorKind, ResponseDiagnostics, SafeResponseHeaders, SensitiveResponse,
-};
+use sha2::{Digest, Sha256};
+use siumai_core::{Cancellation, Error, ErrorKind, ResponseDiagnostics, SensitiveResponse};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::endpoint::{EndpointConfig, Resolver, SystemResolver};
 use crate::transport::{
-    ResponseHeaders, bounded_body_prefix, build_guarded_client, response_limit_error,
-    run_controlled, transport_source_error,
+    ResponseHeaders, bounded_body_prefix, build_guarded_client, effective_deadline,
+    response_limit_error, run_controlled, transport_source_error,
 };
 use crate::{EndpointError, EndpointPolicy, TransportConfigError, TransportLimits};
 
@@ -29,6 +28,7 @@ const MAX_DATA_RESOURCE_URL_BYTES: usize = 256 * 1024 * 1024;
 const DATA_URL_METADATA_BYTES: usize = 1024;
 const DECODE_CHECK_BYTES: usize = 64 * 1024;
 const ERROR_BODY_CAPTURE_BYTES: usize = 64 * 1024;
+const DEFAULT_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// Invalid resource URL. Raw URLs are intentionally absent from diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -145,12 +145,61 @@ impl fmt::Debug for ResourceDownloadOptions {
     }
 }
 
+/// Bounded evidence describing where downloaded bytes came from.
+#[derive(Clone)]
+#[non_exhaustive]
+pub enum ResourceProvenance {
+    /// The final validated network URL after bounded redirects.
+    Network(ResourceUrl),
+    /// A data URL represented without retaining its encoded payload.
+    Inline {
+        sha256: [u8; 32],
+        source_bytes: usize,
+    },
+}
+
+impl ResourceProvenance {
+    pub fn network_url(&self) -> Option<&ResourceUrl> {
+        match self {
+            Self::Network(url) => Some(url),
+            Self::Inline { .. } => None,
+        }
+    }
+
+    pub fn inline_sha256(&self) -> Option<&[u8; 32]> {
+        match self {
+            Self::Network(_) => None,
+            Self::Inline { sha256, .. } => Some(sha256),
+        }
+    }
+
+    pub fn source_bytes(&self) -> Option<usize> {
+        match self {
+            Self::Network(_) => None,
+            Self::Inline { source_bytes, .. } => Some(*source_bytes),
+        }
+    }
+}
+
+impl fmt::Debug for ResourceProvenance {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Network(url) => formatter.debug_tuple("Network").field(url).finish(),
+            Self::Inline { source_bytes, .. } => formatter
+                .debug_struct("Inline")
+                .field("sha256", &"[REDACTED]")
+                .field("source_bytes", source_bytes)
+                .finish(),
+        }
+    }
+}
+
 /// Downloaded bytes and media evidence. No URL or payload is printed by default.
 pub struct DownloadedResource {
     data: Bytes,
     declared_media_type: Option<String>,
     detected_media_type: Option<String>,
-    final_url: ResourceUrl,
+    provenance: ResourceProvenance,
 }
 
 impl DownloadedResource {
@@ -166,8 +215,8 @@ impl DownloadedResource {
         self.detected_media_type.as_deref()
     }
 
-    pub fn final_url(&self) -> &ResourceUrl {
-        &self.final_url
+    pub fn provenance(&self) -> &ResourceProvenance {
+        &self.provenance
     }
 }
 
@@ -182,7 +231,7 @@ impl fmt::Debug for DownloadedResource {
                 &self.declared_media_type.is_some(),
             )
             .field("detected_media_type", &self.detected_media_type)
-            .field("final_url", &self.final_url)
+            .field("provenance", &self.provenance)
             .finish()
     }
 }
@@ -194,6 +243,7 @@ pub struct ResourceDownloaderBuilder {
     limits: TransportLimits,
     connect_timeout: Duration,
     read_timeout: Duration,
+    download_timeout: Duration,
 }
 
 impl ResourceDownloaderBuilder {
@@ -203,6 +253,7 @@ impl ResourceDownloaderBuilder {
             limits: TransportLimits::default(),
             connect_timeout: Duration::from_secs(10),
             read_timeout: Duration::from_secs(30),
+            download_timeout: DEFAULT_DOWNLOAD_TIMEOUT,
         }
     }
 
@@ -226,14 +277,23 @@ impl ResourceDownloaderBuilder {
         self
     }
 
+    pub fn with_download_timeout(mut self, timeout: Duration) -> Self {
+        self.download_timeout = timeout;
+        self
+    }
+
     pub fn build(self) -> Result<ResourceDownloader, TransportConfigError> {
         self.limits.validate()?;
         for (name, timeout) in [
             ("connect_timeout", self.connect_timeout),
             ("read_timeout", self.read_timeout),
+            ("download_timeout", self.download_timeout),
         ] {
             if timeout.is_zero() {
                 return Err(TransportConfigError::ZeroTimeout { name });
+            }
+            if Instant::now().checked_add(timeout).is_none() {
+                return Err(TransportConfigError::TimeoutTooLarge { name });
             }
         }
         let admission_capacity = self
@@ -248,6 +308,7 @@ impl ResourceDownloaderBuilder {
             limits: self.limits,
             connect_timeout: self.connect_timeout,
             read_timeout: self.read_timeout,
+            download_timeout: self.download_timeout,
         })
     }
 }
@@ -267,6 +328,7 @@ pub struct ResourceDownloader {
     limits: TransportLimits,
     connect_timeout: Duration,
     read_timeout: Duration,
+    download_timeout: Duration,
 }
 
 impl ResourceDownloader {
@@ -280,10 +342,17 @@ impl ResourceDownloader {
         options: ResourceDownloadOptions,
     ) -> Result<DownloadedResource, Error> {
         let cancellation = options.cancellation.child();
-        let permits = self.acquire(&cancellation, options.deadline).await?;
+        let deadline =
+            effective_deadline(options.deadline, self.download_timeout).ok_or_else(|| {
+                Error::new(
+                    ErrorKind::Configuration,
+                    "resource download timeout cannot be represented on this platform",
+                )
+            })?;
+        let permits = self.acquire(&cancellation, Some(deadline)).await?;
         if resource.url.scheme() == "data" {
             return self
-                .decode_data_url(resource, permits, cancellation, options.deadline)
+                .decode_data_url(resource, permits, cancellation, Some(deadline))
                 .await;
         }
         let _permits = permits;
@@ -315,7 +384,7 @@ impl ResourceDownloader {
             let response = run_controlled(
                 client.get(current.url.clone()).send(),
                 &cancellation,
-                options.deadline,
+                Some(deadline),
             )
             .await?
             .map_err(transport_source_error)?;
@@ -363,12 +432,17 @@ impl ResourceDownloader {
                 continue;
             }
             if !response.status().is_success() {
-                let error =
-                    resource_status_error(response, &cancellation, options.deadline).await?;
+                let error = resource_status_error(
+                    response,
+                    &cancellation,
+                    Some(deadline),
+                    self.limits.max_response_bytes,
+                )
+                .await?;
                 return Err(error);
             }
             return self
-                .read_success(response, current, &cancellation, options.deadline)
+                .read_success(response, current, &cancellation, Some(deadline))
                 .await;
         }
         Err(Error::new(
@@ -413,7 +487,7 @@ impl ResourceDownloader {
                 return Err(response_limit_error(
                     status,
                     &headers,
-                    bounded_body_prefix(&body, Some(&chunk)),
+                    bounded_body_prefix(&body, Some(&chunk), self.limits.max_response_bytes),
                     "resource body exceeds the configured limit",
                 ));
             }
@@ -425,7 +499,7 @@ impl ResourceDownloader {
             data,
             declared_media_type,
             detected_media_type,
-            final_url,
+            provenance: ResourceProvenance::Network(final_url),
         })
     }
 
@@ -436,16 +510,15 @@ impl ResourceDownloader {
         cancellation: Cancellation,
         deadline: Option<Instant>,
     ) -> Result<DownloadedResource, Error> {
-        let maximum = self.limits.max_response_bytes;
-        let decode_cancellation = cancellation.clone();
-        let task = tokio::task::spawn_blocking(move || {
-            let _permits = permits;
-            decode_data_url_blocking(resource, maximum, &decode_cancellation, deadline)
-        });
-        let joined = run_controlled(task, &cancellation, deadline).await?;
-        joined.map_err(|error| {
-            Error::new(ErrorKind::Internal, "data URL decoder task failed").with_source(error)
-        })?
+        DataDecodeTask::spawn(
+            resource,
+            self.limits.max_response_bytes,
+            permits,
+            &cancellation,
+            deadline,
+        )
+        .finish(&cancellation, deadline)
+        .await
     }
 
     async fn acquire(
@@ -479,6 +552,7 @@ impl fmt::Debug for ResourceDownloader {
             .field("limits", &self.limits)
             .field("connect_timeout", &self.connect_timeout)
             .field("read_timeout", &self.read_timeout)
+            .field("download_timeout", &self.download_timeout)
             .field("authentication", &"disabled")
             .field("proxy", &"disabled")
             .finish()
@@ -490,33 +564,75 @@ struct ResourcePermits {
     _in_flight: OwnedSemaphorePermit,
 }
 
+struct DataDecodeTask {
+    cancellation: Cancellation,
+    task: Option<tokio::task::JoinHandle<Result<DownloadedResource, Error>>>,
+}
+
+impl DataDecodeTask {
+    fn spawn(
+        resource: ResourceUrl,
+        maximum: usize,
+        permits: ResourcePermits,
+        parent_cancellation: &Cancellation,
+        deadline: Option<Instant>,
+    ) -> Self {
+        let cancellation = parent_cancellation.child();
+        let decode_cancellation = cancellation.clone();
+        let task = tokio::task::spawn_blocking(move || {
+            let _permits = permits;
+            decode_data_url_blocking(resource, maximum, &decode_cancellation, deadline)
+        });
+        Self {
+            cancellation,
+            task: Some(task),
+        }
+    }
+
+    async fn finish(
+        mut self,
+        call_cancellation: &Cancellation,
+        deadline: Option<Instant>,
+    ) -> Result<DownloadedResource, Error> {
+        let task = self.task.take().expect("decode task is consumed once");
+        let joined = run_controlled(task, call_cancellation, deadline).await?;
+        joined.map_err(|error| {
+            Error::new(ErrorKind::Internal, "data URL decoder task failed").with_source(error)
+        })?
+    }
+}
+
+impl Drop for DataDecodeTask {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+    }
+}
+
 async fn resource_status_error(
     response: reqwest::Response,
     cancellation: &Cancellation,
     deadline: Option<Instant>,
+    configured_maximum: usize,
 ) -> Result<Error, Error> {
     let status = response.status();
     let headers = response.headers().clone();
     let mut body = BytesMut::new();
     let mut stream = response.bytes_stream();
+    let capture_maximum = ERROR_BODY_CAPTURE_BYTES.min(configured_maximum);
+    let mut body_truncated = false;
     while let Some(chunk) = run_controlled(stream.next(), cancellation, deadline).await? {
         let chunk = chunk.map_err(transport_source_error)?;
-        if body.len().saturating_add(chunk.len()) > ERROR_BODY_CAPTURE_BYTES {
-            let remaining = ERROR_BODY_CAPTURE_BYTES.saturating_sub(body.len());
+        if body.len().saturating_add(chunk.len()) > capture_maximum {
+            let remaining = capture_maximum.saturating_sub(body.len());
             body.extend_from_slice(&chunk[..remaining.min(chunk.len())]);
+            body_truncated = true;
             break;
         }
         body.extend_from_slice(&chunk);
     }
-    let mut safe_headers = SafeResponseHeaders::default();
-    for (name, value) in &headers {
-        if let Ok(value) = value.to_str() {
-            let _ = safe_headers.try_insert(name.as_str(), value.to_owned());
-        }
-    }
     let diagnostics = ResponseDiagnostics::default()
         .with_status(status.as_u16())
-        .with_headers(safe_headers);
+        .with_body_truncated(body_truncated);
     Ok(
         Error::new(ErrorKind::Provider, "resource server returned an error")
             .with_diagnostics(diagnostics)
@@ -539,6 +655,7 @@ fn decode_data_url_blocking(
     deadline: Option<Instant>,
 ) -> Result<DownloadedResource, Error> {
     ensure_decode_active(cancellation, deadline)?;
+    let source_bytes = resource.url.as_str().len();
     let value = resource.url.as_str();
     let (metadata, payload) = value
         .strip_prefix("data:")
@@ -563,12 +680,16 @@ fn decode_data_url_blocking(
     };
     ensure_decode_active(cancellation, deadline)?;
     let data = Bytes::from(data);
+    let sha256 = Sha256::digest(&data).into();
     let detected_media_type = infer::get(&data).map(|kind| kind.mime_type().to_owned());
     Ok(DownloadedResource {
         data,
         declared_media_type,
         detected_media_type,
-        final_url: resource,
+        provenance: ResourceProvenance::Inline {
+            sha256,
+            source_bytes,
+        },
     })
 }
 
@@ -754,6 +875,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(valid.data(), &Bytes::from_static(b"okay"));
+        assert!(valid.provenance().network_url().is_none());
+        assert_eq!(
+            valid.provenance().inline_sha256(),
+            Some(&Sha256::digest(b"okay").into())
+        );
+        assert_eq!(
+            valid.provenance().source_bytes(),
+            Some("data:text/plain,okay".len())
+        );
         let error = downloader
             .download(
                 ResourceUrl::public("data:text/plain;base64,Y2FuYXJ5").unwrap(),
@@ -819,6 +949,45 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(deadline_error.kind(), ErrorKind::Timeout);
+    }
+
+    #[tokio::test]
+    async fn dropping_decode_task_cancels_its_blocking_work() {
+        let cancellation = Cancellation::new();
+        let observed = cancellation.clone();
+        let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::task::spawn_blocking(move || -> Result<DownloadedResource, Error> {
+            while !observed.is_cancelled() {
+                std::thread::yield_now();
+            }
+            let _ = stopped_tx.send(());
+            Err(Error::cancelled("test decoder stopped"))
+        });
+        let decode = DataDecodeTask {
+            cancellation,
+            task: Some(task),
+        };
+
+        drop(decode);
+
+        tokio::time::timeout(Duration::from_secs(1), stopped_rx)
+            .await
+            .expect("blocking decoder must observe drop cancellation")
+            .expect("blocking decoder must report completion");
+    }
+
+    #[test]
+    fn downloader_rejects_unrepresentable_total_timeout() {
+        let error = ResourceDownloader::builder()
+            .with_download_timeout(Duration::MAX)
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            TransportConfigError::TimeoutTooLarge {
+                name: "download_timeout"
+            }
+        ));
     }
 
     #[tokio::test]

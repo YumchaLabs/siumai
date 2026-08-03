@@ -50,6 +50,8 @@ pub enum TransportConfigError {
     AdmissionCapacityTooLarge { maximum: usize },
     #[error("transport timeout `{name}` must be greater than zero")]
     ZeroTimeout { name: &'static str },
+    #[error("transport timeout `{name}` is too large for this platform")]
+    TimeoutTooLarge { name: &'static str },
 }
 
 /// Invalid immutable request plan.

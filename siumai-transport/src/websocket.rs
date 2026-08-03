@@ -172,6 +172,9 @@ impl WebSocketTransportBuilder {
             if timeout.is_zero() {
                 return Err(TransportConfigError::ZeroTimeout { name });
             }
+            if Instant::now().checked_add(timeout).is_none() {
+                return Err(TransportConfigError::TimeoutTooLarge { name });
+            }
         }
         let admission_capacity = self
             .limits

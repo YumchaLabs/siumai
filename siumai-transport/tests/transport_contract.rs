@@ -603,7 +603,7 @@ async fn default_error_surfaces_redact_credentials_response_headers_and_body() {
     let server = TestServer::spawn(vec![ServerAction::Respond {
         status: 200,
         headers: vec![(
-            "Authorization".to_owned(),
+            "X-Request-Id".to_owned(),
             "canary-response-header".to_owned(),
         )],
         body: b"canary-response-body".to_vec(),
@@ -635,6 +635,8 @@ async fn default_error_surfaces_redact_credentials_response_headers_and_body() {
         assert!(!surface.contains("canary-response-header"));
         assert!(!surface.contains("canary-response-body"));
     }
+    assert!(error.diagnostics().unwrap().headers().is_empty());
+    assert!(error.sensitive_response().unwrap().expose().1.len() <= 4);
 }
 
 #[tokio::test]
@@ -764,4 +766,63 @@ async fn resource_body_limit_and_deadline_apply_after_headers() {
         .await
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::Timeout);
+}
+
+#[tokio::test]
+async fn resource_default_total_timeout_and_error_capture_are_bounded() {
+    let slow = TestServer::spawn(vec![ServerAction::RespondThenHold {
+        status: 200,
+        prefix: b"part".to_vec(),
+        content_length: 100,
+    }])
+    .await;
+    let timeout_error = ResourceDownloader::builder()
+        .with_download_timeout(Duration::from_millis(50))
+        .build()
+        .unwrap()
+        .download(
+            ResourceUrl::local_explicit(format!("http://{}/slow", slow.address)).unwrap(),
+            ResourceDownloadOptions::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(timeout_error.kind(), ErrorKind::Timeout);
+
+    let failed = TestServer::spawn(vec![ServerAction::Respond {
+        status: 500,
+        headers: vec![(
+            "X-Request-Id".to_owned(),
+            "canary-resource-request-id".to_owned(),
+        )],
+        body: b"canary-resource-body".to_vec(),
+    }])
+    .await;
+    let status_error = ResourceDownloader::builder()
+        .with_limits(TransportLimits {
+            max_response_bytes: 4,
+            ..TransportLimits::default()
+        })
+        .build()
+        .unwrap()
+        .download(
+            ResourceUrl::local_explicit(format!("http://{}/failed", failed.address)).unwrap(),
+            ResourceDownloadOptions::default(),
+        )
+        .await
+        .unwrap_err();
+    for surface in [
+        format!("{status_error:?}"),
+        status_error.to_string(),
+        serde_json::to_string(&status_error).unwrap(),
+    ] {
+        assert!(!surface.contains("canary-resource-request-id"));
+        assert!(!surface.contains("canary-resource-body"));
+    }
+    let diagnostics = status_error.diagnostics().unwrap();
+    assert!(diagnostics.headers().is_empty());
+    assert!(diagnostics.body_truncated());
+    assert_eq!(
+        status_error.sensitive_response().unwrap().expose().1.len(),
+        4
+    );
 }
