@@ -15,23 +15,64 @@ pub mod embedding;
 pub mod encoding;
 pub mod error;
 pub mod execution;
+pub mod experimental;
 pub mod image;
+pub mod language;
+pub mod model;
 pub mod observability;
+pub mod options;
 pub mod params;
+pub mod provider;
 pub mod rerank;
 pub mod retry;
 pub mod retry_api;
 pub mod speech;
 pub mod standards;
+pub mod stream;
 pub mod streaming;
 pub mod structured_output;
 pub mod text;
+pub mod tool;
 pub mod tooling;
 pub mod traits;
 pub mod transcription;
 pub mod types;
 pub mod ui;
+pub mod usage;
 pub mod utils;
 pub mod video;
 
-pub use error::{LlmError, LlmErrorExt};
+pub use error::{
+    DiagnosticHeaderError, DiagnosticTextError, Error, ErrorContext, ErrorKind, LlmError,
+    LlmErrorExt, PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders,
+    SensitiveErrorSource, SensitiveResponse,
+};
+pub use language::{
+    Citation, ContentPart, FinishReason, GenerationConfig, GenerationConfigError, LanguageRequest,
+    LanguageRequestError, LanguageResponse, MediaData, MediaPart, Message, MessageRole,
+    OpaqueProviderItem, OpaqueProviderItemError, PartialStructuredOutput, ProviderProvenance,
+    StructuredOutputSpec, ToolChoice, Warning,
+};
+pub use model::{
+    EmbeddingInput, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, ImageArtifact, ImageModel,
+    ImageRequest, ImageResponse, LanguageModel, Model, ModelDescriptor, ModelFamily,
+    RerankCandidate, RerankModel, RerankRequest, RerankResponse, RerankResult, SpeechModel,
+    SpeechRequest, SpeechResponse, TranscriptSegment, TranscriptionModel, TranscriptionRequest,
+    TranscriptionResponse,
+};
+pub use options::{
+    CallOptions, Cancellation, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
+    ProviderOptionOrigin, ProviderOptions, RetryIntent, TypedProviderOptions,
+};
+pub use provider::{
+    CapabilityStatus, InvalidId, ModelFactory, ModelId, ModelLookupError, ModelOperation,
+    ModelPolicy, ModelPolicyContext, ProviderId, ProviderRegistration, RouteId,
+};
+pub use stream::{
+    LanguageStream, LanguageStreamEvent, StreamContractError, StreamLifecycle, StreamTerminal,
+};
+pub use tool::{
+    ExecutionOwner, InvalidToolSpec, ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult,
+    ToolSpec,
+};
+pub use usage::{Usage, UsageValue};

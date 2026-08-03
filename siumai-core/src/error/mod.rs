@@ -1,9 +1,16 @@
 //! Error handling (re-export).
 //!
-//! The canonical error types live in `siumai-spec` and are re-exported here.
+//! Canonical errors coexist temporarily with legacy `siumai-spec` re-exports
+//! while provider paths migrate to the next contract.
 
+mod contract;
 pub mod helpers;
 pub mod policy;
+pub use contract::{
+    DiagnosticHeaderError, DiagnosticTextError, Error, ErrorContext, ErrorKind,
+    PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders, SensitiveErrorSource,
+    SensitiveResponse,
+};
 pub use helpers::*;
 pub use policy::*;
 pub use siumai_spec::error::*;

@@ -64,13 +64,14 @@ when a request is executed.
 
 ### Public contracts
 
-The following sketch fixes responsibilities, not final field spelling:
+The canonical contracts are exported from the `siumai-core` crate root. Durable
+data is grouped in the `language`, `model`, `options`, `provider`, `stream`,
+`tool`, and `usage` modules; provider transports and wire DTOs are deliberately
+absent from these contracts.
 
 ```rust,ignore
 pub trait Model: Send + Sync {
-    fn provider_id(&self) -> &ProviderId;
-    fn model_id(&self) -> &ModelId;
-    fn family(&self) -> ModelFamily;
+    fn descriptor(&self) -> &ModelDescriptor;
 }
 
 #[async_trait]
@@ -94,9 +95,39 @@ pub trait LanguageModel: Model {
 inherent extension methods; Registry registrations expose only narrow family
 constructors.
 
+The other stable traits follow the same `(request, CallOptions) -> Result`
+shape: `EmbeddingModel::embed`, `RerankModel::rerank`,
+`ImageModel::generate_image`, `SpeechModel::synthesize`, and
+`TranscriptionModel::transcribe`. Embedding accepts one or more inputs in one
+provider request. No stable trait performs hidden batching, polling, or session
+management.
+
 Provider options are typed and provider-owned. Common requests contain only
 semantics shared by stable families. A checked raw JSON escape hatch is explicit,
 namespaced, and must reject protected transport and authentication fields.
+Typed serialization is ergonomic, not trusted: after erasure the selected
+provider validates every precedence layer against its request-body schema before
+merging, including values produced by downstream trait implementations.
+Language requests carry portable omitted-by-default generation controls
+(`max_output_tokens`, temperature, top-p, stop sequences, and seed), explicit
+tool choice, and a developer role. Provider-only reasoning, hosted-tool, cache,
+and persistence controls remain typed extensions.
+
+An established `LanguageStream` is a private-inner carrier rather than a public
+stream alias, so provider implementations cannot bypass lifecycle normalization.
+Its source factory receives a stream-owned child cancellation token; dropping the
+consumer cancels that child without cancelling its parent call. It emits
+`LanguageStreamEvent` values rather than item-level `Result`s. Source failures
+become `StreamTerminal::Failed`, explicit cancellation becomes
+`StreamTerminal::Cancelled`, and EOF without a terminal becomes
+`Failed(UnexpectedEof)`.
+
+Provider registrations carry their model policy and protocol context. A factory
+result is rejected when its provider, model, family, platform, protocol, or API
+mode differs from the requested identity. Error diagnostics expose only bounded
+allowlisted headers and explicitly approved public text by default; dynamic
+provider text, raw headers, bodies, and source errors require explicit sensitive
+access.
 
 ### Identity and routing
 
