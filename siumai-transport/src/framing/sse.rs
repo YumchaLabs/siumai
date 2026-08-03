@@ -1,6 +1,7 @@
 //! Incremental and bounded Server-Sent Events framing.
 
 use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use thiserror::Error;
@@ -13,7 +14,7 @@ use crate::TransportLimits;
 pub struct SseEvent {
     event_type: String,
     data: String,
-    id: Option<String>,
+    id: Option<Arc<str>>,
     retry: Option<Duration>,
 }
 
@@ -73,7 +74,7 @@ pub struct SseDecoder {
     event_type: Option<String>,
     data: String,
     has_data: bool,
-    last_event_id: Option<String>,
+    last_event_id: Option<Arc<str>>,
     pending_retry: Option<Duration>,
     event_bytes: usize,
     emitted_events: usize,
@@ -182,7 +183,7 @@ impl SseDecoder {
                 self.data.push('\n');
                 self.has_data = true;
             }
-            "id" if !value.contains('\0') => self.last_event_id = Some(value.to_owned()),
+            "id" if !value.contains('\0') => self.last_event_id = Some(Arc::from(value)),
             "retry" => {
                 if !value.is_empty()
                     && value.bytes().all(|byte| byte.is_ascii_digit())
@@ -296,6 +297,32 @@ mod tests {
             decoder.push(b"data: x\n\n"),
             Err(SseFrameError::TooManyEvents)
         );
+    }
+
+    #[test]
+    fn persistent_large_event_ids_are_shared_across_dispatched_events() {
+        let limits = TransportLimits {
+            max_frame_bytes: 2 * 1024 * 1024,
+            max_event_bytes: 2 * 1024 * 1024,
+            max_events_per_stream: 1024,
+            ..TransportLimits::default()
+        };
+        let id = "x".repeat(1024 * 1024);
+        let mut input = format!("id: {id}\n").into_bytes();
+        for _ in 0..1024 {
+            input.extend_from_slice(b"data: x\n\n");
+        }
+
+        let mut decoder = SseDecoder::new(&limits);
+        let events = decoder.push(&input).unwrap();
+        assert_eq!(events.len(), 1024);
+        let first = events[0].id.as_ref().unwrap();
+        assert!(events.iter().all(|event| {
+            event
+                .id
+                .as_ref()
+                .is_some_and(|event_id| Arc::ptr_eq(first, event_id))
+        }));
     }
 
     #[test]
