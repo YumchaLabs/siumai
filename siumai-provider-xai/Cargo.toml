@@ -2,6 +2,7 @@
 name = "siumai-provider-xai"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "xAI provider implementation for siumai (OpenAI-like protocol)"
 license.workspace = true

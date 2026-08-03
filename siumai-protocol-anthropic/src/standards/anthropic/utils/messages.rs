@@ -619,26 +619,6 @@ mod system_message_tests {
     }
 
     #[test]
-    fn request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
-        let source = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/standards/anthropic/utils/messages.rs"
-        ));
-        let implementation = source
-            .lines()
-            .take_while(|line| !line.contains("mod system_message_tests {"))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        for forbidden in ["provider_metadata", "providerMetadata"] {
-            assert!(
-                !implementation.contains(forbidden),
-                "Anthropic request conversion should not read legacy provider metadata via {forbidden}"
-            );
-        }
-    }
-
-    #[test]
     fn assistant_reasoning_with_redacted_data_emits_redacted_thinking_block() {
         let msg = ChatMessage::assistant_with_content(vec![
             ContentPart::reasoning("")

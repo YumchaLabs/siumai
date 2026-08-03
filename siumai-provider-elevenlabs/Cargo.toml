@@ -2,6 +2,7 @@
 name = "siumai-provider-elevenlabs"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "ElevenLabs provider implementation for siumai (speech and transcription)"
 license.workspace = true

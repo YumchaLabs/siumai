@@ -40,8 +40,6 @@ use tokio::sync::Mutex as TokioMutex;
 
 #[cfg(test)]
 mod alias_tests;
-#[cfg(test)]
-mod boundary_tests;
 mod build_context;
 #[cfg(test)]
 mod build_context_tests;

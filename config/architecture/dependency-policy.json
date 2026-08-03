@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "msrv": "1.88",
+  "package_rules": {
+    "siumai-core": {
+      "current_allowed_workspace_dependencies": [
+        "siumai-provider-utils",
+        "siumai-spec"
+      ],
+      "target_allowed_workspace_dependencies": [],
+      "transition_expires": "U2"
+    },
+    "siumai-registry": {
+      "current_allowed_workspace_dependencies": [
+        "siumai-core",
+        "siumai-protocol-openai",
+        "siumai-provider-amazon-bedrock",
+        "siumai-provider-anthropic",
+        "siumai-provider-azure",
+        "siumai-provider-cohere",
+        "siumai-provider-deepgram",
+        "siumai-provider-deepseek",
+        "siumai-provider-elevenlabs",
+        "siumai-provider-gateway",
+        "siumai-provider-gemini",
+        "siumai-provider-google-vertex",
+        "siumai-provider-groq",
+        "siumai-provider-minimaxi",
+        "siumai-provider-ollama",
+        "siumai-provider-openai",
+        "siumai-provider-openai-compatible",
+        "siumai-provider-togetherai",
+        "siumai-provider-utils",
+        "siumai-provider-xai"
+      ],
+      "target_allowed_workspace_dependencies": [
+        "siumai-core"
+      ],
+      "transition_expires": "U7"
+    }
+  },
+  "provider_dependency_transitions": [
+    {
+      "sources": ["*"],
+      "dependency": "siumai-provider-utils",
+      "transition_expires": "U3"
+    },
+    {
+      "sources": [
+        "siumai-provider-deepseek",
+        "siumai-provider-groq",
+        "siumai-provider-openai",
+        "siumai-provider-xai"
+      ],
+      "dependency": "siumai-provider-openai-compatible",
+      "transition_expires": "U10"
+    }
+  ]
+}

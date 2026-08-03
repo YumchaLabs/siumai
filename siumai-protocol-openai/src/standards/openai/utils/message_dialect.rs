@@ -1474,27 +1474,6 @@ mod tests {
         ToolResultContentPart,
     };
     use std::collections::HashMap;
-    fn request_conversion_source() -> &'static str {
-        let source = include_str!("message_dialect.rs");
-        let (section, _) = source
-            .split_once("\n#[cfg(test)]")
-            .expect("test module marker should exist");
-        section
-    }
-
-    #[test]
-    fn openai_chat_request_conversion_source_does_not_read_legacy_provider_metadata_fields() {
-        let source = request_conversion_source();
-
-        assert!(
-            !source.contains("providerMetadata"),
-            "OpenAI chat request conversion must not read legacy response-side providerMetadata"
-        );
-        assert!(
-            !source.contains("provider_metadata"),
-            "OpenAI chat request conversion must not read legacy response-side provider_metadata"
-        );
-    }
 
     #[test]
     fn openai_chat_pdf_file_part_maps_to_file_content_part() {

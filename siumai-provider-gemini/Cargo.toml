@@ -2,6 +2,7 @@
 name = "siumai-provider-gemini"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Google Gemini provider implementation for siumai"
 license.workspace = true

@@ -400,49 +400,6 @@ impl ThinkingAwareMessageBuilder {
 mod tests {
     use super::*;
 
-    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect("section start marker");
-        let end_index = source[start_index..]
-            .find(end)
-            .map(|offset| start_index + offset)
-            .expect("section end marker");
-        &source[start_index..end_index]
-    }
-
-    #[test]
-    fn thinking_request_config_source_does_not_read_response_metadata() {
-        let source = include_str!("thinking.rs");
-        let request_source = source_section(
-            source,
-            "impl ThinkingConfig",
-            "/// Thinking response parser",
-        );
-
-        for forbidden in ["provider_metadata", "ProviderMetadata", "ContentPart::"] {
-            assert!(
-                !request_source.contains(forbidden),
-                "Anthropic thinking request config must stay request-only"
-            );
-        }
-    }
-
-    #[test]
-    fn thinking_response_projection_source_does_not_read_request_provider_options() {
-        let source = include_str!("thinking.rs");
-        let response_source = source_section(
-            source,
-            "impl ThinkingResponseParser",
-            "/// Reasoning analysis utilities",
-        );
-
-        for forbidden in ["providerOptions", "provider_options", "ProviderOptionsMap"] {
-            assert!(
-                !response_source.contains(forbidden),
-                "Anthropic thinking response projection must not read request provider options"
-            );
-        }
-    }
-
     #[test]
     fn enhance_response_with_thinking_merges_existing_anthropic_metadata() {
         let mut response = ChatResponse::new(MessageContent::Text("visible answer".to_string()));

@@ -2,6 +2,7 @@
 name = "siumai-provider-anthropic"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Anthropic provider implementation for siumai"
 license.workspace = true

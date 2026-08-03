@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "fixture_root": "siumai/tests/fixtures",
+  "inheritance": "Every file matched by a set inherits its owner, protocol, behavior classes, source date, and disposition.",
+  "sets": [
+    {
+      "path": "anthropic/**",
+      "owner": "siumai-protocol-anthropic",
+      "protocol": "anthropic-messages",
+      "behaviors": ["request", "response", "stream", "error", "model-lifecycle"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-04-28",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "azure/**",
+      "owner": "siumai-provider-azure",
+      "protocol": "azure-openai",
+      "behaviors": ["request", "response", "stream", "routing", "error"],
+      "source_kind": "upstream-reference and provider behavior",
+      "source_date": "2026-05-03",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "bedrock/**",
+      "owner": "siumai-provider-amazon-bedrock",
+      "protocol": "amazon-bedrock",
+      "behaviors": ["request", "response", "stream", "rerank", "error"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-04-16",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "cohere/**",
+      "owner": "siumai-provider-cohere",
+      "protocol": "cohere",
+      "behaviors": ["rerank", "error"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-05-01",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "deepseek/**",
+      "owner": "siumai-provider-deepseek",
+      "protocol": "deepseek-openai-compatible",
+      "behaviors": ["response", "stream", "reasoning"],
+      "source_kind": "provider behavior",
+      "source_date": "2026-01-09",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "fireworks/**",
+      "owner": "openai-compatible-profile:fireworks",
+      "protocol": "openai-compatible",
+      "behaviors": ["error"],
+      "source_kind": "official provider audit",
+      "source_date": "2026-01-12",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "gemini/**",
+      "owner": "siumai-protocol-gemini",
+      "protocol": "google-generative-ai",
+      "behaviors": ["stream", "tool", "reasoning", "finish-reason"],
+      "source_kind": "provider behavior",
+      "source_date": "2026-01-12",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "google/**",
+      "owner": "siumai-protocol-gemini",
+      "protocol": "google-generative-ai",
+      "behaviors": ["request", "response", "stream", "tool", "reasoning"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-04-02",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "groq/**",
+      "owner": "siumai-provider-groq",
+      "protocol": "groq-openai-compatible",
+      "behaviors": ["request", "stream", "error"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-01-12",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "minimaxi/**",
+      "owner": "siumai-provider-minimaxi",
+      "protocol": "minimax-anthropic-compatible",
+      "behaviors": ["request", "error"],
+      "source_kind": "provider behavior",
+      "source_date": "2026-03-15",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "mistral/**",
+      "owner": "openai-compatible-profile:mistral",
+      "protocol": "openai-compatible",
+      "behaviors": ["error"],
+      "source_kind": "official provider audit",
+      "source_date": "2026-01-12",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "ollama/**",
+      "owner": "siumai-provider-ollama",
+      "protocol": "ollama",
+      "behaviors": ["request", "stream", "error"],
+      "source_kind": "provider behavior",
+      "source_date": "2026-01-12",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "openai/**",
+      "owner": "siumai-protocol-openai",
+      "protocol": "openai-chat-and-responses",
+      "behaviors": ["request", "response", "stream", "error", "resource", "model-lifecycle"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-04-29",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "openai-compatible/**",
+      "owner": "siumai-protocol-openai",
+      "protocol": "openai-compatible",
+      "behaviors": ["request", "response", "tool", "reasoning"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-05-03",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "openrouter/**",
+      "owner": "openai-compatible-profile:openrouter",
+      "protocol": "openai-compatible",
+      "behaviors": ["error"],
+      "source_kind": "official provider audit",
+      "source_date": "2026-01-12",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "perplexity/**",
+      "owner": "openai-compatible-profile:perplexity",
+      "protocol": "openai-compatible",
+      "behaviors": ["error"],
+      "source_kind": "official provider audit",
+      "source_date": "2026-01-12",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "siliconflow/**",
+      "owner": "openai-compatible-profile:siliconflow",
+      "protocol": "openai-compatible",
+      "behaviors": ["error"],
+      "source_kind": "official provider audit",
+      "source_date": "2026-01-12",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "togetherai/**",
+      "owner": "siumai-provider-togetherai",
+      "protocol": "together-openai-compatible",
+      "behaviors": ["rerank", "error"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-05-01",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "vertex/**",
+      "owner": "siumai-provider-google-vertex",
+      "protocol": "vertex-ai",
+      "behaviors": ["request", "response", "embedding", "image"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-04-30",
+      "disposition": "retain-and-reverify"
+    },
+    {
+      "path": "xai/**",
+      "owner": "siumai-provider-xai",
+      "protocol": "xai-chat-and-responses",
+      "behaviors": ["request", "response", "stream", "tool", "error"],
+      "source_kind": "upstream-reference snapshot",
+      "source_date": "2026-05-03",
+      "disposition": "retain-and-reverify"
+    }
+  ]
+}

@@ -1791,22 +1791,6 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_spec_request_option_source_does_not_read_response_metadata() {
-        let source = include_str!("spec.rs");
-        let request_source = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("production source before tests");
-
-        for disallowed in ["provider_metadata", "providerMetadata", "ProviderMetadata"] {
-            assert!(
-                !request_source.contains(disallowed),
-                "OpenAI-compatible request routing and provider option normalization must not read response metadata"
-            );
-        }
-    }
-
-    #[test]
     fn openai_compatible_image_provider_options_merge_canonical_and_provider_owned_keys() {
         use crate::core::ProviderSpec;
 

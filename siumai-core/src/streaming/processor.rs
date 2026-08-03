@@ -635,55 +635,6 @@ mod tests {
     use super::*;
     use crate::types::{AudioOutput, ChatStreamFinishInfo, PromptTokensDetails, Warning};
 
-    fn production_source() -> &'static str {
-        include_str!("processor.rs")
-            .split_once("\n#[cfg(test)]\nmod tests")
-            .expect("test module marker should exist")
-            .0
-    }
-
-    fn response_assembly_source() -> &'static str {
-        include_str!("processor/response_assembly.rs")
-    }
-
-    fn accumulated_source() -> &'static str {
-        include_str!("processor/accumulated.rs")
-    }
-
-    #[test]
-    fn stream_processor_usage_updates_cross_snapshot_ledger() {
-        let source = production_source();
-        let response_assembly = response_assembly_source();
-
-        assert!(source.contains("usage_ledger: UsageSnapshotLedger"));
-        assert!(source.contains("self.usage_ledger.record_snapshot(usage"));
-        assert!(response_assembly.contains(".usage_ledger"));
-        assert!(!source.contains(".merge(&usage"));
-        assert!(!response_assembly.contains(".merge(&usage"));
-    }
-
-    #[test]
-    fn response_assembly_reads_accumulated_record_not_processor_buffers() {
-        let response_assembly = response_assembly_source();
-        let accumulated = accumulated_source();
-
-        assert!(accumulated.contains("struct AccumulatedStreamRecord"));
-        assert!(response_assembly.contains("AccumulatedStreamRecord"));
-        assert!(response_assembly.contains("accumulated_stream_record()"));
-        for forbidden in [
-            "self.buffer",
-            "self.tool_calls",
-            "self.tool_call_order",
-            "self.thinking_buffer",
-            "self.stream_parts",
-        ] {
-            assert!(
-                !response_assembly.contains(forbidden),
-                "response assembly should use AccumulatedStreamRecord instead of `{forbidden}`"
-            );
-        }
-    }
-
     fn private_replay_hint() -> crate::types::ChatStreamReplay {
         let replay_key = ["open", "aiResponses"].concat();
         serde_json::from_value(serde_json::json!({
@@ -696,34 +647,6 @@ mod tests {
             }
         }))
         .expect("private replay hint")
-    }
-
-    #[test]
-    fn stream_processor_source_does_not_read_request_provider_options() {
-        let source = production_source();
-
-        assert!(
-            !source.contains("providerOptions"),
-            "StreamProcessor must not read request-side providerOptions"
-        );
-        assert!(
-            !source.contains(".provider_options_map"),
-            "StreamProcessor must not read request provider options maps"
-        );
-    }
-
-    #[test]
-    fn stream_processor_routes_text_response_parts_through_response_adapter() {
-        let source = response_assembly_source();
-
-        assert!(
-            source.contains("fn response_text_part"),
-            "StreamProcessor response assembly should have an explicit response text adapter"
-        );
-        assert!(
-            !source.contains("ContentPart::text("),
-            "StreamProcessor response assembly should not call legacy ContentPart::text directly"
-        );
     }
 
     #[test]

@@ -2,6 +2,7 @@
 name = "siumai-provider-deepgram"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Deepgram provider implementation for siumai (speech and transcription)"
 license.workspace = true

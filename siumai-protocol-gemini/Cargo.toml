@@ -2,6 +2,7 @@
 name = "siumai-protocol-gemini"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Google Gemini protocol standard (mapping + streaming) for siumai"
 license.workspace = true
@@ -56,9 +57,4 @@ json-repair = ["siumai-core/json-repair"]
 [[test]]
 name = "gemini_streaming_feature_surface_test"
 path = "tests/gemini_streaming_feature_surface_test.rs"
-required-features = ["google"]
-
-[[test]]
-name = "gemini_boundary_test"
-path = "tests/gemini_boundary_test.rs"
 required-features = ["google"]

@@ -2,6 +2,7 @@
 name = "siumai-extras"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Optional utilities for siumai: schema validation, telemetry, and server adapters"
 license.workspace = true

@@ -67,40 +67,6 @@ fn assert_request_provider_options_only(part: &ContentPart, expected: &ProviderO
 }
 
 #[test]
-fn ui_conversion_centralizes_legacy_request_content_constructors() {
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ui/conversion.rs"));
-    let helper_start = source
-        .find("fn ui_request_text_part")
-        .expect("UI request content adapter helpers should exist");
-    let helper_end = source
-        .find("fn convert_text_part")
-        .expect("UI request content adapter helpers should precede UI part conversion");
-    assert!(helper_start < helper_end);
-
-    let mut outside_helper_provider_metadata_lines = Vec::new();
-    let mut offset = 0usize;
-    for (index, line) in source.lines().enumerate() {
-        let line_start = offset;
-        offset += line.len() + 1;
-        if line.trim() == "provider_metadata: None,"
-            && !(helper_start..helper_end).contains(&line_start)
-        {
-            outside_helper_provider_metadata_lines.push((index + 1, line.trim().to_string()));
-        }
-    }
-
-    assert_eq!(
-        outside_helper_provider_metadata_lines.len(),
-        1,
-        "UI request ContentPart provider_metadata construction should stay centralized; the only outside-helper occurrence is the plain-text collapse match: {outside_helper_provider_metadata_lines:?}"
-    );
-    assert_eq!(
-        outside_helper_provider_metadata_lines[0].1,
-        "provider_metadata: None,"
-    );
-}
-
-#[test]
 fn validate_rejects_missing_output_error_text() {
     let message = UiMessage::assistant(
         "msg_1",

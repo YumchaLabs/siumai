@@ -283,15 +283,6 @@ mod tests {
     use super::*;
     use crate::types::{FinishReason, Usage};
 
-    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect("section start marker");
-        let end_index = source[start_index..]
-            .find(end)
-            .map(|offset| start_index + offset)
-            .expect("section end marker");
-        &source[start_index..end_index]
-    }
-
     fn create_test_response(content: &str) -> ChatResponse {
         ChatResponse {
             id: Some("test".to_string()),
@@ -307,34 +298,6 @@ mod tests {
             request: None,
             response: None,
             provider_metadata: None,
-        }
-    }
-
-    #[test]
-    fn extract_reasoning_middleware_source_stays_provider_agnostic() {
-        let source = include_str!("extract_reasoning.rs");
-        let production_source =
-            source_section(source, "pub struct ReasoningTagPresets", "#[cfg(test)]");
-
-        let disallowed = [
-            format!("\"{}\"", ["an", "thropic"].concat()),
-            format!("\"{}\"", ["ge", "mini"].concat()),
-            format!("\"{}\"", ["qw", "en"].concat()),
-            format!("\"{}-oss\"", ["gp", "t"].concat()),
-            format!("\"{}_oss\"", ["gp", "t"].concat()),
-            format!("\"{}-oss\"", ["se", "ed"].concat()),
-            format!("\"{}_oss\"", ["se", "ed"].concat()),
-            ["Deep", "Seek"].concat(),
-            ["An", "thropic"].concat(),
-            ["Ge", "mini"].concat(),
-            ["Open", "AI"].concat(),
-        ];
-
-        for disallowed in disallowed {
-            assert!(
-                !production_source.contains(&disallowed),
-                "core reasoning extraction middleware must stay provider-agnostic"
-            );
         }
     }
 

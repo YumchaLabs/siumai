@@ -2,6 +2,7 @@
 name = "siumai-provider-cohere"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Cohere provider implementation for siumai (chat, embedding, rerank)"
 license.workspace = true
@@ -57,4 +58,3 @@ wiremock.workspace = true
 tracing-test.workspace = true
 tempfile.workspace = true
 proptest.workspace = true
-

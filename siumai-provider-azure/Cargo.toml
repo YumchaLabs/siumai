@@ -2,6 +2,7 @@
 name = "siumai-provider-azure"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Azure OpenAI provider implementation for siumai"
 license.workspace = true

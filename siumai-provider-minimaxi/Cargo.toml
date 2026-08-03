@@ -2,6 +2,7 @@
 name = "siumai-provider-minimaxi"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "MiniMaxi provider implementation for siumai"
 license.workspace = true

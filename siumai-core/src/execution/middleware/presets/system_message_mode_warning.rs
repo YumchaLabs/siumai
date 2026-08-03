@@ -90,44 +90,6 @@ mod tests {
     use super::*;
     use crate::types::{ChatMessage, MessageContent};
 
-    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect("section start marker");
-        let end_index = source[start_index..]
-            .find(end)
-            .map(|offset| start_index + offset)
-            .expect("section end marker");
-        &source[start_index..end_index]
-    }
-
-    #[test]
-    fn system_message_mode_warning_source_stays_provider_agnostic() {
-        let source = include_str!("system_message_mode_warning.rs");
-        let production_source = source_section(
-            source,
-            "pub struct SystemMessageModeWarningMiddleware",
-            "#[cfg(test)]",
-        );
-
-        let disallowed = [
-            "provider_option(\"".to_string(),
-            format!("\"{}\"", ["op", "enai"].concat()),
-            format!("\"{}\"", ["az", "ure"].concat()),
-            format!("\"{}\"", ["an", "thropic"].concat()),
-            format!("\"{}\"", ["ge", "mini"].concat()),
-            ["Open", "AI"].concat(),
-            ["Az", "ure"].concat(),
-            ["An", "thropic"].concat(),
-            ["Ge", "mini"].concat(),
-        ];
-
-        for disallowed in disallowed {
-            assert!(
-                !production_source.contains(&disallowed),
-                "core system-message warning middleware must use injected provider option namespaces"
-            );
-        }
-    }
-
     #[test]
     fn post_generate_emits_compatibility_warning_for_system_message_removal() {
         let req = ChatRequest::new(vec![

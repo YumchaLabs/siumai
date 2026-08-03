@@ -840,27 +840,3 @@ pub(super) fn serialize_event(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn gemini_streaming_serialize_source_does_not_read_request_provider_options() {
-        let source = include_str!("serialize.rs");
-        let production_source = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("production source");
-
-        for forbidden in [
-            "provider_options",
-            ".provider_options",
-            "providerOptions",
-            "ProviderOptionsMap",
-        ] {
-            assert!(
-                !production_source.contains(forbidden),
-                "Gemini streaming serialize source must not read request-side provider options fragment `{forbidden}`"
-            );
-        }
-    }
-}

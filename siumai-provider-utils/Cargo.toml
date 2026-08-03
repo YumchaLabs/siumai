@@ -2,6 +2,7 @@
 name = "siumai-provider-utils"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Provider-facing utility seams for siumai"
 license.workspace = true

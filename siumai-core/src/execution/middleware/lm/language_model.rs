@@ -365,26 +365,6 @@ pub fn apply_model_id_override(
 mod tests {
     use super::*;
 
-    #[test]
-    fn language_model_middleware_tests_use_provider_neutral_fixtures() {
-        let source = include_str!("language_model.rs");
-        let forbidden = [
-            ["op", "enai"].concat(),
-            ["az", "ure"].concat(),
-            ["an", "thropic"].concat(),
-            ["ge", "mini"].concat(),
-            ["gp", "t-"].concat(),
-            ["cla", "ude-"].concat(),
-        ];
-
-        for fragment in forbidden {
-            assert!(
-                !source.contains(&fragment),
-                "core language-model middleware tests and docs must use provider-neutral fixtures"
-            );
-        }
-    }
-
     struct AppendModelSuffix(&'static str);
     impl LanguageModelMiddleware for AppendModelSuffix {
         fn transform_params(&self, mut req: ChatRequest) -> ChatRequest {

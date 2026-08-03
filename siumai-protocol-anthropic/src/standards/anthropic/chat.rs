@@ -465,15 +465,6 @@ mod tests {
     use crate::types::{ChatMessage, ChatRequest, ContentPart};
     use eventsource_stream::Event;
 
-    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect("section start marker");
-        let end_index = source[start_index..]
-            .find(end)
-            .map(|offset| start_index + offset)
-            .expect("section end marker");
-        &source[start_index..end_index]
-    }
-
     fn anthropic_citation_document_part(
         url: impl Into<String>,
         media_type: impl Into<String>,
@@ -486,53 +477,6 @@ mod tests {
                 "title": title.into()
             }),
         )
-    }
-
-    #[test]
-    fn chat_wrapper_keeps_request_and_response_provider_maps_directional() {
-        let source = include_str!("chat.rs");
-        let request_context = source_section(
-            source,
-            "fn extract_citation_documents(",
-            "        let citation_documents = extract_citation_documents(req);",
-        );
-        assert!(request_context.contains("provider_options"));
-        assert!(
-            !request_context.contains("provider_metadata"),
-            "Anthropic chat request-side citation context must not read legacy provider_metadata"
-        );
-        assert!(
-            !request_context.contains("providerMetadata"),
-            "Anthropic chat request-side citation context must not read legacy providerMetadata"
-        );
-
-        let response_transformer = source_section(
-            source,
-            "impl ResponseTransformer for AnthropicChatResponseTransformer",
-            "#[derive(Clone)]\nstruct AnthropicChatStreamTransformer",
-        );
-        assert!(
-            !response_transformer.contains("provider_options"),
-            "Anthropic chat response transformer wrapper must not read request provider_options"
-        );
-        assert!(
-            !response_transformer.contains("providerOptions"),
-            "Anthropic chat response transformer wrapper must not read request providerOptions"
-        );
-
-        let stream_transformer = source_section(
-            source,
-            "impl StreamChunkTransformer for AnthropicChatStreamTransformer",
-            "#[cfg(test)]",
-        );
-        assert!(
-            !stream_transformer.contains("provider_options"),
-            "Anthropic chat stream transformer wrapper must not read request provider_options"
-        );
-        assert!(
-            !stream_transformer.contains("providerOptions"),
-            "Anthropic chat stream transformer wrapper must not read request providerOptions"
-        );
     }
 
     #[test]

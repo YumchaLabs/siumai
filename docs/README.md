@@ -1,77 +1,15 @@
-# Docs Index
+# Siumai Documentation
 
-This folder is intentionally organized by **concern**. Prefer the migration guides, architecture
-documents, release process, and active workstreams for current planning.
+Siumai Next is a breaking architecture reset. The following documents are the
+current authority during the refactor:
 
-## Alignment (Vercel parity + provider audits)
-
-- Main checklist: `docs/alignment/provider-implementation-alignment.md`
-- Current provider capability matrix: `docs/workstreams/fearless-refactor-v4/provider-capability-alignment-matrix.md`
-- Vercel fixture parity: `docs/alignment/vercel-ai-fixtures-alignment.md`
-- Streaming bridge notes: `docs/alignment/streaming-bridge-alignment.md`
-- Official API audits: `docs/alignment/official/*`
-
-## Architecture (crate split + public surface)
-
-- Split design (ownership + dependencies): `docs/architecture/module-split-design.md`
-- Public facade surface: `docs/architecture/public-surface.md`
-- Provider extensions: `docs/architecture/provider-extensions.md`
-- Registry without built-ins: `docs/architecture/registry-without-builtins.md`
-
-## Migration
-
-- Beta.7 migration guide: `docs/migration/migration-0.11.0-beta.7.md`
-- Beta.6 migration guide: `docs/migration/migration-0.11.0-beta.6.md`
-- Beta.5 migration guide: `docs/migration/migration-0.11.0-beta.5.md` (historical; split-crate breaking changes)
-
-## Operations
-
+- Architecture: `docs/architecture/siumai-next.md`
+- Provider support claims: `docs/providers/support-policy.md`
+- Implementation plan: `docs/plans/2026-08-04-001-refactor-siumai-next-revival-plan.md`
 - Release process: `docs/releasing.md`
 
-## Workstreams
-
-- Fearless clean architecture boundaries: `docs/workstreams/fearless-clean-architecture-boundaries/`
-  - closed umbrella lane for the 2026-05-21 fearless refactor pass: isolated registry compatibility,
-    deepened OpenAI-compatible runtime/protocol/vendor seams, separated directional content
-    carriers, isolated provider-utils-like runtime helpers, moved the Gemini bridge target adapter
-    to its protocol owner, and tightened facade/family taxonomy
-- Fearless registry facade construction boundary: `docs/workstreams/fearless-registry-facade-construction-boundary/`
-  - centralizes built-in provider factory selection inside `siumai-registry` and keeps facade tests
-    from depending on concrete built-in factory structs for normal provider construction
-- Fearless core provider alias extraction: `docs/workstreams/fearless-core-provider-alias-extraction/`
-  - extracts provider-specific model alias and recommendation logic out of `siumai-core` and into
-    registry/provider-owned boundaries
-- Fearless boundary hardening: `docs/workstreams/fearless-boundary-hardening/`
-  - next fearless-refactor execution track for boundary hardening and removal of unnecessary
-    compatibility or redundant code once canonical paths are tested and documented
-- Fearless spec/core boundary convergence: `docs/workstreams/fearless-spec-core-boundary-convergence/`
-  - tracks the next boundary pass for keeping `siumai-spec` data-only, keeping `siumai-core`
-    provider-agnostic, and moving bridge/protocol/provider residue to owning crates
-- Fearless ContentPart boundary split: `docs/workstreams/fearless-content-part-boundary-split/`
-  - splits the deferred legacy `ContentPart` dual provider-map problem into a dedicated
-    compatibility lane with directional request/response adapters
-- Fearless vision compatibility removal: `docs/workstreams/fearless-vision-compat-removal/`
-  - removes the deprecated dedicated vision compatibility surface in favor of multimodal chat and
-    image-family APIs
-- Fearless language extension handle isolation: `docs/workstreams/fearless-language-extension-handle-isolation/`
-  - isolates registry language-handle file, skill, and music extension downcasts behind
-    provider-factory adapters
-- Fearless provider composite client isolation: `docs/workstreams/fearless-provider-composite-client-isolation/`
-  - isolates DeepInfra, Fireworks, and TogetherAI composite clients as compat-only adapters while
-    keeping stable family factory paths native
-- Stream delta lossless boundary: `docs/workstreams/stream-delta-lossless-boundary/`
-  - hardens the stream seam so generated text/reasoning deltas remain lossless across raw
-    transport, SSE parsing, protocol adapters, and provider public paths
-- Fearless architecture convergence: `docs/workstreams/fearless-architecture-convergence/`
-- Current V4 refactor tracking: `docs/workstreams/fearless-refactor-v4/`
-- AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`
-  - covers the next semantic refactor pass against `repo-ref/ai` provider v3/v4 contracts
-  - includes the current structural audit for `providerOptions` / `providerMetadata`, stable
-    content/stream shapes, and usage convergence
-  - prompt/content boundary review: `docs/workstreams/ai-sdk-structural-alignment/prompt-boundary-review.md`
-  - runtime consumer parity: `docs/workstreams/ai-sdk-structural-alignment/runtime-consumer-parity.md`
-- Protocol bridge + gateway runtime: `docs/workstreams/protocol-bridge-gateway/`
-  - covers the hybrid bridge strategy: normalized backbone + selected direct bridges + gateway policy
-  - migration note: `docs/workstreams/protocol-bridge-gateway/migration.md`
-  - route recipes: `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
-- Completed typed stream cleanup: `docs/workstreams/typed-stream-only/todo.md`
+The existing `docs/adr`, `docs/alignment`, `docs/workstreams`, and beta migration
+documents describe superseded architectures. They remain temporarily available as
+implementation archaeology and will be deleted after replacement examples,
+migration guidance, and provider documents exist. They are not design authority for
+new code.

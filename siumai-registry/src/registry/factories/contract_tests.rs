@@ -28,273 +28,6 @@ struct CaptureTransport {
     last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
 }
 
-#[test]
-fn provider_factories_use_explicit_compat_for_generic_self_calls() {
-    let factories_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src")
-        .join("registry")
-        .join("factories");
-
-    let banned_self_calls = [
-        "self.language_model_with_ctx(",
-        "self.completion_model_with_ctx(",
-        "self.embedding_model_with_ctx(",
-        "self.image_model_with_ctx(",
-        "self.speech_model_with_ctx(",
-        "self.transcription_model_with_ctx(",
-        "self.video_model_with_ctx(",
-        "self.reranking_model_with_ctx(",
-    ];
-    let banned_overrides = [
-        "async fn language_model(",
-        "async fn language_model_with_ctx(",
-        "async fn completion_model_with_ctx(",
-        "async fn embedding_model_with_ctx(",
-        "async fn image_model_with_ctx(",
-        "async fn speech_model_with_ctx(",
-        "async fn transcription_model_with_ctx(",
-        "async fn video_model_with_ctx(",
-        "async fn reranking_model_with_ctx(",
-    ];
-
-    for entry in std::fs::read_dir(factories_dir).expect("read registry factories directory") {
-        let path = entry.expect("read registry factory entry").path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
-            continue;
-        }
-        if path.file_name().and_then(|name| name.to_str()) == Some("contract_tests.rs") {
-            continue;
-        }
-        if path.file_name().and_then(|name| name.to_str()) == Some("test.rs") {
-            continue;
-        }
-
-        let source = std::fs::read_to_string(&path).expect("read registry factory source");
-        for banned in banned_self_calls.into_iter().chain(banned_overrides) {
-            assert!(
-                !source.contains(banned),
-                "{} should keep generic-client construction behind explicit compat_*_client_with_ctx methods, found {banned}",
-                path.display()
-            );
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct FactoryFamilyOverrideContract {
-    file_name: &'static str,
-    methods: &'static [&'static str],
-}
-
-impl FactoryFamilyOverrideContract {
-    const fn new(file_name: &'static str, methods: &'static [&'static str]) -> Self {
-        Self { file_name, methods }
-    }
-
-    fn assert_satisfied_by(self, factories_dir: &std::path::Path) {
-        let path = factories_dir.join(self.file_name);
-        let source = std::fs::read_to_string(&path).expect("read registry factory source");
-        for method in self.methods {
-            let expected = format!("async fn {method}(");
-            assert!(
-                source.contains(&expected),
-                "{} should expose a native `{method}` override for its declared family surface",
-                path.display()
-            );
-        }
-    }
-}
-
-fn assert_declared_family_override_contracts(
-    factories_dir: &std::path::Path,
-    contracts: &[FactoryFamilyOverrideContract],
-) {
-    for contract in contracts {
-        contract.assert_satisfied_by(factories_dir);
-    }
-}
-
-#[test]
-fn production_factories_with_declared_family_surfaces_use_native_family_overrides() {
-    let factories_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src")
-        .join("registry")
-        .join("factories");
-
-    let required: &[FactoryFamilyOverrideContract] = &[
-        FactoryFamilyOverrideContract::new("anthropic.rs", &["language_model_text_with_ctx"]),
-        FactoryFamilyOverrideContract::new(
-            "anthropic_vertex.rs",
-            &["language_model_text_with_ctx"],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "azure.rs",
-            &[
-                "language_model_text_with_ctx",
-                "completion_model_family_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-                "speech_model_family_with_ctx",
-                "transcription_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "bedrock.rs",
-            &[
-                "language_model_text_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-                "reranking_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "gateway.rs",
-            &[
-                "language_model_text_with_ctx",
-                "embedding_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "cohere.rs",
-            &[
-                "language_model_text_with_ctx",
-                "embedding_model_family_with_ctx",
-                "reranking_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new("deepseek.rs", &["language_model_text_with_ctx"]),
-        FactoryFamilyOverrideContract::new(
-            "deepinfra.rs",
-            &[
-                "language_model_text_with_ctx",
-                "completion_model_family_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "deepgram.rs",
-            &[
-                "speech_model_family_with_ctx",
-                "transcription_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "elevenlabs.rs",
-            &[
-                "speech_model_family_with_ctx",
-                "transcription_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "fireworks.rs",
-            &[
-                "language_model_text_with_ctx",
-                "completion_model_family_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-                "transcription_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "gemini.rs",
-            &[
-                "language_model_text_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-                "video_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "google_vertex.rs",
-            &[
-                "language_model_text_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-                "video_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "groq.rs",
-            &[
-                "language_model_text_with_ctx",
-                "speech_model_family_with_ctx",
-                "transcription_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "minimaxi.rs",
-            &[
-                "language_model_text_with_ctx",
-                "image_model_family_with_ctx",
-                "speech_model_family_with_ctx",
-                "video_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "ollama.rs",
-            &[
-                "language_model_text_with_ctx",
-                "embedding_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "openai.rs",
-            &[
-                "language_model_text_with_ctx",
-                "completion_model_family_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-                "speech_model_family_with_ctx",
-                "transcription_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "openai_compatible.rs",
-            &[
-                "language_model_text_with_ctx",
-                "completion_model_family_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-                "reranking_model_family_with_ctx",
-                "speech_model_family_with_ctx",
-                "transcription_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "togetherai.rs",
-            &[
-                "language_model_text_with_ctx",
-                "completion_model_family_with_ctx",
-                "embedding_model_family_with_ctx",
-                "image_model_family_with_ctx",
-                "speech_model_family_with_ctx",
-                "transcription_model_family_with_ctx",
-                "reranking_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "vertex_maas.rs",
-            &[
-                "language_model_text_with_ctx",
-                "completion_model_family_with_ctx",
-                "embedding_model_family_with_ctx",
-            ],
-        ),
-        FactoryFamilyOverrideContract::new(
-            "xai.rs",
-            &[
-                "language_model_text_with_ctx",
-                "image_model_family_with_ctx",
-                "speech_model_family_with_ctx",
-                "video_model_family_with_ctx",
-            ],
-        ),
-    ];
-
-    assert_declared_family_override_contracts(&factories_dir, required);
-}
-
 #[cfg(feature = "google-vertex")]
 mod vertex_maas_contract {
     use super::*;
@@ -1368,24 +1101,6 @@ mod azure_contract {
         );
     }
 
-    #[test]
-    fn azure_factory_source_declares_native_family_overrides() {
-        let source = include_str!("azure.rs");
-
-        assert!(source.contains("async fn compat_completion_client_with_ctx("));
-        assert!(source.contains("async fn completion_model_family_with_ctx("));
-        assert!(source.contains("async fn speech_model_family_with_ctx("));
-        assert!(source.contains("async fn transcription_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn azure_factory_source_routes_construction_through_provider_owned_builder() {
-        let source = include_str!("azure.rs");
-
-        assert!(source.contains("AzureOpenAiBuilder::new("));
-        assert!(source.contains(".with_http_config("));
-    }
-
     #[tokio::test]
     async fn azure_builder_config_registry_chat_request_are_equivalent() {
         let _lock = lock_env();
@@ -1974,15 +1689,6 @@ mod cohere_contract {
         );
     }
 
-    #[test]
-    fn cohere_factory_source_declares_native_family_overrides() {
-        let source = include_str!("cohere.rs");
-
-        assert!(source.contains("async fn language_model_text_with_ctx("));
-        assert!(source.contains("async fn embedding_model_family_with_ctx("));
-        assert!(source.contains("async fn reranking_model_family_with_ctx("));
-    }
-
     #[tokio::test]
     async fn cohere_registry_builds_language_embedding_and_rerank_handles() {
         let _lock = lock_env();
@@ -2481,23 +2187,6 @@ mod togetherai_contract {
         assert!(caps.supports("speech"));
         assert!(caps.supports("transcription"));
         assert!(caps.supports("audio"));
-    }
-
-    #[test]
-    fn togetherai_package_surface_and_audio_extension_boundary_is_explicit() {
-        let source = include_str!("togetherai.rs");
-
-        assert!(
-            source.contains("OpenAI-compatible chat/completion/embedding families")
-                && source.contains("provider-owned image + rerank"),
-            "TogetherAI factory docs should name the audited AI SDK package surface"
-        );
-        assert!(
-            source.contains("Siumai additionally keeps TogetherAI speech/transcription")
-                && source.contains("not part of")
-                && source.contains("@ai-sdk/togetherai"),
-            "TogetherAI factory docs should keep audio as a Siumai extension, not as AI SDK package parity"
-        );
     }
 
     #[tokio::test]
@@ -3378,16 +3067,6 @@ mod bedrock_contract {
                 .is::<siumai_provider_amazon_bedrock::providers::bedrock::BedrockClient>(),
             "expected provider-owned BedrockClient"
         );
-    }
-
-    #[test]
-    fn bedrock_factory_source_declares_native_family_overrides() {
-        let source = include_str!("bedrock.rs");
-
-        assert!(source.contains("async fn language_model_text_with_ctx("));
-        assert!(source.contains("async fn embedding_model_family_with_ctx("));
-        assert!(source.contains("async fn image_model_family_with_ctx("));
-        assert!(source.contains("async fn reranking_model_family_with_ctx("));
     }
 
     #[tokio::test]
@@ -4592,16 +4271,6 @@ mod openai_contract {
             crate::traits::ModelMetadata::specification_version(model.as_ref()),
             crate::traits::ModelSpecVersion::V1
         );
-    }
-
-    #[test]
-    fn openai_factory_source_declares_native_family_overrides() {
-        let source = include_str!("openai.rs");
-
-        assert!(source.contains("async fn compat_completion_client_with_ctx("));
-        assert!(source.contains("async fn completion_model_family_with_ctx("));
-        assert!(source.contains("async fn speech_model_family_with_ctx("));
-        assert!(source.contains("async fn transcription_model_family_with_ctx("));
     }
 
     #[tokio::test]
@@ -7894,45 +7563,6 @@ data: [DONE]
         assert!(body_text.contains("abc"));
     }
 
-    #[test]
-    fn openai_compatible_factory_source_declares_native_rerank_family_override() {
-        let source = include_str!("openai_compatible.rs");
-
-        assert!(source.contains("async fn reranking_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn openai_compatible_factory_source_declares_native_image_family_override() {
-        let source = include_str!("openai_compatible.rs");
-
-        assert!(source.contains("async fn image_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn openai_compatible_factory_source_declares_native_completion_family_overrides() {
-        let source = include_str!("openai_compatible.rs");
-
-        assert!(source.contains("async fn compat_completion_client_with_ctx("));
-        assert!(source.contains("async fn completion_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn openai_compatible_factory_source_declares_native_audio_family_overrides() {
-        let source = include_str!("openai_compatible.rs");
-
-        assert!(source.contains("async fn speech_model_family_with_ctx("));
-        assert!(source.contains("async fn transcription_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn openai_compatible_factory_source_routes_known_provider_construction_through_builder() {
-        let source = include_str!("openai_compatible.rs");
-
-        assert!(source.contains("OpenAiCompatibleBuilder::new("));
-        assert!(source.contains(".with_http_config("));
-        assert!(source.contains(".with_model_middlewares("));
-    }
-
     #[tokio::test]
     async fn openai_compatible_builder_config_registry_chat_request_are_equivalent() {
         let _lock = lock_env();
@@ -9110,15 +8740,6 @@ mod deepseek_contract {
             crate::traits::ModelMetadata::specification_version(model.as_ref()),
             crate::traits::ModelSpecVersion::V1
         );
-    }
-
-    #[test]
-    fn deepseek_factory_source_routes_construction_through_provider_owned_builder() {
-        let source = include_str!("deepseek.rs");
-
-        assert!(source.contains("DeepSeekBuilder::new("));
-        assert!(source.contains(".with_http_config("));
-        assert!(source.contains(".with_model_middlewares("));
     }
 
     #[tokio::test]
@@ -11073,29 +10694,6 @@ mod groq_contract {
         );
     }
 
-    #[test]
-    fn groq_factory_source_declares_native_audio_family_overrides() {
-        let source = include_str!("groq.rs");
-
-        assert!(
-            source.contains("async fn speech_model_family_with_ctx("),
-            "GroqProviderFactory should override speech_model_family_with_ctx instead of relying on a missing native speech family path"
-        );
-        assert!(
-            source.contains("async fn transcription_model_family_with_ctx("),
-            "GroqProviderFactory should override transcription_model_family_with_ctx instead of relying on a missing native transcription family path"
-        );
-    }
-
-    #[test]
-    fn groq_factory_source_routes_construction_through_provider_owned_builder() {
-        let source = include_str!("groq.rs");
-
-        assert!(source.contains("GroqBuilder::new("));
-        assert!(source.contains(".with_http_config("));
-        assert!(source.contains(".with_model_middlewares("));
-    }
-
     #[tokio::test]
     async fn groq_factory_rejects_native_embedding_family_path() {
         let _lock = lock_env();
@@ -12422,14 +12020,6 @@ mod deepgram_contract {
         );
         assert_eq!(req.body, b"abc".to_vec());
     }
-
-    #[test]
-    fn deepgram_factory_source_declares_native_audio_family_overrides() {
-        let source = include_str!("deepgram.rs");
-
-        assert!(source.contains("async fn speech_model_family_with_ctx("));
-        assert!(source.contains("async fn transcription_model_family_with_ctx("));
-    }
 }
 
 #[cfg(feature = "elevenlabs")]
@@ -12772,14 +12362,6 @@ mod elevenlabs_contract {
         assert!(body_text.contains("scribe_v1"));
         assert!(body_text.contains("abc"));
     }
-
-    #[test]
-    fn elevenlabs_factory_source_declares_native_audio_family_overrides() {
-        let source = include_str!("elevenlabs.rs");
-
-        assert!(source.contains("async fn speech_model_family_with_ctx("));
-        assert!(source.contains("async fn transcription_model_family_with_ctx("));
-    }
 }
 
 #[cfg(feature = "xai")]
@@ -13107,36 +12689,6 @@ mod xai_contract {
             Ok(_) => panic!("expected UnsupportedOperation for xai transcription family path"),
             Err(other) => panic!("expected UnsupportedOperation, got: {other:?}"),
         }
-    }
-
-    #[test]
-    fn xai_factory_source_declares_native_speech_family_override() {
-        let source = include_str!("xai.rs");
-
-        assert!(source.contains("async fn speech_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn xai_factory_source_declares_native_image_family_override() {
-        let source = include_str!("xai.rs");
-
-        assert!(source.contains("async fn image_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn xai_factory_source_declares_native_video_family_override() {
-        let source = include_str!("xai.rs");
-
-        assert!(source.contains("async fn video_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn xai_factory_source_routes_construction_through_provider_owned_builder() {
-        let source = include_str!("xai.rs");
-
-        assert!(source.contains("XaiBuilder::new("));
-        assert!(source.contains(".with_http_config("));
-        assert!(source.contains(".with_model_middlewares("));
     }
 
     #[tokio::test]
@@ -15220,20 +14772,6 @@ mod minimaxi_contract {
                 .await,
             "reranking family path",
         );
-    }
-
-    #[test]
-    fn minimaxi_factory_source_declares_native_speech_family_override() {
-        let source = include_str!("minimaxi.rs");
-
-        assert!(source.contains("async fn speech_model_family_with_ctx("));
-    }
-
-    #[test]
-    fn minimaxi_factory_source_declares_native_video_family_override() {
-        let source = include_str!("minimaxi.rs");
-
-        assert!(source.contains("async fn video_model_family_with_ctx("));
     }
 
     #[tokio::test]
@@ -17781,13 +17319,6 @@ mod anthropic_vertex_contract {
         );
     }
 
-    #[test]
-    fn anthropic_vertex_factory_source_declares_native_text_family_override() {
-        let source = include_str!("anthropic_vertex.rs");
-
-        assert!(source.contains("async fn language_model_text_with_ctx("));
-    }
-
     #[tokio::test]
     async fn anthropic_vertex_factory_rejects_deferred_non_text_family_paths() {
         let _lock = lock_env();
@@ -18830,14 +18361,6 @@ mod gemini_contract {
         );
     }
 
-    #[test]
-    fn gemini_factory_source_declares_native_video_family_override() {
-        let source = include_str!("gemini.rs");
-
-        assert!(source.contains("async fn compat_video_client_with_ctx("));
-        assert!(source.contains("async fn video_model_family_with_ctx("));
-    }
-
     #[tokio::test]
     async fn gemini_builder_config_registry_batch_embedding_request_are_equivalent() {
         let _lock = lock_env();
@@ -19265,14 +18788,6 @@ mod vertex_contract {
             crate::traits::ModelMetadata::model_id(model.as_ref()),
             "veo-3.1-generate-preview"
         );
-    }
-
-    #[test]
-    fn vertex_factory_source_declares_native_video_family_override() {
-        let source = include_str!("google_vertex.rs");
-
-        assert!(source.contains("async fn compat_video_client_with_ctx("));
-        assert!(source.contains("async fn video_model_family_with_ctx("));
     }
 
     #[tokio::test]

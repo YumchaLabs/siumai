@@ -8,6 +8,7 @@
 
 use std::sync::Mutex;
 
+#[allow(dead_code)]
 pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 pub(crate) struct EnvGuard {
@@ -16,6 +17,7 @@ pub(crate) struct EnvGuard {
 }
 
 impl EnvGuard {
+    #[allow(dead_code)]
     pub(crate) fn set(key: &'static str, value: &str) -> Self {
         let previous = std::env::var(key).ok();
         unsafe {

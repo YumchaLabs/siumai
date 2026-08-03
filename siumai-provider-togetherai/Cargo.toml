@@ -2,6 +2,7 @@
 name = "siumai-provider-togetherai"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "TogetherAI provider implementation for siumai (reranking)"
 license.workspace = true
@@ -57,4 +58,3 @@ wiremock.workspace = true
 tracing-test.workspace = true
 tempfile.workspace = true
 proptest.workspace = true
-

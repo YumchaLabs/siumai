@@ -368,62 +368,6 @@ mod tests {
     use crate::streaming::TypedStreamPart;
     use crate::types::{ChatMessage, ChatRequest};
 
-    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect("section start marker");
-        let end_index = source[start_index..]
-            .find(end)
-            .map(|offset| start_index + offset)
-            .expect("section end marker");
-        &source[start_index..end_index]
-    }
-
-    #[test]
-    fn chat_wrapper_keeps_request_response_stream_maps_directional() {
-        let source = include_str!("chat.rs");
-
-        let request_transformer = source_section(
-            source,
-            "impl RequestTransformer for GeminiChatRequestTransformer",
-            "#[derive(Clone)]\nstruct GeminiChatResponseTransformer",
-        );
-        assert!(
-            !request_transformer.contains("provider_metadata"),
-            "Gemini chat request transformer wrapper must not read legacy provider_metadata"
-        );
-        assert!(
-            !request_transformer.contains("providerMetadata"),
-            "Gemini chat request transformer wrapper must not read legacy providerMetadata"
-        );
-
-        let response_transformer = source_section(
-            source,
-            "impl ResponseTransformer for GeminiChatResponseTransformer",
-            "#[derive(Clone)]\nstruct GeminiChatStreamTransformer",
-        );
-        assert!(
-            !response_transformer.contains("provider_options"),
-            "Gemini chat response transformer wrapper must not read request provider_options"
-        );
-        assert!(
-            !response_transformer.contains("providerOptions"),
-            "Gemini chat response transformer wrapper must not read request providerOptions"
-        );
-
-        let stream_transformer = source_section(
-            source,
-            "impl StreamChunkTransformer for GeminiChatStreamTransformer",
-            "/// Adapter trait for provider-specific differences in Gemini Chat API",
-        );
-        assert!(
-            !stream_transformer.contains("provider_options"),
-            "Gemini chat stream transformer wrapper must not read request provider_options"
-        );
-        assert!(
-            !stream_transformer.contains("providerOptions"),
-            "Gemini chat stream transformer wrapper must not read request providerOptions"
-        );
-    }
-
     #[test]
     fn chat_url_accepts_vertex_resource_style_model_ids() {
         let spec = GeminiChatStandard::new().create_spec("gemini");

@@ -2,6 +2,7 @@
 name = "siumai-protocol-openai"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "OpenAI(-like) protocol standard mapping for siumai"
 license.workspace = true

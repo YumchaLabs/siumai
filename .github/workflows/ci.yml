@@ -29,9 +29,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Guardrail (provider dependency graph)
-        run: ./scripts/check-provider-deps.sh
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -41,12 +38,23 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Check workspace architecture and fixture inventory
+        run: |
+          python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
+          python3 -B scripts/check_workspace_boundaries.py
+          python3 -B scripts/check_fixture_inventory.py
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
       - name: Run fast tests (PR safety net)
         if: ${{ github.event_name == 'pull_request' }}
         run: |
-          cargo test -p siumai-core --lib
-          cargo test -p siumai-registry --lib
-          cargo test -p siumai --no-default-features --features openai --lib
+          cargo nextest run -p siumai-core --lib --test-threads 1
+          cargo nextest run -p siumai-registry --lib --test-threads 1
+          cargo nextest run -p siumai --no-default-features --features openai --lib --test-threads 1
 
       - name: Clippy (core crates)
         if: ${{ github.event_name == 'pull_request' }}
@@ -60,15 +68,9 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         run: cargo check -p siumai-extras --no-default-features --features openai
 
-      - name: Install nextest
-        if: ${{ github.event_name != 'pull_request' }}
-        uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
-
       - name: Run tests (nextest)
         if: ${{ github.event_name != 'pull_request' }}
-        run: cargo nextest run --profile ci --all-features --workspace
+        run: cargo nextest run --profile ci --all-features --workspace --test-threads 1
 
       - name: Run clippy (core)
         if: ${{ github.event_name != 'pull_request' }}
@@ -80,6 +82,24 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  msrv:
+    name: MSRV 1.88
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check supported workspace surface
+        run: cargo check --locked --workspace --all-targets --all-features
 
   pr-provider-smoke:
     name: PR Facade Feature Smoke

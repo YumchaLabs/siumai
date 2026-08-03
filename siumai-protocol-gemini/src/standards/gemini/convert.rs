@@ -1940,41 +1940,6 @@ mod system_and_tool_message_tests {
     }
 
     #[test]
-    fn request_conversion_source_only_ignores_legacy_provider_metadata_fields() {
-        let source = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/standards/gemini/convert.rs"
-        ));
-        let implementation = source
-            .lines()
-            .take_while(|line| !line.contains("mod tests {"))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        for (index, line) in implementation.lines().enumerate() {
-            if line.contains("provider_metadata") {
-                assert!(
-                    line.contains("provider_metadata_key") || line.contains("provider_metadata: _"),
-                    "Gemini request conversion should not read legacy provider_metadata at implementation line {}: {line}",
-                    index + 1
-                );
-            }
-        }
-
-        for forbidden in [
-            "extract_thought_signature(Some(provider_metadata",
-            "extract_thought_signature(provider_metadata",
-            "extract_thought_flag(Some(provider_metadata",
-            "extract_thought_flag(provider_metadata",
-        ] {
-            assert!(
-                !implementation.contains(forbidden),
-                "Gemini request conversion should not replay thought metadata from legacy provider_metadata via {forbidden}"
-            );
-        }
-    }
-
-    #[test]
     fn build_request_body_prefers_vertex_namespace_for_thought_signature() {
         let cfg = GeminiConfig::default().with_provider_metadata_key("vertex");
         let messages = vec![

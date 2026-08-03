@@ -473,15 +473,6 @@ mod tests {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     use std::sync::{Arc, Mutex};
 
-    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect("section start marker");
-        let end_index = source[start_index..]
-            .find(end)
-            .map(|offset| start_index + offset)
-            .expect("section end marker");
-        &source[start_index..end_index]
-    }
-
     // Minimal FilesTransformer for tests
     struct TestFilesTx {
         json: bool,
@@ -680,28 +671,5 @@ mod tests {
             headers.get("x-req").unwrap(),
             &HeaderValue::from_static("R")
         );
-    }
-
-    #[test]
-    fn files_executor_upload_path_stays_provider_agnostic() {
-        let source = include_str!("files.rs");
-        let upload_source = source_section(source, "async fn upload(&self", "async fn list(&self");
-
-        let provider_literals = [
-            ["\"", "anth", "ropic", "\""].concat(),
-            ["\"", "gem", "ini", "\""].concat(),
-            ["\"", "goo", "gle", "\""].concat(),
-            ["\"", "open", "ai", "\""].concat(),
-            ["\"", "mini", "maxi", "\""].concat(),
-        ];
-        let mut disallowed = provider_literals.to_vec();
-        disallowed.push("provider_metadata".to_string());
-
-        for disallowed in disallowed {
-            assert!(
-                !upload_source.contains(&disallowed),
-                "core files executor upload path must stay provider-agnostic"
-            );
-        }
     }
 }

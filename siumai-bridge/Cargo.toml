@@ -2,6 +2,7 @@
 name = "siumai-bridge"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Protocol bridge helpers for siumai gateway and facade integrations"
 license.workspace = true

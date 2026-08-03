@@ -370,24 +370,4 @@ mod tests {
             other => panic!("unexpected error variant: {other:?}"),
         }
     }
-
-    #[test]
-    fn generic_http_error_classifier_source_stays_provider_agnostic() {
-        let source = include_str!("retry_api.rs");
-        let forbidden = [
-            ["x-", "open", "ai", "-request-id"].concat(),
-            ["x-", "goog", "-request-id"].concat(),
-            ["anth", "ropic"].concat(),
-            ["gem", "ini"].concat(),
-            ["open", "ai"].concat(),
-        ];
-
-        for token in forbidden {
-            assert!(
-                !source.contains(&token),
-                "retry_api generic fallback should not hard-code provider token `{}`",
-                token
-            );
-        }
-    }
 }

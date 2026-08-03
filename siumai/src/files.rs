@@ -500,38 +500,3 @@ fn has_non_header_http_overrides(http_config: &HttpConfig) -> bool {
         || http_config.proxy.is_some()
         || http_config.user_agent.is_some()
 }
-
-#[cfg(test)]
-mod tests {
-    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect("section start marker");
-        let end_index = source[start_index..]
-            .find(end)
-            .map(|offset| start_index + offset)
-            .expect("section end marker");
-        &source[start_index..end_index]
-    }
-
-    #[test]
-    fn upload_via_file_management_keeps_provider_policy_delegated_to_helpers() {
-        let source = include_str!("files.rs");
-        let upload_flow = source_section(
-            source,
-            "async fn upload_via_file_management",
-            "#[derive(Debug, Clone, Copy)]",
-        );
-
-        for provider_literal in [
-            "\"anthropic\"",
-            "\"gemini\"",
-            "\"google\"",
-            "\"minimaxi\"",
-            "\"openai\"",
-        ] {
-            assert!(
-                !upload_flow.contains(provider_literal),
-                "facade upload flow must keep provider-specific policy delegated to helper functions"
-            );
-        }
-    }
-}

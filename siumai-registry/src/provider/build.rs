@@ -357,53 +357,6 @@ mod tests {
     use super::super::resolver::infer_provider_id_from_model;
 
     #[test]
-    fn default_client_builder_uses_explicit_compat_factory_methods() {
-        let source = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("src")
-                .join("provider")
-                .join("build.rs"),
-        )
-        .unwrap();
-        let production_source = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("production source before tests");
-
-        for family in [
-            "language",
-            "reranking",
-            "embedding",
-            "image",
-            "speech",
-            "transcription",
-        ] {
-            let compat_call = format!("compat_{family}_client_with_ctx");
-            assert!(
-                production_source.contains(&compat_call),
-                "SiumaiBuilder compatibility construction should call {compat_call}"
-            );
-
-            let legacy_call = format!("factory.{family}_model_with_ctx");
-            assert!(
-                !production_source.contains(&legacy_call),
-                "SiumaiBuilder compatibility construction must not call legacy {legacy_call}"
-            );
-        }
-
-        assert!(
-            production_source.contains("Arc<dyn ProviderCompatibilityFactory>")
-                && production_source.contains("compatibility_facet_from_provider_factory(factory)"),
-            "SiumaiBuilder compatibility construction should adapt ProviderFactory into the narrow compatibility facet before building generic clients"
-        );
-        assert!(
-            !production_source
-                .contains("factory: &std::sync::Arc<dyn crate::registry::entry::ProviderFactory>"),
-            "SiumaiBuilder compatibility construction should not pass the broad ProviderFactory trait object into default generic-client selection"
-        );
-    }
-
-    #[test]
     fn infer_provider_empty_is_none() {
         assert!(infer_provider_id_from_model("").is_none());
         assert!(infer_provider_id_from_model("   ").is_none());

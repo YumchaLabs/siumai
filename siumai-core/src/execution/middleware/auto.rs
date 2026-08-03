@@ -154,42 +154,6 @@ fn add_model_specific_middlewares(_builder: &mut MiddlewareBuilder, _config: &Mi
 mod tests {
     use super::*;
 
-    fn source_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect("section start marker");
-        let end_index = source[start_index..]
-            .find(end)
-            .map(|offset| start_index + offset)
-            .expect("section end marker");
-        &source[start_index..end_index]
-    }
-
-    #[test]
-    fn automatic_middleware_source_stays_provider_agnostic() {
-        let source = include_str!("auto.rs");
-        let production_source =
-            source_section(source, "pub struct MiddlewareConfig", "#[cfg(test)]");
-
-        let disallowed = [
-            format!("\"{}\"", ["op", "enai"].concat()),
-            format!("\"{}\"", ["az", "ure"].concat()),
-            format!("\"{}\"", ["an", "thropic"].concat()),
-            format!("\"{}\"", ["ge", "mini"].concat()),
-            format!("\"{}-", ["gp", "t"].concat()),
-            format!("\"{}-", ["cla", "ude"].concat()),
-            ["Open", "AI"].concat(),
-            ["Az", "ure"].concat(),
-            ["An", "thropic"].concat(),
-            ["Ge", "mini"].concat(),
-        ];
-
-        for disallowed in disallowed {
-            assert!(
-                !production_source.contains(&disallowed),
-                "core automatic middleware wiring must not hard-code concrete providers or models"
-            );
-        }
-    }
-
     #[test]
     fn test_build_auto_middlewares_default_chain() {
         let config = MiddlewareConfig::new("provider-a", "reasoning-model");

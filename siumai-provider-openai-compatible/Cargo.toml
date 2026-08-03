@@ -2,6 +2,7 @@
 name = "siumai-provider-openai-compatible"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "OpenAI-like protocol standard for siumai (legacy crate name: *-compatible)"
 license.workspace = true

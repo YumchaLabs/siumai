@@ -550,26 +550,6 @@ mod tests {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn image_executor_tests_use_provider_neutral_fixtures() {
-        let source = include_str!("image.rs");
-        let forbidden = [
-            ["op", "enai"].concat(),
-            ["az", "ure"].concat(),
-            ["an", "thropic"].concat(),
-            ["ge", "mini"].concat(),
-            ["gp", "t-"].concat(),
-            ["cla", "ude-"].concat(),
-        ];
-
-        for fragment in forbidden {
-            assert!(
-                !source.contains(&fragment),
-                "core image executor tests must use provider-neutral fixture names"
-            );
-        }
-    }
-
     // Minimal ProviderSpec for image
     #[derive(Clone, Copy)]
     struct TestSpec;

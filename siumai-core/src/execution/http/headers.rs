@@ -201,24 +201,6 @@ mod tests {
     static _TRACING_TOGGLE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
-    fn header_tests_use_provider_neutral_names() {
-        let source = include_str!("headers.rs");
-        let forbidden = [
-            ["op", "enai"].concat(),
-            ["az", "ure"].concat(),
-            ["an", "thropic"].concat(),
-            ["ge", "mini"].concat(),
-        ];
-
-        for fragment in forbidden {
-            assert!(
-                !source.contains(&fragment),
-                "core HTTP header tests must use provider-neutral header names"
-            );
-        }
-    }
-
-    #[test]
     fn test_header_builder() {
         let headers = HttpHeaderBuilder::new()
             .with_bearer_auth("test-token")

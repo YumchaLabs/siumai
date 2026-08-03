@@ -2,6 +2,7 @@
 name = "siumai-provider-google-vertex"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Google Vertex AI provider implementation for siumai"
 license.workspace = true

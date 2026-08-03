@@ -2,6 +2,7 @@
 name = "siumai-provider-openai"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "OpenAI provider implementation for siumai (plus OpenAI-compatible vendor presets)"
 license.workspace = true

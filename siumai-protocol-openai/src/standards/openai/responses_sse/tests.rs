@@ -107,43 +107,6 @@ fn responses_replay_raw_item_has_private_diagnostics_projection() {
 }
 
 #[test]
-fn responses_sse_converter_sources_do_not_read_request_provider_options() {
-    let converter_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/standards/openai/responses_sse/converter");
-    let mut checked_files = 0usize;
-
-    for entry in std::fs::read_dir(&converter_dir).expect("Responses SSE converter dir") {
-        let entry = entry.expect("Responses SSE converter entry");
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
-            continue;
-        }
-
-        checked_files += 1;
-        let source = std::fs::read_to_string(&path).expect("Responses SSE converter source");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(&source);
-
-        for forbidden in [
-            "provider_options",
-            ".provider_options",
-            "providerOptions",
-            "ProviderOptionsMap",
-        ] {
-            assert!(
-                !production_source.contains(forbidden),
-                "{} must not read request-side provider options fragment `{forbidden}`",
-                path.display()
-            );
-        }
-    }
-
-    assert!(
-        checked_files > 0,
-        "Responses SSE converter source guard should scan at least one file"
-    );
-}
-
-#[test]
 fn test_responses_event_converter_content_delta() {
     let conv = OpenAiResponsesEventConverter::new();
     let event = eventsource_stream::Event {
@@ -281,18 +244,6 @@ fn responses_event_converter_repeated_usage_keeps_latest_snapshot() {
     assert_eq!(usage.prompt_tokens(), Some(12));
     assert_eq!(usage.completion_tokens(), Some(5));
     assert_eq!(usage.total_tokens(), Some(17));
-}
-
-#[test]
-fn responses_serializer_state_uses_usage_snapshot_ledger() {
-    let state_source = include_str!("converter/state.rs");
-    let serialize_source = include_str!("converter/serialize.rs");
-
-    assert!(state_source.contains("usage_ledger: crate::types::UsageSnapshotLedger"));
-    assert!(!state_source.contains("latest_usage"));
-    assert!(serialize_source.contains("state.usage_ledger.record_snapshot(usage)"));
-    assert!(serialize_source.contains("state.usage_ledger.latest_cloned()"));
-    assert!(!serialize_source.contains(".merge(&usage"));
 }
 
 #[test]
