@@ -86,11 +86,7 @@ impl TestServer {
     }
 
     fn endpoint(&self) -> EndpointConfig {
-        EndpointConfig::new(
-            format!("http://{}/v1", self.address),
-            EndpointPolicy::LocalExplicit,
-        )
-        .unwrap()
+        EndpointConfig::local_explicit(format!("http://{}/v1", self.address)).unwrap()
     }
 
     fn requests(&self) -> Vec<RecordedRequest> {
@@ -543,7 +539,7 @@ async fn connector_dns_guard_resolves_the_actual_host_and_rechecks_the_peer() {
     };
     let endpoint = EndpointConfig::new(
         format!("http://model.local:{}/v1", server.address.port()),
-        EndpointPolicy::LocalExplicit,
+        EndpointPolicy::LocalExplicit(siumai_transport::LocalNetworkGrant::Loopback),
     )
     .unwrap();
     let transport = ProviderTransport::builder(endpoint)
@@ -809,6 +805,31 @@ async fn resource_redirects_are_manual_bounded_and_never_authenticated() {
     assert!(requests.iter().all(|request| {
         request.header("authorization").is_none() && request.header("proxy-authorization").is_none()
     }));
+}
+
+#[tokio::test]
+async fn loopback_resource_redirect_cannot_pivot_to_link_local_metadata() {
+    let server = TestServer::spawn(vec![ServerAction::Respond {
+        status: 302,
+        headers: vec![(
+            "Location".to_owned(),
+            "http://169.254.169.254/latest/meta-data".to_owned(),
+        )],
+        body: Vec::new(),
+    }])
+    .await;
+    let error = ResourceDownloader::builder()
+        .build()
+        .unwrap()
+        .download(
+            ResourceUrl::local_explicit(format!("http://{}/start", server.address)).unwrap(),
+            ResourceDownloadOptions::default(),
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::Transport);
+    assert_eq!(server.requests().len(), 1);
 }
 
 #[tokio::test]

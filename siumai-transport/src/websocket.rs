@@ -22,8 +22,8 @@ use crate::endpoint::{CredentialAudience, EndpointConfig, Resolver, SystemResolv
 use crate::framing::{WebSocketFrame, WebSocketFramer};
 use crate::transport::{effective_deadline, run_controlled};
 use crate::{
-    EndpointError, EndpointPolicy, RequestBuildError, RequestHeaders, TransportConfigError,
-    TransportLimits,
+    EndpointError, EndpointPolicy, LocalNetworkGrant, RequestBuildError, RequestHeaders,
+    TransportConfigError, TransportLimits,
 };
 
 const DEFAULT_SESSION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -50,7 +50,24 @@ impl WebSocketEndpoint {
     }
 
     pub fn local_explicit(url: impl AsRef<str>) -> Result<Self, EndpointError> {
-        Self::new(url, EndpointPolicy::LocalExplicit)
+        Self::new(
+            url,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::Loopback),
+        )
+    }
+
+    pub fn private_network_explicit(url: impl AsRef<str>) -> Result<Self, EndpointError> {
+        Self::new(
+            url,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::PrivateNetwork),
+        )
+    }
+
+    pub fn link_local_explicit(url: impl AsRef<str>) -> Result<Self, EndpointError> {
+        Self::new(
+            url,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::LinkLocal),
+        )
     }
 
     pub fn new(url: impl AsRef<str>, policy: EndpointPolicy) -> Result<Self, EndpointError> {
@@ -59,7 +76,7 @@ impl WebSocketEndpoint {
             EndpointPolicy::Official(_) | EndpointPolicy::PublicCustom if url.scheme() != "wss" => {
                 return Err(EndpointError::SchemeNotAllowed);
             }
-            EndpointPolicy::LocalExplicit if !matches!(url.scheme(), "ws" | "wss") => {
+            EndpointPolicy::LocalExplicit(_) if !matches!(url.scheme(), "ws" | "wss") => {
                 return Err(EndpointError::SchemeNotAllowed);
             }
             _ => {}
@@ -607,7 +624,7 @@ mod tests {
         assert_eq!(
             WebSocketEndpoint::new(
                 "ws://user:secret@localhost:8080/live",
-                EndpointPolicy::LocalExplicit,
+                EndpointPolicy::LocalExplicit(LocalNetworkGrant::Loopback),
             )
             .unwrap_err(),
             EndpointError::UserInfoNotAllowed
@@ -615,11 +632,16 @@ mod tests {
         assert_eq!(
             WebSocketEndpoint::new(
                 "ws://localhost:8080/live#fragment",
-                EndpointPolicy::LocalExplicit,
+                EndpointPolicy::LocalExplicit(LocalNetworkGrant::Loopback),
             )
             .unwrap_err(),
             EndpointError::FragmentNotAllowed
         );
+        assert_eq!(
+            WebSocketEndpoint::local_explicit("ws://10.0.0.7:8080/live").unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+        WebSocketEndpoint::private_network_explicit("ws://10.0.0.7:8080/live").unwrap();
     }
 
     #[tokio::test]

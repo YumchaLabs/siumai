@@ -20,7 +20,8 @@ pub use auth::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision, NoAuth,
 };
 pub use endpoint::{
-    CredentialAudience, EndpointConfig, EndpointPolicy, OfficialOrigin, Resolver, SystemResolver,
+    CredentialAudience, EndpointConfig, EndpointPolicy, LocalNetworkGrant, OfficialOrigin,
+    Resolver, SystemResolver,
 };
 pub use error::{EndpointError, RequestBuildError, TransportConfigError};
 pub use limits::TransportLimits;

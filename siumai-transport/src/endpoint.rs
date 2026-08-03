@@ -68,8 +68,20 @@ pub enum EndpointPolicy {
     Official(OfficialOrigin),
     /// A caller-supplied production endpoint. HTTPS and public targets are required.
     PublicCustom,
-    /// An explicitly selected loopback, link-local, or private endpoint.
-    LocalExplicit,
+    /// An explicitly selected local-network scope.
+    LocalExplicit(LocalNetworkGrant),
+}
+
+/// Exact non-public network scope authorized by a caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum LocalNetworkGrant {
+    /// IPv4 or IPv6 loopback only.
+    Loopback,
+    /// RFC 1918 IPv4 or IPv6 unique-local addresses only.
+    PrivateNetwork,
+    /// IPv4 or IPv6 link-local addresses only. This includes metadata ranges.
+    LinkLocal,
 }
 
 impl EndpointPolicy {
@@ -87,7 +99,7 @@ impl EndpointPolicy {
     pub fn official_origin(&self) -> Option<&OfficialOrigin> {
         match self {
             Self::Official(origin) => Some(origin),
-            Self::PublicCustom | Self::LocalExplicit => None,
+            Self::PublicCustom | Self::LocalExplicit(_) => None,
         }
     }
 }
@@ -164,8 +176,28 @@ impl EndpointConfig {
     }
 
     /// Construct an explicitly authorized HTTP(S) endpoint on a local network.
+    /// This convenience path grants loopback access only.
     pub fn local_explicit(base_url: impl AsRef<str>) -> Result<Self, EndpointError> {
-        Self::new(base_url, EndpointPolicy::LocalExplicit)
+        Self::new(
+            base_url,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::Loopback),
+        )
+    }
+
+    /// Construct an endpoint explicitly authorized for RFC 1918 or IPv6 ULA targets.
+    pub fn private_network_explicit(base_url: impl AsRef<str>) -> Result<Self, EndpointError> {
+        Self::new(
+            base_url,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::PrivateNetwork),
+        )
+    }
+
+    /// Construct an endpoint explicitly authorized for link-local targets.
+    pub fn link_local_explicit(base_url: impl AsRef<str>) -> Result<Self, EndpointError> {
+        Self::new(
+            base_url,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::LinkLocal),
+        )
     }
 
     /// Construct an endpoint from an explicit security policy.
@@ -346,7 +378,7 @@ fn validate_url_shape(url: &Url, policy: &EndpointPolicy) -> Result<(), Endpoint
         EndpointPolicy::Official(_) | EndpointPolicy::PublicCustom if url.scheme() != "https" => {
             return Err(EndpointError::SchemeNotAllowed);
         }
-        EndpointPolicy::LocalExplicit if !matches!(url.scheme(), "http" | "https") => {
+        EndpointPolicy::LocalExplicit(_) if !matches!(url.scheme(), "http" | "https") => {
             return Err(EndpointError::SchemeNotAllowed);
         }
         _ => {}
@@ -372,7 +404,9 @@ fn validate_url_shape(url: &Url, policy: &EndpointPolicy) -> Result<(), Endpoint
         EndpointPolicy::Official(_) | EndpointPolicy::PublicCustom if local_name => {
             Err(EndpointError::HostNotAllowed)
         }
-        EndpointPolicy::LocalExplicit if !local_name && host.parse::<IpAddr>().is_err() => Ok(()),
+        EndpointPolicy::LocalExplicit(_) if !local_name && host.parse::<IpAddr>().is_err() => {
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -380,7 +414,7 @@ fn validate_url_shape(url: &Url, policy: &EndpointPolicy) -> Result<(), Endpoint
 fn validate_address(address: IpAddr, policy: &EndpointPolicy) -> Result<(), EndpointError> {
     let allowed = match policy {
         EndpointPolicy::Official(_) | EndpointPolicy::PublicCustom => is_public_ip(address),
-        EndpointPolicy::LocalExplicit => is_local_ip(address),
+        EndpointPolicy::LocalExplicit(grant) => local_grant_allows(address, *grant),
     };
     if allowed {
         Ok(())
@@ -425,17 +459,46 @@ fn is_public_ipv6(address: Ipv6Addr) -> bool {
     global_unicast && !special_2001 && !documentation && !transition_or_obsolete
 }
 
-fn is_local_ip(address: IpAddr) -> bool {
+fn local_grant_allows(address: IpAddr, grant: LocalNetworkGrant) -> bool {
+    match grant {
+        LocalNetworkGrant::Loopback => is_loopback_ip(address),
+        LocalNetworkGrant::PrivateNetwork => is_private_ip(address),
+        LocalNetworkGrant::LinkLocal => is_link_local_ip(address),
+    }
+}
+
+fn is_loopback_ip(address: IpAddr) -> bool {
     match address {
-        IpAddr::V4(address) => {
-            address.is_private() || address.is_loopback() || address.is_link_local()
-        }
+        IpAddr::V4(address) => address.is_loopback(),
         IpAddr::V6(address) => {
             if let Some(mapped) = address.to_ipv4_mapped() {
-                return is_local_ip(IpAddr::V4(mapped));
+                return mapped.is_loopback();
             }
-            let first = address.segments()[0];
-            address.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+            address.is_loopback()
+        }
+    }
+}
+
+fn is_private_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => address.is_private(),
+        IpAddr::V6(address) => {
+            if let Some(mapped) = address.to_ipv4_mapped() {
+                return mapped.is_private();
+            }
+            (address.segments()[0] & 0xfe00) == 0xfc00
+        }
+    }
+}
+
+fn is_link_local_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => address.is_link_local(),
+        IpAddr::V6(address) => {
+            if let Some(mapped) = address.to_ipv4_mapped() {
+                return mapped.is_link_local();
+            }
+            (address.segments()[0] & 0xffc0) == 0xfe80
         }
     }
 }
@@ -489,8 +552,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_endpoint_requires_a_local_connection_target() {
-        let endpoint =
-            EndpointConfig::new("http://localhost:8080/v1", EndpointPolicy::LocalExplicit).unwrap();
+        let endpoint = EndpointConfig::local_explicit("http://localhost:8080/v1").unwrap();
         let public = FixedResolver(vec!["93.184.216.34:8080".parse().unwrap()]);
         assert_eq!(
             endpoint.validated_addresses(&public).await.unwrap_err(),
@@ -498,6 +560,24 @@ mod tests {
         );
         let local = FixedResolver(vec!["127.0.0.1:8080".parse().unwrap()]);
         endpoint.validated_addresses(&local).await.unwrap();
+    }
+
+    #[test]
+    fn local_network_scopes_require_separate_explicit_grants() {
+        assert_eq!(
+            EndpointConfig::local_explicit("http://10.0.0.7:8080/v1").unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+        EndpointConfig::private_network_explicit("http://10.0.0.7:8080/v1").unwrap();
+        assert_eq!(
+            EndpointConfig::private_network_explicit("http://169.254.169.254/v1").unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+        EndpointConfig::link_local_explicit("http://169.254.169.254/v1").unwrap();
+        assert_eq!(
+            EndpointConfig::link_local_explicit("http://127.0.0.1:8080/v1").unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
     }
 
     #[test]
@@ -574,8 +654,7 @@ mod tests {
 
     #[tokio::test]
     async fn ipv6_literal_uses_literal_address_without_dns() {
-        let endpoint =
-            EndpointConfig::new("http://[::1]:8080/v1", EndpointPolicy::LocalExplicit).unwrap();
+        let endpoint = EndpointConfig::local_explicit("http://[::1]:8080/v1").unwrap();
         let resolver = FixedResolver(Vec::new());
         let resolved = endpoint.validated_addresses(&resolver).await.unwrap();
         assert_eq!(resolved.as_slice(), &["[::1]:8080".parse().unwrap()]);

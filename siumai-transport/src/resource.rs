@@ -21,7 +21,9 @@ use crate::transport::{
     ResponseHeaders, bounded_body_prefix, build_guarded_client, effective_deadline,
     response_limit_error, run_controlled, transport_source_error,
 };
-use crate::{EndpointError, EndpointPolicy, TransportConfigError, TransportLimits};
+use crate::{
+    EndpointError, EndpointPolicy, LocalNetworkGrant, TransportConfigError, TransportLimits,
+};
 
 const MAX_NETWORK_RESOURCE_URL_BYTES: usize = 16 * 1024;
 const MAX_DATA_RESOURCE_URL_BYTES: usize = 256 * 1024 * 1024;
@@ -57,7 +59,24 @@ impl ResourceUrl {
     }
 
     pub fn local_explicit(value: impl AsRef<str>) -> Result<Self, ResourceUrlError> {
-        Self::new(value.as_ref(), EndpointPolicy::LocalExplicit)
+        Self::new(
+            value.as_ref(),
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::Loopback),
+        )
+    }
+
+    pub fn private_network_explicit(value: impl AsRef<str>) -> Result<Self, ResourceUrlError> {
+        Self::new(
+            value.as_ref(),
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::PrivateNetwork),
+        )
+    }
+
+    pub fn link_local_explicit(value: impl AsRef<str>) -> Result<Self, ResourceUrlError> {
+        Self::new(
+            value.as_ref(),
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::LinkLocal),
+        )
     }
 
     fn new(value: &str, policy: EndpointPolicy) -> Result<Self, ResourceUrlError> {
