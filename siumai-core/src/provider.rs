@@ -12,6 +12,66 @@ use crate::model::{
     SpeechModel, TranscriptionModel,
 };
 
+/// Identity shared by all configured provider instances.
+///
+/// This trait deliberately exposes no capability bag. Family support is
+/// expressed by implementing one or more narrow provider traits below.
+pub trait Provider: Send + Sync {
+    fn scope(&self) -> &ProviderScope;
+
+    fn provider_id(&self) -> &ProviderId {
+        self.scope().provider_id()
+    }
+
+    /// Provider-owned deployment or public API identity, when distinct from
+    /// the canonical provider ID.
+    fn platform(&self) -> Option<&PlatformId> {
+        self.scope().platform()
+    }
+}
+
+/// A configured provider that constructs lightweight language model handles.
+pub trait LanguageModelProvider: Provider {
+    type Model: LanguageModel;
+
+    fn language_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError>;
+}
+
+/// A configured provider that constructs lightweight embedding model handles.
+pub trait EmbeddingModelProvider: Provider {
+    type Model: EmbeddingModel;
+
+    fn embedding_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError>;
+}
+
+/// A configured provider that constructs lightweight rerank model handles.
+pub trait RerankModelProvider: Provider {
+    type Model: RerankModel;
+
+    fn rerank_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError>;
+}
+
+/// A configured provider that constructs lightweight image model handles.
+pub trait ImageModelProvider: Provider {
+    type Model: ImageModel;
+
+    fn image_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError>;
+}
+
+/// A configured provider that constructs lightweight speech model handles.
+pub trait SpeechModelProvider: Provider {
+    type Model: SpeechModel;
+
+    fn speech_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError>;
+}
+
+/// A configured provider that constructs lightweight transcription model handles.
+pub trait TranscriptionModelProvider: Provider {
+    type Model: TranscriptionModel;
+
+    fn transcription_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError>;
+}
+
 /// Error returned when an identifier is empty or contains reserved characters.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("invalid {kind} identifier `{value}`: {reason}")]
@@ -123,6 +183,62 @@ macro_rules! canonical_id {
 
 canonical_id!(ProviderId, "provider");
 canonical_id!(RouteId, "route");
+canonical_id!(PlatformId, "platform");
+canonical_id!(ProtocolId, "protocol");
+canonical_id!(ApiModeId, "API mode");
+canonical_id!(ProfileId, "profile");
+canonical_id!(ProtocolContractId, "protocol contract");
+
+/// Immutable provider, platform, protocol, and API-mode identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderScope {
+    provider: ProviderId,
+    platform: Option<PlatformId>,
+    protocol: Option<ProtocolId>,
+    api_mode: Option<ApiModeId>,
+}
+
+impl ProviderScope {
+    pub fn new(provider: ProviderId) -> Self {
+        Self {
+            provider,
+            platform: None,
+            protocol: None,
+            api_mode: None,
+        }
+    }
+
+    pub fn with_platform(mut self, platform: PlatformId) -> Self {
+        self.platform = Some(platform);
+        self
+    }
+
+    pub fn with_protocol(mut self, protocol: ProtocolId) -> Self {
+        self.protocol = Some(protocol);
+        self
+    }
+
+    pub fn with_api_mode(mut self, api_mode: ApiModeId) -> Self {
+        self.api_mode = Some(api_mode);
+        self
+    }
+
+    pub fn provider_id(&self) -> &ProviderId {
+        &self.provider
+    }
+
+    pub fn platform(&self) -> Option<&PlatformId> {
+        self.platform.as_ref()
+    }
+
+    pub fn protocol(&self) -> Option<&ProtocolId> {
+        self.protocol.as_ref()
+    }
+
+    pub fn api_mode(&self) -> Option<&ApiModeId> {
+        self.api_mode.as_ref()
+    }
+}
 
 /// An opaque provider model identifier.
 ///
@@ -196,7 +312,7 @@ impl<'de> Deserialize<'de> for ModelId {
 }
 
 /// The protocol operation evaluated by model policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ModelOperation {
     Generate,
@@ -208,31 +324,94 @@ pub enum ModelOperation {
     Transcribe,
 }
 
-/// A model-policy answer that does not turn missing catalog data into support.
+/// Why a provider or protocol cannot execute an operation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
-pub enum CapabilityStatus {
+pub enum UnsupportedReason {
+    FamilyNotImplemented,
+    OperationNotImplemented,
+    ApiModeMismatch,
+    ModelRetired,
+    ProviderRestriction,
+}
+
+/// The callable state of one model operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum SupportState {
     Supported,
-    Unsupported { reason: String },
-    Unknown { warning: String },
+    Unsupported { reason: UnsupportedReason },
+    Unknown,
+}
+
+/// Typed, non-remapping guidance attached to a model-policy decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ModelAdvisory {
+    UnknownModel,
+    Deprecated { replacement: Option<ModelId> },
+    Retired { replacement: Option<ModelId> },
+    RollingAlias,
+}
+
+/// A model-policy result that keeps callability separate from lifecycle advice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelPolicyDecision {
+    state: SupportState,
+    advisories: Box<[ModelAdvisory]>,
+}
+
+impl ModelPolicyDecision {
+    pub fn supported() -> Self {
+        Self {
+            state: SupportState::Supported,
+            advisories: Box::new([]),
+        }
+    }
+
+    pub fn unsupported(reason: UnsupportedReason) -> Self {
+        Self {
+            state: SupportState::Unsupported { reason },
+            advisories: Box::new([]),
+        }
+    }
+
+    pub fn unknown_model() -> Self {
+        Self {
+            state: SupportState::Unknown,
+            advisories: Box::new([ModelAdvisory::UnknownModel]),
+        }
+    }
+
+    pub fn with_advisory(mut self, advisory: ModelAdvisory) -> Self {
+        let mut advisories = self.advisories.into_vec();
+        advisories.push(advisory);
+        self.advisories = advisories.into_boxed_slice();
+        self
+    }
+
+    pub fn state(&self) -> &SupportState {
+        &self.state
+    }
+
+    pub fn advisories(&self) -> &[ModelAdvisory] {
+        &self.advisories
+    }
 }
 
 /// Complete identity and protocol context used by provider-owned model policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelPolicyContext {
-    pub provider: ProviderId,
-    pub platform: Option<String>,
+    pub scope: Arc<ProviderScope>,
     pub model: ModelId,
     pub family: ModelFamily,
     pub operation: ModelOperation,
-    pub protocol: Option<String>,
-    pub api_mode: Option<String>,
 }
 
 /// Provider-owned model policy.
 pub trait ModelPolicy: Send + Sync {
     /// Evaluate one model, family, operation, and protocol combination.
-    fn evaluate(&self, context: &ModelPolicyContext) -> CapabilityStatus;
+    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision;
 }
 
 /// Failure to resolve a requested family or construct its lightweight model.
@@ -268,10 +447,7 @@ pub type ModelFactory<T> =
 /// Registry stores this value without importing concrete provider packages.
 #[derive(Clone)]
 pub struct ProviderRegistration {
-    provider_id: ProviderId,
-    platform: Option<String>,
-    protocol: Option<String>,
-    api_mode: Option<String>,
+    scope: Arc<ProviderScope>,
     model_policy: Arc<dyn ModelPolicy>,
     language: Option<ModelFactory<dyn LanguageModel>>,
     embedding: Option<ModelFactory<dyn EmbeddingModel>>,
@@ -285,10 +461,7 @@ impl fmt::Debug for ProviderRegistration {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ProviderRegistration")
-            .field("provider_id", &self.provider_id)
-            .field("platform", &self.platform)
-            .field("protocol", &self.protocol)
-            .field("api_mode", &self.api_mode)
+            .field("scope", &self.scope)
             .field("language", &self.language.is_some())
             .field("embedding", &self.embedding.is_some())
             .field("rerank", &self.rerank.is_some())
@@ -302,11 +475,13 @@ impl fmt::Debug for ProviderRegistration {
 impl ProviderRegistration {
     /// Begin a registration for one canonical provider and captured API mode.
     pub fn new(provider_id: ProviderId, model_policy: Arc<dyn ModelPolicy>) -> Self {
+        Self::from_scope(Arc::new(ProviderScope::new(provider_id)), model_policy)
+    }
+
+    /// Begin a registration from the exact scope shared by direct models.
+    pub fn from_scope(scope: Arc<ProviderScope>, model_policy: Arc<dyn ModelPolicy>) -> Self {
         Self {
-            provider_id,
-            platform: None,
-            protocol: None,
-            api_mode: None,
+            scope,
             model_policy,
             language: None,
             embedding: None,
@@ -318,33 +493,37 @@ impl ProviderRegistration {
     }
 
     pub fn provider_id(&self) -> &ProviderId {
-        &self.provider_id
+        self.scope.provider_id()
     }
 
-    pub fn api_mode(&self) -> Option<&str> {
-        self.api_mode.as_deref()
+    pub fn scope(&self) -> &Arc<ProviderScope> {
+        &self.scope
     }
 
-    pub fn platform(&self) -> Option<&str> {
-        self.platform.as_deref()
+    pub fn api_mode(&self) -> Option<&ApiModeId> {
+        self.scope.api_mode()
     }
 
-    pub fn protocol(&self) -> Option<&str> {
-        self.protocol.as_deref()
+    pub fn platform(&self) -> Option<&PlatformId> {
+        self.scope.platform()
     }
 
-    pub fn with_platform(mut self, platform: impl Into<String>) -> Self {
-        self.platform = Some(platform.into());
+    pub fn protocol(&self) -> Option<&ProtocolId> {
+        self.scope.protocol()
+    }
+
+    pub fn with_platform(mut self, platform: PlatformId) -> Self {
+        Arc::make_mut(&mut self.scope).platform = Some(platform);
         self
     }
 
-    pub fn with_protocol(mut self, protocol: impl Into<String>) -> Self {
-        self.protocol = Some(protocol.into());
+    pub fn with_protocol(mut self, protocol: ProtocolId) -> Self {
+        Arc::make_mut(&mut self.scope).protocol = Some(protocol);
         self
     }
 
-    pub fn with_api_mode(mut self, api_mode: impl Into<String>) -> Self {
-        self.api_mode = Some(api_mode.into());
+    pub fn with_api_mode(mut self, api_mode: ApiModeId) -> Self {
+        Arc::make_mut(&mut self.scope).api_mode = Some(api_mode);
         self
     }
 
@@ -353,15 +532,12 @@ impl ProviderRegistration {
         model: ModelId,
         family: ModelFamily,
         operation: ModelOperation,
-    ) -> CapabilityStatus {
+    ) -> ModelPolicyDecision {
         self.model_policy.evaluate(&ModelPolicyContext {
-            provider: self.provider_id.clone(),
-            platform: self.platform.clone(),
+            scope: self.scope.clone(),
             model,
             family,
             operation,
-            protocol: self.protocol.clone(),
-            api_mode: self.api_mode.clone(),
         })
     }
 
@@ -460,7 +636,7 @@ impl ProviderRegistration {
 
     fn unsupported(&self, family: ModelFamily) -> ModelLookupError {
         ModelLookupError::UnsupportedFamily {
-            provider: self.provider_id.clone(),
+            provider: self.scope.provider_id().clone(),
             family,
         }
     }
@@ -472,27 +648,15 @@ impl ProviderRegistration {
         model: Arc<T>,
     ) -> Result<Arc<T>, ModelLookupError> {
         let descriptor = model.descriptor();
-        if descriptor.provider() == &self.provider_id
+        if descriptor.scope().as_ref() == self.scope.as_ref()
             && descriptor.model() == &expected_model
             && descriptor.family() == expected_family
-            && descriptor.platform() == self.platform.as_deref()
-            && descriptor.protocol() == self.protocol.as_deref()
-            && descriptor.api_mode() == self.api_mode.as_deref()
         {
             return Ok(model);
         }
 
-        let mut expected =
-            ModelDescriptor::new(self.provider_id.clone(), expected_model, expected_family);
-        if let Some(platform) = &self.platform {
-            expected = expected.with_platform(platform);
-        }
-        if let Some(protocol) = &self.protocol {
-            expected = expected.with_protocol(protocol);
-        }
-        if let Some(api_mode) = &self.api_mode {
-            expected = expected.with_api_mode(api_mode);
-        }
+        let expected =
+            ModelDescriptor::from_scope(self.scope.clone(), expected_model, expected_family);
 
         Err(ModelLookupError::IdentityMismatch {
             expected: Box::new(expected),
@@ -508,13 +672,11 @@ mod tests {
     struct AdvisoryPolicy;
 
     impl ModelPolicy for AdvisoryPolicy {
-        fn evaluate(&self, context: &ModelPolicyContext) -> CapabilityStatus {
+        fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
             if context.model.as_str() == "known" {
-                CapabilityStatus::Supported
+                ModelPolicyDecision::supported()
             } else {
-                CapabilityStatus::Unknown {
-                    warning: "model is absent from the advisory catalog".to_string(),
-                }
+                ModelPolicyDecision::unknown_model()
             }
         }
     }
@@ -543,19 +705,18 @@ mod tests {
     #[test]
     fn unknown_future_models_remain_unknown_instead_of_unsupported() {
         let context = ModelPolicyContext {
-            provider: ProviderId::new("custom").unwrap(),
-            platform: None,
+            scope: Arc::new(
+                ProviderScope::new(ProviderId::new("custom").unwrap())
+                    .with_protocol(ProtocolId::new("native").unwrap()),
+            ),
             model: ModelId::new("future:model").unwrap(),
             family: ModelFamily::Language,
             operation: ModelOperation::Generate,
-            protocol: Some("native".to_string()),
-            api_mode: None,
         };
 
-        assert!(matches!(
-            AdvisoryPolicy.evaluate(&context),
-            CapabilityStatus::Unknown { .. }
-        ));
+        let decision = AdvisoryPolicy.evaluate(&context);
+        assert_eq!(decision.state(), &SupportState::Unknown);
+        assert_eq!(decision.advisories(), &[ModelAdvisory::UnknownModel]);
     }
 
     #[test]
@@ -580,17 +741,23 @@ mod tests {
     fn registration_carries_policy_and_full_protocol_context() {
         let registration =
             ProviderRegistration::new(ProviderId::new("custom").unwrap(), Arc::new(AdvisoryPolicy))
-                .with_platform("public-api")
-                .with_protocol("native")
-                .with_api_mode("responses");
+                .with_platform(PlatformId::new("public-api").unwrap())
+                .with_protocol(ProtocolId::new("native").unwrap())
+                .with_api_mode(ApiModeId::new("responses").unwrap());
 
         let status = registration.evaluate(
             ModelId::new("future:model").unwrap(),
             ModelFamily::Language,
             ModelOperation::Generate,
         );
-        assert!(matches!(status, CapabilityStatus::Unknown { .. }));
-        assert_eq!(registration.platform(), Some("public-api"));
-        assert_eq!(registration.protocol(), Some("native"));
+        assert_eq!(status.state(), &SupportState::Unknown);
+        assert_eq!(
+            registration.platform().map(PlatformId::as_str),
+            Some("public-api")
+        );
+        assert_eq!(
+            registration.protocol().map(ProtocolId::as_str),
+            Some("native")
+        );
     }
 }

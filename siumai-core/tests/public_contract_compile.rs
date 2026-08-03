@@ -8,13 +8,13 @@ use serde::Serialize;
 use siumai_core::language::{FinishReason, MediaData, Warning};
 use siumai_core::stream::{StreamTerminal, established_stream};
 use siumai_core::{
-    CallOptions, EmbeddingInput, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, Error,
-    ImageArtifact, ImageModel, ImageRequest, ImageResponse, LanguageModel, LanguageRequest,
+    ApiModeId, CallOptions, EmbeddingInput, EmbeddingModel, EmbeddingRequest, EmbeddingResponse,
+    Error, ImageArtifact, ImageModel, ImageRequest, ImageResponse, LanguageModel, LanguageRequest,
     LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, ModelPolicy, ModelPolicyContext, ProviderId,
-    ProviderOptions, ProviderRegistration, RerankCandidate, RerankModel, RerankRequest,
-    RerankResponse, RerankResult, SpeechModel, SpeechRequest, SpeechResponse, TranscriptionModel,
-    TranscriptionRequest, TranscriptionResponse, TypedProviderOptions, Usage,
+    ModelDescriptor, ModelFamily, ModelId, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
+    ProtocolId, ProviderId, ProviderOptions, ProviderRegistration, RerankCandidate, RerankModel,
+    RerankRequest, RerankResponse, RerankResult, SpeechModel, SpeechRequest, SpeechResponse,
+    TranscriptionModel, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions, Usage,
 };
 
 fn descriptor(family: ModelFamily, model: &str) -> ModelDescriptor {
@@ -23,7 +23,7 @@ fn descriptor(family: ModelFamily, model: &str) -> ModelDescriptor {
         ModelId::new(model).unwrap(),
         family,
     )
-    .with_protocol("test")
+    .with_protocol(ProtocolId::new("test").unwrap())
 }
 
 fn language_response(model: &str) -> LanguageResponse {
@@ -52,7 +52,10 @@ impl FakeLanguage {
     }
 
     fn with_api_mode(mut self, api_mode: &str) -> Self {
-        self.descriptor = self.descriptor.clone().with_api_mode(api_mode);
+        self.descriptor = self
+            .descriptor
+            .clone()
+            .with_api_mode(ApiModeId::new(api_mode).unwrap());
         self
     }
 }
@@ -224,10 +227,8 @@ impl TypedProviderOptions for CustomOptions {
 struct CustomPolicy;
 
 impl ModelPolicy for CustomPolicy {
-    fn evaluate(&self, _context: &ModelPolicyContext) -> siumai_core::CapabilityStatus {
-        siumai_core::CapabilityStatus::Unknown {
-            warning: "test model policy".to_string(),
-        }
+    fn evaluate(&self, _context: &ModelPolicyContext) -> ModelPolicyDecision {
+        ModelPolicyDecision::unknown_model()
     }
 }
 
@@ -350,8 +351,8 @@ async fn registration_captures_shared_runtime_and_returns_cheap_models() {
     let factory_count = constructions.clone();
     let registration =
         ProviderRegistration::new(ProviderId::new("custom").unwrap(), Arc::new(CustomPolicy))
-            .with_protocol("test")
-            .with_api_mode("native")
+            .with_protocol(ProtocolId::new("test").unwrap())
+            .with_api_mode(ApiModeId::new("native").unwrap())
             .with_language(Arc::new(move |model| {
                 factory_count.fetch_add(1, Ordering::SeqCst);
                 Ok(Arc::new(
@@ -367,7 +368,10 @@ async fn registration_captures_shared_runtime_and_returns_cheap_models() {
         .unwrap();
 
     assert_eq!(constructions.load(Ordering::SeqCst), 2);
-    assert_eq!(registration.api_mode(), Some("native"));
+    assert_eq!(
+        registration.api_mode().map(ApiModeId::as_str),
+        Some("native")
+    );
     assert_eq!(first.model_id(), second.model_id());
     assert_eq!(
         first

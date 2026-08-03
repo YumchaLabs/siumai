@@ -22,6 +22,7 @@ pub mod model;
 pub mod observability;
 pub mod options;
 pub mod params;
+pub mod profile;
 pub mod provider;
 pub mod rerank;
 pub mod retry;
@@ -64,9 +65,17 @@ pub use options::{
     CallOptions, Cancellation, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
     ProviderOptionOrigin, ProviderOptions, RetryIntent, TypedProviderOptions,
 };
+pub use profile::{
+    ApiStability, AvailabilityScope, CatalogError, GenericSupportClaim, ModelCatalog,
+    ModelLifecycle, ModelProfile, OfficialSource, ProfileError, ProviderProfile, SupportFidelity,
+    SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+};
 pub use provider::{
-    CapabilityStatus, InvalidId, ModelFactory, ModelId, ModelLookupError, ModelOperation,
-    ModelPolicy, ModelPolicyContext, ProviderId, ProviderRegistration, RouteId,
+    ApiModeId, EmbeddingModelProvider, ImageModelProvider, InvalidId, LanguageModelProvider,
+    ModelAdvisory, ModelFactory, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
+    ModelPolicyContext, ModelPolicyDecision, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
+    Provider, ProviderId, ProviderRegistration, ProviderScope, RerankModelProvider, RouteId,
+    SpeechModelProvider, SupportState, TranscriptionModelProvider, UnsupportedReason,
 };
 pub use stream::{
     LanguageStream, LanguageStreamEvent, StreamContractError, StreamLifecycle, StreamTerminal,

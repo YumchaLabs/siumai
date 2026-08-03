@@ -1,6 +1,7 @@
 //! The six stable, object-safe model family contracts.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -9,12 +10,12 @@ use serde_json::Value;
 use crate::error::{Error, ErrorKind};
 use crate::language::{LanguageRequest, LanguageResponse, MediaData, Warning};
 use crate::options::CallOptions;
-use crate::provider::{ModelId, ProviderId};
+use crate::provider::{ModelId, ProviderId, ProviderScope};
 use crate::stream::LanguageStream;
 use crate::usage::Usage;
 
 /// Stable callable model families.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ModelFamily {
     Language,
     Embedding,
@@ -27,43 +28,45 @@ pub enum ModelFamily {
 /// Immutable identity captured by a lightweight model handle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDescriptor {
-    provider: ProviderId,
+    scope: Arc<ProviderScope>,
     model: ModelId,
     family: ModelFamily,
-    platform: Option<String>,
-    protocol: Option<String>,
-    api_mode: Option<String>,
 }
 
 impl ModelDescriptor {
     pub fn new(provider: ProviderId, model: ModelId, family: ModelFamily) -> Self {
+        Self::from_scope(Arc::new(ProviderScope::new(provider)), model, family)
+    }
+
+    pub fn from_scope(scope: Arc<ProviderScope>, model: ModelId, family: ModelFamily) -> Self {
         Self {
-            provider,
+            scope,
             model,
             family,
-            platform: None,
-            protocol: None,
-            api_mode: None,
         }
     }
 
-    pub fn with_platform(mut self, platform: impl Into<String>) -> Self {
-        self.platform = Some(platform.into());
+    pub fn with_platform(mut self, platform: crate::provider::PlatformId) -> Self {
+        self.scope = Arc::new(self.scope.as_ref().clone().with_platform(platform));
         self
     }
 
-    pub fn with_protocol(mut self, protocol: impl Into<String>) -> Self {
-        self.protocol = Some(protocol.into());
+    pub fn with_protocol(mut self, protocol: crate::provider::ProtocolId) -> Self {
+        self.scope = Arc::new(self.scope.as_ref().clone().with_protocol(protocol));
         self
     }
 
-    pub fn with_api_mode(mut self, api_mode: impl Into<String>) -> Self {
-        self.api_mode = Some(api_mode.into());
+    pub fn with_api_mode(mut self, api_mode: crate::provider::ApiModeId) -> Self {
+        self.scope = Arc::new(self.scope.as_ref().clone().with_api_mode(api_mode));
         self
     }
 
     pub fn provider(&self) -> &ProviderId {
-        &self.provider
+        self.scope.provider_id()
+    }
+
+    pub fn scope(&self) -> &Arc<ProviderScope> {
+        &self.scope
     }
 
     pub fn model(&self) -> &ModelId {
@@ -75,15 +78,21 @@ impl ModelDescriptor {
     }
 
     pub fn platform(&self) -> Option<&str> {
-        self.platform.as_deref()
+        self.scope
+            .platform()
+            .map(crate::provider::PlatformId::as_str)
     }
 
     pub fn protocol(&self) -> Option<&str> {
-        self.protocol.as_deref()
+        self.scope
+            .protocol()
+            .map(crate::provider::ProtocolId::as_str)
     }
 
     pub fn api_mode(&self) -> Option<&str> {
-        self.api_mode.as_deref()
+        self.scope
+            .api_mode()
+            .map(crate::provider::ApiModeId::as_str)
     }
 }
 
