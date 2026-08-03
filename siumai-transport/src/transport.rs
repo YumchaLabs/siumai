@@ -20,7 +20,7 @@ use siumai_core::{
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth};
+use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth, append_credential_query};
 use crate::endpoint::{EndpointConfig, Resolver as ProviderResolver, SystemResolver};
 use crate::{
     ReplaySafety, RequestBuildError, RequestPlan, RetryPolicy, TransportConfigError,
@@ -70,6 +70,21 @@ pub trait TransportObserver: Send + Sync {
     fn observe(&self, event: &TransportEvent);
 }
 
+/// Provider-owned classification for statuses outside the standard HTTP retry set.
+/// The transport retains replay proof, attempt budgeting, backoff, and deadlines.
+pub trait RetryClassifier: Send + Sync {
+    fn classify_status(&self, status: StatusCode) -> Option<RetryReason>;
+}
+
+#[derive(Debug, Default)]
+struct NoAdditionalRetryClassifier;
+
+impl RetryClassifier for NoAdditionalRetryClassifier {
+    fn classify_status(&self, _status: StatusCode) -> Option<RetryReason> {
+        None
+    }
+}
+
 #[derive(Debug, Default)]
 struct NoopObserver;
 
@@ -83,6 +98,7 @@ pub struct ProviderTransportBuilder {
     resolver: Arc<dyn ProviderResolver>,
     auth: Arc<dyn AuthApplier>,
     observer: Arc<dyn TransportObserver>,
+    retry_classifier: Arc<dyn RetryClassifier>,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
     connect_timeout: Duration,
@@ -97,6 +113,7 @@ impl ProviderTransportBuilder {
             resolver: Arc::new(SystemResolver),
             auth: Arc::new(NoAuth),
             observer: Arc::new(NoopObserver),
+            retry_classifier: Arc::new(NoAdditionalRetryClassifier),
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
             connect_timeout: Duration::from_secs(10),
@@ -117,6 +134,11 @@ impl ProviderTransportBuilder {
 
     pub fn with_observer(mut self, observer: Arc<dyn TransportObserver>) -> Self {
         self.observer = observer;
+        self
+    }
+
+    pub fn with_retry_classifier(mut self, classifier: Arc<dyn RetryClassifier>) -> Self {
+        self.retry_classifier = classifier;
         self
     }
 
@@ -178,6 +200,7 @@ impl ProviderTransportBuilder {
                 endpoint: self.endpoint,
                 auth: self.auth,
                 observer: self.observer,
+                retry_classifier: self.retry_classifier,
                 limits: self.limits.clone(),
                 retry_policy: self.retry_policy,
                 call_timeout: self.call_timeout,
@@ -365,7 +388,7 @@ impl ProviderTransport {
                     controls: &controls,
                 })
                 .await;
-            let response = match attempt {
+            let (response, credential_revision) = match attempt {
                 Ok(response) => response,
                 Err(failure) => {
                     if attempts >= maximum_attempts || !failure.is_retryable() {
@@ -396,10 +419,15 @@ impl ProviderTransport {
                     attempt: attempts,
                 });
 
-            let retry_reason = retry_reason(response.status());
+            let retry_reason = standard_retry_reason(response.status()).or_else(|| {
+                self.inner
+                    .retry_classifier
+                    .classify_status(response.status())
+            });
             let can_refresh = response.status() == StatusCode::UNAUTHORIZED
                 && self.inner.auth.supports_refresh()
-                && !refreshed_once;
+                && !refreshed_once
+                && credential_revision.is_some();
             let should_retry = attempts < maximum_attempts
                 && retry_reason.is_some()
                 && (response.status() != StatusCode::UNAUTHORIZED || can_refresh);
@@ -419,7 +447,9 @@ impl ProviderTransport {
                 .await?;
             if can_refresh {
                 refreshed_once = true;
-                refresh = AuthRefresh::AfterUnauthorized;
+                refresh = AuthRefresh::AfterUnauthorized {
+                    rejected_revision: credential_revision.expect("refresh requires a revision"),
+                };
             } else {
                 refresh = AuthRefresh::Current;
             }
@@ -429,7 +459,7 @@ impl ProviderTransport {
     async fn send_attempt(
         &self,
         request: AttemptRequest<'_>,
-    ) -> Result<reqwest::Response, AttemptFailure> {
+    ) -> Result<(reqwest::Response, Option<crate::CredentialRevision>), AttemptFailure> {
         let AttemptRequest {
             plan,
             base_headers,
@@ -464,7 +494,7 @@ impl ProviderTransport {
         .await
         .map_err(AttemptFailure::Fatal)?
         .map_err(AttemptFailure::Fatal)?;
-        let (credential_headers, credential_query) = patch.into_parts();
+        let (credential_headers, credential_query, credential_revision) = patch.into_parts();
         for (name, value) in credential_headers.iter() {
             if headers.contains_key(name) {
                 return Err(AttemptFailure::Fatal(request_build_error(
@@ -482,12 +512,9 @@ impl ProviderTransport {
                 RequestBuildError::TooManyHeaders,
             )));
         }
-        if !credential_query.is_empty() {
-            let mut pairs = url.query_pairs_mut();
-            for (name, value) in credential_query {
-                pairs.append_pair(&name, &value);
-            }
-        }
+        append_credential_query(&mut url, credential_query)
+            .map_err(request_build_error)
+            .map_err(AttemptFailure::Fatal)?;
         if !self.inner.endpoint.audience().matches(&url) {
             return Err(AttemptFailure::Fatal(endpoint_runtime_error(
                 crate::EndpointError::AudienceMismatch,
@@ -500,10 +527,11 @@ impl ProviderTransport {
             .request(plan.method().clone(), url)
             .headers(headers)
             .body(body.clone());
-        run_controlled(request.send(), &controls.cancellation, controls.deadline)
+        let response = run_controlled(request.send(), &controls.cancellation, controls.deadline)
             .await
             .map_err(AttemptFailure::Fatal)?
-            .map_err(|error| AttemptFailure::Replayable(transport_source_error(error)))
+            .map_err(|error| AttemptFailure::Replayable(transport_source_error(error)))?;
+        Ok((response, credential_revision))
     }
 
     async fn acquire(&self, controls: &CallControls) -> Result<CallPermits, Error> {
@@ -534,7 +562,7 @@ impl ProviderTransport {
         controls: &CallControls,
     ) -> Result<(), Error> {
         let delay = if let Some(retry_after) = retry_after {
-            retry_after.min(self.inner.retry_policy.max_backoff())
+            retry_after
         } else {
             let upper = self.inner.retry_policy.backoff_for(completed_attempts);
             if upper.is_zero() || !self.inner.retry_policy.uses_jitter() {
@@ -544,6 +572,15 @@ impl ProviderTransport {
                 Duration::from_millis(rand::random_range(0..=upper_millis))
             }
         };
+        if let Some(deadline) = controls.deadline {
+            let retry_at = Instant::now().checked_add(delay);
+            if retry_at.is_none_or(|retry_at| retry_at >= deadline) {
+                return Err(Error::new(
+                    ErrorKind::Timeout,
+                    "provider retry delay exceeds the call deadline",
+                ));
+            }
+        }
         self.inner
             .observer
             .observe(&TransportEvent::RetryScheduled {
@@ -578,6 +615,7 @@ struct TransportInner {
     endpoint: EndpointConfig,
     auth: Arc<dyn AuthApplier>,
     observer: Arc<dyn TransportObserver>,
+    retry_classifier: Arc<dyn RetryClassifier>,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
     call_timeout: Duration,
@@ -974,7 +1012,7 @@ where
     }
 }
 
-fn retry_reason(status: StatusCode) -> Option<RetryReason> {
+fn standard_retry_reason(status: StatusCode) -> Option<RetryReason> {
     match status {
         StatusCode::UNAUTHORIZED => Some(RetryReason::Unauthorized),
         StatusCode::TOO_MANY_REQUESTS => Some(RetryReason::RateLimited),

@@ -9,11 +9,11 @@ use http::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use http::{Method, StatusCode};
 use siumai_core::{CallOptions, Cancellation, Error, ErrorKind};
 use siumai_transport::{
-    AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, EndpointError,
-    EndpointPolicy, IdempotencyHeader, MultipartBody, MultipartPart, ProviderTransport,
-    ReplaySafety, RequestBody, RequestPlan, RequestTarget, Resolver, ResourceDownloadOptions,
-    ResourceDownloader, ResourceUrl, RetryPolicy, TransportEvent, TransportLimits,
-    TransportObserver,
+    AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision, EndpointConfig,
+    EndpointError, EndpointPolicy, IdempotencyHeader, MultipartBody, MultipartPart,
+    ProviderTransport, ReplaySafety, RequestBody, RequestPlan, RequestTarget, Resolver,
+    ResourceDownloadOptions, ResourceDownloader, ResourceUrl, RetryClassifier, RetryPolicy,
+    RetryReason, TransportEvent, TransportLimits, TransportObserver,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -341,6 +341,12 @@ impl AuthApplier for RefreshingAuth {
         self.0.lock().unwrap().push(refresh);
         CredentialPatch::new()
             .try_insert(AUTHORIZATION, HeaderValue::from_static("Bearer secret"))
+            .map(|patch| {
+                patch.with_revision(match refresh {
+                    AuthRefresh::Current => CredentialRevision::new(1),
+                    AuthRefresh::AfterUnauthorized { .. } => CredentialRevision::new(2),
+                })
+            })
             .map_err(|_| Error::new(ErrorKind::Authentication, "credential construction failed"))
     }
 }
@@ -392,10 +398,90 @@ async fn unauthorized_rate_limit_and_server_error_share_one_budget() {
         *auth.0.lock().unwrap(),
         vec![
             AuthRefresh::Current,
-            AuthRefresh::AfterUnauthorized,
+            AuthRefresh::AfterUnauthorized {
+                rejected_revision: CredentialRevision::new(1),
+            },
             AuthRefresh::Current
         ]
     );
+}
+
+#[derive(Debug)]
+struct OverloadClassifier;
+
+impl RetryClassifier for OverloadClassifier {
+    fn classify_status(&self, status: StatusCode) -> Option<RetryReason> {
+        (status.as_u16() == 529).then_some(RetryReason::ServerUnavailable)
+    }
+}
+
+#[tokio::test]
+async fn provider_classifier_extends_statuses_without_owning_the_retry_budget() {
+    let server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 529,
+            headers: Vec::new(),
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"recovered".to_vec(),
+        },
+    ])
+    .await;
+    let transport = ProviderTransport::builder(server.endpoint())
+        .with_retry_classifier(Arc::new(OverloadClassifier))
+        .with_retry_policy(retry_policy(2))
+        .build()
+        .unwrap();
+    let response = transport
+        .execute(
+            RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap())
+                .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+                .unwrap(),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.attempts(), 2);
+    assert_eq!(response.body(), &bytes::Bytes::from_static(b"recovered"));
+    assert_eq!(server.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn server_retry_after_is_not_capped_and_cannot_outlive_the_deadline() {
+    let server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 429,
+            headers: vec![("Retry-After".to_owned(), "1".to_owned())],
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"must-not-retry".to_vec(),
+        },
+    ])
+    .await;
+    let transport = ProviderTransport::builder(server.endpoint())
+        .with_retry_policy(retry_policy(2))
+        .build()
+        .unwrap();
+    let error = transport
+        .execute(
+            RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap())
+                .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+                .unwrap(),
+            CallOptions::default()
+                .with_deadline(std::time::Instant::now() + Duration::from_millis(100)),
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::Timeout);
+    assert_eq!(server.requests().len(), 1);
 }
 
 #[tokio::test]

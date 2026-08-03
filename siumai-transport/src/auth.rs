@@ -13,11 +13,27 @@ use crate::RequestBuildError;
 use crate::endpoint::CredentialAudience;
 use crate::replay::is_transport_controlled;
 
+const MAX_CREDENTIAL_QUERY_PAIRS: usize = 32;
+const MAX_CREDENTIAL_QUERY_BYTES: usize = 32 * 1024;
+const MAX_AUTHENTICATED_URL_BYTES: usize = 64 * 1024;
+
+/// Opaque generation identifying credential material within one auth source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CredentialRevision(u64);
+
+impl CredentialRevision {
+    pub fn new(generation: u64) -> Self {
+        Self(generation)
+    }
+}
+
 /// Whether an authentication source should reuse or refresh its material.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthRefresh {
     Current,
-    AfterUnauthorized,
+    AfterUnauthorized {
+        rejected_revision: CredentialRevision,
+    },
 }
 
 /// Immutable request information needed by API-key, bearer, or signing auth.
@@ -86,6 +102,7 @@ impl fmt::Debug for AuthContext<'_> {
 pub struct CredentialPatch {
     headers: HeaderMap,
     query: Vec<(String, String)>,
+    revision: Option<CredentialRevision>,
 }
 
 impl CredentialPatch {
@@ -111,6 +128,13 @@ impl CredentialPatch {
         Ok(self)
     }
 
+    /// Attach a non-secret generation so a 401 refresh can reject exactly the
+    /// credential material used for that attempt.
+    pub fn with_revision(mut self, revision: CredentialRevision) -> Self {
+        self.revision = Some(revision);
+        self
+    }
+
     /// Add a query credential when a provider cannot authenticate by header.
     /// Values are intentionally inaccessible and redacted from `Debug`.
     pub fn try_insert_query(
@@ -130,13 +154,50 @@ impl CredentialPatch {
         {
             return Err(RequestBuildError::InvalidCredentialQuery);
         }
+        if self.query.len() >= MAX_CREDENTIAL_QUERY_PAIRS {
+            return Err(RequestBuildError::TooManyCredentialQueryParameters {
+                maximum: MAX_CREDENTIAL_QUERY_PAIRS,
+            });
+        }
         self.query.push((name, value));
+        let encoded = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(
+                self.query
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+            )
+            .finish();
+        if encoded.len() > MAX_CREDENTIAL_QUERY_BYTES {
+            return Err(RequestBuildError::CredentialQueryTooLarge {
+                maximum: MAX_CREDENTIAL_QUERY_BYTES,
+            });
+        }
         Ok(self)
     }
 
-    pub(crate) fn into_parts(self) -> (HeaderMap, Vec<(String, String)>) {
-        (self.headers, self.query)
+    pub(crate) fn into_parts(
+        self,
+    ) -> (HeaderMap, Vec<(String, String)>, Option<CredentialRevision>) {
+        (self.headers, self.query, self.revision)
     }
+}
+
+pub(crate) fn append_credential_query(
+    url: &mut Url,
+    query: Vec<(String, String)>,
+) -> Result<(), RequestBuildError> {
+    if !query.is_empty() {
+        let mut pairs = url.query_pairs_mut();
+        for (name, value) in query {
+            pairs.append_pair(&name, &value);
+        }
+    }
+    if url.as_str().len() > MAX_AUTHENTICATED_URL_BYTES {
+        return Err(RequestBuildError::AuthenticatedUrlTooLong {
+            maximum: MAX_AUTHENTICATED_URL_BYTES,
+        });
+    }
+    Ok(())
 }
 
 impl fmt::Debug for CredentialPatch {
@@ -161,6 +222,7 @@ impl fmt::Debug for CredentialPatch {
                     .collect::<Vec<_>>(),
             )
             .field("query_values", &"[REDACTED]")
+            .field("revision", &self.revision)
             .finish()
     }
 }
@@ -224,5 +286,44 @@ mod tests {
                 .unwrap_err(),
             RequestBuildError::ProtectedHeader
         );
+    }
+
+    #[test]
+    fn credential_query_count_encoded_size_and_final_url_are_bounded() {
+        let mut patch = CredentialPatch::new();
+        for index in 0..MAX_CREDENTIAL_QUERY_PAIRS {
+            patch = patch
+                .try_insert_query(format!("key-{index}"), "value")
+                .unwrap();
+        }
+        assert!(matches!(
+            patch.try_insert_query("overflow", "value"),
+            Err(RequestBuildError::TooManyCredentialQueryParameters {
+                maximum: MAX_CREDENTIAL_QUERY_PAIRS
+            })
+        ));
+
+        let oversized = CredentialPatch::new()
+            .try_insert_query("a", "%".repeat(8 * 1024))
+            .unwrap()
+            .try_insert_query("b", "%".repeat(8 * 1024));
+        assert!(matches!(
+            oversized,
+            Err(RequestBuildError::CredentialQueryTooLarge {
+                maximum: MAX_CREDENTIAL_QUERY_BYTES
+            })
+        ));
+
+        let mut url = Url::parse(&format!(
+            "https://example.com/path?existing={}",
+            "a".repeat(MAX_AUTHENTICATED_URL_BYTES)
+        ))
+        .unwrap();
+        assert!(matches!(
+            append_credential_query(&mut url, Vec::new()),
+            Err(RequestBuildError::AuthenticatedUrlTooLong {
+                maximum: MAX_AUTHENTICATED_URL_BYTES
+            })
+        ));
     }
 }

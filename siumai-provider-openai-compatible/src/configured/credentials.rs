@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use http::HeaderValue;
 use secrecy::{ExposeSecret, SecretString};
 use siumai_core::{Error, ErrorKind};
-use siumai_transport::{AuthApplier, AuthContext, AuthRefresh, CredentialPatch, RequestBuildError};
+use siumai_transport::{
+    AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision, RequestBuildError,
+};
 use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -216,12 +218,12 @@ impl AuthApplier for BearerAuth {
         _context: AuthContext<'_>,
         refresh: AuthRefresh,
     ) -> Result<CredentialPatch, Error> {
-        let credential = match self {
-            Self::Static(credential) => credential.clone(),
-            Self::Dynamic(manager) => manager
-                .load(matches!(refresh, AuthRefresh::AfterUnauthorized))
-                .await
-                .map_err(credential_error)?,
+        let (credential, revision) = match self {
+            Self::Static(credential) => (credential.clone(), None),
+            Self::Dynamic(manager) => {
+                let versioned = manager.load(refresh).await.map_err(credential_error)?;
+                (versioned.credential, Some(versioned.revision))
+            }
         };
         let value = HeaderValue::from_str(&format!("Bearer {}", credential.secret.expose_secret()))
             .map_err(|source| {
@@ -231,9 +233,13 @@ impl AuthApplier for BearerAuth {
                 )
                 .with_source(source)
             })?;
-        CredentialPatch::new()
+        let patch = CredentialPatch::new()
             .try_insert(http::header::AUTHORIZATION, value)
-            .map_err(request_build_error)
+            .map_err(request_build_error)?;
+        Ok(match revision {
+            Some(revision) => patch.with_revision(revision),
+            None => patch,
+        })
     }
 }
 
@@ -283,15 +289,21 @@ impl Drop for DynamicCredentialInner {
 
 #[derive(Default)]
 struct CredentialState {
-    cached: Option<BearerCredential>,
+    cached: Option<VersionedCredential>,
     generation: u64,
     flight: Option<CredentialFlight>,
 }
 
 #[derive(Clone)]
+struct VersionedCredential {
+    credential: BearerCredential,
+    revision: CredentialRevision,
+}
+
+#[derive(Clone)]
 struct CredentialFlight {
     generation: u64,
-    receiver: watch::Receiver<Option<Result<BearerCredential, CredentialSourceError>>>,
+    receiver: watch::Receiver<Option<Result<VersionedCredential, CredentialSourceError>>>,
 }
 
 impl DynamicCredentialManager {
@@ -307,11 +319,18 @@ impl DynamicCredentialManager {
         }
     }
 
-    async fn load(&self, force_refresh: bool) -> Result<BearerCredential, CredentialSourceError> {
+    async fn load(
+        &self,
+        refresh: AuthRefresh,
+    ) -> Result<VersionedCredential, CredentialSourceError> {
+        let rejected_revision = match refresh {
+            AuthRefresh::Current => None,
+            AuthRefresh::AfterUnauthorized { rejected_revision } => Some(rejected_revision),
+        };
         let mut state = self.inner.state.lock().await;
-        if !force_refresh
-            && let Some(cached) = &state.cached
-            && cached.is_usable(self.inner.expiry_skew)
+        if let Some(cached) = &state.cached
+            && cached.credential.is_usable(self.inner.expiry_skew)
+            && rejected_revision.is_none_or(|rejected| rejected != cached.revision)
         {
             return Ok(cached.clone());
         }
@@ -332,7 +351,7 @@ impl DynamicCredentialManager {
                 self.inner.shutdown.clone(),
                 self.inner.load_timeout,
                 generation,
-                if force_refresh {
+                if rejected_revision.is_some() {
                     CredentialRequest::AfterUnauthorized
                 } else {
                     CredentialRequest::MissingOrExpired
@@ -362,7 +381,7 @@ fn spawn_credential_load(
     timeout: Duration,
     generation: u64,
     request: CredentialRequest,
-    sender: watch::Sender<Option<Result<BearerCredential, CredentialSourceError>>>,
+    sender: watch::Sender<Option<Result<VersionedCredential, CredentialSourceError>>>,
 ) {
     tokio::spawn(async move {
         let result = tokio::select! {
@@ -376,6 +395,11 @@ fn spawn_credential_load(
                 }
             }
         };
+
+        let result = result.map(|credential| VersionedCredential {
+            credential,
+            revision: CredentialRevision::new(generation),
+        });
 
         if let Some(inner) = inner.upgrade() {
             let mut state = inner.state.lock().await;
@@ -431,25 +455,74 @@ mod tests {
         let manager = DynamicCredentialManager::new(source.clone());
         let first = tokio::spawn({
             let manager = manager.clone();
-            async move { manager.load(false).await }
+            async move { manager.load(AuthRefresh::Current).await }
         });
         source.started.notified().await;
 
         let mut peers = Vec::new();
         for _ in 0..31 {
             let manager = manager.clone();
-            peers.push(tokio::spawn(async move { manager.load(false).await }));
+            peers.push(tokio::spawn(async move {
+                manager.load(AuthRefresh::Current).await
+            }));
         }
         first.abort();
         source.release.notify_waiters();
 
         for peer in peers {
             assert_eq!(
-                peer.await.unwrap().unwrap().secret.expose_secret(),
+                peer.await
+                    .unwrap()
+                    .unwrap()
+                    .credential
+                    .secret
+                    .expose_secret(),
                 "canary-secret"
             );
         }
         assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn rejected_old_revision_reuses_a_newer_cached_credential() {
+        struct RotatingSource(AtomicUsize);
+
+        #[async_trait]
+        impl DynamicCredentialSource for RotatingSource {
+            async fn load(
+                &self,
+                _request: CredentialRequest,
+            ) -> Result<BearerCredential, CredentialSourceError> {
+                let version = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+                Ok(BearerCredential::new(format!("secret-{version}")))
+            }
+        }
+
+        let source = Arc::new(RotatingSource(AtomicUsize::new(0)));
+        let manager = DynamicCredentialManager::new(source.clone());
+        let first = manager.load(AuthRefresh::Current).await.unwrap();
+        let second = manager
+            .load(AuthRefresh::AfterUnauthorized {
+                rejected_revision: first.revision,
+            })
+            .await
+            .unwrap();
+        let reused = manager
+            .load(AuthRefresh::AfterUnauthorized {
+                rejected_revision: first.revision,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(second.credential.secret.expose_secret(), "secret-2");
+        assert_eq!(reused.credential.secret.expose_secret(), "secret-2");
+        assert_eq!(source.0.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn versioned_credential_debug_does_not_exist_on_public_surfaces() {
+        let patch = CredentialPatch::new().with_revision(CredentialRevision::new(7));
+        assert!(!format!("{patch:?}").contains("secret"));
     }
 
     #[test]

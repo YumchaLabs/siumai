@@ -68,6 +68,12 @@ pub enum RequestBuildError {
     InvalidHeaderValue,
     #[error("credential query parameter is invalid")]
     InvalidCredentialQuery,
+    #[error("credential query exceeds {maximum} parameters")]
+    TooManyCredentialQueryParameters { maximum: usize },
+    #[error("encoded credential query exceeds {maximum} bytes")]
+    CredentialQueryTooLarge { maximum: usize },
+    #[error("authenticated request URL exceeds {maximum} bytes")]
+    AuthenticatedUrlTooLong { maximum: usize },
     #[error("request has too many headers")]
     TooManyHeaders,
     #[error("request header value is too large")]

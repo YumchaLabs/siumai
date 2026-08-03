@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, WebSocketConfig};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_tls_with_config};
 
-use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth};
+use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth, append_credential_query};
 use crate::endpoint::{CredentialAudience, EndpointConfig, Resolver, SystemResolver};
 use crate::framing::{WebSocketFrame, WebSocketFramer};
 use crate::transport::{effective_deadline, run_controlled};
@@ -249,7 +249,7 @@ impl WebSocketTransport {
             deadline,
         )
         .await??;
-        let (credential_headers, credential_query) = patch.into_parts();
+        let (credential_headers, credential_query, _credential_revision) = patch.into_parts();
         for (name, value) in credential_headers {
             let Some(name) = name else {
                 return Err(websocket_request_error(RequestBuildError::ProtectedHeader));
@@ -265,12 +265,7 @@ impl WebSocketTransport {
         {
             return Err(websocket_request_error(RequestBuildError::TooManyHeaders));
         }
-        if !credential_query.is_empty() {
-            let mut pairs = url.query_pairs_mut();
-            for (name, value) in credential_query {
-                pairs.append_pair(&name, &value);
-            }
-        }
+        append_credential_query(&mut url, credential_query).map_err(websocket_request_error)?;
         if !self.inner.endpoint.audience.matches(&url) {
             return Err(websocket_endpoint_error(EndpointError::AudienceMismatch));
         }

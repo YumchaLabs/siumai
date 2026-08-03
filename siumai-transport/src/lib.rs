@@ -16,13 +16,15 @@ mod resource;
 mod transport;
 mod websocket;
 
-pub use auth::{AuthApplier, AuthContext, AuthRefresh, CredentialPatch, NoAuth};
+pub use auth::{
+    AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision, NoAuth,
+};
 pub use endpoint::{
     CredentialAudience, EndpointConfig, EndpointPolicy, OfficialOrigin, Resolver, SystemResolver,
 };
 pub use error::{EndpointError, RequestBuildError, TransportConfigError};
 pub use limits::TransportLimits;
-pub use replay::{IdempotencyHeader, ReplaySafety, RetryPolicy};
+pub use replay::{IdempotencyHeader, ReplaySafety, RetryPolicy, TransportRetryPolicyError};
 pub use request::{
     MultipartBody, MultipartPart, RequestBody, RequestHeaders, RequestPlan, RequestTarget,
 };
@@ -31,8 +33,9 @@ pub use resource::{
     ResourceProvenance, ResourceUrl, ResourceUrlError,
 };
 pub use transport::{
-    ProviderTransport, ProviderTransportBuilder, ResponseHeaders, RetryReason, TransportByteStream,
-    TransportEvent, TransportObserver, TransportResponse, TransportStreamResponse,
+    ProviderTransport, ProviderTransportBuilder, ResponseHeaders, RetryClassifier, RetryReason,
+    TransportByteStream, TransportEvent, TransportObserver, TransportResponse,
+    TransportStreamResponse,
 };
 pub use websocket::{
     WebSocketConnection, WebSocketEndpoint, WebSocketTransport, WebSocketTransportBuilder,
