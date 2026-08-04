@@ -78,7 +78,8 @@ pub use provider::{
     SpeechModelProvider, SupportState, TranscriptionModelProvider, UnsupportedReason,
 };
 pub use stream::{
-    LanguageStream, LanguageStreamEvent, StreamContractError, StreamLifecycle, StreamTerminal,
+    DecoderLifecycle, LanguageStream, LanguageStreamDecoder, LanguageStreamEvent,
+    StreamContractError, StreamLifecycle, StreamTerminal,
 };
 pub use tool::{
     ExecutionOwner, InvalidToolSpec, ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult,

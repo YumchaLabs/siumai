@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 use siumai_core::{
-    ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, LanguageResponse,
-    LanguageStreamEvent, ModelId, ProviderScope, StreamTerminal, ToolCall, Usage,
+    ContentPart, DecoderLifecycle, Error, ErrorKind, ExecutionOwner, FinishReason,
+    LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope,
+    StreamTerminal, ToolCall, Usage,
 };
 
 use super::ChatCompletionsDialect;
@@ -18,8 +19,8 @@ pub struct ChatCompletionsStreamDecoder {
     scope: ProviderScope,
     requested_model: ModelId,
     dialect: ChatCompletionsDialect,
+    lifecycle: DecoderLifecycle,
     started: bool,
-    terminal: bool,
     response_id: Option<String>,
     response_model: Option<ModelId>,
     text: String,
@@ -40,7 +41,8 @@ impl std::fmt::Debug for ChatCompletionsStreamDecoder {
             .field("scope", &self.scope)
             .field("requested_model", &self.requested_model)
             .field("started", &self.started)
-            .field("terminal", &self.terminal)
+            .field("terminal", &self.lifecycle.terminal_seen())
+            .field("finished", &self.lifecycle.finish_seen())
             .field("text_bytes", &self.text.len())
             .field("reasoning_bytes", &self.reasoning.len())
             .field("refusal_count", &self.refusals.len())
@@ -75,8 +77,8 @@ impl ChatCompletionsStreamDecoder {
             scope,
             requested_model,
             dialect,
+            lifecycle: DecoderLifecycle::default(),
             started: false,
-            terminal: false,
             response_id: None,
             response_model: None,
             text: String::new(),
@@ -93,11 +95,19 @@ impl ChatCompletionsStreamDecoder {
 
     /// Decode one framed SSE `data` value.
     pub fn decode(&mut self, data: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
-        if self.terminal {
-            return Err(protocol_error(
-                "Chat Completions stream emitted data after its terminal marker",
-            ));
-        }
+        <Self as LanguageStreamDecoder>::decode(self, data)
+    }
+
+    /// Signal clean SSE EOF and finalize the protocol lifecycle.
+    pub fn finish(&mut self) -> Result<Vec<LanguageStreamEvent>, Error> {
+        <Self as LanguageStreamDecoder>::finish(self)
+    }
+
+    pub fn terminal_seen(&self) -> bool {
+        <Self as LanguageStreamDecoder>::terminal_seen(self)
+    }
+
+    fn decode_frame(&mut self, data: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
         if data.trim() == "[DONE]" {
             return self.complete();
         }
@@ -190,10 +200,6 @@ impl ChatCompletionsStreamDecoder {
             self.finish_reason = Some(reason);
         }
         Ok(events)
-    }
-
-    pub fn terminal_seen(&self) -> bool {
-        self.terminal
     }
 
     fn observe_identity(
@@ -377,11 +383,35 @@ impl ChatCompletionsStreamDecoder {
             warnings: Vec::new(),
             provider: BTreeMap::new(),
         };
-        self.terminal = true;
         events.push(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
             response: Box::new(response),
         }));
         Ok(events)
+    }
+}
+
+impl LanguageStreamDecoder for ChatCompletionsStreamDecoder {
+    type ProtocolFrame = str;
+
+    fn decode(&mut self, frame: &Self::ProtocolFrame) -> Result<Vec<LanguageStreamEvent>, Error> {
+        self.lifecycle
+            .ensure_decode_allowed()
+            .map_err(Error::from)?;
+        let events = self.decode_frame(frame)?;
+        self.lifecycle.record(&events).map_err(Error::from)?;
+        Ok(events)
+    }
+
+    fn finish(&mut self) -> Result<Vec<LanguageStreamEvent>, Error> {
+        if self.lifecycle.begin_finish().map_err(Error::from)? {
+            Ok(Vec::new())
+        } else {
+            Err(Error::unexpected_eof())
+        }
+    }
+
+    fn terminal_seen(&self) -> bool {
+        self.lifecycle.terminal_seen()
     }
 }
 
@@ -469,6 +499,8 @@ mod tests {
         assert_eq!(response.content.len(), 3);
         assert_eq!(response.usage.input_tokens, UsageValue::Known(0));
         assert!(decoder.decode("[DONE]").is_err());
+        assert!(decoder.finish().unwrap().is_empty());
+        assert!(decoder.finish().is_err());
     }
 
     #[test]
@@ -479,5 +511,19 @@ mod tests {
             .unwrap();
         assert!(decoder.decode("[DONE]").is_err());
         assert!(!decoder.terminal_seen());
+    }
+
+    #[test]
+    fn eof_before_done_is_unexpected_and_closes_the_decoder() {
+        let mut decoder = decoder();
+        decoder
+            .decode(r#"{"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}"#)
+            .unwrap();
+
+        let error = decoder.finish().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+        assert!(!decoder.terminal_seen());
+        assert!(decoder.decode("[DONE]").is_err());
+        assert!(decoder.finish().is_err());
     }
 }
