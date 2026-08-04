@@ -3,12 +3,14 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 use siumai_core::{
     ContentPart, DecoderLifecycle, Error, ErrorKind, ExecutionOwner, FinishReason,
-    LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope,
-    StreamTerminal, ToolCall, Usage,
+    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, StreamTerminal, ToolCall,
+    Usage,
 };
 
 use super::ChatCompletionsDialect;
-use super::response::{decode_finish_reason, decode_usage, parse_model, protocol_error};
+use super::response::{
+    build_response, decode_finish_reason, decode_usage, parse_model, protocol_error,
+};
 use super::wire::{ChatStreamChunkWire, ToolCallDeltaWire};
 
 /// Stateful Chat Completions stream decoder.
@@ -370,19 +372,16 @@ impl ChatCompletionsStreamDecoder {
                 }
             }
         }
-        let response = LanguageResponse {
-            id: self.response_id.clone(),
-            model: Some(
-                self.response_model
-                    .clone()
-                    .unwrap_or_else(|| self.requested_model.clone()),
-            ),
+        let response = build_response(
+            self.response_id.clone(),
+            self.response_model
+                .clone()
+                .unwrap_or_else(|| self.requested_model.clone()),
             content,
             finish_reason,
-            usage: self.usage.clone(),
-            warnings: Vec::new(),
-            provider: BTreeMap::new(),
-        };
+            self.usage.clone(),
+            BTreeMap::new(),
+        )?;
         events.push(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
             response: Box::new(response),
         }));
@@ -496,8 +495,8 @@ mod tests {
         else {
             panic!("expected completed terminal")
         };
-        assert_eq!(response.content.len(), 3);
-        assert_eq!(response.usage.input_tokens, UsageValue::Known(0));
+        assert_eq!(response.content().len(), 3);
+        assert_eq!(response.usage().input_tokens, UsageValue::Known(0));
         assert!(decoder.decode("[DONE]").is_err());
         assert!(decoder.finish().unwrap().is_empty());
         assert!(decoder.finish().is_err());

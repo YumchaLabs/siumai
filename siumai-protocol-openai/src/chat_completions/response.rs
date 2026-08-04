@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, LanguageResponse, ModelId,
-    OpaqueProviderItem, ProviderProvenance, ProviderScope, ToolCall, Usage, UsageValue,
+    ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, LanguageResponse,
+    LanguageResponseStatus, ModelId, OpaqueProviderItem, ProviderProvenance, ProviderScope,
+    ToolCall, Usage, UsageValue,
 };
 
 use super::ChatCompletionsDialect;
@@ -30,15 +31,49 @@ pub fn decode_response(
         .map(decode_finish_reason)
         .ok_or_else(|| protocol_error("Chat Completions response omitted its finish reason"))?;
 
-    Ok(LanguageResponse {
-        id: wire.id,
-        model: Some(model),
+    build_response(
+        wire.id,
+        model,
         content,
         finish_reason,
-        usage: wire.usage.map(decode_usage).unwrap_or_default(),
-        warnings: Vec::new(),
-        provider: selected_response_metadata(&wire.extra),
-    })
+        wire.usage.map(decode_usage).unwrap_or_default(),
+        selected_response_metadata(&wire.extra),
+    )
+}
+
+pub(crate) fn build_response(
+    id: Option<String>,
+    model: ModelId,
+    content: Vec<ContentPart>,
+    finish_reason: FinishReason,
+    usage: Usage,
+    provider: BTreeMap<String, Value>,
+) -> Result<LanguageResponse, Error> {
+    let status = match &finish_reason {
+        FinishReason::Length => LanguageResponseStatus::Incomplete {
+            reason: Some(siumai_core::LanguageIncompleteReason::MaxOutputTokens),
+        },
+        FinishReason::ContentFilter => LanguageResponseStatus::Incomplete {
+            reason: Some(siumai_core::LanguageIncompleteReason::ContentFilter),
+        },
+        FinishReason::Error => LanguageResponseStatus::Failed,
+        FinishReason::Cancelled => LanguageResponseStatus::Cancelled,
+        _ => LanguageResponseStatus::Completed,
+    };
+    let mut response = LanguageResponse::new(status, content, finish_reason, usage)
+        .map_err(|source| {
+            Error::new(
+                ErrorKind::Protocol,
+                "Chat Completions response produced an inconsistent terminal state",
+            )
+            .with_source(source)
+        })?
+        .with_model(model)
+        .with_provider_metadata(provider);
+    if let Some(id) = id {
+        response = response.with_id(id);
+    }
+    Ok(response)
 }
 
 pub(crate) fn decode_message(
@@ -323,18 +358,18 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(response.model.unwrap().as_str(), "future:model");
-        assert_eq!(response.usage.input_tokens, UsageValue::Known(0));
-        assert_eq!(response.usage.reasoning_tokens, UsageValue::Known(2));
+        assert_eq!(response.model().unwrap().as_str(), "future:model");
+        assert_eq!(response.usage().input_tokens, UsageValue::Known(0));
+        assert_eq!(response.usage().reasoning_tokens, UsageValue::Known(2));
         assert!(
             response
-                .content
+                .content()
                 .iter()
                 .any(|part| matches!(part, ContentPart::ProviderOpaque(_)))
         );
         assert!(
             response
-                .content
+                .content()
                 .iter()
                 .any(|part| matches!(part, ContentPart::ToolCall(call) if call.name == "lookup"))
         );

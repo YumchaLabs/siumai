@@ -15,6 +15,14 @@
 /// Canonical-core Chat Completions codec used by configured providers.
 pub mod chat_completions;
 
+/// Native Responses codec and lifecycle decoder.
+#[cfg(feature = "openai-responses")]
+pub mod responses_next;
+
+/// Experimental Realtime and Realtime Translation wire codecs.
+#[cfg(feature = "openai-realtime")]
+pub mod realtime;
+
 // Keep provider-agnostic core modules available only to this crate's implementation.
 // Protocol crates must not publicly mirror `siumai-core`; downstream code should import
 // shared core types from `siumai-core` or the top-level `siumai` facade.

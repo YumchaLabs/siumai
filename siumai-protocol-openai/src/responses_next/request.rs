@@ -1,0 +1,637 @@
+//! Responses request encoding with strict native-history replay.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use base64::Engine as _;
+use serde_json::{Map, Value, json};
+use siumai_core::{
+    ContentPart, Error, ErrorKind, LanguageRequest, MediaData, Message, MessageRole, ModelId,
+    OpaqueProviderItem, ProviderScope, StructuredOutputSpec, ToolChoice, ToolOutcome, ToolResult,
+};
+
+use super::wire::OutputItem;
+use super::{API_MODE_ID, OPENAI_RESPONSES_OPAQUE_KIND, OPENAI_RESPONSES_PROTOCOL};
+
+/// Internal merge key accepted from provider-owned typed options.
+pub const TEXT_VERBOSITY_OPTION: &str = "text_verbosity";
+const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 4;
+
+/// One original neutral content location that should carry an explicit OpenAI
+/// prompt-cache breakpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PromptCacheBlock {
+    pub message_index: usize,
+    pub content_index: usize,
+}
+
+impl PromptCacheBlock {
+    pub const fn new(message_index: usize, content_index: usize) -> Self {
+        Self {
+            message_index,
+            content_index,
+        }
+    }
+}
+
+/// Protocol-owned request shaping. Provider crates keep typed user options and
+/// translate them into this wire-focused structure after applying precedence.
+#[derive(Debug, Clone, Default)]
+pub struct RequestEncodingOptions {
+    stream: bool,
+    extra: BTreeMap<String, Value>,
+    native_tools: Vec<Value>,
+    prompt_cache_breakpoints: BTreeSet<PromptCacheBlock>,
+}
+
+impl RequestEncodingOptions {
+    pub fn new(stream: bool) -> Self {
+        Self {
+            stream,
+            ..Self::default()
+        }
+    }
+
+    pub fn stream(&self) -> bool {
+        self.stream
+    }
+
+    pub fn with_extra(mut self, extra: BTreeMap<String, Value>) -> Self {
+        self.extra = extra;
+        self
+    }
+
+    pub fn with_native_tool(mut self, tool: Value) -> Self {
+        self.native_tools.push(tool);
+        self
+    }
+
+    pub fn with_prompt_cache_breakpoint(mut self, block: PromptCacheBlock) -> Self {
+        self.prompt_cache_breakpoints.insert(block);
+        self
+    }
+}
+
+/// Encode a request with only request-wide Responses options.
+pub fn encode_request(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &LanguageRequest,
+    stream: bool,
+    extra: &BTreeMap<String, Value>,
+) -> Result<Value, Error> {
+    encode_request_with_options(
+        scope,
+        model,
+        request,
+        &RequestEncodingOptions::new(stream).with_extra(extra.clone()),
+    )
+}
+
+/// Encode a request while preserving same-protocol opaque history verbatim.
+pub fn encode_request_with_options(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &RequestEncodingOptions,
+) -> Result<Value, Error> {
+    request.validate().map_err(|source| {
+        Error::new(ErrorKind::InvalidInput, "invalid language request").with_source(source)
+    })?;
+    if options.prompt_cache_breakpoints.len() > MAX_PROMPT_CACHE_BREAKPOINTS {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "OpenAI Responses accepts at most four explicit prompt-cache breakpoints",
+        ));
+    }
+    if request.generation.seed.is_some() || !request.generation.stop_sequences.is_empty() {
+        return Err(Error::new(
+            ErrorKind::Unsupported,
+            "OpenAI Responses does not encode neutral seed or stop-sequence controls",
+        ));
+    }
+    for key in options.extra.keys() {
+        if key != TEXT_VERBOSITY_OPTION && is_protected_option_field(key) {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI Responses options attempted to override a protected request field",
+            ));
+        }
+        if key.trim().is_empty() || key.chars().any(char::is_control) {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI Responses option name is empty or contains control characters",
+            ));
+        }
+    }
+
+    validate_target_scope(scope)?;
+    let call_contexts = collect_native_call_contexts(&request.messages, scope)?;
+    let mut seen_breakpoints = BTreeSet::new();
+    let mut input = Vec::new();
+    for (message_index, message) in request.messages.iter().enumerate() {
+        encode_message(
+            message,
+            message_index,
+            scope,
+            options,
+            &call_contexts,
+            &mut seen_breakpoints,
+            &mut input,
+        )?;
+    }
+    if seen_breakpoints != options.prompt_cache_breakpoints {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "an OpenAI prompt-cache breakpoint did not identify an encodable input block",
+        ));
+    }
+
+    let mut body = Map::new();
+    body.insert("model".to_string(), Value::String(model.to_string()));
+    body.insert("input".to_string(), Value::Array(input));
+    body.insert("stream".to_string(), Value::Bool(options.stream));
+    insert_optional_u64(
+        &mut body,
+        "max_output_tokens",
+        request.generation.max_output_tokens,
+    );
+    insert_optional_f64(&mut body, "temperature", request.generation.temperature)?;
+    insert_optional_f64(&mut body, "top_p", request.generation.top_p)?;
+
+    let mut tools = request
+        .tools
+        .iter()
+        .map(|tool| {
+            let (name, description, parameters) = tool.clone().into_parts();
+            json!({
+                "type": "function",
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            })
+        })
+        .collect::<Vec<_>>();
+    for tool in &options.native_tools {
+        if !tool.is_object() || tool.get("type").and_then(Value::as_str).is_none() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI native tool must be a JSON object with a string `type`",
+            ));
+        }
+        tools.push(tool.clone());
+    }
+    if !tools.is_empty() {
+        body.insert("tools".to_string(), Value::Array(tools));
+    }
+    if let Some(choice) = &request.tool_choice {
+        body.insert("tool_choice".to_string(), encode_tool_choice(choice));
+    }
+    let text_verbosity = options.extra.get(TEXT_VERBOSITY_OPTION);
+    if let Some(verbosity) = text_verbosity
+        && verbosity.as_str().is_none()
+    {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "OpenAI Responses text verbosity must be a string",
+        ));
+    }
+    if request.structured_output.is_some() || text_verbosity.is_some() {
+        let mut text = request
+            .structured_output
+            .as_ref()
+            .map(encode_structured_output)
+            .unwrap_or_else(|| Value::Object(Map::new()));
+        if let Some(verbosity) = text_verbosity {
+            text.as_object_mut()
+                .expect("text request encoding always creates an object")
+                .insert("verbosity".to_string(), verbosity.clone());
+        }
+        body.insert("text".to_string(), text);
+    }
+    for (key, value) in &options.extra {
+        if key == TEXT_VERBOSITY_OPTION {
+            continue;
+        }
+        body.insert(key.clone(), value.clone());
+    }
+    Ok(Value::Object(body))
+}
+
+/// Fields owned by the neutral request encoder and unavailable to raw or typed
+/// request-wide option maps.
+pub fn is_protected_option_field(field: &str) -> bool {
+    matches!(
+        field,
+        "model"
+            | "input"
+            | "stream"
+            | "max_output_tokens"
+            | "temperature"
+            | "top_p"
+            | "stop"
+            | "seed"
+            | "tools"
+            | "tool_choice"
+            | "text"
+    )
+}
+
+#[derive(Debug, Clone)]
+struct NativeCallContext {
+    kind: NativeCallKind,
+    caller: Option<Value>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum NativeCallKind {
+    Function,
+    Custom,
+}
+
+fn collect_native_call_contexts(
+    messages: &[Message],
+    scope: &ProviderScope,
+) -> Result<BTreeMap<String, NativeCallContext>, Error> {
+    let mut contexts = BTreeMap::new();
+    for message in messages {
+        for part in &message.content {
+            let ContentPart::ProviderOpaque(opaque) = part else {
+                continue;
+            };
+            let item = replayable_item(opaque, scope)?;
+            let context = match item {
+                OutputItem::FunctionCall(call) => Some((
+                    call.call_id,
+                    NativeCallContext {
+                        kind: NativeCallKind::Function,
+                        caller: call
+                            .caller
+                            .map(|caller| serde_json::to_value(caller).unwrap_or(Value::Null)),
+                    },
+                )),
+                OutputItem::CustomToolCall(call) => Some((
+                    call.call_id,
+                    NativeCallContext {
+                        kind: NativeCallKind::Custom,
+                        caller: call
+                            .caller
+                            .map(|caller| serde_json::to_value(caller).unwrap_or(Value::Null)),
+                    },
+                )),
+                _ => None,
+            };
+            if let Some((call_id, context)) = context
+                && contexts.insert(call_id, context).is_some()
+            {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "OpenAI Responses history reused a tool call ID",
+                ));
+            }
+        }
+    }
+    Ok(contexts)
+}
+
+fn encode_message(
+    message: &Message,
+    message_index: usize,
+    scope: &ProviderScope,
+    options: &RequestEncodingOptions,
+    call_contexts: &BTreeMap<String, NativeCallContext>,
+    seen_breakpoints: &mut BTreeSet<PromptCacheBlock>,
+    input: &mut Vec<Value>,
+) -> Result<(), Error> {
+    let native_items = message
+        .content
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::ProviderOpaque(opaque) => Some(replayable_item(opaque, scope)),
+            _ => None,
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let suppression = NativeProjectionSuppression::from_items(&native_items);
+
+    for item in native_items {
+        input.push(item.to_value().map_err(|source| {
+            Error::new(
+                ErrorKind::Protocol,
+                "failed to replay a native OpenAI Responses item",
+            )
+            .with_source(source)
+        })?);
+    }
+
+    let mut message_content = Vec::new();
+    for (content_index, part) in message.content.iter().enumerate() {
+        let cache_block = PromptCacheBlock::new(message_index, content_index);
+        let explicit_cache = options.prompt_cache_breakpoints.contains(&cache_block);
+        match part {
+            ContentPart::Text { text } if !suppression.message => {
+                let mut block = match message.role {
+                    MessageRole::Assistant => json!({"type": "output_text", "text": text}),
+                    MessageRole::System
+                    | MessageRole::Developer
+                    | MessageRole::User
+                    | MessageRole::Tool => json!({"type": "input_text", "text": text}),
+                    _ => {
+                        return Err(Error::new(
+                            ErrorKind::Unsupported,
+                            "OpenAI Responses cannot encode this message role",
+                        ));
+                    }
+                };
+                apply_cache_breakpoint(&mut block, explicit_cache, cache_block, seen_breakpoints)?;
+                message_content.push(block);
+            }
+            ContentPart::Text { .. } if suppression.message => {}
+            ContentPart::Reasoning { .. } if suppression.reasoning => {}
+            ContentPart::Reasoning { .. } => {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "reasoning history requires its native OpenAI Responses item",
+                ));
+            }
+            ContentPart::Media(media) if !suppression.message => {
+                let mut block = encode_media(media)?;
+                apply_cache_breakpoint(&mut block, explicit_cache, cache_block, seen_breakpoints)?;
+                message_content.push(block);
+            }
+            ContentPart::Media(_) if suppression.message => {}
+            ContentPart::Citation(_) | ContentPart::Refusal { .. } if suppression.message => {}
+            ContentPart::Citation(_) | ContentPart::Refusal { .. } => {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "response-only content requires its native OpenAI Responses message item",
+                ));
+            }
+            ContentPart::ToolCall(call) if suppression.tool_calls.contains(&call.id) => {}
+            ContentPart::ToolCall(call) => input.push(json!({
+                "type": "function_call",
+                "call_id": call.id,
+                "name": call.name,
+                "arguments": serde_json::to_string(&call.arguments).map_err(|source| {
+                    Error::new(ErrorKind::InvalidInput, "failed to encode tool arguments")
+                        .with_source(source)
+                })?,
+            })),
+            ContentPart::ToolResult(result)
+                if suppression.tool_results.contains(&result.call_id) => {}
+            ContentPart::ToolResult(result) => {
+                input.push(encode_tool_result(result, call_contexts)?);
+            }
+            ContentPart::ProviderOpaque(_) => {}
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::Unsupported,
+                    "OpenAI Responses cannot encode this neutral content part",
+                ));
+            }
+        }
+    }
+
+    if !message_content.is_empty() {
+        input.push(json!({
+            "role": encode_role(&message.role)?,
+            "content": message_content,
+        }));
+    }
+    Ok(())
+}
+
+fn replayable_item(
+    opaque: &OpaqueProviderItem,
+    scope: &ProviderScope,
+) -> Result<OutputItem, Error> {
+    let provenance = opaque.provenance();
+    if &provenance.provider != scope.provider_id()
+        || provenance.platform.as_deref() != scope.platform().map(|platform| platform.as_str())
+        || provenance.protocol != OPENAI_RESPONSES_PROTOCOL
+    {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "foreign provider or platform-native history requires explicit projection before OpenAI Responses encoding",
+        ));
+    }
+    if opaque.kind() != OPENAI_RESPONSES_OPAQUE_KIND {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "OpenAI Responses history contained a native item that cannot be replayed",
+        ));
+    }
+    serde_json::from_value::<OutputItem>(opaque.data().clone()).map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "stored OpenAI Responses history item is malformed",
+        )
+        .with_source(source)
+    })
+}
+
+fn validate_target_scope(scope: &ProviderScope) -> Result<(), Error> {
+    if scope
+        .protocol()
+        .is_some_and(|protocol| protocol.as_str() != OPENAI_RESPONSES_PROTOCOL)
+        || scope
+            .api_mode()
+            .is_some_and(|api_mode| api_mode.as_str() != API_MODE_ID)
+    {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "OpenAI Responses encoder received a scope for another protocol or API mode",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct NativeProjectionSuppression {
+    message: bool,
+    reasoning: bool,
+    tool_calls: BTreeSet<String>,
+    tool_results: BTreeSet<String>,
+}
+
+impl NativeProjectionSuppression {
+    fn from_items(items: &[OutputItem]) -> Self {
+        let mut suppression = Self::default();
+        for item in items {
+            match item {
+                OutputItem::Message(_) => suppression.message = true,
+                OutputItem::Reasoning(_) => suppression.reasoning = true,
+                OutputItem::FunctionCall(call) => {
+                    suppression.tool_calls.insert(call.call_id.clone());
+                }
+                OutputItem::CustomToolCall(call) => {
+                    suppression.tool_calls.insert(call.call_id.clone());
+                }
+                OutputItem::Program(program) => {
+                    suppression.tool_calls.insert(program.call_id.clone());
+                }
+                OutputItem::ProgramOutput(output) => {
+                    suppression.tool_results.insert(output.call_id.clone());
+                }
+                OutputItem::ProviderTool(item) => {
+                    if matches!(
+                        item.kind(),
+                        "function_call_output" | "custom_tool_call_output"
+                    ) && let Some(call_id) = item.call_id()
+                    {
+                        suppression.tool_results.insert(call_id.to_string());
+                    }
+                }
+                OutputItem::Unknown(_) => {}
+            }
+        }
+        suppression
+    }
+}
+
+fn encode_tool_result(
+    result: &ToolResult,
+    contexts: &BTreeMap<String, NativeCallContext>,
+) -> Result<Value, Error> {
+    let output = match &result.outcome {
+        ToolOutcome::Success { value } => match value {
+            Value::String(value) => value.clone(),
+            value => serde_json::to_string(value).map_err(|source| {
+                Error::new(ErrorKind::InvalidInput, "failed to encode tool result")
+                    .with_source(source)
+            })?,
+        },
+        outcome => serde_json::to_string(outcome).map_err(|source| {
+            Error::new(ErrorKind::InvalidInput, "failed to encode tool outcome").with_source(source)
+        })?,
+    };
+    let context = contexts.get(&result.call_id);
+    let kind = match context.map(|context| context.kind) {
+        Some(NativeCallKind::Custom) => "custom_tool_call_output",
+        Some(NativeCallKind::Function) | None => "function_call_output",
+    };
+    let mut item = Map::new();
+    item.insert("type".to_string(), Value::String(kind.to_string()));
+    item.insert("call_id".to_string(), Value::String(result.call_id.clone()));
+    item.insert("output".to_string(), Value::String(output));
+    if let Some(context) = context
+        && matches!(context.kind, NativeCallKind::Function)
+        && let Some(caller) = &context.caller
+    {
+        item.insert("caller".to_string(), caller.clone());
+    }
+    Ok(Value::Object(item))
+}
+
+fn encode_media(media: &siumai_core::MediaPart) -> Result<Value, Error> {
+    let is_image = media.media_type.starts_with("image/");
+    match (&media.data, is_image) {
+        (MediaData::Url(url), true) => Ok(json!({
+            "type": "input_image",
+            "image_url": url,
+        })),
+        (MediaData::Url(url), false) => Ok(json!({
+            "type": "input_file",
+            "file_url": url,
+        })),
+        (MediaData::Bytes(bytes), true) => {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(bytes.as_ref());
+            Ok(json!({
+                "type": "input_image",
+                "image_url": format!("data:{};base64,{encoded}", media.media_type),
+            }))
+        }
+        (MediaData::Bytes(bytes), false) => {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(bytes.as_ref());
+            Ok(json!({
+                "type": "input_file",
+                "filename": media.name.as_deref().unwrap_or("input"),
+                "file_data": format!("data:{};base64,{encoded}", media.media_type),
+            }))
+        }
+        _ => Err(Error::new(
+            ErrorKind::Unsupported,
+            "OpenAI Responses does not support this media source",
+        )),
+    }
+}
+
+fn apply_cache_breakpoint(
+    block: &mut Value,
+    explicit: bool,
+    location: PromptCacheBlock,
+    seen: &mut BTreeSet<PromptCacheBlock>,
+) -> Result<(), Error> {
+    if !explicit {
+        return Ok(());
+    }
+    let object = block.as_object_mut().ok_or_else(|| {
+        Error::new(
+            ErrorKind::Internal,
+            "OpenAI input block encoder produced a non-object",
+        )
+    })?;
+    object.insert(
+        "prompt_cache_breakpoint".to_string(),
+        json!({"mode": "explicit"}),
+    );
+    seen.insert(location);
+    Ok(())
+}
+
+fn encode_role(role: &MessageRole) -> Result<&'static str, Error> {
+    match role {
+        MessageRole::System => Ok("system"),
+        MessageRole::Developer => Ok("developer"),
+        MessageRole::User => Ok("user"),
+        MessageRole::Assistant => Ok("assistant"),
+        MessageRole::Tool => Ok("tool"),
+        _ => Err(Error::new(
+            ErrorKind::Unsupported,
+            "OpenAI Responses cannot encode this message role",
+        )),
+    }
+}
+
+fn encode_tool_choice(choice: &ToolChoice) -> Value {
+    match choice {
+        ToolChoice::Auto => Value::String("auto".to_string()),
+        ToolChoice::None => Value::String("none".to_string()),
+        ToolChoice::Required => Value::String("required".to_string()),
+        ToolChoice::Named { name } => json!({"type": "function", "name": name}),
+        _ => Value::String("auto".to_string()),
+    }
+}
+
+fn encode_structured_output(output: &StructuredOutputSpec) -> Value {
+    json!({
+        "format": {
+            "type": "json_schema",
+            "name": output.name,
+            "description": output.description,
+            "schema": output.schema,
+            "strict": output.strict,
+        }
+    })
+}
+
+fn insert_optional_u64(object: &mut Map<String, Value>, key: &str, value: Option<u64>) {
+    if let Some(value) = value {
+        object.insert(key.to_string(), Value::from(value));
+    }
+}
+
+fn insert_optional_f64(
+    object: &mut Map<String, Value>,
+    key: &str,
+    value: Option<f64>,
+) -> Result<(), Error> {
+    if let Some(value) = value {
+        let number = serde_json::Number::from_f64(value).ok_or_else(|| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI numeric request option must be finite",
+            )
+        })?;
+        object.insert(key.to_string(), Value::Number(number));
+    }
+    Ok(())
+}

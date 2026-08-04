@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use base64::Engine;
 use serde_json::{Map, Value, json};
@@ -10,6 +10,7 @@ use siumai_core::{
 use super::ChatCompletionsDialect;
 
 pub const CHAT_COMPLETIONS_TARGET: &str = "chat/completions";
+const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 4;
 
 const PROTECTED_FIELDS: &[&str] = &[
     "model",
@@ -32,6 +33,49 @@ pub fn is_protected_option_field(name: &str) -> bool {
     PROTECTED_FIELDS.contains(&name)
 }
 
+/// One canonical content block that should carry an explicit cache breakpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ChatPromptCacheBlock {
+    pub message_index: usize,
+    pub content_index: usize,
+}
+
+impl ChatPromptCacheBlock {
+    pub const fn new(message_index: usize, content_index: usize) -> Self {
+        Self {
+            message_index,
+            content_index,
+        }
+    }
+}
+
+/// Protocol-owned Chat Completions request shaping.
+#[derive(Debug, Clone, Default)]
+pub struct ChatRequestEncodingOptions {
+    stream: bool,
+    extra: BTreeMap<String, Value>,
+    prompt_cache_breakpoints: BTreeSet<ChatPromptCacheBlock>,
+}
+
+impl ChatRequestEncodingOptions {
+    pub fn new(stream: bool) -> Self {
+        Self {
+            stream,
+            ..Self::default()
+        }
+    }
+
+    pub fn with_extra(mut self, extra: BTreeMap<String, Value>) -> Self {
+        self.extra = extra;
+        self
+    }
+
+    pub fn with_prompt_cache_breakpoint(mut self, block: ChatPromptCacheBlock) -> Self {
+        self.prompt_cache_breakpoints.insert(block);
+        self
+    }
+}
+
 pub fn encode_request(
     model: &ModelId,
     request: &LanguageRequest,
@@ -39,19 +83,39 @@ pub fn encode_request(
     dialect: &ChatCompletionsDialect,
     extra: &BTreeMap<String, Value>,
 ) -> Result<Value, Error> {
+    encode_request_with_options(
+        model,
+        request,
+        dialect,
+        &ChatRequestEncodingOptions::new(stream).with_extra(extra.clone()),
+    )
+}
+
+pub fn encode_request_with_options(
+    model: &ModelId,
+    request: &LanguageRequest,
+    dialect: &ChatCompletionsDialect,
+    options: &ChatRequestEncodingOptions,
+) -> Result<Value, Error> {
     request.validate().map_err(|source| {
         Error::new(ErrorKind::InvalidInput, "language request is invalid").with_source(source)
     })?;
+    if options.prompt_cache_breakpoints.len() > MAX_PROMPT_CACHE_BREAKPOINTS {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "OpenAI Chat Completions accepts at most four explicit prompt-cache breakpoints",
+        ));
+    }
 
     let mut body = Map::new();
     body.insert("model".to_string(), Value::String(model.to_string()));
     body.insert(
         "messages".to_string(),
-        Value::Array(encode_messages(&request.messages, dialect)?),
+        Value::Array(encode_messages(&request.messages, dialect, options)?),
     );
-    body.insert("stream".to_string(), Value::Bool(stream));
+    body.insert("stream".to_string(), Value::Bool(options.stream));
 
-    if stream && dialect.supports_stream_usage() {
+    if options.stream && dialect.supports_stream_usage() {
         body.insert(
             "stream_options".to_string(),
             json!({ "include_usage": true }),
@@ -114,7 +178,7 @@ pub fn encode_request(
         );
     }
 
-    for (name, value) in extra {
+    for (name, value) in &options.extra {
         if is_protected_option_field(name) {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -129,19 +193,39 @@ pub fn encode_request(
 fn encode_messages(
     messages: &[Message],
     dialect: &ChatCompletionsDialect,
+    options: &ChatRequestEncodingOptions,
 ) -> Result<Vec<Value>, Error> {
     let mut encoded = Vec::with_capacity(messages.len());
-    for message in messages {
+    let mut seen_breakpoints = BTreeSet::new();
+    for (message_index, message) in messages.iter().enumerate() {
         if message.role == MessageRole::Tool {
             encode_tool_results(message, &mut encoded)?;
         } else {
-            encoded.push(encode_message(message, dialect)?);
+            encoded.push(encode_message(
+                message,
+                message_index,
+                dialect,
+                options,
+                &mut seen_breakpoints,
+            )?);
         }
+    }
+    if seen_breakpoints != options.prompt_cache_breakpoints {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "an OpenAI Chat Completions prompt-cache breakpoint did not identify an encodable content block",
+        ));
     }
     Ok(encoded)
 }
 
-fn encode_message(message: &Message, dialect: &ChatCompletionsDialect) -> Result<Value, Error> {
+fn encode_message(
+    message: &Message,
+    message_index: usize,
+    dialect: &ChatCompletionsDialect,
+    options: &ChatRequestEncodingOptions,
+    seen_breakpoints: &mut BTreeSet<ChatPromptCacheBlock>,
+) -> Result<Value, Error> {
     let role = match message.role {
         MessageRole::System => "system",
         MessageRole::Developer if dialect.supports_developer_role() => "developer",
@@ -163,16 +247,21 @@ fn encode_message(message: &Message, dialect: &ChatCompletionsDialect) -> Result
     };
 
     let mut text = Vec::new();
-    let mut media = Vec::new();
+    let mut content_blocks = Vec::new();
+    let mut has_media = false;
     let mut reasoning = Vec::new();
     let mut tool_calls = Vec::new();
-    for part in &message.content {
+    for (content_index, part) in message.content.iter().enumerate() {
         match part {
-            ContentPart::Text { text: value } => text.push(value.as_str()),
+            ContentPart::Text { text: value } => {
+                text.push(value.as_str());
+                content_blocks.push((content_index, json!({ "type": "text", "text": value })));
+            }
             ContentPart::Media(value)
                 if message.role == MessageRole::User && value.media_type.starts_with("image/") =>
             {
-                media.push(encode_image(value)?);
+                has_media = true;
+                content_blocks.push((content_index, encode_image(value)?));
             }
             ContentPart::Reasoning { text: value }
                 if message.role == MessageRole::Assistant
@@ -202,14 +291,31 @@ fn encode_message(message: &Message, dialect: &ChatCompletionsDialect) -> Result
 
     let mut object = Map::new();
     object.insert("role".to_string(), Value::String(role.to_string()));
-    if media.is_empty() {
+    let has_breakpoints = options
+        .prompt_cache_breakpoints
+        .iter()
+        .any(|block| block.message_index == message_index);
+    if !has_media && !has_breakpoints {
         object.insert("content".to_string(), Value::String(text.concat()));
     } else {
-        let mut content = text
-            .into_iter()
-            .map(|text| json!({ "type": "text", "text": text }))
-            .collect::<Vec<_>>();
-        content.extend(media);
+        let mut content = Vec::with_capacity(content_blocks.len());
+        for (content_index, mut block) in content_blocks {
+            let coordinate = ChatPromptCacheBlock::new(message_index, content_index);
+            if options.prompt_cache_breakpoints.contains(&coordinate) {
+                let Some(object) = block.as_object_mut() else {
+                    return Err(Error::new(
+                        ErrorKind::Internal,
+                        "Chat Completions encoder produced a non-object content block",
+                    ));
+                };
+                object.insert(
+                    "prompt_cache_breakpoint".to_string(),
+                    json!({ "mode": "explicit" }),
+                );
+                seen_breakpoints.insert(coordinate);
+            }
+            content.push(block);
+        }
         object.insert("content".to_string(), Value::Array(content));
     }
     if let Some(field) = dialect.reasoning_input_field()
@@ -380,6 +486,72 @@ mod tests {
                 false,
                 &ChatCompletionsDialect::generic(),
                 &extra,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn explicit_prompt_cache_breakpoints_preserve_content_coordinates() {
+        let request = LanguageRequest::new(vec![Message {
+            role: MessageRole::User,
+            content: vec![
+                ContentPart::Text {
+                    text: "stable prefix".to_string(),
+                },
+                ContentPart::Text {
+                    text: "dynamic suffix".to_string(),
+                },
+            ],
+        }]);
+        let options = ChatRequestEncodingOptions::new(false)
+            .with_extra(BTreeMap::from([(
+                "prompt_cache_options".to_string(),
+                json!({ "mode": "explicit", "ttl": "30m" }),
+            )]))
+            .with_prompt_cache_breakpoint(ChatPromptCacheBlock::new(0, 0));
+        let body = encode_request_with_options(
+            &ModelId::new("gpt-5.6").unwrap(),
+            &request,
+            &ChatCompletionsDialect::generic(),
+            &options,
+        )
+        .unwrap();
+
+        assert_eq!(
+            body["messages"][0]["content"][0]["prompt_cache_breakpoint"],
+            json!({ "mode": "explicit" })
+        );
+        assert_eq!(body["messages"][0]["content"][1]["text"], "dynamic suffix");
+        assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
+    }
+
+    #[test]
+    fn rejects_unencodable_or_excessive_prompt_cache_breakpoints() {
+        let request = LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]);
+        let missing = ChatRequestEncodingOptions::new(false)
+            .with_prompt_cache_breakpoint(ChatPromptCacheBlock::new(0, 1));
+        assert!(
+            encode_request_with_options(
+                &ModelId::new("gpt-5.6").unwrap(),
+                &request,
+                &ChatCompletionsDialect::generic(),
+                &missing,
+            )
+            .is_err()
+        );
+
+        let mut excessive = ChatRequestEncodingOptions::new(false);
+        for content_index in 0..5 {
+            excessive =
+                excessive.with_prompt_cache_breakpoint(ChatPromptCacheBlock::new(0, content_index));
+        }
+        assert!(
+            encode_request_with_options(
+                &ModelId::new("gpt-5.6").unwrap(),
+                &request,
+                &ChatCompletionsDialect::generic(),
+                &excessive,
             )
             .is_err()
         );
