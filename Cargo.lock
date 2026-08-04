@@ -3651,10 +3651,12 @@ dependencies = [
 name = "siumai-runtime"
 version = "0.11.0-beta.9"
 dependencies = [
+ "async-stream",
  "async-trait",
  "futures",
  "serde",
  "serde_json",
+ "sha2",
  "siumai-core",
  "thiserror 2.0.18",
  "tokio",

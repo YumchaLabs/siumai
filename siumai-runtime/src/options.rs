@@ -8,6 +8,7 @@ use siumai_core::{
 };
 use thiserror::Error;
 
+use crate::RunBudget;
 use crate::call::validate_request;
 
 /// Complete model target used for model-default selection.
@@ -22,6 +23,18 @@ pub struct ModelTarget {
 }
 
 impl ModelTarget {
+    /// Create a provider/model target without Registry or protocol metadata.
+    pub fn new(provider: ProviderId, model: ModelId) -> Self {
+        Self {
+            route: None,
+            provider,
+            platform: None,
+            protocol: None,
+            api_mode: None,
+            model,
+        }
+    }
+
     pub fn from_model<M>(model: &M) -> Self
     where
         M: Model + ?Sized,
@@ -44,12 +57,44 @@ impl ModelTarget {
         self
     }
 
+    pub fn with_route(mut self, route: RouteId) -> Self {
+        self.route = Some(route);
+        self
+    }
+
+    pub fn with_platform(mut self, platform: PlatformId) -> Self {
+        self.platform = Some(platform);
+        self
+    }
+
+    pub fn with_protocol(mut self, protocol: ProtocolId) -> Self {
+        self.protocol = Some(protocol);
+        self
+    }
+
+    pub fn with_api_mode(mut self, api_mode: ApiModeId) -> Self {
+        self.api_mode = Some(api_mode);
+        self
+    }
+
     pub fn route(&self) -> Option<&RouteId> {
         self.route.as_ref()
     }
 
     pub fn provider(&self) -> &ProviderId {
         &self.provider
+    }
+
+    pub fn platform(&self) -> Option<&PlatformId> {
+        self.platform.as_ref()
+    }
+
+    pub fn protocol(&self) -> Option<&ProtocolId> {
+        self.protocol.as_ref()
+    }
+
+    pub fn api_mode(&self) -> Option<&ApiModeId> {
+        self.api_mode.as_ref()
     }
 
     pub fn model(&self) -> &ModelId {
@@ -66,14 +111,19 @@ pub enum RuntimeConfigError {
     DuplicateModelDefaults { target: Box<ModelTarget> },
     #[error("runtime defaults and step options must use typed provider options")]
     RawProviderOptions,
-    #[error("one runtime step can contain only one typed provider-option layer")]
-    DuplicateStepOptions,
+    #[error("runtime step already has provider options for `{provider}`")]
+    DuplicateStepOptions { provider: ProviderId },
+    #[error("model defaults target `{expected}` but options use namespace `{actual}`")]
+    ModelDefaultsNamespace {
+        expected: ProviderId,
+        actual: ProviderId,
+    },
 }
 
 /// Options owned by one model step inside the high-level runtime.
 #[derive(Debug, Clone, Default)]
 pub struct StepOptions {
-    provider_options: Option<ProviderOptions>,
+    provider_options: BTreeMap<ProviderId, ProviderOptions>,
 }
 
 impl StepOptions {
@@ -82,15 +132,16 @@ impl StepOptions {
         options: ProviderOptions,
     ) -> Result<Self, RuntimeConfigError> {
         ensure_typed(&options)?;
-        if self.provider_options.is_some() {
-            return Err(RuntimeConfigError::DuplicateStepOptions);
+        let provider = options.namespace().clone();
+        if self.provider_options.contains_key(&provider) {
+            return Err(RuntimeConfigError::DuplicateStepOptions { provider });
         }
-        self.provider_options = Some(options);
+        self.provider_options.insert(provider, options);
         Ok(self)
     }
 
-    pub fn provider_options(&self) -> Option<&ProviderOptions> {
-        self.provider_options.as_ref()
+    pub fn provider_options_for(&self, provider: &ProviderId) -> Option<&ProviderOptions> {
+        self.provider_options.get(provider)
     }
 }
 
@@ -98,6 +149,7 @@ impl StepOptions {
 struct RuntimeDefaults {
     route: BTreeMap<RouteId, ProviderOptions>,
     model: BTreeMap<ModelTarget, ProviderOptions>,
+    budget: RunBudget,
 }
 
 /// Immutable, clone-cheap high-level runtime configuration.
@@ -109,6 +161,10 @@ pub struct Runtime {
 impl Runtime {
     pub fn builder() -> RuntimeBuilder {
         RuntimeBuilder::default()
+    }
+
+    pub fn run_budget(&self) -> &RunBudget {
+        &self.defaults.budget
     }
 
     pub async fn generate<M>(
@@ -169,7 +225,7 @@ impl Runtime {
             options = options.with_model_default_provider_options(defaults.clone());
         }
 
-        if let Some(step_options) = step.provider_options() {
+        if let Some(step_options) = step.provider_options_for(model.provider_id()) {
             options = options.with_runtime_step_provider_options(step_options.clone());
         }
         options
@@ -183,15 +239,21 @@ pub struct RuntimeBuilder {
 }
 
 impl RuntimeBuilder {
+    pub fn with_run_budget(mut self, budget: RunBudget) -> Self {
+        self.defaults.budget = budget;
+        self
+    }
+
     pub fn with_route_defaults(
         mut self,
         route: RouteId,
         options: ProviderOptions,
     ) -> Result<Self, RuntimeConfigError> {
         ensure_typed(&options)?;
-        if self.defaults.route.insert(route.clone(), options).is_some() {
+        if self.defaults.route.contains_key(&route) {
             return Err(RuntimeConfigError::DuplicateRouteDefaults { route });
         }
+        self.defaults.route.insert(route, options);
         Ok(self)
     }
 
@@ -201,16 +263,18 @@ impl RuntimeBuilder {
         options: ProviderOptions,
     ) -> Result<Self, RuntimeConfigError> {
         ensure_typed(&options)?;
-        if self
-            .defaults
-            .model
-            .insert(target.clone(), options)
-            .is_some()
-        {
+        if target.provider() != options.namespace() {
+            return Err(RuntimeConfigError::ModelDefaultsNamespace {
+                expected: target.provider().clone(),
+                actual: options.namespace().clone(),
+            });
+        }
+        if self.defaults.model.contains_key(&target) {
             return Err(RuntimeConfigError::DuplicateModelDefaults {
                 target: Box::new(target),
             });
         }
+        self.defaults.model.insert(target, options);
         Ok(self)
     }
 

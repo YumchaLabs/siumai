@@ -5,8 +5,33 @@
 
 #![deny(unsafe_code)]
 
-mod call;
-mod options;
+pub mod approval;
+pub mod snapshot;
+pub mod tool;
 
+mod budget;
+mod call;
+mod engine;
+mod history;
+mod options;
+mod output;
+mod run;
+mod tool_loop;
+
+pub use budget::{BudgetError, BudgetKind, BudgetLedger, RunBudget, RunBudgetBuilder, RunTimeouts};
 pub use call::{generate, stream};
+pub use history::{
+    HistoryProjectionError, ProjectedHistory, ProjectionLocation, ProjectionLoss,
+    ProjectionLossReason, ProjectionPolicy, ProjectionSeverity, project_history,
+};
 pub use options::{ModelTarget, Runtime, RuntimeBuilder, RuntimeConfigError, StepOptions};
+pub use output::{
+    OutputDescriptor, OutputDescriptorError, OutputSchemaValidator, RepairPolicy,
+    SchemaValidationError, StructuredOutputAttemptKind, StructuredOutputError,
+    StructuredOutputFailureKind, StructuredOutputRepair, StructuredOutputResult,
+};
+pub use run::{
+    IndeterminateEffect, RunEvent, RunReport, RunStopReason, RunStream, RunTerminal,
+    RunTimeoutKind, StepRecord, SuspensionReason,
+};
+pub use tool_loop::{ToolLoop, ToolOutcomeAction, ToolOutcomePolicy};

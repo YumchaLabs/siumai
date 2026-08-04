@@ -21,15 +21,17 @@ no-default-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+async-stream.workspace = true
+futures.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 siumai-core = { workspace = true, default-features = false }
 thiserror.workspace = true
+tokio.workspace = true
 
 [features]
 default = []
 
 [dev-dependencies]
 async-trait.workspace = true
-futures.workspace = true
-serde_json.workspace = true
-tokio.workspace = true

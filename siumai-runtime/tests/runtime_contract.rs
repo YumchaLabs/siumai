@@ -13,7 +13,7 @@ use siumai_core::{
     ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, RouteId, StreamTerminal, ToolCall,
     TypedProviderOptions, Usage,
 };
-use siumai_runtime::{ModelTarget, Runtime, StepOptions, generate, stream};
+use siumai_runtime::{ModelTarget, Runtime, RuntimeConfigError, StepOptions, generate, stream};
 
 #[derive(Debug, Serialize)]
 struct TestOptions {
@@ -24,8 +24,21 @@ impl TypedProviderOptions for TestOptions {
     const NAMESPACE: &'static str = "test";
 }
 
+#[derive(Debug, Serialize)]
+struct OtherOptions {
+    value: &'static str,
+}
+
+impl TypedProviderOptions for OtherOptions {
+    const NAMESPACE: &'static str = "other";
+}
+
 fn options(value: &'static str) -> ProviderOptions {
     ProviderOptions::typed(&TestOptions { value }).unwrap()
+}
+
+fn other_options(value: &'static str) -> ProviderOptions {
+    ProviderOptions::typed(&OtherOptions { value }).unwrap()
 }
 
 struct CaptureMerger;
@@ -221,4 +234,43 @@ async fn runtime_composes_defaults_without_owning_provider_merge_semantics() {
             (ProviderOptionOrigin::Call, "call".to_string()),
         ]
     );
+}
+
+#[tokio::test]
+async fn step_options_select_only_the_active_provider_namespace() {
+    let model = model();
+    let observed = model.observed.clone();
+    let step = StepOptions::default()
+        .with_provider_options(other_options("foreign"))
+        .unwrap()
+        .with_provider_options(options("selected"))
+        .unwrap();
+
+    Runtime::default()
+        .generate(&model, request(), step, CallOptions::default())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            (
+                ProviderOptionOrigin::ProviderDefault,
+                "provider".to_string()
+            ),
+            (ProviderOptionOrigin::RuntimeStep, "selected".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn model_defaults_reject_a_foreign_provider_namespace_at_build_time() {
+    let error = Runtime::builder()
+        .with_model_defaults(ModelTarget::from_model(&model()), other_options("foreign"))
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        RuntimeConfigError::ModelDefaultsNamespace { .. }
+    ));
 }
