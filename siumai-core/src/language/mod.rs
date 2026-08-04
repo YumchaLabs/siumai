@@ -13,9 +13,12 @@ use crate::provider::{ModelId, ProviderId};
 use crate::tool::{ToolCall, ToolResult, ToolSpec};
 use crate::usage::Usage;
 
-pub const DEFAULT_OPAQUE_ITEM_LIMIT: usize = 64 * 1024;
+/// Default per-item bound leaves room for encrypted reasoning and provider tool
+/// payloads while remaining small enough to reject unbounded history growth.
+pub const DEFAULT_OPAQUE_ITEM_LIMIT: usize = 1024 * 1024;
 pub const DEFAULT_OPAQUE_ITEM_COUNT_LIMIT: usize = 128;
-pub const DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT: usize = 1024 * 1024;
+/// Default aggregate bound for one request or response's provider-native state.
+pub const DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT: usize = 16 * 1024 * 1024;
 const MAX_OPAQUE_KIND_BYTES: usize = 256;
 const MAX_OPAQUE_PROTOCOL_BYTES: usize = 128;
 const MAX_OPAQUE_PLATFORM_BYTES: usize = 512;

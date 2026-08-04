@@ -2872,6 +2872,7 @@ name = "siumai"
 version = "0.11.0-beta.9"
 dependencies = [
  "async-trait",
+ "serde_json",
  "siumai-core",
  "siumai-provider-amazon-bedrock",
  "siumai-provider-anthropic",
@@ -2891,7 +2892,9 @@ dependencies = [
  "siumai-provider-togetherai",
  "siumai-provider-xai",
  "siumai-registry",
+ "siumai-transport",
  "tokio",
+ "wiremock",
 ]
 
 [[package]]
@@ -3486,6 +3489,7 @@ dependencies = [
  "eventsource-stream",
  "futures",
  "futures-util",
+ "http",
  "infer",
  "lru",
  "mockito",
@@ -3500,11 +3504,11 @@ dependencies = [
  "siumai-protocol-openai",
  "siumai-provider-openai-compatible",
  "siumai-provider-utils",
+ "siumai-transport",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-test",
- "tokio-tungstenite",
  "tokio-util",
  "tracing",
  "tracing-test",

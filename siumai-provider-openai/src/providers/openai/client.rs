@@ -1036,12 +1036,7 @@ mod tests {
         let moderation = client.moderation();
         let rerank = client.rerank();
 
-        assert!(
-            files
-                .get_supported_purposes()
-                .iter()
-                .any(|v| v == "assistants")
-        );
+        assert_eq!(files.get_max_file_size(), 512 * 1024 * 1024);
         assert_eq!(models.base_url, "https://example.com/custom/v1");
         assert_eq!(models.organization.as_deref(), Some("org-123"));
         assert_eq!(models.project.as_deref(), Some("proj-456"));

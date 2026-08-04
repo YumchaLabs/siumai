@@ -376,118 +376,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### OpenAI WebSocket streaming (Responses API)
+### OpenAI Realtime (experimental)
 
-If you have many sequential streaming steps (e.g., tool loops), OpenAI's WebSocket mode can reduce
-
-TTFB by reusing a persistent connection. Enable the feature and inject the transport:
-
-Note: `base_url` must use `http://` or `https://` (it is converted to `ws://` / `wss://` internally).
-
-WebSocket mode only applies to **Responses streaming** (`POST /responses`). It is not compatible with
-
-Chat Completions (`POST /chat/completions`).
-
-```toml
-# Cargo.toml
-siumai = { version = "0.11.0-beta.8", features = ["openai-websocket"] }
-```
-
-```rust,no_run
-	use futures::StreamExt;
-	use siumai::prelude::unified::*;
-	use siumai::providers::openai::{OpenAiClient, OpenAiConfig, OpenAiWebSocketTransport};
-	use std::sync::Arc;
-	#[tokio::main]
-	async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	    // OpenAI WebSocket connections are time-limited; by default we avoid reusing connections
-	    // older than ~55 minutes. Customize or disable if needed.
-	    let ws = OpenAiWebSocketTransport::default()
-	        // Keep up to N idle connections for concurrent tool loops.
-	        .with_max_idle_connections(2);
-	    // let ws = ws.with_max_connection_age(std::time::Duration::from_secs(55 * 60));
-	    // let ws = ws.without_max_connection_age();
-    // Optional: connection-local incremental continuation (`previous_response_id`).
-    // Note: OpenAI caches the most recent response per WebSocket connection, so this is
-    // only unambiguous when `max_idle_connections == 1`.
-    // let ws = ws.with_stateful_previous_response_id(true);
-    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-        .with_model("gpt-4o-mini")
-        .with_http_transport(Arc::new(ws.clone()));
-    let client = OpenAiClient::from_config(cfg)?;
-    // Streaming `/responses` requests are routed through WebSocket; everything else uses HTTP.
-    let mut stream = text::stream(
-        &client,
-        ChatRequest::new(vec![user!("Hello!")]),
-        text::StreamOptions::default(),
-    )
-    .await?;
-    while let Some(ev) = stream.next().await {
-        let ev = ev?;
-        if let Some(delta) = ev.text_delta() {
-            print!("{delta}");
-        }
-    }
-    ws.close().await; // optional: close the cached connection
-    Ok(())
-}
-```
-
-#### OpenAI WebSocket session (warm-up + single connection)
-
-For agentic workflows with many sequential streaming steps, prefer a single-connection session
-
-so `previous_response_id` continuation stays unambiguous:
-
-This session also includes a conservative recovery strategy:
-
-- if WebSocket setup fails (transient/connectivity), it falls back to HTTP (SSE) streaming for that request
-- for some WebSocket-specific OpenAI errors, it may rebuild the connection and retry once
-
-Note: configuration errors (e.g. invalid `base_url`, unsupported URL scheme) are surfaced directly and do not fall back to HTTP.
-
-You can customize it, e.g. disable all recovery:
-
-`OpenAiWebSocketSession::from_config_default_http(cfg)?.with_recovery_config(OpenAiWebSocketRecoveryConfig { allow_http_fallback: false, max_ws_retries: 0 });`
-
-Important: recovery may rebuild the WebSocket connection (or fall back to HTTP), which resets
-
-connection-local continuation state (`previous_response_id`). If you strictly rely on continuation
-
-via a single warm connection, consider disabling recovery.
-
-When recovery happens, the session also emits `ChatStreamEvent::Custom` with `event_type="openai:ws-recovery"`.
-
-`OpenAiWebSocketSession` also attempts best-effort remote cancellation when using `chat_stream_with_cancel(...)`
-
-by calling `POST /responses/{id}/cancel` once the response id is observed. Disable via `session.with_remote_cancel(false)`.
-
-```rust,no_run
-use futures::StreamExt;
-use siumai::prelude::unified::*;
-use siumai::providers::openai::{OpenAiConfig, OpenAiWebSocketSession};
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-        .with_model("gpt-4o-mini");
-    let session = OpenAiWebSocketSession::from_config_default_http(cfg)?;
-    session.warm_up_messages(vec![user!("Warm up with my toolset")], None).await?;
-    let mut stream = text::stream(
-        &session,
-        ChatRequest::new(vec![user!("Hello!")]),
-        text::StreamOptions::default(),
-    )
-    .await?;
-    while let Some(ev) = stream.next().await {
-        let ev = ev?;
-        if let Some(delta) = ev.text_delta() {
-            print!("{delta}");
-        }
-    }
-    session.close().await;
-    Ok(())
-}
-```
+OpenAI Realtime conversation and translation are provider-native bidirectional sessions. They are
+not projected into language text streams and never fall back to Responses SSE. Enable the
+`openai-realtime` feature and use the typed configuration/session values under
+`siumai::providers::openai::configured::experimental::realtime`.
 
 ### Structured output
 

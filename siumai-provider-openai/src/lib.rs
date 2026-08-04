@@ -33,6 +33,10 @@ pub mod params;
 pub mod hosted_tools;
 pub mod providers;
 pub mod standards;
+
+/// Rust-first configured OpenAI runtime and explicit API-mode models.
+#[cfg(feature = "openai")]
+pub mod configured;
 pub mod tool_catalog {
     pub use siumai_protocol_openai::tool_catalog::*;
 }

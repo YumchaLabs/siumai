@@ -147,26 +147,9 @@ pub fn extract_content_without_thinking(content: &str) -> String {
     }
 }
 
-/// Determine if a model should default to Responses API (auto mode)
-/// Currently only gpt-5 family triggers auto routing
-pub fn is_responses_model(model: &str) -> bool {
-    let m = model.trim().to_ascii_lowercase();
-    m.starts_with("gpt-5")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_is_responses_model_only_gpt5() {
-        assert!(is_responses_model("gpt-5"));
-        assert!(is_responses_model("gpt-5-mini"));
-        assert!(is_responses_model("GPT-5-VISION"));
-        assert!(!is_responses_model("gpt-4o"));
-        assert!(!is_responses_model("o1"));
-        assert!(!is_responses_model(""));
-    }
 
     #[test]
     fn test_extract_thinking_content() {

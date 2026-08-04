@@ -136,7 +136,7 @@ jobs:
         run: cargo check -p siumai --no-default-features --features ${{ matrix.features }} --lib --tests
 
   pr-provider-contracts:
-    name: PR Provider Contract Matrix (${{ matrix.profile }})
+    name: PR Provider Package Contract Matrix (${{ matrix.profile }})
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     env:
@@ -177,7 +177,7 @@ jobs:
           tool: nextest
 
       - name: Run provider contract tests
-        run: bash ./scripts/test-provider-contracts.sh ${{ matrix.profile }}
+        run: python3 ./scripts/test-provider-contracts.py ${{ matrix.profile }}
 
   pr-cross-feature-contracts:
     name: PR Cross-Feature Contract Matrix (${{ matrix.profile }})
@@ -191,9 +191,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - openai-websocket
-          - google-gcp
-          - openai-json-repair
+          - openai-realtime
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -210,7 +208,7 @@ jobs:
           tool: nextest
 
       - name: Run cross-feature contract tests
-        run: bash ./scripts/test-cross-feature-contracts.sh ${{ matrix.profile }}
+        run: python3 ./scripts/test-cross-feature-contracts.py ${{ matrix.profile }}
 
   provider-package-build-matrix:
     name: Provider Package Build Matrix (${{ matrix.name }})
@@ -330,7 +328,7 @@ jobs:
           - cohere
           - togetherai
           - bedrock
-          - openai,openai-websocket
+          - openai-realtime
           - google,gcp
           - openai,json-repair
           - all-providers

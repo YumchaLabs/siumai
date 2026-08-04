@@ -138,15 +138,14 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         if !response.status().is_success() {
             return Err(self.contextualize(ModelOperation::Generate, response_error(response)));
         }
-        let mut response = decode_response(
+        let response = decode_response(
             &self.runtime.scope,
             self.model_id(),
             response.body(),
             self.runtime.profile.dialect(),
         )
         .map_err(|error| self.contextualize(ModelOperation::Generate, error))?;
-        response.warnings.extend(warnings);
-        Ok(response)
+        Ok(append_warnings(response, warnings))
     }
 
     async fn stream(
@@ -191,7 +190,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                                 siumai_core::StreamTerminal::Completed { response }
                             ) = &mut event
                             {
-                                response.warnings.extend(warnings.clone());
+                                **response = append_warnings(response.as_ref().clone(), warnings.clone());
                             }
                             let terminal = event.terminal().is_some();
                             yield event;
@@ -205,6 +204,16 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
             }
         }))
     }
+}
+
+fn append_warnings(mut response: LanguageResponse, warnings: Vec<Warning>) -> LanguageResponse {
+    if warnings.is_empty() {
+        return response;
+    }
+    let mut combined = response.warnings().to_vec();
+    combined.extend(warnings);
+    response = response.with_warnings(combined);
+    response
 }
 
 fn advisory_warning(advisory: &ModelAdvisory) -> Warning {

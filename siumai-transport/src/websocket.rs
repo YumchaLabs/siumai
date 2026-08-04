@@ -235,6 +235,16 @@ impl WebSocketTransport {
         &self.inner.limits
     }
 
+    /// Maximum lifetime applied to an established WebSocket session.
+    pub fn session_timeout(&self) -> Duration {
+        self.inner.session_timeout
+    }
+
+    /// Inactivity timeout applied to each WebSocket send or receive operation.
+    pub fn io_timeout(&self) -> Duration {
+        self.inner.io_timeout
+    }
+
     /// Open exactly one bounded session. TCP candidates may be tried before
     /// the handshake, but a failed handshake is never replayed automatically.
     pub async fn connect(

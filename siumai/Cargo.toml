@@ -50,6 +50,7 @@ default = ["registry"]
 registry = ["dep:siumai-registry"]
 
 openai = ["dep:siumai-provider-openai", "siumai-provider-openai/openai"]
+openai-realtime = ["openai", "siumai-provider-openai/openai-realtime"]
 openai-compatible = ["dep:siumai-provider-openai-compatible"]
 azure = ["dep:siumai-provider-azure", "siumai-provider-azure/azure"]
 anthropic = ["dep:siumai-provider-anthropic", "siumai-provider-anthropic/anthropic"]
@@ -93,4 +94,7 @@ path = "tests/facade_contract.rs"
 
 [dev-dependencies]
 async-trait.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
+siumai-transport = { workspace = true, default-features = false }
+wiremock.workspace = true

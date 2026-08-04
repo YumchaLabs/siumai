@@ -5,7 +5,7 @@ use siumai_core::{
     ApiModeId, ContentPart, ErrorKind, FinishReason, LanguageIncompleteReason, LanguageRequest,
     LanguageResponseStatus, LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole,
     ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope, StreamTerminal,
-    StructuredOutputSpec, ToolOutcome, ToolResult, UsageValue,
+    StructuredOutputSpec, ToolOutcome, ToolResult, ToolSpec, UsageValue,
 };
 
 use super::*;
@@ -180,6 +180,27 @@ fn non_streaming_decode_preserves_native_items_identity_citations_and_usage() {
     assert_eq!(function.data()["caller"]["caller_id"], "call_program");
 
     assert_eq!(serde_json::to_value(decoded.native()).unwrap(), fixture);
+}
+
+#[test]
+fn encrypted_reasoning_larger_than_legacy_limit_remains_replayable() {
+    let mut response = fidelity_response();
+    response["output"][0]["encrypted_content"] = Value::String("e".repeat(128 * 1024));
+    let body = serde_json::to_vec(&response).unwrap();
+
+    let decoded = decode_response(&body, &scope(), &model()).unwrap();
+    let native = decoded
+        .canonical()
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ProviderOpaque(item) if item.item_id() == Some("rs_1") => Some(item),
+            _ => None,
+        })
+        .unwrap();
+
+    assert!(native.encoded_json_bytes() > 64 * 1024);
+    assert!(native.encoded_json_bytes() < siumai_core::DEFAULT_OPAQUE_ITEM_LIMIT);
 }
 
 #[test]
@@ -387,16 +408,60 @@ fn explicit_prompt_cache_breakpoints_cover_text_image_and_file_blocks() {
 fn explicit_prompt_cache_breakpoints_are_bounded() {
     let request = LanguageRequest::new(vec![Message {
         role: MessageRole::User,
-        content: (0..5)
+        content: (0..51)
             .map(|index| ContentPart::Text {
                 text: format!("cache block {index}"),
             })
             .collect(),
     }]);
     let mut options = RequestEncodingOptions::new(false);
-    for content_index in 0..5 {
+    for content_index in 0..51 {
         options = options.with_prompt_cache_breakpoint(PromptCacheBlock::new(0, content_index));
     }
+
+    let error = encode_request_with_options(&scope(), &model(), &request, &options).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+}
+
+#[test]
+fn function_tool_options_enable_programmatic_callers_losslessly() {
+    let mut request = LanguageRequest::new(vec![Message::text(MessageRole::User, "inventory")]);
+    request.tools.push(
+        ToolSpec::new(
+            "get_inventory",
+            Some("Read inventory".to_string()),
+            json!({
+                "type": "object",
+                "properties": {"sku": {"type": "string"}},
+                "required": ["sku"]
+            }),
+        )
+        .unwrap(),
+    );
+    let options = RequestEncodingOptions::new(false).with_function_tool_options(
+        "get_inventory",
+        FunctionToolEncodingOptions::default()
+            .with_strict(true)
+            .with_defer_loading(true)
+            .with_allowed_caller(FunctionToolCaller::Programmatic)
+            .with_output_schema(json!({"type": "object"})),
+    );
+
+    let body = encode_request_with_options(&scope(), &model(), &request, &options).unwrap();
+    assert_eq!(body["tools"][0]["strict"], true);
+    assert_eq!(body["tools"][0]["defer_loading"], true);
+    assert_eq!(body["tools"][0]["allowed_callers"], json!(["programmatic"]));
+    assert_eq!(body["tools"][0]["output_schema"], json!({"type": "object"}));
+}
+
+#[test]
+fn function_tool_options_reject_unknown_tool_names() {
+    let request = LanguageRequest::new(vec![Message::text(MessageRole::User, "inventory")]);
+    let options = RequestEncodingOptions::new(false).with_function_tool_options(
+        "missing_tool",
+        FunctionToolEncodingOptions::default()
+            .with_allowed_caller(FunctionToolCaller::Programmatic),
+    );
 
     let error = encode_request_with_options(&scope(), &model(), &request, &options).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
@@ -790,6 +855,42 @@ fn progress_response(status: &str) -> Value {
         "incomplete_details": null,
         "reasoning": null
     })
+}
+
+#[test]
+fn repository_response_fixtures_round_trip_native_items_losslessly() {
+    for (name, body) in [
+        (
+            "encrypted reasoning",
+            include_str!(
+                "../../../siumai/tests/fixtures/openai/responses/response/reasoning-encrypted-content.1/response.json"
+            ),
+        ),
+        (
+            "web search",
+            include_str!(
+                "../../../siumai/tests/fixtures/openai/responses/response/web-search-tool.1/response.json"
+            ),
+        ),
+        (
+            "apply patch",
+            include_str!(
+                "../../../siumai/tests/fixtures/openai/responses/response/apply-patch-tool.1/response.json"
+            ),
+        ),
+    ] {
+        let original = serde_json::from_str::<Value>(body).unwrap();
+        let requested_model = ModelId::new(original["model"].as_str().unwrap()).unwrap();
+        let decoded = decode_response(body.as_bytes(), &scope(), &requested_model)
+            .unwrap_or_else(|error| panic!("{name} fixture failed: {error}"));
+        let (native, canonical) = decoded.into_parts();
+        let round_trip = serde_json::to_value(&native).unwrap();
+
+        assert_eq!(round_trip["output"], original["output"], "{name}");
+        assert!(canonical.content().iter().any(|part| {
+            matches!(part, ContentPart::ProviderOpaque(item) if item.kind() == OPENAI_RESPONSES_OPAQUE_KIND)
+        }));
+    }
 }
 
 fn terminal_frame(

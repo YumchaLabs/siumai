@@ -10,7 +10,7 @@ use siumai_core::{
 use super::ChatCompletionsDialect;
 
 pub const CHAT_COMPLETIONS_TARGET: &str = "chat/completions";
-const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 4;
+const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 50;
 
 const PROTECTED_FIELDS: &[&str] = &[
     "model",
@@ -103,7 +103,7 @@ pub fn encode_request_with_options(
     if options.prompt_cache_breakpoints.len() > MAX_PROMPT_CACHE_BREAKPOINTS {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            "OpenAI Chat Completions accepts at most four explicit prompt-cache breakpoints",
+            "OpenAI Chat Completions accepts at most 50 prompt-cache breakpoints per request",
         ));
     }
 
@@ -542,7 +542,7 @@ mod tests {
         );
 
         let mut excessive = ChatRequestEncodingOptions::new(false);
-        for content_index in 0..5 {
+        for content_index in 0..51 {
             excessive =
                 excessive.with_prompt_cache_breakpoint(ChatPromptCacheBlock::new(0, content_index));
         }

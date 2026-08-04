@@ -14,7 +14,7 @@ use super::{API_MODE_ID, OPENAI_RESPONSES_OPAQUE_KIND, OPENAI_RESPONSES_PROTOCOL
 
 /// Internal merge key accepted from provider-owned typed options.
 pub const TEXT_VERBOSITY_OPTION: &str = "text_verbosity";
-const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 4;
+const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 50;
 
 /// One original neutral content location that should carry an explicit OpenAI
 /// prompt-cache breakpoint.
@@ -33,6 +33,68 @@ impl PromptCacheBlock {
     }
 }
 
+/// OpenAI execution paths allowed to invoke one function tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum FunctionToolCaller {
+    Direct,
+    Programmatic,
+}
+
+impl FunctionToolCaller {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Programmatic => "programmatic",
+        }
+    }
+}
+
+/// Responses-only wire controls for one portable function tool.
+#[derive(Debug, Clone, Default)]
+pub struct FunctionToolEncodingOptions {
+    strict: Option<bool>,
+    defer_loading: Option<bool>,
+    allowed_callers: BTreeSet<FunctionToolCaller>,
+    output_schema: Option<Value>,
+}
+
+impl FunctionToolEncodingOptions {
+    pub fn with_strict(mut self, strict: bool) -> Self {
+        self.strict = Some(strict);
+        self
+    }
+
+    pub fn with_defer_loading(mut self, defer_loading: bool) -> Self {
+        self.defer_loading = Some(defer_loading);
+        self
+    }
+
+    pub fn with_allowed_caller(mut self, caller: FunctionToolCaller) -> Self {
+        self.allowed_callers.insert(caller);
+        self
+    }
+
+    pub fn with_output_schema(mut self, output_schema: Value) -> Self {
+        self.output_schema = Some(output_schema);
+        self
+    }
+
+    fn validate(&self) -> Result<(), Error> {
+        if self
+            .output_schema
+            .as_ref()
+            .is_some_and(|schema| !schema.is_object() && !schema.is_boolean())
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI function output schema must be a JSON Schema object or boolean",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Protocol-owned request shaping. Provider crates keep typed user options and
 /// translate them into this wire-focused structure after applying precedence.
 #[derive(Debug, Clone, Default)]
@@ -40,6 +102,7 @@ pub struct RequestEncodingOptions {
     stream: bool,
     extra: BTreeMap<String, Value>,
     native_tools: Vec<Value>,
+    function_tools: BTreeMap<String, FunctionToolEncodingOptions>,
     prompt_cache_breakpoints: BTreeSet<PromptCacheBlock>,
 }
 
@@ -62,6 +125,15 @@ impl RequestEncodingOptions {
 
     pub fn with_native_tool(mut self, tool: Value) -> Self {
         self.native_tools.push(tool);
+        self
+    }
+
+    pub fn with_function_tool_options(
+        mut self,
+        name: impl Into<String>,
+        options: FunctionToolEncodingOptions,
+    ) -> Self {
+        self.function_tools.insert(name.into(), options);
         self
     }
 
@@ -100,7 +172,7 @@ pub fn encode_request_with_options(
     if options.prompt_cache_breakpoints.len() > MAX_PROMPT_CACHE_BREAKPOINTS {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            "OpenAI Responses accepts at most four explicit prompt-cache breakpoints",
+            "OpenAI Responses accepts at most 50 prompt-cache breakpoints per request",
         ));
     }
     if request.generation.seed.is_some() || !request.generation.stop_sequences.is_empty() {
@@ -122,6 +194,20 @@ pub fn encode_request_with_options(
                 "OpenAI Responses option name is empty or contains control characters",
             ));
         }
+    }
+    let request_tool_names = request
+        .tools
+        .iter()
+        .map(|tool| tool.name().to_string())
+        .collect::<BTreeSet<_>>();
+    for (name, tool_options) in &options.function_tools {
+        if !request_tool_names.contains(name) {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI function-tool options referenced a tool absent from the language request",
+            ));
+        }
+        tool_options.validate()?;
     }
 
     validate_target_scope(scope)?;
@@ -163,12 +249,38 @@ pub fn encode_request_with_options(
         .iter()
         .map(|tool| {
             let (name, description, parameters) = tool.clone().into_parts();
-            json!({
-                "type": "function",
-                "name": name,
-                "description": description,
-                "parameters": parameters,
-            })
+            let tool_options = options.function_tools.get(&name);
+            let mut object = Map::new();
+            object.insert("type".to_string(), Value::String("function".to_string()));
+            object.insert("name".to_string(), Value::String(name));
+            if let Some(description) = description {
+                object.insert("description".to_string(), Value::String(description));
+            }
+            object.insert("parameters".to_string(), parameters);
+            if let Some(tool_options) = tool_options {
+                if let Some(strict) = tool_options.strict {
+                    object.insert("strict".to_string(), Value::Bool(strict));
+                }
+                if let Some(defer_loading) = tool_options.defer_loading {
+                    object.insert("defer_loading".to_string(), Value::Bool(defer_loading));
+                }
+                if !tool_options.allowed_callers.is_empty() {
+                    object.insert(
+                        "allowed_callers".to_string(),
+                        Value::Array(
+                            tool_options
+                                .allowed_callers
+                                .iter()
+                                .map(|caller| Value::String(caller.as_str().to_string()))
+                                .collect(),
+                        ),
+                    );
+                }
+                if let Some(output_schema) = &tool_options.output_schema {
+                    object.insert("output_schema".to_string(), output_schema.clone());
+                }
+            }
+            Value::Object(object)
         })
         .collect::<Vec<_>>();
     for tool in &options.native_tools {

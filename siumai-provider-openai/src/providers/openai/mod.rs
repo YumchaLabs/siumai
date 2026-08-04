@@ -68,16 +68,10 @@ pub mod structured_output;
 pub mod transformers;
 
 // Future capability modules (placeholders)
-#[cfg(feature = "openai-websocket")]
-pub mod incremental_session;
 pub mod middleware;
 pub mod models;
 pub mod moderation;
 pub mod spec;
-#[cfg(feature = "openai-websocket")]
-pub mod websocket_session;
-#[cfg(feature = "openai-websocket")]
-pub mod websocket_transport;
 
 // Model constants module
 pub mod model_constants;
@@ -87,15 +81,9 @@ pub use crate::providers::openai::ext::OpenAiSttRequestExt;
 pub use builder::OpenAiBuilder;
 pub use client::OpenAiClient;
 pub use config::OpenAiConfig;
-#[cfg(feature = "openai-websocket")]
-pub use incremental_session::OpenAiIncrementalWebSocketSession;
 pub use middleware::OpenAiResponsesInputWarningsMiddleware;
 pub use settings::OpenAIProviderSettings;
 pub use types::*;
-#[cfg(feature = "openai-websocket")]
-pub use websocket_session::{OpenAiWebSocketRecoveryConfig, OpenAiWebSocketSession};
-#[cfg(feature = "openai-websocket")]
-pub use websocket_transport::OpenAiWebSocketTransport;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Provider-owned typed options (kept out of `siumai-core`).

@@ -233,7 +233,6 @@ fn flatten_aliases(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use async_trait::async_trait;
@@ -273,15 +272,12 @@ mod tests {
             _request: LanguageRequest,
             _options: CallOptions,
         ) -> Result<LanguageResponse, Error> {
-            Ok(LanguageResponse {
-                id: Some(self.runtime.to_string()),
-                model: Some(self.descriptor.model().clone()),
-                content: Vec::new(),
-                finish_reason: FinishReason::Stop,
-                usage: Usage::default(),
-                warnings: Vec::new(),
-                provider: BTreeMap::new(),
-            })
+            Ok(
+                LanguageResponse::completed(Vec::new(), FinishReason::Stop, Usage::default())
+                    .unwrap()
+                    .with_id(self.runtime.to_string())
+                    .with_model(self.descriptor.model().clone()),
+            )
         }
 
         async fn stream(
@@ -443,8 +439,8 @@ mod tests {
 
         assert_eq!(old_model.descriptor().api_mode(), Some("responses"));
         assert_eq!(new_model.descriptor().api_mode(), Some("chat-completions"));
-        assert_eq!(old_response.id.as_deref(), Some("1"));
-        assert_eq!(new_response.id.as_deref(), Some("2"));
+        assert_eq!(old_response.id(), Some("1"));
+        assert_eq!(new_response.id(), Some("2"));
         assert_eq!(old_registry.snapshot().routes().len(), 1);
         assert_eq!(new_registry.snapshot().routes().len(), 1);
     }

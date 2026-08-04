@@ -21,7 +21,7 @@ use super::config::OpenAiConfig;
 /// operations using the `OpenAI` Files API.
 ///
 /// # Supported Operations
-/// - File upload with various purposes (assistants, fine-tune, batch, etc.)
+/// - File upload with an explicit open-ended provider purpose
 /// - File listing with filtering and pagination
 /// - File metadata retrieval
 /// - File deletion
@@ -62,16 +62,6 @@ impl OpenAiFiles {
             http_interceptors,
             retry_options,
         }
-    }
-
-    /// Get supported file purposes.
-    pub fn get_supported_purposes(&self) -> Vec<String> {
-        vec![
-            "assistants".to_string(),
-            "batch".to_string(),
-            "fine-tune".to_string(),
-            "vision".to_string(),
-        ]
     }
 
     /// Get maximum file size in bytes.

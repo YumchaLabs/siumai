@@ -100,22 +100,23 @@ set SIUMAI_ENV_SMOKE_STRICT=1
 scripts\test-env-smoke.bat
 ```
 
-### `test-provider-contracts.sh`
+### `test-provider-contracts.py`
 
-Runs the provider-scoped no-network contract matrix for the top-level `siumai` facade.
+Runs each provider package's no-network contract tests with its public feature set.
 
-```bash
+```text
 # Run the full contract matrix
-./scripts/test-provider-contracts.sh
+python3 scripts/test-provider-contracts.py
 
 # Run one provider lane
-./scripts/test-provider-contracts.sh google-vertex
-./scripts/test-provider-contracts.sh bedrock
+python3 scripts/test-provider-contracts.py google-vertex
+python3 scripts/test-provider-contracts.py bedrock
 ```
 
 Notes:
 
-- This is the local mirror of the PR provider contract CI matrix.
+- This is the local mirror of the PR provider package contract CI matrix.
+- Profiles run the provider crate directly instead of naming disabled legacy facade tests.
 - The script prefers `cargo nextest`; if unavailable, it falls back to `cargo test`.
 - Current profiles cover:
   - `openai-native`
@@ -133,29 +134,23 @@ Notes:
   - `togetherai`
   - `bedrock`
 
-### `test-cross-feature-contracts.sh`
+### `test-cross-feature-contracts.py`
 
 Runs no-network contract bundles for important multi-feature facade combinations.
 
 ```bash
 # Run the full cross-feature matrix
-./scripts/test-cross-feature-contracts.sh
+python scripts/test-cross-feature-contracts.py
 
 # Run one lane
-./scripts/test-cross-feature-contracts.sh openai-websocket
-./scripts/test-cross-feature-contracts.sh google-gcp
-./scripts/test-cross-feature-contracts.sh openai-json-repair
+python scripts/test-cross-feature-contracts.py openai-realtime
 ```
 
 Notes:
 
 - This is the local mirror of the PR cross-feature contract CI matrix.
-- Current profiles cover:
-  - `openai-websocket`
-  - `google-gcp`
-  - `openai-json-repair`
-- The `openai-json-repair` lane also covers structured-output refusal/content-filter behavior so
-  JSON repair cannot silently turn plain refusal text into a successful JSON string result.
+- The `openai-realtime` profile proves that native OpenAI Realtime remains an experimental typed
+  session surface and does not re-enter the language-stream compatibility path.
 
 ### `audit-model-catalogs.sh` / `audit-model-catalogs.bat`
 

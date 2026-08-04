@@ -407,7 +407,7 @@ mod tests {
 
         assert_eq!(direct_response, erased_response);
         assert!(matches!(
-            direct_response.warnings[0].kind(),
+            direct_response.warnings()[0].kind(),
             siumai_core::WarningKind::UnknownModel
         ));
         mock.assert_async().await;

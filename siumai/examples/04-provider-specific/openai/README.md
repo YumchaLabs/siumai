@@ -22,7 +22,9 @@ This directory contains OpenAI-specific examples for the full provider-owned pac
 - `responses-ext.rs` - provider-owned response extensions
 - `responses-multi-turn.rs` - multi-turn Responses API flow
 - `responses-streaming-tools.rs` - streaming + tools on Responses API
-- `responses-websocket-incremental.rs` - websocket incremental workflow
+- Native Realtime conversations and translations now live under
+  `siumai::providers::openai::configured::experimental::realtime` rather than
+  the removed Responses WebSocket compatibility example.
 - `stt_sse_streaming.rs` - transcription SSE streaming
 - `tts_sse_streaming.rs` - speech SSE streaming
 - `web_search.rs` - hosted web search flow
