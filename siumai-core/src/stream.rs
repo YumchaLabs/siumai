@@ -8,10 +8,10 @@ use futures::{FutureExt, Stream, StreamExt, pin_mut, select_biased};
 use thiserror::Error;
 
 use crate::error::{Error, ErrorKind};
-use crate::language::{Citation, LanguageResponse, OpaqueProviderItem};
+use crate::language::{Citation, LanguageResponse, LanguageResponseStatus, OpaqueProviderItem};
 use crate::options::Cancellation;
 use crate::provider::ModelId;
-use crate::tool::{ExecutionOwner, ToolCall};
+use crate::tool::{ExecutionOwner, ToolCall, ToolResult};
 use crate::usage::Usage;
 
 /// An established stream that enforces the canonical terminal lifecycle.
@@ -85,6 +85,7 @@ pub enum LanguageStreamEvent {
         delta: String,
     },
     ToolCall(ToolCall),
+    ToolResult(ToolResult),
     Citation(Citation),
     Refusal {
         reason: Option<String>,
@@ -111,12 +112,61 @@ impl LanguageStreamEvent {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum StreamTerminal {
+    /// The stream reached a non-error protocol terminal. The response status
+    /// may be `Completed` or `Incomplete`.
     Completed { response: Box<LanguageResponse> },
-    Failed { error: Error },
-    Cancelled { reason: String },
+    /// Generation failed after establishment. A provider-returned failed
+    /// response is retained when one exists.
+    Failed {
+        error: Error,
+        response: Option<Box<LanguageResponse>>,
+    },
+    /// Generation was cancelled after establishment. A provider-returned
+    /// cancelled response is retained when one exists.
+    Cancelled {
+        reason: String,
+        response: Option<Box<LanguageResponse>>,
+    },
+}
+
+impl StreamTerminal {
+    fn validate(&self) -> Result<(), StreamContractError> {
+        let response = match self {
+            Self::Completed { response } => {
+                if !matches!(
+                    response.status(),
+                    LanguageResponseStatus::Completed | LanguageResponseStatus::Incomplete { .. }
+                ) {
+                    return Err(StreamContractError::TerminalResponseStatusMismatch);
+                }
+                Some(response.as_ref())
+            }
+            Self::Failed { response, .. } => {
+                if response.as_deref().is_some_and(|response| {
+                    !matches!(response.status(), LanguageResponseStatus::Failed)
+                }) {
+                    return Err(StreamContractError::TerminalResponseStatusMismatch);
+                }
+                response.as_deref()
+            }
+            Self::Cancelled { response, .. } => {
+                if response.as_deref().is_some_and(|response| {
+                    !matches!(response.status(), LanguageResponseStatus::Cancelled)
+                }) {
+                    return Err(StreamContractError::TerminalResponseStatusMismatch);
+                }
+                response.as_deref()
+            }
+        };
+        if response.is_some_and(|response| response.validate().is_err()) {
+            return Err(StreamContractError::InvalidTerminalResponse);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum StreamContractError {
     #[error("stream emitted more than one terminal event")]
     DuplicateTerminal,
@@ -128,6 +178,10 @@ pub enum StreamContractError {
     FrameAfterFinish,
     #[error("protocol decoder finish was called more than once")]
     DuplicateFinish,
+    #[error("stream terminal response status does not match its terminal kind")]
+    TerminalResponseStatusMismatch,
+    #[error("stream terminal contains an invalid language response")]
+    InvalidTerminalResponse,
 }
 
 impl From<StreamContractError> for Error {
@@ -145,6 +199,12 @@ impl From<StreamContractError> for Error {
             }
             StreamContractError::DuplicateFinish => {
                 "protocol decoder finish was called more than once"
+            }
+            StreamContractError::TerminalResponseStatusMismatch => {
+                "stream terminal response status does not match its terminal kind"
+            }
+            StreamContractError::InvalidTerminalResponse => {
+                "stream terminal contains an invalid language response"
             }
         };
         Self::new(ErrorKind::Protocol, message).with_source(error)
@@ -173,6 +233,9 @@ impl StreamLifecycle {
     ) -> Result<(), StreamContractError> {
         let mut terminal_seen = self.terminal_seen;
         for event in events {
+            if let Some(terminal) = event.terminal() {
+                terminal.validate()?;
+            }
             if terminal_seen {
                 return if event.terminal().is_some() {
                     Err(StreamContractError::DuplicateTerminal)
@@ -288,6 +351,7 @@ where
                 _ = cancelled => {
                     let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                         reason: "call cancelled".to_string(),
+                        response: None,
                     });
                     let _ = lifecycle.record(&terminal);
                     yield terminal;
@@ -299,6 +363,7 @@ where
                             if let Err(contract_error) = lifecycle.record(&event) {
                                 yield LanguageStreamEvent::Terminal(StreamTerminal::Failed {
                                     error: Error::from(contract_error),
+                                    response: None,
                                 });
                                 break;
                             }
@@ -309,7 +374,10 @@ where
                             }
                         }
                         Some(Err(error)) => {
-                            let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Failed { error });
+                            let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                                error,
+                                response: None,
+                            });
                             let _ = lifecycle.record(&terminal);
                             yield terminal;
                             break;
@@ -317,6 +385,7 @@ where
                         None => {
                             let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Failed {
                                 error: Error::unexpected_eof(),
+                                response: None,
                             });
                             let _ = lifecycle.record(&terminal);
                             yield terminal;
@@ -342,8 +411,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::language::ProviderProvenance;
+    use crate::language::{FinishReason, LanguageIncompleteReason, ProviderProvenance};
     use crate::provider::ProviderId;
+    use crate::tool::ToolOutcome;
 
     #[tokio::test]
     async fn eof_without_terminal_becomes_failed_unexpected_eof() {
@@ -357,7 +427,7 @@ mod tests {
 
         assert!(matches!(
             events.last(),
-            Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed { error }))
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. }))
                 if error.kind() == ErrorKind::UnexpectedEof
         ));
     }
@@ -367,6 +437,7 @@ mod tests {
         let mut lifecycle = StreamLifecycle::default();
         let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
             reason: "cancelled".to_string(),
+            response: None,
         });
         lifecycle.record(&terminal).unwrap();
         assert_eq!(
@@ -381,6 +452,7 @@ mod tests {
         let events = [
             LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                 reason: "cancelled".to_string(),
+                response: None,
             }),
             LanguageStreamEvent::TextDelta {
                 id: "text".to_string(),
@@ -393,6 +465,39 @@ mod tests {
             Err(StreamContractError::EventAfterTerminal)
         );
         assert!(!lifecycle.terminal_seen());
+    }
+
+    #[test]
+    fn lifecycle_rejects_terminal_status_mismatch() {
+        let response =
+            LanguageResponse::completed(Vec::new(), FinishReason::Stop, Usage::default()).unwrap();
+        let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+            error: Error::new(ErrorKind::Provider, "generation failed"),
+            response: Some(Box::new(response)),
+        });
+
+        assert_eq!(
+            StreamLifecycle::default().record(&terminal),
+            Err(StreamContractError::TerminalResponseStatusMismatch)
+        );
+    }
+
+    #[test]
+    fn completed_terminal_accepts_an_incomplete_response() {
+        let response = LanguageResponse::new(
+            LanguageResponseStatus::Incomplete {
+                reason: Some(LanguageIncompleteReason::MaxOutputTokens),
+            },
+            Vec::new(),
+            FinishReason::Length,
+            Usage::default(),
+        )
+        .unwrap();
+        let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Completed {
+            response: Box::new(response),
+        });
+
+        StreamLifecycle::default().record(&terminal).unwrap();
     }
 
     #[tokio::test]
@@ -424,8 +529,35 @@ mod tests {
 
         assert!(matches!(
             events.as_slice(),
-            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error })]
+            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. })]
                 if error.kind() == ErrorKind::Transport
+        ));
+    }
+
+    #[tokio::test]
+    async fn provider_tool_results_are_first_class_stream_events() {
+        let result = ToolResult {
+            call_id: "call_1".to_string(),
+            name: "web_search".to_string(),
+            outcome: ToolOutcome::Success {
+                value: json!({"answer": 42}),
+            },
+        };
+        let source = stream::iter(vec![
+            Ok(LanguageStreamEvent::ToolResult(result)),
+            Ok(LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
+                reason: "test complete".to_string(),
+                response: None,
+            })),
+        ]);
+        let events = established_stream(Cancellation::new(), |_| source)
+            .collect::<Vec<_>>()
+            .await;
+
+        assert!(matches!(
+            events.first(),
+            Some(LanguageStreamEvent::ToolResult(result))
+                if result.call_id == "call_1" && result.name == "web_search"
         ));
     }
 
@@ -446,6 +578,7 @@ mod tests {
             Ok(LanguageStreamEvent::ProviderOpaque(item)),
             Ok(LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                 reason: "test complete".to_string(),
+                response: None,
             })),
         ]);
         let events = established_stream(Cancellation::new(), |_| source)

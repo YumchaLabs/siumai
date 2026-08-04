@@ -127,6 +127,13 @@ where
 /// A canonical language generation and streaming model.
 #[async_trait]
 pub trait LanguageModel: Model {
+    /// Generate one terminal response resource.
+    ///
+    /// A provider-returned failed or cancelled resource remains an `Ok`
+    /// [`LanguageResponse`] with the corresponding status so its identity,
+    /// content, usage, and native items are not discarded. Validation,
+    /// encoding, authentication, transport, and protocol failures that produce
+    /// no response resource remain outer [`Error`] values.
     async fn generate(
         &self,
         request: LanguageRequest,

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use serde::Serialize;
-use siumai_core::language::{FinishReason, MediaData, Warning};
+use siumai_core::language::{FinishReason, MediaData};
 use siumai_core::stream::{StreamTerminal, established_stream};
 use siumai_core::{
     ApiModeId, CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse,
@@ -29,17 +29,16 @@ fn descriptor(family: ModelFamily, model: &str) -> ModelDescriptor {
 }
 
 fn language_response(model: &str) -> LanguageResponse {
-    LanguageResponse {
-        id: Some("response-1".to_string()),
-        model: Some(ModelId::new(model).unwrap()),
-        content: vec![siumai_core::ContentPart::Text {
+    LanguageResponse::completed(
+        vec![siumai_core::ContentPart::Text {
             text: "ok".to_string(),
         }],
-        finish_reason: FinishReason::Stop,
-        usage: Usage::default(),
-        warnings: Vec::new(),
-        provider: BTreeMap::new(),
-    }
+        FinishReason::Stop,
+        Usage::default(),
+    )
+    .unwrap()
+    .with_id("response-1")
+    .with_model(ModelId::new(model).unwrap())
 }
 
 struct FakeLanguage {
@@ -301,7 +300,7 @@ async fn external_models_are_object_safe_callable_and_task_safe() {
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(generated.model.unwrap().as_str(), "language-test");
+    assert_eq!(generated.model().unwrap().as_str(), "language-test");
 
     let mut language_stream = language.stream(prompt(), call_options).await.unwrap();
     assert!(matches!(
@@ -393,13 +392,13 @@ async fn registration_captures_shared_runtime_and_returns_cheap_models() {
         Some("native")
     );
     assert_eq!(first.model_id(), second.model_id());
-    assert_eq!(
+    assert!(
         first
             .generate(prompt(), CallOptions::default())
             .await
             .unwrap()
-            .warnings,
-        Vec::<Warning>::new()
+            .warnings()
+            .is_empty()
     );
 }
 

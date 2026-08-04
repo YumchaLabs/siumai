@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use siumai_core::{
     DecoderLifecycle, Error, ErrorKind, FinishReason, LanguageResponse, LanguageStreamDecoder,
     LanguageStreamEvent, StreamTerminal, Usage,
@@ -7,15 +5,9 @@ use siumai_core::{
 
 fn completed(reason: FinishReason) -> LanguageStreamEvent {
     LanguageStreamEvent::Terminal(StreamTerminal::Completed {
-        response: Box::new(LanguageResponse {
-            id: None,
-            model: None,
-            content: Vec::new(),
-            finish_reason: reason,
-            usage: Usage::default(),
-            warnings: Vec::new(),
-            provider: BTreeMap::new(),
-        }),
+        response: Box::new(
+            LanguageResponse::completed(Vec::new(), reason, Usage::default()).unwrap(),
+        ),
     })
 }
 

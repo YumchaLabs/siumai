@@ -49,10 +49,13 @@ pub use error::{
     SafeResponseHeaders, SensitiveErrorSource, SensitiveResponse,
 };
 pub use language::{
-    Citation, ContentPart, FinishReason, GenerationConfig, GenerationConfigError, LanguageRequest,
-    LanguageRequestError, LanguageResponse, MediaData, MediaPart, Message, MessageRole,
-    OpaqueProviderItem, OpaqueProviderItemError, PartialStructuredOutput, ProviderProvenance,
-    StructuredOutputSpec, ToolChoice, Warning, WarningKind,
+    Citation, ContentPart, DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT, DEFAULT_OPAQUE_ITEM_COUNT_LIMIT,
+    DEFAULT_OPAQUE_ITEM_LIMIT, FinishReason, GenerationConfig, GenerationConfigError,
+    LanguageIncompleteReason, LanguageRequest, LanguageRequestError, LanguageResponse,
+    LanguageResponseError, LanguageResponseStatus, MediaData, MediaPart, Message, MessageRole,
+    OpaqueProviderBudget, OpaqueProviderItem, OpaqueProviderItemBuilder, OpaqueProviderItemError,
+    PartialStructuredOutput, ProviderItemRelation, ProviderProvenance, StructuredOutputSpec,
+    ToolChoice, Warning, WarningKind,
 };
 pub use model::{
     EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, ImageArtifact,
