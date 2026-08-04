@@ -116,6 +116,10 @@ impl RunReport {
         &mut self.messages
     }
 
+    pub(crate) fn replace_messages(&mut self, messages: Vec<Message>) {
+        self.messages = messages;
+    }
+
     pub(crate) fn steps_mut(&mut self) -> &mut Vec<StepRecord> {
         &mut self.steps
     }

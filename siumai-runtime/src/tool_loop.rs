@@ -7,7 +7,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use siumai_core::{CallOptions, Error, LanguageModel, LanguageRequest, ToolOutcome};
 
-use crate::engine::StepEngine;
+use crate::engine::{StepEngine, ToolHandling};
 use crate::run::established_run_stream;
 use crate::tool::ToolSet;
 use crate::{RunStream, RunTerminal, Runtime, StepOptions};
@@ -137,6 +137,7 @@ impl ToolLoop {
             self.step_options.clone(),
             options,
             self.outcome_policy,
+            ToolHandling::Execute,
         )
         .await?;
         let cancellation = engine.cancellation().clone();
@@ -161,5 +162,12 @@ impl ToolLoop {
             }
         }
         Err(Error::unexpected_eof())
+    }
+}
+
+impl Runtime {
+    /// Configure an explicit local-tool loop on this runtime.
+    pub fn tool_loop(&self, model: Arc<dyn LanguageModel>, tools: ToolSet) -> ToolLoop {
+        ToolLoop::new(model, tools).with_runtime(self.clone())
     }
 }

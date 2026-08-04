@@ -253,6 +253,11 @@ impl StructuredOutputError {
         self.details.response.map(|response| *response)
     }
 
+    pub(crate) fn with_model_error_source(mut self, source: siumai_core::Error) -> Self {
+        self.details.source = Some(StructuredOutputErrorSource::Transport(source));
+        self
+    }
+
     fn response_failure(
         kind: StructuredOutputFailureKind,
         attempt: StructuredOutputAttemptKind,

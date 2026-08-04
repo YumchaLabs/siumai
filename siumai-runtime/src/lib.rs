@@ -16,6 +16,7 @@ mod history;
 mod options;
 mod output;
 mod run;
+mod structured_run;
 mod tool_loop;
 
 pub use budget::{BudgetError, BudgetKind, BudgetLedger, RunBudget, RunBudgetBuilder, RunTimeouts};
@@ -33,5 +34,8 @@ pub use output::{
 pub use run::{
     IndeterminateEffect, RunEvent, RunReport, RunStopReason, RunStream, RunTerminal,
     RunTimeoutKind, StepRecord, SuspensionReason,
+};
+pub use structured_run::{
+    StructuredOutputRunError, StructuredOutputRunResult, StructuredOutputRunner,
 };
 pub use tool_loop::{ToolLoop, ToolOutcomeAction, ToolOutcomePolicy};

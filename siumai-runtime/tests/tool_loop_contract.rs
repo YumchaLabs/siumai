@@ -8,10 +8,10 @@ use futures::StreamExt;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
-    Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal, ToolCall,
-    ToolOutcome, ToolSpec, Usage, UsageValue,
+    CallOptions, Cancellation, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason,
+    LanguageModel, LanguageRequest, LanguageResponse, LanguageResponseStatus, LanguageStream,
+    LanguageStreamEvent, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
+    ProviderId, StreamTerminal, ToolCall, ToolOutcome, ToolSpec, Usage, UsageValue,
 };
 use siumai_runtime::snapshot::ToolExecutionStatus;
 use siumai_runtime::tool::{
@@ -19,8 +19,9 @@ use siumai_runtime::tool::{
     ToolSet,
 };
 use siumai_runtime::{
-    RunBudget, RunEvent, RunReport, RunTerminal, RunTimeoutKind, RunTimeouts, Runtime,
-    SuspensionReason, ToolLoop, ToolOutcomeAction, ToolOutcomePolicy,
+    OutputDescriptor, RepairPolicy, RunBudget, RunEvent, RunReport, RunTerminal, RunTimeoutKind,
+    RunTimeouts, Runtime, StructuredOutputRunError, SuspensionReason, ToolLoop, ToolOutcomeAction,
+    ToolOutcomePolicy,
 };
 
 struct ScriptStep {
@@ -196,6 +197,30 @@ fn final_response(text: &str) -> LanguageResponse {
     .expect("valid final response")
 }
 
+fn failed_response(text: &str, tokens: u64) -> LanguageResponse {
+    LanguageResponse::new(
+        LanguageResponseStatus::Failed,
+        vec![ContentPart::Text {
+            text: text.to_string(),
+        }],
+        FinishReason::Error,
+        Usage::default().with_total_tokens(tokens),
+    )
+    .expect("valid failed response")
+}
+
+fn cancelled_response(text: &str, tokens: u64) -> LanguageResponse {
+    LanguageResponse::new(
+        LanguageResponseStatus::Cancelled,
+        vec![ContentPart::Text {
+            text: text.to_string(),
+        }],
+        FinishReason::Cancelled,
+        Usage::default().with_total_tokens(tokens),
+    )
+    .expect("valid cancelled response")
+}
+
 fn terminal_step(response: LanguageResponse) -> ScriptStep {
     ScriptStep::immediate(vec![LanguageStreamEvent::Terminal(
         StreamTerminal::Completed {
@@ -249,6 +274,10 @@ async fn collect_terminal(
             RunEvent::StepFinished { .. } => trace.push("step_finished"),
             RunEvent::Terminal(terminal) => {
                 trace.push("terminal");
+                assert!(
+                    stream.next().await.is_none(),
+                    "run stream must close immediately after its terminal"
+                );
                 return (trace, terminal);
             }
             _ => trace.push("other"),
@@ -276,6 +305,11 @@ async fn run_and_stream_share_one_stream_only_execution_trace() {
             terminal_step(final_response("done")),
         ]
     }
+    fn request_with_untrusted_catalog() -> LanguageRequest {
+        let mut request = user_request();
+        request.tools.push(tool_spec("client-only"));
+        request
+    }
     let tools = ToolSet::from_bindings([executable_binding("lookup", |_| {
         boxed_tool_future(async {
             Ok(ToolOutcome::Success {
@@ -287,12 +321,13 @@ async fn run_and_stream_share_one_stream_only_execution_trace() {
 
     let stream_model = ScriptedModel::new(scripts());
     let stream_loop = ToolLoop::new(stream_model.clone(), tools.clone());
-    let (trace, stream_terminal) = collect_terminal(&stream_loop, user_request()).await;
+    let (trace, stream_terminal) =
+        collect_terminal(&stream_loop, request_with_untrusted_catalog()).await;
 
     let run_model = ScriptedModel::new(scripts());
     let run_loop = ToolLoop::new(run_model.clone(), tools);
     let run_terminal = run_loop
-        .run(user_request(), CallOptions::default())
+        .run(request_with_untrusted_catalog(), CallOptions::default())
         .await
         .expect("run succeeds");
 
@@ -337,6 +372,7 @@ async fn run_and_stream_share_one_stream_only_execution_trace() {
 
     let requests = run_model.requests();
     assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].tools.len(), 1);
     assert_eq!(requests[0].tools[0].name(), "lookup");
     assert_eq!(
         requests[1]
@@ -382,6 +418,250 @@ async fn known_usage_is_aggregated_without_losing_the_first_step() {
     assert_eq!(
         completed_report(&terminal).usage().total_tokens,
         UsageValue::Known(8)
+    );
+}
+
+#[tokio::test]
+async fn budget_exceeded_terminal_retains_the_observed_usage() {
+    let response = LanguageResponse::completed(
+        vec![ContentPart::Text {
+            text: "over budget".to_string(),
+        }],
+        FinishReason::Stop,
+        Usage::default().with_total_tokens(8_u64),
+    )
+    .expect("valid response");
+    let budget = RunBudget::builder()
+        .max_known_tokens(Some(4))
+        .build()
+        .expect("valid budget");
+    let runtime = Runtime::builder().with_run_budget(budget).build();
+    let model = ScriptedModel::new([terminal_step(response)]);
+    let loop_ = ToolLoop::new(model, ToolSet::default()).with_runtime(runtime);
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(&terminal, RunTerminal::BudgetExceeded { .. }));
+    assert_eq!(
+        terminal
+            .report()
+            .expect("budget terminal has report")
+            .usage()
+            .total_tokens,
+        UsageValue::Known(8)
+    );
+}
+
+#[tokio::test]
+async fn failed_and_cancelled_terminal_responses_are_recorded_without_continuation_history() {
+    let failed_model =
+        ScriptedModel::new([ScriptStep::immediate(vec![LanguageStreamEvent::Terminal(
+            StreamTerminal::Failed {
+                error: Error::new(ErrorKind::Provider, "provider failed"),
+                response: Some(Box::new(failed_response("partial failure", 7))),
+            },
+        )])]);
+    let failed_loop = ToolLoop::new(failed_model, ToolSet::default());
+    let (_, failed_terminal) = collect_terminal(&failed_loop, user_request()).await;
+    assert!(matches!(&failed_terminal, RunTerminal::Failed { .. }));
+    let failed_report = failed_terminal
+        .report()
+        .expect("failed terminal retains report");
+    assert_eq!(failed_report.steps().len(), 1);
+    assert_eq!(failed_report.usage().total_tokens, UsageValue::Known(7));
+    assert_eq!(failed_report.budget().known_tokens(), 7);
+    assert_eq!(failed_report.messages().len(), 1);
+    assert!(matches!(
+        failed_report.steps()[0].response().status(),
+        LanguageResponseStatus::Failed
+    ));
+
+    let cancelled_model =
+        ScriptedModel::new([ScriptStep::immediate(vec![LanguageStreamEvent::Terminal(
+            StreamTerminal::Cancelled {
+                reason: "provider cancelled".to_string(),
+                response: Some(Box::new(cancelled_response("partial cancellation", 5))),
+            },
+        )])]);
+    let cancelled_loop = ToolLoop::new(cancelled_model, ToolSet::default());
+    let (_, cancelled_terminal) = collect_terminal(&cancelled_loop, user_request()).await;
+    assert!(matches!(&cancelled_terminal, RunTerminal::Cancelled { .. }));
+    let cancelled_report = cancelled_terminal
+        .report()
+        .expect("cancelled terminal retains report");
+    assert_eq!(cancelled_report.steps().len(), 1);
+    assert_eq!(cancelled_report.usage().total_tokens, UsageValue::Known(5));
+    assert_eq!(cancelled_report.budget().known_tokens(), 5);
+    assert_eq!(cancelled_report.messages().len(), 1);
+    assert!(matches!(
+        cancelled_report.steps()[0].response().status(),
+        LanguageResponseStatus::Cancelled
+    ));
+}
+
+#[tokio::test]
+async fn terminal_response_usage_budget_exhaustion_preempts_provider_failure() {
+    let budget = RunBudget::builder()
+        .max_known_tokens(Some(4))
+        .build()
+        .expect("valid budget");
+    let runtime = Runtime::builder().with_run_budget(budget).build();
+    let model = ScriptedModel::new([ScriptStep::immediate(vec![LanguageStreamEvent::Terminal(
+        StreamTerminal::Failed {
+            error: Error::new(ErrorKind::Provider, "provider failed"),
+            response: Some(Box::new(failed_response("over budget", 8))),
+        },
+    )])]);
+    let loop_ = ToolLoop::new(model, ToolSet::default()).with_runtime(runtime);
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(&terminal, RunTerminal::BudgetExceeded { .. }));
+    let report = terminal.report().expect("budget terminal retains report");
+    assert_eq!(report.steps().len(), 1);
+    assert_eq!(report.usage().total_tokens, UsageValue::Known(8));
+    assert_eq!(report.messages().len(), 1);
+}
+
+#[tokio::test]
+async fn seeded_repair_budget_exhaustion_is_a_runtime_terminal() {
+    let descriptor = OutputDescriptor::<Value>::typed_json("payload")
+        .expect("valid descriptor")
+        .with_repair_policy(RepairPolicy::OneAttempt);
+    let budget = RunBudget::builder()
+        .max_model_steps(1)
+        .build()
+        .expect("valid budget");
+    let runtime = Runtime::builder().with_run_budget(budget).build();
+    let model = ScriptedModel::new([terminal_step(final_response("{"))]);
+    let runner = runtime.structured_output(model.clone(), descriptor);
+
+    let error = runner
+        .generate(user_request(), CallOptions::default())
+        .await
+        .expect_err("repair must exhaust the shared model-step budget");
+    assert!(matches!(
+        &error,
+        StructuredOutputRunError::Runtime(terminal)
+            if matches!(terminal.as_ref(), RunTerminal::BudgetExceeded { .. })
+    ));
+    let report = error.report().expect("runtime terminal retains report");
+    assert_eq!(report.steps().len(), 1);
+    assert_eq!(report.budget().model_steps(), 1);
+    assert_eq!(model.stream_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn seeded_repair_handshake_failures_keep_the_established_report() {
+    fn descriptor() -> OutputDescriptor<Value> {
+        OutputDescriptor::<Value>::typed_json("payload")
+            .expect("valid descriptor")
+            .with_repair_policy(RepairPolicy::OneAttempt)
+    }
+
+    let failed_model = ScriptedModel::new([
+        terminal_step(final_response("{")),
+        ScriptStep::handshake_error(),
+    ]);
+    let failed = Runtime::default()
+        .structured_output(failed_model.clone(), descriptor())
+        .generate(user_request(), CallOptions::default())
+        .await
+        .expect_err("repair handshake failure must be terminal");
+    assert!(matches!(
+        &failed,
+        StructuredOutputRunError::Validation { .. }
+    ));
+    assert_eq!(
+        failed
+            .report()
+            .expect("failed terminal retains report")
+            .budget()
+            .model_steps(),
+        2
+    );
+    assert_eq!(failed_model.stream_calls.load(Ordering::SeqCst), 2);
+
+    let timed_out_model = ScriptedModel::new([
+        terminal_step(final_response("{")),
+        ScriptStep {
+            handshake_delay: Duration::from_millis(100),
+            handshake_error: false,
+            events: Vec::new(),
+        },
+    ]);
+    let timeout_runtime = runtime_with_timeouts(
+        Duration::from_secs(2),
+        Duration::from_millis(25),
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+    );
+    let timed_out = timeout_runtime
+        .structured_output(timed_out_model.clone(), descriptor())
+        .generate(user_request(), CallOptions::default())
+        .await
+        .expect_err("repair handshake timeout must be terminal");
+    assert!(matches!(
+        &timed_out,
+        StructuredOutputRunError::Runtime(terminal)
+            if matches!(
+                terminal.as_ref(),
+                RunTerminal::TimedOut {
+                    kind: RunTimeoutKind::ModelStep,
+                    ..
+                }
+            )
+    ));
+    assert_eq!(
+        timed_out
+            .report()
+            .expect("timeout terminal retains report")
+            .budget()
+            .model_steps(),
+        2
+    );
+
+    let cancelled_model = ScriptedModel::new([
+        terminal_step(final_response("{")),
+        ScriptStep {
+            handshake_delay: Duration::from_millis(100),
+            handshake_error: false,
+            events: Vec::new(),
+        },
+    ]);
+    let cancellation = Cancellation::new();
+    let cancellation_signal = cancellation.clone();
+    let cancellation_observer = cancelled_model.clone();
+    let cancel_task = tokio::spawn(async move {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while cancellation_observer.stream_calls.load(Ordering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("repair handshake must start");
+        cancellation_signal.cancel();
+    });
+    let cancelled = Runtime::default()
+        .structured_output(cancelled_model, descriptor())
+        .generate(
+            user_request(),
+            CallOptions::default().with_cancellation(cancellation),
+        )
+        .await
+        .expect_err("repair handshake cancellation must be terminal");
+    cancel_task.await.expect("cancellation task succeeds");
+    assert!(matches!(
+        &cancelled,
+        StructuredOutputRunError::Runtime(terminal)
+            if matches!(terminal.as_ref(), RunTerminal::Cancelled { .. })
+    ));
+    assert_eq!(
+        cancelled
+            .report()
+            .expect("cancelled terminal retains report")
+            .budget()
+            .model_steps(),
+        2
     );
 }
 
@@ -445,6 +725,52 @@ async fn parallel_read_only_results_are_ordered_and_respect_both_limits() {
             .collect::<Vec<_>>(),
         vec!["call_1", "call_2", "call_3", "call_4"]
     );
+}
+
+#[tokio::test]
+async fn parallel_read_only_calls_share_the_global_limit_across_bindings() {
+    let active = Arc::new(AtomicUsize::new(0));
+    let maximum = Arc::new(AtomicUsize::new(0));
+    let make_binding = |name: &str| {
+        let observed_active = Arc::clone(&active);
+        let observed_maximum = Arc::clone(&maximum);
+        executable_binding(name, move |_| {
+            let active = Arc::clone(&observed_active);
+            let maximum = Arc::clone(&observed_maximum);
+            boxed_tool_future(async move {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                maximum.fetch_max(current, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                active.fetch_sub(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: Value::Null })
+            })
+        })
+        .with_effect(ToolEffect::ReadOnly)
+        .with_concurrency(ToolConcurrency::SafeParallel {
+            max_in_flight: std::num::NonZeroUsize::new(4).expect("non-zero"),
+        })
+    };
+    let tools = ToolSet::from_bindings([make_binding("alpha"), make_binding("beta")])
+        .expect("unique tools");
+    let model = ScriptedModel::new([
+        terminal_step(tool_response(vec![
+            local_call("alpha_1", "alpha", json!({})),
+            local_call("beta_1", "beta", json!({})),
+            local_call("alpha_2", "alpha", json!({})),
+            local_call("beta_2", "beta", json!({})),
+        ])),
+        terminal_step(final_response("done")),
+    ]);
+    let budget = RunBudget::builder()
+        .max_concurrent_tools(2)
+        .build()
+        .expect("valid budget");
+    let runtime = Runtime::builder().with_run_budget(budget).build();
+    let loop_ = ToolLoop::new(model, tools).with_runtime(runtime);
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(terminal, RunTerminal::Completed { .. }));
+    assert_eq!(maximum.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
@@ -553,6 +879,24 @@ async fn provider_owned_name_collision_suspends_without_local_lookup_or_executio
 }
 
 #[tokio::test]
+async fn unresolved_provider_work_preempts_all_local_resolution() {
+    let model = ScriptedModel::new([terminal_step(tool_response(vec![
+        local_call("local_1", "missing-local-binding", json!({})),
+        provider_call("provider_1", "remote-search"),
+    ]))]);
+    let loop_ = ToolLoop::new(model, ToolSet::default());
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(
+        terminal,
+        RunTerminal::Suspended {
+            reason: SuspensionReason::AwaitingProvider { ref state_ids },
+            ..
+        } if state_ids.len() == 1 && state_ids[0] == "provider_1"
+    ));
+}
+
+#[tokio::test]
 async fn dropping_after_preparation_prevents_all_later_dispatch() {
     let executions = Arc::new(AtomicUsize::new(0));
     let observed = Arc::clone(&executions);
@@ -582,6 +926,60 @@ async fn dropping_after_preparation_prevents_all_later_dispatch() {
     }
     drop(stream);
     tokio::task::yield_now().await;
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn total_timeout_after_preparation_prevents_dispatch() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = executable_binding("lookup", move |_| {
+        let observed = Arc::clone(&observed);
+        boxed_tool_future(async move {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Ok(ToolOutcome::Success { value: Value::Null })
+        })
+    });
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let model = ScriptedModel::new([terminal_step(tool_response(vec![local_call(
+        "call_1",
+        "lookup",
+        json!({}),
+    )]))]);
+    let runtime = runtime_with_timeouts(
+        Duration::from_millis(25),
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+    );
+    let loop_ = ToolLoop::new(model, tools).with_runtime(runtime);
+    let mut stream = loop_
+        .stream(user_request(), CallOptions::default())
+        .await
+        .expect("first stream establishes");
+
+    while let Some(event) = stream.next().await {
+        if matches!(event, RunEvent::ToolPrepared { .. }) {
+            break;
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let terminal = loop {
+        match stream.next().await {
+            Some(RunEvent::Terminal(terminal)) => break terminal,
+            Some(_) => {}
+            None => panic!("run stream must emit one terminal"),
+        }
+    };
+    assert!(matches!(
+        terminal,
+        RunTerminal::TimedOut {
+            kind: RunTimeoutKind::Total,
+            ..
+        }
+    ));
     assert_eq!(executions.load(Ordering::SeqCst), 0);
 }
 

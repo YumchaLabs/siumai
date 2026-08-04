@@ -33,6 +33,7 @@ pub(crate) struct StepEngine {
     step_options: StepOptions,
     call_options: CallOptions,
     outcome_policy: ToolOutcomePolicy,
+    tool_handling: ToolHandling,
     budget: RunBudget,
     cancellation: Cancellation,
     target: ModelTarget,
@@ -46,9 +47,73 @@ pub(crate) struct StepEngine {
     done: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolHandling {
+    Execute,
+    ObserveOnly,
+}
+
 impl StepEngine {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn establish(
+        runtime: Runtime,
+        model: Arc<dyn LanguageModel>,
+        tools: ToolSet,
+        request: LanguageRequest,
+        step_options: StepOptions,
+        options: CallOptions,
+        outcome_policy: ToolOutcomePolicy,
+        tool_handling: ToolHandling,
+    ) -> Result<Self, Error> {
+        let target = ModelTarget::from_model(model.as_ref());
+        let report = RunReport::new(target, request.messages.clone());
+        Self::establish_seeded_inner(
+            runtime,
+            model,
+            tools,
+            request,
+            step_options,
+            options,
+            outcome_policy,
+            tool_handling,
+            report,
+            0,
+            false,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn establish_seeded(
+        runtime: Runtime,
+        model: Arc<dyn LanguageModel>,
+        tools: ToolSet,
+        request: LanguageRequest,
+        step_options: StepOptions,
+        options: CallOptions,
+        outcome_policy: ToolOutcomePolicy,
+        tool_handling: ToolHandling,
+        report: RunReport,
+        step: u32,
+    ) -> Result<Self, Error> {
+        Self::establish_seeded_inner(
+            runtime,
+            model,
+            tools,
+            request,
+            step_options,
+            options,
+            outcome_policy,
+            tool_handling,
+            report,
+            step,
+            true,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn establish_seeded_inner(
         runtime: Runtime,
         model: Arc<dyn LanguageModel>,
         tools: ToolSet,
@@ -56,6 +121,10 @@ impl StepEngine {
         step_options: StepOptions,
         options: CallOptions,
         outcome_policy: ToolOutcomePolicy,
+        tool_handling: ToolHandling,
+        report: RunReport,
+        step: u32,
+        establishment_failure_as_terminal: bool,
     ) -> Result<Self, Error> {
         reject_untrusted_collisions(&request, &tools)?;
         request.tools = tools.specs().to_vec();
@@ -67,7 +136,23 @@ impl StepEngine {
             .with_cancellation(cancellation.clone())
             .with_deadline(total_deadline);
         let target = ModelTarget::from_model(model.as_ref());
-        let report = RunReport::new(target.clone(), request.messages.clone());
+        if report.initial_target() != &target {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "seeded run report targets a different model",
+            ));
+        }
+        request.messages = report.messages().to_vec();
+        let mut pending = VecDeque::new();
+        if step == 0 {
+            pending.push_back(RunEvent::Started {
+                target: target.clone(),
+            });
+        }
+        pending.push_back(RunEvent::StepStarted {
+            index: step,
+            target: target.clone(),
+        });
         let mut engine = Self {
             runtime,
             model,
@@ -76,32 +161,41 @@ impl StepEngine {
             step_options,
             call_options,
             outcome_policy,
+            tool_handling,
             budget,
             cancellation,
             target: target.clone(),
             total_deadline,
             report,
-            step: 0,
+            step,
             current_stream: None,
             prepared_step: None,
             needs_next_step: false,
-            pending: VecDeque::from([
-                RunEvent::Started {
-                    target: target.clone(),
-                },
-                RunEvent::StepStarted { index: 0, target },
-            ]),
+            pending,
             done: false,
         };
 
-        engine
-            .report
-            .budget_mut()
-            .charge_model_step(&engine.budget)
-            .map_err(budget_start_error)?;
-        let stream = engine.establish_model_stream(true).await?;
-        engine.current_stream = Some(stream);
-        Ok(engine)
+        if let Err(error) = engine.report.budget_mut().charge_model_step(&engine.budget) {
+            if establishment_failure_as_terminal {
+                engine.queue_terminal(RunTerminal::BudgetExceeded {
+                    error,
+                    report: Box::new(engine.report.clone()),
+                });
+                return Ok(engine);
+            }
+            return Err(budget_start_error(error));
+        }
+        match engine.establish_model_stream(step == 0).await {
+            Ok(stream) => {
+                engine.current_stream = Some(stream);
+                Ok(engine)
+            }
+            Err(error) if establishment_failure_as_terminal => {
+                engine.queue_handshake_failure(error);
+                Ok(engine)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub(crate) fn cancellation(&self) -> &Cancellation {
@@ -127,6 +221,20 @@ impl StepEngine {
             }
             if self.done {
                 return None;
+            }
+            if self.cancellation.is_cancelled() {
+                self.queue_terminal(RunTerminal::Cancelled {
+                    reason: "tool loop cancelled".to_string(),
+                    report: Box::new(self.report.clone()),
+                });
+                continue;
+            }
+            if Instant::now() >= self.total_deadline {
+                self.queue_terminal(RunTerminal::TimedOut {
+                    kind: RunTimeoutKind::Total,
+                    report: Box::new(self.report.clone()),
+                });
+                continue;
             }
             if let Some(prepared) = self.prepared_step.take() {
                 self.execute_prepared_step(prepared).await;
@@ -214,13 +322,17 @@ impl StepEngine {
                 });
                 self.current_stream = Some(stream);
             }
-            Err(error) if error.kind() == ErrorKind::Cancelled => {
-                self.queue_terminal(RunTerminal::Cancelled {
-                    reason: "tool loop cancelled during model handshake".to_string(),
-                    report: Box::new(self.report.clone()),
-                });
-            }
-            Err(error) if error.kind() == ErrorKind::Timeout => {
+            Err(error) => self.queue_handshake_failure(error),
+        }
+    }
+
+    fn queue_handshake_failure(&mut self, error: Error) {
+        match error.kind() {
+            ErrorKind::Cancelled => self.queue_terminal(RunTerminal::Cancelled {
+                reason: "tool loop cancelled during model handshake".to_string(),
+                report: Box::new(self.report.clone()),
+            }),
+            ErrorKind::Timeout => {
                 let kind = if Instant::now() >= self.total_deadline {
                     RunTimeoutKind::Total
                 } else {
@@ -231,12 +343,10 @@ impl StepEngine {
                     report: Box::new(self.report.clone()),
                 });
             }
-            Err(error) => {
-                self.queue_terminal(RunTerminal::Failed {
-                    error,
-                    report: Box::new(self.report.clone()),
-                });
-            }
+            _ => self.queue_terminal(RunTerminal::Failed {
+                error,
+                report: Box::new(self.report.clone()),
+            }),
         }
     }
 
@@ -304,11 +414,31 @@ impl StepEngine {
             StreamTerminal::Completed { response } => {
                 self.prepare_completed_response(*response, state);
             }
-            StreamTerminal::Failed { error, .. } => self.queue_terminal(RunTerminal::Failed {
-                error,
-                report: Box::new(self.report.clone()),
-            }),
-            StreamTerminal::Cancelled { reason, .. } => {
+            StreamTerminal::Failed { error, response } => {
+                if let Some(response) = response
+                    && let Err(error) = self.record_terminal_response(*response)
+                {
+                    self.queue_terminal(RunTerminal::BudgetExceeded {
+                        error,
+                        report: Box::new(self.report.clone()),
+                    });
+                    return;
+                }
+                self.queue_terminal(RunTerminal::Failed {
+                    error,
+                    report: Box::new(self.report.clone()),
+                });
+            }
+            StreamTerminal::Cancelled { reason, response } => {
+                if let Some(response) = response
+                    && let Err(error) = self.record_terminal_response(*response)
+                {
+                    self.queue_terminal(RunTerminal::BudgetExceeded {
+                        error,
+                        report: Box::new(self.report.clone()),
+                    });
+                    return;
+                }
                 self.queue_terminal(RunTerminal::Cancelled {
                     reason,
                     report: Box::new(self.report.clone()),
@@ -321,7 +451,21 @@ impl StepEngine {
         }
     }
 
+    fn record_terminal_response(
+        &mut self,
+        response: LanguageResponse,
+    ) -> Result<(), crate::BudgetError> {
+        self.report.accumulate_usage(response.usage());
+        let budget_result = self
+            .report
+            .budget_mut()
+            .charge_usage(response.usage(), &self.budget);
+        self.finish_step(response, Vec::new());
+        budget_result
+    }
+
     fn prepare_completed_response(&mut self, response: LanguageResponse, state: StepStream) {
+        self.report.accumulate_usage(response.usage());
         if let Err(error) = self
             .report
             .budget_mut()
@@ -335,8 +479,15 @@ impl StepEngine {
             });
             return;
         }
-        self.report.accumulate_usage(response.usage());
         self.append_assistant_message(&response);
+
+        if self.tool_handling == ToolHandling::ObserveOnly {
+            self.finish_step(response, Vec::new());
+            self.queue_terminal(RunTerminal::Completed {
+                report: Box::new(self.report.clone()),
+            });
+            return;
+        }
 
         let mut provider_result_ids = state.provider_result_ids;
         provider_result_ids.extend(response.content().iter().filter_map(|part| match part {
@@ -351,17 +502,37 @@ impl StepEngine {
                 _ => None,
             })
             .collect::<Vec<_>>();
+
+        // Provider-owned work is an orchestration boundary. Inspect the whole
+        // step before resolving any local name so a provider/local collision or
+        // an unrelated invalid local call cannot cross that boundary.
+        let mut provider_states = state.provider_state_ids;
+        provider_states.extend(calls.iter().filter_map(|call| match &call.owner {
+            ExecutionOwner::Provider { .. } if !provider_result_ids.contains(&call.id) => {
+                Some(call.id.clone())
+            }
+            ExecutionOwner::Local => None,
+            _ => Some(call.id.clone()),
+        }));
+        provider_states.sort();
+        provider_states.dedup();
+        if !provider_states.is_empty() {
+            self.finish_step(response, Vec::new());
+            self.queue_terminal(RunTerminal::Suspended {
+                reason: SuspensionReason::AwaitingProvider {
+                    state_ids: provider_states,
+                },
+                report: Box::new(self.report.clone()),
+            });
+            return;
+        }
+
         let mut requests = Vec::new();
         let mut approvals = Vec::new();
-        let mut provider_states = state.provider_state_ids;
 
         for (ordinal, call) in calls.into_iter().enumerate() {
             match &call.owner {
-                ExecutionOwner::Provider { .. } => {
-                    if !provider_result_ids.contains(&call.id) {
-                        provider_states.push(call.id.clone());
-                    }
-                }
+                ExecutionOwner::Provider { .. } => {}
                 ExecutionOwner::Local => {
                     let request = match self.tools.resolve(call.clone()) {
                         Ok(request) => request,
@@ -431,7 +602,7 @@ impl StepEngine {
                     }
                     requests.push(IndexedRequest { ordinal, request });
                 }
-                _ => provider_states.push(call.id.clone()),
+                _ => {}
             }
         }
 
@@ -440,14 +611,6 @@ impl StepEngine {
             self.queue_terminal(RunTerminal::Suspended {
                 reason: SuspensionReason::AwaitingApproval {
                     call_ids: approvals,
-                },
-                report: Box::new(self.report.clone()),
-            });
-        } else if !provider_states.is_empty() {
-            self.finish_step(response, Vec::new());
-            self.queue_terminal(RunTerminal::Suspended {
-                reason: SuspensionReason::AwaitingProvider {
-                    state_ids: provider_states,
                 },
                 report: Box::new(self.report.clone()),
             });
@@ -593,6 +756,9 @@ impl StepEngine {
     }
 
     async fn execute_sequential(&mut self, request: IndexedRequest) -> ExecutionProgress {
+        if let Some(stop) = self.pre_dispatch_stop() {
+            return ExecutionProgress::stopped(stop);
+        }
         if let Err(error) = self.log_dispatched(&request.request) {
             return ExecutionProgress::stopped(ExecutionStop::Failed(error));
         }
@@ -610,6 +776,13 @@ impl StepEngine {
 
         loop {
             while policy_stop.is_none() && active.len() < self.budget.max_concurrent_tools() {
+                if let Some(stop) = self.pre_dispatch_stop() {
+                    self.mark_active_indeterminate(&active_calls);
+                    return ExecutionProgress {
+                        results,
+                        stop: Some(stop),
+                    };
+                }
                 let eligible = pending.iter().position(|candidate| {
                     let key = binding_key(&candidate.request);
                     let active_count = active_by_binding.get(&key).copied().unwrap_or(0);
@@ -622,6 +795,7 @@ impl StepEngine {
                     break;
                 };
                 if let Err(error) = self.log_dispatched(&request.request) {
+                    self.mark_active_indeterminate(&active_calls);
                     return ExecutionProgress {
                         results,
                         stop: Some(ExecutionStop::Failed(error)),
@@ -900,6 +1074,16 @@ impl StepEngine {
     fn mark_active_indeterminate(&mut self, active: &BTreeMap<usize, String>) {
         for call_id in active.values() {
             self.log_indeterminate(call_id, IndeterminateReason::DispatchOutcomeUnknown);
+        }
+    }
+
+    fn pre_dispatch_stop(&self) -> Option<ExecutionStop> {
+        if self.cancellation.is_cancelled() {
+            Some(ExecutionStop::Cancelled)
+        } else if Instant::now() >= self.total_deadline {
+            Some(ExecutionStop::TimedOut(RunTimeoutKind::Total))
+        } else {
+            None
         }
     }
 
