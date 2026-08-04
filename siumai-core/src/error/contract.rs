@@ -200,9 +200,41 @@ pub enum ErrorKind {
     Provider,
     UnexpectedEof,
     ResponseLimit,
+    LimitExceeded,
+    PartialResult,
+    ProtocolViolation,
     StructuredOutput,
     Tool,
     Internal,
+}
+
+/// A provider-neutral resource whose limit or result cardinality was violated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ResourceKind {
+    EmbeddingInputs,
+    EmbeddingTokens,
+    RerankCandidates,
+    ImageOutputs,
+    SpeechTextBytes,
+    TranscriptionAudioBytes,
+    TranscriptionDurationSeconds,
+}
+
+/// Structured, sanitized details for failures callers commonly branch on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ErrorDetail {
+    LimitExceeded {
+        resource: ResourceKind,
+        actual: u64,
+        maximum: u64,
+    },
+    PartialResult {
+        resource: ResourceKind,
+        expected: u64,
+        actual: u64,
+    },
 }
 
 /// Where a failure occurred.
@@ -443,6 +475,7 @@ pub struct Error {
     kind: ErrorKind,
     message: PublicDiagnosticText,
     context: Box<ErrorContext>,
+    detail: Option<Box<ErrorDetail>>,
     diagnostics: Option<Box<ResponseDiagnostics>>,
     sensitive_response: Option<Box<SensitiveResponse>>,
     source: Option<Box<SensitiveErrorSource>>,
@@ -458,6 +491,7 @@ impl Error {
             kind,
             message: message.into(),
             context: Box::new(ErrorContext::default()),
+            detail: None,
             diagnostics: None,
             sensitive_response: None,
             source: None,
@@ -475,6 +509,32 @@ impl Error {
         Self::new(ErrorKind::Cancelled, message)
     }
 
+    pub fn limit_exceeded(resource: ResourceKind, actual: u64, maximum: u64) -> Self {
+        Self::new(ErrorKind::LimitExceeded, "provider model limit exceeded").with_detail(
+            ErrorDetail::LimitExceeded {
+                resource,
+                actual,
+                maximum,
+            },
+        )
+    }
+
+    pub fn partial_result(resource: ResourceKind, expected: u64, actual: u64) -> Self {
+        Self::new(
+            ErrorKind::PartialResult,
+            "provider returned an incomplete result",
+        )
+        .with_detail(ErrorDetail::PartialResult {
+            resource,
+            expected,
+            actual,
+        })
+    }
+
+    pub fn protocol_violation(message: impl Into<PublicDiagnosticText>) -> Self {
+        Self::new(ErrorKind::ProtocolViolation, message)
+    }
+
     pub fn kind(&self) -> ErrorKind {
         self.kind
     }
@@ -485,6 +545,10 @@ impl Error {
 
     pub fn context(&self) -> &ErrorContext {
         self.context.as_ref()
+    }
+
+    pub fn detail(&self) -> Option<&ErrorDetail> {
+        self.detail.as_deref()
     }
 
     pub fn diagnostics(&self) -> Option<&ResponseDiagnostics> {
@@ -503,6 +567,11 @@ impl Error {
 
     pub fn with_context(mut self, context: ErrorContext) -> Self {
         self.context = Box::new(context);
+        self
+    }
+
+    pub fn with_detail(mut self, detail: ErrorDetail) -> Self {
+        self.detail = Some(Box::new(detail));
         self
     }
 
@@ -537,6 +606,7 @@ impl fmt::Debug for Error {
             .field("kind", &self.kind)
             .field("message", &self.message)
             .field("context", &self.context)
+            .field("detail", &self.detail)
             .field("diagnostics", &self.diagnostics)
             .field(
                 "sensitive_response",
@@ -560,10 +630,11 @@ impl Serialize for Error {
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("Error", 4)?;
+        let mut state = serializer.serialize_struct("Error", 5)?;
         state.serialize_field("kind", &self.kind)?;
         state.serialize_field("message", &self.message)?;
         state.serialize_field("context", &self.context)?;
+        state.serialize_field("detail", &self.detail)?;
         state.serialize_field("diagnostics", &self.diagnostics)?;
         state.end()
     }
@@ -602,6 +673,23 @@ mod tests {
         let response = SensitiveResponse::with_limit(BTreeMap::new(), vec![7; 16], 4);
         assert_eq!(response.expose().1, &[7; 4]);
         assert!(response.was_truncated());
+    }
+
+    #[test]
+    fn limit_details_are_matchable_and_safe_to_serialize() {
+        let error = Error::limit_exceeded(ResourceKind::ImageOutputs, 5, 4);
+
+        assert_eq!(error.kind(), ErrorKind::LimitExceeded);
+        assert_eq!(
+            error.detail(),
+            Some(&ErrorDetail::LimitExceeded {
+                resource: ResourceKind::ImageOutputs,
+                actual: 5,
+                maximum: 4,
+            })
+        );
+        let serialized = serde_json::to_value(&error).unwrap();
+        assert_eq!(serialized["detail"]["LimitExceeded"]["maximum"], 4);
     }
 
     #[test]

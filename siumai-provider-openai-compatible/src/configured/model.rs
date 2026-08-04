@@ -10,7 +10,7 @@ use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
     LanguageStream, LanguageStreamEvent, Model, ModelAdvisory, ModelDescriptor, ModelFamily,
     ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision, ProviderOptionError,
-    ResponseDiagnostics, SensitiveResponse, SupportState, Warning,
+    ResponseDiagnostics, SensitiveResponse, SupportState, Warning, WarningKind,
 };
 use siumai_protocol_openai::chat_completions::{
     CHAT_COMPLETIONS_TARGET, ChatCompletionsStreamDecoder, decode_response, encode_request,
@@ -209,28 +209,26 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
 
 fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
     match advisory {
-        ModelAdvisory::UnknownModel => Warning {
-            code: "unknown_model".to_string(),
-            message: "model is absent from the verified advisory catalog".to_string(),
-        },
-        ModelAdvisory::Deprecated { .. } => Warning {
-            code: "deprecated_model".to_string(),
-            message: "model is deprecated; inspect the provider profile for its replacement"
-                .to_string(),
-        },
-        ModelAdvisory::Retired { .. } => Warning {
-            code: "retired_model".to_string(),
-            message: "model is retired but this configured profile permits advisory use"
-                .to_string(),
-        },
-        ModelAdvisory::RollingAlias => Warning {
-            code: "rolling_model_alias".to_string(),
-            message: "model ID is a rolling alias whose behavior may change".to_string(),
-        },
-        _ => Warning {
-            code: "model_advisory".to_string(),
-            message: "provider profile returned a model advisory".to_string(),
-        },
+        ModelAdvisory::UnknownModel => Warning::new(
+            WarningKind::UnknownModel,
+            "model is absent from the verified advisory catalog",
+        ),
+        ModelAdvisory::Deprecated { .. } => Warning::new(
+            WarningKind::DeprecatedModel,
+            "model is deprecated; inspect the provider profile for its replacement",
+        ),
+        ModelAdvisory::Retired { .. } => Warning::new(
+            WarningKind::RetiredModel,
+            "model is retired but this configured profile permits advisory use",
+        ),
+        ModelAdvisory::RollingAlias => Warning::new(
+            WarningKind::RollingModelAlias,
+            "model ID is a rolling alias whose behavior may change",
+        ),
+        _ => Warning::provider(
+            "model_advisory",
+            "provider profile returned a model advisory",
+        ),
     }
 }
 

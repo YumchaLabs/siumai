@@ -8,13 +8,15 @@ use serde::Serialize;
 use siumai_core::language::{FinishReason, MediaData, Warning};
 use siumai_core::stream::{StreamTerminal, established_stream};
 use siumai_core::{
-    ApiModeId, CallOptions, EmbeddingInput, EmbeddingModel, EmbeddingRequest, EmbeddingResponse,
-    Error, ImageArtifact, ImageModel, ImageRequest, ImageResponse, LanguageModel, LanguageRequest,
-    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
-    ProtocolId, ProviderId, ProviderOptions, ProviderRegistration, RerankCandidate, RerankModel,
-    RerankRequest, RerankResponse, RerankResult, SpeechModel, SpeechRequest, SpeechResponse,
-    TranscriptionModel, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions, Usage,
+    ApiModeId, CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse,
+    Error, ImageArtifact, ImageLimits, ImageModel, ImageRequest, ImageResponse, LanguageModel,
+    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
+    Model, ModelDescriptor, ModelFamily, ModelId, ModelPolicy, ModelPolicyContext,
+    ModelPolicyDecision, ProtocolId, ProviderId, ProviderOptions, ProviderRegistration,
+    RerankCandidate, RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult,
+    ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
+    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
+    TypedProviderOptions, Usage,
 };
 
 fn descriptor(family: ModelFamily, model: &str) -> ModelDescriptor {
@@ -121,6 +123,13 @@ model_metadata!(FakeTranscription, ModelFamily::Transcription, "stt-test");
 
 #[async_trait]
 impl EmbeddingModel for FakeEmbedding {
+    fn limits(&self) -> EmbeddingLimits {
+        EmbeddingLimits {
+            max_inputs: Some(96),
+            max_input_tokens: None,
+        }
+    }
+
     async fn embed(
         &self,
         request: EmbeddingRequest,
@@ -128,6 +137,7 @@ impl EmbeddingModel for FakeEmbedding {
     ) -> Result<EmbeddingResponse, Error> {
         Ok(EmbeddingResponse {
             embeddings: request.inputs().iter().map(|_| vec![1.0, 2.0]).collect(),
+            metadata: ResponseMetadata::default(),
             usage: Usage::default(),
             warnings: Vec::new(),
             provider: BTreeMap::new(),
@@ -137,6 +147,12 @@ impl EmbeddingModel for FakeEmbedding {
 
 #[async_trait]
 impl RerankModel for FakeRerank {
+    fn limits(&self) -> RerankLimits {
+        RerankLimits {
+            max_candidates: Some(100),
+        }
+    }
+
     async fn rerank(
         &self,
         request: RerankRequest,
@@ -144,15 +160,14 @@ impl RerankModel for FakeRerank {
     ) -> Result<RerankResponse, Error> {
         Ok(RerankResponse {
             results: request
-                .candidates
-                .into_iter()
+                .candidates()
+                .iter()
                 .enumerate()
-                .map(|(index, candidate)| RerankResult {
-                    index,
-                    score: 1.0,
-                    candidate: Some(candidate),
+                .map(|(index, candidate)| {
+                    RerankResult::new(index, 1.0, candidate.id().map(ToString::to_string)).unwrap()
                 })
                 .collect(),
+            metadata: ResponseMetadata::default(),
             usage: Usage::default(),
             warnings: Vec::new(),
             provider: BTreeMap::new(),
@@ -162,6 +177,12 @@ impl RerankModel for FakeRerank {
 
 #[async_trait]
 impl ImageModel for FakeImage {
+    fn limits(&self) -> ImageLimits {
+        ImageLimits {
+            max_outputs_per_call: Some(4),
+        }
+    }
+
     async fn generate_image(
         &self,
         _request: ImageRequest,
@@ -170,9 +191,10 @@ impl ImageModel for FakeImage {
         Ok(ImageResponse {
             images: vec![ImageArtifact {
                 media_type: "image/png".to_string(),
-                data: MediaData::Bytes(vec![1, 2, 3]),
+                data: MediaData::Bytes(vec![1, 2, 3].into()),
                 revised_prompt: None,
             }],
+            metadata: ResponseMetadata::default(),
             usage: Usage::default(),
             warnings: Vec::new(),
             provider: BTreeMap::new(),
@@ -182,6 +204,12 @@ impl ImageModel for FakeImage {
 
 #[async_trait]
 impl SpeechModel for FakeSpeech {
+    fn limits(&self) -> SpeechLimits {
+        SpeechLimits {
+            max_text_bytes: Some(16 * 1024),
+        }
+    }
+
     async fn synthesize(
         &self,
         request: SpeechRequest,
@@ -189,7 +217,10 @@ impl SpeechModel for FakeSpeech {
     ) -> Result<SpeechResponse, Error> {
         Ok(SpeechResponse {
             media_type: "audio/pcm".to_string(),
-            audio: request.text.into_bytes(),
+            audio: request.text().as_bytes().to_vec().into(),
+            duration_seconds: None,
+            sample_rate_hz: None,
+            metadata: ResponseMetadata::default(),
             usage: Usage::default(),
             warnings: Vec::new(),
             provider: BTreeMap::new(),
@@ -199,6 +230,13 @@ impl SpeechModel for FakeSpeech {
 
 #[async_trait]
 impl TranscriptionModel for FakeTranscription {
+    fn limits(&self) -> TranscriptionLimits {
+        TranscriptionLimits {
+            max_audio_bytes: Some(10 * 1024 * 1024),
+            max_duration_seconds: Some(3600.0),
+        }
+    }
+
     async fn transcribe(
         &self,
         _request: TranscriptionRequest,
@@ -207,7 +245,10 @@ impl TranscriptionModel for FakeTranscription {
         Ok(TranscriptionResponse {
             text: "transcript".to_string(),
             language: Some("en".to_string()),
+            confidence: None,
+            duration_seconds: None,
             segments: Vec::new(),
+            metadata: ResponseMetadata::default(),
             usage: Usage::default(),
             warnings: Vec::new(),
             provider: BTreeMap::new(),
@@ -236,6 +277,15 @@ fn prompt() -> LanguageRequest {
     LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")])
 }
 
+async fn call_generic_embedding<M>(model: &M) -> Result<EmbeddingResponse, Error>
+where
+    M: EmbeddingModel,
+{
+    model
+        .embed(EmbeddingRequest::single("hello")?, CallOptions::default())
+        .await
+}
+
 #[tokio::test]
 async fn external_models_are_object_safe_callable_and_task_safe() {
     let options = ProviderOptions::typed(&CustomOptions { strict: true }).unwrap();
@@ -262,27 +312,14 @@ async fn external_models_are_object_safe_callable_and_task_safe() {
     assert!(language_stream.next().await.is_none());
 
     let embedding: Arc<dyn EmbeddingModel> = Arc::new(FakeEmbedding::new());
-    let embedded = embedding
-        .embed(
-            EmbeddingRequest::new(vec![EmbeddingInput::Text("hello".to_string())]).unwrap(),
-            CallOptions::default(),
-        )
-        .await
-        .unwrap();
+    let embedded = call_generic_embedding(&embedding).await.unwrap();
     assert_eq!(embedded.embeddings.len(), 1);
+    assert_eq!(embedding.limits().max_inputs, Some(96));
 
     let rerank: Arc<dyn RerankModel> = Arc::new(FakeRerank::new());
     let reranked = rerank
         .rerank(
-            RerankRequest {
-                query: "query".to_string(),
-                candidates: vec![RerankCandidate {
-                    id: None,
-                    text: "candidate".to_string(),
-                    metadata: BTreeMap::new(),
-                }],
-                top_n: None,
-            },
+            RerankRequest::new("query", vec![RerankCandidate::new("candidate").unwrap()]).unwrap(),
             CallOptions::default(),
         )
         .await
@@ -292,15 +329,7 @@ async fn external_models_are_object_safe_callable_and_task_safe() {
     let image: Arc<dyn ImageModel> = Arc::new(FakeImage::new());
     assert_eq!(
         image
-            .generate_image(
-                ImageRequest {
-                    prompt: "image".to_string(),
-                    count: 1,
-                    size: None,
-                    format: None,
-                },
-                CallOptions::default(),
-            )
+            .generate_image(ImageRequest::new("image").unwrap(), CallOptions::default(),)
             .await
             .unwrap()
             .images
@@ -312,12 +341,7 @@ async fn external_models_are_object_safe_callable_and_task_safe() {
     assert!(
         !speech
             .synthesize(
-                SpeechRequest {
-                    text: "speech".to_string(),
-                    voice: None,
-                    format: None,
-                    speed: None,
-                },
+                SpeechRequest::new("speech").unwrap(),
                 CallOptions::default(),
             )
             .await
@@ -330,12 +354,7 @@ async fn external_models_are_object_safe_callable_and_task_safe() {
     assert_eq!(
         transcription
             .transcribe(
-                TranscriptionRequest {
-                    audio: vec![1, 2, 3],
-                    media_type: "audio/wav".to_string(),
-                    language: None,
-                    prompt: None,
-                },
+                TranscriptionRequest::new(vec![1, 2, 3], "audio/wav").unwrap(),
                 CallOptions::default(),
             )
             .await

@@ -7,9 +7,9 @@ mod contract;
 pub mod helpers;
 pub mod policy;
 pub use contract::{
-    DiagnosticHeaderError, DiagnosticTextError, Error, ErrorContext, ErrorKind,
-    PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders, SensitiveErrorSource,
-    SensitiveResponse,
+    DiagnosticHeaderError, DiagnosticTextError, Error, ErrorContext, ErrorDetail, ErrorKind,
+    PublicDiagnosticText, ResourceKind, ResponseDiagnostics, SafeResponseHeaders,
+    SensitiveErrorSource, SensitiveResponse,
 };
 pub use helpers::*;
 pub use policy::*;

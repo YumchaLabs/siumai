@@ -512,6 +512,35 @@ impl ProviderRegistration {
         self.scope.protocol()
     }
 
+    /// Whether this configured registration exposes a constructor for a family.
+    ///
+    /// This reports factory availability only. Model and operation support
+    /// remains the responsibility of [`ModelPolicy`].
+    pub fn supports_family(&self, family: ModelFamily) -> bool {
+        match family {
+            ModelFamily::Language => self.language.is_some(),
+            ModelFamily::Embedding => self.embedding.is_some(),
+            ModelFamily::Rerank => self.rerank.is_some(),
+            ModelFamily::Image => self.image.is_some(),
+            ModelFamily::Speech => self.speech.is_some(),
+            ModelFamily::Transcription => self.transcription.is_some(),
+        }
+    }
+
+    /// Enumerate available family constructors in stable taxonomy order.
+    pub fn families(&self) -> impl Iterator<Item = ModelFamily> + '_ {
+        [
+            ModelFamily::Language,
+            ModelFamily::Embedding,
+            ModelFamily::Rerank,
+            ModelFamily::Image,
+            ModelFamily::Speech,
+            ModelFamily::Transcription,
+        ]
+        .into_iter()
+        .filter(|family| self.supports_family(*family))
+    }
+
     pub fn with_platform(mut self, platform: PlatformId) -> Self {
         Arc::make_mut(&mut self.scope).platform = Some(platform);
         self
@@ -735,6 +764,20 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn family_availability_is_factory_presence_not_model_policy() {
+        let registration =
+            ProviderRegistration::new(ProviderId::new("custom").unwrap(), Arc::new(AdvisoryPolicy))
+                .with_language(Arc::new(|_| unreachable!("factory is not called")));
+
+        assert!(registration.supports_family(ModelFamily::Language));
+        assert!(!registration.supports_family(ModelFamily::Image));
+        assert_eq!(
+            registration.families().collect::<Vec<_>>(),
+            [ModelFamily::Language]
+        );
     }
 
     #[test]

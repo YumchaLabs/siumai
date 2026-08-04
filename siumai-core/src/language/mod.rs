@@ -3,10 +3,12 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
+use bytes::Bytes;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::error::PublicDiagnosticText;
 use crate::provider::{ModelId, ProviderId};
 use crate::tool::{ToolCall, ToolResult, ToolSpec};
 use crate::usage::Usage;
@@ -154,7 +156,7 @@ pub enum MessageRole {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum MediaData {
-    Bytes(Vec<u8>),
+    Bytes(Bytes),
     Url(String),
 }
 
@@ -377,10 +379,48 @@ pub enum FinishReason {
     Other(String),
 }
 
+/// Stable warning categories emitted without changing call success semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum WarningKind {
+    UnknownModel,
+    DeprecatedModel,
+    RetiredModel,
+    RollingModelAlias,
+    UnsupportedOption,
+    IgnoredOption,
+    PartialResult,
+    Provider { code: PublicDiagnosticText },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Warning {
-    pub code: String,
-    pub message: String,
+    kind: WarningKind,
+    message: PublicDiagnosticText,
+}
+
+impl Warning {
+    pub fn new(kind: WarningKind, message: impl Into<PublicDiagnosticText>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    pub fn provider(
+        code: impl Into<PublicDiagnosticText>,
+        message: impl Into<PublicDiagnosticText>,
+    ) -> Self {
+        Self::new(WarningKind::Provider { code: code.into() }, message)
+    }
+
+    pub fn kind(&self) -> &WarningKind {
+        &self.kind
+    }
+
+    pub fn message(&self) -> &str {
+        self.message.as_str()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

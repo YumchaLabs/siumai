@@ -406,7 +406,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(direct_response, erased_response);
-        assert_eq!(direct_response.warnings[0].code, "unknown_model");
+        assert!(matches!(
+            direct_response.warnings[0].kind(),
+            siumai_core::WarningKind::UnknownModel
+        ));
         mock.assert_async().await;
     }
 

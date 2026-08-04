@@ -44,22 +44,23 @@ pub mod utils;
 pub mod video;
 
 pub use error::{
-    DiagnosticHeaderError, DiagnosticTextError, Error, ErrorContext, ErrorKind, LlmError,
-    LlmErrorExt, PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders,
-    SensitiveErrorSource, SensitiveResponse,
+    DiagnosticHeaderError, DiagnosticTextError, Error, ErrorContext, ErrorDetail, ErrorKind,
+    LlmError, LlmErrorExt, PublicDiagnosticText, ResourceKind, ResponseDiagnostics,
+    SafeResponseHeaders, SensitiveErrorSource, SensitiveResponse,
 };
 pub use language::{
     Citation, ContentPart, FinishReason, GenerationConfig, GenerationConfigError, LanguageRequest,
     LanguageRequestError, LanguageResponse, MediaData, MediaPart, Message, MessageRole,
     OpaqueProviderItem, OpaqueProviderItemError, PartialStructuredOutput, ProviderProvenance,
-    StructuredOutputSpec, ToolChoice, Warning,
+    StructuredOutputSpec, ToolChoice, Warning, WarningKind,
 };
 pub use model::{
-    EmbeddingInput, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, ImageArtifact, ImageModel,
-    ImageRequest, ImageResponse, LanguageModel, Model, ModelDescriptor, ModelFamily,
-    RerankCandidate, RerankModel, RerankRequest, RerankResponse, RerankResult, SpeechModel,
-    SpeechRequest, SpeechResponse, TranscriptSegment, TranscriptionModel, TranscriptionRequest,
-    TranscriptionResponse,
+    EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, ImageArtifact,
+    ImageLimits, ImageModel, ImageRequest, ImageResponse, ImageSize, LanguageModel, Model,
+    ModelDescriptor, ModelFamily, RerankCandidate, RerankLimits, RerankModel, RerankRequest,
+    RerankResponse, RerankResult, ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest,
+    SpeechResponse, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
+    TranscriptionRequest, TranscriptionResponse,
 };
 pub use options::{
     CallOptions, Cancellation, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,

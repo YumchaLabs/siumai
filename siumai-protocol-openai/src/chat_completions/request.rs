@@ -321,7 +321,7 @@ mod tests {
                 },
                 ContentPart::Media(MediaPart {
                     media_type: "image/png".to_string(),
-                    data: MediaData::Bytes(vec![1, 2, 3]),
+                    data: MediaData::Bytes(vec![1, 2, 3].into()),
                     name: None,
                 }),
             ],
