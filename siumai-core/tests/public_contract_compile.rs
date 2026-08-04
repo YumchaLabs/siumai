@@ -13,8 +13,8 @@ use siumai_core::{
     LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
     Model, ModelDescriptor, ModelFamily, ModelId, ModelPolicy, ModelPolicyContext,
     ModelPolicyDecision, ProtocolId, ProviderId, ProviderOptions, ProviderRegistration,
-    RerankCandidate, RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult,
-    ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
+    ProviderScope, RerankCandidate, RerankLimits, RerankModel, RerankRequest, RerankResponse,
+    RerankResult, ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
     TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
     TypedProviderOptions, Usage,
 };
@@ -368,16 +368,18 @@ async fn external_models_are_object_safe_callable_and_task_safe() {
 async fn registration_captures_shared_runtime_and_returns_cheap_models() {
     let constructions = Arc::new(AtomicUsize::new(0));
     let factory_count = constructions.clone();
-    let registration =
-        ProviderRegistration::new(ProviderId::new("custom").unwrap(), Arc::new(CustomPolicy))
+    let scope = Arc::new(
+        ProviderScope::new(ProviderId::new("custom").unwrap())
             .with_protocol(ProtocolId::new("test").unwrap())
-            .with_api_mode(ApiModeId::new("native").unwrap())
-            .with_language(Arc::new(move |model| {
-                factory_count.fetch_add(1, Ordering::SeqCst);
-                Ok(Arc::new(
-                    FakeLanguage::new(model.as_str()).with_api_mode("native"),
-                ))
-            }));
+            .with_api_mode(ApiModeId::new("native").unwrap()),
+    );
+    let registration = ProviderRegistration::from_scope(scope, Arc::new(CustomPolicy))
+        .with_language(Arc::new(move |model| {
+            factory_count.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::new(
+                FakeLanguage::new(model.as_str()).with_api_mode("native"),
+            ))
+        }));
 
     let first = registration
         .language_model(ModelId::new("future:model").unwrap())

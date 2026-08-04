@@ -7,10 +7,12 @@
 #![deny(unsafe_code)]
 
 mod error;
+mod middleware;
 mod reference;
 mod registry;
 
 pub use error::{RegistryBuildError, RegistryResolveError};
+pub use middleware::{RegistryMiddleware, RegistryModelContext};
 pub use reference::{ModelReference, ModelReferenceError};
 pub use registry::{Registry, RegistryBuilder, RegistrySnapshot};
 pub use siumai_core::{ModelFamily, ProviderRegistration, RouteId};

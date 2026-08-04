@@ -104,6 +104,6 @@ small **example**.
     `siumai/tests/transcoding_openai_to_openai_chat_completions_tool_approval_policy_test.rs`
 - [x] Expand typed stream-part coverage for `raw` / `file` in gateway pipelines (documented behavior + tests)
   - Test: `siumai-extras/src/server/axum/transcode_sse.rs`
-- [x] Add a small “M1 smoke matrix” command (single script) that runs only the core-trio gateway/transcoding tests
-  - Windows: `scripts/test-m1.bat`
-  - Unix: `scripts/test-m1.sh`
+- [x] The historical M1 runner was retired with the legacy facade test surface. Use
+  `python3 scripts/test-workspace.py smoke --profile all-providers` for the maintained provider
+  contract matrix.

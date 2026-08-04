@@ -36,10 +36,7 @@ POLICY = {
             "target_allowed_workspace_dependencies": [],
         },
         "siumai-registry": {
-            "current_allowed_workspace_dependencies": [
-                "siumai-core",
-                "siumai-provider-openai",
-            ],
+            "current_allowed_workspace_dependencies": ["siumai-core"],
             "target_allowed_workspace_dependencies": ["siumai-core"],
         },
     },
@@ -87,30 +84,23 @@ class WorkspaceBoundaryTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("siumai-provider-openai", errors[0])
 
-    def test_migration_policy_allows_only_named_transition_dependencies(self) -> None:
+    def test_migration_policy_rejects_unnamed_registry_dependency(self) -> None:
         graph = metadata(
             [
                 package("siumai-spec", []),
                 package("siumai-core", ["siumai-spec"]),
-                package(
-                    "siumai-registry",
-                    ["siumai-core", "siumai-provider-openai"],
-                ),
+                package("siumai-registry", ["siumai-core"]),
                 package("siumai-provider-openai", ["siumai-core"]),
             ]
         )
 
         self.assertEqual(BOUNDARIES.validate(graph, POLICY, target=False), [])
 
-        graph["packages"][2]["dependencies"].append(
-            {"name": "siumai-provider-anthropic"}
-        )
-        graph["packages"].append(package("siumai-provider-anthropic", ["siumai-core"]))
-        graph["workspace_members"].append(graph["packages"][-1]["id"])
+        graph["packages"][2]["dependencies"].append({"name": "siumai-provider-openai"})
 
         errors = BOUNDARIES.validate(graph, POLICY, target=False)
         self.assertEqual(len(errors), 1)
-        self.assertIn("siumai-provider-anthropic", errors[0])
+        self.assertIn("siumai-provider-openai", errors[0])
 
     def test_provider_to_provider_dependency_is_rejected(self) -> None:
         graph = metadata(

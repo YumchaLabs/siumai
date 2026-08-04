@@ -704,6 +704,7 @@ stateDiagram-v2
   - Ship an immutable Registry snapshot in this release. Replacement builds a new snapshot with explicit route semantics; existing models remain bound to their captured provider runtime, and no generation-aware cache or in-place mutation machinery is rebuilt.
   - Rebuild the `siumai` facade as the preferred ergonomic aggregator: provider constructors, small unified prelude, direct family helpers, optional Registry, optional runtime. Protocol internals and every provider symbol are not glob-reexported.
   - Built-in provider registration lives in facade integration and composes provider-owned registrations based on features. Registry's base package depends on core only.
+  - Registry does not own or generically merge route/model provider options. U8 composes typed route/model default layers into the call pipeline, and the selected provider remains the only owner of provider-specific merge and validation semantics.
 - **Test scenarios:**
   - Registry resolves each stable family, unknown route, unsupported family, malformed reference, model IDs containing colons, alias, alias cycle, multiple accounts/modes of one provider, and snapshot replacement with typed outcomes.
   - Concurrent resolution creates cheap handles without shared mutable cache state; provider runtime identity remains shared.

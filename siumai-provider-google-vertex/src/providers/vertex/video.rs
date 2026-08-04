@@ -456,13 +456,12 @@ fn build_status_metadata(
 }
 
 fn response_info(status: u16, headers: &HeaderMap, model: &str) -> Option<HttpResponseInfo> {
-    Some(HttpResponseInfo {
+    (status > 0).then_some(HttpResponseInfo {
         timestamp: chrono::Utc::now(),
         model_id: Some(model.to_string()),
         headers: headers_to_map(headers),
         body: None,
     })
-    .filter(|_| status > 0)
 }
 
 async fn build_wiring(

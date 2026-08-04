@@ -21,26 +21,7 @@
     },
     "siumai-registry": {
       "current_allowed_workspace_dependencies": [
-        "siumai-core",
-        "siumai-protocol-openai",
-        "siumai-provider-amazon-bedrock",
-        "siumai-provider-anthropic",
-        "siumai-provider-azure",
-        "siumai-provider-cohere",
-        "siumai-provider-deepgram",
-        "siumai-provider-deepseek",
-        "siumai-provider-elevenlabs",
-        "siumai-provider-gateway",
-        "siumai-provider-gemini",
-        "siumai-provider-google-vertex",
-        "siumai-provider-groq",
-        "siumai-provider-minimaxi",
-        "siumai-provider-ollama",
-        "siumai-provider-openai",
-        "siumai-provider-openai-compatible",
-        "siumai-provider-togetherai",
-        "siumai-provider-utils",
-        "siumai-provider-xai"
+        "siumai-core"
       ],
       "target_allowed_workspace_dependencies": [
         "siumai-core"

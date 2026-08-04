@@ -21,40 +21,12 @@ no-default-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+async-trait.workspace = true
 siumai-core = { workspace = true, default-features = false }
 thiserror.workspace = true
 
 [features]
 default = []
 
-# Transitional no-op feature names keep the workspace resolvable while the
-# facade's legacy provider relays are removed later in U7. They intentionally
-# add no dependencies; provider integration belongs to `siumai`.
-structured-messages = []
-builtins = []
-openai = []
-azure = []
-anthropic = []
-google = []
-google-vertex = []
-ollama = []
-xai = []
-groq = []
-deepseek = []
-deepinfra = []
-minimaxi = []
-cohere = []
-togetherai = []
-bedrock = []
-gateway = []
-deepgram = []
-elevenlabs = []
-gcp = []
-json-repair = []
-gzip = []
-brotli = []
-all-providers = []
-
 [dev-dependencies]
-async-trait.workspace = true
 tokio.workspace = true

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run provider-scoped, no-network facade contract profiles."""
+"""Run provider-package, no-network contract profiles."""
 
 from __future__ import annotations
 
@@ -24,12 +24,15 @@ PROFILES: dict[str, tuple[str, str]] = {
     "cohere": ("siumai-provider-cohere", "cohere"),
     "togetherai": ("siumai-provider-togetherai", "togetherai"),
     "bedrock": ("siumai-provider-amazon-bedrock", "bedrock"),
+    "gateway": ("siumai-provider-gateway", "gateway"),
+    "deepgram": ("siumai-provider-deepgram", "deepgram"),
+    "elevenlabs": ("siumai-provider-elevenlabs", "elevenlabs"),
 }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run provider-scoped no-network contract tests for the facade."
+        description="Run provider-package no-network contract tests."
     )
     parser.add_argument(
         "profile",

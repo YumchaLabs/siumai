@@ -64,10 +64,8 @@ fn models_share_one_runtime_and_registration_exposes_only_native_families() {
     let provider = CohereProvider::builder("test-api-key")
         .build()
         .expect("configured Cohere provider");
-    let embedding = provider
-        .embedding_model("embed-v4.0")
-        .expect("embedding model");
-    let rerank = provider.rerank_model("rerank-v3.5").expect("rerank model");
+    let embedding = provider.embedding("embed-v4.0").expect("embedding model");
+    let rerank = provider.reranker("rerank-v3.5").expect("rerank model");
     assert_eq!(
         std::sync::Arc::as_ptr(&embedding.runtime),
         std::sync::Arc::as_ptr(&rerank.runtime)
@@ -170,7 +168,7 @@ async fn direct_and_erased_models_share_embedding_and_rerank_wire_contracts() {
         .expect("typed Cohere embedding options"),
     );
     let direct_embedding = provider
-        .embedding_model("embed-v4.0")
+        .embedding("embed-v4.0")
         .expect("embedding model")
         .embed(embedding_request.clone(), embedding_options.clone())
         .await
@@ -201,7 +199,7 @@ async fn direct_and_erased_models_share_embedding_and_rerank_wire_contracts() {
         .expect("typed Cohere rerank options"),
     );
     let direct_rerank = provider
-        .rerank_model("rerank-v3.5")
+        .reranker("rerank-v3.5")
         .expect("rerank model")
         .rerank(rerank_request.clone(), rerank_options.clone())
         .await
@@ -255,7 +253,7 @@ async fn embedding_usage_preserves_known_zero_and_absence() {
         .mount(&server)
         .await;
     let model = test_provider(&server)
-        .embedding_model("embed-v4.0")
+        .embedding("embed-v4.0")
         .expect("embedding model");
 
     let zero = model
@@ -281,9 +279,7 @@ async fn provider_limits_and_dimension_conflicts_fail_before_network_io() {
     let provider = CohereProvider::builder("test-api-key")
         .build()
         .expect("configured Cohere provider");
-    let embedding = provider
-        .embedding_model("embed-v4.0")
-        .expect("embedding model");
+    let embedding = provider.embedding("embed-v4.0").expect("embedding model");
     let embedding_error = embedding
         .embed(
             EmbeddingRequest::new((0..97).map(|index| format!("input {index}")))
@@ -317,7 +313,7 @@ async fn provider_limits_and_dimension_conflicts_fail_before_network_io() {
         .unwrap_err();
     assert_eq!(conflict.kind(), ErrorKind::InvalidInput);
 
-    let rerank = provider.rerank_model("rerank-v3.5").expect("rerank model");
+    let rerank = provider.reranker("rerank-v3.5").expect("rerank model");
     let rerank_error = rerank
         .rerank(
             RerankRequest::new(
@@ -392,7 +388,7 @@ async fn invalid_response_cardinality_and_identity_are_protocol_errors() {
     let provider = test_provider(&server);
 
     let embedding_error = provider
-        .embedding_model("embed-v4.0")
+        .embedding("embed-v4.0")
         .expect("embedding model")
         .embed(
             EmbeddingRequest::new(["one", "two"]).expect("embedding request"),
@@ -403,7 +399,7 @@ async fn invalid_response_cardinality_and_identity_are_protocol_errors() {
     assert_eq!(embedding_error.kind(), ErrorKind::ProtocolViolation);
 
     let rerank_error = provider
-        .rerank_model("rerank-v3.5")
+        .reranker("rerank-v3.5")
         .expect("rerank model")
         .rerank(
             RerankRequest::new("identity query", candidates())
@@ -417,7 +413,7 @@ async fn invalid_response_cardinality_and_identity_are_protocol_errors() {
     assert_eq!(rerank_error.kind(), ErrorKind::ProtocolViolation);
 
     let partial_error = provider
-        .rerank_model("rerank-v3.5")
+        .reranker("rerank-v3.5")
         .expect("rerank model")
         .rerank(
             RerankRequest::new("partial query", candidates())
@@ -443,7 +439,7 @@ async fn invalid_response_cardinality_and_identity_are_protocol_errors() {
 async fn cancellation_and_deadline_are_propagated_by_call_options() {
     let server = MockServer::start().await;
     let model = test_provider(&server)
-        .embedding_model("embed-v4.0")
+        .embedding("embed-v4.0")
         .expect("embedding model");
     let cancellation = Cancellation::new();
     cancellation.cancel();
@@ -477,7 +473,7 @@ async fn non_idempotent_posts_are_never_replayed() {
         .await;
     let retry_policy = RetryPolicy::new(3).expect("retry policy");
     let error = test_provider_with_retry(&server, retry_policy)
-        .embedding_model("embed-v4.0")
+        .embedding("embed-v4.0")
         .expect("embedding model")
         .embed(
             EmbeddingRequest::single("hello").expect("embedding request"),
@@ -503,7 +499,7 @@ async fn provider_errors_keep_remote_material_out_of_default_diagnostics() {
         .mount(&server)
         .await;
     let error = test_provider(&server)
-        .rerank_model("rerank-v3.5")
+        .reranker("rerank-v3.5")
         .expect("rerank model")
         .rerank(
             RerankRequest::new("query", candidates()).expect("rerank request"),

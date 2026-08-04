@@ -1,365 +1,98 @@
-# Scripts
+# Repository Scripts
 
-This directory contains utility scripts for the Siumai project.
+All maintained local-development entry points are Python 3 scripts so the same command works on
+Windows, macOS, and Linux. Rust test commands run serially with `-j 1`; when available,
+`cargo-nextest` is preferred automatically.
 
-## ⚡ Fast Local Test Loop (recommended during refactors)
+The examples below use `python3`; on Windows, use `py -3` if Python is installed through the
+standard Python launcher.
 
-### `test-fast.sh`
+## Local test suites
 
-Runs a minimal “refactor safety net” test set without `siumai`'s default `all-providers` feature
-(which is convenient but slow to compile).
-
-```bash
-./scripts/test-fast.sh
-
-# Optional: enable a small provider subset for the facade crate only
-SIUMAI_TEST_FACADE=1 SIUMAI_FEATURES="openai,google" ./scripts/test-fast.sh
-
-# Optional: enable a small provider subset for split crates too
-SIUMAI_PROVIDERS_FEATURES="openai,google" SIUMAI_REGISTRY_FEATURES="openai,google" ./scripts/test-fast.sh
-```
-
-### `test-full.sh`
-
-Runs full workspace tests with `--all-features` (CI-aligned). Uses `cargo nextest` when available
-(and the repository profile `ci` from `.config/nextest.toml`).
-
-```bash
-./scripts/test-full.sh
-```
-
-### `test-smoke.sh`
-
-Runs a feature-gated “smoke” suite that compiles protocol paths (OpenAI/Anthropic/Gemini, etc.)
-without paying the cost of `--all-features`.
-
-```bash
-./scripts/test-smoke.sh
-
-# Customize which protocol/provider features are exercised (comma-separated feature list)
-SIUMAI_CORE_FEATURES="openai,anthropic" \
-SIUMAI_PROVIDERS_FEATURES="openai,anthropic" \
-SIUMAI_REGISTRY_FEATURES="openai,anthropic" \
-./scripts/test-smoke.sh
-
-# Optional: include the facade crate (slower)
-SIUMAI_TEST_FACADE=1 SIUMAI_FEATURES="openai" ./scripts/test-smoke.sh
-```
-
-Notes:
-
-- The `openai-compatible` smoke preset now covers the shared
-  `siumai-provider-openai-compatible` package plus the `deepseek`, `groq`, and `xai` wrappers.
-- The `all-providers` smoke/test-fast presets now also include the focused provider packages
-  `deepseek`, `cohere`, `togetherai`, and `bedrock`.
-
-### `test-env-smoke.sh` / `test-env-smoke.bat`
-
-Runs focused live smoke tests for environment-driven provider setup.
-
-Coverage:
-- Builder non-streaming chat
-- Builder streaming chat
-- Registry non-streaming chat
-- Registry streaming chat
-- OpenAI / Anthropic explicit `.base_url(...)` when `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` are set
-- Default profile `core-default`: OpenAI, Anthropic, DeepSeek
-- Full profile `all-providers`: OpenAI, Anthropic, Gemini, DeepSeek, Groq
-
-Recommended usage:
-- Use this as the first live regression gate after provider/refactor changes.
-- Keep `siumai/tests/real_llm_integration_test.rs` for broader manual capability sweeps
-  such as reasoning, embeddings, model listing, and non-core providers.
-
-```bash
-./scripts/test-env-smoke.sh
-
-# Optional: use a local proxy
-SIUMAI_TEST_PROXY="http://127.0.0.1:10809" ./scripts/test-env-smoke.sh
-
-# Optional: run the full provider matrix
-SIUMAI_ENV_SMOKE_PROFILE=all-providers ./scripts/test-env-smoke.sh
-
-# Optional: fail on known account/region/quota denials instead of self-skipping them
-SIUMAI_ENV_SMOKE_PROFILE=all-providers SIUMAI_ENV_SMOKE_STRICT=1 ./scripts/test-env-smoke.sh
-```
-
-```bat
-scripts\test-env-smoke.bat
-
-REM Optional: use a local proxy
-set SIUMAI_TEST_PROXY=http://127.0.0.1:10809
-scripts\test-env-smoke.bat
-
-REM Optional: run the full provider matrix
-set SIUMAI_ENV_SMOKE_PROFILE=all-providers
-scripts\test-env-smoke.bat
-
-REM Optional: fail on known account/region/quota denials instead of self-skipping them
-set SIUMAI_ENV_SMOKE_STRICT=1
-scripts\test-env-smoke.bat
-```
-
-### `test-provider-contracts.py`
-
-Runs each provider package's no-network contract tests with its public feature set.
+`test-workspace.py` is the main local entry point:
 
 ```text
-# Run the full contract matrix
-python3 scripts/test-provider-contracts.py
+# Fast core, transport, registry, and facade loop
+python3 scripts/test-workspace.py fast
 
-# Run one provider lane
+# Provider-aware smoke suite
+python3 scripts/test-workspace.py smoke
+python3 scripts/test-workspace.py smoke --profile openai-compatible
+python3 scripts/test-workspace.py smoke --profile all-providers
+
+# Full workspace/all-features suite
+python3 scripts/test-workspace.py full
+```
+
+Useful options:
+
+- `--runner auto|nextest|cargo-test` selects the Rust test runner.
+- `--dry-run` prints the exact commands without executing them.
+- `--profile` applies only to the smoke suite.
+
+The old platform-specific fast/smoke/full wrappers were merged into this script. The old M1,
+interactive integration, environment smoke, and Ollama wrappers were removed because they invoked
+legacy facade tests that are not part of the current Cargo test surface. Credentialed provider
+smoke tests should be added back as provider-owned test targets instead of reviving those facade
+entry points.
+
+## Provider contract suites
+
+`test-provider-contracts.py` runs no-network tests for one provider package or the complete provider
+matrix:
+
+```text
+python3 scripts/test-provider-contracts.py openai-native
 python3 scripts/test-provider-contracts.py google-vertex
-python3 scripts/test-provider-contracts.py bedrock
+python3 scripts/test-provider-contracts.py
 ```
 
-Notes:
+`test-cross-feature-contracts.py` checks the facade's supported feature shapes:
 
-- This is the local mirror of the PR provider package contract CI matrix.
-- Profiles run the provider crate directly instead of naming disabled legacy facade tests.
-- The script prefers `cargo nextest`; if unavailable, it falls back to `cargo test`.
-- Current profiles cover:
-  - `openai-native`
-  - `openai-compat`
-  - `azure`
-  - `anthropic`
-  - `google`
-  - `google-vertex`
-  - `ollama`
-  - `xai`
-  - `groq`
-  - `minimaxi`
-  - `deepseek`
-  - `cohere`
-  - `togetherai`
-  - `bedrock`
-
-### `test-cross-feature-contracts.py`
-
-Runs no-network contract bundles for important multi-feature facade combinations.
-
-```bash
-# Run the full cross-feature matrix
-python scripts/test-cross-feature-contracts.py
-
-# Run one lane
-python scripts/test-cross-feature-contracts.py openai-realtime
+```text
+python3 scripts/test-cross-feature-contracts.py no-default
+python3 scripts/test-cross-feature-contracts.py default
+python3 scripts/test-cross-feature-contracts.py one-provider
+python3 scripts/test-cross-feature-contracts.py registry-openai
+python3 scripts/test-cross-feature-contracts.py multi-provider
+python3 scripts/test-cross-feature-contracts.py all-providers
+python3 scripts/test-cross-feature-contracts.py openai-realtime
+python3 scripts/test-cross-feature-contracts.py
 ```
 
-Notes:
+The complete matrix covers no-default, default, one provider without Registry, Registry plus one
+provider, a representative multi-provider build, the OpenAI-compatible stack, and the experimental
+OpenAI Realtime feature.
+The all-provider profile also compiles every facade provider feature together with Registry.
 
-- This is the local mirror of the PR cross-feature contract CI matrix.
-- The `openai-realtime` profile proves that native OpenAI Realtime remains an experimental typed
-  session surface and does not re-enter the language-stream compatibility path.
+## Architecture and fixture checks
 
-### `audit-model-catalogs.sh` / `audit-model-catalogs.bat`
-
-Runs the local AI SDK model catalog drift audit against Siumai provider model constants.
-
-```bash
-./scripts/audit-model-catalogs.sh
+```text
+python3 -B scripts/check_workspace_boundaries.py
+python3 -B scripts/check_workspace_boundaries.py --target
+python3 -B scripts/check_fixture_inventory.py
+python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
 ```
 
-```bat
-scripts\audit-model-catalogs.bat
+These scripts validate declared package boundaries and fixture ownership. They intentionally do not
+parse Rust source or attempt to infer compiler semantics.
+
+## Model catalog audit
+
+`audit-model-catalogs.py` runs the repository-standard AI SDK catalog drift gate:
+
+```text
+python3 scripts/audit-model-catalogs.py
 ```
 
-Notes:
+It requires a local Vercel AI SDK checkout discoverable as `repo-ref/ai`, `AI_SDK_REPO`, or
+`VERCEL_AI_REPO`. Additional arguments are forwarded to the underlying audit tool. The standard
+wrapper always enables green/skipped output and defers DeepInfra pending a separate catalog policy
+decision.
 
-- Requires a local Vercel AI SDK checkout discoverable as `repo-ref/ai`, `AI_SDK_REPO`, or
-  `VERCEL_AI_REPO`.
-- Uses the standard repository gate: `--include-green --show-skipped --defer deepinfra`.
-- DeepInfra remains intentionally deferred because its larger catalog needs a separate policy
-  decision before bulk expansion.
-- For custom strict audits, call the underlying script directly:
-  `python .agents/skills/siumai-ai-sdk-maintenance/scripts/audit_model_catalogs.py --include-green --show-skipped`.
+## Release-only shell script
 
-## 🧪 Integration Test Scripts
-
-### `run_integration_tests.sh` (Linux/macOS)
-
-Interactive script to run real LLM integration tests with environment setup.
-
-**Usage:**
-```bash
-./scripts/run_integration_tests.sh
-```
-
-**Features:**
-- Automatically loads `.env` file if present
-- Checks for existing API keys
-- Prompts for missing API keys interactively
-- Shows configuration summary
-- Provides test selection menu
-- Handles optional base URL overrides
-
-### `run_integration_tests.bat` (Windows)
-
-Windows batch file version of the integration test runner.
-
-**Usage:**
-```cmd
-scripts\run_integration_tests.bat
-```
-
-**Features:**
-- Automatically loads `.env` file if present
-- Same functionality as the shell script
-- Windows-compatible batch commands
-- Interactive prompts for API keys
-- Test selection menu
-
-### `test_ollama.sh` (Linux/macOS) / `test_ollama.bat` (Windows)
-
-Dedicated Ollama testing script with comprehensive model management.
-
-**Usage:**
-```bash
-# Linux/macOS
-./scripts/test_ollama.sh
-
-# Windows
-scripts\test_ollama.bat
-```
-
-**Features:**
-- Checks Ollama server availability
-- Verifies required model installation
-- Automatically offers to pull missing models
-- Tests all Ollama capabilities:
-  - Non-streaming chat
-  - Streaming chat
-  - Reasoning (with thinking models)
-  - Embeddings
-- Provides detailed test results and optimization tips
-- Uses simple questions to save time and tokens
-
-**Required Models:**
-- **Chat**: `llama3.2:3b` (default, lightweight)
-- **Reasoning**: `deepseek-r1:8b` (for thinking capabilities)
-- **Embedding**: `nomic-embed-text` (for embedding tests)
-
-**Environment Variables:**
-- `OLLAMA_BASE_URL`: Ollama server URL (default: `http://localhost:11434`)
-- `OLLAMA_CHAT_MODEL`: Override default chat model
-- `OLLAMA_REASONING_MODEL`: Override default reasoning model
-- `OLLAMA_EMBEDDING_MODEL`: Override default embedding model
-
-## 🔧 Prerequisites
-
-Before running the integration test scripts:
-
-1. **Rust and Cargo**: Ensure you have Rust installed
-2. **API Keys**: Have your LLM provider API keys ready
-3. **Internet Connection**: Tests make real API calls
-
-## 📋 Supported Providers
-
-The scripts support testing with these providers:
-
-| Provider   | Environment Variable | Required | Notes |
-|------------|---------------------|----------|-------|
-| OpenAI     | `OPENAI_API_KEY`    | No       | API key required |
-| Anthropic  | `ANTHROPIC_API_KEY` | No       | API key required |
-| Gemini     | `GEMINI_API_KEY`    | No       | API key required |
-| DeepSeek   | `DEEPSEEK_API_KEY`  | No       | API key required |
-| OpenRouter | `OPENROUTER_API_KEY`| No       | API key required |
-| Groq       | `GROQ_API_KEY`      | No       | API key required |
-| xAI        | `XAI_API_KEY`       | No       | API key required |
-| Ollama     | `OLLAMA_BASE_URL`   | No       | Local server required |
-
-**Notes:**
-- You only need API keys for providers you want to test. The scripts will automatically skip providers without API keys.
-- For Ollama, ensure the server is running locally (`ollama serve`) and required models are installed.
-
-## 🔧 Optional Configuration
-
-### Base URL Overrides
-
-For proxy or custom endpoint usage:
-
-```bash
-# OpenAI custom endpoint
-export OPENAI_BASE_URL="https://your-proxy.com/v1"
-
-# Anthropic custom endpoint  
-export ANTHROPIC_BASE_URL="https://your-proxy.com"
-```
-
-These are only used if the environment variables are set.
-
-## 🚀 Quick Start
-
-1. **Set up environment variables** (optional):
-   ```bash
-   # Option 1: Create .env file from template
-   cp .env.example .env
-   # Edit .env file with your API keys
-
-   # Option 2: Export variables directly
-   export OPENAI_API_KEY="your-key"
-   export ANTHROPIC_API_KEY="your-key"
-   ```
-
-2. **Make script executable** (Linux/macOS only):
-   ```bash
-   chmod +x scripts/run_integration_tests.sh
-   ```
-
-3. **Run the script**:
-   ```bash
-   # Linux/macOS
-   ./scripts/run_integration_tests.sh
-   
-   # Windows
-   scripts\run_integration_tests.bat
-   ```
-
-4. **Follow the prompts**:
-   - Enter API keys when prompted (or skip)
-   - Choose test type from menu
-   - Review test results
-
-## 💡 Tips
-
-- **Start with one provider**: Test with just OpenAI or Anthropic first
-- **Check API limits**: Be aware of rate limits and costs
-- **Use test keys**: Consider using separate API keys for testing
-- **Monitor usage**: Check your API usage after running tests
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-1. **Permission denied** (Linux/macOS):
-   ```bash
-   chmod +x scripts/run_integration_tests.sh
-   ```
-
-2. **API key errors**: 
-   - Verify your API keys are correct
-   - Check if your account has sufficient credits
-   - Ensure API keys have required permissions
-
-3. **Network issues**:
-   - Check internet connectivity
-   - Verify firewall settings
-   - Try with base URL overrides if using proxies
-
-### Getting Help
-
-If you encounter issues:
-
-1. Check the test output for specific error messages
-2. Verify your API keys and account status
-3. Review the [main documentation](../README.md)
-4. Check the [test documentation](../tests/README.md)
-
-## 📁 File Structure
-
-```
-scripts/
-├── README.md                    # This file
-├── run_integration_tests.sh     # Linux/macOS script
-└── run_integration_tests.bat    # Windows script
-```
+`release-plz-release-with-retry.sh` remains a shell script deliberately. It is called only by the
+Ubuntu GitHub Actions release job and relies on that environment's `release-plz`, GitHub log-group
+syntax, pipeline status handling, and GNU date parsing. It is not a local cross-platform entry
+point.

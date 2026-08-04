@@ -640,7 +640,7 @@ mod tests {
             .unwrap();
         let call = CallOptions::default().with_provider_options(provider_options);
 
-        let direct = provider.transcription_model("nova-3").unwrap();
+        let direct = provider.transcription("nova-3").unwrap();
         let direct_response = direct
             .transcribe(request.clone(), call.clone())
             .await
@@ -683,7 +683,7 @@ mod tests {
             .with_limits(limits)
             .build()
             .unwrap();
-        let model = provider.transcription_model("nova-3").unwrap();
+        let model = provider.transcription("nova-3").unwrap();
         let error = model
             .transcribe(
                 TranscriptionRequest::new(Bytes::from_static(b"12345"), "audio/wav").unwrap(),
@@ -728,7 +728,7 @@ mod tests {
             .create_async()
             .await;
         let response = provider_at(&server.url())
-            .transcription_model("nova-3")
+            .transcription("nova-3")
             .unwrap()
             .transcribe(
                 TranscriptionRequest::new(Bytes::from_static(b"audio"), "audio/wav").unwrap(),
@@ -751,7 +751,7 @@ mod tests {
     #[tokio::test]
     async fn cancellation_and_deadline_reach_the_shared_transport() {
         let provider = provider_at("http://127.0.0.1:9");
-        let model = provider.transcription_model("nova-3").unwrap();
+        let model = provider.transcription("nova-3").unwrap();
         let request = TranscriptionRequest::new(Bytes::from_static(b"audio"), "audio/wav").unwrap();
         let cancellation = Cancellation::new();
         cancellation.cancel();
@@ -796,7 +796,7 @@ mod tests {
             .create_async()
             .await;
         let error = provider_at(&server.url())
-            .transcription_model("nova-3")
+            .transcription("nova-3")
             .unwrap()
             .transcribe(
                 TranscriptionRequest::new(Bytes::from_static(b"audio"), "audio/wav").unwrap(),
@@ -835,7 +835,7 @@ mod tests {
             .create_async()
             .await;
         let error = provider_at(&server.url())
-            .transcription_model("nova-3")
+            .transcription("nova-3")
             .unwrap()
             .transcribe(
                 TranscriptionRequest::new(Bytes::from_static(b"audio"), "audio/wav").unwrap(),
@@ -865,7 +865,7 @@ mod tests {
         let audio = Bytes::copy_from_slice(&source);
         drop(source);
         let model = provider_at(&server.url())
-            .transcription_model("future-model")
+            .transcription("future-model")
             .unwrap();
         let response = tokio::spawn(async move {
             model
@@ -899,7 +899,7 @@ mod tests {
             .create_async()
             .await;
         let error = provider_at(&server.url())
-            .transcription_model("nova-3")
+            .transcription("nova-3")
             .unwrap()
             .transcribe(
                 TranscriptionRequest::new(Bytes::from_static(b"audio"), "audio/wav").unwrap(),

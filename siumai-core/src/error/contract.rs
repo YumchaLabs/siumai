@@ -571,6 +571,17 @@ impl Error {
         self
     }
 
+    /// Attach the configured Registry route that handled this operation.
+    ///
+    /// Provider implementations normally do not know which application route
+    /// selected their shared runtime, so the Registry adds this field at the
+    /// outer model boundary. The rest of the provider/model context is kept
+    /// intact.
+    pub fn with_route(mut self, route: crate::RouteId) -> Self {
+        self.context.route = Some(route);
+        self
+    }
+
     pub fn with_detail(mut self, detail: ErrorDetail) -> Self {
         self.detail = Some(Box::new(detail));
         self
@@ -749,5 +760,29 @@ mod tests {
         let approved = PublicDiagnosticText::new("request rejected").unwrap();
         let error = Error::new(ErrorKind::Provider, approved);
         assert_eq!(error.message(), "request rejected");
+    }
+
+    #[test]
+    fn route_context_preserves_provider_context() {
+        let error = Error::new(ErrorKind::Provider, "request failed").with_context(ErrorContext {
+            operation: Some(ModelOperation::Generate),
+            provider: Some(ProviderId::new("openai").unwrap()),
+            route: None,
+            model: Some(ModelId::new("gpt-5.6-sol").unwrap()),
+        });
+
+        let error = error.with_route(RouteId::new("production").unwrap());
+        assert_eq!(
+            error.context().route.as_ref().map(RouteId::as_str),
+            Some("production")
+        );
+        assert_eq!(
+            error.context().provider.as_ref().map(ProviderId::as_str),
+            Some("openai")
+        );
+        assert_eq!(
+            error.context().model.as_ref().map(ModelId::as_str),
+            Some("gpt-5.6-sol")
+        );
     }
 }

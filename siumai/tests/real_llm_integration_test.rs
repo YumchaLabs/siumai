@@ -17,8 +17,8 @@
 //! - reasoning / thinking
 //! - wider provider coverage such as OpenRouter, xAI, and Ollama
 //!
-//! Prefer `provider_env_smoke_test.rs` plus `scripts/test-env-smoke.{sh,bat}` for refactor
-//! regression checks around:
+//! This legacy facade suite is not part of the maintained Cargo test surface. New credentialed
+//! regression checks should be explicit targets in the provider package they exercise and cover:
 //! - environment-driven builder / registry wiring
 //! - default model and provider-option merge behavior
 //! - basic non-streaming / streaming reachability
@@ -36,7 +36,7 @@
 //!
 //! ### Recommended First Step For Refactors
 //! ```bash
-//! ./scripts/test-env-smoke.sh
+//! Credentialed smoke tests should live in the provider package they exercise.
 //! ```
 //!
 //! ### Individual Provider Tests

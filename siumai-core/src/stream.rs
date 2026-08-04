@@ -41,6 +41,28 @@ impl Stream for LanguageStream {
     }
 }
 
+impl LanguageStream {
+    /// Preserve the established stream lifecycle while adding outer route
+    /// context to provider failures.
+    pub fn with_route_context(self, route: crate::RouteId) -> Self {
+        established_stream(Cancellation::new(), move |_| {
+            self.map(move |event| Ok(with_route_context(event, &route)))
+        })
+    }
+}
+
+fn with_route_context(event: LanguageStreamEvent, route: &crate::RouteId) -> LanguageStreamEvent {
+    match event {
+        LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, response }) => {
+            LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                error: error.with_route(route.clone()),
+                response,
+            })
+        }
+        event => event,
+    }
+}
+
 impl Drop for LanguageStream {
     fn drop(&mut self) {
         self.cancellation.cancel();
@@ -429,6 +451,22 @@ mod tests {
             events.last(),
             Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. }))
                 if error.kind() == ErrorKind::UnexpectedEof
+        ));
+    }
+
+    #[tokio::test]
+    async fn route_context_is_added_to_stream_failures_without_changing_events() {
+        let source = stream::iter(vec![Err(Error::new(ErrorKind::Provider, "request failed"))]);
+        let events = established_stream(Cancellation::new(), |_| source)
+            .with_route_context(crate::RouteId::new("production").unwrap())
+            .collect::<Vec<_>>()
+            .await;
+
+        assert!(matches!(
+            events.as_slice(),
+            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. })]
+                if error.context().route.as_ref().map(crate::RouteId::as_str)
+                    == Some("production")
         ));
     }
 

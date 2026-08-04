@@ -35,12 +35,21 @@ impl OpenAiCompatibleProvider {
         OpenAiCompatibleProviderBuilder::new(profile, credential)
     }
 
-    pub fn language_model(
+    /// Create a lightweight language model from a textual open model ID.
+    pub fn language(
         &self,
         model: impl Into<String>,
     ) -> Result<OpenAiCompatibleLanguageModel, ModelLookupError> {
         let model = ModelId::new(model.into())
             .map_err(|error| ModelLookupError::InvalidReference(error.to_string()))?;
+        Ok(self.create_language_model(model))
+    }
+
+    /// Construct the canonical language family handle.
+    pub fn language_model(
+        &self,
+        model: ModelId,
+    ) -> Result<OpenAiCompatibleLanguageModel, ModelLookupError> {
         Ok(self.create_language_model(model))
     }
 
@@ -346,11 +355,11 @@ mod tests {
         .unwrap();
         let runtime = Arc::as_ptr(&provider.runtime);
         for index in 0..10_000 {
-            let model = provider.language_model(format!("future:{index}")).unwrap();
+            let model = provider.language(format!("future:{index}")).unwrap();
             assert_eq!(Arc::as_ptr(&model.runtime), runtime);
         }
 
-        let direct = provider.language_model("future:model").unwrap();
+        let direct = provider.language("future:model").unwrap();
         let erased = provider
             .registration()
             .language_model(ModelId::new("future:model").unwrap())
@@ -391,7 +400,7 @@ mod tests {
         .unwrap();
         let request = LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]);
 
-        let direct = provider.language_model("future:model").unwrap();
+        let direct = provider.language("future:model").unwrap();
         let direct_response = direct
             .generate(request.clone(), CallOptions::default())
             .await
@@ -440,7 +449,7 @@ mod tests {
         )
         .build()
         .unwrap();
-        let model = provider.language_model("future:model").unwrap();
+        let model = provider.language("future:model").unwrap();
         let events = model
             .stream(
                 LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
@@ -488,7 +497,7 @@ mod tests {
         .build()
         .unwrap();
         let error = provider
-            .language_model("future:model")
+            .language("future:model")
             .unwrap()
             .generate(
                 LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),

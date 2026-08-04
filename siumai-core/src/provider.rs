@@ -161,10 +161,24 @@ macro_rules! canonical_id {
             }
         }
 
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                self.as_str()
+            }
+        }
+
         impl TryFrom<&str> for $name {
             type Error = InvalidId;
 
             fn try_from(value: &str) -> Result<Self, Self::Error> {
+                Self::new(value)
+            }
+        }
+
+        impl std::str::FromStr for $name {
+            type Err = InvalidId;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
                 Self::new(value)
             }
         }
@@ -541,21 +555,6 @@ impl ProviderRegistration {
         .filter(|family| self.supports_family(*family))
     }
 
-    pub fn with_platform(mut self, platform: PlatformId) -> Self {
-        Arc::make_mut(&mut self.scope).platform = Some(platform);
-        self
-    }
-
-    pub fn with_protocol(mut self, protocol: ProtocolId) -> Self {
-        Arc::make_mut(&mut self.scope).protocol = Some(protocol);
-        self
-    }
-
-    pub fn with_api_mode(mut self, api_mode: ApiModeId) -> Self {
-        Arc::make_mut(&mut self.scope).api_mode = Some(api_mode);
-        self
-    }
-
     pub fn evaluate(
         &self,
         model: ModelId,
@@ -782,11 +781,13 @@ mod tests {
 
     #[test]
     fn registration_carries_policy_and_full_protocol_context() {
-        let registration =
-            ProviderRegistration::new(ProviderId::new("custom").unwrap(), Arc::new(AdvisoryPolicy))
+        let scope = Arc::new(
+            ProviderScope::new(ProviderId::new("custom").unwrap())
                 .with_platform(PlatformId::new("public-api").unwrap())
                 .with_protocol(ProtocolId::new("native").unwrap())
-                .with_api_mode(ApiModeId::new("responses").unwrap());
+                .with_api_mode(ApiModeId::new("responses").unwrap()),
+        );
+        let registration = ProviderRegistration::from_scope(scope, Arc::new(AdvisoryPolicy));
 
         let status = registration.evaluate(
             ModelId::new("future:model").unwrap(),

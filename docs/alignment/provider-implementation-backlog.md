@@ -34,6 +34,6 @@ It is intentionally short and test-driven: each item should end with a fixture/t
 
 ## How to validate
 
-- Run the M1 smoke matrix: `scripts/test-m1.bat` / `bash scripts/test-m1.sh`
+- Run the current provider smoke matrix: `python3 scripts/test-workspace.py smoke --profile all-providers`.
 - Run a focused nextest suite for the provider you touched.
 - Keep `scripts/audit_vercel_fixtures.py` at `Missing: 0` and `Drift: 0`.

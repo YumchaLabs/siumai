@@ -50,8 +50,8 @@ impl CohereProvider {
         CohereProviderBuilder::new(api_key)
     }
 
-    /// Create a lightweight embedding model handle with an open model ID.
-    pub fn embedding_model(
+    /// Create a lightweight embedding model from a textual open model ID.
+    pub fn embedding(
         &self,
         model: impl Into<String>,
     ) -> Result<CohereEmbeddingModel, ModelLookupError> {
@@ -59,12 +59,25 @@ impl CohereProvider {
         Ok(self.create_embedding_model(model))
     }
 
-    /// Create a lightweight rerank model handle with an open model ID.
-    pub fn rerank_model(
+    /// Construct the canonical embedding family handle.
+    pub fn embedding_model(
+        &self,
+        model: ModelId,
+    ) -> Result<CohereEmbeddingModel, ModelLookupError> {
+        Ok(self.create_embedding_model(model))
+    }
+
+    /// Create a lightweight rerank model from a textual open model ID.
+    pub fn reranker(
         &self,
         model: impl Into<String>,
     ) -> Result<CohereRerankModel, ModelLookupError> {
         let model = parse_model_id(model)?;
+        Ok(self.create_rerank_model(model))
+    }
+
+    /// Construct the canonical rerank family handle.
+    pub fn rerank_model(&self, model: ModelId) -> Result<CohereRerankModel, ModelLookupError> {
         Ok(self.create_rerank_model(model))
     }
 

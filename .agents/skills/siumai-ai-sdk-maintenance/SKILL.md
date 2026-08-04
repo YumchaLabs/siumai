@@ -59,11 +59,11 @@ Use when provider model ids, default models, or supported model groups may have 
    for latest/current models, verify against official provider docs or APIs when practical.
 2. Find upstream model unions or curated lists in the provider package.
 3. Run the local catalog audit before editing when the scope is broader than one provider:
-   ```bash
-   ./scripts/audit-model-catalogs.sh
+   ```text
+   python3 scripts/audit-model-catalogs.py
    ```
-   On Windows, use `scripts\audit-model-catalogs.bat`. The wrapper uses the repository standard
-   `--defer deepinfra` gate; call the Python script directly for custom strict audits.
+   The cross-platform wrapper uses the repository standard `--defer deepinfra` gate; call the
+   underlying audit script directly for custom strict audits.
 4. Update provider-owned Siumai sources first, usually `siumai-provider-*/src/providers/*/models.rs`.
 5. Reuse that source from facade `provider_ext::*::models`, registry catalog, and default-model
    helpers. Avoid duplicated handwritten model arrays.

@@ -9,8 +9,23 @@ import sys
 from pathlib import Path
 
 
-PROFILES: dict[str, tuple[str, tuple[str, ...]]] = {
-    "openai-realtime": ("openai-realtime,registry", ("facade_contract",)),
+PROFILES: dict[str, tuple[bool, str, tuple[str, ...]]] = {
+    "no-default": (False, "", ("facade_contract",)),
+    "default": (True, "", ("facade_contract",)),
+    "one-provider": (False, "openai", ("facade_contract",)),
+    "registry-openai": (False, "registry,openai", ("facade_contract",)),
+    "compatible-stack": (
+        False,
+        "registry,openai,openai-compatible,groq,xai,deepseek",
+        ("facade_contract",),
+    ),
+    "multi-provider": (
+        False,
+        "registry,openai,openai-compatible,google,cohere,deepgram,elevenlabs",
+        ("facade_contract",),
+    ),
+    "all-providers": (False, "registry,all-providers", ("facade_contract",)),
+    "openai-realtime": (False, "openai-realtime,registry", ("facade_contract",)),
 }
 
 
@@ -39,8 +54,8 @@ def has_nextest(repo_root: Path) -> bool:
     return result.returncode == 0
 
 
-def run_profile(repo_root: Path, profile: str, use_nextest: bool) -> int:
-    features, tests = PROFILES[profile]
+def build_command(profile: str, use_nextest: bool) -> list[str]:
+    use_default_features, features, tests = PROFILES[profile]
     test_args = [argument for test in tests for argument in ("--test", test)]
     if use_nextest:
         command = [
@@ -51,11 +66,7 @@ def run_profile(repo_root: Path, profile: str, use_nextest: bool) -> int:
             "1",
             "-p",
             "siumai",
-            "--no-default-features",
-            "--features",
-            features,
             "--no-fail-fast",
-            *test_args,
         ]
     else:
         command = [
@@ -65,15 +76,24 @@ def run_profile(repo_root: Path, profile: str, use_nextest: bool) -> int:
             "1",
             "-p",
             "siumai",
-            "--no-default-features",
-            "--features",
-            features,
             "--no-fail-fast",
-            *test_args,
         ]
+    if not use_default_features:
+        command.append("--no-default-features")
+    if features:
+        command.extend(("--features", features))
+    command.extend(test_args)
+    return command
+
+
+def run_profile(repo_root: Path, profile: str, use_nextest: bool) -> int:
+    use_default_features, features, _tests = PROFILES[profile]
+    command = build_command(profile, use_nextest)
 
     print(
-        f"[test-cross-feature-contracts] profile={profile} features={features}",
+        "[test-cross-feature-contracts] "
+        f"profile={profile} default_features={use_default_features} "
+        f"features={features or '-'}",
         flush=True,
     )
     return subprocess.run(command, cwd=repo_root, check=False).returncode

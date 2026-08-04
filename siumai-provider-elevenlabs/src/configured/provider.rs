@@ -33,12 +33,18 @@ impl ElevenLabsProvider {
         ElevenLabsProviderBuilder::new(profile, credential)
     }
 
-    pub fn speech_model(
+    /// Create a lightweight speech model from a textual open model ID.
+    pub fn speech(
         &self,
         model: impl Into<String>,
     ) -> Result<ElevenLabsSpeechModel, ModelLookupError> {
         let model = ModelId::new(model.into())
             .map_err(|error| ModelLookupError::InvalidReference(error.to_string()))?;
+        Ok(self.create_speech_model(model))
+    }
+
+    /// Construct the canonical speech family handle.
+    pub fn speech_model(&self, model: ModelId) -> Result<ElevenLabsSpeechModel, ModelLookupError> {
         Ok(self.create_speech_model(model))
     }
 
@@ -328,7 +334,7 @@ mod tests {
             ElevenLabsProvider::builder(profile, ElevenLabsCredential::api_key("test-key"))
                 .build()
                 .unwrap();
-        let direct = provider.speech_model(models::DEFAULT).unwrap();
+        let direct = provider.speech(models::DEFAULT).unwrap();
         let erased = provider
             .registration()
             .speech_model(ModelId::new(models::DEFAULT).unwrap())

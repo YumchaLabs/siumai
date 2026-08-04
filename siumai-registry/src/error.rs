@@ -1,10 +1,13 @@
-use siumai_core::{ModelLookupError, RouteId};
+use siumai_core::{InvalidId, ModelLookupError, RouteId};
 use thiserror::Error;
 
 use crate::ModelReferenceError;
+use crate::middleware::RegistryModelContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum RegistryBuildError {
+    #[error(transparent)]
+    InvalidRoute(#[from] InvalidId),
     #[error("route `{route}` is already registered")]
     DuplicateRoute { route: RouteId },
     #[error("route `{route}` is not registered and cannot be replaced")]
@@ -25,6 +28,10 @@ pub enum RegistryResolveError {
     InvalidReference(#[from] ModelReferenceError),
     #[error("unknown provider route `{route}`")]
     UnknownRoute { route: RouteId },
-    #[error(transparent)]
-    Model(#[from] ModelLookupError),
+    #[error("failed to resolve model for {context}: {source}")]
+    Model {
+        context: RegistryModelContext,
+        #[source]
+        source: ModelLookupError,
+    },
 }

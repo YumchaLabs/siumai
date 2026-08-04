@@ -7,7 +7,10 @@ use siumai::prelude::*;
 use siumai::{EmbeddingLimits, ModelId, ResponseMetadata};
 
 #[cfg(feature = "registry")]
-use siumai::ProviderRegistration;
+use siumai::{ImageArtifact, MediaData};
+
+#[cfg(feature = "registry")]
+use siumai::core::ProviderRegistration;
 
 #[derive(Debug)]
 struct FakeEmbedding {
@@ -49,12 +52,65 @@ impl EmbeddingModel for FakeEmbedding {
     }
 }
 
+#[cfg(feature = "registry")]
+#[derive(Debug)]
+struct FakeImage {
+    descriptor: ModelDescriptor,
+    calls: Arc<AtomicUsize>,
+}
+
+#[cfg(feature = "registry")]
+impl Model for FakeImage {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[cfg(feature = "registry")]
+#[async_trait]
+impl ImageModel for FakeImage {
+    async fn generate_image(
+        &self,
+        request: ImageRequest,
+        _options: CallOptions,
+    ) -> Result<ImageResponse, Error> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let response = ImageResponse {
+            images: (0..request.count())
+                .map(|_| ImageArtifact {
+                    media_type: "image/png".to_string(),
+                    data: MediaData::Url("https://example.test/image.png".to_string()),
+                    revised_prompt: None,
+                })
+                .collect(),
+            metadata: ResponseMetadata::default(),
+            usage: Usage::default(),
+            warnings: Vec::new(),
+            provider: BTreeMap::new(),
+        };
+        response.validate(&request)?;
+        Ok(response)
+    }
+}
+
 fn fake(model: ModelId, calls: Arc<AtomicUsize>) -> FakeEmbedding {
     FakeEmbedding {
         descriptor: ModelDescriptor::new(
             ProviderId::new("fake").unwrap(),
             model,
             ModelFamily::Embedding,
+        ),
+        calls,
+    }
+}
+
+#[cfg(feature = "registry")]
+fn fake_image(model: ModelId, calls: Arc<AtomicUsize>) -> FakeImage {
+    FakeImage {
+        descriptor: ModelDescriptor::new(
+            ProviderId::new("fake").unwrap(),
+            model,
+            ModelFamily::Image,
         ),
         calls,
     }
@@ -74,9 +130,45 @@ async fn direct_family_helper_preserves_one_call_per_batch() {
 
 #[cfg(feature = "registry")]
 #[tokio::test]
+async fn direct_and_registry_image_paths_share_one_family_contract() {
+    use siumai::core::{ModelPolicy, ModelPolicyContext, ModelPolicyDecision};
+    use siumai::registry::Registry;
+
+    #[derive(Debug)]
+    struct UnknownPolicy;
+
+    impl ModelPolicy for UnknownPolicy {
+        fn evaluate(&self, _context: &ModelPolicyContext) -> ModelPolicyDecision {
+            ModelPolicyDecision::unknown_model()
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let direct = fake_image(ModelId::new("image-v1").unwrap(), calls.clone());
+    let factory_calls = calls.clone();
+    let registration =
+        ProviderRegistration::new(ProviderId::new("fake").unwrap(), Arc::new(UnknownPolicy))
+            .with_image(Arc::new(move |model| {
+                Ok(Arc::new(fake_image(model, factory_calls.clone())) as Arc<dyn ImageModel>)
+            }));
+    let mut builder = Registry::builder();
+    builder.register_named("primary", registration).unwrap();
+    let registry = builder.build().unwrap();
+    let erased = registry.image_model("primary:image-v1").unwrap();
+
+    let request = ImageRequest::new("draw a tiny red square").unwrap();
+    let direct_response = image::generate(&direct, request.clone()).await.unwrap();
+    let erased_response = image::generate(&erased, request).await.unwrap();
+
+    assert_eq!(direct_response, erased_response);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[cfg(feature = "registry")]
+#[tokio::test]
 async fn direct_and_registry_paths_use_the_same_family_contract() {
     use siumai::core::{ModelPolicy, ModelPolicyContext, ModelPolicyDecision};
-    use siumai::registry::{Registry, RouteId};
+    use siumai::registry::Registry;
 
     #[derive(Debug)]
     struct UnknownPolicy;
@@ -96,9 +188,7 @@ async fn direct_and_registry_paths_use_the_same_family_contract() {
                 Ok(Arc::new(fake(model, factory_calls.clone())) as Arc<dyn EmbeddingModel>)
             }));
     let mut builder = Registry::builder();
-    builder
-        .register(RouteId::new("primary").unwrap(), registration)
-        .unwrap();
+    builder.register_named("primary", registration).unwrap();
     let registry = builder.build().unwrap();
     let erased = registry.embedding_model("primary:embed-v1").unwrap();
 
@@ -113,12 +203,36 @@ async fn direct_and_registry_paths_use_the_same_family_contract() {
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
+#[cfg(all(
+    feature = "registry",
+    feature = "openai",
+    feature = "openai-compatible",
+    feature = "google",
+    feature = "cohere",
+    feature = "deepgram",
+    feature = "elevenlabs"
+))]
+#[test]
+fn facade_registration_sources_cover_all_six_stable_families() {
+    use siumai::providers::{cohere, deepgram, elevenlabs, google, openai, openai_compatible};
+    use siumai::registry::ProviderRegistrationSource;
+
+    fn assert_registration_source<T: ProviderRegistrationSource>() {}
+
+    assert_registration_source::<openai::OpenAiProvider>();
+    assert_registration_source::<openai_compatible::OpenAiCompatibleProvider>();
+    assert_registration_source::<google::GoogleImagenProvider>();
+    assert_registration_source::<cohere::CohereProvider>();
+    assert_registration_source::<deepgram::DeepgramProvider>();
+    assert_registration_source::<elevenlabs::ElevenLabsProvider>();
+}
+
 #[cfg(all(feature = "registry", feature = "openai"))]
 #[tokio::test]
 async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
     use serde_json::{Value, json};
-    use siumai::providers::openai::configured::{OpenAiCredential, OpenAiProvider};
-    use siumai::registry::{Registry, RouteId};
+    use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+    use siumai::registry::{Registry, RegistryBuilderExt};
     use siumai_transport::{EndpointConfig, TransportEvent, TransportObserver};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -201,15 +315,9 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
     let direct = provider.responses("gpt-5.6-sol").unwrap();
     let mut builder = Registry::builder();
     builder
-        .register(
-            RouteId::new("openai-responses").unwrap(),
-            provider.responses_registration(),
-        )
+        .register_provider("openai-responses", &provider)
         .unwrap()
-        .register(
-            RouteId::new("openai-chat").unwrap(),
-            provider.chat_completions_registration(),
-        )
+        .register_named("openai-chat", provider.chat_completions_registration())
         .unwrap();
     let registry = builder.build().unwrap();
     let erased = registry
@@ -256,11 +364,11 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
 #[cfg(feature = "openai-realtime")]
 #[test]
 fn facade_exposes_realtime_as_typed_provider_sessions() {
-    use siumai::providers::openai::configured::experimental::realtime::{
+    use siumai::providers::openai::experimental::realtime::{
         OPENAI_REALTIME_MODEL, OPENAI_REALTIME_TRANSLATION_MODEL, OpenAiRealtimeClientEvent,
         OpenAiTranslationClientEvent,
     };
-    use siumai::providers::openai::configured::{OpenAiCredential, OpenAiProvider};
+    use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
 
     let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-key"))
         .build()

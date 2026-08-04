@@ -322,8 +322,8 @@ Breaking-change details and “before/after” snippets:
 
 Use existing scripts as refactor safety nets:
 
-- `./scripts/test-fast.sh` — fastest core-level checks
-- `./scripts/test-smoke.sh` — minimal provider feature set compilation + unit tests
-- `./scripts/test-full.sh` — CI-like matrix; uses `cargo nextest` when available
+- `python3 scripts/test-workspace.py fast` — fastest core-level checks
+- `python3 scripts/test-workspace.py smoke` — focused provider compilation and contract tests
+- `python3 scripts/test-workspace.py full` — CI-like workspace/all-features matrix
 
-During refactors, keep `test-fast` green continuously; run `test-smoke` at each milestone boundary.
+During refactors, keep the `fast` suite green continuously; run `smoke` at each milestone boundary.

@@ -52,9 +52,8 @@ jobs:
       - name: Run fast tests (PR safety net)
         if: ${{ github.event_name == 'pull_request' }}
         run: |
-          cargo nextest run -p siumai-core --lib --test-threads 1
-          cargo nextest run -p siumai-registry --lib --test-threads 1
-          cargo nextest run -p siumai --no-default-features --features openai --lib --test-threads 1
+          python3 -B scripts/test-workspace.py fast --runner nextest
+          python3 -B scripts/test-cross-feature-contracts.py registry-openai
 
       - name: Clippy (core crates)
         if: ${{ github.event_name == 'pull_request' }}
@@ -62,7 +61,7 @@ jobs:
 
       - name: Clippy (facade minimal features)
         if: ${{ github.event_name == 'pull_request' }}
-        run: cargo clippy -p siumai --no-default-features --features openai --lib --bins --tests --benches -- -D warnings
+        run: cargo clippy -p siumai --no-default-features --features registry,openai --lib --bins --tests --benches -- -D warnings
 
       - name: Check (extras minimal features)
         if: ${{ github.event_name == 'pull_request' }}
@@ -70,7 +69,7 @@ jobs:
 
       - name: Run tests (nextest)
         if: ${{ github.event_name != 'pull_request' }}
-        run: cargo nextest run --profile ci --all-features --workspace --test-threads 1
+        run: cargo nextest run --profile ci -j 1 --all-features --workspace --test-threads 1
 
       - name: Run clippy (core)
         if: ${{ github.event_name != 'pull_request' }}
@@ -110,6 +109,7 @@ jobs:
       matrix:
         features:
           - openai
+          - openai-compatible
           - azure
           - anthropic
           - google
@@ -122,6 +122,9 @@ jobs:
           - cohere
           - togetherai
           - bedrock
+          - gateway
+          - deepgram
+          - elevenlabs
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -133,7 +136,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cargo check (siumai facade + tests)
-        run: cargo check -p siumai --no-default-features --features ${{ matrix.features }} --lib --tests
+        run: cargo check -p siumai --no-default-features --features registry,${{ matrix.features }} --lib --tests
 
   pr-provider-contracts:
     name: PR Provider Package Contract Matrix (${{ matrix.profile }})
@@ -161,6 +164,9 @@ jobs:
           - cohere
           - togetherai
           - bedrock
+          - gateway
+          - deepgram
+          - elevenlabs
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -191,6 +197,13 @@ jobs:
       fail-fast: false
       matrix:
         profile:
+          - no-default
+          - default
+          - one-provider
+          - registry-openai
+          - compatible-stack
+          - multi-provider
+          - all-providers
           - openai-realtime
     steps:
       - name: Checkout
@@ -266,6 +279,15 @@ jobs:
           - name: bedrock
             package: siumai-provider-amazon-bedrock
             features: bedrock
+          - name: gateway
+            package: siumai-provider-gateway
+            features: gateway
+          - name: deepgram
+            package: siumai-provider-deepgram
+            features: deepgram
+          - name: elevenlabs
+            package: siumai-provider-elevenlabs
+            features: elevenlabs
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -278,30 +300,6 @@ jobs:
 
       - name: Cargo check (provider package)
         run: cargo check -p ${{ matrix.package }} --all-targets --no-default-features --features ${{ matrix.features }}
-
-  pr-facade-guardrails:
-    name: PR Facade Guardrails (public surface + examples)
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      RUSTFLAGS: "-C debuginfo=0"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Compile facade examples (all providers)
-        run: cargo check -p siumai --examples --no-default-features --features all-providers
-
-      - name: Public surface import guard (all providers)
-        run: cargo test -p siumai --no-default-features --features all-providers --test public_surface_imports_test
 
   feature-build-matrix:
     name: Feature Build Matrix (core)
@@ -316,6 +314,7 @@ jobs:
       matrix:
         features:
           - openai
+          - openai-compatible
           - azure
           - anthropic
           - google
@@ -328,9 +327,10 @@ jobs:
           - cohere
           - togetherai
           - bedrock
+          - gateway
+          - deepgram
+          - elevenlabs
           - openai-realtime
-          - google,gcp
-          - openai,json-repair
           - all-providers
     steps:
       - name: Checkout
@@ -345,10 +345,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cargo check (siumai)
-        run: cargo check -p siumai --no-default-features --features ${{ matrix.features }}
+        run: cargo check -p siumai --no-default-features --features registry,${{ matrix.features }}
 
       - name: Clippy (siumai)
-        run: cargo clippy -p siumai --no-default-features --features ${{ matrix.features }} --lib --bins --tests --benches -- -D warnings
+        run: cargo clippy -p siumai --no-default-features --features registry,${{ matrix.features }} --lib --bins --tests --benches -- -D warnings
 
   extras-build-matrix:
     name: Feature Build Matrix (extras)

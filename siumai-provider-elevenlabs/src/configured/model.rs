@@ -451,9 +451,7 @@ mod tests {
             .await;
 
         let provider = provider(&server);
-        let model = provider
-            .speech_model(models::ELEVEN_MULTILINGUAL_V2)
-            .unwrap();
+        let model = provider.speech(models::ELEVEN_MULTILINGUAL_V2).unwrap();
         let request = SpeechRequest::new("hello world")
             .unwrap()
             .with_voice("voice_1")
@@ -507,7 +505,7 @@ mod tests {
         })
         .build()
         .unwrap();
-        let model = provider.speech_model(models::DEFAULT).unwrap();
+        let model = provider.speech(models::DEFAULT).unwrap();
         let error = model
             .synthesize(SpeechRequest::new("hello").unwrap(), CallOptions::default())
             .await
@@ -533,7 +531,7 @@ mod tests {
         )
         .build()
         .unwrap()
-        .speech_model(models::DEFAULT)
+        .speech(models::DEFAULT)
         .unwrap();
         let request = SpeechRequest::new("hello").unwrap();
         let cancellation = Cancellation::new();
@@ -580,7 +578,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let model = provider(&server).speech_model(models::DEFAULT).unwrap();
+        let model = provider(&server).speech(models::DEFAULT).unwrap();
         let error = model
             .synthesize(SpeechRequest::new("hello").unwrap(), CallOptions::default())
             .await
@@ -613,7 +611,7 @@ mod tests {
             .await;
 
         let error = provider(&server)
-            .speech_model(models::DEFAULT)
+            .speech(models::DEFAULT)
             .unwrap()
             .synthesize(SpeechRequest::new("hello").unwrap(), CallOptions::default())
             .await

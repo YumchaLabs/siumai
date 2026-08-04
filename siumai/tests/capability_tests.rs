@@ -1,7 +1,7 @@
 //! Aggregator for capability tests under `tests/capabilities/`.
 //!
 //! We keep these tests in a subfolder for organization, and include them here so that
-//! `cargo test` (and scripts like `scripts/run_integration_tests.sh`) can discover them.
+//! These legacy facade tests are not part of the maintained Cargo test surface.
 
 #[cfg(all(feature = "openai", feature = "groq"))]
 #[path = "capabilities/audio_capability_test.rs"]

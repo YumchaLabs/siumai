@@ -36,7 +36,8 @@ impl DeepgramProvider {
         Self::builder(DeepgramCredential::api_key(api_key)).build()
     }
 
-    pub fn transcription_model(
+    /// Create a lightweight transcription model from a textual open model ID.
+    pub fn transcription(
         &self,
         model: impl Into<String>,
     ) -> Result<DeepgramTranscriptionModel, ModelLookupError> {
@@ -45,10 +46,18 @@ impl DeepgramProvider {
         Ok(self.create_transcription_model(model))
     }
 
+    /// Construct the canonical transcription family handle.
+    pub fn transcription_model(
+        &self,
+        model: ModelId,
+    ) -> Result<DeepgramTranscriptionModel, ModelLookupError> {
+        Ok(self.create_transcription_model(model))
+    }
+
     pub fn default_transcription_model(
         &self,
     ) -> Result<DeepgramTranscriptionModel, ModelLookupError> {
-        self.transcription_model(crate::models::DEFAULT_TRANSCRIPTION)
+        self.transcription(crate::models::DEFAULT_TRANSCRIPTION)
     }
 
     pub fn registration(&self) -> ProviderRegistration {
@@ -327,7 +336,7 @@ mod tests {
         let runtime = Arc::as_ptr(&provider.runtime);
         for index in 0..1_000 {
             let model = provider
-                .transcription_model(format!("future-model-{index}"))
+                .transcription(format!("future-model-{index}"))
                 .unwrap();
             assert_eq!(Arc::as_ptr(&model.runtime), runtime);
             assert_eq!(model.family(), ModelFamily::Transcription);
@@ -339,7 +348,7 @@ mod tests {
         let provider = DeepgramProvider::builder(DeepgramCredential::api_key("test-key"))
             .build()
             .unwrap();
-        let direct = provider.transcription_model("nova-3").unwrap();
+        let direct = provider.transcription("nova-3").unwrap();
         let erased = provider
             .registration()
             .transcription_model(ModelId::new("nova-3").unwrap())
