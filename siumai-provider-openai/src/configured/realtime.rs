@@ -1306,7 +1306,7 @@ async fn connect_session<P>(
 where
     P: SessionProtocol,
 {
-    if !options.provider_options().is_empty() {
+    if options.has_provider_options() {
         return Err(Error::new(
             ErrorKind::InvalidInput,
             "OpenAI Realtime does not accept language-model provider options",

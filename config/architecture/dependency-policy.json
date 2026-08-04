@@ -27,6 +27,15 @@
         "siumai-core"
       ],
       "transition_expires": "U7"
+    },
+    "siumai-runtime": {
+      "current_allowed_workspace_dependencies": [
+        "siumai-core"
+      ],
+      "target_allowed_workspace_dependencies": [
+        "siumai-core"
+      ],
+      "transition_expires": "U8"
     }
   },
   "provider_dependency_transitions": [

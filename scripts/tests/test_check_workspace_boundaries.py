@@ -39,6 +39,10 @@ POLICY = {
             "current_allowed_workspace_dependencies": ["siumai-core"],
             "target_allowed_workspace_dependencies": ["siumai-core"],
         },
+        "siumai-runtime": {
+            "current_allowed_workspace_dependencies": ["siumai-core"],
+            "target_allowed_workspace_dependencies": ["siumai-core"],
+        },
     },
     "provider_dependency_transitions": [
         {
@@ -56,16 +60,31 @@ POLICY = {
 
 
 class WorkspaceBoundaryTests(unittest.TestCase):
-    def test_target_graph_accepts_core_only_registry(self) -> None:
+    def test_target_graph_accepts_core_only_registry_and_runtime(self) -> None:
         graph = metadata(
             [
                 package("siumai-core", []),
                 package("siumai-registry", ["siumai-core"]),
+                package("siumai-runtime", ["siumai-core"]),
                 package("siumai-provider-openai", ["siumai-core"]),
             ]
         )
 
         self.assertEqual(BOUNDARIES.validate(graph, POLICY, target=True), [])
+
+    def test_target_graph_rejects_runtime_registry_dependency(self) -> None:
+        graph = metadata(
+            [
+                package("siumai-core", []),
+                package("siumai-registry", ["siumai-core"]),
+                package("siumai-runtime", ["siumai-core", "siumai-registry"]),
+            ]
+        )
+
+        errors = BOUNDARIES.validate(graph, POLICY, target=True)
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("siumai-registry", errors[0])
 
     def test_target_graph_rejects_registry_provider_dependency(self) -> None:
         graph = metadata(
@@ -75,6 +94,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
                     "siumai-registry",
                     ["siumai-core", "siumai-provider-openai"],
                 ),
+                package("siumai-runtime", ["siumai-core"]),
                 package("siumai-provider-openai", ["siumai-core"]),
             ]
         )
@@ -91,6 +111,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
                 package("siumai-core", ["siumai-spec"]),
                 package("siumai-registry", ["siumai-core"]),
                 package("siumai-provider-openai", ["siumai-core"]),
+                package("siumai-runtime", ["siumai-core"]),
             ]
         )
 
@@ -107,6 +128,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             [
                 package("siumai-core", []),
                 package("siumai-registry", ["siumai-core"]),
+                package("siumai-runtime", ["siumai-core"]),
                 package("siumai-provider-openai", ["siumai-core"]),
                 package(
                     "siumai-provider-anthropic",
@@ -125,6 +147,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             [
                 package("siumai-core", []),
                 package("siumai-registry", ["siumai-core"]),
+                package("siumai-runtime", ["siumai-core"]),
                 package(
                     "siumai-provider-openai",
                     ["siumai-core", "siumai-provider-openai-compatible"],
@@ -144,6 +167,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             [
                 package("siumai-core", [], rust_version="1.89"),
                 package("siumai-registry", ["siumai-core"]),
+                package("siumai-runtime", ["siumai-core"]),
             ]
         )
 

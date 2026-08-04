@@ -12,20 +12,34 @@ from pathlib import Path
 PROFILES: dict[str, tuple[bool, str, tuple[str, ...]]] = {
     "no-default": (False, "", ("facade_contract",)),
     "default": (True, "", ("facade_contract",)),
+    "runtime-only": (False, "runtime", ("facade_contract",)),
+    "runtime-registry": (False, "runtime,registry", ("facade_contract",)),
     "one-provider": (False, "openai", ("facade_contract",)),
-    "registry-openai": (False, "registry,openai", ("facade_contract",)),
+    "registry-openai": (
+        False,
+        "runtime,registry,openai",
+        ("facade_contract",),
+    ),
     "compatible-stack": (
         False,
-        "registry,openai,openai-compatible,groq,xai,deepseek",
+        "runtime,registry,openai,openai-compatible,groq,xai,deepseek",
         ("facade_contract",),
     ),
     "multi-provider": (
         False,
-        "registry,openai,openai-compatible,google,cohere,deepgram,elevenlabs",
+        "runtime,registry,openai,openai-compatible,google,cohere,deepgram,elevenlabs",
         ("facade_contract",),
     ),
-    "all-providers": (False, "registry,all-providers", ("facade_contract",)),
-    "openai-realtime": (False, "openai-realtime,registry", ("facade_contract",)),
+    "all-providers": (
+        False,
+        "runtime,registry,all-providers",
+        ("facade_contract",),
+    ),
+    "openai-realtime": (
+        False,
+        "runtime,openai-realtime,registry",
+        ("facade_contract",),
+    ),
 }
 
 

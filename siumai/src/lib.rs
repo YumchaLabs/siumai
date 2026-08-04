@@ -12,6 +12,8 @@ pub mod prelude;
 pub mod providers;
 #[cfg(feature = "registry")]
 pub mod registry;
+#[cfg(feature = "runtime")]
+pub mod runtime;
 
 pub use siumai_core as core;
 pub use siumai_core::{
@@ -30,4 +32,9 @@ pub use siumai_core::{
     ToolResult, ToolSpec, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
     TranscriptionModelProvider, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions,
     Usage, UsageValue, Warning, WarningKind,
+};
+
+#[cfg(feature = "runtime")]
+pub use runtime::{
+    ModelTarget, Runtime, RuntimeBuilder, RuntimeConfigError, StepOptions, generate, stream,
 };

@@ -764,6 +764,7 @@ mod tests {
         assert_eq!(model.descriptor().provider().as_str(), "fake");
         assert_eq!(model.descriptor().model().as_str(), "embed-v1");
         assert_eq!(model.descriptor().family(), ModelFamily::Embedding);
+        assert_eq!(model.route_id().map(RouteId::as_str), Some("production"));
         assert_eq!(model.limits().max_inputs, Some(7));
 
         let error = model

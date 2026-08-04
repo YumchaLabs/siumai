@@ -1,0 +1,35 @@
+[package]
+name = "siumai-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Provider-neutral high-level execution runtime for Siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-runtime"
+readme = "../README.md"
+keywords = ["llm", "ai", "runtime", "agents"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[package.metadata.docs.rs]
+no-default-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+serde.workspace = true
+siumai-core = { workspace = true, default-features = false }
+thiserror.workspace = true
+
+[features]
+default = []
+
+[dev-dependencies]
+async-trait.workspace = true
+futures.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

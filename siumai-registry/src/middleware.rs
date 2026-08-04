@@ -275,6 +275,10 @@ impl Model for RouteLanguageModel {
     fn descriptor(&self) -> &ModelDescriptor {
         self.inner.descriptor()
     }
+
+    fn route_id(&self) -> Option<&RouteId> {
+        Some(&self.route)
+    }
 }
 
 #[async_trait]
@@ -319,6 +323,10 @@ macro_rules! route_model_wrapper {
         impl Model for $wrapper {
             fn descriptor(&self) -> &ModelDescriptor {
                 self.inner.descriptor()
+            }
+
+            fn route_id(&self) -> Option<&RouteId> {
+                Some(&self.route)
             }
         }
 

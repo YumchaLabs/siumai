@@ -57,11 +57,11 @@ jobs:
 
       - name: Clippy (core crates)
         if: ${{ github.event_name == 'pull_request' }}
-        run: cargo clippy -p siumai-core -p siumai-registry -- -D warnings
+        run: cargo clippy -p siumai-core -p siumai-runtime -p siumai-registry -- -D warnings
 
       - name: Clippy (facade minimal features)
         if: ${{ github.event_name == 'pull_request' }}
-        run: cargo clippy -p siumai --no-default-features --features registry,openai --lib --bins --tests --benches -- -D warnings
+        run: cargo clippy -p siumai --no-default-features --features runtime,registry,openai --lib --bins --tests --benches -- -D warnings
 
       - name: Check (extras minimal features)
         if: ${{ github.event_name == 'pull_request' }}
@@ -199,6 +199,8 @@ jobs:
         profile:
           - no-default
           - default
+          - runtime-only
+          - runtime-registry
           - one-provider
           - registry-openai
           - compatible-stack

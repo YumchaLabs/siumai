@@ -6,6 +6,9 @@ use async_trait::async_trait;
 use siumai::prelude::*;
 use siumai::{EmbeddingLimits, ModelId, ResponseMetadata};
 
+#[cfg(feature = "runtime")]
+use siumai::{ErrorKind, FinishReason, LanguageResponse};
+
 #[cfg(feature = "registry")]
 use siumai::{ImageArtifact, MediaData};
 
@@ -16,6 +19,53 @@ use siumai::core::ProviderRegistration;
 struct FakeEmbedding {
     descriptor: ModelDescriptor,
     calls: Arc<AtomicUsize>,
+}
+
+#[cfg(feature = "runtime")]
+#[derive(Debug)]
+struct FakeLanguage {
+    descriptor: ModelDescriptor,
+    calls: Arc<AtomicUsize>,
+}
+
+#[cfg(feature = "runtime")]
+impl Model for FakeLanguage {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[cfg(feature = "runtime")]
+#[async_trait]
+impl LanguageModel for FakeLanguage {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageResponse, Error> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "facade runtime".to_string(),
+            }],
+            FinishReason::Stop,
+            Usage::default(),
+        )
+        .map_err(|source| {
+            Error::new(ErrorKind::Protocol, "invalid facade test response").with_source(source)
+        })
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        Err(Error::new(
+            ErrorKind::Unsupported,
+            "streaming is not part of this facade contract fixture",
+        ))
+    }
 }
 
 impl Model for FakeEmbedding {
@@ -104,6 +154,18 @@ fn fake(model: ModelId, calls: Arc<AtomicUsize>) -> FakeEmbedding {
     }
 }
 
+#[cfg(feature = "runtime")]
+fn fake_language(model: ModelId, calls: Arc<AtomicUsize>) -> FakeLanguage {
+    FakeLanguage {
+        descriptor: ModelDescriptor::new(
+            ProviderId::new("fake").unwrap(),
+            model,
+            ModelFamily::Language,
+        ),
+        calls,
+    }
+}
+
 #[cfg(feature = "registry")]
 fn fake_image(model: ModelId, calls: Arc<AtomicUsize>) -> FakeImage {
     FakeImage {
@@ -125,6 +187,26 @@ async fn direct_family_helper_preserves_one_call_per_batch() {
     let response = embedding::embed(&model, request).await.unwrap();
 
     assert_eq!(response.embeddings.len(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[cfg(feature = "runtime")]
+#[tokio::test]
+async fn runtime_facade_reexports_one_call_language_execution() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let model = fake_language(ModelId::new("language-v1").unwrap(), calls.clone());
+    let response = siumai::generate(
+        &model,
+        LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+        CallOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        &response.content()[0],
+        ContentPart::Text { text } if text == "facade runtime"
+    ));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 

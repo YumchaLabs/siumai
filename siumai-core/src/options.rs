@@ -69,6 +69,7 @@ pub enum RetryIntent {
 pub enum ProviderOptionOrigin {
     ProviderDefault,
     RouteDefault,
+    ModelDefault,
     RuntimeStep,
     Call,
     RawOverride,
@@ -195,6 +196,7 @@ impl ProviderOptions {
 pub struct ProviderOptionLayers {
     provider_default: Option<ProviderOptions>,
     route_default: Option<ProviderOptions>,
+    model_default: Option<ProviderOptions>,
     runtime_step: Option<ProviderOptions>,
     call: Option<ProviderOptions>,
     raw_override: Option<ProviderOptions>,
@@ -219,6 +221,15 @@ impl ProviderOptionLayers {
     ) -> Result<Self, ProviderOptionError> {
         ensure_empty(&self.route_default, ProviderOptionOrigin::RouteDefault)?;
         self.route_default = Some(require_typed(options)?);
+        Ok(self)
+    }
+
+    pub fn with_model_default(
+        mut self,
+        options: ProviderOptions,
+    ) -> Result<Self, ProviderOptionError> {
+        ensure_empty(&self.model_default, ProviderOptionOrigin::ModelDefault)?;
+        self.model_default = Some(require_typed(options)?);
         Ok(self)
     }
 
@@ -260,6 +271,10 @@ impl ProviderOptionLayers {
             (
                 ProviderOptionOrigin::RouteDefault,
                 self.route_default.as_ref(),
+            ),
+            (
+                ProviderOptionOrigin::ModelDefault,
+                self.model_default.as_ref(),
             ),
             (
                 ProviderOptionOrigin::RuntimeStep,
@@ -331,13 +346,19 @@ pub trait ProviderOptionMerger: Send + Sync {
     fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError>;
 }
 
+#[derive(Debug, Clone)]
+struct ProviderOptionEntry {
+    origin: ProviderOptionOrigin,
+    options: ProviderOptions,
+}
+
 /// Controls shared by all six stable model families.
 #[derive(Clone, Default)]
 pub struct CallOptions {
     deadline: Option<Instant>,
     cancellation: Cancellation,
     retry: RetryIntent,
-    provider_options: Vec<ProviderOptions>,
+    provider_options: Vec<ProviderOptionEntry>,
 }
 
 impl fmt::Debug for CallOptions {
@@ -352,7 +373,7 @@ impl fmt::Debug for CallOptions {
                 &self
                     .provider_options
                     .iter()
-                    .map(|options| options.namespace().as_str())
+                    .map(|entry| entry.options.namespace().as_str())
                     .collect::<Vec<_>>(),
             )
             .finish()
@@ -372,8 +393,12 @@ impl CallOptions {
         self.retry
     }
 
-    pub fn provider_options(&self) -> &[ProviderOptions] {
-        &self.provider_options
+    pub fn provider_options(&self) -> impl ExactSizeIterator<Item = &ProviderOptions> {
+        self.provider_options.iter().map(|entry| &entry.options)
+    }
+
+    pub fn has_provider_options(&self) -> bool {
+        !self.provider_options.is_empty()
     }
 
     /// Add call-scoped typed and raw options to an existing precedence stack.
@@ -383,17 +408,23 @@ impl CallOptions {
         expected: &ProviderId,
         mut layers: ProviderOptionLayers,
     ) -> Result<ProviderOptionLayers, ProviderOptionError> {
-        for options in &self.provider_options {
+        for entry in &self.provider_options {
+            let options = &entry.options;
             if options.namespace() != expected {
                 return Err(ProviderOptionError::NamespaceMismatch {
                     expected: expected.to_string(),
                     actual: options.namespace().to_string(),
                 });
             }
-            layers = if options.is_raw() {
-                layers.with_raw_override(options.clone())?
-            } else {
-                layers.with_call(options.clone())?
+            layers = match entry.origin {
+                ProviderOptionOrigin::ProviderDefault => {
+                    layers.with_provider_default(options.clone())?
+                }
+                ProviderOptionOrigin::RouteDefault => layers.with_route_default(options.clone())?,
+                ProviderOptionOrigin::ModelDefault => layers.with_model_default(options.clone())?,
+                ProviderOptionOrigin::RuntimeStep => layers.with_runtime_step(options.clone())?,
+                ProviderOptionOrigin::Call => layers.with_call(options.clone())?,
+                ProviderOptionOrigin::RawOverride => layers.with_raw_override(options.clone())?,
             };
         }
         Ok(layers)
@@ -415,7 +446,40 @@ impl CallOptions {
     }
 
     pub fn with_provider_options(mut self, options: ProviderOptions) -> Self {
-        self.provider_options.push(options);
+        let origin = if options.is_raw() {
+            ProviderOptionOrigin::RawOverride
+        } else {
+            ProviderOptionOrigin::Call
+        };
+        self.provider_options
+            .push(ProviderOptionEntry { origin, options });
+        self
+    }
+
+    /// Attach typed defaults selected by a configured Registry route.
+    pub fn with_route_default_provider_options(mut self, options: ProviderOptions) -> Self {
+        self.provider_options.push(ProviderOptionEntry {
+            origin: ProviderOptionOrigin::RouteDefault,
+            options,
+        });
+        self
+    }
+
+    /// Attach typed defaults selected for one concrete model target.
+    pub fn with_model_default_provider_options(mut self, options: ProviderOptions) -> Self {
+        self.provider_options.push(ProviderOptionEntry {
+            origin: ProviderOptionOrigin::ModelDefault,
+            options,
+        });
+        self
+    }
+
+    /// Attach typed options selected for one runtime model step.
+    pub fn with_runtime_step_provider_options(mut self, options: ProviderOptions) -> Self {
+        self.provider_options.push(ProviderOptionEntry {
+            origin: ProviderOptionOrigin::RuntimeStep,
+            options,
+        });
         self
     }
 }
@@ -650,6 +714,8 @@ mod tests {
             .unwrap()
             .with_route_default(layer())
             .unwrap()
+            .with_model_default(layer())
+            .unwrap()
             .with_runtime_step(layer())
             .unwrap()
             .with_call(layer())
@@ -671,6 +737,7 @@ mod tests {
             vec![
                 ProviderOptionOrigin::ProviderDefault,
                 ProviderOptionOrigin::RouteDefault,
+                ProviderOptionOrigin::ModelDefault,
                 ProviderOptionOrigin::RuntimeStep,
                 ProviderOptionOrigin::Call,
                 ProviderOptionOrigin::RawOverride,
@@ -729,6 +796,49 @@ mod tests {
                 origin: ProviderOptionOrigin::Call
             }
         ));
+    }
+
+    #[test]
+    fn runtime_option_origins_join_the_provider_owned_precedence_stack() {
+        fn layer(value: &'static str) -> ProviderOptions {
+            #[derive(Serialize)]
+            struct Layer {
+                value: &'static str,
+            }
+
+            impl TypedProviderOptions for Layer {
+                const NAMESPACE: &'static str = "openai";
+            }
+
+            ProviderOptions::typed(&Layer { value }).unwrap()
+        }
+
+        let layers = CallOptions::default()
+            .with_route_default_provider_options(layer("route"))
+            .with_model_default_provider_options(layer("model"))
+            .with_runtime_step_provider_options(layer("step"))
+            .with_provider_options(layer("call"))
+            .apply_provider_options(
+                &ProviderId::new("openai").unwrap(),
+                ProviderOptionLayers::default()
+                    .with_provider_default(layer("provider"))
+                    .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            layers
+                .in_precedence_order()
+                .map(|(origin, options)| (origin, options.value()["value"].as_str().unwrap()))
+                .collect::<Vec<_>>(),
+            vec![
+                (ProviderOptionOrigin::ProviderDefault, "provider"),
+                (ProviderOptionOrigin::RouteDefault, "route"),
+                (ProviderOptionOrigin::ModelDefault, "model"),
+                (ProviderOptionOrigin::RuntimeStep, "step"),
+                (ProviderOptionOrigin::Call, "call"),
+            ]
+        );
     }
 
     #[test]

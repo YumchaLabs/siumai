@@ -102,6 +102,14 @@ impl ModelDescriptor {
 pub trait Model: Send + Sync {
     fn descriptor(&self) -> &ModelDescriptor;
 
+    /// Canonical Registry route that selected this model, when applicable.
+    ///
+    /// Direct provider models return `None`. Registry wrappers override this
+    /// without changing provider/model identity in [`ModelDescriptor`].
+    fn route_id(&self) -> Option<&crate::provider::RouteId> {
+        None
+    }
+
     fn provider_id(&self) -> &ProviderId {
         self.descriptor().provider()
     }
@@ -121,6 +129,10 @@ where
 {
     fn descriptor(&self) -> &ModelDescriptor {
         self.as_ref().descriptor()
+    }
+
+    fn route_id(&self) -> Option<&crate::provider::RouteId> {
+        self.as_ref().route_id()
     }
 }
 

@@ -32,11 +32,24 @@ class CrossFeatureContractTests(unittest.TestCase):
         self.assertEqual(features, ["openai"])
         self.assertNotIn("registry", features)
 
+    def test_runtime_only_profile_does_not_enable_registry_or_providers(self) -> None:
+        command = CONTRACTS.build_command("runtime-only", use_nextest=True)
+        features = command[command.index("--features") + 1].split(",")
+
+        self.assertEqual(features, ["runtime"])
+
+    def test_runtime_registry_profile_keeps_composition_explicit(self) -> None:
+        command = CONTRACTS.build_command("runtime-registry", use_nextest=True)
+        features = command[command.index("--features") + 1].split(",")
+
+        self.assertEqual(features, ["runtime", "registry"])
+
     def test_multi_provider_profile_exercises_registry_and_provider_features(self) -> None:
         command = CONTRACTS.build_command("multi-provider", use_nextest=True)
         features = command[command.index("--features") + 1]
 
         self.assertIn("registry", features.split(","))
+        self.assertIn("runtime", features.split(","))
         self.assertIn("openai", features.split(","))
         self.assertIn("google", features.split(","))
         self.assertIn("deepgram", features.split(","))
@@ -46,7 +59,7 @@ class CrossFeatureContractTests(unittest.TestCase):
         command = CONTRACTS.build_command("all-providers", use_nextest=True)
         features = command[command.index("--features") + 1].split(",")
 
-        self.assertEqual(features, ["registry", "all-providers"])
+        self.assertEqual(features, ["runtime", "registry", "all-providers"])
 
 
 if __name__ == "__main__":

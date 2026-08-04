@@ -10,6 +10,9 @@ pub use crate::{
     ToolChoice, ToolSpec, TranscriptionModel, TranscriptionRequest, TranscriptionResponse, Usage,
 };
 
+#[cfg(feature = "runtime")]
+pub use crate::{Runtime, StepOptions, generate, stream};
+
 #[cfg(feature = "registry")]
 pub use crate::registry::{
     ModelReference, Registry, RegistryBuildError, RegistryBuilder, RegistryBuilderExt,

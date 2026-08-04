@@ -25,6 +25,7 @@ class WorkspaceTestRunnerTests(unittest.TestCase):
         self.assertIn("-j", cargo)
         self.assertEqual(cargo[cargo.index("-j") + 1], "1")
         self.assertIn("siumai-core", cargo)
+        self.assertIn("siumai-runtime", cargo)
         self.assertIn("siumai-transport", cargo)
         self.assertIn("siumai-registry", cargo)
         self.assertIn("siumai", cargo)

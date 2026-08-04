@@ -125,7 +125,13 @@ def commands_for(args: argparse.Namespace, runner: str) -> list[list[str]]:
         return [
             package_test_command(
                 runner,
-                ("siumai-core", "siumai-transport", "siumai-registry", "siumai"),
+                (
+                    "siumai-core",
+                    "siumai-runtime",
+                    "siumai-transport",
+                    "siumai-registry",
+                    "siumai",
+                ),
             ),
         ]
 
@@ -135,7 +141,12 @@ def commands_for(args: argparse.Namespace, runner: str) -> list[list[str]]:
             *common_checks(),
             package_test_command(
                 runner,
-                ("siumai-core", "siumai-transport", "siumai-registry"),
+                (
+                    "siumai-core",
+                    "siumai-runtime",
+                    "siumai-transport",
+                    "siumai-registry",
+                ),
             ),
         ]
         commands.extend(
