@@ -38,6 +38,18 @@ impl UsageValue {
     }
 }
 
+impl From<u64> for UsageValue {
+    fn from(value: u64) -> Self {
+        Self::Known(value)
+    }
+}
+
+impl From<Option<u64>> for UsageValue {
+    fn from(value: Option<u64>) -> Self {
+        value.map_or(Self::Unknown, Self::Known)
+    }
+}
+
 /// Stable usage dimensions plus provider-owned details.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -56,6 +68,56 @@ pub struct Usage {
 }
 
 impl Usage {
+    pub fn with_input_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.input_tokens = value.into();
+        self
+    }
+
+    pub fn with_output_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.output_tokens = value.into();
+        self
+    }
+
+    pub fn with_total_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.total_tokens = value.into();
+        self
+    }
+
+    pub fn with_reasoning_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.reasoning_tokens = value.into();
+        self
+    }
+
+    pub fn with_cache_read_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.cache_read_tokens = value.into();
+        self
+    }
+
+    pub fn with_cache_write_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.cache_write_tokens = value.into();
+        self
+    }
+
+    pub fn with_audio_input_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.audio_input_tokens = value.into();
+        self
+    }
+
+    pub fn with_audio_output_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.audio_output_tokens = value.into();
+        self
+    }
+
+    pub fn with_orchestration_tokens(mut self, value: impl Into<UsageValue>) -> Self {
+        self.orchestration_tokens = value.into();
+        self
+    }
+
+    pub fn with_provider_value(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.provider.insert(key.into(), value.into());
+        self
+    }
+
     /// Combine usage from two steps while preserving unknown dimensions.
     pub fn checked_add(&self, other: &Self) -> Self {
         let mut provider = self.provider.clone();
@@ -109,5 +171,17 @@ mod tests {
             UsageValue::Known(0).checked_add(UsageValue::Known(4)),
             UsageValue::Known(4)
         );
+    }
+
+    #[test]
+    fn fluent_construction_preserves_known_zero_and_unknown() {
+        let usage = Usage::default()
+            .with_input_tokens(Some(0))
+            .with_output_tokens(None)
+            .with_provider_value("search_units", 1_u64);
+
+        assert_eq!(usage.input_tokens, UsageValue::Known(0));
+        assert_eq!(usage.output_tokens, UsageValue::Unknown);
+        assert_eq!(usage.provider.get("search_units"), Some(&Value::from(1)));
     }
 }

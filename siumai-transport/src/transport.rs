@@ -990,6 +990,12 @@ pub(crate) async fn run_controlled<F>(
 where
     F: Future,
 {
+    if cancellation.is_cancelled() {
+        return Err(Error::cancelled("transport call was cancelled"));
+    }
+    if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
+        return Err(Error::new(ErrorKind::Timeout, "transport deadline elapsed"));
+    }
     tokio::pin!(future);
     match deadline {
         Some(deadline) => {
@@ -1144,5 +1150,30 @@ mod retry_after_tests {
         );
         let headers = ResponseHeaders::checked(headers, &TransportLimits::default()).unwrap();
         assert!(!format!("{headers:?}").contains("canary"));
+    }
+}
+
+#[cfg(test)]
+mod call_control_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn expired_deadline_wins_over_an_immediately_ready_future() {
+        let error = run_controlled(async { 42_u8 }, &Cancellation::new(), Some(Instant::now()))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::Timeout);
+    }
+
+    #[tokio::test]
+    async fn pre_cancelled_call_wins_when_deadline_is_also_expired() {
+        let cancellation = Cancellation::new();
+        cancellation.cancel();
+        let error = run_controlled(async { 42_u8 }, &cancellation, Some(Instant::now()))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::Cancelled);
     }
 }

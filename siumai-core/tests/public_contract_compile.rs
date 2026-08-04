@@ -207,6 +207,7 @@ impl SpeechModel for FakeSpeech {
     fn limits(&self) -> SpeechLimits {
         SpeechLimits {
             max_text_bytes: Some(16 * 1024),
+            max_text_chars: None,
         }
     }
 

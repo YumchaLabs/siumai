@@ -19,6 +19,13 @@ pub(crate) use siumai_core::{
     retry, retry_api, streaming, traits, types, utils,
 };
 
+mod configured;
+
+pub use configured::{
+    CohereConfigError, CohereEmbeddingModel, CohereProvider, CohereProviderBuilder,
+    CohereRerankModel,
+};
+
 /// Builder utilities shared across provider crates.
 pub(crate) mod builder {
     #[allow(unused_imports)]

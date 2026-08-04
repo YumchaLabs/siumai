@@ -944,6 +944,7 @@ impl<'de> Deserialize<'de> for SpeechRequest {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpeechLimits {
     pub max_text_bytes: Option<usize>,
+    pub max_text_chars: Option<usize>,
 }
 
 impl SpeechLimits {
@@ -956,6 +957,16 @@ impl SpeechLimits {
                 as_u64(request.text.len()),
                 as_u64(maximum),
             ));
+        }
+        if let Some(maximum) = self.max_text_chars {
+            let actual = request.text.chars().count();
+            if actual > maximum {
+                return Err(Error::limit_exceeded(
+                    ResourceKind::SpeechTextCharacters,
+                    as_u64(actual),
+                    as_u64(maximum),
+                ));
+            }
         }
         Ok(())
     }
@@ -1347,6 +1358,33 @@ mod tests {
         );
         assert!(TranscriptionRequest::new(Vec::<u8>::new(), "audio/wav").is_err());
         assert!(TranscriptionRequest::new(vec![1_u8], "not-a-media-type").is_err());
+    }
+
+    #[test]
+    fn speech_limits_distinguish_utf8_bytes_from_provider_characters() {
+        let request = SpeechRequest::new("\u{4f60}\u{597d}").unwrap();
+
+        SpeechLimits {
+            max_text_bytes: None,
+            max_text_chars: Some(2),
+        }
+        .validate(&request)
+        .unwrap();
+        let error = SpeechLimits {
+            max_text_bytes: Some(2),
+            max_text_chars: None,
+        }
+        .validate(&request)
+        .unwrap_err();
+
+        assert_eq!(
+            error.detail(),
+            Some(&ErrorDetail::LimitExceeded {
+                resource: ResourceKind::SpeechTextBytes,
+                actual: 6,
+                maximum: 2,
+            })
+        );
     }
 
     #[test]

@@ -1,29 +1,6 @@
-//! Deepgram model catalog aligned with `@ai-sdk/deepgram`.
+//! Deepgram model identifiers are conveniences, never an execution allowlist.
 
-/// Deepgram speech model ids.
-pub mod speech {
-    pub const AURA_ASTERIA_EN: &str = "aura-asteria-en";
-    pub const AURA_2_ASTERIA_EN: &str = "aura-2-asteria-en";
-    pub const AURA_2_THALIA_EN: &str = "aura-2-thalia-en";
-    pub const AURA_2_HELENA_EN: &str = "aura-2-helena-en";
-    pub const AURA_2_ORPHEUS_EN: &str = "aura-2-orpheus-en";
-    pub const AURA_2_ZEUS_EN: &str = "aura-2-zeus-en";
-    pub const AURA_LUNA_EN: &str = "aura-luna-en";
-    pub const AURA_STELLA_EN: &str = "aura-stella-en";
-
-    pub const ALL: &[&str] = &[
-        AURA_ASTERIA_EN,
-        AURA_2_ASTERIA_EN,
-        AURA_2_THALIA_EN,
-        AURA_2_HELENA_EN,
-        AURA_2_ORPHEUS_EN,
-        AURA_2_ZEUS_EN,
-        AURA_LUNA_EN,
-        AURA_STELLA_EN,
-    ];
-}
-
-/// Deepgram transcription model ids.
+/// Deepgram prerecorded transcription identifiers verified against the native package contract.
 pub mod transcription {
     pub const BASE: &str = "base";
     pub const BASE_GENERAL: &str = "base-general";
@@ -94,10 +71,7 @@ pub mod transcription {
     ];
 }
 
-pub const DEFAULT_SPEECH: &str = speech::AURA_2_HELENA_EN;
 pub const DEFAULT_TRANSCRIPTION: &str = transcription::NOVA_3;
-pub const ALL_SPEECH: &[&str] = speech::ALL;
 pub const ALL_TRANSCRIPTION: &[&str] = transcription::ALL;
 
-pub use speech::AURA_2_HELENA_EN;
 pub use transcription::NOVA_3;

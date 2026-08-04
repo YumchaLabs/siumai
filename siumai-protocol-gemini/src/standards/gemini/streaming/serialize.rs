@@ -594,10 +594,7 @@ pub(super) fn serialize_event(
                             serde_json::json!({ "web": serde_json::Value::Object(web) })
                         }
                         TypedStreamSource::Document {
-                            title,
-                            filename,
-                            media_type: _,
-                            ..
+                            title, filename, ..
                         } => {
                             let mut retrieved = serde_json::Map::new();
                             retrieved.insert(

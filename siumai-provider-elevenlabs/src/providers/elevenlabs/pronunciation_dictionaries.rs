@@ -1197,7 +1197,7 @@ mod tests {
             Some("request")
         );
 
-        assert_eq!(response.has_more, true);
+        assert!(response.has_more);
         assert_eq!(response.next_cursor.as_deref(), Some("cursor-2"));
         assert_eq!(response.extra.get("unknown_list"), Some(&json!("kept")));
         let dictionary = response

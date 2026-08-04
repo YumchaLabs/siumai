@@ -2268,7 +2268,7 @@ mod tests {
             Some("request-wins")
         );
 
-        assert_eq!(response.has_more, true);
+        assert!(response.has_more);
         assert_eq!(response.total_count, Some(1));
         assert_eq!(response.next_page_token.as_deref(), Some("next-token"));
         assert_eq!(response.extra.get("unknown_list"), Some(&json!("kept")));
@@ -3191,7 +3191,7 @@ mod tests {
         assert!(body.contains("\"accent\":\"american\""));
 
         assert_eq!(response.voice_id, "voice-clone-1");
-        assert_eq!(response.requires_verification, true);
+        assert!(response.requires_verification);
         assert_eq!(response.extra.get("future_create"), Some(&json!("kept")));
     }
 

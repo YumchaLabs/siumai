@@ -4,13 +4,13 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "Deepgram provider implementation for siumai (speech and transcription)"
+description = "Configured Deepgram final-result transcription provider for Siumai"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/siumai-provider-deepgram"
 readme = "../README.md"
-keywords = ["llm", "ai", "deepgram", "speech", "transcription"]
+keywords = ["llm", "ai", "deepgram", "transcription", "audio"]
 categories = ["api-bindings"]
 
 [lib]
@@ -18,23 +18,21 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-utils = { workspace = true, default-features = false }
+siumai-transport = { workspace = true, default-features = false }
 
 async-trait.workspace = true
+http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
-futures.workspace = true
-futures-util.workspace = true
-chrono.workspace = true
 secrecy.workspace = true
-urlencoding.workspace = true
+thiserror.workspace = true
+url.workspace = true
 
 [features]
 default = []
 deepgram = []
-structured-messages = ["siumai-core/structured-messages", "siumai-provider-utils/structured-messages"]
 
 [dev-dependencies]
-tokio-test.workspace = true
+bytes.workspace = true
+mockito.workspace = true
+tokio.workspace = true

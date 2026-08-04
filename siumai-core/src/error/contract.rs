@@ -217,6 +217,7 @@ pub enum ResourceKind {
     RerankCandidates,
     ImageOutputs,
     SpeechTextBytes,
+    SpeechTextCharacters,
     TranscriptionAudioBytes,
     TranscriptionDurationSeconds,
 }

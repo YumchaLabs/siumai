@@ -406,13 +406,11 @@ pub fn convert_message_to_content(
                     crate::types::ContentPart::Image {
                         source,
                         provider_options,
-                        provider_metadata: _,
                         ..
                     }
                     | crate::types::ContentPart::File {
                         source,
                         provider_options,
-                        provider_metadata: _,
                         ..
                     } => {
                         let thought_signature =
@@ -534,7 +532,6 @@ pub fn convert_message_to_content(
                         source,
                         media_type,
                         provider_options,
-                        provider_metadata: _,
                         ..
                     } => {
                         let thought_signature =
@@ -708,7 +705,6 @@ pub fn convert_message_to_content(
             arguments,
             provider_executed,
             provider_options,
-            provider_metadata: _,
             ..
         } = part
         {
@@ -747,7 +743,6 @@ pub fn convert_message_to_content(
             output,
             provider_executed,
             provider_options,
-            provider_metadata: _,
             ..
         } = part
         {

@@ -1,6 +1,9 @@
 //! Typed provider options for Cohere chat, embedding, and reranking.
 
 use serde::{Deserialize, Serialize};
+use siumai_core::{ProviderOptionError, TypedProviderOptions};
+
+const VALID_OUTPUT_DIMENSIONS: &[u32] = &[256, 512, 1024, 1536];
 
 /// Thinking mode used by Cohere chat models.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +142,22 @@ impl CohereEmbeddingOptions {
     }
 }
 
+impl TypedProviderOptions for CohereEmbeddingOptions {
+    const NAMESPACE: &'static str = "cohere";
+
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        if let Some(output_dimension) = self.output_dimension
+            && !VALID_OUTPUT_DIMENSIONS.contains(&output_dimension)
+        {
+            return Err(ProviderOptionError::Rejected {
+                path: "outputDimension".to_string(),
+                reason: "must be one of 256, 512, 1024, or 1536".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
 /// Typed rerank options stored under `provider_options_map["cohere"]`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohereRerankOptions {
@@ -174,6 +193,20 @@ impl CohereRerankOptions {
     }
 }
 
+impl TypedProviderOptions for CohereRerankOptions {
+    const NAMESPACE: &'static str = "cohere";
+
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        if self.max_tokens_per_doc == Some(0) {
+            return Err(ProviderOptionError::Rejected {
+                path: "maxTokensPerDoc".to_string(),
+                reason: "must be greater than zero".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
 /// AI SDK-aligned alias for Cohere language-model options.
 pub type CohereLanguageModelOptions = CohereChatOptions;
 
@@ -200,6 +233,7 @@ pub type CohereRerankingOptions = CohereRerankOptions;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use siumai_core::ProviderOptions;
 
     #[test]
     fn chat_options_serde_matches_expected_shape() {
@@ -258,6 +292,17 @@ mod tests {
                 "maxTokensPerDoc": 1000,
                 "priority": 1
             })
+        );
+    }
+
+    #[test]
+    fn canonical_provider_options_reject_invalid_numeric_values() {
+        assert!(
+            ProviderOptions::typed(&CohereEmbeddingOptions::new().with_output_dimension(2048))
+                .is_err()
+        );
+        assert!(
+            ProviderOptions::typed(&CohereRerankOptions::new().with_max_tokens_per_doc(0)).is_err()
         );
     }
 

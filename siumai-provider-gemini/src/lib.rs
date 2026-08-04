@@ -35,6 +35,14 @@ pub mod hosted_tools;
 pub mod provider_metadata;
 pub mod provider_options;
 
+mod configured;
+
+pub use configured::{
+    GoogleCredential, GoogleImagenAspectRatio, GoogleImagenConfigError, GoogleImagenModel,
+    GoogleImagenOptions, GoogleImagenPersonGeneration, GoogleImagenProvider,
+    GoogleImagenProviderBuilder,
+};
+
 pub mod providers;
 pub use siumai_protocol_gemini::standards;
 

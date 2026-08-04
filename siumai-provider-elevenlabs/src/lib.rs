@@ -12,6 +12,7 @@ pub(crate) use siumai_core::{
     traits, transcription, types,
 };
 
+pub mod configured;
 pub mod providers;
 
 pub use providers::elevenlabs::*;
