@@ -90,9 +90,8 @@ It requires a local Vercel AI SDK checkout discoverable as `repo-ref/ai`, `AI_SD
 wrapper always enables green/skipped output and defers DeepInfra pending a separate catalog policy
 decision.
 
-## Release-only shell script
+## Release retry
 
-`release-plz-release-with-retry.sh` remains a shell script deliberately. It is called only by the
-Ubuntu GitHub Actions release job and relies on that environment's `release-plz`, GitHub log-group
-syntax, pipeline status handling, and GNU date parsing. It is not a local cross-platform entry
-point.
+`release_plz_release_with_retry.py` is the release-only retry wrapper used by GitHub Actions. It
+streams `release-plz` output, recognizes crates.io rate limiting, parses the retry timestamp with
+the Python standard library, and applies bounded retries without depending on Bash or GNU `date`.
