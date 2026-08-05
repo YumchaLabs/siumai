@@ -2324,14 +2324,20 @@ fn execution_error_outcome(error: ToolExecutionError) -> ToolOutcome {
     match error {
         ToolExecutionError::ExecutorFailed {
             message, retryable, ..
-        } => ToolOutcome::ExecutionFailed { message, retryable },
+        } => ToolOutcome::ExecutionFailed {
+            message,
+            retryable,
+            details: None,
+        },
         ToolExecutionError::InvalidArguments { message, .. } => ToolOutcome::ExecutionFailed {
             message,
             retryable: false,
+            details: None,
         },
         other => ToolOutcome::ExecutionFailed {
             message: other.to_string(),
             retryable: false,
+            details: None,
         },
     }
 }

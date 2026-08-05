@@ -6,6 +6,8 @@ members = [
     "siumai-transport",
     "siumai-runtime",
     "siumai-bridge",
+    "siumai-mcp",
+    "siumai-server",
     "siumai-spec",
     "siumai-provider-utils",
     "siumai-registry",
@@ -101,6 +103,8 @@ siumai-core = { version = "0.11.0-beta.9", path = "siumai-core", default-feature
 siumai-transport = { version = "0.11.0-beta.9", path = "siumai-transport", default-features = false }
 siumai-runtime = { version = "0.11.0-beta.9", path = "siumai-runtime", default-features = false }
 siumai-bridge = { version = "0.11.0-beta.9", path = "siumai-bridge", default-features = false }
+siumai-mcp = { version = "0.11.0-beta.9", path = "siumai-mcp", default-features = false }
+siumai-server = { version = "0.11.0-beta.9", path = "siumai-server", default-features = false }
 siumai-spec = { version = "0.11.0-beta.9", path = "siumai-spec", default-features = false }
 siumai-provider-utils = { version = "0.11.0-beta.9", path = "siumai-provider-utils", default-features = false }
 siumai-registry = { version = "0.11.0-beta.9", path = "siumai-registry", default-features = false }

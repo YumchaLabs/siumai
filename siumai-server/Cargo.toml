@@ -1,0 +1,30 @@
+[package]
+name = "siumai-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Server gateway projections for the Siumai runtime"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-server"
+keywords = ["llm", "ai", "server", "axum", "sse"]
+categories = ["api-bindings", "web-programming"]
+
+[dependencies]
+axum = { workspace = true, optional = true }
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+siumai-core.workspace = true
+siumai-runtime.workspace = true
+thiserror.workspace = true
+
+[features]
+default = ["axum"]
+axum = ["dep:axum"]
+
+[dev-dependencies]
+async-trait.workspace = true
+tokio.workspace = true

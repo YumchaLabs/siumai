@@ -329,6 +329,7 @@ pub(crate) fn project_program_output(output: &super::wire::ProgramOutputItemWire
         | super::wire::ItemStatus::Other(_) => ToolOutcome::ExecutionFailed {
             message: "OpenAI programmatic tool execution did not complete".to_string(),
             retryable: false,
+            details: None,
         },
     };
     ToolResult {

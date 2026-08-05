@@ -110,10 +110,26 @@ pub struct ToolCall {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ToolOutcome {
-    Success { value: Value },
-    Denied { reason: String },
-    ExecutionFailed { message: String, retryable: bool },
-    Cancelled { reason: String },
+    Success {
+        value: Value,
+    },
+    Denied {
+        reason: String,
+    },
+    ExecutionFailed {
+        message: String,
+        retryable: bool,
+        /// Optional provider-native or integration-specific diagnostic data.
+        ///
+        /// The runtime never interprets this value as a successful result. It
+        /// is bounded by the owning integration before it reaches a model or
+        /// a durable snapshot.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<Value>,
+    },
+    Cancelled {
+        reason: String,
+    },
 }
 
 /// A tool result retains its call identity and typed outcome.
@@ -138,6 +154,7 @@ mod tests {
         let failed = ToolOutcome::ExecutionFailed {
             message: "database unavailable".to_string(),
             retryable: true,
+            details: None,
         };
 
         assert!(!matches!(denied, ToolOutcome::Success { .. }));
