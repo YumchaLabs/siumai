@@ -252,10 +252,12 @@ impl LlmClient for MinimaxiClient {
     }
 
     fn supported_models(&self) -> Vec<String> {
-        super::models::all_models()
-            .into_iter()
-            .map(str::to_string)
-            .collect()
+        super::models::chat_models_for_endpoint(
+            super::models::MinimaxiChatEndpoint::AnthropicMessages,
+        )
+        .into_iter()
+        .map(str::to_string)
+        .collect()
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -681,6 +683,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn minimaxi_client_advertises_only_models_supported_by_its_chat_route() {
+        let client = MinimaxiClient::new(MinimaxiConfig::new("test-key"), reqwest::Client::new());
+
+        let models = LlmClient::supported_models(&client);
+        assert!(models.contains(&super::super::models::CHAT.to_string()));
+        assert!(!models.contains(&super::super::models::FLAGSHIP.to_string()));
+    }
+
     #[derive(Clone, Default)]
     struct NoopInterceptor;
 
@@ -933,7 +944,10 @@ mod tests {
             .take()
             .expect("captured");
 
-        assert_eq!(captured.body["model"], serde_json::json!("MiniMax-M2"));
+        assert_eq!(
+            captured.body["model"],
+            serde_json::json!(super::super::models::CHAT)
+        );
         assert_eq!(captured.body["temperature"], serde_json::json!(0.4));
         assert_eq!(captured.body["max_tokens"], serde_json::json!(256));
     }

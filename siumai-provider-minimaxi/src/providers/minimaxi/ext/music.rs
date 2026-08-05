@@ -1,6 +1,6 @@
 //! MiniMaxi music generation helpers (extension API).
 //!
-//! MiniMaxi Music 2.0 requires a `lyrics` field at the API layer. Siumai’s
+//! MiniMaxi music generation requires a `lyrics` field at the API layer. Siumai's
 //! `MinimaxiClient` will auto-fill a default structure if lyrics are omitted,
 //! but this module provides an explicit, type-safe builder for better ergonomics.
 
@@ -15,14 +15,14 @@ pub struct MinimaxiMusicRequestBuilder {
 }
 
 impl MinimaxiMusicRequestBuilder {
-    /// Create a request builder with a prompt and MiniMaxi default model (`music-2.0`).
+    /// Create a request builder with a prompt and the current MiniMax music model.
     pub fn new(prompt: impl Into<String>) -> Self {
         Self {
-            request: MusicGenerationRequest::new("music-2.0", prompt),
+            request: MusicGenerationRequest::new(super::super::models::MUSIC, prompt),
         }
     }
 
-    /// Override the model (defaults to `music-2.0`).
+    /// Override the model (defaults to [`super::super::models::MUSIC`]).
     pub fn model(mut self, model: impl Into<String>) -> Self {
         self.request.model = model.into();
         self

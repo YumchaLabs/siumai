@@ -19,16 +19,40 @@ mod minimaxi_tests {
 
         let empty_config = MinimaxiConfig::new("");
         assert!(empty_config.validate().is_err());
+
+        let unsupported_route =
+            MinimaxiConfig::new("test-api-key").with_model(models::chat::MINIMAX_M3);
+        assert!(unsupported_route.validate().is_err());
     }
 
     #[test]
     fn test_curated_models() {
+        assert_eq!(models::chat::MINIMAX_M3, "MiniMax-M3");
+        assert_eq!(models::chat::MINIMAX_M2_7, "MiniMax-M2.7");
+        assert_eq!(
+            models::chat::MINIMAX_M2_7_HIGHSPEED,
+            "MiniMax-M2.7-highspeed"
+        );
+        assert_eq!(models::chat::MINIMAX_M2_5, "MiniMax-M2.5");
+        assert_eq!(
+            models::chat::MINIMAX_M2_5_HIGHSPEED,
+            "MiniMax-M2.5-highspeed"
+        );
+        assert_eq!(models::chat::MINIMAX_M2_1, "MiniMax-M2.1");
+        assert_eq!(
+            models::chat::MINIMAX_M2_1_HIGHSPEED,
+            "MiniMax-M2.1-highspeed"
+        );
         assert_eq!(models::chat::MINIMAX_M2, "MiniMax-M2");
         assert_eq!(models::chat::MINIMAX_M2_STABLE, "MiniMax-M2-Stable");
+        assert_eq!(models::speech::SPEECH_2_8_HD, "speech-2.8-hd");
+        assert_eq!(models::speech::SPEECH_2_8_TURBO, "speech-2.8-turbo");
         assert_eq!(models::speech::SPEECH_2_6_HD, "speech-2.6-hd");
         assert_eq!(models::speech::SPEECH_2_6_TURBO, "speech-2.6-turbo");
-        assert_eq!(models::video::HAILUO_2_3, "hailuo-2.3");
-        assert_eq!(models::video::HAILUO_2_3_FAST, "hailuo-2.3-fast");
+        assert_eq!(models::video::HAILUO_2_3, "MiniMax-Hailuo-2.3");
+        assert_eq!(models::video::HAILUO_2_3_FAST, "MiniMax-Hailuo-2.3-Fast");
+        assert_eq!(models::music::MUSIC_2_6, "music-2.6");
+        assert_eq!(models::music::MUSIC_COVER, "music-cover");
         assert_eq!(models::music::MUSIC_2_0, "music-2.0");
         assert_eq!(models::image::IMAGE_01, "image-01");
         assert_eq!(models::image::IMAGE_01_LIVE, "image-01-live");
@@ -278,9 +302,15 @@ mod minimaxi_tests {
         let client = MinimaxiClient::new(config, reqwest::Client::new());
 
         // Test supported models
-        let models = client.get_supported_music_models();
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0], "music-2.0");
+        let supported_models = client.get_supported_music_models();
+        assert_eq!(
+            supported_models,
+            models::ALL_MUSIC
+                .iter()
+                .map(|model| (*model).to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(supported_models[0], models::MUSIC);
     }
 
     #[test]

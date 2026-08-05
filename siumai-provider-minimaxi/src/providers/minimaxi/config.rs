@@ -59,8 +59,8 @@ impl MinimaxiConfig {
     /// OpenAI-compatible base URL for audio, image, video, and music APIs
     pub const OPENAI_BASE_URL: &'static str = "https://api.minimaxi.com/v1";
 
-    /// Default model (M2 text model)
-    pub const DEFAULT_MODEL: &'static str = "MiniMax-M2";
+    /// Default current text model.
+    pub const DEFAULT_MODEL: &'static str = super::models::CHAT;
 
     /// Create a new MiniMaxi configuration
     pub fn new(api_key: impl Into<String>) -> Self {
@@ -224,6 +224,15 @@ impl MinimaxiConfig {
             return Err(LlmError::ConfigurationError(
                 "MiniMaxi base URL must start with http:// or https://".to_string(),
             ));
+        }
+
+        if let Some(profile) = super::models::chat_profile(&self.common_params.model)
+            && !profile.supports_endpoint(super::models::MinimaxiChatEndpoint::AnthropicMessages)
+        {
+            return Err(LlmError::ConfigurationError(format!(
+                "MiniMax model '{}' is not available through this client's Anthropic Messages route",
+                self.common_params.model
+            )));
         }
 
         Ok(())

@@ -119,7 +119,10 @@ pub(super) async fn generate_music(
 
 /// Get supported music models
 pub(super) fn get_supported_music_models() -> Vec<String> {
-    vec!["music-2.0".to_string()]
+    super::models::ALL_MUSIC
+        .iter()
+        .map(|model| (*model).to_string())
+        .collect()
 }
 
 /// Get supported audio formats

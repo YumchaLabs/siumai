@@ -6,7 +6,7 @@
 //! Request format:
 //! ```json
 //! {
-//!   "model": "speech-2.6-hd",
+//!   "model": "speech-2.8-hd",
 //!   "text": "Today is such a happy day, of course!",
 //!   "stream": false,
 //!   "voice_setting": {
@@ -110,11 +110,11 @@ impl AudioTransformer for MinimaxiAudioTransformer {
     }
 
     fn build_tts_body(&self, req: &TtsRequest) -> Result<AudioHttpBody, LlmError> {
-        // Model: default to speech-2.6-hd
+        // Model: default to the current HD speech model.
         let model = req
             .model
             .clone()
-            .unwrap_or_else(|| "speech-2.6-hd".to_string());
+            .unwrap_or_else(|| super::super::models::SPEECH.to_string());
 
         // Voice: default to male-qn-qingse
         let voice_id = req
@@ -296,7 +296,7 @@ mod tests {
         let body = transformer.build_tts_body(&req).unwrap();
         match body {
             AudioHttpBody::Json(json) => {
-                assert_eq!(json["model"], "speech-2.6-hd");
+                assert_eq!(json["model"], "speech-2.8-hd");
                 assert_eq!(json["text"], "Hello world");
                 assert_eq!(json["stream"], false);
                 assert_eq!(json["voice_setting"]["voice_id"], "male-qn-qingse");

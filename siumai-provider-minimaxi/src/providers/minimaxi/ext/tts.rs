@@ -23,7 +23,7 @@ impl MinimaxiTtsRequestBuilder {
         }
     }
 
-    /// Set the MiniMaxi TTS model (e.g. `speech-2.6-hd`).
+    /// Set the MiniMaxi TTS model (e.g. `speech-2.8-hd`).
     pub fn model(mut self, model: impl Into<String>) -> Self {
         self.request = self.request.with_model(model.into());
         self

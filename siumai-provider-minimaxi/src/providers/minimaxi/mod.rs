@@ -31,7 +31,7 @@
 //!     let client = LlmBuilder::new()
 //!         .minimaxi()
 //!         .api_key("your-api-key")
-//!         .model("MiniMax-M2")
+//!         .model("MiniMax-M2.7")
 //!         .build()
 //!         .await?;
 //!
