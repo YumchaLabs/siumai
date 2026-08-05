@@ -12,7 +12,6 @@ pub use credentials::{
     OpenAiCompatibleCredential,
 };
 pub use model::OpenAiCompatibleLanguageModel;
-pub use policy::RetiredModelBehavior;
 pub use profile::OpenAiCompatibleProfile;
 pub use provider::{
     OpenAiCompatibleConfigError, OpenAiCompatibleProvider, OpenAiCompatibleProviderBuilder,

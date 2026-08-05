@@ -1,19 +1,22 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use http::header::{ACCEPT, HeaderValue};
+use http::header::{ACCEPT, HeaderValue, RETRY_AFTER};
 use http::{Method, StatusCode};
 use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
     LanguageStream, LanguageStreamEvent, Model, ModelAdvisory, ModelDescriptor, ModelFamily,
     ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision, ProviderOptionError,
-    ResponseDiagnostics, SensitiveResponse, SupportState, Warning, WarningKind,
+    PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders, SensitiveResponse,
+    SupportState, Warning, WarningKind,
 };
 use siumai_protocol_openai::chat_completions::{
     CHAT_COMPLETIONS_TARGET, ChatCompletionsStreamDecoder, decode_response, encode_request,
 };
+use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
 use siumai_transport::framing::{SseDecoder, SseFrameError};
 use siumai_transport::{
     RequestBody, RequestHeaders, RequestPlan, RequestTarget, ResponseHeaders, TransportResponse,
@@ -306,8 +309,15 @@ async fn stream_response_error(response: TransportStreamResponse) -> Error {
         match chunk {
             Ok(chunk) => {
                 let remaining = ERROR_CAPTURE_BYTES.saturating_sub(bytes.len());
+                if remaining == 0 {
+                    truncated = true;
+                    break;
+                }
                 bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
-                truncated |= chunk.len() > remaining;
+                if chunk.len() > remaining {
+                    truncated = true;
+                    break;
+                }
             }
             Err(error) => return error,
         }
@@ -323,13 +333,50 @@ fn provider_status_error(
     body: Vec<u8>,
     body_truncated: bool,
 ) -> Error {
-    let kind = match status {
-        StatusCode::UNAUTHORIZED => ErrorKind::Authentication,
-        StatusCode::FORBIDDEN => ErrorKind::Authorization,
-        StatusCode::TOO_MANY_REQUESTS => ErrorKind::RateLimited,
-        status if status.is_server_error() => ErrorKind::Provider,
-        _ => ErrorKind::Provider,
-    };
+    let metadata = decode_error_metadata(&body);
+    let provider_code = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.code())
+        .and_then(public_provider_identifier);
+    let provider_type = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.error_type())
+        .and_then(public_provider_identifier);
+    let provider_param = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.param())
+        .and_then(public_provider_identifier);
+    let kind = classify_http_error(
+        status.as_u16(),
+        provider_code.as_ref().map(PublicDiagnosticText::as_str),
+    );
+    let safe_headers = safe_response_headers(&headers);
+    let request_id = response_header_text(&headers, "x-request-id")
+        .or_else(|| response_header_text(&headers, "request-id"));
+    let retry_after = headers
+        .get(&RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_secs);
+    let mut diagnostics = ResponseDiagnostics::default()
+        .with_status(status.as_u16())
+        .with_headers(safe_headers)
+        .with_body_truncated(body_truncated);
+    if let Some(code) = provider_code {
+        diagnostics = diagnostics.with_provider_code(code);
+    }
+    if let Some(error_type) = provider_type {
+        diagnostics = diagnostics.with_provider_type(error_type);
+    }
+    if let Some(param) = provider_param {
+        diagnostics = diagnostics.with_provider_param(param);
+    }
+    if let Some(request_id) = request_id {
+        diagnostics = diagnostics.with_request_id(request_id);
+    }
+    if let Some(retry_after) = retry_after {
+        diagnostics = diagnostics.with_retry_after(retry_after);
+    }
     let raw_headers = headers
         .expose()
         .iter()
@@ -341,10 +388,39 @@ fn provider_status_error(
         })
         .collect();
     Error::new(kind, "provider rejected the Chat Completions request")
-        .with_diagnostics(
-            ResponseDiagnostics::default()
-                .with_status(status.as_u16())
-                .with_body_truncated(body_truncated),
-        )
+        .with_diagnostics(diagnostics)
         .with_sensitive_response(SensitiveResponse::new(raw_headers, body))
+}
+
+fn public_provider_identifier(value: &str) -> Option<PublicDiagnosticText> {
+    if value.is_empty()
+        || value.len() > 256
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return None;
+    }
+    PublicDiagnosticText::new(value.to_string()).ok()
+}
+
+fn response_header_text(
+    headers: &ResponseHeaders,
+    name: &'static str,
+) -> Option<PublicDiagnosticText> {
+    headers
+        .expose()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| PublicDiagnosticText::new(value.to_string()).ok())
+}
+
+fn safe_response_headers(headers: &ResponseHeaders) -> SafeResponseHeaders {
+    let mut safe = SafeResponseHeaders::default();
+    for (name, value) in headers.expose() {
+        if let Ok(value) = value.to_str() {
+            let _ = safe.try_insert(name.as_str(), value.to_string());
+        }
+    }
+    safe
 }

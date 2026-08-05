@@ -16,8 +16,7 @@ mod configured;
 pub use configured::{
     BearerCredential, CredentialRequest, CredentialSourceError, DynamicCredentialSource,
     OpenAiCompatibleConfigError, OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel,
-    OpenAiCompatibleProfile, OpenAiCompatibleProvider, OpenAiCompatibleProviderBuilder,
-    RetiredModelBehavior, profiles,
+    OpenAiCompatibleProfile, OpenAiCompatibleProvider, OpenAiCompatibleProviderBuilder, profiles,
 };
 
 pub use siumai_protocol_openai::*;

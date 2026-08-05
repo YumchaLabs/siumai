@@ -4,7 +4,6 @@ pub use siumai_provider_openai_compatible::{
     BearerCredential, CredentialRequest, CredentialSourceError, DynamicCredentialSource,
     OpenAiCompatibleConfigError, OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel,
     OpenAiCompatibleProfile, OpenAiCompatibleProvider, OpenAiCompatibleProviderBuilder,
-    RetiredModelBehavior,
 };
 
 pub mod options {

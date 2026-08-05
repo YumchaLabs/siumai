@@ -144,6 +144,12 @@ impl OpenAiCompatibleProfile {
     pub(crate) fn codec_policy(&self) -> &Arc<dyn ChatCodecPolicy> {
         &self.codec_policy
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_endpoint(mut self, endpoint: EndpointConfig) -> Self {
+        self.endpoint = endpoint;
+        self
+    }
 }
 
 impl fmt::Debug for OpenAiCompatibleProfile {

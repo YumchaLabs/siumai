@@ -253,6 +253,7 @@ pub struct ResponseDiagnostics {
     status: Option<u16>,
     provider_code: Option<PublicDiagnosticText>,
     provider_type: Option<PublicDiagnosticText>,
+    provider_param: Option<PublicDiagnosticText>,
     request_id: Option<PublicDiagnosticText>,
     #[serde(
         default,
@@ -278,6 +279,12 @@ impl ResponseDiagnostics {
 
     pub fn provider_type(&self) -> Option<&str> {
         self.provider_type
+            .as_ref()
+            .map(PublicDiagnosticText::as_str)
+    }
+
+    pub fn provider_param(&self) -> Option<&str> {
+        self.provider_param
             .as_ref()
             .map(PublicDiagnosticText::as_str)
     }
@@ -310,6 +317,11 @@ impl ResponseDiagnostics {
 
     pub fn with_provider_type(mut self, provider_type: PublicDiagnosticText) -> Self {
         self.provider_type = Some(provider_type);
+        self
+    }
+
+    pub fn with_provider_param(mut self, provider_param: PublicDiagnosticText) -> Self {
+        self.provider_param = Some(provider_param);
         self
     }
 
@@ -671,6 +683,18 @@ mod tests {
             assert!(!surface.contains("secret-header"));
             assert!(!surface.contains("secret-body"));
         }
+    }
+
+    #[test]
+    fn response_diagnostics_preserve_matchable_provider_fields() {
+        let diagnostics = ResponseDiagnostics::default()
+            .with_provider_code(PublicDiagnosticText::new("invalid_parameter").unwrap())
+            .with_provider_type(PublicDiagnosticText::new("invalid_request_error").unwrap())
+            .with_provider_param(PublicDiagnosticText::new("thinking.keep").unwrap());
+
+        assert_eq!(diagnostics.provider_code(), Some("invalid_parameter"));
+        assert_eq!(diagnostics.provider_type(), Some("invalid_request_error"));
+        assert_eq!(diagnostics.provider_param(), Some("thinking.keep"));
     }
 
     #[test]

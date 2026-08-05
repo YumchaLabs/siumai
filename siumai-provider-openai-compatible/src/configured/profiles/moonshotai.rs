@@ -18,7 +18,7 @@ use siumai_protocol_openai::chat_completions::{
 use siumai_transport::{EndpointConfig, OfficialOrigin};
 
 use crate::configured::codec_policy::{ChatCodecPolicy, PreparedChatCall};
-use crate::provider_options::{KimiLanguageOptions, KimiThinkingMode};
+use crate::provider_options::{KimiLanguageOptions, KimiThinking, KimiThinkingMode};
 use crate::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};
 
 pub const KIMI_K3: &str = "kimi-k3";
@@ -201,11 +201,12 @@ impl ChatCodecPolicy for KimiChatCodecPolicy {
         };
 
         dialect = match policy {
-            KimiModelPolicy::K3
-            | KimiModelPolicy::K2_7
-            | KimiModelPolicy::K2_6
-            | KimiModelPolicy::K2_5 => dialect
+            KimiModelPolicy::K3 | KimiModelPolicy::K2_7 | KimiModelPolicy::K2_6 => dialect
                 .with_video_input(true)
+                .with_reasoning_input_field(self.reasoning.clone())
+                .with_reasoning_output_field(self.reasoning.clone())
+                .with_function_tool_strict(true),
+            KimiModelPolicy::K2_5 => dialect
                 .with_reasoning_input_field(self.reasoning.clone())
                 .with_reasoning_output_field(self.reasoning.clone())
                 .with_function_tool_strict(true),
@@ -377,7 +378,7 @@ fn validate_k2_7(
     if options
         .thinking
         .as_ref()
-        .is_some_and(|thinking| thinking.mode == KimiThinkingMode::Disabled)
+        .is_some_and(|thinking| matches!(thinking, KimiThinking::Disabled {}))
     {
         return Err(invalid("Kimi K2.7 thinking cannot be disabled"));
     }
@@ -405,7 +406,7 @@ fn validate_k2_6(
     let thinking = options
         .thinking
         .as_ref()
-        .map_or(KimiThinkingMode::Enabled, |thinking| thinking.mode);
+        .map_or(KimiThinkingMode::Enabled, KimiThinking::mode);
     let expected_temperature = if thinking == KimiThinkingMode::Enabled {
         1.0
     } else {
@@ -415,15 +416,13 @@ fn validate_k2_6(
     validate_fixed_number(request.generation.top_p, 0.95)?;
     validate_fixed_extra(extra, "presence_penalty", 0.0)?;
     validate_fixed_extra(extra, "frequency_penalty", 0.0)?;
+    if matches!(request.tool_choice, Some(ToolChoice::Required)) {
+        return Err(invalid("Kimi K2.6 does not support required tool_choice"));
+    }
     if thinking == KimiThinkingMode::Enabled
-        && matches!(
-            request.tool_choice,
-            Some(ToolChoice::Required | ToolChoice::Named { .. })
-        )
+        && matches!(request.tool_choice, Some(ToolChoice::Named { .. }))
     {
-        return Err(invalid(
-            "thinking Kimi K2.6 tool_choice supports only auto or none",
-        ));
+        return Err(invalid("thinking Kimi K2.6 cannot force a named function"));
     }
     Ok(())
 }
@@ -431,16 +430,42 @@ fn validate_k2_6(
 fn validate_k2_5(
     request: &LanguageRequest,
     options: &KimiLanguageOptions,
-    extra: &BTreeMap<String, Value>,
+    _extra: &BTreeMap<String, Value>,
 ) -> Result<(), Error> {
+    if options.reasoning_effort.is_some() {
+        return Err(invalid("reasoning_effort is supported only by Kimi K3"));
+    }
     if options
         .thinking
         .as_ref()
-        .is_some_and(|thinking| thinking.keep.is_some())
+        .and_then(KimiThinking::retention)
+        .is_some()
     {
         return Err(invalid("Kimi K2.5 thinking does not support keep"));
     }
-    validate_k2_6(request, options, extra)
+    if request.messages.iter().any(|message| {
+        message.content.iter().any(|part| {
+            matches!(
+                part,
+                ContentPart::Media(media) if media.media_type.starts_with("video/")
+            )
+        })
+    }) {
+        return Err(invalid(
+            "Kimi K2.5 supports image input but not video input",
+        ));
+    }
+    let thinking = options
+        .thinking
+        .as_ref()
+        .map_or(KimiThinkingMode::Enabled, KimiThinking::mode);
+    let expected_temperature = if thinking == KimiThinkingMode::Enabled {
+        1.0
+    } else {
+        0.6
+    };
+    validate_fixed_number(request.generation.temperature, expected_temperature)?;
+    Ok(())
 }
 
 fn validate_legacy(
@@ -539,18 +564,31 @@ fn invalid(message: &'static str) -> Error {
 
 #[cfg(test)]
 mod tests {
+    use futures_util::StreamExt;
     use serde_json::json;
     use siumai_core::{
-        GenerationConfig, Message, MessageRole, ModelPolicy, ModelPolicyContext, ProviderOptions,
-        StructuredOutputSpec, SupportState,
+        CallOptions, ErrorKind, GenerationConfig, LanguageModel, LanguageStreamEvent, Message,
+        MessageRole, ModelPolicy, ModelPolicyContext, ProviderOptions, StreamTerminal,
+        StructuredOutputSpec, SupportState, UsageValue,
     };
     use siumai_protocol_openai::chat_completions::encode_request;
+    use siumai_transport::EndpointConfig;
 
     use super::*;
-    use crate::configured::policy::{OpenAiCompatibleModelPolicy, RetiredModelBehavior};
+    use crate::configured::policy::OpenAiCompatibleModelPolicy;
+    use crate::{OpenAiCompatibleCredential, OpenAiCompatibleProvider};
 
     fn request() -> LanguageRequest {
         LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")])
+    }
+
+    fn provider_for(base_url: String) -> OpenAiCompatibleProvider {
+        let profile = profile()
+            .unwrap()
+            .with_test_endpoint(EndpointConfig::local_explicit(base_url).unwrap());
+        OpenAiCompatibleProvider::builder(profile, OpenAiCompatibleCredential::unauthenticated())
+            .build()
+            .unwrap()
     }
 
     fn normalize(
@@ -597,7 +635,6 @@ mod tests {
         let policy = OpenAiCompatibleModelPolicy::new(
             profile.profile_arc(),
             profile.support_scope().clone(),
-            RetiredModelBehavior::Reject,
         );
         for current in [KIMI_K3, KIMI_K2_7_CODE, KIMI_K2_7_CODE_HIGHSPEED, KIMI_K2_6] {
             let decision = policy.evaluate(&ModelPolicyContext {
@@ -622,6 +659,141 @@ mod tests {
             operation: ModelOperation::Generate,
         });
         assert_eq!(unknown.state(), &SupportState::Unknown);
+    }
+
+    #[tokio::test]
+    async fn configured_provider_sends_typed_k3_options_and_decodes_cache_usage() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
+            .match_body(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::Regex(r#"\"model\":\"kimi-k3\""#.to_string()),
+                mockito::Matcher::Regex(r#"\"reasoning_effort\":\"high\""#.to_string()),
+                mockito::Matcher::Regex(r#"\"stream\":false"#.to_string()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"id":"chat-1","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok","reasoning_content":"why"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"cached_tokens":7}}"#,
+            )
+            .create_async()
+            .await;
+        let provider = provider_for(format!("{}/v1", server.url()));
+        let model = provider.language(KIMI_K3).unwrap();
+        let options = CallOptions::default().with_provider_options(
+            ProviderOptions::typed(
+                &KimiLanguageOptions::new()
+                    .with_reasoning_effort(crate::provider_options::KimiReasoningEffort::High),
+            )
+            .unwrap(),
+        );
+
+        let response = model.generate(request(), options).await.unwrap();
+
+        assert_eq!(response.usage().cache_read_tokens, UsageValue::Known(7));
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn configured_provider_decodes_choice_usage_into_one_stream_terminal() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
+            .match_body(mockito::Matcher::Regex(r#"\"stream\":true"#.to_string()))
+            .with_status(200)
+            .with_header("content-type", "text/event-stream")
+            .with_body(concat!(
+                "data: {\"id\":\"chat-1\",\"model\":\"kimi-k3\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\",\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12,\"cached_tokens\":7}}]}\n\n",
+                "data: [DONE]\n\n"
+            ))
+            .create_async()
+            .await;
+        let provider = provider_for(format!("{}/v1", server.url()));
+        let model = provider.language(KIMI_K3).unwrap();
+
+        let events = model
+            .stream(request(), CallOptions::default())
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.terminal().is_some())
+                .count(),
+            1
+        );
+        let response = events.iter().find_map(|event| match event {
+            LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) => {
+                Some(response.as_ref())
+            }
+            _ => None,
+        });
+        assert_eq!(
+            response.unwrap().usage().cache_read_tokens,
+            UsageValue::Known(7)
+        );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn configured_provider_preserves_kimi_error_diagnostics() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_header("x-request-id", "kimi-request-42")
+            .with_header("retry-after", "2")
+            .with_body(
+                r#"{"error":{"message":"invalid thinking configuration","type":"invalid_request_error","param":"thinking.keep","code":"invalid_parameter"}}"#,
+            )
+            .create_async()
+            .await;
+        let provider = provider_for(format!("{}/v1", server.url()));
+        let model = provider.language(KIMI_K3).unwrap();
+
+        let error = model
+            .generate(request(), CallOptions::default())
+            .await
+            .unwrap_err();
+        let diagnostics = error.diagnostics().unwrap();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(diagnostics.status(), Some(400));
+        assert_eq!(diagnostics.provider_code(), Some("invalid_parameter"));
+        assert_eq!(diagnostics.provider_type(), Some("invalid_request_error"));
+        assert_eq!(diagnostics.provider_param(), Some("thinking.keep"));
+        assert_eq!(diagnostics.request_id(), Some("kimi-request-42"));
+        assert_eq!(
+            diagnostics.retry_after(),
+            Some(std::time::Duration::from_secs(2))
+        );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn configured_provider_rejects_k2_5_video_before_transport() {
+        let provider = provider_for("http://127.0.0.1:9/v1".to_string());
+        let model = provider.language(KIMI_K2_5).unwrap();
+        let mut video_request = request();
+        video_request.messages[0]
+            .content
+            .push(ContentPart::Media(siumai_core::MediaPart {
+                media_type: "video/mp4".to_string(),
+                data: MediaData::Bytes(vec![1, 2, 3].into()),
+                name: None,
+            }));
+
+        let error = model
+            .generate(video_request, CallOptions::default())
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
     }
 
     #[test]
@@ -694,9 +866,8 @@ mod tests {
             normalize(
                 KIMI_K2_7_CODE,
                 request(),
-                KimiLanguageOptions::new().with_thinking(
-                    crate::provider_options::KimiThinking::new(KimiThinkingMode::Disabled,)
-                ),
+                KimiLanguageOptions::new()
+                    .with_thinking(crate::provider_options::KimiThinking::disabled()),
             )
             .is_err()
         );
@@ -715,9 +886,21 @@ mod tests {
                     top_p: Some(0.95),
                     ..GenerationConfig::default()
                 }),
-                KimiLanguageOptions::new().with_thinking(
-                    crate::provider_options::KimiThinking::new(KimiThinkingMode::Disabled,)
-                ),
+                KimiLanguageOptions::new()
+                    .with_thinking(crate::provider_options::KimiThinking::disabled()),
+            )
+            .is_err()
+        );
+        assert!(
+            normalize(
+                KIMI_K2_6,
+                request().with_generation(GenerationConfig {
+                    temperature: Some(0.6),
+                    top_p: Some(0.95),
+                    ..GenerationConfig::default()
+                }),
+                KimiLanguageOptions::new()
+                    .with_thinking(crate::provider_options::KimiThinking::disabled()),
             )
             .is_ok()
         );
@@ -750,16 +933,39 @@ mod tests {
             .is_ok()
         );
 
+        let mut video_request = request();
+        video_request.messages[0]
+            .content
+            .push(ContentPart::Media(siumai_core::MediaPart {
+                media_type: "video/mp4".to_string(),
+                data: MediaData::Bytes(vec![1, 2, 3].into()),
+                name: None,
+            }));
+        assert!(normalize(KIMI_K2_5, video_request, KimiLanguageOptions::new()).is_err());
+
         assert!(
             normalize(
                 KIMI_K2_5,
                 request(),
                 KimiLanguageOptions::new().with_thinking(
-                    crate::provider_options::KimiThinking::new(KimiThinkingMode::Enabled)
-                        .with_preserved_history(),
+                    crate::provider_options::KimiThinking::enabled_with_preserved_history(),
                 ),
             )
             .is_err()
+        );
+
+        assert!(
+            normalize(
+                KIMI_K2_5,
+                request().with_generation(GenerationConfig {
+                    temperature: Some(0.6),
+                    top_p: Some(0.5),
+                    ..GenerationConfig::default()
+                }),
+                KimiLanguageOptions::new()
+                    .with_thinking(crate::provider_options::KimiThinking::disabled()),
+            )
+            .is_ok()
         );
 
         let prepared = normalize(KIMI_K2_5, request(), KimiLanguageOptions::new()).unwrap();

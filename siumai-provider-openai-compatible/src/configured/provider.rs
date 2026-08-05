@@ -18,7 +18,7 @@ use thiserror::Error;
 
 use super::credentials::{CredentialSourceError, OpenAiCompatibleCredential};
 use super::model::OpenAiCompatibleLanguageModel;
-use super::policy::{OpenAiCompatibleModelPolicy, RetiredModelBehavior};
+use super::policy::OpenAiCompatibleModelPolicy;
 use super::profile::OpenAiCompatibleProfile;
 
 /// A synchronously configured OpenAI-compatible provider.
@@ -103,7 +103,6 @@ pub struct OpenAiCompatibleProviderBuilder {
     call_timeout: Option<Duration>,
     read_timeout: Option<Duration>,
     default_options: BTreeMap<String, Value>,
-    retired_models: RetiredModelBehavior,
 }
 
 impl OpenAiCompatibleProviderBuilder {
@@ -117,7 +116,6 @@ impl OpenAiCompatibleProviderBuilder {
             call_timeout: None,
             read_timeout: None,
             default_options: BTreeMap::new(),
-            retired_models: RetiredModelBehavior::default(),
         }
     }
 
@@ -151,11 +149,6 @@ impl OpenAiCompatibleProviderBuilder {
         self
     }
 
-    pub fn with_retired_model_behavior(mut self, behavior: RetiredModelBehavior) -> Self {
-        self.retired_models = behavior;
-        self
-    }
-
     /// Validate static settings and construct one shared provider runtime.
     pub fn build(self) -> Result<OpenAiCompatibleProvider, OpenAiCompatibleConfigError> {
         self.credential.validate_static()?;
@@ -179,7 +172,6 @@ impl OpenAiCompatibleProviderBuilder {
         let policy = Arc::new(OpenAiCompatibleModelPolicy::new(
             self.profile.profile_arc(),
             self.profile.support_scope().clone(),
-            self.retired_models,
         ));
         Ok(OpenAiCompatibleProvider {
             runtime: Arc::new(ProviderRuntime {
@@ -481,7 +473,8 @@ mod tests {
         let _mock = server
             .mock("POST", "/v1/chat/completions")
             .with_status(400)
-            .with_header("x-request-id", "canary-header-secret")
+            .with_header("x-request-id", "safe-request-id")
+            .with_header("x-private-canary", "canary-header-secret")
             .with_body("canary-body-secret")
             .create_async()
             .await;
@@ -511,6 +504,10 @@ mod tests {
         assert_eq!(
             error.diagnostics().and_then(|value| value.status()),
             Some(400)
+        );
+        assert_eq!(
+            error.diagnostics().and_then(|value| value.request_id()),
+            Some("safe-request-id")
         );
     }
 }

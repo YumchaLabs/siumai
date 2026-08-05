@@ -32,21 +32,42 @@ pub enum KimiThinkingRetention {
 
 /// Current Kimi K2.x thinking configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KimiThinking {
-    #[serde(rename = "type")]
-    pub mode: KimiThinkingMode,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub keep: Option<KimiThinkingRetention>,
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+pub enum KimiThinking {
+    Enabled {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        keep: Option<KimiThinkingRetention>,
+    },
+    Disabled {},
 }
 
 impl KimiThinking {
-    pub const fn new(mode: KimiThinkingMode) -> Self {
-        Self { mode, keep: None }
+    pub const fn enabled() -> Self {
+        Self::Enabled { keep: None }
     }
 
-    pub const fn with_preserved_history(mut self) -> Self {
-        self.keep = Some(KimiThinkingRetention::All);
-        self
+    pub const fn enabled_with_preserved_history() -> Self {
+        Self::Enabled {
+            keep: Some(KimiThinkingRetention::All),
+        }
+    }
+
+    pub const fn disabled() -> Self {
+        Self::Disabled {}
+    }
+
+    pub const fn mode(&self) -> KimiThinkingMode {
+        match self {
+            Self::Enabled { .. } => KimiThinkingMode::Enabled,
+            Self::Disabled {} => KimiThinkingMode::Disabled,
+        }
+    }
+
+    pub const fn retention(&self) -> Option<KimiThinkingRetention> {
+        match self {
+            Self::Enabled { keep } => *keep,
+            Self::Disabled {} => None,
+        }
     }
 }
 
@@ -225,9 +246,7 @@ mod tests {
         let options = ProviderOptions::typed(
             &KimiLanguageOptions::new()
                 .with_reasoning_effort(KimiReasoningEffort::High)
-                .with_thinking(
-                    KimiThinking::new(KimiThinkingMode::Enabled).with_preserved_history(),
-                )
+                .with_thinking(KimiThinking::enabled_with_preserved_history())
                 .with_prompt_cache_key("session-42")
                 .with_safety_identifier("user-hash"),
         )
@@ -256,6 +275,12 @@ mod tests {
         );
         assert!(
             ProviderOptions::typed(&KimiLanguageOptions::new().with_safety_identifier("")).is_err()
+        );
+        assert!(
+            serde_json::from_value::<KimiLanguageOptions>(serde_json::json!({
+                "thinking": {"type": "disabled", "keep": "all"}
+            }))
+            .is_err()
         );
     }
 

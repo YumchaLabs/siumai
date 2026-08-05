@@ -84,7 +84,7 @@ mod tests {
     use siumai_core::{ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyContext};
 
     use super::*;
-    use crate::configured::policy::{OpenAiCompatibleModelPolicy, RetiredModelBehavior};
+    use crate::configured::policy::OpenAiCompatibleModelPolicy;
 
     #[test]
     fn declaration_is_verified_exact_and_unknown_models_stay_unknown() {
@@ -103,7 +103,6 @@ mod tests {
         let policy = OpenAiCompatibleModelPolicy::new(
             profile.profile_arc(),
             profile.support_scope().clone(),
-            RetiredModelBehavior::Reject,
         );
         let known = policy.evaluate(&ModelPolicyContext {
             scope: profile.scope().clone(),

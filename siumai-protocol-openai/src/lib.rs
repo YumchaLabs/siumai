@@ -15,6 +15,9 @@
 /// Canonical-core Chat Completions codec used by configured providers.
 pub mod chat_completions;
 
+/// Shared OpenAI-family error-envelope decoding and classification.
+pub mod openai_error;
+
 /// Native Responses codec and lifecycle decoder.
 #[cfg(feature = "openai-responses")]
 pub mod responses_next;

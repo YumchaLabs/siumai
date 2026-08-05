@@ -5,31 +5,16 @@ use siumai_core::{
     ModelPolicyDecision, ProviderProfile, SupportScope, UnsupportedReason,
 };
 
-/// How a configured profile treats exact catalog rows marked retired.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum RetiredModelBehavior {
-    #[default]
-    Reject,
-    AllowWithAdvisory,
-}
-
 pub(crate) struct OpenAiCompatibleModelPolicy {
     profile: Arc<ProviderProfile>,
     support_scope: SupportScope,
-    retired: RetiredModelBehavior,
 }
 
 impl OpenAiCompatibleModelPolicy {
-    pub(crate) fn new(
-        profile: Arc<ProviderProfile>,
-        support_scope: SupportScope,
-        retired: RetiredModelBehavior,
-    ) -> Self {
+    pub(crate) fn new(profile: Arc<ProviderProfile>, support_scope: SupportScope) -> Self {
         Self {
             profile,
             support_scope,
-            retired,
         }
     }
 }
@@ -69,13 +54,6 @@ impl ModelPolicy for OpenAiCompatibleModelPolicy {
                 }),
             ModelLifecycle::RollingAlias => {
                 ModelPolicyDecision::supported().with_advisory(ModelAdvisory::RollingAlias)
-            }
-            ModelLifecycle::Retired { replacement }
-                if self.retired == RetiredModelBehavior::AllowWithAdvisory =>
-            {
-                ModelPolicyDecision::supported().with_advisory(ModelAdvisory::Retired {
-                    replacement: replacement.clone(),
-                })
             }
             ModelLifecycle::Retired { .. } => {
                 ModelPolicyDecision::unsupported(UnsupportedReason::ModelRetired)

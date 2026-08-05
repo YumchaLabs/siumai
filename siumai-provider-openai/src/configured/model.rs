@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use http::header::{ACCEPT, HeaderValue, RETRY_AFTER};
 use http::{Method, StatusCode};
-use serde::Deserialize;
 use serde_json::Value;
 use siumai_core::stream::established_stream;
 use siumai_core::{
@@ -22,6 +21,7 @@ use siumai_protocol_openai::chat_completions::{
     decode_response as decode_chat_response,
     encode_request_with_options as encode_chat_request_with_options,
 };
+use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
 use siumai_protocol_openai::responses_next::{
     PromptCacheBlock, RequestEncodingOptions, ResponsesStreamDecoder,
     decode_response as decode_responses_response, encode_request_with_options,
@@ -910,19 +910,6 @@ async fn stream_response_error(mode: OpenAiApiMode, response: TransportStreamRes
     )
 }
 
-#[derive(Deserialize)]
-struct OpenAiErrorEnvelope {
-    error: OpenAiErrorBody,
-}
-
-#[derive(Deserialize)]
-struct OpenAiErrorBody {
-    #[serde(default)]
-    code: Option<Value>,
-    #[serde(rename = "type", default)]
-    kind: Option<String>,
-}
-
 fn provider_status_error(
     message: &'static str,
     status: StatusCode,
@@ -930,18 +917,21 @@ fn provider_status_error(
     body: Vec<u8>,
     body_truncated: bool,
 ) -> Error {
-    let parsed = serde_json::from_slice::<OpenAiErrorEnvelope>(&body).ok();
-    let provider_code = parsed
+    let metadata = decode_error_metadata(&body);
+    let provider_code = metadata
         .as_ref()
-        .and_then(|envelope| envelope.error.code.as_ref())
-        .and_then(error_code)
+        .and_then(|metadata| metadata.code())
         .and_then(public_provider_identifier);
-    let provider_type = parsed
+    let provider_type = metadata
         .as_ref()
-        .and_then(|envelope| envelope.error.kind.as_deref())
+        .and_then(|metadata| metadata.error_type())
         .and_then(public_provider_identifier);
-    let kind = classify_status(
-        status,
+    let provider_param = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.param())
+        .and_then(public_provider_identifier);
+    let kind = classify_http_error(
+        status.as_u16(),
         provider_code.as_ref().map(PublicDiagnosticText::as_str),
     );
     let safe_headers = safe_response_headers(&headers);
@@ -962,6 +952,9 @@ fn provider_status_error(
     if let Some(kind) = provider_type {
         diagnostics = diagnostics.with_provider_type(kind);
     }
+    if let Some(param) = provider_param {
+        diagnostics = diagnostics.with_provider_param(param);
+    }
     if let Some(request_id) = request_id {
         diagnostics = diagnostics.with_request_id(request_id);
     }
@@ -981,30 +974,6 @@ fn provider_status_error(
     Error::new(kind, message)
         .with_diagnostics(diagnostics)
         .with_sensitive_response(SensitiveResponse::new(raw_headers, body))
-}
-
-fn classify_status(status: StatusCode, provider_code: Option<&str>) -> ErrorKind {
-    if matches!(
-        provider_code,
-        Some("insufficient_quota" | "billing_hard_limit_reached")
-    ) {
-        return ErrorKind::QuotaExceeded;
-    }
-    match status {
-        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => ErrorKind::InvalidInput,
-        StatusCode::UNAUTHORIZED => ErrorKind::Authentication,
-        StatusCode::FORBIDDEN => ErrorKind::Authorization,
-        StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => ErrorKind::Timeout,
-        StatusCode::TOO_MANY_REQUESTS => ErrorKind::RateLimited,
-        _ => ErrorKind::Provider,
-    }
-}
-
-fn error_code(value: &Value) -> Option<&str> {
-    match value {
-        Value::String(value) => Some(value),
-        _ => None,
-    }
 }
 
 fn public_provider_identifier(value: &str) -> Option<PublicDiagnosticText> {

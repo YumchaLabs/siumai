@@ -56,7 +56,11 @@ once_cell.workspace = true
 default = []
 
 # Forwarded feature flags used by the OpenAI-like standard implementation.
-structured-messages = ["siumai-core/structured-messages", "siumai-protocol-openai/structured-messages"]
+structured-messages = [
+    "siumai-core/structured-messages",
+    "siumai-protocol-openai/structured-messages",
+    "siumai-provider-openai-compatible?/structured-messages",
+]
 
 # Protocol standard only (no provider implementations).
 #
