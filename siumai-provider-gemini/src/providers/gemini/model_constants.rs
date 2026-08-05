@@ -76,8 +76,12 @@ pub mod gemini_2_5_tts {
 
 /// Gemini 3.x model family constants.
 pub mod gemini_3 {
+    /// Gemini 3.6 Flash - Stable high-throughput reasoning model.
+    pub const GEMINI_3_6_FLASH: &str = "gemini-3.6-flash";
     /// Gemini 3.5 Flash - Stable Gemini 3.5 Flash model
     pub const GEMINI_3_5_FLASH: &str = "gemini-3.5-flash";
+    /// Gemini 3.5 Flash-Lite - Stable low-latency Gemini 3.5 model.
+    pub const GEMINI_3_5_FLASH_LITE: &str = "gemini-3.5-flash-lite";
     /// Gemini 3 Pro Preview
     pub const GEMINI_3_PRO_PREVIEW: &str = "gemini-3-pro-preview";
     /// Gemini 3 Pro Image Preview
@@ -92,19 +96,30 @@ pub mod gemini_3 {
     pub const GEMINI_3_1_FLASH_IMAGE_PREVIEW: &str = "gemini-3.1-flash-image-preview";
     /// Gemini 3.1 Flash-Lite Preview
     pub const GEMINI_3_1_FLASH_LITE_PREVIEW: &str = "gemini-3.1-flash-lite-preview";
+    /// Gemini 3.1 Flash-Lite - Stable low-latency model.
+    pub const GEMINI_3_1_FLASH_LITE: &str = "gemini-3.1-flash-lite";
+    /// Gemini 3.1 Flash Image - Stable image generation model.
+    pub const GEMINI_3_1_FLASH_IMAGE: &str = "gemini-3.1-flash-image";
+    /// Gemini 3.1 Flash-Lite Image - Stable fast image generation model.
+    pub const GEMINI_3_1_FLASH_LITE_IMAGE: &str = "gemini-3.1-flash-lite-image";
+    /// Gemini 3.1 Flash Live Preview - Low-latency bidirectional model.
+    pub const GEMINI_3_1_FLASH_LIVE_PREVIEW: &str = "gemini-3.1-flash-live-preview";
     /// Gemini 3.1 Flash TTS Preview
     pub const GEMINI_3_1_FLASH_TTS_PREVIEW: &str = "gemini-3.1-flash-tts-preview";
 
-    /// All Gemini 3.x models
+    /// Current Gemini 3.x models.
+    ///
+    /// Retired preview constants remain available above for source compatibility, but are not
+    /// advertised by this catalog.
     pub const ALL: &[&str] = &[
+        GEMINI_3_6_FLASH,
         GEMINI_3_5_FLASH,
-        GEMINI_3_PRO_PREVIEW,
-        GEMINI_3_PRO_IMAGE_PREVIEW,
-        GEMINI_3_FLASH_PREVIEW,
+        GEMINI_3_5_FLASH_LITE,
         GEMINI_3_1_PRO_PREVIEW,
-        GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS,
-        GEMINI_3_1_FLASH_IMAGE_PREVIEW,
-        GEMINI_3_1_FLASH_LITE_PREVIEW,
+        GEMINI_3_1_FLASH_LITE,
+        GEMINI_3_1_FLASH_IMAGE,
+        GEMINI_3_1_FLASH_LITE_IMAGE,
+        GEMINI_3_1_FLASH_LIVE_PREVIEW,
         GEMINI_3_1_FLASH_TTS_PREVIEW,
     ];
 }
@@ -250,36 +265,44 @@ pub mod popular {
     use super::*;
 
     /// Most capable model
-    pub const FLAGSHIP: &str = gemini_2_5_pro::GEMINI_2_5_PRO;
+    pub const FLAGSHIP: &str = gemini_3::GEMINI_3_6_FLASH;
     /// Best balance of capability and cost
-    pub const BALANCED: &str = gemini_2_5_flash::GEMINI_2_5_FLASH;
+    pub const BALANCED: &str = gemini_3::GEMINI_3_5_FLASH;
     /// Most cost-effective
-    pub const ECONOMICAL: &str = gemini_2_5_flash_lite::GEMINI_2_5_FLASH_LITE;
+    pub const ECONOMICAL: &str = gemini_3::GEMINI_3_5_FLASH_LITE;
     /// Best for real-time interaction
-    pub const REALTIME: &str = gemini_2_5_flash_live::GEMINI_LIVE_2_5_FLASH_PREVIEW;
+    pub const REALTIME: &str = gemini_3::GEMINI_3_1_FLASH_LIVE_PREVIEW;
     /// Latest and most advanced
-    pub const LATEST: &str = gemini_2_5_pro::GEMINI_2_5_PRO;
+    pub const LATEST: &str = gemini_3::GEMINI_3_6_FLASH;
 }
 
 /// Model capabilities by family
 pub mod capabilities {
     /// Models with thinking capability
     pub const THINKING_MODELS: &[&str] = &[
+        super::gemini_3::GEMINI_3_6_FLASH,
         super::gemini_3::GEMINI_3_5_FLASH,
-        super::gemini_3::GEMINI_3_PRO_PREVIEW,
-        super::gemini_3::GEMINI_3_FLASH_PREVIEW,
+        super::gemini_3::GEMINI_3_5_FLASH_LITE,
         super::gemini_3::GEMINI_3_1_PRO_PREVIEW,
+        super::gemini_3::GEMINI_3_1_FLASH_LITE,
+        super::gemini_3::GEMINI_3_1_FLASH_IMAGE,
+        super::gemini_3::GEMINI_3_1_FLASH_LITE_IMAGE,
         super::gemini_2_5_pro::GEMINI_2_5_PRO,
         super::gemini_2_5_flash::GEMINI_2_5_FLASH,
         super::gemini_2_5_flash_lite::GEMINI_2_5_FLASH_LITE,
     ];
 
     /// Models with image generation capability
-    pub const IMAGE_GENERATION_MODELS: &[&str] =
-        &[super::gemini_2_0_flash_image_gen::GEMINI_2_0_FLASH_PREVIEW_IMAGE_GENERATION];
+    pub const IMAGE_GENERATION_MODELS: &[&str] = &[
+        super::gemini_3::GEMINI_3_1_FLASH_IMAGE,
+        super::gemini_3::GEMINI_3_1_FLASH_LITE_IMAGE,
+        super::gemini_2_0_flash_image_gen::GEMINI_2_0_FLASH_PREVIEW_IMAGE_GENERATION,
+    ];
 
     /// Models with audio generation capability
     pub const AUDIO_GENERATION_MODELS: &[&str] = &[
+        super::gemini_3::GEMINI_3_1_FLASH_TTS_PREVIEW,
+        super::gemini_3::GEMINI_3_1_FLASH_LIVE_PREVIEW,
         super::gemini_2_5_tts::GEMINI_2_5_FLASH_PREVIEW_TTS,
         super::gemini_2_5_tts::GEMINI_2_5_PRO_PREVIEW_TTS,
         super::gemini_2_5_flash_live::GEMINI_LIVE_2_5_FLASH_PREVIEW,
@@ -288,6 +311,7 @@ pub mod capabilities {
 
     /// Models with Live API support
     pub const LIVE_API_MODELS: &[&str] = &[
+        super::gemini_3::GEMINI_3_1_FLASH_LIVE_PREVIEW,
         super::gemini_2_5_flash_live::GEMINI_LIVE_2_5_FLASH_PREVIEW,
         super::gemini_2_0_flash_live::GEMINI_2_0_FLASH_LIVE_001,
     ];

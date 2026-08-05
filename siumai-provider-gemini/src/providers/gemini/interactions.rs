@@ -249,12 +249,19 @@ pub mod interactions {
     pub const GEMINI_2_5_FLASH_PREVIEW_TTS: &str = "gemini-2.5-flash-preview-tts";
     pub const GEMINI_2_5_PRO: &str = "gemini-2.5-pro";
     pub const GEMINI_2_5_PRO_PREVIEW_TTS: &str = "gemini-2.5-pro-preview-tts";
+    pub const GEMINI_3_6_FLASH: &str = "gemini-3.6-flash";
+    pub const GEMINI_3_5_FLASH: &str = "gemini-3.5-flash";
+    pub const GEMINI_3_5_FLASH_LITE: &str = "gemini-3.5-flash-lite";
     pub const GEMINI_3_FLASH_PREVIEW: &str = "gemini-3-flash-preview";
     pub const GEMINI_3_PRO_IMAGE_PREVIEW: &str = "gemini-3-pro-image-preview";
     pub const GEMINI_3_PRO_PREVIEW: &str = "gemini-3-pro-preview";
     pub const GEMINI_3_1_PRO_PREVIEW: &str = "gemini-3.1-pro-preview";
     pub const GEMINI_3_1_FLASH_IMAGE_PREVIEW: &str = "gemini-3.1-flash-image-preview";
     pub const GEMINI_3_1_FLASH_LITE_PREVIEW: &str = "gemini-3.1-flash-lite-preview";
+    pub const GEMINI_3_1_FLASH_LITE: &str = "gemini-3.1-flash-lite";
+    pub const GEMINI_3_1_FLASH_IMAGE: &str = "gemini-3.1-flash-image";
+    pub const GEMINI_3_1_FLASH_LITE_IMAGE: &str = "gemini-3.1-flash-lite-image";
+    pub const GEMINI_3_1_FLASH_LIVE_PREVIEW: &str = "gemini-3.1-flash-live-preview";
     pub const GEMINI_3_1_FLASH_TTS_PREVIEW: &str = "gemini-3.1-flash-tts-preview";
     pub const LYRIA_3_CLIP_PREVIEW: &str = "lyria-3-clip-preview";
     pub const LYRIA_3_PRO_PREVIEW: &str = "lyria-3-pro-preview";
@@ -270,12 +277,14 @@ pub mod interactions {
         GEMINI_2_5_FLASH_PREVIEW_TTS,
         GEMINI_2_5_PRO,
         GEMINI_2_5_PRO_PREVIEW_TTS,
-        GEMINI_3_FLASH_PREVIEW,
-        GEMINI_3_PRO_IMAGE_PREVIEW,
-        GEMINI_3_PRO_PREVIEW,
+        GEMINI_3_6_FLASH,
+        GEMINI_3_5_FLASH,
+        GEMINI_3_5_FLASH_LITE,
         GEMINI_3_1_PRO_PREVIEW,
-        GEMINI_3_1_FLASH_IMAGE_PREVIEW,
-        GEMINI_3_1_FLASH_LITE_PREVIEW,
+        GEMINI_3_1_FLASH_LITE,
+        GEMINI_3_1_FLASH_IMAGE,
+        GEMINI_3_1_FLASH_LITE_IMAGE,
+        GEMINI_3_1_FLASH_LIVE_PREVIEW,
         GEMINI_3_1_FLASH_TTS_PREVIEW,
         LYRIA_3_CLIP_PREVIEW,
         LYRIA_3_PRO_PREVIEW,
@@ -1476,6 +1485,55 @@ mod tests {
                 }
             ])
         );
+    }
+
+    #[test]
+    fn google_interactions_omits_deprecated_sampling_controls_for_current_models() {
+        for model_id in [
+            interactions::GEMINI_3_6_FLASH,
+            interactions::GEMINI_3_5_FLASH_LITE,
+        ] {
+            let model = GoogleInteractionsLanguageModel::new(
+                GeminiConfig::new("test-key"),
+                GoogleInteractionsModelInput::model(model_id),
+            );
+            let mut request = ChatRequest::new(vec![ChatMessage::user("hello").build()]);
+            request.common_params.model = model_id.to_string();
+            request.common_params.temperature = Some(0.4);
+            request.common_params.top_p = Some(0.8);
+            request.common_params.top_k = Some(20.0);
+            request.common_params.seed = Some(7);
+            request.common_params.max_tokens = Some(256);
+
+            let body = prepared_body_json(&model, &request);
+            let generation = body["generation_config"]
+                .as_object()
+                .expect("generation config");
+            assert!(!generation.contains_key("temperature"));
+            assert!(!generation.contains_key("top_p"));
+            assert!(!generation.contains_key("top_k"));
+            assert_eq!(generation.get("seed"), Some(&serde_json::json!(7)));
+            assert_eq!(
+                generation.get("max_output_tokens"),
+                Some(&serde_json::json!(256))
+            );
+        }
+    }
+
+    #[test]
+    fn google_interactions_preserves_sampling_for_gemini_3_5_flash() {
+        let model = GoogleInteractionsLanguageModel::new(
+            GeminiConfig::new("test-key"),
+            GoogleInteractionsModelInput::model(interactions::GEMINI_3_5_FLASH),
+        );
+        let mut request = ChatRequest::new(vec![ChatMessage::user("hello").build()]);
+        request.common_params.model = interactions::GEMINI_3_5_FLASH.to_string();
+        request.common_params.temperature = Some(0.4);
+        request.common_params.top_p = Some(0.8);
+
+        let body = prepared_body_json(&model, &request);
+        assert_eq!(body["generation_config"]["temperature"], 0.4);
+        assert_eq!(body["generation_config"]["top_p"], 0.8);
     }
 
     #[test]

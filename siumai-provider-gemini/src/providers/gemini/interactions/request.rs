@@ -162,10 +162,17 @@ impl GoogleInteractionsGenerationConfig {
         req: &ChatRequest,
         opts: &GoogleLanguageModelInteractionsOptions,
         tool_choice: Option<GoogleInteractionsToolChoice>,
+        model_id: &str,
     ) -> Option<Self> {
+        let omit_sampling =
+            crate::providers::gemini::model_policy::omits_sampling_parameters(model_id);
         let config = Self {
-            temperature: req.common_params.temperature,
-            top_p: req.common_params.top_p,
+            temperature: (!omit_sampling)
+                .then_some(req.common_params.temperature)
+                .flatten(),
+            top_p: (!omit_sampling)
+                .then_some(req.common_params.top_p)
+                .flatten(),
             seed: req.common_params.seed,
             stop_sequences: req.common_params.stop_sequences.clone(),
             max_output_tokens: req
@@ -432,6 +439,7 @@ pub(crate) fn build_interactions_request_body(
             request,
             &options,
             prepared_tools.tool_choice,
+            model_input.id(),
         )
     };
     let agent_config = is_agent

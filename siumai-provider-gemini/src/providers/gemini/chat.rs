@@ -57,7 +57,14 @@ impl GeminiChatCapability {
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
     ) -> Result<GenerateContentRequest, LlmError> {
-        super::convert::build_request_body(&self.config, messages, tools)
+        let mut request = super::convert::build_request_body(&self.config, messages, tools)?;
+        let model_id = if self.config.common_params.model.trim().is_empty() {
+            self.config.model.as_str()
+        } else {
+            self.config.common_params.model.as_str()
+        };
+        super::model_policy::sanitize_generate_content_request(model_id, &mut request);
+        Ok(request)
     }
 
     async fn build_chat_executor(

@@ -48,6 +48,7 @@ pub mod files;
 pub mod interactions;
 pub mod middleware;
 pub mod model_constants;
+pub mod model_policy;
 pub mod models;
 mod settings;
 pub mod spec;
@@ -91,6 +92,10 @@ pub use file_search_stores::GeminiFileSearchStores;
 pub use files::GeminiFiles;
 pub use interactions::{GoogleInteractionsLanguageModel, GoogleInteractionsModelInput};
 pub use middleware::GeminiToolWarningsMiddleware;
+pub use model_policy::{
+    CapabilitySupport, GeminiModelPolicy, MODEL_CATALOG_SOURCE, MODEL_CATALOG_VERIFIED_ON,
+    SamplingParameterPolicy, model_capability_support, model_policy,
+};
 pub use models::GeminiModels;
 #[allow(deprecated)]
 pub use settings::{GoogleGenerativeAIProviderSettings, GoogleProviderSettings};

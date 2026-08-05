@@ -13,6 +13,10 @@ use crate::traits::ModelListingCapability;
 use crate::types::ModelInfo;
 
 use super::types::GeminiConfig;
+use super::{
+    model_constants::{gemini_2_5_flash, gemini_2_5_flash_lite, gemini_2_5_pro, gemini_3},
+    model_policy::{CapabilitySupport, model_capability_support, model_policy},
+};
 
 /// Gemini model information from API
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,7 +103,8 @@ impl GeminiModels {
             .unwrap_or(&model.name)
             .to_string();
 
-        // Determine capabilities based on model name and supported generation methods
+        // Derive transport capabilities from API metadata and provider capabilities from the
+        // exact audited model policy. Unknown ids remain callable without gaining guessed claims.
         let mut capabilities = Vec::new();
 
         if model
@@ -116,32 +121,34 @@ impl GeminiModels {
             capabilities.push("streaming".to_string());
         }
 
-        // Most Gemini models support these features
-        if id.contains("gemini") {
-            capabilities.extend_from_slice(&[
-                "vision".to_string(),
-                "function_calling".to_string(),
-                "code_execution".to_string(),
-            ]);
+        let policy = model_policy(&id);
+        if let Some(policy) = policy {
+            for capability in policy.capabilities {
+                if !capabilities
+                    .iter()
+                    .any(|known| known.as_str() == *capability)
+                {
+                    capabilities.push((*capability).to_string());
+                }
+            }
         }
 
-        // Determine context window (prefer API); and max output tokens
-        let context_window: u32 = model
+        // Prefer API-provided limits and fall back only to exact curated policies.
+        let context_window = model
             .input_token_limit
-            .map(|t| t as u32)
-            .unwrap_or_else(|| get_model_context_window(&id));
-        let max_output_tokens: u32 = model
+            .and_then(|tokens| u32::try_from(tokens).ok())
+            .or_else(|| policy.and_then(|policy| policy.context_window));
+        let max_output_tokens = model
             .output_token_limit
-            .map(|t| t as u32)
-            .unwrap_or_else(|| get_model_max_output_tokens(&id));
+            .and_then(|tokens| u32::try_from(tokens).ok())
+            .or_else(|| policy.and_then(|policy| policy.max_output_tokens));
 
         ModelInfo {
             id,
             name: Some(model.display_name.unwrap_or(model.name)),
             description: model.description,
-            context_window: Some(context_window),
-            // Prefer API-provided output limit; otherwise use curated mapping
-            max_output_tokens: Some(max_output_tokens),
+            context_window,
+            max_output_tokens,
             capabilities,
             input_cost_per_token: None,
             output_cost_per_token: None,
@@ -234,141 +241,120 @@ impl ModelListingCapability for GeminiModels {
 /// Get default Gemini models
 pub fn get_default_models() -> Vec<String> {
     vec![
-        // Latest Gemini 2.5 models
-        "gemini-2.5-pro".to_string(),
-        "gemini-2.5-flash".to_string(),
-        "gemini-2.5-flash-image".to_string(),
-        "gemini-2.5-flash-lite".to_string(),
-        "gemini-2.5-flash-preview-tts".to_string(),
-        "gemini-2.5-pro-preview-tts".to_string(),
-        "gemini-2.5-flash-native-audio-latest".to_string(),
-        "gemini-2.5-flash-native-audio-preview-09-2025".to_string(),
-        "gemini-2.5-flash-native-audio-preview-12-2025".to_string(),
-        "gemini-2.5-computer-use-preview-10-2025".to_string(),
-        // Gemini 3.x models
-        "gemini-3-pro-preview".to_string(),
-        "gemini-3-pro-image-preview".to_string(),
-        "gemini-3-flash-preview".to_string(),
-        "gemini-3.1-pro-preview".to_string(),
-        "gemini-3.1-pro-preview-customtools".to_string(),
-        "gemini-3.1-flash-image-preview".to_string(),
-        "gemini-3.1-flash-lite-preview".to_string(),
-        "gemini-3.1-flash-tts-preview".to_string(),
-        // Gemini 2.0 models
-        "gemini-2.0-flash".to_string(),
-        "gemini-2.0-flash-001".to_string(),
-        "gemini-2.0-flash-lite".to_string(),
-        "gemini-2.0-flash-lite-001".to_string(),
-        // Latest aliases and special-purpose Google package ids
-        "gemini-pro-latest".to_string(),
-        "gemini-flash-latest".to_string(),
-        "gemini-flash-lite-latest".to_string(),
-        "deep-research-pro-preview-12-2025".to_string(),
-        "nano-banana-pro-preview".to_string(),
-        "aqa".to_string(),
-        // Experimental Google package ids that the audited AI SDK already treats as model ids
-        "gemini-robotics-er-1.5-preview".to_string(),
-        "gemma-3-1b-it".to_string(),
-        "gemma-3-4b-it".to_string(),
-        "gemma-3n-e4b-it".to_string(),
-        "gemma-3n-e2b-it".to_string(),
-        "gemma-3-12b-it".to_string(),
-        "gemma-3-27b-it".to_string(),
-        // Legacy models (deprecated but still available)
-        "gemini-1.5-flash".to_string(),
-        "gemini-1.5-flash-001".to_string(),
-        "gemini-1.5-flash-002".to_string(),
-        "gemini-1.5-flash-8b".to_string(),
-        "gemini-1.5-pro".to_string(),
-        "gemini-1.5-pro-001".to_string(),
-        "gemini-1.5-pro-002".to_string(),
-        // LearnLM
-        "learnlm-1.5-pro-experimental".to_string(),
+        gemini_3::GEMINI_3_6_FLASH.to_string(),
+        gemini_3::GEMINI_3_5_FLASH.to_string(),
+        gemini_3::GEMINI_3_5_FLASH_LITE.to_string(),
+        gemini_3::GEMINI_3_1_PRO_PREVIEW.to_string(),
+        gemini_3::GEMINI_3_1_FLASH_LITE.to_string(),
+        gemini_3::GEMINI_3_1_FLASH_IMAGE.to_string(),
+        gemini_3::GEMINI_3_1_FLASH_LITE_IMAGE.to_string(),
+        gemini_3::GEMINI_3_1_FLASH_LIVE_PREVIEW.to_string(),
+        gemini_3::GEMINI_3_1_FLASH_TTS_PREVIEW.to_string(),
+        gemini_2_5_pro::GEMINI_2_5_PRO.to_string(),
+        gemini_2_5_flash::GEMINI_2_5_FLASH.to_string(),
+        gemini_2_5_flash_lite::GEMINI_2_5_FLASH_LITE.to_string(),
     ]
 }
 
-/// Check if a model supports a specific capability
+/// Check if a model explicitly supports a capability.
+///
+/// Unknown models and unknown capability names conservatively return `false`. Use
+/// [`model_capability_support`] when the caller needs to distinguish unknown from unsupported.
 pub fn model_supports_capability(model_id: &str, capability: &str) -> bool {
-    match capability {
-        "chat" => true,                                    // All Gemini models support chat
-        "streaming" => true,                               // All Gemini models support streaming
-        "vision" => model_id.contains("gemini"),           // Most Gemini models support vision
-        "function_calling" => model_id.contains("gemini"), // Most Gemini models support function calling
-        "code_execution" => model_id.contains("gemini"), // Most Gemini models support code execution
-        "thinking" => {
-            model_id.contains("gemini-2.5")
-                || model_id.contains("gemini-2.0")
-                || model_id.contains("exp")
-        } // 2.5+ models support thinking
-        "audio_generation" => {
-            model_id.contains("tts")
-                || model_id.contains("live")
-                || model_id.contains("native-audio")
-        } // Audio models
-        "image_generation" => model_id.contains("image-generation"), // Image generation models
-        "live_api" => model_id.contains("live"),         // Live API models
-        _ => false,
-    }
+    model_capability_support(model_id, capability) == CapabilitySupport::Supported
 }
 
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::get_default_models;
+    use super::*;
+
+    fn api_model(name: &str) -> GeminiModel {
+        GeminiModel {
+            name: name.to_string(),
+            display_name: None,
+            description: None,
+            version: None,
+            input_token_limit: None,
+            output_token_limit: None,
+            supported_generation_methods: vec!["generateContent".to_string()],
+            temperature: None,
+            top_p: None,
+            top_k: None,
+        }
+    }
 
     #[test]
-    fn default_models_track_current_google_package_ids() {
+    fn default_models_track_current_google_model_ids() {
         let models = get_default_models();
-        assert!(models.iter().any(|model| model == "gemini-3.1-pro-preview"));
+        assert_eq!(models.first().map(String::as_str), Some("gemini-3.6-flash"));
+        assert!(models.iter().any(|model| model == "gemini-3.5-flash-lite"));
+        assert!(models.iter().any(|model| model == "gemini-3.1-flash-lite"));
+        assert!(models.iter().any(|model| model == "gemini-3.1-flash-image"));
+        assert!(!models.iter().any(|model| model == "gemini-3-flash-preview"));
         assert!(
-            models
+            !models
                 .iter()
-                .any(|model| model == "gemini-3.1-flash-image-preview")
+                .any(|model| model == "gemini-3.1-flash-lite-preview")
         );
-        assert!(
-            models
-                .iter()
-                .any(|model| model == "gemini-2.5-flash-native-audio-latest")
+    }
+
+    #[test]
+    fn explicit_model_limits_do_not_invent_unknown_fallbacks() {
+        assert_eq!(
+            get_model_context_window(gemini_3::GEMINI_3_6_FLASH),
+            Some(1_048_576)
         );
-        assert!(models.iter().any(|model| model == "gemini-flash-latest"));
-        assert!(
-            models
-                .iter()
-                .any(|model| model == "deep-research-pro-preview-12-2025")
+        assert_eq!(
+            get_model_max_output_tokens(gemini_3::GEMINI_3_6_FLASH),
+            Some(65_536)
         );
-        assert!(models.iter().any(|model| model == "gemma-3-27b-it"));
+        assert_eq!(get_model_context_window("gemini-4-future"), None);
+        assert_eq!(get_model_max_output_tokens("gemini-4-future"), None);
+    }
+
+    #[test]
+    fn capability_queries_are_explicit_and_conservative() {
+        assert!(model_supports_capability(
+            gemini_3::GEMINI_3_6_FLASH,
+            "chat"
+        ));
+        assert!(model_supports_capability(
+            gemini_3::GEMINI_3_6_FLASH,
+            "computer_use"
+        ));
+        assert!(!model_supports_capability(
+            gemini_3::GEMINI_3_5_FLASH_LITE,
+            "computer_use"
+        ));
+        assert_eq!(
+            model_capability_support("gemini-4-future", "vision"),
+            CapabilitySupport::Unknown
+        );
+    }
+
+    #[test]
+    fn api_conversion_uses_policy_only_for_exact_known_models() {
+        let models = GeminiModels::new(GeminiConfig::new("test-key"), reqwest::Client::new());
+
+        let known = models.convert_model(api_model("models/gemini-3.6-flash"));
+        assert_eq!(known.context_window, Some(1_048_576));
+        assert_eq!(known.max_output_tokens, Some(65_536));
+        assert!(known.capabilities.iter().any(|value| value == "vision"));
+
+        let unknown = models.convert_model(api_model("models/gemini-4-future"));
+        assert_eq!(unknown.context_window, None);
+        assert_eq!(unknown.max_output_tokens, None);
+        assert_eq!(unknown.capabilities, vec!["chat"]);
     }
 }
 
-/// Get the context window size for a model
-pub fn get_model_context_window(model_id: &str) -> u32 {
-    if model_id.contains("2.5-pro")
-        || model_id.contains("2.5-flash")
-        || model_id.contains("2.0-flash")
-    {
-        1_048_576 // 1M tokens for Gemini 2.5 Pro, 2.5 Flash and 2.0 Flash
-    } else if model_id.contains("2.0-pro") || model_id.contains("1.5-pro") {
-        2_097_152 // 2M tokens for Gemini 2.0 Pro / 1.5 Pro
-    } else if model_id.contains("1.5-flash") {
-        1_048_576 // 1M tokens for Gemini 1.5 Flash
-    } else {
-        128_000 // Default fallback
-    }
+/// Get the documented context window for an exact audited model id.
+pub fn get_model_context_window(model_id: &str) -> Option<u32> {
+    model_policy(model_id).and_then(|policy| policy.context_window)
 }
 
-/// Get the maximum output tokens for a model
-pub fn get_model_max_output_tokens(model_id: &str) -> u32 {
-    if model_id.contains("2.5-pro") || model_id.contains("2.5-flash") {
-        65_536 // Gemini 2.5 Pro and Flash max output
-    } else if model_id.contains("2.0-flash")
-        || model_id.contains("1.5-pro")
-        || model_id.contains("1.5-flash")
-        || model_id.contains("2.0-pro")
-    {
-        8192 // Gemini 2.0 Flash/Pro, 1.5 Pro and Flash max output
-    } else if model_id.contains("tts") {
-        16_000 // TTS models have different output limits
-    } else {
-        8192 // Default fallback
-    }
+/// Get the documented maximum output size for an exact audited model id.
+pub fn get_model_max_output_tokens(model_id: &str) -> Option<u32> {
+    model_policy(model_id).and_then(|policy| policy.max_output_tokens)
 }
