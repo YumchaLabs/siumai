@@ -54,12 +54,14 @@ fn user_requested_beta_tokens(req: &ChatRequest) -> Vec<String> {
         })
         .and_then(|value| value.as_array())
         .map(|tokens| {
-            tokens
-                .iter()
-                .filter_map(|value| value.as_str())
-                .filter(|value| !value.trim().is_empty())
-                .map(ToString::to_string)
-                .collect()
+            super::sanitize_beta_features(
+                tokens
+                    .iter()
+                    .filter_map(|value| value.as_str())
+                    .filter(|value| !value.trim().is_empty())
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            )
         })
         .unwrap_or_default()
 }
@@ -106,6 +108,112 @@ fn fine_grained_tool_streaming_enabled(req: &ChatRequest) -> bool {
     }
 
     provider_option_bool(req, "toolStreaming", "tool_streaming").unwrap_or(true)
+}
+
+fn apply_known_model_policy(
+    req: &ChatRequest,
+    body: &mut serde_json::Value,
+) -> Result<(), LlmError> {
+    use super::model_constants::{
+        CapabilitySupport, SamplingSupport, ThinkingDisablePolicy, ThinkingSupport, model_profile,
+    };
+
+    let model = req.common_params.model.as_str();
+    let Some(profile) = model_profile(model) else {
+        return Ok(());
+    };
+
+    if matches!(profile.sampling, SamplingSupport::Unsupported) {
+        let has_non_default_sampling = req
+            .common_params
+            .temperature
+            .is_some_and(|value| value != 1.0)
+            || req.common_params.top_p.is_some_and(|value| value != 1.0)
+            || req.common_params.top_k.is_some();
+        if has_non_default_sampling {
+            return Err(LlmError::InvalidParameter(format!(
+                "{model} rejects non-default temperature, top_p, and top_k values; omit sampling controls"
+            )));
+        }
+
+        // Anthropic accepts default values, but omitting them keeps the request stable across
+        // current models and avoids coupling the wire payload to deprecated controls.
+        if let Some(object) = body.as_object_mut() {
+            object.remove("temperature");
+            object.remove("top_p");
+            object.remove("top_k");
+        }
+    }
+
+    let thinking_type = body
+        .get("thinking")
+        .and_then(|thinking| thinking.get("type"))
+        .and_then(serde_json::Value::as_str);
+
+    if matches!(profile.thinking, ThinkingSupport::AdaptiveOnly)
+        && matches!(thinking_type, Some(value) if value != "adaptive" && value != "disabled")
+    {
+        return Err(LlmError::InvalidParameter(format!(
+            "{model} does not support manual thinking budgets; use adaptive thinking or disable thinking when the model permits it"
+        )));
+    }
+
+    if thinking_type == Some("disabled") {
+        match profile.thinking_disable {
+            ThinkingDisablePolicy::Forbidden => {
+                return Err(LlmError::InvalidParameter(format!(
+                    "{model} always uses adaptive thinking and cannot disable it"
+                )));
+            }
+            ThinkingDisablePolicy::AllowedThroughHighEffort => {
+                let effort = body
+                    .get("effort")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| provider_option_str(req, "effort", "effort"));
+                if matches!(effort, Some("xhigh" | "max")) {
+                    return Err(LlmError::InvalidParameter(format!(
+                        "{model} can disable thinking only through high effort; xhigh and max require thinking"
+                    )));
+                }
+            }
+            ThinkingDisablePolicy::Allowed | ThinkingDisablePolicy::Unknown => {}
+        }
+    }
+
+    if profile.supports_prefill == CapabilitySupport::Unsupported
+        && body
+            .get("messages")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|messages| messages.last())
+            .and_then(|message| message.get("role"))
+            .and_then(serde_json::Value::as_str)
+            == Some("assistant")
+    {
+        return Err(LlmError::InvalidParameter(format!(
+            "{model} does not support assistant-message prefill"
+        )));
+    }
+
+    if let Some(requested) = req.common_params.max_tokens
+        && requested > profile.max_output_tokens
+    {
+        return Err(LlmError::InvalidParameter(format!(
+            "{model} accepts at most {} output tokens, but {requested} were requested",
+            profile.max_output_tokens
+        )));
+    }
+    if let Some(requested) = req.common_params.max_tokens
+        && let Some(object) = body.as_object_mut()
+    {
+        // Restore a caller value only when the compatibility transformer capped it. A larger
+        // mapped value may intentionally include a manual-thinking budget and must be preserved.
+        let mapped = object.get("max_tokens").and_then(serde_json::Value::as_u64);
+        if mapped.is_some_and(|mapped| mapped < u64::from(requested)) {
+            object.insert("max_tokens".to_string(), serde_json::json!(requested));
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) fn collect_request_beta_tokens(req: &ChatRequest) -> Vec<String> {
@@ -442,18 +550,25 @@ impl ProviderSpec for AnthropicSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        if !crate::standards::anthropic::request_options::anthropic_request_body_overlays_needed(
-            req,
-        ) {
+        let needs_overlays =
+            crate::standards::anthropic::request_options::anthropic_request_body_overlays_needed(
+                req,
+            );
+        let needs_model_policy =
+            super::model_constants::model_profile(&req.common_params.model).is_some();
+        if !needs_overlays && !needs_model_policy {
             return None;
         }
 
         let req = req.clone();
         Some(std::sync::Arc::new(move |body: &serde_json::Value| {
             let mut out = body.clone();
-            crate::standards::anthropic::request_options::apply_anthropic_request_body_overlays(
-                &req, &mut out,
-            );
+            if needs_overlays {
+                crate::standards::anthropic::request_options::apply_anthropic_request_body_overlays(
+                    &req, &mut out,
+                );
+            }
+            apply_known_model_policy(&req, &mut out)?;
             Ok(out)
         }))
     }
@@ -746,6 +861,33 @@ mod tests {
     }
 
     #[test]
+    fn chat_request_headers_omit_retired_prompt_caching_beta() {
+        let spec = AnthropicSpec::new();
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "anthropicBeta": [
+                        "prompt-caching-2024-07-31",
+                        "custom-beta-1"
+                    ]
+                }),
+            );
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            None,
+            HashMap::new(),
+        );
+
+        let headers = spec.chat_request_headers(false, &req, &ctx);
+        let beta = headers.get("anthropic-beta").cloned().unwrap_or_default();
+
+        assert!(!beta.contains("prompt-caching-2024-07-31"));
+        assert!(beta.contains("custom-beta-1"));
+    }
+
+    #[test]
     fn chat_request_headers_include_task_budget_beta() {
         let spec = AnthropicSpec::new();
 
@@ -797,6 +939,217 @@ mod tests {
             .expect("apply hook");
 
         assert_eq!(out.get("container"), Some(&serde_json::json!("c_1")));
+    }
+
+    #[test]
+    fn current_model_policy_restores_requested_output_limit_after_protocol_mapping() {
+        let spec = AnthropicSpec::new();
+        let mut req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        req.common_params.model = "claude-opus-5".to_string();
+        req.common_params.max_tokens = Some(100_000);
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("model policy hook");
+        let out = hook(&serde_json::json!({
+            "model": "claude-opus-5",
+            "messages": [{"role":"user","content":"hi"}],
+            "max_tokens": 8192
+        }))
+        .expect("apply model policy");
+
+        assert_eq!(out.get("max_tokens"), Some(&serde_json::json!(100_000)));
+    }
+
+    #[test]
+    fn current_model_policy_rejects_sampling_controls() {
+        let spec = AnthropicSpec::new();
+        let mut req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        req.common_params.model = "claude-sonnet-5".to_string();
+        req.common_params.temperature = Some(0.2);
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("model policy hook");
+        let error = hook(&serde_json::json!({
+            "model": "claude-sonnet-5",
+            "messages": [{"role":"user","content":"hi"}],
+            "max_tokens": 4096,
+            "temperature": 0.2
+        }))
+        .expect_err("sampling controls must be rejected before sending");
+
+        assert!(matches!(error, LlmError::InvalidParameter(_)));
+    }
+
+    #[test]
+    fn current_model_policy_omits_explicit_default_sampling_controls() {
+        let spec = AnthropicSpec::new();
+        let mut req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        req.common_params.model = "claude-sonnet-5".to_string();
+        req.common_params.temperature = Some(1.0);
+        req.common_params.top_p = Some(1.0);
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("model policy hook");
+        let out = hook(&serde_json::json!({
+            "model": "claude-sonnet-5",
+            "messages": [{"role":"user","content":"hi"}],
+            "max_tokens": 4096,
+            "temperature": 1.0,
+            "top_p": 1.0
+        }))
+        .expect("default sampling values remain callable");
+
+        assert!(out.get("temperature").is_none());
+        assert!(out.get("top_p").is_none());
+    }
+
+    #[test]
+    fn current_model_policy_rejects_manual_thinking_and_prefill() {
+        let spec = AnthropicSpec::new();
+        let mut req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({"thinking": {"type": "enabled", "budgetTokens": 2048}}),
+            );
+        req.common_params.model = "claude-fable-5".to_string();
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("model policy hook");
+        let error = hook(&serde_json::json!({
+            "model": "claude-fable-5",
+            "messages": [{"role":"user","content":"hi"}],
+            "max_tokens": 4096
+        }))
+        .expect_err("manual thinking must be rejected");
+        assert!(matches!(error, LlmError::InvalidParameter(_)));
+
+        let mut prefill_req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        prefill_req.common_params.model = "claude-fable-5".to_string();
+        let prefill_hook = spec
+            .chat_before_send(
+                &prefill_req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("model policy hook");
+        let error = prefill_hook(&serde_json::json!({
+            "model": "claude-fable-5",
+            "messages": [{"role":"assistant","content":"prefix"}],
+            "max_tokens": 4096
+        }))
+        .expect_err("assistant prefill must be rejected");
+        assert!(matches!(error, LlmError::InvalidParameter(_)));
+    }
+
+    #[test]
+    fn current_model_policy_distinguishes_thinking_disable_rules() {
+        let spec = AnthropicSpec::new();
+        let context = ProviderContext::new("anthropic", "", None, HashMap::new());
+
+        let mut sonnet = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        sonnet.common_params.model = "claude-sonnet-5".to_string();
+        let sonnet_hook = spec
+            .chat_before_send(&sonnet, &context)
+            .expect("Sonnet policy hook");
+        sonnet_hook(&serde_json::json!({
+            "model": "claude-sonnet-5",
+            "messages": [{"role":"user","content":"hi"}],
+            "thinking": {"type":"disabled"},
+            "max_tokens": 4096
+        }))
+        .expect("Sonnet 5 permits disabled thinking");
+
+        let mut fable = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        fable.common_params.model = "claude-fable-5".to_string();
+        let fable_hook = spec
+            .chat_before_send(&fable, &context)
+            .expect("Fable policy hook");
+        assert!(
+            fable_hook(&serde_json::json!({
+                "model": "claude-fable-5",
+                "messages": [{"role":"user","content":"hi"}],
+                "thinking": {"type":"disabled"},
+                "max_tokens": 4096
+            }))
+            .is_err()
+        );
+
+        let mut opus = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        opus.common_params.model = "claude-opus-5".to_string();
+        let opus_hook = spec
+            .chat_before_send(&opus, &context)
+            .expect("Opus policy hook");
+        assert!(
+            opus_hook(&serde_json::json!({
+                "model": "claude-opus-5",
+                "messages": [{"role":"user","content":"hi"}],
+                "thinking": {"type":"disabled"},
+                "effort": "max",
+                "max_tokens": 4096
+            }))
+            .is_err()
+        );
+        opus_hook(&serde_json::json!({
+            "model": "claude-opus-5",
+            "messages": [{"role":"user","content":"hi"}],
+            "thinking": {"type":"disabled"},
+            "effort": "high",
+            "max_tokens": 4096
+        }))
+        .expect("Opus 5 permits disabled thinking through high effort");
+    }
+
+    #[test]
+    fn current_model_policy_rejects_output_limit_overflow() {
+        let spec = AnthropicSpec::new();
+        let mut req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        req.common_params.model = "claude-opus-5".to_string();
+        req.common_params.max_tokens = Some(128_001);
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("model policy hook");
+        assert!(
+            hook(&serde_json::json!({
+                "model": "claude-opus-5",
+                "messages": [{"role":"user","content":"hi"}],
+                "max_tokens": 8192
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn unknown_model_without_overlays_remains_callable_without_policy_hook() {
+        let spec = AnthropicSpec::new();
+        let mut req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        req.common_params.model = "claude-future-custom-model".to_string();
+
+        assert!(
+            spec.chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .is_none()
+        );
     }
 
     #[test]

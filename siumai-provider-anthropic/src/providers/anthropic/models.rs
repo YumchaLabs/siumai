@@ -13,6 +13,12 @@ use crate::execution::http::transport::HttpTransport;
 use crate::traits::ModelListingCapability;
 use crate::types::ModelInfo;
 
+use super::model_constants::{
+    CapabilitySupport, ThinkingDisablePolicy, ThinkingSupport, claude_fable_5, claude_mythos_5,
+    claude_opus_3, claude_opus_4, claude_opus_4_1, claude_opus_4_5, claude_opus_4_6,
+    claude_opus_4_7, claude_opus_5, claude_sonnet_3, claude_sonnet_3_5, claude_sonnet_3_7,
+    claude_sonnet_4, claude_sonnet_4_5, claude_sonnet_4_6, claude_sonnet_5, model_profile,
+};
 use super::types::{AnthropicModelInfo, AnthropicModelsResponse};
 use super::utils::map_anthropic_error;
 
@@ -221,39 +227,52 @@ fn convert_anthropic_model_to_model_info(anthropic_model: AnthropicModelInfo) ->
 /// Determine model capabilities based on model ID
 fn determine_model_capabilities(model_id: &str) -> Vec<String> {
     let mut capabilities = vec!["chat".to_string(), "text".to_string()];
+    let Some(profile) = model_profile(model_id) else {
+        return capabilities;
+    };
 
-    // Claude 4+ models have thinking capability
-    if model_id.contains("claude-opus-4")
-        || model_id.contains("claude-sonnet-4")
-        || model_id.contains("claude-3-7-sonnet")
-    {
+    if !matches!(profile.thinking, ThinkingSupport::Unsupported) {
         capabilities.push("thinking".to_string());
-        capabilities.push("extended_thinking".to_string());
+        match profile.thinking {
+            ThinkingSupport::AdaptiveOnly | ThinkingSupport::AdaptiveAndManual => {
+                capabilities.push("adaptive_thinking".to_string());
+            }
+            ThinkingSupport::Manual | ThinkingSupport::Unsupported => {}
+        }
+        match profile.thinking {
+            ThinkingSupport::Manual | ThinkingSupport::AdaptiveAndManual => {
+                capabilities.push("extended_thinking".to_string());
+            }
+            ThinkingSupport::AdaptiveOnly | ThinkingSupport::Unsupported => {}
+        }
+        if profile.thinking_disable == ThinkingDisablePolicy::Forbidden {
+            capabilities.push("always_thinking".to_string());
+        }
     }
 
-    // All Claude 3+ models support vision (including Claude 4)
-    if model_id.contains("claude-3")
-        || model_id.contains("claude-sonnet-4")
-        || model_id.contains("claude-opus-4")
-    {
+    if profile.supports_vision {
         capabilities.push("vision".to_string());
         capabilities.push("multimodal".to_string());
     }
 
-    // All models support tools and function calling
-    capabilities.push("tools".to_string());
-    capabilities.push("function_calling".to_string());
+    if profile.supports_tools {
+        capabilities.push("tools".to_string());
+        capabilities.push("function_calling".to_string());
+    }
 
-    // All models support streaming
-    capabilities.push("streaming".to_string());
+    if profile.supports_streaming {
+        capabilities.push("streaming".to_string());
+    }
 
-    // Priority tier models
-    if model_id.contains("claude-opus-4")
-        || model_id.contains("claude-sonnet-4")
-        || model_id.contains("claude-3-7-sonnet")
-        || model_id.contains("claude-3-5-sonnet")
-        || model_id.contains("claude-3-5-haiku")
-    {
+    if profile.supports_prompt_caching {
+        capabilities.push("prompt_caching".to_string());
+    }
+
+    if profile.supports_prefill == CapabilitySupport::Supported {
+        capabilities.push("prefill".to_string());
+    }
+
+    if profile.supports_priority_tier == CapabilitySupport::Supported {
         capabilities.push("priority_tier".to_string());
     }
 
@@ -262,67 +281,53 @@ fn determine_model_capabilities(model_id: &str) -> Vec<String> {
 
 /// Estimate model specifications based on model ID
 fn estimate_model_specs(model_id: &str) -> (Option<u32>, Option<u32>, Option<f64>, Option<f64>) {
-    match model_id {
-        // Claude Opus 4.1 models (latest flagship)
-        id if id.contains("claude-opus-4-1") => (
-            Some(200_000),
-            Some(32_000),
-            Some(0.000_015),
-            Some(0.000_075),
-        ),
+    let Some(profile) = model_profile(model_id) else {
+        return (None, None, None, None);
+    };
+    let (input_cost, output_cost) = estimate_model_costs(model_id);
 
-        // Claude Opus 4 models
-        id if id.contains("claude-opus-4") => (
-            Some(200_000),
-            Some(32_000),
-            Some(0.000_015),
-            Some(0.000_075),
-        ),
+    (
+        Some(profile.context_window),
+        Some(profile.max_output_tokens),
+        input_cost,
+        output_cost,
+    )
+}
 
-        // Claude Sonnet 4 models
-        id if id.contains("claude-sonnet-4") => (
-            Some(200_000),
-            Some(32_000),
-            Some(0.000_003),
-            Some(0.000_015),
-        ),
+fn in_family(model_id: &str, family: &[&str]) -> bool {
+    family.contains(&model_id)
+}
 
-        // Claude 3.7 models
-        id if id.contains("claude-3-7-sonnet") => (
-            Some(200_000),
-            Some(64_000),
-            Some(0.000_003),
-            Some(0.000_015),
-        ),
-
-        // Claude 3.5 models
-        id if id.contains("claude-3-5-sonnet") => {
-            (Some(200_000), Some(8192), Some(0.000_003), Some(0.000_015))
-        }
-        id if id.contains("claude-3-5-haiku") => (
-            Some(200_000),
-            Some(8192),
-            Some(0.000_000_25),
-            Some(0.000_001_25),
-        ),
-
-        // Claude 3 models
-        id if id.contains("claude-3-opus") => {
-            (Some(200_000), Some(4096), Some(0.000_015), Some(0.000_075))
-        }
-        id if id.contains("claude-3-sonnet") => {
-            (Some(200_000), Some(4096), Some(0.000_003), Some(0.000_015))
-        }
-        id if id.contains("claude-3-haiku") => (
-            Some(200_000),
-            Some(4096),
-            Some(0.000_000_25),
-            Some(0.000_001_25),
-        ),
-
-        // Default for unknown models
-        _ => (Some(200_000), Some(8192), None, None),
+fn estimate_model_costs(model_id: &str) -> (Option<f64>, Option<f64>) {
+    if in_family(model_id, claude_opus_5::ALL) {
+        return (Some(0.000_005), Some(0.000_025));
     }
+    if in_family(model_id, claude_sonnet_5::ALL) {
+        return (Some(0.000_003), Some(0.000_015));
+    }
+    if in_family(model_id, claude_fable_5::ALL) || in_family(model_id, claude_mythos_5::ALL) {
+        return (Some(0.000_010), Some(0.000_050));
+    }
+    if in_family(model_id, claude_opus_4_7::ALL)
+        || in_family(model_id, claude_opus_4_6::ALL)
+        || in_family(model_id, claude_opus_4_5::ALL)
+        || in_family(model_id, claude_opus_4_1::ALL)
+        || in_family(model_id, claude_opus_4::ALL)
+        || in_family(model_id, claude_opus_3::ALL)
+    {
+        return (Some(0.000_015), Some(0.000_075));
+    }
+    if in_family(model_id, claude_sonnet_4_6::ALL)
+        || in_family(model_id, claude_sonnet_4_5::ALL)
+        || in_family(model_id, claude_sonnet_4::ALL)
+        || in_family(model_id, claude_sonnet_3_7::ALL)
+        || in_family(model_id, claude_sonnet_3_5::ALL)
+        || in_family(model_id, claude_sonnet_3::ALL)
+    {
+        return (Some(0.000_003), Some(0.000_015));
+    }
+
+    (None, None)
 }
 
 #[cfg(test)]
@@ -331,10 +336,13 @@ mod tests {
 
     #[test]
     fn test_model_capabilities() {
-        let caps = determine_model_capabilities("claude-sonnet-4-20250514");
+        let caps = determine_model_capabilities(claude_fable_5::CLAUDE_FABLE_5);
         assert!(caps.contains(&"thinking".to_string()));
+        assert!(caps.contains(&"adaptive_thinking".to_string()));
+        assert!(caps.contains(&"always_thinking".to_string()));
         assert!(caps.contains(&"vision".to_string()));
         assert!(caps.contains(&"tools".to_string()));
+        assert!(!caps.contains(&"priority_tier".to_string()));
     }
 
     #[test]
@@ -361,5 +369,29 @@ mod tests {
         assert_eq!(model_info.name, Some("Claude 3.5 Sonnet".to_string()));
         assert_eq!(model_info.owned_by, "anthropic");
         assert!(model_info.capabilities.contains(&"vision".to_string()));
+    }
+
+    #[test]
+    fn current_model_specs_use_verified_limits() {
+        let (context, max_output, input_cost, output_cost) =
+            estimate_model_specs(claude_opus_5::CLAUDE_OPUS_5);
+        assert_eq!(context, Some(1_000_000));
+        assert_eq!(max_output, Some(128_000));
+        assert_eq!(input_cost, Some(0.000_005));
+        assert_eq!(output_cost, Some(0.000_025));
+
+        let (_, _, input_cost, output_cost) = estimate_model_specs(claude_fable_5::CLAUDE_FABLE_5);
+        assert_eq!(input_cost, Some(0.000_010));
+        assert_eq!(output_cost, Some(0.000_050));
+    }
+
+    #[test]
+    fn unknown_model_specs_and_optional_capabilities_stay_unset() {
+        let model_id = "claude-future-custom-model";
+        assert_eq!(estimate_model_specs(model_id), (None, None, None, None));
+        assert_eq!(
+            determine_model_capabilities(model_id),
+            vec!["chat".to_string(), "text".to_string()]
+        );
     }
 }

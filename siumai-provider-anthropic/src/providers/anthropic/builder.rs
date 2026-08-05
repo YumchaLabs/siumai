@@ -541,7 +541,7 @@ mod tests {
             .with_metadata(metadata)
             .add_metadata("feature", "builder-first")
             .with_stream(true)
-            .with_beta_features(vec!["prompt-caching-2024-07-31".to_string()])
+            .with_beta_features(vec!["advanced-tool-use-2025-11-20".to_string()])
             .timeout(Duration::from_secs(18))
             .http_debug(true)
             .into_config()
@@ -586,7 +586,7 @@ mod tests {
         assert_eq!(config.anthropic_params.stream, Some(true));
         assert_eq!(
             config.anthropic_params.beta_features.as_deref(),
-            Some(&["prompt-caching-2024-07-31".to_string()][..])
+            Some(&["advanced-tool-use-2025-11-20".to_string()][..])
         );
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(18)));
         assert_eq!(config.http_interceptors.len(), 1);
@@ -610,7 +610,7 @@ mod tests {
             .with_metadata(metadata)
             .add_metadata("feature", "builder-first")
             .with_stream(true)
-            .with_beta_features(vec!["prompt-caching-2024-07-31".to_string()])
+            .with_beta_features(vec!["advanced-tool-use-2025-11-20".to_string()])
             .timeout(Duration::from_secs(18))
             .http_debug(true)
             .into_config()
@@ -636,7 +636,7 @@ mod tests {
             })
             .add_metadata("feature", "builder-first")
             .with_stream(true)
-            .with_beta_features(vec!["prompt-caching-2024-07-31".to_string()])
+            .with_beta_features(vec!["advanced-tool-use-2025-11-20".to_string()])
             .with_http_config(http_config)
             .with_http_interceptors(vec![Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,

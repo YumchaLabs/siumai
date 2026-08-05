@@ -397,7 +397,7 @@ mod tests {
             .with_metadata(metadata)
             .add_metadata("feature", "config-first")
             .with_stream(true)
-            .with_beta_features(vec!["prompt-caching-2024-07-31".to_string()]);
+            .with_beta_features(vec!["advanced-tool-use-2025-11-20".to_string()]);
 
         assert_eq!(config.common_params.model, "claude-3-7-sonnet-latest");
         assert_eq!(config.common_params.top_p, Some(0.9));
@@ -435,7 +435,7 @@ mod tests {
         assert_eq!(config.anthropic_params.stream, Some(true));
         assert_eq!(
             config.anthropic_params.beta_features.as_deref(),
-            Some(&["prompt-caching-2024-07-31".to_string()][..])
+            Some(&["advanced-tool-use-2025-11-20".to_string()][..])
         );
     }
 

@@ -72,11 +72,26 @@ pub use settings::AnthropicProviderSettings;
 /// Rust package version exposed on the Anthropic package-surface facade.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const RETIRED_PROMPT_CACHING_BETA: &str = "prompt-caching-2024-07-31";
+
+pub(crate) fn sanitize_beta_features(features: impl IntoIterator<Item = String>) -> Vec<String> {
+    features
+        .into_iter()
+        .filter(|feature| {
+            !feature
+                .trim()
+                .eq_ignore_ascii_case(RETIRED_PROMPT_CACHING_BETA)
+        })
+        .collect()
+}
+
 pub(crate) fn specific_params_from_legacy_params(
     params: &crate::params::AnthropicParams,
 ) -> crate::providers::anthropic::types::AnthropicSpecificParams {
     crate::providers::anthropic::types::AnthropicSpecificParams {
-        beta_features: params.beta_features.clone().unwrap_or_default(),
+        // Prompt caching is generally available. Do not forward the retired fixed beta token from
+        // the legacy convenience surface; raw headers remain available as an explicit escape hatch.
+        beta_features: sanitize_beta_features(params.beta_features.clone().unwrap_or_default()),
         // Legacy params are retained for backward compatibility; prompt caching is modeled as a
         // modern request-level provider option (`providerOptions["anthropic"]`) for new code.
         cache_control: params

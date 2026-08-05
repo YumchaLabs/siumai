@@ -21,9 +21,9 @@ use crate::traits::*;
 use crate::types::*;
 use std::sync::Arc;
 
+use super::model_constants::current_chat_models;
 use super::models::AnthropicModels;
 use super::types::AnthropicSpecificParams;
-use super::utils::get_default_models;
 
 // Split capability implementations into submodules (no public API changes)
 mod chat;
@@ -232,14 +232,15 @@ impl AnthropicClient {
     }
 
     /// Update Anthropic-specific parameters
-    pub fn with_specific_params(mut self, params: AnthropicSpecificParams) -> Self {
+    pub fn with_specific_params(mut self, mut params: AnthropicSpecificParams) -> Self {
+        params.beta_features = super::sanitize_beta_features(params.beta_features);
         self.specific_params = params;
         self
     }
 
     /// Enable beta features
     pub fn with_beta_features(mut self, features: Vec<String>) -> Self {
-        self.specific_params.beta_features = features;
+        self.specific_params.beta_features = super::sanitize_beta_features(features);
         self
     }
 
@@ -271,7 +272,9 @@ impl AnthropicClient {
 
     /// Add a beta feature
     pub fn add_beta_feature(mut self, feature: String) -> Self {
-        self.specific_params.beta_features.push(feature);
+        self.specific_params
+            .beta_features
+            .extend(super::sanitize_beta_features([feature]));
         self
     }
 
@@ -585,7 +588,10 @@ impl LlmClient for AnthropicClient {
     }
 
     fn supported_models(&self) -> Vec<String> {
-        get_default_models()
+        current_chat_models()
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -939,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn test_anthropic_client_beta_features() {
+    fn test_anthropic_client_omits_retired_prompt_caching_beta() {
         let client = AnthropicClient::new(
             "test-key".to_string(),
             "https://api.anthropic.com".to_string(),
@@ -951,7 +957,7 @@ mod tests {
         .add_beta_feature("computer-use-2024-10-22".to_string())
         .add_beta_feature("prompt-caching-2024-07-31".to_string());
 
-        assert_eq!(client.specific_params().beta_features.len(), 2);
+        assert_eq!(client.specific_params().beta_features.len(), 1);
         assert!(
             client
                 .specific_params()
@@ -959,10 +965,40 @@ mod tests {
                 .contains(&"computer-use-2024-10-22".to_string())
         );
         assert!(
-            client
+            !client
                 .specific_params()
                 .beta_features
                 .contains(&"prompt-caching-2024-07-31".to_string())
+        );
+        assert!(
+            client
+                .with_ephemeral_cache()
+                .specific_params()
+                .cache_control
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn test_anthropic_client_preserves_non_prompt_cache_betas() {
+        let client = AnthropicClient::new(
+            "test-key".to_string(),
+            "https://api.anthropic.com".to_string(),
+            reqwest::Client::new(),
+            CommonParams::default(),
+            AnthropicParams::default(),
+            HttpConfig::empty(),
+        )
+        .with_beta_features(vec![
+            "computer-use-2024-10-22".to_string(),
+            "advanced-tool-use-2025-11-20".to_string(),
+        ]);
+
+        assert!(
+            client
+                .specific_params()
+                .beta_features
+                .contains(&"advanced-tool-use-2025-11-20".to_string())
         );
     }
 
