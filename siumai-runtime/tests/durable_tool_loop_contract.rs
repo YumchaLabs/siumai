@@ -1,0 +1,581 @@
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use async_trait::async_trait;
+use serde_json::{Value, json};
+use siumai_core::stream::established_stream;
+use siumai_core::{
+    CallOptions, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, LanguageModel,
+    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
+    Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal, ToolCall,
+    ToolOutcome, ToolSpec, Usage,
+};
+use siumai_runtime::approval::{
+    ApprovalClaims, ApprovalEnvelope, ApprovalVerifier, ApprovalVerifierError,
+    InMemoryApprovalConsumeStore, TrustContext, TrustIdentity,
+};
+use siumai_runtime::snapshot::{
+    InMemoryRunStore, LineageId, ResumePoint, RunId, RunLease, RunStore, RunStoreError,
+    RunStoreFuture, SnapshotFingerprint, SnapshotRevision, StoredRun, ToolExecutionStatus,
+};
+use siumai_runtime::tool::{
+    ApprovalPolicy, RecoveryPolicy, ToolBinding, ToolExecutionRequest, ToolIdempotencyKey, ToolSet,
+};
+use siumai_runtime::{
+    DurableApproval, DurableResume, DurableRunError, DurableToolLoop, IndeterminateRecoveryPolicy,
+};
+
+type AttemptLog = Arc<Mutex<Vec<(u32, Option<String>)>>>;
+
+struct ScriptedModel {
+    descriptor: ModelDescriptor,
+    responses: Mutex<VecDeque<LanguageResponse>>,
+}
+
+impl ScriptedModel {
+    fn new(responses: impl IntoIterator<Item = LanguageResponse>) -> Arc<Self> {
+        Arc::new(Self {
+            descriptor: ModelDescriptor::new(
+                ProviderId::new("durable-test").expect("valid provider"),
+                ModelId::new("durable-model").expect("valid model"),
+                ModelFamily::Language,
+            ),
+            responses: Mutex::new(responses.into_iter().collect()),
+        })
+    }
+}
+
+impl Model for ScriptedModel {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[async_trait]
+impl LanguageModel for ScriptedModel {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageResponse, Error> {
+        Err(Error::new(
+            ErrorKind::Internal,
+            "durable tool loop must use streaming model steps",
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        let response = self
+            .responses
+            .lock()
+            .expect("response lock")
+            .pop_front()
+            .ok_or_else(|| Error::new(ErrorKind::Internal, "missing scripted response"))?;
+        let cancellation = options.cancellation().clone();
+        Ok(established_stream(cancellation, move |_| {
+            futures::stream::iter([Ok(LanguageStreamEvent::Terminal(
+                StreamTerminal::Completed {
+                    response: Box::new(response),
+                },
+            ))])
+        }))
+    }
+}
+
+#[derive(Debug)]
+struct FailOnceStore {
+    inner: InMemoryRunStore,
+    fail_on_cas: usize,
+    cas_calls: AtomicUsize,
+    release_calls: AtomicUsize,
+}
+
+impl FailOnceStore {
+    fn new(fail_on_cas: usize) -> Arc<Self> {
+        Arc::new(Self {
+            inner: InMemoryRunStore::new(),
+            fail_on_cas,
+            cas_calls: AtomicUsize::new(0),
+            release_calls: AtomicUsize::new(0),
+        })
+    }
+
+    fn release_calls(&self) -> usize {
+        self.release_calls.load(Ordering::SeqCst)
+    }
+}
+
+impl RunStore for FailOnceStore {
+    fn acquire<'a>(&'a self, run_id: &'a RunId, ttl: Duration) -> RunStoreFuture<'a, RunLease> {
+        self.inner.acquire(run_id, ttl)
+    }
+
+    fn load<'a>(&'a self, lease: &'a RunLease) -> RunStoreFuture<'a, Option<StoredRun>> {
+        self.inner.load(lease)
+    }
+
+    fn compare_and_swap<'a>(
+        &'a self,
+        lease: &'a RunLease,
+        expected: SnapshotRevision,
+        snapshot: siumai_runtime::snapshot::RunSnapshot,
+    ) -> RunStoreFuture<'a, SnapshotRevision> {
+        let call = self.cas_calls.fetch_add(1, Ordering::SeqCst) + 1;
+        if call == self.fail_on_cas {
+            return Box::pin(async { Err(RunStoreError::Unavailable) });
+        }
+        self.inner.compare_and_swap(lease, expected, snapshot)
+    }
+
+    fn renew<'a>(&'a self, lease: &'a mut RunLease, ttl: Duration) -> RunStoreFuture<'a, ()> {
+        self.inner.renew(lease, ttl)
+    }
+
+    fn release<'a>(&'a self, lease: RunLease) -> RunStoreFuture<'a, ()> {
+        self.release_calls.fetch_add(1, Ordering::SeqCst);
+        self.inner.release(lease)
+    }
+}
+
+#[derive(Default)]
+struct StaticVerifier {
+    claims: Mutex<Option<ApprovalClaims>>,
+}
+
+impl StaticVerifier {
+    fn set_claims(&self, claims: ApprovalClaims) {
+        *self.claims.lock().expect("claims lock") = Some(claims);
+    }
+}
+
+impl ApprovalVerifier for StaticVerifier {
+    fn verify(
+        &self,
+        _envelope: &ApprovalEnvelope,
+    ) -> Result<ApprovalClaims, ApprovalVerifierError> {
+        self.claims
+            .lock()
+            .expect("claims lock")
+            .clone()
+            .ok_or(ApprovalVerifierError::Unavailable)
+    }
+}
+
+fn request() -> LanguageRequest {
+    LanguageRequest::new(vec![Message::text(MessageRole::User, "run the tool")])
+}
+
+fn tool_spec() -> ToolSpec {
+    ToolSpec::new(
+        "write_record",
+        Some("write one record".to_string()),
+        json!({"type": "object"}),
+    )
+    .expect("valid tool spec")
+}
+
+fn tool_call() -> ToolCall {
+    ToolCall {
+        id: "call-1".to_string(),
+        name: "write_record".to_string(),
+        arguments: json!({"value": 7}),
+        owner: ExecutionOwner::Local,
+    }
+}
+
+fn tool_response() -> LanguageResponse {
+    LanguageResponse::completed(
+        vec![ContentPart::ToolCall(tool_call())],
+        FinishReason::ToolCalls,
+        Usage::default(),
+    )
+    .expect("valid tool response")
+}
+
+fn final_response() -> LanguageResponse {
+    LanguageResponse::completed(
+        vec![ContentPart::Text {
+            text: "done".to_string(),
+        }],
+        FinishReason::Stop,
+        Usage::default(),
+    )
+    .expect("valid final response")
+}
+
+fn fingerprints() -> (SnapshotFingerprint, SnapshotFingerprint) {
+    (
+        SnapshotFingerprint::new("sha256:test-options").expect("valid fingerprint"),
+        SnapshotFingerprint::new("sha256:test-approval-policy").expect("valid fingerprint"),
+    )
+}
+
+fn durable_loop(
+    model: Arc<dyn LanguageModel>,
+    tools: ToolSet,
+    store: Arc<dyn RunStore>,
+) -> DurableToolLoop {
+    let (options, approval) = fingerprints();
+    DurableToolLoop::new(model, tools, store, options, approval).expect("valid durable loop")
+}
+
+fn not_required_binding(executions: Arc<AtomicUsize>, attempts: Option<AttemptLog>) -> ToolBinding {
+    ToolBinding::from_fn(
+        tool_spec(),
+        "v1",
+        |_| Ok(()),
+        move |request: ToolExecutionRequest| {
+            let executions = Arc::clone(&executions);
+            let attempts = attempts.clone();
+            async move {
+                executions.fetch_add(1, Ordering::SeqCst);
+                if let Some(attempts) = attempts {
+                    attempts.lock().expect("attempt lock").push((
+                        request.attempt().get(),
+                        request
+                            .idempotency_key()
+                            .map(|key| key.as_str().to_string()),
+                    ));
+                }
+                Ok(ToolOutcome::Success {
+                    value: Value::Bool(true),
+                })
+            }
+        },
+    )
+    .expect("valid binding")
+    .with_approval_policy(ApprovalPolicy::NotRequired)
+}
+
+fn run_id(suffix: &str) -> RunId {
+    RunId::new(format!("run-{suffix}")).expect("valid run id")
+}
+
+fn lineage_id(suffix: &str) -> LineageId {
+    LineageId::new(format!("lineage-{suffix}")).expect("valid lineage id")
+}
+
+#[tokio::test]
+async fn completed_checkpoint_is_never_replayed() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let binding = not_required_binding(Arc::clone(&executions), None);
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let store = Arc::new(InMemoryRunStore::new());
+    let model = ScriptedModel::new([tool_response(), final_response()]);
+    let loop_ = durable_loop(model, tools, store);
+    let run = run_id("completed");
+
+    let completed = loop_
+        .start(
+            run.clone(),
+            lineage_id("completed"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("run completes");
+    assert!(completed.is_terminal());
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+
+    let resumed = loop_
+        .resume(&run, DurableResume::default(), CallOptions::default())
+        .await
+        .expect("terminal load is idempotent");
+    assert!(resumed.is_terminal());
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn dispatching_unapproved_work_preserves_other_pending_approval_budget() {
+    let first_executions = Arc::new(AtomicUsize::new(0));
+    let observed_first = Arc::clone(&first_executions);
+    let first = ToolBinding::from_fn(
+        ToolSpec::new(
+            "read_record",
+            Some("read one record".to_string()),
+            json!({"type": "object"}),
+        )
+        .expect("valid first spec"),
+        "v1",
+        |_| Ok(()),
+        move |_| {
+            let observed_first = Arc::clone(&observed_first);
+            async move {
+                observed_first.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success {
+                    value: Value::Bool(true),
+                })
+            }
+        },
+    )
+    .expect("valid first binding")
+    .with_approval_policy(ApprovalPolicy::NotRequired);
+    let second_executions = Arc::new(AtomicUsize::new(0));
+    let observed_second = Arc::clone(&second_executions);
+    let second = ToolBinding::from_fn(
+        tool_spec(),
+        "v1",
+        |_| Ok(()),
+        move |_| {
+            let observed_second = Arc::clone(&observed_second);
+            async move {
+                observed_second.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success {
+                    value: Value::Bool(true),
+                })
+            }
+        },
+    )
+    .expect("valid second binding");
+    let tools = ToolSet::from_bindings([first, second]).expect("unique tools");
+    let response = LanguageResponse::completed(
+        vec![
+            ContentPart::ToolCall(ToolCall {
+                id: "call-read".to_string(),
+                name: "read_record".to_string(),
+                arguments: json!({}),
+                owner: ExecutionOwner::Local,
+            }),
+            ContentPart::ToolCall(tool_call()),
+        ],
+        FinishReason::ToolCalls,
+        Usage::default(),
+    )
+    .expect("valid mixed tool response");
+    let store = Arc::new(InMemoryRunStore::new());
+    let model = ScriptedModel::new([response]);
+    let loop_ = durable_loop(model, tools, store);
+
+    let suspended = loop_
+        .start(
+            run_id("mixed-approval"),
+            lineage_id("mixed-approval"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("unapproved second call remains resumable");
+
+    assert!(matches!(
+        suspended.snapshot().resume_point(),
+        ResumePoint::AwaitingApprovals(_)
+    ));
+    assert_eq!(suspended.snapshot().pending_approvals().len(), 1);
+    assert_eq!(suspended.snapshot().budget().pending_approvals(), 1);
+    assert_eq!(first_executions.load(Ordering::SeqCst), 1);
+    assert_eq!(second_executions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn lease_conflict_is_a_typed_resume_outcome() {
+    let store = Arc::new(InMemoryRunStore::new());
+    let run = run_id("lease-conflict");
+    let _lease = store
+        .acquire(&run, Duration::from_secs(60))
+        .await
+        .expect("first lease");
+    let tools = ToolSet::default();
+    let model = ScriptedModel::new([final_response()]);
+    let loop_ = durable_loop(model, tools, store);
+
+    let error = loop_
+        .resume(&run, DurableResume::default(), CallOptions::default())
+        .await
+        .expect_err("second lease must conflict");
+    assert!(matches!(error, DurableRunError::ResumeConflict { .. }));
+}
+
+#[tokio::test]
+async fn crash_matrix_preserves_dispatch_boundaries() {
+    for (name, failed_cas, expected_before_resume, retry) in [
+        ("before-dispatch", 2, 0, true),
+        ("after-result", 3, 1, false),
+        ("after-completed-checkpoint", 4, 1, true),
+    ] {
+        let executions = Arc::new(AtomicUsize::new(0));
+        let binding = not_required_binding(Arc::clone(&executions), None);
+        let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+        let store = FailOnceStore::new(failed_cas);
+        let model = ScriptedModel::new([tool_response(), final_response()]);
+        let loop_ = durable_loop(model, tools, store.clone());
+        let run = run_id(name);
+
+        let error = loop_
+            .start(
+                run.clone(),
+                lineage_id(name),
+                request(),
+                CallOptions::default(),
+            )
+            .await
+            .expect_err("injected checkpoint failure");
+        assert!(matches!(
+            error,
+            DurableRunError::Store(RunStoreError::Unavailable)
+        ));
+        assert_eq!(store.release_calls(), 1);
+        assert_eq!(executions.load(Ordering::SeqCst), expected_before_resume);
+
+        let resumed = loop_
+            .resume(&run, DurableResume::default(), CallOptions::default())
+            .await
+            .expect("resume after injected failure");
+        assert_eq!(store.release_calls(), 2);
+        if retry {
+            assert!(resumed.is_terminal());
+            assert_eq!(executions.load(Ordering::SeqCst), 1);
+        } else {
+            assert!(matches!(
+                resumed.snapshot().resume_point(),
+                ResumePoint::Terminal(_)
+            ));
+            assert_eq!(
+                resumed.snapshot().execution_log().status("call-1"),
+                Some(ToolExecutionStatus::Indeterminate)
+            );
+            assert_eq!(executions.load(Ordering::SeqCst), 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn stable_recovery_reuses_key_and_increments_attempt() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    let binding = not_required_binding(Arc::clone(&executions), Some(Arc::clone(&attempts)))
+        .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey)
+        .with_stable_idempotency_key(|_| ToolIdempotencyKey::new("stable-logical-call"));
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let store = FailOnceStore::new(3);
+    let model = ScriptedModel::new([tool_response(), final_response()]);
+    let loop_ = durable_loop(model, tools, store);
+    let run = run_id("stable-retry");
+
+    loop_
+        .start(
+            run.clone(),
+            lineage_id("stable-retry"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect_err("completed checkpoint is injected to fail");
+
+    let resumed = loop_
+        .resume(
+            &run,
+            DurableResume::new()
+                .with_indeterminate_recovery(IndeterminateRecoveryPolicy::RetryStable),
+            CallOptions::default(),
+        )
+        .await
+        .expect("stable retry resumes");
+    assert!(resumed.is_terminal());
+    assert_eq!(executions.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        *attempts.lock().expect("attempt lock"),
+        vec![
+            (1, Some("stable-logical-call".to_string())),
+            (2, Some("stable-logical-call".to_string())),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn verified_approval_executes_only_the_exact_frozen_binding() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = ToolBinding::from_fn(
+        tool_spec(),
+        "v1",
+        |_| Ok(()),
+        move |_| {
+            let observed = Arc::clone(&observed);
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: json!(true) })
+            }
+        },
+    )
+    .expect("valid binding");
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let store = Arc::new(InMemoryRunStore::new());
+    let verifier = Arc::new(StaticVerifier::default());
+    let consume_store = Arc::new(InMemoryApprovalConsumeStore::default());
+    let model = ScriptedModel::new([tool_response(), final_response()]);
+    let loop_ = durable_loop(model.clone(), tools, store.clone())
+        .with_approval_verification(verifier.clone(), consume_store);
+    let run = run_id("approval");
+
+    let suspended = loop_
+        .start(
+            run.clone(),
+            lineage_id("approval"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("approval suspension");
+    let pending = suspended
+        .snapshot()
+        .resume_point()
+        .pending_step()
+        .expect("pending step");
+    let prepared = &pending.prepared()[0];
+    let identity =
+        TrustIdentity::new("issuer", "audience", "subject", "tenant").expect("valid identity");
+    let context = TrustContext::builder(identity.clone())
+        .model_target(pending.target().clone())
+        .run_id(suspended.snapshot().run_id().clone())
+        .lineage_id(suspended.snapshot().lineage_id().clone())
+        .checkpoint_id(suspended.snapshot().checkpoint_id().clone())
+        .execution_owner(prepared.call().owner.clone())
+        .binding_identity(prepared.binding().clone())
+        .tool_call_id(&prepared.call().id)
+        .canonical_arguments_digest(siumai_runtime::tool::canonical_arguments_digest(
+            &prepared.call().arguments,
+        ))
+        .catalog_fingerprint(suspended.snapshot().fingerprints().tool_catalog.as_str())
+        .policy_fingerprint(suspended.snapshot().fingerprints().approval_policy.as_str())
+        .build()
+        .expect("exact trust context");
+    let claims =
+        ApprovalClaims::issue(&context, u64::MAX, "nonce-1", "key-1").expect("valid claims");
+    verifier.set_claims(claims);
+    let envelope =
+        ApprovalEnvelope::from_bytes(b"signed-approval".to_vec()).expect("valid envelope");
+
+    let replacement_executions = Arc::new(AtomicUsize::new(0));
+    let replacement = not_required_binding(Arc::clone(&replacement_executions), None);
+    let replacement_tools = ToolSet::from_bindings([replacement]).expect("unique tool");
+    let replacement_loop = durable_loop(model, replacement_tools, store.clone());
+    let drift = replacement_loop
+        .resume(&run, DurableResume::default(), CallOptions::default())
+        .await
+        .expect_err("catalog drift must fail before name-only execution");
+    assert!(matches!(
+        drift,
+        DurableRunError::IncompatibleSnapshot {
+            field: "fingerprints"
+        }
+    ));
+    assert_eq!(replacement_executions.load(Ordering::SeqCst), 0);
+
+    let completed = loop_
+        .resume(
+            &run,
+            DurableResume::new().with_approval(DurableApproval::new("call-1", envelope, identity)),
+            CallOptions::default(),
+        )
+        .await
+        .expect("exact frozen binding executes");
+    assert!(completed.is_terminal());
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(replacement_executions.load(Ordering::SeqCst), 0);
+}

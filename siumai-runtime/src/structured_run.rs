@@ -11,7 +11,7 @@ use siumai_core::{CallOptions, Error, ErrorKind, LanguageModel, LanguageRequest}
 
 use crate::engine::{StepEngine, ToolHandling};
 use crate::run::established_run_stream;
-use crate::tool::ToolSet;
+use crate::tool::{ExternalApprovalDecider, ToolSet};
 use crate::{
     OutputDescriptor, RunReport, RunTerminal, Runtime, StepOptions, StructuredOutputAttemptKind,
     StructuredOutputError, StructuredOutputResult, ToolOutcomePolicy,
@@ -185,6 +185,7 @@ impl<T> StructuredOutputRunner<T> {
             self.step_options.clone(),
             shared_options.clone(),
             ToolOutcomePolicy::default(),
+            Arc::new(ExternalApprovalDecider::default()),
             ToolHandling::ObserveOnly,
         )
         .await
@@ -244,6 +245,7 @@ impl<T> StructuredOutputRunner<T> {
                     self.step_options.clone(),
                     repair_options,
                     ToolOutcomePolicy::default(),
+                    Arc::new(ExternalApprovalDecider::default()),
                     ToolHandling::ObserveOnly,
                     seeded_report,
                     next_step,

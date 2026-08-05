@@ -15,8 +15,9 @@ use siumai_core::{
 };
 use siumai_runtime::snapshot::ToolExecutionStatus;
 use siumai_runtime::tool::{
-    ApprovalPolicy, EffectCertainty, ToolBinding, ToolConcurrency, ToolEffect, ToolExecutionError,
-    ToolSet,
+    ApprovalDecider, ApprovalDecision, ApprovalDecisionError, ApprovalDecisionFuture,
+    ApprovalPolicy, ApprovalPolicyFingerprint, ApprovalRequest, EffectCertainty, ToolBinding,
+    ToolConcurrency, ToolEffect, ToolExecutionError, ToolSet,
 };
 use siumai_runtime::{
     OutputDescriptor, RepairPolicy, RunBudget, RunEvent, RunReport, RunTerminal, RunTimeoutKind,
@@ -246,6 +247,72 @@ type ToolFuture = std::pin::Pin<
     >,
 >;
 
+struct StaticApprovalDecider {
+    fingerprint: ApprovalPolicyFingerprint,
+    decision: Result<ApprovalDecision, ApprovalDecisionError>,
+    calls: Arc<AtomicUsize>,
+}
+
+impl StaticApprovalDecider {
+    fn new(decision: ApprovalDecision, calls: Arc<AtomicUsize>) -> Arc<Self> {
+        Arc::new(Self {
+            fingerprint: ApprovalPolicyFingerprint::new("test.approval-policy.v1")
+                .expect("valid fingerprint"),
+            decision: Ok(decision),
+            calls,
+        })
+    }
+
+    fn failing(error: ApprovalDecisionError, calls: Arc<AtomicUsize>) -> Arc<Self> {
+        Arc::new(Self {
+            fingerprint: ApprovalPolicyFingerprint::new("test.approval-policy.v1")
+                .expect("valid fingerprint"),
+            decision: Err(error),
+            calls,
+        })
+    }
+}
+
+impl ApprovalDecider for StaticApprovalDecider {
+    fn decide<'a>(&'a self, _request: &'a ApprovalRequest) -> ApprovalDecisionFuture<'a> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let decision = self.decision.clone();
+        Box::pin(async move { decision })
+    }
+
+    fn fingerprint(&self) -> &ApprovalPolicyFingerprint {
+        &self.fingerprint
+    }
+}
+
+struct PendingApprovalDecider {
+    fingerprint: ApprovalPolicyFingerprint,
+    cancel_on_decide: Option<Cancellation>,
+}
+
+impl PendingApprovalDecider {
+    fn new(cancel_on_decide: Option<Cancellation>) -> Arc<Self> {
+        Arc::new(Self {
+            fingerprint: ApprovalPolicyFingerprint::new("test.pending-approval-policy.v1")
+                .expect("valid fingerprint"),
+            cancel_on_decide,
+        })
+    }
+}
+
+impl ApprovalDecider for PendingApprovalDecider {
+    fn decide<'a>(&'a self, _request: &'a ApprovalRequest) -> ApprovalDecisionFuture<'a> {
+        if let Some(cancellation) = &self.cancel_on_decide {
+            cancellation.cancel();
+        }
+        Box::pin(std::future::pending())
+    }
+
+    fn fingerprint(&self) -> &ApprovalPolicyFingerprint {
+        &self.fingerprint
+    }
+}
+
 fn boxed_tool_future<F>(future: F) -> ToolFuture
 where
     F: std::future::Future<Output = Result<ToolOutcome, siumai_runtime::tool::ToolExecutionError>>
@@ -259,8 +326,16 @@ async fn collect_terminal(
     loop_: &ToolLoop,
     request: LanguageRequest,
 ) -> (Vec<&'static str>, RunTerminal) {
+    collect_terminal_with_options(loop_, request, CallOptions::default()).await
+}
+
+async fn collect_terminal_with_options(
+    loop_: &ToolLoop,
+    request: LanguageRequest,
+    options: CallOptions,
+) -> (Vec<&'static str>, RunTerminal) {
     let mut stream = loop_
-        .stream(request, CallOptions::default())
+        .stream(request, options)
         .await
         .expect("first stream establishes");
     let mut trace = Vec::new();
@@ -847,6 +922,243 @@ async fn required_approval_prepares_and_suspends_without_execution() {
         report.execution_log().status("charge_1"),
         Some(ToolExecutionStatus::Prepared)
     );
+}
+
+#[tokio::test]
+async fn host_auto_approval_authorizes_the_frozen_binding_once() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = ToolBinding::from_fn(
+        tool_spec("charge"),
+        "v1",
+        |_| Ok(()),
+        move |_| {
+            let observed = Arc::clone(&observed);
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: json!(true) })
+            }
+        },
+    )
+    .expect("valid binding");
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let model = ScriptedModel::new([
+        terminal_step(tool_response(vec![local_call(
+            "charge_1",
+            "charge",
+            json!({ "amount": 10 }),
+        )])),
+        terminal_step(final_response("done")),
+    ]);
+    let decisions = Arc::new(AtomicUsize::new(0));
+    let decider = StaticApprovalDecider::new(ApprovalDecision::Approve, Arc::clone(&decisions));
+    let loop_ = ToolLoop::new(model, tools).with_approval_decider(decider);
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(terminal, RunTerminal::Completed { .. }));
+    assert_eq!(decisions.load(Ordering::SeqCst), 1);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn approval_decider_is_never_called_for_not_required_bindings() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = executable_binding("lookup", move |_| {
+        let observed = Arc::clone(&observed);
+        boxed_tool_future(async move {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Ok(ToolOutcome::Success { value: json!(true) })
+        })
+    });
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let model = ScriptedModel::new([
+        terminal_step(tool_response(vec![local_call(
+            "lookup_1",
+            "lookup",
+            json!({ "query": "rust" }),
+        )])),
+        terminal_step(final_response("done")),
+    ]);
+    let decisions = Arc::new(AtomicUsize::new(0));
+    let denial = ApprovalDecision::deny("must not be observed").expect("valid denial");
+    let decider = StaticApprovalDecider::new(denial, Arc::clone(&decisions));
+    let loop_ = ToolLoop::new(model, tools).with_approval_decider(decider);
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(terminal, RunTerminal::Completed { .. }));
+    assert_eq!(decisions.load(Ordering::SeqCst), 0);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn host_denial_is_a_typed_result_and_never_dispatches() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = ToolBinding::from_fn(
+        tool_spec("charge"),
+        "v1",
+        |_| Ok(()),
+        move |_| {
+            let observed = Arc::clone(&observed);
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: json!(true) })
+            }
+        },
+    )
+    .expect("valid binding");
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let model = ScriptedModel::new([terminal_step(tool_response(vec![local_call(
+        "charge_1",
+        "charge",
+        json!({ "amount": 10 }),
+    )]))]);
+    let decisions = Arc::new(AtomicUsize::new(0));
+    let denial = ApprovalDecision::deny("host policy denied execution").expect("valid denial");
+    let decider = StaticApprovalDecider::new(denial, Arc::clone(&decisions));
+    let loop_ = ToolLoop::new(model, tools).with_approval_decider(decider);
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    let report = terminal.report().expect("stopped run has report");
+    assert!(matches!(terminal, RunTerminal::Stopped { .. }));
+    assert_eq!(decisions.load(Ordering::SeqCst), 1);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert!(matches!(
+        report.steps()[0].tool_results()[0].outcome,
+        ToolOutcome::Denied { .. }
+    ));
+}
+
+#[tokio::test]
+async fn approval_policy_failure_is_terminal_and_never_dispatches() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = ToolBinding::from_fn(
+        tool_spec("charge"),
+        "v1",
+        |_| Ok(()),
+        move |_| {
+            let observed = Arc::clone(&observed);
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: json!(true) })
+            }
+        },
+    )
+    .expect("valid binding");
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let model = ScriptedModel::new([terminal_step(tool_response(vec![local_call(
+        "charge_1",
+        "charge",
+        json!({ "amount": 10 }),
+    )]))]);
+    let decisions = Arc::new(AtomicUsize::new(0));
+    let decider = StaticApprovalDecider::failing(
+        ApprovalDecisionError::Unavailable {
+            message: "policy backend unavailable".to_string(),
+        },
+        Arc::clone(&decisions),
+    );
+    let loop_ = ToolLoop::new(model, tools).with_approval_decider(decider);
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(
+        terminal,
+        RunTerminal::Failed { ref error, .. }
+            if error.kind() == ErrorKind::Internal
+                && error.message() == "host approval decision failed"
+    ));
+    assert_eq!(decisions.load(Ordering::SeqCst), 1);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn pending_approval_policy_obeys_total_timeout_without_dispatch() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = ToolBinding::from_fn(
+        tool_spec("charge"),
+        "v1",
+        |_| Ok(()),
+        move |_| {
+            let observed = Arc::clone(&observed);
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: json!(true) })
+            }
+        },
+    )
+    .expect("valid binding");
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let model = ScriptedModel::new([terminal_step(tool_response(vec![local_call(
+        "charge_1",
+        "charge",
+        json!({ "amount": 10 }),
+    )]))]);
+    let timeouts = RunTimeouts::new(
+        Duration::from_millis(30),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+    )
+    .expect("valid timeouts");
+    let budget = RunBudget::builder()
+        .timeouts(timeouts)
+        .build()
+        .expect("valid budget");
+    let runtime = Runtime::builder().with_run_budget(budget).build();
+    let loop_ = ToolLoop::new(model, tools)
+        .with_runtime(runtime)
+        .with_approval_decider(PendingApprovalDecider::new(None));
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(
+        terminal,
+        RunTerminal::TimedOut {
+            kind: RunTimeoutKind::Total,
+            ..
+        }
+    ));
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn cancellation_during_approval_policy_is_typed_and_never_dispatches() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = ToolBinding::from_fn(
+        tool_spec("charge"),
+        "v1",
+        |_| Ok(()),
+        move |_| {
+            let observed = Arc::clone(&observed);
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: json!(true) })
+            }
+        },
+    )
+    .expect("valid binding");
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let model = ScriptedModel::new([terminal_step(tool_response(vec![local_call(
+        "charge_1",
+        "charge",
+        json!({ "amount": 10 }),
+    )]))]);
+    let cancellation = Cancellation::new();
+    let loop_ = ToolLoop::new(model, tools)
+        .with_approval_decider(PendingApprovalDecider::new(Some(cancellation.clone())));
+    let options = CallOptions::default().with_cancellation(cancellation);
+
+    let (_, terminal) = collect_terminal_with_options(&loop_, user_request(), options).await;
+    assert!(matches!(
+        terminal,
+        RunTerminal::Cancelled { ref reason, .. }
+            if reason == "tool loop cancelled during approval decision"
+    ));
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

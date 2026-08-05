@@ -9,7 +9,7 @@ use siumai_core::{CallOptions, Error, LanguageModel, LanguageRequest, ToolOutcom
 
 use crate::engine::{StepEngine, ToolHandling};
 use crate::run::established_run_stream;
-use crate::tool::ToolSet;
+use crate::tool::{ApprovalDecider, ExternalApprovalDecider, ToolSet};
 use crate::{RunStream, RunTerminal, Runtime, StepOptions};
 
 /// Runtime action after a known non-success tool outcome.
@@ -77,6 +77,7 @@ pub struct ToolLoop {
     tools: ToolSet,
     step_options: StepOptions,
     outcome_policy: ToolOutcomePolicy,
+    approval_decider: Arc<dyn ApprovalDecider>,
 }
 
 impl fmt::Debug for ToolLoop {
@@ -89,6 +90,10 @@ impl fmt::Debug for ToolLoop {
             )
             .field("tools", &self.tools.len())
             .field("outcome_policy", &self.outcome_policy)
+            .field(
+                "approval_policy_fingerprint",
+                self.approval_decider.fingerprint(),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -101,6 +106,7 @@ impl ToolLoop {
             tools,
             step_options: StepOptions::default(),
             outcome_policy: ToolOutcomePolicy::default(),
+            approval_decider: Arc::new(ExternalApprovalDecider::default()),
         }
     }
 
@@ -116,6 +122,12 @@ impl ToolLoop {
 
     pub fn with_outcome_policy(mut self, policy: ToolOutcomePolicy) -> Self {
         self.outcome_policy = policy;
+        self
+    }
+
+    /// Install the trusted host policy for bindings marked as requiring approval.
+    pub fn with_approval_decider(mut self, decider: Arc<dyn ApprovalDecider>) -> Self {
+        self.approval_decider = decider;
         self
     }
 
@@ -137,6 +149,7 @@ impl ToolLoop {
             self.step_options.clone(),
             options,
             self.outcome_policy,
+            Arc::clone(&self.approval_decider),
             ToolHandling::Execute,
         )
         .await?;

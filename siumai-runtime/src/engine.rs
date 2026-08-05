@@ -12,10 +12,11 @@ use siumai_core::{
     StreamTerminal, ToolCall, ToolOutcome, ToolResult,
 };
 
-use crate::snapshot::{IndeterminateReason, ToolExecutionEvent};
+use crate::snapshot::{IndeterminateReason, PreparedToolSnapshot, ToolExecutionEvent};
 use crate::tool::{
-    ApprovalPolicy, EffectCertainty, ToolConcurrency, ToolEffect, ToolExecutionError,
-    ToolExecutionRequest, ToolSet,
+    ApprovalDecider, ApprovalDecision, ApprovalPolicy, ApprovalRequest, AuthorizedToolCall,
+    EffectCertainty, ToolConcurrency, ToolEffect, ToolExecutionError, ToolExecutionRequest,
+    ToolSet,
 };
 use crate::tool_loop::{ToolOutcomeAction, ToolOutcomePolicy};
 use crate::{
@@ -33,6 +34,7 @@ pub(crate) struct StepEngine {
     step_options: StepOptions,
     call_options: CallOptions,
     outcome_policy: ToolOutcomePolicy,
+    approval_decider: Arc<dyn ApprovalDecider>,
     tool_handling: ToolHandling,
     budget: RunBudget,
     cancellation: Cancellation,
@@ -63,6 +65,7 @@ impl StepEngine {
         step_options: StepOptions,
         options: CallOptions,
         outcome_policy: ToolOutcomePolicy,
+        approval_decider: Arc<dyn ApprovalDecider>,
         tool_handling: ToolHandling,
     ) -> Result<Self, Error> {
         let target = ModelTarget::from_model(model.as_ref());
@@ -75,6 +78,7 @@ impl StepEngine {
             step_options,
             options,
             outcome_policy,
+            approval_decider,
             tool_handling,
             report,
             0,
@@ -92,6 +96,7 @@ impl StepEngine {
         step_options: StepOptions,
         options: CallOptions,
         outcome_policy: ToolOutcomePolicy,
+        approval_decider: Arc<dyn ApprovalDecider>,
         tool_handling: ToolHandling,
         report: RunReport,
         step: u32,
@@ -104,6 +109,7 @@ impl StepEngine {
             step_options,
             options,
             outcome_policy,
+            approval_decider,
             tool_handling,
             report,
             step,
@@ -121,6 +127,7 @@ impl StepEngine {
         step_options: StepOptions,
         options: CallOptions,
         outcome_policy: ToolOutcomePolicy,
+        approval_decider: Arc<dyn ApprovalDecider>,
         tool_handling: ToolHandling,
         report: RunReport,
         step: u32,
@@ -161,6 +168,7 @@ impl StepEngine {
             step_options,
             call_options,
             outcome_policy,
+            approval_decider,
             tool_handling,
             budget,
             cancellation,
@@ -386,7 +394,7 @@ impl StepEngine {
                 report: Box::new(self.report.clone()),
             }),
             WaitResult::Ready(Some(LanguageStreamEvent::Terminal(terminal))) => {
-                self.consume_model_terminal(terminal, state);
+                self.consume_model_terminal(terminal, state).await;
             }
             WaitResult::Ready(Some(event)) => {
                 state.first_event = false;
@@ -409,10 +417,10 @@ impl StepEngine {
         }
     }
 
-    fn consume_model_terminal(&mut self, terminal: StreamTerminal, state: StepStream) {
+    async fn consume_model_terminal(&mut self, terminal: StreamTerminal, state: StepStream) {
         match terminal {
             StreamTerminal::Completed { response } => {
-                self.prepare_completed_response(*response, state);
+                self.prepare_completed_response(*response, state).await;
             }
             StreamTerminal::Failed { error, response } => {
                 if let Some(response) = response
@@ -464,7 +472,7 @@ impl StepEngine {
         budget_result
     }
 
-    fn prepare_completed_response(&mut self, response: LanguageResponse, state: StepStream) {
+    async fn prepare_completed_response(&mut self, response: LanguageResponse, state: StepStream) {
         self.report.accumulate_usage(response.usage());
         if let Err(error) = self
             .report
@@ -529,6 +537,7 @@ impl StepEngine {
 
         let mut requests = Vec::new();
         let mut approvals = Vec::new();
+        let mut immediate_results = Vec::new();
 
         for (ordinal, call) in calls.into_iter().enumerate() {
             match &call.owner {
@@ -572,7 +581,7 @@ impl StepEngine {
                         });
                         return;
                     }
-                    if let Err(error) = self.log_prepared(&request) {
+                    if let Err(error) = self.log_prepared(ordinal, &request) {
                         self.finish_step(response, Vec::new());
                         self.queue_terminal(RunTerminal::Failed {
                             error,
@@ -585,29 +594,188 @@ impl StepEngine {
                         ordinal,
                         call: call.clone(),
                     });
-                    if request.approval_policy() == ApprovalPolicy::Required {
-                        if let Err(error) = self
-                            .report
-                            .budget_mut()
-                            .reserve_pending_approval(&self.budget)
-                        {
-                            self.finish_step(response, Vec::new());
-                            self.queue_terminal(RunTerminal::BudgetExceeded {
-                                error,
-                                report: Box::new(self.report.clone()),
-                            });
-                            return;
+                    let authorized = match request.approval_policy() {
+                        ApprovalPolicy::NotRequired => match request.authorize_not_required() {
+                            Ok(authorized) => Some(authorized),
+                            Err(error) => {
+                                self.finish_step(
+                                    response,
+                                    immediate_results
+                                        .into_iter()
+                                        .map(|result: IndexedResult| result.result)
+                                        .collect(),
+                                );
+                                self.queue_terminal(RunTerminal::Failed {
+                                    error: execution_authorization_error(error),
+                                    report: Box::new(self.report.clone()),
+                                });
+                                return;
+                            }
+                        },
+                        ApprovalPolicy::Required => {
+                            let approval_request = ApprovalRequest::from_frozen(
+                                self.step,
+                                ordinal,
+                                self.target.clone(),
+                                &request,
+                            );
+                            let decision = wait_for(
+                                self.approval_decider.decide(&approval_request),
+                                &self.cancellation,
+                                self.total_deadline,
+                                RunTimeoutKind::Total,
+                            )
+                            .await;
+                            match decision {
+                                WaitResult::Ready(Ok(ApprovalDecision::Approve)) => {
+                                    Some(request.authorize_host_auto_approved())
+                                }
+                                WaitResult::Ready(Ok(ApprovalDecision::Deny(denial))) => {
+                                    let result = ToolResult {
+                                        call_id: request.call_id().to_string(),
+                                        name: request.name().to_string(),
+                                        outcome: ToolOutcome::Denied {
+                                            reason: denial.reason().to_owned(),
+                                        },
+                                    };
+                                    if let Err(error) =
+                                        self.record_non_dispatch_result(&request, &result)
+                                    {
+                                        self.finish_step(
+                                            response,
+                                            immediate_results
+                                                .into_iter()
+                                                .map(|result: IndexedResult| result.result)
+                                                .collect(),
+                                        );
+                                        match error {
+                                            NonDispatchResultError::Budget(error) => {
+                                                self.queue_terminal(RunTerminal::BudgetExceeded {
+                                                    error,
+                                                    report: Box::new(self.report.clone()),
+                                                });
+                                            }
+                                            NonDispatchResultError::Failed(error) => {
+                                                self.queue_terminal(RunTerminal::Failed {
+                                                    error,
+                                                    report: Box::new(self.report.clone()),
+                                                });
+                                            }
+                                        }
+                                        return;
+                                    }
+                                    self.pending.push_back(RunEvent::ToolCompleted {
+                                        step: self.step,
+                                        ordinal,
+                                        result: result.clone(),
+                                    });
+                                    let stop = self.outcome_policy.action(&result.outcome)
+                                        == ToolOutcomeAction::Stop;
+                                    immediate_results.push(IndexedResult {
+                                        ordinal,
+                                        result: result.clone(),
+                                    });
+                                    if stop {
+                                        let tool_results = immediate_results
+                                            .into_iter()
+                                            .map(|result| result.result)
+                                            .collect();
+                                        self.finish_step(response, tool_results);
+                                        self.queue_terminal(RunTerminal::Stopped {
+                                            reason: RunStopReason::ToolOutcome {
+                                                call_id: result.call_id,
+                                                outcome: result.outcome,
+                                            },
+                                            report: Box::new(self.report.clone()),
+                                        });
+                                        return;
+                                    }
+                                    None
+                                }
+                                WaitResult::Ready(Ok(ApprovalDecision::AwaitExternal)) => {
+                                    if let Err(error) = self
+                                        .report
+                                        .budget_mut()
+                                        .reserve_pending_approval(&self.budget)
+                                    {
+                                        self.finish_step(
+                                            response,
+                                            immediate_results
+                                                .into_iter()
+                                                .map(|result: IndexedResult| result.result)
+                                                .collect(),
+                                        );
+                                        self.queue_terminal(RunTerminal::BudgetExceeded {
+                                            error,
+                                            report: Box::new(self.report.clone()),
+                                        });
+                                        return;
+                                    }
+                                    approvals.push(call.id.clone());
+                                    None
+                                }
+                                WaitResult::Ready(Err(error)) => {
+                                    self.finish_step(
+                                        response,
+                                        immediate_results
+                                            .into_iter()
+                                            .map(|result: IndexedResult| result.result)
+                                            .collect(),
+                                    );
+                                    self.queue_terminal(RunTerminal::Failed {
+                                        error: execution_approval_decision_error(error),
+                                        report: Box::new(self.report.clone()),
+                                    });
+                                    return;
+                                }
+                                WaitResult::TimedOut(kind) => {
+                                    self.finish_step(
+                                        response,
+                                        immediate_results
+                                            .into_iter()
+                                            .map(|result: IndexedResult| result.result)
+                                            .collect(),
+                                    );
+                                    self.queue_terminal(RunTerminal::TimedOut {
+                                        kind,
+                                        report: Box::new(self.report.clone()),
+                                    });
+                                    return;
+                                }
+                                WaitResult::Cancelled => {
+                                    self.finish_step(
+                                        response,
+                                        immediate_results
+                                            .into_iter()
+                                            .map(|result: IndexedResult| result.result)
+                                            .collect(),
+                                    );
+                                    self.queue_terminal(RunTerminal::Cancelled {
+                                        reason: "tool loop cancelled during approval decision"
+                                            .to_string(),
+                                        report: Box::new(self.report.clone()),
+                                    });
+                                    return;
+                                }
+                            }
                         }
-                        approvals.push(call.id.clone());
+                    };
+                    if let Some(call) = authorized {
+                        requests.push(IndexedAuthorizedCall { ordinal, call });
                     }
-                    requests.push(IndexedRequest { ordinal, request });
                 }
                 _ => {}
             }
         }
 
         if !approvals.is_empty() {
-            self.finish_step(response, Vec::new());
+            self.finish_step(
+                response,
+                immediate_results
+                    .into_iter()
+                    .map(|result| result.result)
+                    .collect(),
+            );
             self.queue_terminal(RunTerminal::Suspended {
                 reason: SuspensionReason::AwaitingApproval {
                     call_ids: approvals,
@@ -615,12 +783,27 @@ impl StepEngine {
                 report: Box::new(self.report.clone()),
             });
         } else if requests.is_empty() {
-            self.finish_step(response, Vec::new());
-            self.queue_terminal(RunTerminal::Completed {
-                report: Box::new(self.report.clone()),
-            });
+            let continued = !immediate_results.is_empty();
+            self.finish_step(
+                response,
+                immediate_results
+                    .into_iter()
+                    .map(|result| result.result)
+                    .collect(),
+            );
+            if continued {
+                self.needs_next_step = true;
+            } else {
+                self.queue_terminal(RunTerminal::Completed {
+                    report: Box::new(self.report.clone()),
+                });
+            }
         } else {
-            self.prepared_step = Some(PreparedStep { response, requests });
+            self.prepared_step = Some(PreparedStep {
+                response,
+                requests,
+                results: immediate_results,
+            });
         }
     }
 
@@ -657,8 +840,13 @@ impl StepEngine {
     }
 
     async fn execute_prepared_step(&mut self, prepared: PreparedStep) {
-        let progress = self.execute_requests(prepared.requests).await;
-        let mut results = progress.results;
+        let PreparedStep {
+            response,
+            requests,
+            mut results,
+        } = prepared;
+        let progress = self.execute_requests(requests).await;
+        results.extend(progress.results);
         results.sort_unstable_by_key(|result| result.ordinal);
         for result in &results {
             self.pending.push_back(RunEvent::ToolCompleted {
@@ -671,7 +859,7 @@ impl StepEngine {
             .iter()
             .map(|result| result.result.clone())
             .collect::<Vec<_>>();
-        self.finish_step(prepared.response, tool_results);
+        self.finish_step(response, tool_results);
 
         match progress.stop {
             None => self.needs_next_step = true,
@@ -714,16 +902,19 @@ impl StepEngine {
         }
     }
 
-    async fn execute_requests(&mut self, requests: Vec<IndexedRequest>) -> ExecutionProgress {
+    async fn execute_requests(
+        &mut self,
+        requests: Vec<IndexedAuthorizedCall>,
+    ) -> ExecutionProgress {
         let mut queue = VecDeque::from(requests);
         let mut results = Vec::new();
 
         while let Some(front) = queue.front() {
-            if is_parallel_safe(&front.request) {
+            if is_parallel_safe(front.call.request()) {
                 let mut batch = Vec::new();
                 while queue
                     .front()
-                    .is_some_and(|request| is_parallel_safe(&request.request))
+                    .is_some_and(|request| is_parallel_safe(request.call.request()))
                 {
                     if let Some(request) = queue.pop_front() {
                         batch.push(request);
@@ -755,22 +946,25 @@ impl StepEngine {
         }
     }
 
-    async fn execute_sequential(&mut self, request: IndexedRequest) -> ExecutionProgress {
+    async fn execute_sequential(&mut self, request: IndexedAuthorizedCall) -> ExecutionProgress {
         if let Some(stop) = self.pre_dispatch_stop() {
             return ExecutionProgress::stopped(stop);
         }
-        if let Err(error) = self.log_dispatched(&request.request) {
+        if let Err(error) = self.log_dispatched(request.call.request()) {
             return ExecutionProgress::stopped(ExecutionStop::Failed(error));
         }
         let attempt = self.await_tool(request).await;
         self.process_attempt(attempt)
     }
 
-    async fn execute_parallel_batch(&mut self, requests: Vec<IndexedRequest>) -> ExecutionProgress {
+    async fn execute_parallel_batch(
+        &mut self,
+        requests: Vec<IndexedAuthorizedCall>,
+    ) -> ExecutionProgress {
         let mut pending = VecDeque::from(requests);
         let mut active = FuturesUnordered::<BoxToolFuture>::new();
         let mut active_by_binding = BTreeMap::<String, usize>::new();
-        let mut active_calls = BTreeMap::<usize, String>::new();
+        let mut active_calls = BTreeMap::new();
         let mut results = Vec::new();
         let mut policy_stop: Option<(usize, String, ToolOutcome)> = None;
 
@@ -784,9 +978,9 @@ impl StepEngine {
                     };
                 }
                 let eligible = pending.iter().position(|candidate| {
-                    let key = binding_key(&candidate.request);
+                    let key = binding_key(candidate.call.request());
                     let active_count = active_by_binding.get(&key).copied().unwrap_or(0);
-                    active_count < binding_parallel_limit(&candidate.request)
+                    active_count < binding_parallel_limit(candidate.call.request())
                 });
                 let Some(position) = eligible else {
                     break;
@@ -794,16 +988,22 @@ impl StepEngine {
                 let Some(request) = pending.remove(position) else {
                     break;
                 };
-                if let Err(error) = self.log_dispatched(&request.request) {
+                if let Err(error) = self.log_dispatched(request.call.request()) {
                     self.mark_active_indeterminate(&active_calls);
                     return ExecutionProgress {
                         results,
                         stop: Some(ExecutionStop::Failed(error)),
                     };
                 }
-                let key = binding_key(&request.request);
+                let key = binding_key(request.call.request());
                 *active_by_binding.entry(key).or_default() += 1;
-                active_calls.insert(request.ordinal, request.request.call_id().to_string());
+                active_calls.insert(
+                    request.ordinal,
+                    (
+                        request.call.request().call_id().to_string(),
+                        request.call.request().attempt(),
+                    ),
+                );
                 let cancellation = self.cancellation.clone();
                 let total_deadline = self.total_deadline;
                 let tool_timeout = self.budget.timeouts().tool();
@@ -818,11 +1018,11 @@ impl StepEngine {
             let Some(attempt) = active.next().await else {
                 break;
             };
-            let key = binding_key(&attempt.request.request);
+            let key = binding_key(&attempt.request);
             if let Some(count) = active_by_binding.get_mut(&key) {
                 *count = count.saturating_sub(1);
             }
-            active_calls.remove(&attempt.request.ordinal);
+            active_calls.remove(&attempt.ordinal);
             let progress = self.process_attempt(attempt);
             if let Some(stop) = progress.stop {
                 match stop {
@@ -856,7 +1056,7 @@ impl StepEngine {
         ExecutionProgress { results, stop }
     }
 
-    async fn await_tool(&mut self, request: IndexedRequest) -> ToolAttempt {
+    async fn await_tool(&mut self, request: IndexedAuthorizedCall) -> ToolAttempt {
         await_tool_attempt(
             request,
             self.cancellation.clone(),
@@ -867,15 +1067,11 @@ impl StepEngine {
     }
 
     fn process_attempt(&mut self, attempt: ToolAttempt) -> ExecutionProgress {
-        let effect = attempt.request.request.effect();
-        let call_id = attempt.request.request.call_id().to_string();
-        let binding_fingerprint = attempt
-            .request
-            .request
-            .binding_identity()
-            .fingerprint
-            .clone();
-        let ordinal = attempt.request.ordinal;
+        let effect = attempt.request.effect();
+        let call_id = attempt.request.call_id().to_string();
+        let execution_attempt = attempt.request.attempt();
+        let binding_fingerprint = attempt.request.binding_identity().fingerprint.clone();
+        let ordinal = attempt.ordinal;
 
         let result = match attempt.outcome {
             ToolAttemptOutcome::Completed(Ok(result)) => result,
@@ -883,7 +1079,11 @@ impl StepEngine {
                 if error.effect_certainty() == EffectCertainty::Indeterminate
                     && effect == ToolEffect::SideEffecting
                 {
-                    self.log_indeterminate(&call_id, IndeterminateReason::DispatchOutcomeUnknown);
+                    self.log_indeterminate(
+                        &call_id,
+                        execution_attempt,
+                        IndeterminateReason::DispatchOutcomeUnknown,
+                    );
                     return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
                         IndeterminateEffect {
                             call_id,
@@ -895,12 +1095,16 @@ impl StepEngine {
                 }
                 ToolResult {
                     call_id: call_id.clone(),
-                    name: attempt.request.request.name().to_string(),
+                    name: attempt.request.name().to_string(),
                     outcome: execution_error_outcome(error),
                 }
             }
             ToolAttemptOutcome::TimedOut(kind) => {
-                self.log_indeterminate(&call_id, IndeterminateReason::DispatchOutcomeUnknown);
+                self.log_indeterminate(
+                    &call_id,
+                    execution_attempt,
+                    IndeterminateReason::DispatchOutcomeUnknown,
+                );
                 if effect == ToolEffect::SideEffecting {
                     return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
                         IndeterminateEffect {
@@ -913,7 +1117,11 @@ impl StepEngine {
                 return ExecutionProgress::stopped(ExecutionStop::TimedOut(kind));
             }
             ToolAttemptOutcome::Cancelled => {
-                self.log_indeterminate(&call_id, IndeterminateReason::CancellationAfterDispatch);
+                self.log_indeterminate(
+                    &call_id,
+                    execution_attempt,
+                    IndeterminateReason::CancellationAfterDispatch,
+                );
                 if effect == ToolEffect::SideEffecting {
                     return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
                         IndeterminateEffect {
@@ -930,7 +1138,11 @@ impl StepEngine {
         let result_bytes = match serde_json::to_vec(&result) {
             Ok(value) => value.len(),
             Err(error) => {
-                self.log_indeterminate(&call_id, IndeterminateReason::CheckpointFailure);
+                self.log_indeterminate(
+                    &call_id,
+                    execution_attempt,
+                    IndeterminateReason::CheckpointFailure,
+                );
                 if effect == ToolEffect::SideEffecting {
                     return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
                         IndeterminateEffect {
@@ -954,7 +1166,11 @@ impl StepEngine {
             .budget_mut()
             .charge_tool_result(result_bytes, &self.budget)
         {
-            self.log_indeterminate(&call_id, IndeterminateReason::CheckpointFailure);
+            self.log_indeterminate(
+                &call_id,
+                execution_attempt,
+                IndeterminateReason::CheckpointFailure,
+            );
             if effect == ToolEffect::SideEffecting {
                 return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
                     IndeterminateEffect {
@@ -966,8 +1182,12 @@ impl StepEngine {
             }
             return ExecutionProgress::stopped(ExecutionStop::Budget(error));
         }
-        if let Err(error) = self.log_completed(&result) {
-            self.log_indeterminate(&call_id, IndeterminateReason::CheckpointFailure);
+        if let Err(error) = self.log_completed(&attempt.request, &result) {
+            self.log_indeterminate(
+                &call_id,
+                execution_attempt,
+                IndeterminateReason::CheckpointFailure,
+            );
             if effect == ToolEffect::SideEffecting {
                 return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
                     IndeterminateEffect {
@@ -1018,16 +1238,33 @@ impl StepEngine {
         });
     }
 
-    fn log_prepared(&mut self, request: &ToolExecutionRequest) -> Result<(), Error> {
+    fn log_prepared(
+        &mut self,
+        ordinal: usize,
+        request: &ToolExecutionRequest,
+    ) -> Result<(), Error> {
+        let ordinal = u32::try_from(ordinal).map_err(|error| {
+            Error::new(
+                ErrorKind::LimitExceeded,
+                "tool ordinal cannot be represented in a durable execution log",
+            )
+            .with_source(error)
+        })?;
         let sequence = self.report.execution_log().next_sequence();
         self.report
             .execution_log_mut()
             .append(ToolExecutionEvent::prepared(
                 sequence,
                 unix_millis(),
-                request.call().clone(),
-                request.binding_identity().clone(),
-                None,
+                self.step,
+                PreparedToolSnapshot::new(
+                    ordinal,
+                    request.call().clone(),
+                    request.binding_identity().clone(),
+                    request.recovery_policy(),
+                    request.idempotency_key().cloned(),
+                    request.attempt(),
+                ),
             ))
             .map_err(execution_log_error)
     }
@@ -1040,12 +1277,17 @@ impl StepEngine {
                 sequence,
                 unix_millis(),
                 request.call_id(),
+                request.attempt(),
                 None,
             ))
             .map_err(execution_log_error)
     }
 
-    fn log_completed(&mut self, result: &ToolResult) -> Result<(), Error> {
+    fn log_completed(
+        &mut self,
+        request: &ToolExecutionRequest,
+        result: &ToolResult,
+    ) -> Result<(), Error> {
         let sequence = self.report.execution_log().next_sequence();
         self.report
             .execution_log_mut()
@@ -1053,12 +1295,42 @@ impl StepEngine {
                 sequence,
                 unix_millis(),
                 &result.call_id,
+                request.attempt(),
                 result.outcome.clone(),
             ))
             .map_err(execution_log_error)
     }
 
-    fn log_indeterminate(&mut self, call_id: &str, reason: IndeterminateReason) {
+    fn record_non_dispatch_result(
+        &mut self,
+        request: &ToolExecutionRequest,
+        result: &ToolResult,
+    ) -> Result<(), NonDispatchResultError> {
+        let result_bytes = serde_json::to_vec(result)
+            .map_err(|error| {
+                NonDispatchResultError::Failed(
+                    Error::new(
+                        ErrorKind::Internal,
+                        "tool result could not be serialized for budget accounting",
+                    )
+                    .with_source(error),
+                )
+            })?
+            .len();
+        self.report
+            .budget_mut()
+            .charge_tool_result(result_bytes, &self.budget)
+            .map_err(NonDispatchResultError::Budget)?;
+        self.log_completed(request, result)
+            .map_err(NonDispatchResultError::Failed)
+    }
+
+    fn log_indeterminate(
+        &mut self,
+        call_id: &str,
+        attempt: crate::tool::ToolExecutionAttempt,
+        reason: IndeterminateReason,
+    ) {
         let sequence = self.report.execution_log().next_sequence();
         let _ = self
             .report
@@ -1067,13 +1339,21 @@ impl StepEngine {
                 sequence,
                 unix_millis(),
                 call_id,
+                attempt,
                 reason,
             ));
     }
 
-    fn mark_active_indeterminate(&mut self, active: &BTreeMap<usize, String>) {
-        for call_id in active.values() {
-            self.log_indeterminate(call_id, IndeterminateReason::DispatchOutcomeUnknown);
+    fn mark_active_indeterminate(
+        &mut self,
+        active: &BTreeMap<usize, (String, crate::tool::ToolExecutionAttempt)>,
+    ) {
+        for (call_id, attempt) in active.values() {
+            self.log_indeterminate(
+                call_id,
+                *attempt,
+                IndeterminateReason::DispatchOutcomeUnknown,
+            );
         }
     }
 
@@ -1109,12 +1389,13 @@ struct StepStream {
 
 struct PreparedStep {
     response: LanguageResponse,
-    requests: Vec<IndexedRequest>,
+    requests: Vec<IndexedAuthorizedCall>,
+    results: Vec<IndexedResult>,
 }
 
-struct IndexedRequest {
+struct IndexedAuthorizedCall {
     ordinal: usize,
-    request: ToolExecutionRequest,
+    call: AuthorizedToolCall,
 }
 
 struct IndexedResult {
@@ -1123,7 +1404,8 @@ struct IndexedResult {
 }
 
 struct ToolAttempt {
-    request: IndexedRequest,
+    ordinal: usize,
+    request: ToolExecutionRequest,
     outcome: ToolAttemptOutcome,
 }
 
@@ -1159,6 +1441,11 @@ enum ExecutionStop {
     Failed(Error),
 }
 
+enum NonDispatchResultError {
+    Budget(crate::BudgetError),
+    Failed(Error),
+}
+
 enum WaitResult<T> {
     Ready(T),
     TimedOut(RunTimeoutKind),
@@ -1185,19 +1472,25 @@ where
 }
 
 async fn await_tool_attempt(
-    request: IndexedRequest,
+    request: IndexedAuthorizedCall,
     cancellation: Cancellation,
     total_deadline: Instant,
     tool_timeout: std::time::Duration,
 ) -> ToolAttempt {
     let tool_deadline = checked_deadline(Instant::now(), tool_timeout);
     let (deadline, kind) = classify_deadline(total_deadline, tool_deadline, RunTimeoutKind::Tool);
-    let outcome = match wait_for(request.request.execute(), &cancellation, deadline, kind).await {
+    let IndexedAuthorizedCall { ordinal, call } = request;
+    let frozen_request = call.request().clone();
+    let outcome = match wait_for(call.dispatch(), &cancellation, deadline, kind).await {
         WaitResult::Ready(result) => ToolAttemptOutcome::Completed(result),
         WaitResult::TimedOut(kind) => ToolAttemptOutcome::TimedOut(kind),
         WaitResult::Cancelled => ToolAttemptOutcome::Cancelled,
     };
-    ToolAttempt { request, outcome }
+    ToolAttempt {
+        ordinal,
+        request: frozen_request,
+        outcome,
+    }
 }
 
 fn reject_untrusted_collisions(request: &LanguageRequest, tools: &ToolSet) -> Result<(), Error> {
@@ -1248,6 +1541,20 @@ fn execution_error_outcome(error: ToolExecutionError) -> ToolOutcome {
 
 fn execution_log_error(error: impl std::error::Error + Send + Sync + 'static) -> Error {
     Error::new(ErrorKind::Internal, "tool execution log transition failed").with_source(error)
+}
+
+fn execution_authorization_error(error: impl std::error::Error + Send + Sync + 'static) -> Error {
+    Error::new(
+        ErrorKind::Internal,
+        "tool execution authorization invariant failed",
+    )
+    .with_source(error)
+}
+
+fn execution_approval_decision_error(
+    error: impl std::error::Error + Send + Sync + 'static,
+) -> Error {
+    Error::new(ErrorKind::Internal, "host approval decision failed").with_source(error)
 }
 
 fn budget_start_error(error: crate::BudgetError) -> Error {

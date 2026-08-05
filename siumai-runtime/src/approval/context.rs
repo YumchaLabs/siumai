@@ -4,36 +4,42 @@ use siumai_core::{ExecutionOwner, RouteId, ToolBindingIdentity};
 use thiserror::Error;
 
 use crate::options::ModelTarget;
+use crate::snapshot::{CheckpointId, LineageId, RunId};
 
 const MAX_CONTEXT_VALUE_BYTES: usize = 4096;
 const MAX_FINGERPRINT_BYTES: usize = 1024;
 
-/// Host-authenticated values that authorize exactly one frozen tool binding.
+/// Host-authenticated actor identity used to derive exact approval contexts.
 ///
-/// This type intentionally cannot be deserialized. A remote request may carry
-/// similarly named values, but only trusted host code can construct the
-/// context used during approval verification.
+/// This type intentionally cannot be deserialized. Remote requests may carry
+/// similarly named fields, but trusted host code must authenticate them before
+/// constructing this value.
 #[derive(Clone, PartialEq, Eq)]
-pub struct TrustContext {
+pub struct TrustIdentity {
     issuer: String,
     audience: String,
     subject: String,
     tenant: String,
-    route: Option<RouteId>,
-    model_target: ModelTarget,
-    run_lineage: String,
-    checkpoint: String,
-    execution_owner: ExecutionOwner,
-    binding_identity: ToolBindingIdentity,
-    tool_call_id: String,
-    canonical_arguments_digest: String,
-    catalog_fingerprint: String,
-    policy_fingerprint: String,
 }
 
-impl TrustContext {
-    pub fn builder() -> TrustContextBuilder {
-        TrustContextBuilder::default()
+impl TrustIdentity {
+    pub fn new(
+        issuer: impl Into<String>,
+        audience: impl Into<String>,
+        subject: impl Into<String>,
+        tenant: impl Into<String>,
+    ) -> Result<Self, TrustContextBuildError> {
+        let identity = Self {
+            issuer: issuer.into(),
+            audience: audience.into(),
+            subject: subject.into(),
+            tenant: tenant.into(),
+        };
+        validate_context_value("issuer", &identity.issuer, MAX_CONTEXT_VALUE_BYTES)?;
+        validate_context_value("audience", &identity.audience, MAX_CONTEXT_VALUE_BYTES)?;
+        validate_context_value("subject", &identity.subject, MAX_CONTEXT_VALUE_BYTES)?;
+        validate_context_value("tenant", &identity.tenant, MAX_CONTEXT_VALUE_BYTES)?;
+        Ok(identity)
     }
 
     pub fn issuer(&self) -> &str {
@@ -51,6 +57,61 @@ impl TrustContext {
     pub fn tenant(&self) -> &str {
         &self.tenant
     }
+}
+
+impl fmt::Debug for TrustIdentity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TrustIdentity")
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Host-authenticated values that authorize exactly one frozen tool binding.
+///
+/// Runtime code derives the execution-bound fields from a snapshot and frozen
+/// request. The host supplies only the already-authenticated [`TrustIdentity`].
+#[derive(Clone, PartialEq, Eq)]
+pub struct TrustContext {
+    identity: TrustIdentity,
+    route: Option<RouteId>,
+    model_target: ModelTarget,
+    run_id: RunId,
+    lineage_id: LineageId,
+    checkpoint_id: CheckpointId,
+    execution_owner: ExecutionOwner,
+    binding_identity: ToolBindingIdentity,
+    tool_call_id: String,
+    canonical_arguments_digest: String,
+    catalog_fingerprint: String,
+    policy_fingerprint: String,
+}
+
+impl TrustContext {
+    pub fn builder(identity: TrustIdentity) -> TrustContextBuilder {
+        TrustContextBuilder::new(identity)
+    }
+
+    pub fn identity(&self) -> &TrustIdentity {
+        &self.identity
+    }
+
+    pub fn issuer(&self) -> &str {
+        self.identity.issuer()
+    }
+
+    pub fn audience(&self) -> &str {
+        self.identity.audience()
+    }
+
+    pub fn subject(&self) -> &str {
+        self.identity.subject()
+    }
+
+    pub fn tenant(&self) -> &str {
+        self.identity.tenant()
+    }
 
     pub fn route(&self) -> Option<&RouteId> {
         self.route.as_ref()
@@ -60,12 +121,16 @@ impl TrustContext {
         &self.model_target
     }
 
-    pub fn run_lineage(&self) -> &str {
-        &self.run_lineage
+    pub fn run_id(&self) -> &RunId {
+        &self.run_id
     }
 
-    pub fn checkpoint(&self) -> &str {
-        &self.checkpoint
+    pub fn lineage_id(&self) -> &LineageId {
+        &self.lineage_id
+    }
+
+    pub fn checkpoint_id(&self) -> &CheckpointId {
+        &self.checkpoint_id
     }
 
     pub fn execution_owner(&self) -> &ExecutionOwner {
@@ -102,16 +167,14 @@ impl fmt::Debug for TrustContext {
     }
 }
 
-/// Builder for a host-created [`TrustContext`].
-#[derive(Clone, Default)]
+/// Builder used internally to derive one exact [`TrustContext`].
+#[derive(Clone)]
 pub struct TrustContextBuilder {
-    issuer: Option<String>,
-    audience: Option<String>,
-    subject: Option<String>,
-    tenant: Option<String>,
+    identity: TrustIdentity,
     model_target: Option<ModelTarget>,
-    run_lineage: Option<String>,
-    checkpoint: Option<String>,
+    run_id: Option<RunId>,
+    lineage_id: Option<LineageId>,
+    checkpoint_id: Option<CheckpointId>,
     execution_owner: Option<ExecutionOwner>,
     binding_identity: Option<ToolBindingIdentity>,
     tool_call_id: Option<String>,
@@ -121,24 +184,20 @@ pub struct TrustContextBuilder {
 }
 
 impl TrustContextBuilder {
-    pub fn issuer(mut self, issuer: impl Into<String>) -> Self {
-        self.issuer = Some(issuer.into());
-        self
-    }
-
-    pub fn audience(mut self, audience: impl Into<String>) -> Self {
-        self.audience = Some(audience.into());
-        self
-    }
-
-    pub fn subject(mut self, subject: impl Into<String>) -> Self {
-        self.subject = Some(subject.into());
-        self
-    }
-
-    pub fn tenant(mut self, tenant: impl Into<String>) -> Self {
-        self.tenant = Some(tenant.into());
-        self
+    pub fn new(identity: TrustIdentity) -> Self {
+        Self {
+            identity,
+            model_target: None,
+            run_id: None,
+            lineage_id: None,
+            checkpoint_id: None,
+            execution_owner: None,
+            binding_identity: None,
+            tool_call_id: None,
+            canonical_arguments_digest: None,
+            catalog_fingerprint: None,
+            policy_fingerprint: None,
+        }
     }
 
     pub fn model_target(mut self, model_target: ModelTarget) -> Self {
@@ -146,13 +205,18 @@ impl TrustContextBuilder {
         self
     }
 
-    pub fn run_lineage(mut self, run_lineage: impl Into<String>) -> Self {
-        self.run_lineage = Some(run_lineage.into());
+    pub fn run_id(mut self, run_id: RunId) -> Self {
+        self.run_id = Some(run_id);
         self
     }
 
-    pub fn checkpoint(mut self, checkpoint: impl Into<String>) -> Self {
-        self.checkpoint = Some(checkpoint.into());
+    pub fn lineage_id(mut self, lineage_id: LineageId) -> Self {
+        self.lineage_id = Some(lineage_id);
+        self
+    }
+
+    pub fn checkpoint_id(mut self, checkpoint_id: CheckpointId) -> Self {
+        self.checkpoint_id = Some(checkpoint_id);
         self
     }
 
@@ -187,13 +251,10 @@ impl TrustContextBuilder {
     }
 
     pub fn build(self) -> Result<TrustContext, TrustContextBuildError> {
-        let issuer = required(self.issuer, "issuer")?;
-        let audience = required(self.audience, "audience")?;
-        let subject = required(self.subject, "subject")?;
-        let tenant = required(self.tenant, "tenant")?;
         let model_target = required(self.model_target, "model_target")?;
-        let run_lineage = required(self.run_lineage, "run_lineage")?;
-        let checkpoint = required(self.checkpoint, "checkpoint")?;
+        let run_id = required(self.run_id, "run_id")?;
+        let lineage_id = required(self.lineage_id, "lineage_id")?;
+        let checkpoint_id = required(self.checkpoint_id, "checkpoint_id")?;
         let execution_owner = required(self.execution_owner, "execution_owner")?;
         let binding_identity = required(self.binding_identity, "binding_identity")?;
         let tool_call_id = required(self.tool_call_id, "tool_call_id")?;
@@ -204,12 +265,6 @@ impl TrustContextBuilder {
         let catalog_fingerprint = required(self.catalog_fingerprint, "catalog_fingerprint")?;
         let policy_fingerprint = required(self.policy_fingerprint, "policy_fingerprint")?;
 
-        validate_context_value("issuer", &issuer, MAX_CONTEXT_VALUE_BYTES)?;
-        validate_context_value("audience", &audience, MAX_CONTEXT_VALUE_BYTES)?;
-        validate_context_value("subject", &subject, MAX_CONTEXT_VALUE_BYTES)?;
-        validate_context_value("tenant", &tenant, MAX_CONTEXT_VALUE_BYTES)?;
-        validate_context_value("run_lineage", &run_lineage, MAX_CONTEXT_VALUE_BYTES)?;
-        validate_context_value("checkpoint", &checkpoint, MAX_CONTEXT_VALUE_BYTES)?;
         validate_context_value(
             "binding_identity.name",
             &binding_identity.name,
@@ -239,14 +294,12 @@ impl TrustContextBuilder {
 
         let route = model_target.route().cloned();
         Ok(TrustContext {
-            issuer,
-            audience,
-            subject,
-            tenant,
+            identity: self.identity,
             route,
             model_target,
-            run_lineage,
-            checkpoint,
+            run_id,
+            lineage_id,
+            checkpoint_id,
             execution_owner,
             binding_identity,
             tool_call_id,

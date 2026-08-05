@@ -11,6 +11,7 @@ pub mod tool;
 
 mod budget;
 mod call;
+mod durable;
 mod engine;
 mod history;
 mod options;
@@ -21,6 +22,10 @@ mod tool_loop;
 
 pub use budget::{BudgetError, BudgetKind, BudgetLedger, RunBudget, RunBudgetBuilder, RunTimeouts};
 pub use call::{generate, stream};
+pub use durable::{
+    DurableApproval, DurableResume, DurableRun, DurableRunError, DurableToolLoop,
+    IndeterminateRecoveryPolicy,
+};
 pub use history::{
     HistoryProjectionError, ProjectedHistory, ProjectionLocation, ProjectionLoss,
     ProjectionLossReason, ProjectionPolicy, ProjectionSeverity, project_history,

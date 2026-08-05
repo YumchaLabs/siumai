@@ -5,12 +5,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::{RunId, RunSnapshot, RunSnapshotError};
+use super::{RunId, RunSnapshot, RunSnapshotError, RunSnapshotSuccessorError};
 
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -145,6 +145,15 @@ pub trait RunStore: Send + Sync {
     ) -> RunStoreFuture<'a, SnapshotRevision>;
 
     fn renew<'a>(&'a self, lease: &'a mut RunLease, ttl: Duration) -> RunStoreFuture<'a, ()>;
+
+    /// Release exclusive ownership after the durable operation reaches a
+    /// quiescent boundary.
+    ///
+    /// The lease is consumed so it cannot be reused after release. Stores
+    /// backed by remote persistence must implement this explicitly; lease
+    /// expiry remains the crash fallback rather than the normal completion
+    /// path.
+    fn release<'a>(&'a self, lease: RunLease) -> RunStoreFuture<'a, ()>;
 }
 
 /// Typed snapshot-store failure.
@@ -177,10 +186,8 @@ pub enum RunStoreError {
     },
     #[error("a terminal run cannot be updated")]
     RunAlreadyTerminal,
-    #[error("successor snapshot changes immutable run identity or policy")]
-    IncompatibleSuccessor,
-    #[error("successor snapshot rewrites or removes execution-log history")]
-    ExecutionLogRegression,
+    #[error(transparent)]
+    InvalidSuccessor(#[from] RunSnapshotSuccessorError),
     #[error("run store is unavailable")]
     Unavailable,
     #[error(transparent)]
@@ -308,19 +315,14 @@ impl RunStore for InMemoryRunStore {
         Box::pin(async move {
             let mut state = self.lock()?;
             self.validate_lease(&mut state, lease)?;
-            let stored = state.runs.get(lease.run_id()).cloned();
-            drop(state);
-
-            stored
-                .map(|stored| {
-                    Ok(StoredRun {
-                        revision: stored.revision,
-                        snapshot: stored
-                            .snapshot
-                            .recovered_for_resume(current_unix_millis())?,
-                    })
-                })
-                .transpose()
+            Ok(state
+                .runs
+                .get(lease.run_id())
+                .cloned()
+                .map(|stored| StoredRun {
+                    revision: stored.revision,
+                    snapshot: stored.snapshot,
+                }))
         })
     }
 
@@ -349,18 +351,10 @@ impl RunStore for InMemoryRunStore {
             }
 
             if let Some(current) = state.runs.get(lease.run_id()) {
-                if current.snapshot.state().is_terminal() {
+                if current.snapshot.resume_point().is_terminal() {
                     return Err(RunStoreError::RunAlreadyTerminal);
                 }
-                if !current.snapshot.is_compatible_successor(&snapshot) {
-                    return Err(RunStoreError::IncompatibleSuccessor);
-                }
-                if !snapshot
-                    .execution_log()
-                    .has_prefix(current.snapshot.execution_log())
-                {
-                    return Err(RunStoreError::ExecutionLogRegression);
-                }
+                current.snapshot.validate_successor(&snapshot)?;
             }
 
             let revision = actual.next()?;
@@ -385,6 +379,15 @@ impl RunStore for InMemoryRunStore {
                 .ok_or(RunStoreError::LeaseLost)?;
             record.expires_at = expires_at;
             lease.set_expires_at(expires_at);
+            Ok(())
+        })
+    }
+
+    fn release<'a>(&'a self, lease: RunLease) -> RunStoreFuture<'a, ()> {
+        Box::pin(async move {
+            let mut state = self.lock()?;
+            self.validate_lease(&mut state, &lease)?;
+            state.leases.remove(lease.run_id());
             Ok(())
         })
     }
@@ -431,12 +434,4 @@ struct LeaseRecord {
 struct StoredEntry {
     revision: SnapshotRevision,
     snapshot: RunSnapshot,
-}
-
-fn current_unix_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
-        .unwrap_or(0)
 }

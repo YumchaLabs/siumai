@@ -1,13 +1,15 @@
-use std::sync::{Arc, Barrier};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use siumai_core::{
     ExecutionOwner, Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, RouteId,
     ToolBindingIdentity,
 };
+use tokio::sync::Barrier;
 
 use super::*;
 use crate::options::ModelTarget;
+use crate::snapshot::{CheckpointId, LineageId, RunId};
 
 const NOW: u64 = 1_000;
 const EXPIRY: u64 = 2_000;
@@ -45,32 +47,38 @@ fn trust_context(tenant: &str, route: &str, arguments_digest: &str) -> TrustCont
         tenant,
         route,
         arguments_digest,
+        "run-7",
+        "lineage-7",
         "checkpoint-3",
         "sha256:binding-v4",
+        "call-9",
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn trust_context_with_state(
     tenant: &str,
     route: &str,
     arguments_digest: &str,
-    checkpoint: &str,
+    run_id: &str,
+    lineage_id: &str,
+    checkpoint_id: &str,
     binding_fingerprint: &str,
+    call_id: &str,
 ) -> TrustContext {
-    TrustContext::builder()
-        .issuer("siumai-host")
-        .audience("payments-runtime")
-        .subject("user-42")
-        .tenant(tenant)
+    let identity = TrustIdentity::new("siumai-host", "payments-runtime", "user-42", tenant)
+        .expect("valid trust identity");
+    TrustContext::builder(identity)
         .model_target(model_target(route))
-        .run_lineage("run-7")
-        .checkpoint(checkpoint)
+        .run_id(RunId::new(run_id).expect("valid run id"))
+        .lineage_id(LineageId::new(lineage_id).expect("valid lineage id"))
+        .checkpoint_id(CheckpointId::new(checkpoint_id).expect("valid checkpoint id"))
         .execution_owner(ExecutionOwner::Local)
         .binding_identity(ToolBindingIdentity {
             name: "charge-card".to_owned(),
             fingerprint: binding_fingerprint.to_owned(),
         })
-        .tool_call_id("call-9")
+        .tool_call_id(call_id)
         .canonical_arguments_digest(arguments_digest)
         .catalog_fingerprint("sha256:catalog-v2")
         .policy_fingerprint("sha256:policy-v8")
@@ -136,31 +144,41 @@ fn test_mac(secret: &[u8], payload: &[u8]) -> u64 {
     state
 }
 
-fn signed_approval(crypto: &TestCrypto, context: &TrustContext) -> ApprovalEnvelope {
-    let claims = ApprovalClaims::issue(context, EXPIRY, "nonce-unique-1", "test-key-1")
-        .expect("valid claims");
+fn signed_approval(crypto: &TestCrypto, context: &TrustContext, nonce: &str) -> ApprovalEnvelope {
+    let claims = ApprovalClaims::issue(context, EXPIRY, nonce, "test-key-1").expect("valid claims");
     crypto.sign(&claims).expect("test signing succeeds")
 }
 
 #[test]
-fn trust_context_debug_is_redacted() {
+fn trust_identity_and_context_debug_are_redacted() {
+    let identity = TrustIdentity::new(
+        "secret-issuer",
+        "secret-audience",
+        "secret-subject",
+        "secret-tenant",
+    )
+    .expect("valid identity");
+    let identity_debug = format!("{identity:?}");
+    assert!(identity_debug.contains("<redacted>"));
+    assert!(!identity_debug.contains("secret-tenant"));
+
     let context = trust_context("secret-tenant", "production", "sha256:secret-arguments");
-    let debug = format!("{context:?}");
-    assert!(debug.contains("<redacted>"));
-    assert!(!debug.contains("secret-tenant"));
-    assert!(!debug.contains("secret-arguments"));
+    let context_debug = format!("{context:?}");
+    assert!(context_debug.contains("<redacted>"));
+    assert!(!context_debug.contains("secret-tenant"));
+    assert!(!context_debug.contains("secret-arguments"));
 }
 
-#[test]
-fn rejects_cross_tenant_and_cross_route_use_without_consuming() {
+#[tokio::test]
+async fn rejects_cross_tenant_and_cross_route_use_without_consuming() {
     let crypto = TestCrypto::new();
     let approved = trust_context("tenant-a", "production", "sha256:args-a");
-    let envelope = signed_approval(&crypto, &approved);
+    let envelope = signed_approval(&crypto, &approved, "nonce-unique-1");
     let store = InMemoryApprovalConsumeStore::default();
 
     let wrong_tenant = trust_context("tenant-b", "production", "sha256:args-a");
     assert!(matches!(
-        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &wrong_tenant, NOW),
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &wrong_tenant, NOW).await,
         Err(ApprovalVerificationError::ContextMismatch {
             field: ApprovalClaimField::Tenant,
         })
@@ -168,49 +186,73 @@ fn rejects_cross_tenant_and_cross_route_use_without_consuming() {
 
     let wrong_route = trust_context("tenant-a", "staging", "sha256:args-a");
     assert!(matches!(
-        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &wrong_route, NOW),
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &wrong_route, NOW).await,
         Err(ApprovalVerificationError::ContextMismatch {
             field: ApprovalClaimField::Route,
         })
     ));
 
-    assert!(verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &approved, NOW).is_ok());
+    assert!(
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &approved, NOW)
+            .await
+            .is_ok()
+    );
 }
 
-#[test]
-fn rejects_changed_canonical_arguments() {
+#[tokio::test]
+async fn rejects_changed_canonical_arguments() {
     let crypto = TestCrypto::new();
     let approved = trust_context("tenant-a", "production", "sha256:args-a");
     let changed = trust_context("tenant-a", "production", "sha256:args-b");
-    let envelope = signed_approval(&crypto, &approved);
+    let envelope = signed_approval(&crypto, &approved, "nonce-unique-1");
     let store = InMemoryApprovalConsumeStore::default();
 
     assert!(matches!(
-        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &changed, NOW),
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &changed, NOW).await,
         Err(ApprovalVerificationError::ContextMismatch {
             field: ApprovalClaimField::CanonicalArgumentsDigest,
         })
     ));
 }
 
-#[test]
-fn rejects_changed_checkpoint_and_frozen_binding() {
+#[tokio::test]
+async fn rejects_changed_run_checkpoint_and_frozen_binding() {
     let crypto = TestCrypto::new();
     let approved = trust_context("tenant-a", "production", "sha256:args-a");
-    let envelope = signed_approval(&crypto, &approved);
+    let envelope = signed_approval(&crypto, &approved, "nonce-unique-1");
     let store = InMemoryApprovalConsumeStore::default();
+
+    let changed_run = trust_context_with_state(
+        "tenant-a",
+        "production",
+        "sha256:args-a",
+        "run-8",
+        "lineage-7",
+        "checkpoint-3",
+        "sha256:binding-v4",
+        "call-9",
+    );
+    assert!(matches!(
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &changed_run, NOW).await,
+        Err(ApprovalVerificationError::ContextMismatch {
+            field: ApprovalClaimField::RunId,
+        })
+    ));
 
     let changed_checkpoint = trust_context_with_state(
         "tenant-a",
         "production",
         "sha256:args-a",
+        "run-7",
+        "lineage-7",
         "checkpoint-4",
         "sha256:binding-v4",
+        "call-9",
     );
     assert!(matches!(
-        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &changed_checkpoint, NOW,),
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &changed_checkpoint, NOW).await,
         Err(ApprovalVerificationError::ContextMismatch {
-            field: ApprovalClaimField::Checkpoint,
+            field: ApprovalClaimField::CheckpointId,
         })
     ));
 
@@ -218,37 +260,44 @@ fn rejects_changed_checkpoint_and_frozen_binding() {
         "tenant-a",
         "production",
         "sha256:args-a",
+        "run-7",
+        "lineage-7",
         "checkpoint-3",
         "sha256:binding-v5",
+        "call-9",
     );
     assert!(matches!(
-        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &changed_binding, NOW),
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &changed_binding, NOW).await,
         Err(ApprovalVerificationError::ContextMismatch {
             field: ApprovalClaimField::BindingIdentity,
         })
     ));
 
-    assert!(verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &approved, NOW).is_ok());
+    assert!(
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &approved, NOW)
+            .await
+            .is_ok()
+    );
 }
 
-#[test]
-fn rejects_expired_approval_at_the_expiry_boundary() {
+#[tokio::test]
+async fn rejects_expired_approval_at_the_expiry_boundary() {
     let crypto = TestCrypto::new();
     let context = trust_context("tenant-a", "production", "sha256:args-a");
-    let envelope = signed_approval(&crypto, &context);
+    let envelope = signed_approval(&crypto, &context, "nonce-unique-1");
     let store = InMemoryApprovalConsumeStore::default();
 
     assert!(matches!(
-        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &context, EXPIRY),
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &context, EXPIRY).await,
         Err(ApprovalVerificationError::Expired)
     ));
 }
 
-#[test]
-fn maps_tampering_to_one_authenticity_failure() {
+#[tokio::test]
+async fn maps_tampering_to_one_authenticity_failure() {
     let crypto = TestCrypto::new();
     let context = trust_context("tenant-a", "production", "sha256:args-a");
-    let envelope = signed_approval(&crypto, &context);
+    let envelope = signed_approval(&crypto, &context, "nonce-unique-1");
     let mut wire: TestWireEnvelope =
         serde_json::from_slice(envelope.as_bytes()).expect("valid test wire");
     wire.payload[0] ^= 1;
@@ -259,46 +308,128 @@ fn maps_tampering_to_one_authenticity_failure() {
     let store = InMemoryApprovalConsumeStore::default();
 
     assert!(matches!(
-        verify_and_consume_at_unix_ms(&crypto, &store, &tampered, &context, NOW),
+        verify_and_consume_at_unix_ms(&crypto, &store, &tampered, &context, NOW).await,
         Err(ApprovalVerificationError::AuthenticityRejected)
     ));
 }
 
-#[test]
-fn concurrent_replay_has_exactly_one_winner() {
+#[tokio::test]
+async fn batch_validation_is_all_or_none() {
+    let crypto = TestCrypto::new();
+    let first = trust_context_with_state(
+        "tenant-a",
+        "production",
+        "sha256:args-a",
+        "run-7",
+        "lineage-7",
+        "checkpoint-3",
+        "sha256:binding-v4",
+        "call-1",
+    );
+    let second = trust_context_with_state(
+        "tenant-a",
+        "production",
+        "sha256:args-b",
+        "run-7",
+        "lineage-7",
+        "checkpoint-3",
+        "sha256:binding-v4",
+        "call-2",
+    );
+    let wrong_second = trust_context_with_state(
+        "tenant-a",
+        "production",
+        "sha256:changed",
+        "run-7",
+        "lineage-7",
+        "checkpoint-3",
+        "sha256:binding-v4",
+        "call-2",
+    );
+    let first_envelope = signed_approval(&crypto, &first, "nonce-batch-1");
+    let second_envelope = signed_approval(&crypto, &second, "nonce-batch-2");
+    let store = InMemoryApprovalConsumeStore::default();
+
+    let invalid_batch = [
+        ApprovalVerificationInput::new(&first_envelope, &first),
+        ApprovalVerificationInput::new(&second_envelope, &wrong_second),
+    ];
+    assert!(matches!(
+        verify_and_consume_many_at_unix_ms(&crypto, &store, &invalid_batch, NOW).await,
+        Err(ApprovalVerificationError::ContextMismatch {
+            field: ApprovalClaimField::CanonicalArgumentsDigest,
+        })
+    ));
+
+    let valid_batch = [
+        ApprovalVerificationInput::new(&first_envelope, &first),
+        ApprovalVerificationInput::new(&second_envelope, &second),
+    ];
+    let verified = verify_and_consume_many_at_unix_ms(&crypto, &store, &valid_batch, NOW)
+        .await
+        .expect("failed validation must not consume a batch prefix");
+    assert_eq!(verified.len(), 2);
+
+    assert!(matches!(
+        verify_and_consume_at_unix_ms(&crypto, &store, &first_envelope, &first, NOW).await,
+        Err(ApprovalVerificationError::AlreadyConsumed)
+    ));
+    assert!(matches!(
+        verify_and_consume_at_unix_ms(&crypto, &store, &second_envelope, &second, NOW).await,
+        Err(ApprovalVerificationError::AlreadyConsumed)
+    ));
+}
+
+#[tokio::test]
+async fn duplicate_approval_in_one_batch_is_rejected_without_consuming() {
+    let crypto = TestCrypto::new();
+    let context = trust_context("tenant-a", "production", "sha256:args-a");
+    let envelope = signed_approval(&crypto, &context, "nonce-unique-1");
+    let store = InMemoryApprovalConsumeStore::default();
+    let duplicate_batch = [
+        ApprovalVerificationInput::new(&envelope, &context),
+        ApprovalVerificationInput::new(&envelope, &context),
+    ];
+
+    assert!(matches!(
+        verify_and_consume_many_at_unix_ms(&crypto, &store, &duplicate_batch, NOW).await,
+        Err(ApprovalVerificationError::DuplicateApproval)
+    ));
+    assert!(
+        verify_and_consume_at_unix_ms(&crypto, &store, &envelope, &context, NOW)
+            .await
+            .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn concurrent_replay_has_exactly_one_winner() {
     const CALLERS: usize = 16;
 
     let crypto = Arc::new(TestCrypto::new());
     let context = Arc::new(trust_context("tenant-a", "production", "sha256:args-a"));
-    let envelope = Arc::new(signed_approval(&crypto, &context));
+    let envelope = Arc::new(signed_approval(&crypto, &context, "nonce-unique-1"));
     let store = Arc::new(InMemoryApprovalConsumeStore::default());
     let barrier = Arc::new(Barrier::new(CALLERS));
 
-    let results = std::thread::scope(|scope| {
-        let handles = (0..CALLERS)
-            .map(|_| {
-                let crypto = Arc::clone(&crypto);
-                let context = Arc::clone(&context);
-                let envelope = Arc::clone(&envelope);
-                let store = Arc::clone(&store);
-                let barrier = Arc::clone(&barrier);
-                scope.spawn(move || {
-                    barrier.wait();
-                    verify_and_consume_at_unix_ms(
-                        crypto.as_ref(),
-                        store.as_ref(),
-                        &envelope,
-                        &context,
-                        NOW,
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().expect("verification thread must not panic"))
-            .collect::<Vec<_>>()
-    });
+    let mut tasks = Vec::with_capacity(CALLERS);
+    for _ in 0..CALLERS {
+        let crypto = Arc::clone(&crypto);
+        let context = Arc::clone(&context);
+        let envelope = Arc::clone(&envelope);
+        let store = Arc::clone(&store);
+        let barrier = Arc::clone(&barrier);
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            verify_and_consume_at_unix_ms(crypto.as_ref(), store.as_ref(), &envelope, &context, NOW)
+                .await
+        }));
+    }
+
+    let mut results = Vec::with_capacity(CALLERS);
+    for task in tasks {
+        results.push(task.await.expect("verification task must not panic"));
+    }
 
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
     assert_eq!(
@@ -310,22 +441,25 @@ fn concurrent_replay_has_exactly_one_winner() {
     );
 }
 
-#[test]
-fn consume_store_failure_is_fail_closed() {
+#[tokio::test]
+async fn consume_store_failure_is_fail_closed() {
     struct UnavailableStore;
 
     impl ApprovalConsumeStore for UnavailableStore {
-        fn consume_once(&self, _key: &ApprovalConsumeKey) -> Result<(), ApprovalConsumeError> {
-            Err(ApprovalConsumeError::Unavailable)
+        fn consume_many_once<'a>(
+            &'a self,
+            _keys: &'a [ApprovalConsumeKey],
+        ) -> ApprovalConsumeFuture<'a> {
+            Box::pin(async { Err(ApprovalConsumeError::Unavailable) })
         }
     }
 
     let crypto = TestCrypto::new();
     let context = trust_context("tenant-a", "production", "sha256:args-a");
-    let envelope = signed_approval(&crypto, &context);
+    let envelope = signed_approval(&crypto, &context, "nonce-unique-1");
 
     assert!(matches!(
-        verify_and_consume_at_unix_ms(&crypto, &UnavailableStore, &envelope, &context, NOW),
+        verify_and_consume_at_unix_ms(&crypto, &UnavailableStore, &envelope, &context, NOW).await,
         Err(ApprovalVerificationError::ConsumeStoreUnavailable)
     ));
 }

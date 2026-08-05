@@ -5,9 +5,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde_json::{Map, Value, json};
 use siumai_core::{ExecutionOwner, ProviderId, ToolCall, ToolOutcome, ToolSpec};
 use siumai_runtime::tool::{
-    ApprovalPolicy, EffectCertainty, RecoveryPolicy, ToolArgumentError, ToolBinding,
-    ToolBindingConfigError, ToolConcurrency, ToolEffect, ToolExecutionError, ToolSet,
-    ToolSetBuildError, canonical_arguments_digest,
+    ApprovalDecision, ApprovalDecisionError, ApprovalPolicy, ApprovalPolicyFingerprint,
+    EffectCertainty, RecoveryPolicy, ToolArgumentError, ToolBinding, ToolBindingConfigError,
+    ToolConcurrency, ToolEffect, ToolExecutionAttempt, ToolExecutionError, ToolIdempotencyKey,
+    ToolSet, ToolSetBuildError, canonical_arguments_digest,
 };
 
 fn spec(name: &str, schema: Value) -> ToolSpec {
@@ -53,6 +54,15 @@ fn bindings_default_to_safe_side_effect_contracts() {
     assert_eq!(binding.concurrency(), ToolConcurrency::Sequential);
     assert_eq!(binding.approval_policy(), ApprovalPolicy::Required);
     assert_eq!(binding.recovery_policy(), RecoveryPolicy::NeverReplay);
+    assert!(!binding.has_stable_idempotency_key());
+
+    let request = ToolSet::from_bindings([binding])
+        .expect("unique tool")
+        .resolve(local_call("charge", json!({})))
+        .expect("local tool exists");
+    assert_eq!(request.attempt(), ToolExecutionAttempt::INITIAL);
+    assert!(request.idempotency_key().is_none());
+    assert!(!request.permits_retry(EffectCertainty::Indeterminate));
 }
 
 #[test]
@@ -169,6 +179,29 @@ fn approval_argument_digest_is_structural_and_order_independent() {
 }
 
 #[test]
+fn approval_policy_text_is_validated_bounded_and_redacted() {
+    let fingerprint =
+        ApprovalPolicyFingerprint::new("payments.approval.v1").expect("valid fingerprint");
+    assert_eq!(fingerprint.as_str(), "payments.approval.v1");
+    assert_eq!(format!("{fingerprint:?}"), "ApprovalPolicyFingerprint(..)");
+
+    let denial = ApprovalDecision::deny("host policy denied execution").expect("valid denial");
+    assert_eq!(format!("{denial:?}"), "Deny(ApprovalDenial(..))");
+    assert!(matches!(
+        denial,
+        ApprovalDecision::Deny(reason) if reason.reason() == "host policy denied execution"
+    ));
+    assert!(matches!(
+        ApprovalDecision::deny(" surrounding whitespace "),
+        Err(ApprovalDecisionError::SurroundingWhitespace { .. })
+    ));
+    assert!(matches!(
+        ApprovalDecision::deny("line\nbreak"),
+        Err(ApprovalDecisionError::ControlCharacter { .. })
+    ));
+}
+
+#[test]
 fn frozen_resolution_rejects_a_replaced_binding() {
     let original = successful_binding_with_revision("lookup", "original", "v1");
     let original_identity = original.identity().clone();
@@ -185,8 +218,8 @@ fn frozen_resolution_rejects_a_replaced_binding() {
     ));
 }
 
-#[tokio::test]
-async fn provider_owned_calls_never_resolve_to_colliding_local_bindings() {
+#[test]
+fn provider_owned_calls_never_resolve_to_colliding_local_bindings() {
     let executions = Arc::new(AtomicUsize::new(0));
     let observed = Arc::clone(&executions);
     let binding = ToolBinding::from_fn(
@@ -222,8 +255,8 @@ async fn provider_owned_calls_never_resolve_to_colliding_local_bindings() {
     assert_eq!(executions.load(Ordering::SeqCst), 0);
 }
 
-#[tokio::test]
-async fn argument_validation_is_always_applied_before_dispatch() {
+#[test]
+fn argument_validation_is_always_applied_before_authorization() {
     let validations = Arc::new(AtomicUsize::new(0));
     let executions = Arc::new(AtomicUsize::new(0));
     let validation_count = Arc::clone(&validations);
@@ -255,8 +288,7 @@ async fn argument_validation_is_always_applied_before_dispatch() {
     let invalid = tools
         .resolve(local_call("weather", json!({ "city": 7 })))
         .expect("local tool exists")
-        .execute()
-        .await
+        .validate()
         .expect_err("invalid arguments must stop dispatch");
     assert!(matches!(
         invalid,
@@ -273,15 +305,10 @@ async fn argument_validation_is_always_applied_before_dispatch() {
         .expect("arguments validate before Prepared or approval");
     assert_eq!(validations.load(Ordering::SeqCst), 2);
     assert_eq!(executions.load(Ordering::SeqCst), 0);
-
-    let result = request.execute().await.expect("valid request executes");
-    assert!(matches!(result.outcome, ToolOutcome::Success { .. }));
-    assert_eq!(validations.load(Ordering::SeqCst), 3);
-    assert_eq!(executions.load(Ordering::SeqCst), 1);
 }
 
-#[tokio::test]
-async fn resolved_request_keeps_the_exact_frozen_binding() {
+#[test]
+fn resolved_request_keeps_the_exact_frozen_binding_identity() {
     let original = successful_binding("lookup", "original");
     let original_handle = original.clone();
     let first_set = ToolSet::from_bindings([original]).expect("unique tool");
@@ -293,39 +320,24 @@ async fn resolved_request_keeps_the_exact_frozen_binding() {
     let second_set = ToolSet::from_bindings([replacement]).expect("unique tool");
     assert!(!original_handle.same_instance(second_set.get("lookup").expect("replacement exists")));
 
-    let result = request.execute().await.expect("frozen request executes");
-    assert_eq!(
-        result.outcome,
-        ToolOutcome::Success {
-            value: json!({ "binding": "original" })
-        }
+    assert_eq!(request.binding_identity(), original_handle.identity());
+    assert_ne!(
+        request.binding_identity(),
+        second_set
+            .get("lookup")
+            .expect("replacement exists")
+            .identity()
     );
 }
 
-#[tokio::test]
-async fn indeterminate_executor_failure_remains_an_error() {
-    let binding = ToolBinding::from_fn(
-        spec("charge", json!({ "type": "object" })),
-        "v1",
-        |_| Ok(()),
-        |request| async move {
-            Err(ToolExecutionError::executor_failed(
-                request.name(),
-                "connection lost after dispatch",
-                true,
-                EffectCertainty::Indeterminate,
-            ))
-        },
-    )
-    .expect("valid binding revision");
-    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
-
-    let error = tools
-        .resolve(local_call("charge", json!({})))
-        .expect("local tool exists")
-        .execute()
-        .await
-        .expect_err("uncertain effects must not become tool outcomes");
+#[test]
+fn indeterminate_executor_failure_remains_typed() {
+    let error = ToolExecutionError::executor_failed(
+        "charge",
+        "connection lost after dispatch",
+        true,
+        EffectCertainty::Indeterminate,
+    );
 
     assert_eq!(error.effect_certainty(), EffectCertainty::Indeterminate);
     assert!(matches!(
@@ -346,22 +358,71 @@ fn concurrency_and_recovery_require_explicit_safe_declarations() {
         .with_effect(ToolEffect::ReadOnly)
         .with_concurrency(parallel)
         .with_approval_policy(ApprovalPolicy::NotRequired)
+        .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey)
+        .with_stable_idempotency_key(|call| ToolIdempotencyKey::new(format!("lookup:{}", call.id)));
+    let binding_without_key = successful_binding("lookup", "no-key")
         .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey);
 
     assert_eq!(binding.concurrency(), parallel);
-    assert!(
-        binding
-            .recovery_policy()
-            .permits_retry(EffectCertainty::Indeterminate, true)
+    let request = ToolSet::from_bindings([binding])
+        .expect("unique tool")
+        .resolve(local_call("lookup", json!({ "query": "rust" })))
+        .expect("stable key derives");
+    let request_without_key = ToolSet::from_bindings([binding_without_key])
+        .expect("unique tool")
+        .resolve(local_call("lookup", json!({ "query": "rust" })))
+        .expect("local tool exists");
+
+    assert_eq!(
+        request.idempotency_key().map(ToolIdempotencyKey::as_str),
+        Some("lookup:call_lookup")
     );
-    assert!(
-        !binding
-            .recovery_policy()
-            .permits_retry(EffectCertainty::Indeterminate, false)
+    assert!(request.permits_retry(EffectCertainty::Indeterminate));
+    assert!(!request_without_key.permits_retry(EffectCertainty::Indeterminate));
+    assert!(!request.permits_retry(EffectCertainty::Applied));
+}
+
+#[test]
+fn stable_key_seam_changes_identity_and_freezes_executor_contract() {
+    let plain = successful_binding("charge", "plain")
+        .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey);
+    let keyed = successful_binding("charge", "keyed")
+        .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey)
+        .with_stable_idempotency_key(|call| {
+            ToolIdempotencyKey::new(format!("payment:{}", call.id))
+        });
+
+    assert_ne!(plain.identity(), keyed.identity());
+    assert!(!plain.has_stable_idempotency_key());
+    assert!(keyed.has_stable_idempotency_key());
+
+    let request = ToolSet::from_bindings([keyed])
+        .expect("unique tool")
+        .resolve(local_call("charge", json!({ "amount": 42 })))
+        .expect("stable key derives");
+    assert_eq!(
+        request.recovery_policy(),
+        RecoveryPolicy::ReplayWithStableIdempotencyKey
     );
-    assert!(
-        !binding
-            .recovery_policy()
-            .permits_retry(EffectCertainty::Applied, true)
+    assert_eq!(request.attempt().get(), 1);
+    assert_eq!(
+        request.idempotency_key().map(ToolIdempotencyKey::as_str),
+        Some("payment:call_charge")
     );
+}
+
+#[test]
+fn invalid_binding_owned_idempotency_key_fails_closed() {
+    let binding = successful_binding("charge", "invalid-key")
+        .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey)
+        .with_stable_idempotency_key(|_| ToolIdempotencyKey::new("bad\nkey"));
+    let error = ToolSet::from_bindings([binding])
+        .expect("unique tool")
+        .resolve(local_call("charge", json!({})))
+        .expect_err("invalid stable key must prevent preparation");
+
+    assert!(matches!(
+        error,
+        ToolExecutionError::InvalidIdempotencyKey { .. }
+    ));
 }

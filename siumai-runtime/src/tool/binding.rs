@@ -12,10 +12,11 @@ use thiserror::Error;
 use super::execution::{
     ApprovalPolicy, RecoveryPolicy, ToolArgumentError, ToolArgumentValidator, ToolConcurrency,
     ToolEffect, ToolExecutionError, ToolExecutionFuture, ToolExecutionRequest, ToolExecutor,
+    ToolIdempotencyKey, ToolIdempotencyKeyError, ToolIdempotencyKeyProvider,
 };
 
-const BINDING_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-binding.v1";
-const CATALOG_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-catalog.v1";
+const BINDING_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-binding.v2";
+const CATALOG_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-catalog.v2";
 const ARGUMENT_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-arguments.v1";
 
 struct ToolBindingInner {
@@ -28,6 +29,7 @@ struct ToolBindingInner {
     concurrency: ToolConcurrency,
     approval_policy: ApprovalPolicy,
     recovery_policy: RecoveryPolicy,
+    idempotency_key_provider: Option<Arc<dyn ToolIdempotencyKeyProvider>>,
 }
 
 /// Immutable, clone-cheap association between a model-visible spec and trusted host code.
@@ -54,6 +56,10 @@ impl fmt::Debug for ToolBinding {
             .field("concurrency", &self.inner.concurrency)
             .field("approval_policy", &self.inner.approval_policy)
             .field("recovery_policy", &self.inner.recovery_policy)
+            .field(
+                "has_stable_idempotency_key",
+                &self.inner.idempotency_key_provider.is_some(),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -79,6 +85,7 @@ impl ToolBinding {
             ToolConcurrency::default(),
             ApprovalPolicy::default(),
             RecoveryPolicy::default(),
+            None,
         ))
     }
 
@@ -114,6 +121,7 @@ impl ToolBinding {
             self.inner.concurrency,
             self.inner.approval_policy,
             self.inner.recovery_policy,
+            self.inner.idempotency_key_provider.clone(),
         )
     }
 
@@ -123,6 +131,7 @@ impl ToolBinding {
             concurrency,
             self.inner.approval_policy,
             self.inner.recovery_policy,
+            self.inner.idempotency_key_provider.clone(),
         )
     }
 
@@ -132,6 +141,7 @@ impl ToolBinding {
             self.inner.concurrency,
             approval_policy,
             self.inner.recovery_policy,
+            self.inner.idempotency_key_provider.clone(),
         )
     }
 
@@ -141,7 +151,37 @@ impl ToolBinding {
             self.inner.concurrency,
             self.inner.approval_policy,
             recovery_policy,
+            self.inner.idempotency_key_provider.clone(),
         )
+    }
+
+    /// Install a binding-owned derivation seam for one stable logical-call key.
+    ///
+    /// The key is derived exactly once when a request is frozen and is reused
+    /// for recovery attempts. Change the binding revision whenever derivation
+    /// semantics change.
+    pub fn with_stable_idempotency_key_provider(
+        self,
+        provider: Arc<dyn ToolIdempotencyKeyProvider>,
+    ) -> Self {
+        self.rebuild(
+            self.inner.effect,
+            self.inner.concurrency,
+            self.inner.approval_policy,
+            self.inner.recovery_policy,
+            Some(provider),
+        )
+    }
+
+    /// Closure-based form of [`ToolBinding::with_stable_idempotency_key_provider`].
+    pub fn with_stable_idempotency_key<F>(self, derive: F) -> Self
+    where
+        F: Fn(&ToolCall) -> Result<ToolIdempotencyKey, ToolIdempotencyKeyError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.with_stable_idempotency_key_provider(Arc::new(FnIdempotencyKeyProvider(derive)))
     }
 
     pub fn spec(&self) -> &ToolSpec {
@@ -177,6 +217,10 @@ impl ToolBinding {
         self.inner.recovery_policy
     }
 
+    pub fn has_stable_idempotency_key(&self) -> bool {
+        self.inner.idempotency_key_provider.is_some()
+    }
+
     /// Return whether two handles point to the exact same frozen binding.
     pub fn same_instance(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
@@ -193,12 +237,24 @@ impl ToolBinding {
         self.inner.executor.execute(request)
     }
 
+    pub(crate) fn stable_idempotency_key(
+        &self,
+        call: &ToolCall,
+    ) -> Result<Option<ToolIdempotencyKey>, ToolIdempotencyKeyError> {
+        self.inner
+            .idempotency_key_provider
+            .as_ref()
+            .map(|provider| provider.stable_key(call))
+            .transpose()
+    }
+
     fn rebuild(
         &self,
         effect: ToolEffect,
         concurrency: ToolConcurrency,
         approval_policy: ApprovalPolicy,
         recovery_policy: RecoveryPolicy,
+        idempotency_key_provider: Option<Arc<dyn ToolIdempotencyKeyProvider>>,
     ) -> Self {
         Self::from_parts(
             self.inner.spec.clone(),
@@ -209,6 +265,7 @@ impl ToolBinding {
             concurrency,
             approval_policy,
             recovery_policy,
+            idempotency_key_provider,
         )
     }
 
@@ -222,6 +279,7 @@ impl ToolBinding {
         concurrency: ToolConcurrency,
         approval_policy: ApprovalPolicy,
         recovery_policy: RecoveryPolicy,
+        idempotency_key_provider: Option<Arc<dyn ToolIdempotencyKeyProvider>>,
     ) -> Self {
         let identity = binding_identity(
             &spec,
@@ -230,6 +288,7 @@ impl ToolBinding {
             concurrency,
             approval_policy,
             recovery_policy,
+            idempotency_key_provider.is_some(),
         );
         Self {
             inner: Arc::new(ToolBindingInner {
@@ -242,6 +301,7 @@ impl ToolBinding {
                 concurrency,
                 approval_policy,
                 recovery_policy,
+                idempotency_key_provider,
             }),
         }
     }
@@ -255,6 +315,17 @@ where
 {
     fn validate(&self, arguments: &Value) -> Result<(), ToolArgumentError> {
         (self.0)(arguments)
+    }
+}
+
+struct FnIdempotencyKeyProvider<F>(F);
+
+impl<F> ToolIdempotencyKeyProvider for FnIdempotencyKeyProvider<F>
+where
+    F: Fn(&ToolCall) -> Result<ToolIdempotencyKey, ToolIdempotencyKeyError> + Send + Sync + 'static,
+{
+    fn stable_key(&self, call: &ToolCall) -> Result<ToolIdempotencyKey, ToolIdempotencyKeyError> {
+        (self.0)(call)
     }
 }
 
@@ -407,7 +478,7 @@ impl ToolSet {
             });
         }
 
-        Ok(ToolExecutionRequest::local(binding, call))
+        ToolExecutionRequest::local(binding, call)
     }
 }
 
@@ -468,6 +539,7 @@ fn binding_identity(
     concurrency: ToolConcurrency,
     approval_policy: ApprovalPolicy,
     recovery_policy: RecoveryPolicy,
+    has_stable_idempotency_key: bool,
 ) -> ToolBindingIdentity {
     let mut digest = Sha256::new();
     digest.update(BINDING_FINGERPRINT_VERSION);
@@ -485,6 +557,7 @@ fn binding_identity(
     update_concurrency(&mut digest, concurrency);
     update_approval_policy(&mut digest, approval_policy);
     update_recovery_policy(&mut digest, recovery_policy);
+    digest.update([u8::from(has_stable_idempotency_key)]);
 
     let fingerprint = digest.finalize();
     ToolBindingIdentity {

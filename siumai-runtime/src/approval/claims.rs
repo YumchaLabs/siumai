@@ -5,10 +5,11 @@ use siumai_core::{ExecutionOwner, RouteId, ToolBindingIdentity};
 use thiserror::Error;
 
 use crate::options::ModelTarget;
+use crate::snapshot::{CheckpointId, LineageId, RunId};
 
 use super::context::{TrustContext, TrustContextBuildError, validate_context_value};
 
-pub const APPROVAL_CLAIMS_VERSION: u16 = 1;
+pub const APPROVAL_CLAIMS_VERSION: u16 = 2;
 pub const MAX_APPROVAL_ENVELOPE_BYTES: usize = 64 * 1024;
 const MAX_NONCE_BYTES: usize = 512;
 const MAX_KEY_ID_BYTES: usize = 512;
@@ -24,8 +25,9 @@ pub struct ApprovalClaims {
     tenant: String,
     route: Option<RouteId>,
     model_target: ModelTarget,
-    run_lineage: String,
-    checkpoint: String,
+    run_id: RunId,
+    lineage_id: LineageId,
+    checkpoint_id: CheckpointId,
     execution_owner: ExecutionOwner,
     binding_identity: ToolBindingIdentity,
     tool_call_id: String,
@@ -56,8 +58,9 @@ impl ApprovalClaims {
             tenant: context.tenant().to_owned(),
             route: context.route().cloned(),
             model_target: context.model_target().clone(),
-            run_lineage: context.run_lineage().to_owned(),
-            checkpoint: context.checkpoint().to_owned(),
+            run_id: context.run_id().clone(),
+            lineage_id: context.lineage_id().clone(),
+            checkpoint_id: context.checkpoint_id().clone(),
             execution_owner: context.execution_owner().clone(),
             binding_identity: context.binding_identity().clone(),
             tool_call_id: context.tool_call_id().to_owned(),
@@ -100,12 +103,16 @@ impl ApprovalClaims {
         &self.model_target
     }
 
-    pub fn run_lineage(&self) -> &str {
-        &self.run_lineage
+    pub fn run_id(&self) -> &RunId {
+        &self.run_id
     }
 
-    pub fn checkpoint(&self) -> &str {
-        &self.checkpoint
+    pub fn lineage_id(&self) -> &LineageId {
+        &self.lineage_id
+    }
+
+    pub fn checkpoint_id(&self) -> &CheckpointId {
+        &self.checkpoint_id
     }
 
     pub fn execution_owner(&self) -> &ExecutionOwner {
@@ -158,8 +165,6 @@ impl ApprovalClaims {
         validate_claim_value("audience", &self.audience, 4096)?;
         validate_claim_value("subject", &self.subject, 4096)?;
         validate_claim_value("tenant", &self.tenant, 4096)?;
-        validate_claim_value("run_lineage", &self.run_lineage, 4096)?;
-        validate_claim_value("checkpoint", &self.checkpoint, 4096)?;
         validate_claim_value("binding_identity.name", &self.binding_identity.name, 4096)?;
         validate_claim_value(
             "binding_identity.fingerprint",

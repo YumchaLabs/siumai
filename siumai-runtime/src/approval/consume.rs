@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -56,13 +58,22 @@ impl fmt::Debug for ApprovalConsumeKey {
     }
 }
 
-/// Atomically records that an approval has been consumed.
+/// Boxed future returned by an object-safe [`ApprovalConsumeStore`].
+pub type ApprovalConsumeFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<(), ApprovalConsumeError>> + Send + 'a>>;
+
+/// Atomically records that a batch of approvals has been consumed.
 ///
-/// Implementations must perform one atomic insert-if-absent operation. A
-/// check-then-insert sequence without a transaction, unique constraint, or
-/// compare-and-swap does not satisfy this contract.
+/// Implementations must consume every key or none of them. A check-then-insert
+/// sequence without a transaction, unique constraint, or compare-and-swap does
+/// not satisfy this contract. Duplicate keys in one batch must be rejected.
 pub trait ApprovalConsumeStore: Send + Sync {
-    fn consume_once(&self, key: &ApprovalConsumeKey) -> Result<(), ApprovalConsumeError>;
+    fn consume_many_once<'a>(&'a self, keys: &'a [ApprovalConsumeKey])
+    -> ApprovalConsumeFuture<'a>;
+
+    fn consume_once<'a>(&'a self, key: &'a ApprovalConsumeKey) -> ApprovalConsumeFuture<'a> {
+        Box::pin(async move { self.consume_many_once(std::slice::from_ref(key)).await })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -70,6 +81,8 @@ pub trait ApprovalConsumeStore: Send + Sync {
 pub enum ApprovalConsumeError {
     #[error("approval was already consumed")]
     AlreadyConsumed,
+    #[error("approval consume batch contains a duplicate key")]
+    DuplicateKey,
     #[error("approval consume store is unavailable")]
     Unavailable,
 }
@@ -84,16 +97,26 @@ pub struct InMemoryApprovalConsumeStore {
 }
 
 impl ApprovalConsumeStore for InMemoryApprovalConsumeStore {
-    fn consume_once(&self, key: &ApprovalConsumeKey) -> Result<(), ApprovalConsumeError> {
-        let mut consumed = self
-            .consumed
-            .lock()
-            .map_err(|_| ApprovalConsumeError::Unavailable)?;
-        if consumed.insert(key.clone()) {
+    fn consume_many_once<'a>(
+        &'a self,
+        keys: &'a [ApprovalConsumeKey],
+    ) -> ApprovalConsumeFuture<'a> {
+        Box::pin(async move {
+            let unique = keys.iter().cloned().collect::<BTreeSet<_>>();
+            if unique.len() != keys.len() {
+                return Err(ApprovalConsumeError::DuplicateKey);
+            }
+
+            let mut consumed = self
+                .consumed
+                .lock()
+                .map_err(|_| ApprovalConsumeError::Unavailable)?;
+            if unique.iter().any(|key| consumed.contains(key)) {
+                return Err(ApprovalConsumeError::AlreadyConsumed);
+            }
+            consumed.extend(unique);
             Ok(())
-        } else {
-            Err(ApprovalConsumeError::AlreadyConsumed)
-        }
+        })
     }
 }
 

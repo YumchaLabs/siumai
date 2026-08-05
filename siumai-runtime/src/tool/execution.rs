@@ -9,6 +9,8 @@ use siumai_core::{
 };
 use thiserror::Error;
 
+use crate::approval::{ApprovalClaimField, VerifiedApproval};
+
 use super::binding::ToolBinding;
 use super::binding::canonical_arguments_digest;
 
@@ -88,6 +90,84 @@ impl RecoveryPolicy {
     }
 }
 
+/// Stable binding-owned key reused for every attempt of one logical tool call.
+///
+/// The runtime freezes this value before approval or dispatch. Executors can
+/// forward it to an external service that provides idempotent request keys.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ToolIdempotencyKey(String);
+
+impl ToolIdempotencyKey {
+    pub fn new(value: impl Into<String>) -> Result<Self, ToolIdempotencyKeyError> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(ToolIdempotencyKeyError::Empty);
+        }
+        if value.len() > 512 {
+            return Err(ToolIdempotencyKeyError::TooLong {
+                actual: value.len(),
+                maximum: 512,
+            });
+        }
+        if value.chars().any(char::is_control) {
+            return Err(ToolIdempotencyKeyError::ControlCharacter);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for ToolIdempotencyKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ToolIdempotencyKey")
+            .field(&"<redacted>")
+            .finish()
+    }
+}
+
+/// Invalid stable idempotency key returned by a trusted binding.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum ToolIdempotencyKeyError {
+    #[error("tool idempotency key must not be empty")]
+    Empty,
+    #[error("tool idempotency key is {actual} bytes; maximum is {maximum}")]
+    TooLong { actual: usize, maximum: usize },
+    #[error("tool idempotency key must not contain control characters")]
+    ControlCharacter,
+}
+
+/// Binding-owned synchronous seam for deriving a stable logical-call key.
+///
+/// Implementations must return the same key whenever the same frozen call is
+/// restored. Changes to the derivation contract require a binding revision
+/// change so snapshots and approvals receive a new binding fingerprint.
+pub trait ToolIdempotencyKeyProvider: Send + Sync + 'static {
+    fn stable_key(&self, call: &ToolCall) -> Result<ToolIdempotencyKey, ToolIdempotencyKeyError>;
+}
+
+/// One-based attempt number frozen into the executor request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ToolExecutionAttempt(u32);
+
+impl ToolExecutionAttempt {
+    pub const INITIAL: Self = Self(1);
+
+    pub fn get(self) -> u32 {
+        self.0
+    }
+
+    pub(crate) fn next(self) -> Option<Self> {
+        self.0.checked_add(1).map(Self)
+    }
+}
+
 /// A rejected tool argument payload.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{message}")]
@@ -123,13 +203,25 @@ pub trait ToolExecutor: Send + Sync + 'static {
 
 /// A frozen local call bound to the exact executor selected by its [`ToolSet`](super::ToolSet).
 ///
-/// The call and binding are immutable after resolution. Executing the request
-/// validates arguments immediately before dispatch and never performs another
-/// lookup by tool name.
+/// The call, binding, recovery contract, stable idempotency key, and attempt
+/// are immutable after resolution. This public value deliberately has no
+/// execution method: local code can run only after the runtime constructs a
+/// single-use authorization permit.
+///
+/// ```compile_fail
+/// use siumai_runtime::tool::ToolExecutionRequest;
+///
+/// async fn bypass_approval(request: ToolExecutionRequest) {
+///     let _ = request.execute().await;
+/// }
+/// ```
 #[derive(Clone)]
 pub struct ToolExecutionRequest {
     binding: ToolBinding,
     call: ToolCall,
+    idempotency_key: Option<ToolIdempotencyKey>,
+    recovery_policy: RecoveryPolicy,
+    attempt: ToolExecutionAttempt,
 }
 
 impl std::fmt::Debug for ToolExecutionRequest {
@@ -137,16 +229,36 @@ impl std::fmt::Debug for ToolExecutionRequest {
         formatter
             .debug_struct("ToolExecutionRequest")
             .field("binding", &self.binding.identity())
-            .field("call", &self.call)
+            .field("call_id", &self.call.id)
+            .field("tool", &self.call.name)
+            .field("owner", &self.call.owner)
+            .field("arguments", &"<redacted>")
+            .field("has_idempotency_key", &self.idempotency_key.is_some())
+            .field("recovery_policy", &self.recovery_policy)
+            .field("attempt", &self.attempt)
             .finish()
     }
 }
 
 impl ToolExecutionRequest {
-    pub(crate) fn local(binding: ToolBinding, call: ToolCall) -> Self {
+    pub(crate) fn local(binding: ToolBinding, call: ToolCall) -> Result<Self, ToolExecutionError> {
         debug_assert!(matches!(&call.owner, ExecutionOwner::Local));
         debug_assert_eq!(binding.name(), call.name.as_str());
-        Self { binding, call }
+        let idempotency_key = binding.stable_idempotency_key(&call).map_err(|source| {
+            ToolExecutionError::InvalidIdempotencyKey {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                message: source.to_string(),
+            }
+        })?;
+        let recovery_policy = binding.recovery_policy();
+        Ok(Self {
+            binding,
+            call,
+            idempotency_key,
+            recovery_policy,
+            attempt: ToolExecutionAttempt::INITIAL,
+        })
     }
 
     pub fn call(&self) -> &ToolCall {
@@ -194,7 +306,22 @@ impl ToolExecutionRequest {
     }
 
     pub fn recovery_policy(&self) -> RecoveryPolicy {
-        self.binding.recovery_policy()
+        self.recovery_policy
+    }
+
+    pub fn idempotency_key(&self) -> Option<&ToolIdempotencyKey> {
+        self.idempotency_key.as_ref()
+    }
+
+    pub fn attempt(&self) -> ToolExecutionAttempt {
+        self.attempt
+    }
+
+    /// Return whether this exact frozen request may be retried under the
+    /// supplied effect evidence.
+    pub fn permits_retry(&self, certainty: EffectCertainty) -> bool {
+        self.recovery_policy
+            .permits_retry(certainty, self.idempotency_key.is_some())
     }
 
     /// Validate arguments before the engine records `Prepared` or requests approval.
@@ -214,7 +341,7 @@ impl ToolExecutionRequest {
     ///
     /// Executor errors retain their effect certainty. In particular, an
     /// indeterminate side effect is never converted into a normal tool outcome.
-    pub async fn execute(&self) -> Result<ToolResult, ToolExecutionError> {
+    pub(crate) async fn execute(&self) -> Result<ToolResult, ToolExecutionError> {
         self.validate()?;
 
         let outcome = self.binding.execute(self).await?;
@@ -224,6 +351,172 @@ impl ToolExecutionRequest {
             outcome,
         })
     }
+
+    /// Authorize a binding that explicitly opted out of approval.
+    pub(crate) fn authorize_not_required(
+        self,
+    ) -> Result<AuthorizedToolCall, ToolAuthorizationError> {
+        if self.approval_policy() != ApprovalPolicy::NotRequired {
+            return Err(ToolAuthorizationError::ApprovalRequired {
+                call_id: self.call.id.clone(),
+                tool: self.call.name.clone(),
+            });
+        }
+        Ok(AuthorizedToolCall::new(
+            self,
+            AuthorizationEvidence::NotRequired,
+        ))
+    }
+
+    /// Authorize a call through an explicit trusted host auto-approve policy.
+    pub(crate) fn authorize_host_auto_approved(self) -> AuthorizedToolCall {
+        AuthorizedToolCall::new(self, AuthorizationEvidence::HostAutoApproved)
+    }
+
+    /// Bind a consumed external approval to this exact frozen request.
+    pub(crate) fn authorize_verified(
+        self,
+        approval: VerifiedApproval,
+    ) -> Result<AuthorizedToolCall, ToolAuthorizationError> {
+        let claims = approval.claims();
+        require_approval_field(
+            claims.execution_owner() == self.owner(),
+            ApprovalClaimField::ExecutionOwner,
+        )?;
+        require_approval_field(
+            claims.binding_identity() == self.binding_identity(),
+            ApprovalClaimField::BindingIdentity,
+        )?;
+        require_approval_field(
+            claims.tool_call_id() == self.call_id(),
+            ApprovalClaimField::ToolCallId,
+        )?;
+        require_approval_field(
+            claims.canonical_arguments_digest() == self.canonical_arguments_digest(),
+            ApprovalClaimField::CanonicalArgumentsDigest,
+        )?;
+        Ok(AuthorizedToolCall::new(
+            self,
+            AuthorizationEvidence::Verified(Box::new(approval)),
+        ))
+    }
+
+    /// Create the next attempt without changing the frozen binding, call, key,
+    /// or recovery contract.
+    pub(crate) fn next_attempt(
+        &self,
+        certainty: EffectCertainty,
+    ) -> Result<Self, ToolAuthorizationError> {
+        if !self.permits_retry(certainty) {
+            return Err(ToolAuthorizationError::RecoveryNotPermitted {
+                call_id: self.call.id.clone(),
+                tool: self.call.name.clone(),
+                certainty,
+            });
+        }
+        let attempt =
+            self.attempt
+                .next()
+                .ok_or_else(|| ToolAuthorizationError::AttemptOverflow {
+                    call_id: self.call.id.clone(),
+                    tool: self.call.name.clone(),
+                })?;
+        let mut next = self.clone();
+        next.attempt = attempt;
+        Ok(next)
+    }
+}
+
+fn require_approval_field(
+    matches: bool,
+    field: ApprovalClaimField,
+) -> Result<(), ToolAuthorizationError> {
+    if matches {
+        Ok(())
+    } else {
+        Err(ToolAuthorizationError::VerifiedApprovalMismatch { field })
+    }
+}
+
+enum AuthorizationEvidence {
+    NotRequired,
+    HostAutoApproved,
+    Verified(Box<VerifiedApproval>),
+}
+
+impl AuthorizationEvidence {
+    /// Consume the single-use proof exactly when dispatch crosses the trusted
+    /// executor boundary. Verified claims remain owned by the permit until
+    /// this point and cannot be reused to construct another permit.
+    fn consume(self) {
+        if let Self::Verified(approval) = self {
+            let _ = (*approval).into_claims();
+        }
+    }
+}
+
+impl std::fmt::Debug for AuthorizationEvidence {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::NotRequired => "NotRequired",
+            Self::HostAutoApproved => "HostAutoApproved",
+            Self::Verified(_) => "Verified",
+        })
+    }
+}
+
+/// Single-use proof that the exact frozen request may be dispatched.
+///
+/// This type intentionally does not implement `Clone`. Construction and
+/// dispatch remain crate-private so public callers cannot bypass `ToolLoop`.
+pub(crate) struct AuthorizedToolCall {
+    request: ToolExecutionRequest,
+    evidence: AuthorizationEvidence,
+}
+
+impl std::fmt::Debug for AuthorizedToolCall {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AuthorizedToolCall")
+            .field("request", &self.request)
+            .field("evidence", &self.evidence)
+            .finish()
+    }
+}
+
+impl AuthorizedToolCall {
+    fn new(request: ToolExecutionRequest, evidence: AuthorizationEvidence) -> Self {
+        Self { request, evidence }
+    }
+
+    pub(crate) fn request(&self) -> &ToolExecutionRequest {
+        &self.request
+    }
+
+    /// Consume the permit and dispatch the already-frozen executor directly.
+    pub(crate) async fn dispatch(self) -> Result<ToolResult, ToolExecutionError> {
+        let Self { request, evidence } = self;
+        evidence.consume();
+        request.execute().await
+    }
+}
+
+/// Failure to authorize or recover a frozen local tool call.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub(crate) enum ToolAuthorizationError {
+    #[error("tool `{tool}` requires approval before dispatch")]
+    ApprovalRequired { call_id: String, tool: String },
+    #[error("verified approval does not match frozen field {field:?}")]
+    VerifiedApprovalMismatch { field: ApprovalClaimField },
+    #[error("tool `{tool}` cannot recover from effect certainty {certainty:?}")]
+    RecoveryNotPermitted {
+        call_id: String,
+        tool: String,
+        certainty: EffectCertainty,
+    },
+    #[error("tool `{tool}` execution attempt overflowed")]
+    AttemptOverflow { call_id: String, tool: String },
 }
 
 /// Failure to resolve, validate, or dispatch a local tool call.
@@ -249,6 +542,12 @@ pub enum ToolExecutionError {
     UnsupportedExecutionOwner { call_id: String, tool: String },
     #[error("invalid arguments for tool `{tool}`: {message}")]
     InvalidArguments { tool: String, message: String },
+    #[error("tool `{tool}` produced an invalid stable idempotency key: {message}")]
+    InvalidIdempotencyKey {
+        call_id: String,
+        tool: String,
+        message: String,
+    },
     #[error("tool `{tool}` executor failed: {message}")]
     ExecutorFailed {
         tool: String,
