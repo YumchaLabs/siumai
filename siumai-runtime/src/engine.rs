@@ -12,6 +12,7 @@ use siumai_core::{
     StreamTerminal, ToolCall, ToolOutcome, ToolResult,
 };
 
+use crate::selection::{PreparedStepModel, prepare_selected_step_model, select_step_model};
 use crate::snapshot::{IndeterminateReason, PreparedToolSnapshot, ToolExecutionEvent};
 use crate::tool::{
     ApprovalDecider, ApprovalDecision, ApprovalPolicy, ApprovalRequest, AuthorizedToolCall,
@@ -20,8 +21,9 @@ use crate::tool::{
 };
 use crate::tool_loop::{ToolOutcomeAction, ToolOutcomePolicy};
 use crate::{
-    IndeterminateEffect, ModelTarget, RunBudget, RunEvent, RunReport, RunStopReason, RunTerminal,
-    RunTimeoutKind, Runtime, StepOptions, StepRecord, SuspensionReason,
+    IndeterminateEffect, ModelTarget, ProjectionPolicy, RunBudget, RunEvent, RunReport,
+    RunStopReason, RunTerminal, RunTimeoutKind, Runtime, StepModelSelector, StepOptions,
+    StepRecord, SuspensionReason,
 };
 
 type BoxToolFuture = Pin<Box<dyn Future<Output = ToolAttempt> + Send + 'static>>;
@@ -35,6 +37,8 @@ pub(crate) struct StepEngine {
     call_options: CallOptions,
     outcome_policy: ToolOutcomePolicy,
     approval_decider: Arc<dyn ApprovalDecider>,
+    model_selector: Option<Arc<dyn StepModelSelector>>,
+    projection_policy: ProjectionPolicy,
     tool_handling: ToolHandling,
     budget: RunBudget,
     cancellation: Cancellation,
@@ -66,6 +70,8 @@ impl StepEngine {
         options: CallOptions,
         outcome_policy: ToolOutcomePolicy,
         approval_decider: Arc<dyn ApprovalDecider>,
+        model_selector: Option<Arc<dyn StepModelSelector>>,
+        projection_policy: ProjectionPolicy,
         tool_handling: ToolHandling,
     ) -> Result<Self, Error> {
         let target = ModelTarget::from_model(model.as_ref());
@@ -79,6 +85,8 @@ impl StepEngine {
             options,
             outcome_policy,
             approval_decider,
+            model_selector,
+            projection_policy,
             tool_handling,
             report,
             0,
@@ -97,6 +105,8 @@ impl StepEngine {
         options: CallOptions,
         outcome_policy: ToolOutcomePolicy,
         approval_decider: Arc<dyn ApprovalDecider>,
+        model_selector: Option<Arc<dyn StepModelSelector>>,
+        projection_policy: ProjectionPolicy,
         tool_handling: ToolHandling,
         report: RunReport,
         step: u32,
@@ -110,6 +120,8 @@ impl StepEngine {
             options,
             outcome_policy,
             approval_decider,
+            model_selector,
+            projection_policy,
             tool_handling,
             report,
             step,
@@ -128,6 +140,8 @@ impl StepEngine {
         options: CallOptions,
         outcome_policy: ToolOutcomePolicy,
         approval_decider: Arc<dyn ApprovalDecider>,
+        model_selector: Option<Arc<dyn StepModelSelector>>,
+        projection_policy: ProjectionPolicy,
         tool_handling: ToolHandling,
         report: RunReport,
         step: u32,
@@ -143,10 +157,10 @@ impl StepEngine {
             .with_cancellation(cancellation.clone())
             .with_deadline(total_deadline);
         let target = ModelTarget::from_model(model.as_ref());
-        if report.initial_target() != &target {
+        if report.current_target() != &target {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
-                "seeded run report targets a different model",
+                "seeded run report targets a different active model",
             ));
         }
         request.messages = report.messages().to_vec();
@@ -169,6 +183,8 @@ impl StepEngine {
             call_options,
             outcome_policy,
             approval_decider,
+            model_selector,
+            projection_policy,
             tool_handling,
             budget,
             cancellation,
@@ -314,6 +330,18 @@ impl StepEngine {
     }
 
     async fn establish_later_step(&mut self) {
+        match self.prepare_next_model() {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                self.queue_terminal(RunTerminal::Failed {
+                    error,
+                    report: Box::new(self.report.clone()),
+                });
+                return;
+            }
+        }
+
         if let Err(error) = self.report.budget_mut().charge_model_step(&self.budget) {
             self.queue_terminal(RunTerminal::BudgetExceeded {
                 error,
@@ -331,6 +359,66 @@ impl StepEngine {
                 self.current_stream = Some(stream);
             }
             Err(error) => self.queue_handshake_failure(error),
+        }
+    }
+
+    fn prepare_next_model(&mut self) -> Result<bool, Error> {
+        let previous_step = self.report.steps().last().ok_or_else(|| {
+            Error::new(
+                ErrorKind::Internal,
+                "model selection requires a completed previous step",
+            )
+        })?;
+        let selected = select_step_model(
+            self.model_selector.as_deref(),
+            Arc::clone(&self.model),
+            self.step,
+            &self.target,
+            previous_step,
+            &self.report,
+        )?;
+
+        let mut request = self.request.clone();
+        request.messages = self.report.messages().to_vec();
+        request.tools = self.tools.specs().to_vec();
+        match prepare_selected_step_model(
+            selected,
+            request,
+            self.step,
+            &self.target,
+            self.projection_policy,
+        ) {
+            PreparedStepModel::Ready(ready) => {
+                let crate::selection::PreparedStepModelReady {
+                    model,
+                    target,
+                    request,
+                    transition,
+                } = *ready;
+                self.model = model;
+                self.target = target;
+                self.report.replace_messages(request.messages.clone());
+                self.request = request;
+                if let Some(transition) = transition {
+                    self.report.model_transitions_mut().push(transition.clone());
+                    self.pending.push_back(RunEvent::ModelTransition {
+                        transition: Box::new(transition),
+                    });
+                }
+                Ok(true)
+            }
+            PreparedStepModel::Rejected { transition } => {
+                let transition = *transition;
+                self.report.model_transitions_mut().push(transition.clone());
+                self.pending.push_back(RunEvent::ModelTransition {
+                    transition: Box::new(transition.clone()),
+                });
+                self.queue_terminal(RunTerminal::HistoryProjectionRejected {
+                    transition: Box::new(transition),
+                    report: Box::new(self.report.clone()),
+                });
+                Ok(false)
+            }
         }
     }
 

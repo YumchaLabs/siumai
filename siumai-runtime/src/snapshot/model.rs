@@ -4,16 +4,19 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use siumai_core::{
-    ContentPart, LanguageResponse, Message, ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult,
-    Usage, UsageValue,
+    ContentPart, LanguageRequest, LanguageRequestError, LanguageResponse, Message,
+    ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult, Usage, UsageValue,
 };
 use thiserror::Error;
 
 use crate::tool::{EffectCertainty, RecoveryPolicy, ToolExecutionAttempt, ToolIdempotencyKey};
-use crate::{ModelTarget, RunReport};
+use crate::{
+    ModelTarget, ModelTransitionOutcome, ProjectionPolicy, RunReport, StepModelSelectorIdentity,
+    project_history,
+};
 
 /// The only snapshot schema version understood by this release.
-pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 2;
+pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 4;
 
 const MAX_ID_BYTES: usize = 256;
 const MAX_FINGERPRINT_BYTES: usize = 1_024;
@@ -178,6 +181,8 @@ pub struct SnapshotFingerprints {
     pub options: SnapshotFingerprint,
     pub tool_catalog: SnapshotFingerprint,
     pub approval_policy: SnapshotFingerprint,
+    pub model_selector: Option<StepModelSelectorIdentity>,
+    pub projection_policy: ProjectionPolicy,
 }
 
 impl fmt::Debug for SnapshotFingerprints {
@@ -187,6 +192,8 @@ impl fmt::Debug for SnapshotFingerprints {
             .field("options", &"<redacted>")
             .field("tool_catalog", &"<redacted>")
             .field("approval_policy", &"<redacted>")
+            .field("model_selector", &self.model_selector)
+            .field("projection_policy", &self.projection_policy)
             .finish()
     }
 }
@@ -1367,6 +1374,7 @@ pub struct RunSnapshot {
     snapshot_version: u16,
     checkpoint: SnapshotCheckpoint,
     fingerprints: SnapshotFingerprints,
+    continuation: LanguageRequest,
     report: RunReport,
     deadline_unix_ms: Option<u64>,
     resume_point: ResumePoint,
@@ -1376,6 +1384,7 @@ impl RunSnapshot {
     pub fn new(
         checkpoint: SnapshotCheckpoint,
         fingerprints: SnapshotFingerprints,
+        continuation: LanguageRequest,
         report: RunReport,
         deadline_unix_ms: Option<u64>,
         resume_point: ResumePoint,
@@ -1384,6 +1393,7 @@ impl RunSnapshot {
             snapshot_version: RUN_SNAPSHOT_SCHEMA_VERSION,
             checkpoint,
             fingerprints,
+            continuation,
             report,
             deadline_unix_ms,
             resume_point,
@@ -1423,7 +1433,7 @@ impl RunSnapshot {
     pub fn target(&self) -> &ModelTarget {
         self.resume_point
             .target()
-            .unwrap_or_else(|| self.report.initial_target())
+            .unwrap_or_else(|| self.report.current_target())
     }
 
     pub fn fingerprints(&self) -> &SnapshotFingerprints {
@@ -1432,6 +1442,11 @@ impl RunSnapshot {
 
     pub fn report(&self) -> &RunReport {
         &self.report
+    }
+
+    /// Complete provider-neutral request state for the next model call.
+    pub fn continuation(&self) -> &LanguageRequest {
+        &self.continuation
     }
 
     pub fn history(&self) -> &[Message] {
@@ -1503,8 +1518,18 @@ impl RunSnapshot {
             });
         }
         self.checkpoint.validate()?;
+        self.continuation.validate()?;
+        if self.continuation.messages != self.report.messages() {
+            return Err(RunSnapshotError::ContinuationHistoryMismatch);
+        }
         validate_execution_events(self.report.execution_log().events())?;
         let expected_step = validate_report(&self.report)?;
+        validate_model_transitions(
+            &self.report,
+            &self.resume_point,
+            self.fingerprints.projection_policy,
+            expected_step,
+        )?;
 
         let expected_pending_approvals = match &self.resume_point {
             ResumePoint::AwaitingApprovals(step) => {
@@ -1525,12 +1550,17 @@ impl RunSnapshot {
                 }
                 0
             }
-            ResumePoint::ReadyForModel { next_step, .. } => {
+            ResumePoint::ReadyForModel { next_step, target } => {
                 if *next_step != expected_step {
                     return Err(RunSnapshotError::ResumeStepMismatch {
                         expected: expected_step,
                         actual: *next_step,
                     });
+                }
+                if target != self.report.current_target()
+                    && self.fingerprints.model_selector.is_none()
+                {
+                    return Err(RunSnapshotError::MissingModelSelectorIdentity);
                 }
                 0
             }
@@ -1577,13 +1607,7 @@ impl RunSnapshot {
         if successor.checkpoint_id() == self.checkpoint_id() {
             return Err(RunSnapshotSuccessorError::ReusedCheckpoint);
         }
-        if !successor
-            .report
-            .messages()
-            .starts_with(self.report.messages())
-        {
-            return Err(RunSnapshotSuccessorError::MessageHistoryRegression);
-        }
+        validate_continuation_successor(self, successor)?;
         if !successor.report.steps().starts_with(self.report.steps()) {
             return Err(RunSnapshotSuccessorError::StepHistoryRegression);
         }
@@ -1615,7 +1639,14 @@ impl fmt::Debug for RunSnapshot {
             .field("snapshot_version", &self.snapshot_version)
             .field("checkpoint", &self.checkpoint)
             .field("fingerprints", &"<redacted>")
-            .field("history_messages", &self.report.messages().len())
+            .field("history_messages", &self.continuation.messages.len())
+            .field("generation", &"<redacted>")
+            .field("request_tools", &self.continuation.tools.len())
+            .field("tool_choice", &self.continuation.tool_choice.is_some())
+            .field(
+                "structured_output",
+                &self.continuation.structured_output.is_some(),
+            )
             .field("completed_steps", &self.report.steps().len())
             .field("provider_items", &self.report.provider_deferred().len())
             .field("execution_log", self.report.execution_log())
@@ -1632,6 +1663,7 @@ struct RunSnapshotWire {
     snapshot_version: u16,
     checkpoint: SnapshotCheckpoint,
     fingerprints: SnapshotFingerprints,
+    continuation: LanguageRequest,
     report: RunReport,
     deadline_unix_ms: Option<u64>,
     resume_point: ResumePoint,
@@ -1647,6 +1679,7 @@ impl<'de> Deserialize<'de> for RunSnapshot {
             snapshot_version: wire.snapshot_version,
             checkpoint: wire.checkpoint,
             fingerprints: wire.fingerprints,
+            continuation: wire.continuation,
             report: wire.report,
             deadline_unix_ms: wire.deadline_unix_ms,
             resume_point: wire.resume_point,
@@ -1662,6 +1695,8 @@ impl<'de> Deserialize<'de> for RunSnapshot {
 pub enum RunSnapshotError {
     #[error("unsupported run snapshot version {found}; this release supports {supported}")]
     UnsupportedVersion { found: u16, supported: u16 },
+    #[error(transparent)]
+    InvalidContinuation(#[from] LanguageRequestError),
     #[error("{field} must not be empty")]
     EmptyField { field: &'static str },
     #[error("{field} must not contain surrounding whitespace")]
@@ -1678,8 +1713,32 @@ pub enum RunSnapshotError {
     InvalidReportStepIndex { expected: u32, actual: u32 },
     #[error("report step index overflowed")]
     ReportStepIndexOverflow,
+    #[error("report step {step} does not match the active model target")]
+    ReportStepTargetMismatch { step: u32 },
+    #[error("model transitions cannot target the initial model step")]
+    ModelTransitionAtInitialStep,
+    #[error("model transition step {actual} does not follow step {previous}")]
+    ModelTransitionStepOutOfOrder { previous: u32, actual: u32 },
+    #[error("model transition step {actual} exceeds the current report boundary {maximum}")]
+    ModelTransitionStepBeyondReport { maximum: u32, actual: u32 },
+    #[error("model transition at step {step} does not start from the active target")]
+    ModelTransitionSourceMismatch { step: u32 },
+    #[error("model transition at step {step} does not change the target")]
+    ModelTransitionTargetUnchanged { step: u32 },
+    #[error("model transition at step {step} uses a different projection policy")]
+    ModelTransitionPolicyMismatch { step: u32 },
+    #[error("model transition at step {step} follows a rejected transition")]
+    ModelTransitionAfterRejection { step: u32 },
+    #[error("rejected model transition at step {step} must be the terminal report boundary")]
+    RejectedModelTransitionNotTerminal { step: u32 },
+    #[error("resume point at step {step} does not match the active model target")]
+    ResumeTargetMismatch { step: u32 },
     #[error("resume step index must be {expected}, got {actual}")]
     ResumeStepMismatch { expected: u32, actual: u32 },
+    #[error("continuation messages must exactly match report message history")]
+    ContinuationHistoryMismatch,
+    #[error("a frozen model transition requires a versioned selector identity")]
+    MissingModelSelectorIdentity,
     #[error("a pending step must contain at least one tool call")]
     PendingStepWithoutToolCalls,
     #[error("pending step has {prepared} prepared calls for {response_calls} response tool calls")]
@@ -1757,6 +1816,20 @@ pub enum RunSnapshotSuccessorError {
     ReusedCheckpoint,
     #[error("successor rewrites or removes report message history")]
     MessageHistoryRegression,
+    #[error("successor changes non-history continuation request state")]
+    ContinuationStateChanged,
+    #[error("successor rewrites or removes model-transition history")]
+    ModelTransitionHistoryRegression,
+    #[error("successor appends more than one model transition")]
+    MultipleModelTransitions,
+    #[error("successor appends a model transition outside a ready-for-model boundary")]
+    UnexpectedModelTransition,
+    #[error("successor omits the transition to the frozen ready-for-model target")]
+    MissingModelTransition,
+    #[error("successor model transition does not match the frozen selection")]
+    ModelTransitionMismatch,
+    #[error("successor continuation is not a reproducible history projection")]
+    ProjectionResultMismatch,
     #[error("successor rewrites or removes completed step history")]
     StepHistoryRegression,
     #[error("successor rewrites or removes provider-native report history")]
@@ -1799,6 +1872,94 @@ pub enum RunSnapshotSuccessorError {
     PendingStepDidNotComplete { step: u32, next_step: u32 },
 }
 
+fn validate_continuation_successor(
+    previous: &RunSnapshot,
+    successor: &RunSnapshot,
+) -> Result<(), RunSnapshotSuccessorError> {
+    if !successor
+        .report
+        .model_transitions()
+        .starts_with(previous.report.model_transitions())
+    {
+        return Err(RunSnapshotSuccessorError::ModelTransitionHistoryRegression);
+    }
+    let appended =
+        &successor.report.model_transitions()[previous.report.model_transitions().len()..];
+    if appended.len() > 1 {
+        return Err(RunSnapshotSuccessorError::MultipleModelTransitions);
+    }
+
+    let frozen = match previous.resume_point() {
+        ResumePoint::ReadyForModel { next_step, target } => Some((*next_step, target)),
+        _ => None,
+    };
+    let source = previous.report.current_target();
+    let Some(transition) = appended.first() else {
+        if frozen.is_some_and(|(_, target)| target != source) {
+            return Err(RunSnapshotSuccessorError::MissingModelTransition);
+        }
+        if !same_continuation_state(&previous.continuation, &successor.continuation) {
+            return Err(RunSnapshotSuccessorError::ContinuationStateChanged);
+        }
+        if !successor
+            .continuation
+            .messages
+            .starts_with(&previous.continuation.messages)
+        {
+            return Err(RunSnapshotSuccessorError::MessageHistoryRegression);
+        }
+        return Ok(());
+    };
+
+    let Some((next_step, frozen_target)) = frozen else {
+        return Err(RunSnapshotSuccessorError::UnexpectedModelTransition);
+    };
+    if transition.step() != next_step
+        || transition.source() != source
+        || transition.target() != frozen_target
+        || transition.policy() != previous.fingerprints.projection_policy
+    {
+        return Err(RunSnapshotSuccessorError::ModelTransitionMismatch);
+    }
+
+    match project_history(
+        previous.continuation.clone(),
+        source,
+        frozen_target,
+        previous.fingerprints.projection_policy,
+    ) {
+        Ok(projected) if transition.outcome() == ModelTransitionOutcome::Applied => {
+            if transition.scope() != projected.scope()
+                || transition.losses() != projected.losses()
+                || !same_continuation_state(projected.request(), &successor.continuation)
+                || !successor
+                    .continuation
+                    .messages
+                    .starts_with(&projected.request().messages)
+            {
+                return Err(RunSnapshotSuccessorError::ProjectionResultMismatch);
+            }
+        }
+        Err(error) if transition.outcome() == ModelTransitionOutcome::Rejected => {
+            if transition.scope() != error.scope()
+                || transition.losses() != error.losses()
+                || successor.continuation != previous.continuation
+            {
+                return Err(RunSnapshotSuccessorError::ProjectionResultMismatch);
+            }
+        }
+        _ => return Err(RunSnapshotSuccessorError::ModelTransitionMismatch),
+    }
+    Ok(())
+}
+
+fn same_continuation_state(previous: &LanguageRequest, next: &LanguageRequest) -> bool {
+    previous.generation == next.generation
+        && previous.tools == next.tools
+        && previous.tool_choice == next.tool_choice
+        && previous.structured_output == next.structured_output
+}
+
 fn validate_report(report: &RunReport) -> Result<u32, RunSnapshotError> {
     let mut expected = 0_u32;
     for step in report.steps() {
@@ -1813,6 +1974,123 @@ fn validate_report(report: &RunReport) -> Result<u32, RunSnapshotError> {
             .ok_or(RunSnapshotError::ReportStepIndexOverflow)?;
     }
     Ok(expected)
+}
+
+fn validate_model_transitions(
+    report: &RunReport,
+    resume_point: &ResumePoint,
+    projection_policy: ProjectionPolicy,
+    expected_step: u32,
+) -> Result<(), RunSnapshotError> {
+    let transitions = report.model_transitions();
+    let mut transition_index = 0_usize;
+    let mut last_transition_step = None;
+    let mut active_target = report.initial_target().clone();
+    let mut rejected_step = None;
+
+    for step in report.steps() {
+        while let Some(transition) = transitions.get(transition_index) {
+            if transition.step() != step.index() {
+                break;
+            }
+            validate_model_transition(
+                transition,
+                projection_policy,
+                expected_step,
+                &mut last_transition_step,
+                &mut active_target,
+                &mut rejected_step,
+            )?;
+            transition_index = transition_index.saturating_add(1);
+        }
+        if rejected_step.is_some() || step.target() != &active_target {
+            return Err(RunSnapshotError::ReportStepTargetMismatch { step: step.index() });
+        }
+    }
+
+    for transition in &transitions[transition_index..] {
+        validate_model_transition(
+            transition,
+            projection_policy,
+            expected_step,
+            &mut last_transition_step,
+            &mut active_target,
+            &mut rejected_step,
+        )?;
+    }
+
+    if let Some(step) = rejected_step
+        && (step != expected_step || !resume_point.is_terminal())
+    {
+        return Err(RunSnapshotError::RejectedModelTransitionNotTerminal { step });
+    }
+
+    match resume_point {
+        ResumePoint::AwaitingApprovals(step) | ResumePoint::ReadyToDispatch(step) => {
+            if step.target() != &active_target {
+                return Err(RunSnapshotError::ResumeTargetMismatch { step: step.index() });
+            }
+        }
+        ResumePoint::AwaitingProvider(step) => {
+            if step.target() != &active_target {
+                return Err(RunSnapshotError::ResumeTargetMismatch { step: step.index() });
+            }
+        }
+        ResumePoint::ReadyForModel { next_step, target } => {
+            if last_transition_step == Some(*next_step) && target != &active_target {
+                return Err(RunSnapshotError::ResumeTargetMismatch { step: *next_step });
+            }
+        }
+        ResumePoint::Terminal(_) => {}
+    }
+    Ok(())
+}
+
+fn validate_model_transition(
+    transition: &crate::ModelTransitionRecord,
+    projection_policy: ProjectionPolicy,
+    expected_step: u32,
+    last_transition_step: &mut Option<u32>,
+    active_target: &mut ModelTarget,
+    rejected_step: &mut Option<u32>,
+) -> Result<(), RunSnapshotError> {
+    let step = transition.step();
+    if step == 0 {
+        return Err(RunSnapshotError::ModelTransitionAtInitialStep);
+    }
+    if step > expected_step {
+        return Err(RunSnapshotError::ModelTransitionStepBeyondReport {
+            maximum: expected_step,
+            actual: step,
+        });
+    }
+    if let Some(previous) = *last_transition_step
+        && step <= previous
+    {
+        return Err(RunSnapshotError::ModelTransitionStepOutOfOrder {
+            previous,
+            actual: step,
+        });
+    }
+    if rejected_step.is_some() {
+        return Err(RunSnapshotError::ModelTransitionAfterRejection { step });
+    }
+    if transition.source() != active_target {
+        return Err(RunSnapshotError::ModelTransitionSourceMismatch { step });
+    }
+    if transition.target() == transition.source() {
+        return Err(RunSnapshotError::ModelTransitionTargetUnchanged { step });
+    }
+    if transition.policy() != projection_policy {
+        return Err(RunSnapshotError::ModelTransitionPolicyMismatch { step });
+    }
+
+    *last_transition_step = Some(step);
+    match transition.outcome() {
+        ModelTransitionOutcome::Applied => active_target.clone_from(transition.target()),
+        ModelTransitionOutcome::Rejected => *rejected_step = Some(step),
+    }
+    Ok(())
 }
 
 fn validate_pending_step(

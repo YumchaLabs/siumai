@@ -12,7 +12,91 @@ use siumai_core::{
 };
 
 use crate::snapshot::ToolExecutionLog;
-use crate::{BudgetError, BudgetLedger, ModelTarget};
+use crate::{
+    BudgetError, BudgetLedger, ModelTarget, ProjectionLoss, ProjectionPolicy, ProjectionScope,
+};
+
+/// Whether a requested model transition was committed to the run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ModelTransitionOutcome {
+    Applied,
+    Rejected,
+}
+
+/// Auditable history projection performed before one destination model step.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelTransitionRecord {
+    step: u32,
+    source: ModelTarget,
+    target: ModelTarget,
+    policy: ProjectionPolicy,
+    scope: ProjectionScope,
+    outcome: ModelTransitionOutcome,
+    losses: Vec<ProjectionLoss>,
+}
+
+impl ModelTransitionRecord {
+    pub(crate) fn new(
+        step: u32,
+        source: ModelTarget,
+        target: ModelTarget,
+        policy: ProjectionPolicy,
+        scope: ProjectionScope,
+        outcome: ModelTransitionOutcome,
+        losses: Vec<ProjectionLoss>,
+    ) -> Self {
+        Self {
+            step,
+            source,
+            target,
+            policy,
+            scope,
+            outcome,
+            losses,
+        }
+    }
+
+    pub const fn step(&self) -> u32 {
+        self.step
+    }
+
+    pub const fn source(&self) -> &ModelTarget {
+        &self.source
+    }
+
+    pub const fn target(&self) -> &ModelTarget {
+        &self.target
+    }
+
+    pub const fn policy(&self) -> ProjectionPolicy {
+        self.policy
+    }
+
+    pub const fn scope(&self) -> ProjectionScope {
+        self.scope
+    }
+
+    pub const fn outcome(&self) -> ModelTransitionOutcome {
+        self.outcome
+    }
+
+    pub fn losses(&self) -> &[ProjectionLoss] {
+        &self.losses
+    }
+
+    pub const fn is_applied(&self) -> bool {
+        matches!(self.outcome, ModelTransitionOutcome::Applied)
+    }
+
+    pub const fn is_rejected(&self) -> bool {
+        matches!(self.outcome, ModelTransitionOutcome::Rejected)
+    }
+
+    pub fn is_lossy(&self) -> bool {
+        !self.losses.is_empty()
+    }
+}
 
 /// A completed model step retained in deterministic execution order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,6 +145,7 @@ pub struct RunReport {
     initial_target: ModelTarget,
     messages: Vec<Message>,
     steps: Vec<StepRecord>,
+    model_transitions: Vec<ModelTransitionRecord>,
     usage: Usage,
     budget: BudgetLedger,
     execution_log: ToolExecutionLog,
@@ -73,6 +158,7 @@ impl RunReport {
             initial_target,
             messages,
             steps: Vec::new(),
+            model_transitions: Vec::new(),
             usage: Usage::default(),
             budget: BudgetLedger::default(),
             execution_log: ToolExecutionLog::new(),
@@ -90,6 +176,18 @@ impl RunReport {
 
     pub fn steps(&self) -> &[StepRecord] {
         &self.steps
+    }
+
+    pub fn current_target(&self) -> &ModelTarget {
+        self.model_transitions
+            .iter()
+            .rev()
+            .find(|transition| transition.is_applied())
+            .map_or(&self.initial_target, ModelTransitionRecord::target)
+    }
+
+    pub fn model_transitions(&self) -> &[ModelTransitionRecord] {
+        &self.model_transitions
     }
 
     pub fn usage(&self) -> &Usage {
@@ -122,6 +220,10 @@ impl RunReport {
 
     pub(crate) fn steps_mut(&mut self) -> &mut Vec<StepRecord> {
         &mut self.steps
+    }
+
+    pub(crate) fn model_transitions_mut(&mut self) -> &mut Vec<ModelTransitionRecord> {
+        &mut self.model_transitions
     }
 
     pub(crate) fn accumulate_usage(&mut self, usage: &Usage) {
@@ -212,6 +314,10 @@ pub enum RunTerminal {
         effect: IndeterminateEffect,
         report: Box<RunReport>,
     },
+    HistoryProjectionRejected {
+        transition: Box<ModelTransitionRecord>,
+        report: Box<RunReport>,
+    },
     ResumeConflict {
         reason: String,
     },
@@ -234,6 +340,7 @@ impl RunTerminal {
             | Self::BudgetExceeded { report, .. }
             | Self::TimedOut { report, .. }
             | Self::Indeterminate { report, .. }
+            | Self::HistoryProjectionRejected { report, .. }
             | Self::Failed { report, .. }
             | Self::Cancelled { report, .. } => Some(report),
             Self::ResumeConflict { .. } => None,
@@ -273,6 +380,9 @@ pub enum RunEvent {
     },
     StepFinished {
         record: Box<StepRecord>,
+    },
+    ModelTransition {
+        transition: Box<ModelTransitionRecord>,
     },
     Terminal(RunTerminal),
 }

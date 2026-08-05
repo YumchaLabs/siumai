@@ -186,6 +186,8 @@ impl<T> StructuredOutputRunner<T> {
             shared_options.clone(),
             ToolOutcomePolicy::default(),
             Arc::new(ExternalApprovalDecider::default()),
+            None,
+            crate::ProjectionPolicy::Strict,
             ToolHandling::ObserveOnly,
         )
         .await
@@ -246,6 +248,8 @@ impl<T> StructuredOutputRunner<T> {
                     repair_options,
                     ToolOutcomePolicy::default(),
                     Arc::new(ExternalApprovalDecider::default()),
+                    None,
+                    crate::ProjectionPolicy::Strict,
                     ToolHandling::ObserveOnly,
                     seeded_report,
                     next_step,

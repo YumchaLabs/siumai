@@ -10,7 +10,7 @@ use siumai_core::{CallOptions, Error, LanguageModel, LanguageRequest, ToolOutcom
 use crate::engine::{StepEngine, ToolHandling};
 use crate::run::established_run_stream;
 use crate::tool::{ApprovalDecider, ExternalApprovalDecider, ToolSet};
-use crate::{RunStream, RunTerminal, Runtime, StepOptions};
+use crate::{ProjectionPolicy, RunStream, RunTerminal, Runtime, StepModelSelector, StepOptions};
 
 /// Runtime action after a known non-success tool outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +78,8 @@ pub struct ToolLoop {
     step_options: StepOptions,
     outcome_policy: ToolOutcomePolicy,
     approval_decider: Arc<dyn ApprovalDecider>,
+    model_selector: Option<Arc<dyn StepModelSelector>>,
+    projection_policy: ProjectionPolicy,
 }
 
 impl fmt::Debug for ToolLoop {
@@ -90,6 +92,8 @@ impl fmt::Debug for ToolLoop {
             )
             .field("tools", &self.tools.len())
             .field("outcome_policy", &self.outcome_policy)
+            .field("model_selector", &self.model_selector.is_some())
+            .field("projection_policy", &self.projection_policy)
             .field(
                 "approval_policy_fingerprint",
                 self.approval_decider.fingerprint(),
@@ -107,6 +111,8 @@ impl ToolLoop {
             step_options: StepOptions::default(),
             outcome_policy: ToolOutcomePolicy::default(),
             approval_decider: Arc::new(ExternalApprovalDecider::default()),
+            model_selector: None,
+            projection_policy: ProjectionPolicy::Strict,
         }
     }
 
@@ -120,6 +126,11 @@ impl ToolLoop {
         self
     }
 
+    pub fn with_tools(mut self, tools: ToolSet) -> Self {
+        self.tools = tools;
+        self
+    }
+
     pub fn with_outcome_policy(mut self, policy: ToolOutcomePolicy) -> Self {
         self.outcome_policy = policy;
         self
@@ -128,6 +139,30 @@ impl ToolLoop {
     /// Install the trusted host policy for bindings marked as requiring approval.
     pub fn with_approval_decider(mut self, decider: Arc<dyn ApprovalDecider>) -> Self {
         self.approval_decider = decider;
+        self
+    }
+
+    /// Select the model used by each already-required later step.
+    pub fn with_model_selector<S>(mut self, selector: S) -> Self
+    where
+        S: StepModelSelector,
+    {
+        self.model_selector = Some(Arc::new(selector));
+        self
+    }
+
+    /// Install a shared selector without adding another allocation layer.
+    pub fn with_shared_model_selector(mut self, selector: Arc<dyn StepModelSelector>) -> Self {
+        self.model_selector = Some(selector);
+        self
+    }
+
+    /// Set the loss policy for actual model-target transitions.
+    ///
+    /// The default is [`ProjectionPolicy::Strict`]. Blocking state is rejected
+    /// under every policy.
+    pub fn with_projection_policy(mut self, policy: ProjectionPolicy) -> Self {
+        self.projection_policy = policy;
         self
     }
 
@@ -150,6 +185,8 @@ impl ToolLoop {
             options,
             self.outcome_policy,
             Arc::clone(&self.approval_decider),
+            self.model_selector.clone(),
+            self.projection_policy,
             ToolHandling::Execute,
         )
         .await?;

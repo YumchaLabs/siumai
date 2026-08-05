@@ -23,14 +23,18 @@ mod tests {
 
     use serde_json::json;
     use siumai_core::{
-        ContentPart, ExecutionOwner, FinishReason, LanguageResponse, Message, MessageRole, Model,
-        ModelDescriptor, ModelFamily, ModelId, ProviderId, RouteId, ToolBindingIdentity, ToolCall,
-        ToolOutcome, Usage,
+        ContentPart, ExecutionOwner, FinishReason, LanguageRequest, LanguageResponse, Message,
+        MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId,
+        ProviderId, ProviderProvenance, RouteId, ToolBindingIdentity, ToolCall, ToolOutcome, Usage,
     };
 
     use super::*;
     use crate::tool::{RecoveryPolicy, ToolExecutionAttempt, ToolIdempotencyKey};
-    use crate::{ModelTarget, RunBudget, RunReport};
+    use crate::{
+        ModelTarget, ModelTransitionOutcome, ModelTransitionRecord, ProjectionPolicy,
+        ProjectionScope, RunBudget, RunReport, StepModelSelectorIdentity, StepRecord,
+        project_history,
+    };
 
     const DEADLINE: u64 = 4_102_444_800_000;
 
@@ -75,6 +79,8 @@ mod tests {
             options: fingerprint("sha256:options"),
             tool_catalog: fingerprint("sha256:catalog"),
             approval_policy: fingerprint("sha256:approval"),
+            model_selector: None,
+            projection_policy: crate::ProjectionPolicy::Strict,
         }
     }
 
@@ -198,9 +204,11 @@ mod tests {
         deadline_unix_ms: Option<u64>,
         resume_point: ResumePoint,
     ) -> RunSnapshot {
+        let continuation = LanguageRequest::new(report.messages().to_vec());
         RunSnapshot::new(
             checkpoint(checkpoint_id, parent_checkpoint_id),
             fingerprints(),
+            continuation,
             report,
             deadline_unix_ms,
             resume_point,
@@ -259,6 +267,7 @@ mod tests {
         let error = RunSnapshot::new(
             checkpoint("checkpoint-2", None),
             fingerprints(),
+            LanguageRequest::new(report.messages().to_vec()),
             report,
             Some(DEADLINE),
             ResumePoint::AwaitingApprovals(pending_step(vec![mismatched_approval])),
@@ -287,6 +296,7 @@ mod tests {
         let error = RunSnapshot::new(
             checkpoint("checkpoint-1", None),
             fingerprints(),
+            LanguageRequest::new(report_with_log(prepared_log()).messages().to_vec()),
             report_with_log(prepared_log()),
             Some(DEADLINE),
             ResumePoint::ReadyToDispatch(pending),
@@ -597,6 +607,251 @@ mod tests {
                 .unwrap_err(),
             RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::MessageHistoryRegression)
         );
+    }
+
+    #[tokio::test]
+    async fn cas_accepts_only_an_exact_reprojection_for_history_regression() {
+        let source = ModelTarget::new(
+            ProviderId::new("source-provider").unwrap(),
+            ModelId::new("source-model").unwrap(),
+        )
+        .with_protocol(ProtocolId::new("source.responses").unwrap());
+        let destination = ModelTarget::new(
+            ProviderId::new("destination-provider").unwrap(),
+            ModelId::new("destination-model").unwrap(),
+        )
+        .with_protocol(ProtocolId::new("destination.messages").unwrap());
+        let native = OpaqueProviderItem::new(
+            ProviderProvenance {
+                provider: source.provider().clone(),
+                platform: None,
+                protocol: source.protocol().unwrap().as_str().to_string(),
+                model: source.model().clone(),
+            },
+            "response.output",
+            json!({"id": "native-only"}),
+        )
+        .unwrap();
+        let source_response = LanguageResponse::completed(
+            vec![ContentPart::ProviderOpaque(native.clone())],
+            FinishReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+        let source_messages = vec![
+            Message::text(MessageRole::User, "portable"),
+            Message {
+                role: MessageRole::Assistant,
+                content: vec![ContentPart::ProviderOpaque(native)],
+            },
+        ];
+        let mut previous_report = RunReport::new(source.clone(), source_messages.clone());
+        previous_report.steps_mut().push(StepRecord::new(
+            0,
+            source.clone(),
+            source_response,
+            Vec::new(),
+        ));
+        let mut policy_fingerprints = fingerprints();
+        policy_fingerprints.model_selector = Some(StepModelSelectorIdentity::new(
+            1,
+            fingerprint("sha256:selector"),
+        ));
+        policy_fingerprints.projection_policy = ProjectionPolicy::BestEffort;
+        let previous = RunSnapshot::new(
+            checkpoint("checkpoint-1", None),
+            policy_fingerprints.clone(),
+            LanguageRequest::new(source_messages),
+            previous_report,
+            Some(DEADLINE),
+            ResumePoint::ReadyForModel {
+                next_step: 1,
+                target: destination.clone(),
+            },
+        )
+        .unwrap();
+        let projected = project_history(
+            previous.continuation().clone(),
+            &source,
+            &destination,
+            ProjectionPolicy::BestEffort,
+        )
+        .unwrap();
+        assert!(!projected.losses().is_empty());
+        assert!(!projected.request().messages.starts_with(previous.history()));
+        let final_response = LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "done".to_string(),
+            }],
+            FinishReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+        let mut continuation = projected.request().clone();
+        continuation.messages.push(Message {
+            role: MessageRole::Assistant,
+            content: final_response.content().to_vec(),
+        });
+        let mut successor_report = previous.report().clone();
+        successor_report.replace_messages(continuation.messages.clone());
+        successor_report
+            .model_transitions_mut()
+            .push(ModelTransitionRecord::new(
+                1,
+                source.clone(),
+                destination.clone(),
+                ProjectionPolicy::BestEffort,
+                projected.scope(),
+                ModelTransitionOutcome::Applied,
+                projected.losses().to_vec(),
+            ));
+        successor_report.steps_mut().push(StepRecord::new(
+            1,
+            destination.clone(),
+            final_response,
+            Vec::new(),
+        ));
+        let mut tampered_continuation = continuation.clone();
+        tampered_continuation.messages[0] =
+            Message::text(MessageRole::User, "rewritten portable history");
+        let mut tampered_report = successor_report.clone();
+        tampered_report.replace_messages(tampered_continuation.messages.clone());
+        let tampered = RunSnapshot::new(
+            checkpoint("checkpoint-tampered", Some("checkpoint-1")),
+            policy_fingerprints.clone(),
+            tampered_continuation,
+            tampered_report,
+            Some(DEADLINE),
+            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+        )
+        .unwrap();
+        assert_eq!(
+            previous.validate_successor(&tampered).unwrap_err(),
+            RunSnapshotSuccessorError::ProjectionResultMismatch
+        );
+        let successor = RunSnapshot::new(
+            checkpoint("checkpoint-2", Some("checkpoint-1")),
+            policy_fingerprints,
+            continuation,
+            successor_report,
+            Some(DEADLINE),
+            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+        )
+        .unwrap();
+        let (store, lease, revision) = store_current(previous).await;
+
+        let next_revision = store
+            .compare_and_swap(&lease, revision, successor)
+            .await
+            .unwrap();
+        assert_eq!(next_revision.value(), revision.value() + 1);
+    }
+
+    #[test]
+    fn snapshot_rejects_a_forged_model_transition_chain() {
+        let source = target();
+        let forged_source = ModelTarget::new(
+            ProviderId::new("forged-provider").unwrap(),
+            ModelId::new("forged-model").unwrap(),
+        );
+        let destination = ModelTarget::new(
+            ProviderId::new("destination-provider").unwrap(),
+            ModelId::new("destination-model").unwrap(),
+        );
+        let response = LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "first step".to_string(),
+            }],
+            FinishReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+        let messages = vec![Message::text(MessageRole::User, "continue")];
+        let mut report = RunReport::new(source.clone(), messages.clone());
+        report
+            .steps_mut()
+            .push(StepRecord::new(0, source, response, Vec::new()));
+        report
+            .model_transitions_mut()
+            .push(ModelTransitionRecord::new(
+                1,
+                forged_source,
+                destination,
+                ProjectionPolicy::Strict,
+                ProjectionScope::PortableOnly,
+                ModelTransitionOutcome::Applied,
+                Vec::new(),
+            ));
+
+        let error = RunSnapshot::new(
+            checkpoint("checkpoint-forged", None),
+            fingerprints(),
+            LanguageRequest::new(messages),
+            report,
+            Some(DEADLINE),
+            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            RunSnapshotError::ModelTransitionSourceMismatch { step: 1 }
+        );
+    }
+
+    #[test]
+    fn terminal_snapshot_exposes_the_current_model_target() {
+        let source = target();
+        let destination = ModelTarget::new(
+            ProviderId::new("destination-provider").unwrap(),
+            ModelId::new("destination-model").unwrap(),
+        );
+        let first = LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "first step".to_string(),
+            }],
+            FinishReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+        let second = LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "second step".to_string(),
+            }],
+            FinishReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+        let messages = vec![Message::text(MessageRole::User, "continue")];
+        let mut report = RunReport::new(source.clone(), messages.clone());
+        report
+            .steps_mut()
+            .push(StepRecord::new(0, source.clone(), first, Vec::new()));
+        report
+            .model_transitions_mut()
+            .push(ModelTransitionRecord::new(
+                1,
+                source,
+                destination.clone(),
+                ProjectionPolicy::Strict,
+                ProjectionScope::PortableOnly,
+                ModelTransitionOutcome::Applied,
+                Vec::new(),
+            ));
+        report
+            .steps_mut()
+            .push(StepRecord::new(1, destination.clone(), second, Vec::new()));
+        let snapshot = RunSnapshot::new(
+            checkpoint("checkpoint-terminal", None),
+            fingerprints(),
+            LanguageRequest::new(messages),
+            report,
+            Some(DEADLINE),
+            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.target(), &destination);
     }
 
     #[tokio::test]

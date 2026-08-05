@@ -27,6 +27,16 @@ pub enum ProjectionPolicy {
     BestEffort,
 }
 
+/// Replay scope selected for one projected continuation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ProjectionScope {
+    /// Source and destination share one provider replay domain.
+    ReplayDomain,
+    /// Only provider-neutral portable content may cross the transition.
+    PortableOnly,
+}
+
 /// How serious one projection diagnostic is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -133,6 +143,7 @@ impl ProjectionLoss {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectedHistory {
     request: LanguageRequest,
+    scope: ProjectionScope,
     losses: Vec<ProjectionLoss>,
 }
 
@@ -140,6 +151,11 @@ impl ProjectedHistory {
     /// Return the projected request by reference.
     pub fn request(&self) -> &LanguageRequest {
         &self.request
+    }
+
+    /// Return the replay scope applied to this projection.
+    pub const fn scope(&self) -> ProjectionScope {
+        self.scope
     }
 
     /// Return all diagnostics in source order.
@@ -153,8 +169,8 @@ impl ProjectedHistory {
     }
 
     /// Consume the projection and return the request and diagnostics.
-    pub fn into_parts(self) -> (LanguageRequest, Vec<ProjectionLoss>) {
-        (self.request, self.losses)
+    pub fn into_parts(self) -> (LanguageRequest, ProjectionScope, Vec<ProjectionLoss>) {
+        (self.request, self.scope, self.losses)
     }
 
     /// Consume the projection and return only the request.
@@ -168,17 +184,27 @@ impl ProjectedHistory {
 #[error("history projection under {policy:?} policy contains incompatible provider state")]
 pub struct HistoryProjectionError {
     policy: ProjectionPolicy,
+    scope: ProjectionScope,
     losses: Vec<ProjectionLoss>,
 }
 
 impl HistoryProjectionError {
-    fn new(policy: ProjectionPolicy, losses: Vec<ProjectionLoss>) -> Self {
-        Self { policy, losses }
+    fn new(policy: ProjectionPolicy, scope: ProjectionScope, losses: Vec<ProjectionLoss>) -> Self {
+        Self {
+            policy,
+            scope,
+            losses,
+        }
     }
 
     /// Return the policy that rejected the projection.
     pub const fn policy(&self) -> ProjectionPolicy {
         self.policy
+    }
+
+    /// Return whether the attempted transition stayed inside one replay domain.
+    pub const fn scope(&self) -> ProjectionScope {
+        self.scope
     }
 
     /// Return all diagnostics that caused rejection.
@@ -195,11 +221,11 @@ impl HistoryProjectionError {
 /// Project a request from one model target to another.
 ///
 /// Exact target equality and a matching provider/platform/protocol (including
-/// API mode) are treated as one replay domain and are returned byte-for-byte
-/// unchanged.  Other transitions keep portable content, preserve opaque items
-/// already native to the target protocol, and remove source-native state with
-/// explicit diagnostics.  No response metadata is converted into request
-/// options by this function.
+/// API mode) are treated as one replay domain. Foreign or unresolved state is
+/// still validated inside that domain. Other transitions keep portable
+/// content, preserve opaque items already native to the target protocol, and
+/// remove source-native state with explicit diagnostics. No response metadata
+/// is converted into request options by this function.
 pub fn project_history(
     request: LanguageRequest,
     source: &ModelTarget,
@@ -207,6 +233,11 @@ pub fn project_history(
     policy: ProjectionPolicy,
 ) -> Result<ProjectedHistory, HistoryProjectionError> {
     let same_domain = same_replay_domain(source, target);
+    let scope = if same_domain {
+        ProjectionScope::ReplayDomain
+    } else {
+        ProjectionScope::PortableOnly
+    };
 
     let LanguageRequest {
         messages,
@@ -303,12 +334,14 @@ pub fn project_history(
             tool_choice,
             structured_output,
         },
+        scope,
         losses,
     };
 
     if should_reject(policy, projected.losses()) {
         return Err(HistoryProjectionError::new(
             policy,
+            scope,
             projected.losses.clone(),
         ));
     }

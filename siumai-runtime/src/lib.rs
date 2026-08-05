@@ -9,6 +9,7 @@ pub mod approval;
 pub mod snapshot;
 pub mod tool;
 
+mod agent;
 mod budget;
 mod call;
 mod durable;
@@ -17,9 +18,11 @@ mod history;
 mod options;
 mod output;
 mod run;
+mod selection;
 mod structured_run;
 mod tool_loop;
 
+pub use agent::{Agent, AgentConfigError, AgentInput};
 pub use budget::{BudgetError, BudgetKind, BudgetLedger, RunBudget, RunBudgetBuilder, RunTimeouts};
 pub use call::{generate, stream};
 pub use durable::{
@@ -28,7 +31,7 @@ pub use durable::{
 };
 pub use history::{
     HistoryProjectionError, ProjectedHistory, ProjectionLocation, ProjectionLoss,
-    ProjectionLossReason, ProjectionPolicy, ProjectionSeverity, project_history,
+    ProjectionLossReason, ProjectionPolicy, ProjectionScope, ProjectionSeverity, project_history,
 };
 pub use options::{ModelTarget, Runtime, RuntimeBuilder, RuntimeConfigError, StepOptions};
 pub use output::{
@@ -37,8 +40,11 @@ pub use output::{
     StructuredOutputFailureKind, StructuredOutputRepair, StructuredOutputResult,
 };
 pub use run::{
-    IndeterminateEffect, RunEvent, RunReport, RunStopReason, RunStream, RunTerminal,
-    RunTimeoutKind, StepRecord, SuspensionReason,
+    IndeterminateEffect, ModelTransitionOutcome, ModelTransitionRecord, RunEvent, RunReport,
+    RunStopReason, RunStream, RunTerminal, RunTimeoutKind, StepRecord, SuspensionReason,
+};
+pub use selection::{
+    StepModelContext, StepModelSelector, StepModelSelectorIdentity, VersionedStepModelSelector,
 };
 pub use structured_run::{
     StructuredOutputRunError, StructuredOutputRunResult, StructuredOutputRunner,

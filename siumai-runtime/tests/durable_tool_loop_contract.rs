@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
-    Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal, ToolCall,
-    ToolOutcome, ToolSpec, Usage,
+    CallOptions, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, GenerationConfig,
+    LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message,
+    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal,
+    StructuredOutputSpec, ToolCall, ToolChoice, ToolOutcome, ToolSpec, Usage,
 };
 use siumai_runtime::approval::{
     ApprovalClaims, ApprovalEnvelope, ApprovalVerifier, ApprovalVerifierError,
@@ -25,6 +25,8 @@ use siumai_runtime::tool::{
 };
 use siumai_runtime::{
     DurableApproval, DurableResume, DurableRunError, DurableToolLoop, IndeterminateRecoveryPolicy,
+    ModelTransitionOutcome, StepModelContext, StepModelSelectorIdentity,
+    VersionedStepModelSelector,
 };
 
 type AttemptLog = Arc<Mutex<Vec<(u32, Option<String>)>>>;
@@ -32,18 +34,32 @@ type AttemptLog = Arc<Mutex<Vec<(u32, Option<String>)>>>;
 struct ScriptedModel {
     descriptor: ModelDescriptor,
     responses: Mutex<VecDeque<LanguageResponse>>,
+    requests: Mutex<Vec<LanguageRequest>>,
 }
 
 impl ScriptedModel {
     fn new(responses: impl IntoIterator<Item = LanguageResponse>) -> Arc<Self> {
+        Self::named("durable-test", "durable-model", responses)
+    }
+
+    fn named(
+        provider: &str,
+        model: &str,
+        responses: impl IntoIterator<Item = LanguageResponse>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             descriptor: ModelDescriptor::new(
-                ProviderId::new("durable-test").expect("valid provider"),
-                ModelId::new("durable-model").expect("valid model"),
+                ProviderId::new(provider).expect("valid provider"),
+                ModelId::new(model).expect("valid model"),
                 ModelFamily::Language,
             ),
             responses: Mutex::new(responses.into_iter().collect()),
+            requests: Mutex::new(Vec::new()),
         })
+    }
+
+    fn requests(&self) -> Vec<LanguageRequest> {
+        self.requests.lock().expect("request lock").clone()
     }
 }
 
@@ -68,9 +84,10 @@ impl LanguageModel for ScriptedModel {
 
     async fn stream(
         &self,
-        _request: LanguageRequest,
+        request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        self.requests.lock().expect("request lock").push(request);
         let response = self
             .responses
             .lock()
@@ -289,6 +306,157 @@ async fn completed_checkpoint_is_never_replayed() {
         .expect("terminal load is idempotent");
     assert!(resumed.is_terminal());
     assert_eq!(executions.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn durable_continuation_preserves_complete_request_state() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let binding = not_required_binding(Arc::clone(&executions), None);
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let store = Arc::new(InMemoryRunStore::new());
+    let model = ScriptedModel::new([tool_response(), final_response()]);
+    let loop_ = durable_loop(model.clone(), tools, store);
+    let mut request = request();
+    request.generation = GenerationConfig {
+        max_output_tokens: Some(321),
+        temperature: Some(0.25),
+        top_p: Some(0.8),
+        stop_sequences: vec!["STOP".to_string()],
+        seed: Some(42),
+    };
+    request.tool_choice = Some(ToolChoice::Required);
+    request.structured_output = Some(StructuredOutputSpec {
+        name: "durable_result".to_string(),
+        description: Some("A durable result".to_string()),
+        schema: json!({"type": "object"}),
+        strict: true,
+    });
+
+    let completed = loop_
+        .start(
+            run_id("continuation"),
+            lineage_id("continuation"),
+            request.clone(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("run completes");
+
+    let requests = model.requests();
+    assert_eq!(requests.len(), 2);
+    for observed in &requests {
+        assert_eq!(observed.generation, request.generation);
+        assert_eq!(observed.tool_choice, request.tool_choice);
+        assert_eq!(observed.structured_output, request.structured_output);
+        assert_eq!(observed.tools.len(), 1);
+        assert_eq!(observed.tools[0].name(), "write_record");
+    }
+    let continuation = completed.snapshot().continuation();
+    assert_eq!(continuation.generation, request.generation);
+    assert_eq!(continuation.tool_choice, request.tool_choice);
+    assert_eq!(continuation.structured_output, request.structured_output);
+    assert_eq!(continuation.tools.len(), 1);
+}
+
+#[tokio::test]
+async fn durable_selector_freezes_target_and_records_reproducible_transition() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let binding = not_required_binding(Arc::clone(&executions), None);
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let store = Arc::new(InMemoryRunStore::new());
+    let source = ScriptedModel::named("durable-source", "source", [tool_response()]);
+    let target = ScriptedModel::named("durable-target", "target", [final_response()]);
+    let target_model: Arc<dyn LanguageModel> = target.clone();
+    let selector_calls = Arc::new(AtomicUsize::new(0));
+    let observed_selector_calls = Arc::clone(&selector_calls);
+    let selector = VersionedStepModelSelector::new(
+        StepModelSelectorIdentity::new(
+            7,
+            SnapshotFingerprint::new("sha256:durable-selector-v7")
+                .expect("valid selector fingerprint"),
+        ),
+        move |_: StepModelContext<'_>| {
+            observed_selector_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::clone(&target_model))
+        },
+    );
+    let source_model: Arc<dyn LanguageModel> = source.clone();
+    let loop_ = durable_loop(source_model, tools, store).with_model_selector(selector);
+
+    let completed = loop_
+        .start(
+            run_id("selector"),
+            lineage_id("selector"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("run completes after switching models");
+
+    assert_eq!(selector_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(source.requests().len(), 1);
+    assert_eq!(target.requests().len(), 1);
+    let transitions = completed.snapshot().report().model_transitions();
+    assert_eq!(transitions.len(), 1);
+    assert_eq!(transitions[0].outcome(), ModelTransitionOutcome::Applied);
+    assert_eq!(
+        transitions[0].target().provider().as_str(),
+        "durable-target"
+    );
+    let identity = completed
+        .snapshot()
+        .fingerprints()
+        .model_selector
+        .as_ref()
+        .expect("selector identity is persisted");
+    assert_eq!(identity.version(), 7);
+}
+
+#[tokio::test]
+async fn durable_resume_rejects_selector_target_drift() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let binding = not_required_binding(Arc::clone(&executions), None);
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let store = Arc::new(InMemoryRunStore::new());
+    let source = ScriptedModel::named("durable-source", "source", [tool_response()]);
+    let first = ScriptedModel::named("durable-target", "first", []);
+    let second = ScriptedModel::named("durable-target", "second", []);
+    let first_model: Arc<dyn LanguageModel> = first;
+    let second_model: Arc<dyn LanguageModel> = second;
+    let selector_calls = Arc::new(AtomicUsize::new(0));
+    let observed_selector_calls = Arc::clone(&selector_calls);
+    let selector = VersionedStepModelSelector::new(
+        StepModelSelectorIdentity::new(
+            1,
+            SnapshotFingerprint::new("sha256:drifting-selector")
+                .expect("valid selector fingerprint"),
+        ),
+        move |_: StepModelContext<'_>| {
+            if observed_selector_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                Ok(Arc::clone(&first_model))
+            } else {
+                Ok(Arc::clone(&second_model))
+            }
+        },
+    );
+    let source_model: Arc<dyn LanguageModel> = source;
+    let loop_ = durable_loop(source_model, tools, store).with_model_selector(selector);
+
+    let error = loop_
+        .start(
+            run_id("selector-drift"),
+            lineage_id("selector-drift"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect_err("selector target drift must fail closed");
+
+    assert!(matches!(
+        error,
+        DurableRunError::SelectedModelTargetChanged { .. }
+    ));
+    assert_eq!(selector_calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]

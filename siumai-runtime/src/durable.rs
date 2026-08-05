@@ -18,6 +18,7 @@ use crate::approval::{
     TrustContext, TrustContextBuildError, TrustIdentity, verify_and_consume_at_unix_ms,
 };
 use crate::engine::{StepEngine, ToolHandling};
+use crate::selection::{PreparedStepModel, prepare_selected_step_model, select_step_model};
 use crate::snapshot::{
     CheckpointId, CompletedToolSnapshot, IndeterminateReason, LineageId, PendingApprovalSnapshot,
     PendingProviderStepSnapshot, PendingStepSnapshot, PreparedToolSnapshot, ProviderStateSnapshot,
@@ -30,9 +31,12 @@ use crate::tool::{
     ToolExecutionError, ToolExecutionRequest, ToolSet,
 };
 use crate::tool_loop::{ToolOutcomeAction, ToolOutcomePolicy};
-use crate::{ModelTarget, RunEvent, RunReport, RunTerminal, Runtime, StepOptions, StepRecord};
+use crate::{
+    ModelTarget, ProjectionPolicy, RunEvent, RunReport, RunTerminal, Runtime, StepModelSelector,
+    StepOptions, StepRecord,
+};
 
-const DURABLE_ENGINE_VERSION: &str = "siumai-runtime-durable-v2";
+const DURABLE_ENGINE_VERSION: &str = "siumai-runtime-durable-v4";
 const DEFAULT_LEASE_TTL: Duration = Duration::from_secs(300);
 static NEXT_CHECKPOINT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -144,6 +148,8 @@ pub struct DurableToolLoop {
     store: Arc<dyn RunStore>,
     step_options: StepOptions,
     outcome_policy: ToolOutcomePolicy,
+    model_selector: Option<Arc<dyn StepModelSelector>>,
+    projection_policy: ProjectionPolicy,
     lease_ttl: Duration,
     engine_version: SnapshotEngineVersion,
     fingerprints: SnapshotFingerprints,
@@ -159,6 +165,8 @@ impl std::fmt::Debug for DurableToolLoop {
             .field("lease_ttl", &self.lease_ttl)
             .field("engine_version", &self.engine_version)
             .field("fingerprints", &"<redacted>")
+            .field("model_selector", &self.model_selector.is_some())
+            .field("projection_policy", &self.projection_policy)
             .field("approval_verification", &self.approval_runtime.is_some())
             .finish_non_exhaustive()
     }
@@ -181,12 +189,16 @@ impl DurableToolLoop {
             store,
             step_options: StepOptions::default(),
             outcome_policy: ToolOutcomePolicy::default(),
+            model_selector: None,
+            projection_policy: ProjectionPolicy::Strict,
             lease_ttl: DEFAULT_LEASE_TTL,
             engine_version: SnapshotEngineVersion::new(DURABLE_ENGINE_VERSION)?,
             fingerprints: SnapshotFingerprints {
                 options: options_fingerprint,
                 tool_catalog,
                 approval_policy: approval_policy_fingerprint,
+                model_selector: None,
+                projection_policy: ProjectionPolicy::Strict,
             },
             approval_runtime: None,
         })
@@ -204,6 +216,30 @@ impl DurableToolLoop {
 
     pub fn with_outcome_policy(mut self, policy: ToolOutcomePolicy) -> Self {
         self.outcome_policy = policy;
+        self
+    }
+
+    /// Install a versioned model-selection policy for later durable steps.
+    pub fn with_model_selector<S>(mut self, selector: S) -> Self
+    where
+        S: StepModelSelector,
+    {
+        self.fingerprints.model_selector = Some(selector.identity().clone());
+        self.model_selector = Some(Arc::new(selector));
+        self
+    }
+
+    /// Install a shared versioned model-selection policy.
+    pub fn with_shared_model_selector(mut self, selector: Arc<dyn StepModelSelector>) -> Self {
+        self.fingerprints.model_selector = Some(selector.identity().clone());
+        self.model_selector = Some(selector);
+        self
+    }
+
+    /// Set the history-loss policy used for durable target transitions.
+    pub fn with_projection_policy(mut self, policy: ProjectionPolicy) -> Self {
+        self.projection_policy = policy;
+        self.fingerprints.projection_policy = policy;
         self
     }
 
@@ -265,15 +301,15 @@ impl DurableToolLoop {
             options.deadline(),
             self.runtime.run_budget().timeouts().total(),
         )?;
-        let terminal = self
-            .run_model_step(None, 0, request, options.clone())
+        let model_step = self
+            .run_model_step(Arc::clone(&self.model), None, 0, request, options.clone())
             .await?;
         let snapshot = self.snapshot_from_model_terminal(
             run_id,
             lineage_id,
             None,
             deadline_unix_ms,
-            terminal,
+            model_step,
         )?;
         let revision = self
             .checkpoint(lease, SnapshotRevision::EMPTY, snapshot.clone())
@@ -344,24 +380,50 @@ impl DurableToolLoop {
                         return Ok(state);
                     }
                 }
-                ResumePoint::ReadyForModel { next_step, .. } => {
+                ResumePoint::ReadyForModel { next_step, target } => {
                     self.renew(lease).await?;
-                    let request = LanguageRequest::new(state.snapshot.history().to_vec());
                     let call_options = options_for_snapshot(&state.snapshot, options.clone())?;
-                    let terminal = self
-                        .run_model_step(
-                            Some(state.snapshot.report().clone()),
-                            next_step,
-                            request,
-                            call_options,
-                        )
-                        .await?;
+                    let model_step = match self.prepare_durable_model_step(
+                        &state.snapshot,
+                        next_step,
+                        &target,
+                    )? {
+                        DurablePreparedModelStep::Ready(ready) => {
+                            let DurableReadyModelStep {
+                                model,
+                                report,
+                                request,
+                            } = *ready;
+                            self.run_model_step(
+                                model,
+                                Some(report),
+                                next_step,
+                                request,
+                                call_options,
+                            )
+                            .await?
+                        }
+                        DurablePreparedModelStep::Rejected(rejected) => {
+                            let DurableRejectedModelStep {
+                                report,
+                                continuation,
+                                transition,
+                            } = *rejected;
+                            DurableModelStep {
+                                terminal: RunTerminal::HistoryProjectionRejected {
+                                    transition: Box::new(transition),
+                                    report: Box::new(report),
+                                },
+                                continuation,
+                            }
+                        }
+                    };
                     let snapshot = self.snapshot_from_model_terminal(
                         state.snapshot.run_id().clone(),
                         state.snapshot.lineage_id().clone(),
                         Some(state.snapshot.checkpoint_id().clone()),
                         state.snapshot.deadline_unix_ms(),
-                        terminal,
+                        model_step,
                     )?;
                     let revision = self
                         .checkpoint(lease, state.revision, snapshot.clone())
@@ -767,23 +829,99 @@ impl DurableToolLoop {
         Ok(request)
     }
 
+    fn prepare_durable_model_step(
+        &self,
+        snapshot: &RunSnapshot,
+        next_step: u32,
+        frozen_target: &ModelTarget,
+    ) -> Result<DurablePreparedModelStep, DurableRunError> {
+        let mut report = snapshot.report().clone();
+        let previous_step = report.steps().last().ok_or(DurableRunError::Invariant {
+            message: "durable model selection requires a completed previous step",
+        })?;
+        let source = report.current_target().clone();
+        let selected = select_step_model(
+            self.model_selector.as_deref(),
+            Arc::clone(&self.model),
+            next_step,
+            &source,
+            previous_step,
+            &report,
+        )?;
+        if &selected.target != frozen_target {
+            return Err(DurableRunError::SelectedModelTargetChanged {
+                expected: Box::new(frozen_target.clone()),
+                actual: Box::new(selected.target),
+            });
+        }
+
+        match prepare_selected_step_model(
+            selected,
+            snapshot.continuation().clone(),
+            next_step,
+            &source,
+            self.projection_policy,
+        ) {
+            PreparedStepModel::Ready(ready) => {
+                let crate::selection::PreparedStepModelReady {
+                    model,
+                    request,
+                    transition,
+                    ..
+                } = *ready;
+                report.replace_messages(request.messages.clone());
+                if let Some(transition) = transition {
+                    report.model_transitions_mut().push(transition);
+                }
+                Ok(DurablePreparedModelStep::Ready(Box::new(
+                    DurableReadyModelStep {
+                        model,
+                        report,
+                        request,
+                    },
+                )))
+            }
+            PreparedStepModel::Rejected { transition } => {
+                let transition = *transition;
+                report.model_transitions_mut().push(transition.clone());
+                Ok(DurablePreparedModelStep::Rejected(Box::new(
+                    DurableRejectedModelStep {
+                        report,
+                        continuation: snapshot.continuation().clone(),
+                        transition,
+                    },
+                )))
+            }
+        }
+    }
+
     async fn run_model_step(
         &self,
+        model: Arc<dyn LanguageModel>,
         report: Option<RunReport>,
         step: u32,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<RunTerminal, DurableRunError> {
+    ) -> Result<DurableModelStep, DurableRunError> {
+        let mut continuation = request.clone();
+        continuation.tools = self.tools.specs().to_vec();
+        let seeded = report.is_some();
+        let mut engine_request = request;
+        if seeded {
+            engine_request.tools.clear();
+        }
         let engine = if let Some(report) = report {
             StepEngine::establish_seeded(
                 self.runtime.clone(),
-                Arc::clone(&self.model),
+                model,
                 self.tools.clone(),
-                request,
+                engine_request,
                 self.step_options.clone(),
                 options,
                 self.outcome_policy,
                 Arc::new(ExternalApprovalDecider::default()),
+                None,
+                crate::ProjectionPolicy::Strict,
                 ToolHandling::ObserveOnly,
                 report,
                 step,
@@ -792,13 +930,15 @@ impl DurableToolLoop {
         } else {
             StepEngine::establish(
                 self.runtime.clone(),
-                Arc::clone(&self.model),
+                model,
                 self.tools.clone(),
-                request,
+                engine_request,
                 self.step_options.clone(),
                 options,
                 self.outcome_policy,
                 Arc::new(ExternalApprovalDecider::default()),
+                None,
+                crate::ProjectionPolicy::Strict,
                 ToolHandling::ObserveOnly,
             )
             .await?
@@ -806,7 +946,14 @@ impl DurableToolLoop {
         let mut stream = Box::pin(engine.into_stream());
         while let Some(event) = stream.next().await {
             if let RunEvent::Terminal(terminal) = event? {
-                return Ok(terminal);
+                let report = terminal.report().ok_or(DurableRunError::Invariant {
+                    message: "step engine returned a terminal without a report",
+                })?;
+                continuation.messages = report.messages().to_vec();
+                return Ok(DurableModelStep {
+                    terminal,
+                    continuation,
+                });
             }
         }
         Err(DurableRunError::Invariant {
@@ -820,8 +967,12 @@ impl DurableToolLoop {
         lineage_id: LineageId,
         parent: Option<CheckpointId>,
         deadline_unix_ms: Option<u64>,
-        terminal: RunTerminal,
+        model_step: DurableModelStep,
     ) -> Result<RunSnapshot, DurableRunError> {
+        let DurableModelStep {
+            terminal,
+            continuation,
+        } = model_step;
         let (mut report, terminal) = match terminal {
             RunTerminal::Completed { report } => (*report, None),
             RunTerminal::Stopped { report, .. } => (
@@ -846,6 +997,12 @@ impl DurableToolLoop {
                 *report,
                 Some(SnapshotTerminal::Indeterminate {
                     reason: reason("runtime_indeterminate")?,
+                }),
+            ),
+            RunTerminal::HistoryProjectionRejected { report, .. } => (
+                *report,
+                Some(SnapshotTerminal::Failed {
+                    reason: reason("history_projection_rejected")?,
                 }),
             ),
             RunTerminal::Failed { report, .. } => (
@@ -919,6 +1076,7 @@ impl DurableToolLoop {
         Ok(RunSnapshot::new(
             checkpoint,
             self.fingerprints.clone(),
+            continuation,
             report,
             deadline_unix_ms,
             resume_point,
@@ -1129,14 +1287,34 @@ impl DurableToolLoop {
                 report.budget_mut().release_pending_approval();
             }
         }
-        let resume_point = terminal.map_or_else(
-            || ResumePoint::ReadyForModel {
-                next_step: step.index().saturating_add(1),
-                target: step.target().clone(),
-            },
-            ResumePoint::Terminal,
-        );
+        let resume_point = match terminal {
+            Some(terminal) => ResumePoint::Terminal(terminal),
+            None => {
+                let next_step = step.index().saturating_add(1);
+                let target = self.freeze_next_model_target(next_step, &report)?;
+                ResumePoint::ReadyForModel { next_step, target }
+            }
+        };
         self.successor_snapshot(previous, report, resume_point)
+    }
+
+    fn freeze_next_model_target(
+        &self,
+        next_step: u32,
+        report: &RunReport,
+    ) -> Result<ModelTarget, DurableRunError> {
+        let previous_step = report.steps().last().ok_or(DurableRunError::Invariant {
+            message: "durable model selection requires a completed previous step",
+        })?;
+        let selected = select_step_model(
+            self.model_selector.as_deref(),
+            Arc::clone(&self.model),
+            next_step,
+            report.current_target(),
+            previous_step,
+            report,
+        )?;
+        Ok(selected.target)
     }
 
     fn successor_snapshot(
@@ -1145,6 +1323,8 @@ impl DurableToolLoop {
         report: RunReport,
         resume_point: ResumePoint,
     ) -> Result<RunSnapshot, DurableRunError> {
+        let mut continuation = previous.continuation().clone();
+        continuation.messages = report.messages().to_vec();
         let checkpoint = SnapshotCheckpoint::new(
             previous.engine_version().clone(),
             previous.run_id().clone(),
@@ -1155,6 +1335,7 @@ impl DurableToolLoop {
         Ok(RunSnapshot::new(
             checkpoint,
             previous.fingerprints().clone(),
+            continuation,
             report,
             previous.deadline_unix_ms(),
             resume_point,
@@ -1228,6 +1409,11 @@ impl DurableToolLoop {
                 field: "model_target",
             });
         }
+        if snapshot.continuation().tools != self.tools.specs() {
+            return Err(DurableRunError::IncompatibleSnapshot {
+                field: "continuation_tools",
+            });
+        }
         Ok(())
     }
 }
@@ -1235,6 +1421,28 @@ impl DurableToolLoop {
 struct PendingProgress {
     state: DurableRun,
     awaiting_approval: bool,
+}
+
+struct DurableModelStep {
+    terminal: RunTerminal,
+    continuation: LanguageRequest,
+}
+
+enum DurablePreparedModelStep {
+    Ready(Box<DurableReadyModelStep>),
+    Rejected(Box<DurableRejectedModelStep>),
+}
+
+struct DurableReadyModelStep {
+    model: Arc<dyn LanguageModel>,
+    report: RunReport,
+    request: LanguageRequest,
+}
+
+struct DurableRejectedModelStep {
+    report: RunReport,
+    continuation: LanguageRequest,
+    transition: crate::ModelTransitionRecord,
 }
 
 enum DispatchResult {
@@ -1414,6 +1622,11 @@ pub enum DurableRunError {
     ResumeConflict { run_id: RunId },
     #[error("durable run snapshot is incompatible in field `{field}`")]
     IncompatibleSnapshot { field: &'static str },
+    #[error("durable selector changed the frozen model target from {expected:?} to {actual:?}")]
+    SelectedModelTargetChanged {
+        expected: Box<ModelTarget>,
+        actual: Box<ModelTarget>,
+    },
     #[error("approval verification is not configured")]
     ApprovalVerificationNotConfigured,
     #[error("approval for call `{call_id}` was supplied more than once")]
