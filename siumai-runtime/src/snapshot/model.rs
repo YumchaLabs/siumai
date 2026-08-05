@@ -1760,6 +1760,8 @@ pub enum RunSnapshotError {
     PreparedEventMismatch { call_id: String },
     #[error("completed tool ordinal {ordinal} appears more than once")]
     DuplicateCompletedOrdinal { ordinal: u32 },
+    #[error("completed tool ordinal {actual} does not follow ordinal {previous}")]
+    CompletedOrdinalOutOfOrder { previous: u32, actual: u32 },
     #[error("completed tool ordinal {ordinal} does not reference a prepared call")]
     CompletedCallNotPrepared { ordinal: u32 },
     #[error("completed tool ordinal {ordinal} has a mismatched result identity")]
@@ -2184,12 +2186,22 @@ fn validate_pending_step(
     }
 
     let mut completed_ordinals = BTreeSet::new();
+    let mut previous_completed_ordinal = None;
     for completed in step.completed() {
         if !completed_ordinals.insert(completed.ordinal()) {
             return Err(RunSnapshotError::DuplicateCompletedOrdinal {
                 ordinal: completed.ordinal(),
             });
         }
+        if let Some(previous) = previous_completed_ordinal
+            && completed.ordinal() <= previous
+        {
+            return Err(RunSnapshotError::CompletedOrdinalOutOfOrder {
+                previous,
+                actual: completed.ordinal(),
+            });
+        }
+        previous_completed_ordinal = Some(completed.ordinal());
         let prepared = usize::try_from(completed.ordinal())
             .ok()
             .and_then(|ordinal| step.prepared().get(ordinal))
@@ -2516,7 +2528,11 @@ fn validate_pending_step_successor(
     {
         return Err(RunSnapshotSuccessorError::PendingStepChanged);
     }
-    if !next.completed().starts_with(previous.completed()) {
+    if previous
+        .completed()
+        .iter()
+        .any(|completed| !next.completed().contains(completed))
+    {
         return Err(RunSnapshotSuccessorError::PendingStepCompletionRegression);
     }
     if next
@@ -2576,4 +2592,149 @@ fn validate_reason_code(code: &str) -> Result<(), RunSnapshotError> {
         return Err(RunSnapshotError::InvalidReasonCode);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use siumai_core::{
+        ContentPart, ExecutionOwner, FinishReason, LanguageResponse, ModelId, ProviderId, ToolCall,
+        ToolOutcome, ToolResult, Usage,
+    };
+
+    use super::*;
+    use crate::tool::{RecoveryPolicy, ToolExecutionAttempt};
+
+    fn target() -> ModelTarget {
+        ModelTarget::new(
+            ProviderId::new("snapshot-test").unwrap(),
+            ModelId::new("snapshot-model").unwrap(),
+        )
+    }
+
+    fn call(ordinal: u32) -> ToolCall {
+        ToolCall {
+            id: format!("call-{ordinal}"),
+            name: format!("tool-{ordinal}"),
+            arguments: json!({"ordinal": ordinal}),
+            owner: ExecutionOwner::Local,
+        }
+    }
+
+    fn prepared(ordinal: u32) -> PreparedToolSnapshot {
+        PreparedToolSnapshot::new(
+            ordinal,
+            call(ordinal),
+            siumai_core::ToolBindingIdentity {
+                name: format!("tool-{ordinal}"),
+                fingerprint: format!("binding-{ordinal}"),
+            },
+            RecoveryPolicy::NeverReplay,
+            None,
+            ToolExecutionAttempt::INITIAL,
+        )
+    }
+
+    fn completed(ordinal: u32) -> CompletedToolSnapshot {
+        CompletedToolSnapshot::new(
+            ordinal,
+            ToolResult {
+                call_id: format!("call-{ordinal}"),
+                name: format!("tool-{ordinal}"),
+                outcome: ToolOutcome::Success {
+                    value: json!({"ordinal": ordinal}),
+                },
+            },
+        )
+    }
+
+    fn response(prepared: &[PreparedToolSnapshot]) -> LanguageResponse {
+        LanguageResponse::completed(
+            prepared
+                .iter()
+                .map(|tool| ContentPart::ToolCall(tool.call().clone()))
+                .collect(),
+            FinishReason::ToolCalls,
+            Usage::default(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn pending_successor_uses_completed_set_inclusion_not_vector_prefixes() {
+        let prepared = (0..4).map(prepared).collect::<Vec<_>>();
+        let response = response(&prepared);
+        let previous = PendingStepSnapshot::new(
+            0,
+            target(),
+            response.clone(),
+            prepared.clone(),
+            vec![completed(3)],
+            Vec::new(),
+        );
+        let next = PendingStepSnapshot::new(
+            0,
+            target(),
+            response,
+            prepared,
+            vec![completed(1), completed(3)],
+            Vec::new(),
+        );
+
+        validate_pending_step_successor(&previous, &next).unwrap();
+    }
+
+    #[test]
+    fn pending_snapshot_requires_completed_results_sorted_by_ordinal() {
+        let prepared = (0..2).map(prepared).collect::<Vec<_>>();
+        let response = response(&prepared);
+        let mut log = ToolExecutionLog::new();
+        for (sequence, tool) in prepared.iter().enumerate() {
+            log.append(ToolExecutionEvent::prepared(
+                u64::try_from(sequence).unwrap(),
+                10,
+                0,
+                tool.clone(),
+            ))
+            .unwrap();
+        }
+        for (offset, ordinal) in [1_u32, 0].into_iter().enumerate() {
+            let tool = &prepared[usize::try_from(ordinal).unwrap()];
+            let sequence = 2_u64 + u64::try_from(offset).unwrap() * 2;
+            log.append(ToolExecutionEvent::dispatched(
+                sequence,
+                20,
+                &tool.call().id,
+                tool.attempt(),
+                None,
+            ))
+            .unwrap();
+            log.append(ToolExecutionEvent::completed(
+                sequence + 1,
+                30,
+                &tool.call().id,
+                tool.attempt(),
+                completed(ordinal).result().outcome.clone(),
+            ))
+            .unwrap();
+        }
+        let mut report = RunReport::new(target(), Vec::new());
+        *report.execution_log_mut() = log;
+        let step = PendingStepSnapshot::new(
+            0,
+            target(),
+            response,
+            prepared,
+            vec![completed(1), completed(0)],
+            Vec::new(),
+        );
+
+        assert_eq!(
+            validate_pending_step(&step, &report, 0).unwrap_err(),
+            RunSnapshotError::CompletedOrdinalOutOfOrder {
+                previous: 1,
+                actual: 0,
+            }
+        );
+    }
 }
