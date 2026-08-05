@@ -5,6 +5,8 @@ use crate::execution::middleware::LanguageModelMiddleware;
 use crate::streaming::ChatStreamEvent;
 use crate::types::{ChatRequest, ChatResponse, Tool, Warning};
 
+use super::super::model_policy::{CapabilitySupport, model_capability_support};
+
 #[derive(Debug, Default)]
 pub struct GeminiToolWarningsMiddleware;
 
@@ -13,16 +15,20 @@ impl GeminiToolWarningsMiddleware {
         Self
     }
 
-    fn is_gemini_2_or_newer(model_id: &str) -> bool {
-        let is_latest = matches!(
-            model_id,
-            "gemini-flash-latest" | "gemini-flash-lite-latest" | "gemini-pro-latest"
-        );
-        model_id.contains("gemini-2") || model_id.contains("gemini-3") || is_latest
-    }
-
-    fn supports_file_search(model_id: &str) -> bool {
-        model_id.contains("gemini-2.5") || model_id.contains("gemini-3")
+    fn warn_if_explicitly_unsupported(
+        warnings: &mut Vec<Warning>,
+        model_id: &str,
+        capability: &str,
+        tool_id: &str,
+    ) {
+        if model_capability_support(model_id, capability) == CapabilitySupport::Unsupported {
+            warnings.push(Warning::unsupported_tool(
+                tool_id,
+                Some(format!(
+                    "The '{tool_id}' tool is not supported by Gemini model '{model_id}'."
+                )),
+            ));
+        }
     }
 
     fn compute_warnings(req: &ChatRequest) -> Vec<Warning> {
@@ -63,8 +69,6 @@ impl GeminiToolWarningsMiddleware {
         }
 
         let model_id = req.common_params.model.as_str();
-        let is_gemini_2_or_newer = Self::is_gemini_2_or_newer(model_id);
-        let supports_file_search = Self::supports_file_search(model_id);
 
         for tool in tools {
             let Tool::ProviderDefined(provider_tool) = tool else {
@@ -72,64 +76,52 @@ impl GeminiToolWarningsMiddleware {
             };
 
             match provider_tool.id.as_str() {
-                "google.google_search" => {}
+                "google.google_search" => Self::warn_if_explicitly_unsupported(
+                    &mut warnings,
+                    model_id,
+                    "search_grounding",
+                    "google.google_search",
+                ),
                 "google.enterprise_web_search" => {
-                    if !is_gemini_2_or_newer {
-                        warnings.push(Warning::unsupported_tool(
-                            "google.enterprise_web_search",
-                            Some("Enterprise Web Search requires Gemini 2.0 or newer."),
-                        ));
-                    }
+                    Self::warn_if_explicitly_unsupported(
+                        &mut warnings,
+                        model_id,
+                        "search_grounding",
+                        "google.enterprise_web_search",
+                    );
                 }
                 "google.url_context" => {
-                    if !is_gemini_2_or_newer {
-                        warnings.push(Warning::unsupported_tool(
-                            "google.url_context",
-                            Some(
-                                "The URL context tool is not supported with other Gemini models than Gemini 2.",
-                            ),
-                        ));
-                    }
+                    Self::warn_if_explicitly_unsupported(
+                        &mut warnings,
+                        model_id,
+                        "url_context",
+                        "google.url_context",
+                    );
                 }
                 "google.code_execution" => {
-                    if !is_gemini_2_or_newer {
-                        warnings.push(Warning::unsupported_tool(
-                            "google.code_execution",
-                            Some(
-                                "The code execution tools is not supported with other Gemini models than Gemini 2.",
-                            ),
-                        ));
-                    }
+                    Self::warn_if_explicitly_unsupported(
+                        &mut warnings,
+                        model_id,
+                        "code_execution",
+                        "google.code_execution",
+                    );
                 }
                 "google.file_search" => {
-                    if !supports_file_search {
-                        warnings.push(Warning::unsupported_tool(
-                            "google.file_search",
-                            Some(
-                                "The file search tool is only supported with Gemini 2.5 models and Gemini 3 models.",
-                            ),
-                        ));
-                    }
+                    Self::warn_if_explicitly_unsupported(
+                        &mut warnings,
+                        model_id,
+                        "file_search",
+                        "google.file_search",
+                    );
                 }
-                "google.vertex_rag_store" => {
-                    if !is_gemini_2_or_newer {
-                        warnings.push(Warning::unsupported_tool(
-                            "google.vertex_rag_store",
-                            Some(
-                                "The RAG store tool is not supported with other Gemini models than Gemini 2.",
-                            ),
-                        ));
-                    }
-                }
+                "google.vertex_rag_store" => {}
                 "google.google_maps" => {
-                    if !is_gemini_2_or_newer {
-                        warnings.push(Warning::unsupported_tool(
-                            "google.google_maps",
-                            Some(
-                                "The Google Maps grounding tool is not supported with Gemini models other than Gemini 2 or newer.",
-                            ),
-                        ));
-                    }
+                    Self::warn_if_explicitly_unsupported(
+                        &mut warnings,
+                        model_id,
+                        "maps_grounding",
+                        "google.google_maps",
+                    );
                 }
                 _ => {
                     warnings.push(Warning::unsupported_tool(
@@ -183,6 +175,7 @@ impl LanguageModelMiddleware for GeminiToolWarningsMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::gemini::model_constants::gemini_3;
     use crate::types::{ChatMessage, MessageContent};
 
     fn dummy_resp() -> ChatResponse {
@@ -215,11 +208,11 @@ mod tests {
     }
 
     #[test]
-    fn warns_on_unsupported_url_context_on_gemini_1_5() {
+    fn warns_on_explicitly_unsupported_url_context() {
         let req = ChatRequest::builder()
             .messages(vec![ChatMessage::user("hi").build()])
             .common_params(crate::types::CommonParams {
-                model: "gemini-1.5-pro".to_string(),
+                model: gemini_3::GEMINI_3_1_FLASH_IMAGE.to_string(),
                 ..Default::default()
             })
             .tools(vec![
@@ -233,5 +226,23 @@ mod tests {
         assert!(warnings.iter().any(
             |w| matches!(w, Warning::Unsupported { feature, .. } if feature == "google.url_context")
         ));
+    }
+
+    #[test]
+    fn unknown_models_do_not_receive_guessed_tool_warnings() {
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(crate::types::CommonParams {
+                model: "gemini-4-future".to_string(),
+                ..Default::default()
+            })
+            .tools(vec![
+                siumai_protocol_gemini::tool_catalog::google::url_context(),
+            ])
+            .build();
+
+        let mw = GeminiToolWarningsMiddleware::new();
+        let out = mw.post_generate(&req, dummy_resp()).unwrap();
+        assert!(out.warnings.unwrap_or_default().is_empty());
     }
 }
