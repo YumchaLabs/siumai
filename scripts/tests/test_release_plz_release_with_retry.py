@@ -5,7 +5,7 @@ import os
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 SCRIPT = Path(__file__).resolve().parent.parent / "release_plz_release_with_retry.py"
@@ -16,6 +16,27 @@ SPEC.loader.exec_module(RETRY)
 
 
 class ReleasePlzRetryTests(unittest.TestCase):
+    def test_dry_run_is_forwarded_without_a_shell_wrapper(self) -> None:
+        process = MagicMock()
+        process.stdout = ["dry run complete\n"]
+        process.wait.return_value = 0
+
+        with patch.object(RETRY.subprocess, "Popen", return_value=process) as popen:
+            status, output = RETRY.run_release("test-token", dry_run=True)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(output, "dry run complete\n")
+        self.assertEqual(
+            popen.call_args.args[0],
+            [
+                "release-plz",
+                "release",
+                "--dry-run",
+                "--git-token",
+                "test-token",
+            ],
+        )
+
     def test_detects_supported_crates_io_rate_limit_messages(self) -> None:
         self.assertTrue(RETRY.is_crates_io_rate_limit("status 429 Too Many Requests"))
         self.assertTrue(RETRY.is_crates_io_rate_limit("published too many new crates"))

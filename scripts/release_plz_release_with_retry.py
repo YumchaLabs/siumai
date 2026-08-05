@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import math
 import os
 import re
@@ -63,8 +64,11 @@ def retry_delay_seconds(output: str, now: datetime, minimum: int) -> int:
     return max(minimum, delay)
 
 
-def run_release(github_token: str) -> tuple[int, str]:
-    command = ["release-plz", "release", "--git-token", github_token]
+def run_release(github_token: str, *, dry_run: bool = False) -> tuple[int, str]:
+    command = ["release-plz", "release"]
+    if dry_run:
+        command.append("--dry-run")
+    command.extend(["--git-token", github_token])
     process = subprocess.Popen(
         command,
         cwd=REPO_ROOT,
@@ -82,7 +86,20 @@ def run_release(github_token: str) -> tuple[int, str]:
     return process.wait(), "".join(lines)
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run release-plz with bounded crates.io rate-limit retries."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Pass --dry-run to release-plz without requiring a shell wrapper.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     github_token = os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
         print("Missing required env var: GITHUB_TOKEN", file=sys.stderr)
@@ -95,16 +112,17 @@ def main() -> int:
         print(error, file=sys.stderr)
         return 2
 
+    operation = "release-plz release --dry-run" if args.dry_run else "release-plz release"
     for attempt in range(1, max_attempts + 1):
-        print(f"::group::release-plz release attempt {attempt}/{max_attempts}")
-        status, output = run_release(github_token)
+        print(f"::group::{operation} attempt {attempt}/{max_attempts}")
+        status, output = run_release(github_token, dry_run=args.dry_run)
         print("::endgroup::")
 
         if status == 0:
-            print("release-plz release succeeded.")
+            print(f"{operation} succeeded.")
             return 0
         if not is_crates_io_rate_limit(output):
-            print("release-plz release failed (non-429).", file=sys.stderr)
+            print(f"{operation} failed (non-429).", file=sys.stderr)
             return status
         if attempt == max_attempts:
             break
@@ -118,7 +136,7 @@ def main() -> int:
         time.sleep(delay)
 
     print(
-        f"release-plz release kept hitting crates.io 429 after {max_attempts} attempts.",
+        f"{operation} kept hitting crates.io 429 after {max_attempts} attempts.",
         file=sys.stderr,
     )
     return 1

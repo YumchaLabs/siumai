@@ -120,10 +120,7 @@ jobs:
 
       - name: Run release-plz (release dry-run)
         if: ${{ inputs.dry_run == 'true' }}
-        shell: bash
         env:
           GITHUB_TOKEN: ${{ steps.app_token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          set -euo pipefail
-          release-plz release --dry-run --git-token "${GITHUB_TOKEN}"
+        run: python3 -B scripts/release_plz_release_with_retry.py --dry-run
