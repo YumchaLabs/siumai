@@ -46,17 +46,22 @@ pub(crate) struct StepEngine {
     total_deadline: Instant,
     report: RunReport,
     step: u32,
-    current_stream: Option<StepStream>,
-    prepared_step: Option<PreparedStep>,
-    needs_next_step: bool,
+    phase: EnginePhase,
     pending: VecDeque<RunEvent>,
-    done: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolHandling {
     Execute,
     ObserveOnly,
+}
+
+enum EnginePhase {
+    Transitioning,
+    Streaming(StepStream),
+    Tools(Box<PreparedStep>),
+    ReadyForModel,
+    Terminal,
 }
 
 impl StepEngine {
@@ -192,11 +197,8 @@ impl StepEngine {
             total_deadline,
             report,
             step,
-            current_stream: None,
-            prepared_step: None,
-            needs_next_step: false,
+            phase: EnginePhase::Transitioning,
             pending,
-            done: false,
         };
 
         if let Err(error) = engine.report.budget_mut().charge_model_step(&engine.budget) {
@@ -211,7 +213,7 @@ impl StepEngine {
         }
         match engine.establish_model_stream(step == 0).await {
             Ok(stream) => {
-                engine.current_stream = Some(stream);
+                engine.phase = EnginePhase::Streaming(stream);
                 Ok(engine)
             }
             Err(error) if establishment_failure_as_terminal => {
@@ -243,7 +245,7 @@ impl StepEngine {
             if let Some(event) = self.pending.pop_front() {
                 return Some(event);
             }
-            if self.done {
+            if matches!(self.phase, EnginePhase::Terminal) {
                 return None;
             }
             if self.cancellation.is_cancelled() {
@@ -260,28 +262,22 @@ impl StepEngine {
                 });
                 continue;
             }
-            if let Some(prepared) = self.prepared_step.take() {
-                self.execute_prepared_step(prepared).await;
-                continue;
+            match std::mem::replace(&mut self.phase, EnginePhase::Transitioning) {
+                EnginePhase::Streaming(stream) => self.poll_model_stream(stream).await,
+                EnginePhase::Tools(prepared) => self.execute_prepared_step(*prepared).await,
+                EnginePhase::ReadyForModel => {
+                    self.step = self.step.saturating_add(1);
+                    self.establish_later_step().await;
+                }
+                EnginePhase::Terminal => return None,
+                EnginePhase::Transitioning => self.queue_terminal(RunTerminal::Failed {
+                    error: Error::new(
+                        ErrorKind::Internal,
+                        "tool loop reached an invalid engine phase",
+                    ),
+                    report: Box::new(self.report.clone()),
+                }),
             }
-            if let Some(step_stream) = self.current_stream.take() {
-                self.poll_model_stream(step_stream).await;
-                continue;
-            }
-            if self.needs_next_step {
-                self.needs_next_step = false;
-                self.step = self.step.saturating_add(1);
-                self.establish_later_step().await;
-                continue;
-            }
-
-            self.queue_terminal(RunTerminal::Failed {
-                error: Error::new(
-                    ErrorKind::Internal,
-                    "tool loop reached an invalid engine state",
-                ),
-                report: Box::new(self.report.clone()),
-            });
         }
     }
 
@@ -356,7 +352,7 @@ impl StepEngine {
                     index: self.step,
                     target: self.target.clone(),
                 });
-                self.current_stream = Some(stream);
+                self.phase = EnginePhase::Streaming(stream);
             }
             Err(error) => self.queue_handshake_failure(error),
         }
@@ -496,7 +492,7 @@ impl StepEngine {
                     }
                     _ => {}
                 }
-                self.current_stream = Some(state);
+                self.phase = EnginePhase::Streaming(state);
                 self.pending.push_back(RunEvent::Model {
                     step: self.step,
                     event,
@@ -880,18 +876,18 @@ impl StepEngine {
                     .collect(),
             );
             if continued {
-                self.needs_next_step = true;
+                self.phase = EnginePhase::ReadyForModel;
             } else {
                 self.queue_terminal(RunTerminal::Completed {
                     report: Box::new(self.report.clone()),
                 });
             }
         } else {
-            self.prepared_step = Some(PreparedStep {
+            self.phase = EnginePhase::Tools(Box::new(PreparedStep {
                 response,
                 requests,
                 results: immediate_results,
-            });
+            }));
         }
     }
 
@@ -915,7 +911,7 @@ impl StepEngine {
         });
         self.finish_step(response, vec![result]);
         if self.outcome_policy.action(&outcome) == ToolOutcomeAction::Continue {
-            self.needs_next_step = true;
+            self.phase = EnginePhase::ReadyForModel;
         } else {
             self.queue_terminal(RunTerminal::Stopped {
                 reason: RunStopReason::ToolOutcome {
@@ -950,7 +946,7 @@ impl StepEngine {
         self.finish_step(response, tool_results);
 
         match progress.stop {
-            None => self.needs_next_step = true,
+            None => self.phase = EnginePhase::ReadyForModel,
             Some(ExecutionStop::Policy { call_id, outcome }) => {
                 self.queue_terminal(RunTerminal::Stopped {
                     reason: RunStopReason::ToolOutcome { call_id, outcome },
@@ -1456,13 +1452,10 @@ impl StepEngine {
     }
 
     fn queue_terminal(&mut self, terminal: RunTerminal) {
-        if self.done {
+        if matches!(self.phase, EnginePhase::Terminal) {
             return;
         }
-        self.current_stream = None;
-        self.prepared_step = None;
-        self.needs_next_step = false;
-        self.done = true;
+        self.phase = EnginePhase::Terminal;
         self.pending.push_back(RunEvent::Terminal(terminal));
     }
 }
