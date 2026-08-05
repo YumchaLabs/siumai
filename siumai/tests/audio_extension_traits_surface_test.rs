@@ -2,7 +2,7 @@
     feature = "openai",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimax"
 ))]
 
 use siumai::compat::Provider;
@@ -86,15 +86,15 @@ async fn groq_public_client_exposes_audio_family_without_audio_extras() {
     assert!(client.as_transcription_extras().is_none());
 }
 
-#[cfg(feature = "minimaxi")]
+#[cfg(feature = "minimax")]
 #[tokio::test]
-async fn minimaxi_public_client_exposes_speech_family_without_audio_extras() {
-    let client = Provider::minimaxi()
+async fn minimax_public_client_exposes_speech_family_without_audio_extras() {
+    let client = Provider::minimax()
         .api_key("test-key")
         .model("speech-2.5-hd")
         .build()
         .await
-        .expect("minimaxi client");
+        .expect("minimax client");
 
     assert!(client.as_speech_capability().is_some());
     assert!(client.as_speech_extras().is_none());

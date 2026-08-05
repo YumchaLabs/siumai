@@ -30,7 +30,7 @@ fn has_native_audio_registry_override(provider_id: &str) -> bool {
             | "google-vertex-xai"
             | "groq"
             | "xai"
-            | "minimaxi"
+            | "minimax"
             | "deepseek"
             | "cohere"
             | "togetherai"

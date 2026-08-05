@@ -25,7 +25,7 @@ members = [
     "siumai-provider-google-vertex",
     "siumai-provider-groq",
     "siumai-provider-xai",
-    "siumai-provider-minimaxi",
+    "siumai-provider-minimax",
     "siumai-provider-deepseek",
     "siumai-provider-cohere",
     "siumai-provider-togetherai",

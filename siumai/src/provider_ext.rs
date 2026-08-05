@@ -68,8 +68,8 @@ pub mod google;
 #[cfg(feature = "google-vertex")]
 pub mod google_vertex;
 
-#[cfg(feature = "minimaxi")]
-pub mod minimaxi;
+#[cfg(feature = "minimax")]
+pub mod minimax;
 
 #[cfg(feature = "ollama")]
 pub mod ollama;

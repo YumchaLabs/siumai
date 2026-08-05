@@ -348,7 +348,7 @@ pub struct VideoGenerationRequest {
     /// Video duration in seconds
     ///
     /// Different providers support different durations:
-    /// - MiniMaxi Hailuo: 6 or 10 seconds
+    /// - MiniMax Hailuo: 6 or 10 seconds
     /// - Runway Gen-3: 5 or 10 seconds
     /// - Sora: up to 60 seconds
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -357,7 +357,7 @@ pub struct VideoGenerationRequest {
     /// Video resolution
     ///
     /// Format varies by provider:
-    /// - MiniMaxi: "720P", "768P", "1080P"
+    /// - MiniMax: "720P", "768P", "1080P"
     /// - Runway: "1280x768", "768x1280", "1280x1280"
     /// - Sora: "1920x1080", "1080x1920", etc.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1039,7 +1039,7 @@ mod tests {
             "status": "Success",
             "file_id": "file-snake",
             "provider_reference": {
-                "minimaxi": "file-789"
+                "minimax": "file-789"
             },
             "video_url": "https://example.com/alt.mp4",
             "video_width": 1920,
@@ -1052,7 +1052,7 @@ mod tests {
         assert_eq!(
             parsed
                 .provider_reference()
-                .and_then(|reference| reference.get("minimaxi")),
+                .and_then(|reference| reference.get("minimax")),
             Some("file-789")
         );
         assert_eq!(

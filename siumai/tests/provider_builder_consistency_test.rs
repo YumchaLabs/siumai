@@ -5,7 +5,7 @@
     feature = "ollama",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimax"
 ))]
 //! Provider Builder API Consistency Tests
 //!
@@ -79,8 +79,8 @@ fn test_all_providers_support_timeout() {
     // Ollama
     let _ = Provider::ollama().model("llama3.2").timeout(timeout);
 
-    // MiniMaxi
-    let _ = Provider::minimaxi()
+    // MiniMax
+    let _ = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .timeout(timeout);
@@ -126,8 +126,8 @@ fn test_all_providers_support_connect_timeout() {
         .model("llama3.2")
         .connect_timeout(timeout);
 
-    // MiniMaxi
-    let _ = Provider::minimaxi()
+    // MiniMax
+    let _ = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .connect_timeout(timeout);
@@ -173,8 +173,8 @@ fn test_all_providers_support_custom_http_client() {
         .model("llama3.2")
         .with_http_client(client.clone());
 
-    // MiniMaxi
-    let _ = Provider::minimaxi()
+    // MiniMax
+    let _ = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .with_http_client(client);
@@ -216,8 +216,8 @@ fn test_all_providers_support_http_debug() {
     // Ollama
     let _ = Provider::ollama().model("llama3.2").http_debug(true);
 
-    // MiniMaxi
-    let _ = Provider::minimaxi()
+    // MiniMax
+    let _ = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .http_debug(true);
@@ -263,8 +263,8 @@ fn test_all_providers_support_http_interceptor() {
         .model("llama3.2")
         .with_http_interceptor(interceptor.clone());
 
-    // MiniMaxi
-    let _ = Provider::minimaxi()
+    // MiniMax
+    let _ = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .with_http_interceptor(interceptor);
@@ -304,8 +304,8 @@ fn test_all_providers_support_tracing() {
         .pretty_json(true)
         .mask_sensitive_values(true);
 
-    // MiniMaxi
-    let _ = Provider::minimaxi()
+    // MiniMax
+    let _ = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .debug_tracing()
@@ -351,8 +351,8 @@ fn test_all_providers_support_http_stream_disable_compression() {
         .model("llama3.2")
         .http_stream_disable_compression(true);
 
-    // MiniMaxi
-    let _ = Provider::minimaxi()
+    // MiniMax
+    let _ = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .http_stream_disable_compression(true);
@@ -425,7 +425,7 @@ fn test_all_providers_support_method_chaining() {
         .with_http_interceptor(interceptor.clone())
         .http_stream_disable_compression(true);
 
-    let _ = Provider::minimaxi()
+    let _ = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .timeout(timeout)
@@ -573,7 +573,7 @@ fn test_major_provider_builders_into_config_preserve_common_http_settings() {
     assert_common_http_config_shape(&ollama.http_config, timeout, connect_timeout);
     assert_eq!(ollama.http_interceptors.len(), 1);
 
-    let minimaxi = Provider::minimaxi()
+    let minimax = Provider::minimax()
         .api_key("test")
         .model("MiniMax-M2")
         .timeout(timeout)
@@ -581,8 +581,8 @@ fn test_major_provider_builders_into_config_preserve_common_http_settings() {
         .with_http_interceptor(interceptor)
         .http_stream_disable_compression(false)
         .into_config()
-        .expect("minimaxi into_config");
-    assert_eq!(minimaxi.common_params.model, "MiniMax-M2");
-    assert_common_http_config_shape(&minimaxi.http_config, timeout, connect_timeout);
-    assert_eq!(minimaxi.http_interceptors.len(), 1);
+        .expect("minimax into_config");
+    assert_eq!(minimax.common_params.model, "MiniMax-M2");
+    assert_common_http_config_shape(&minimax.http_config, timeout, connect_timeout);
+    assert_eq!(minimax.http_interceptors.len(), 1);
 }

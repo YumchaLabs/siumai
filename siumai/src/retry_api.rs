@@ -31,7 +31,7 @@ pub fn backoff_executor_for_provider(provider: &ProviderType) -> BackoffRetryExe
         | ProviderType::Perplexity
         | ProviderType::XAI
         | ProviderType::Groq
-        | ProviderType::MiniMaxi => openai_compat_backoff(),
+        | ProviderType::Minimax => openai_compat_backoff(),
         ProviderType::Anthropic => anthropic_backoff(),
         ProviderType::Gemini
         | ProviderType::Vertex

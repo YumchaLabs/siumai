@@ -290,7 +290,7 @@ pub enum ProviderType {
     Gateway,
     XAI,
     Groq,
-    MiniMaxi,
+    Minimax,
     Custom(String),
 }
 
@@ -320,7 +320,7 @@ impl std::fmt::Display for ProviderType {
             Self::Gateway => write!(f, "gateway"),
             Self::XAI => write!(f, "xai"),
             Self::Groq => write!(f, "groq"),
-            Self::MiniMaxi => write!(f, "minimaxi"),
+            Self::Minimax => write!(f, "minimax"),
             Self::Custom(name) => write!(f, "{name}"),
         }
     }
@@ -354,7 +354,7 @@ impl ProviderType {
             "gateway" => Self::Gateway,
             "xai" => Self::XAI,
             "groq" => Self::Groq,
-            "minimaxi" => Self::MiniMaxi,
+            "minimax" => Self::Minimax,
             other => Self::Custom(other.to_string()),
         }
     }

@@ -136,7 +136,7 @@ Supported examples of `provider:model`:
 - `groq:llama-3.1-70b-versatile`
 - `xai:grok-beta`
 - `ollama:llama3.2`
-- `minimaxi:minimax-text-01`
+- `minimax:MiniMax-M3`
 
 OpenAI‑compatible vendors follow the same pattern (API keys read as `{PROVIDER_ID}_API_KEY` when possible). See docs for details.
 
@@ -200,20 +200,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-MiniMaxi (config-first):
+MiniMax (config-first):
 
 ```rust,no_run
 use siumai::models;
 use siumai::prelude::unified::*;
-use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
+use siumai::providers::minimax::{MinimaxClient, MinimaxConfig};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = MinimaxiConfig::new(std::env::var("MINIMAXI_API_KEY")?)
-        .with_model(models::minimaxi::MINIMAX_M2);
-    let client = MinimaxiClient::from_config(cfg)?;
+    let cfg = MinimaxConfig::new(std::env::var("MINIMAX_API_KEY")?)
+        .with_model(models::minimax::MINIMAX_M3);
+    let client = MinimaxClient::from_config(cfg)?;
     let resp = text::generate(
         &client,
-        ChatRequest::new(vec![user!("Hello MiniMaxi!")]),
+        ChatRequest::new(vec![user!("Hello MiniMax!")]),
         text::GenerateOptions::default(),
     )
     .await?;

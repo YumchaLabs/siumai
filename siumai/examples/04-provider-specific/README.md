@@ -26,7 +26,7 @@ Read these examples with the following package tiers in mind:
 - `groq/`
 - `xai/`
 - `ollama/`
-- `minimaxi/`
+- `minimax/`
 
 These directories should prefer config-first examples and provider-owned extension APIs.
 

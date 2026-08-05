@@ -64,7 +64,7 @@ google = []
 ollama = []
 xai = []
 groq = []
-minimaxi = []
+minimax = []
 cohere = []
 togetherai = []
 bedrock = []
@@ -84,7 +84,7 @@ all-providers = [
     "ollama",
     "xai",
     "groq",
-    "minimaxi",
+    "minimax",
     "cohere",
     "togetherai",
     "deepgram",

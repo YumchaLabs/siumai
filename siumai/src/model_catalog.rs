@@ -37,9 +37,9 @@ pub mod constants {
     #[cfg(feature = "groq")]
     pub use siumai_provider_groq::providers::groq::models as groq;
 
-    /// Re-export MiniMaxi model constants (detailed structure).
-    #[cfg(feature = "minimaxi")]
-    pub use siumai_provider_minimaxi::providers::minimaxi::models as minimaxi;
+    /// Re-export MiniMax model constants (detailed structure).
+    #[cfg(feature = "minimax")]
+    pub use siumai_provider_minimax::providers::minimax::models as minimax;
 
     /// Re-export DeepSeek model constants (detailed structure).
     #[cfg(feature = "deepseek")]
@@ -271,18 +271,41 @@ pub mod model_constants {
         pub use siumai_provider_deepseek::providers::deepseek::models::*;
     }
 
-    /// MiniMaxi models with simplified access.
-    #[cfg(feature = "minimaxi")]
-    pub mod minimaxi {
-        use siumai_provider_minimaxi::providers::minimaxi::models as c;
+    /// MiniMax models with simplified access.
+    #[cfg(feature = "minimax")]
+    pub mod minimax {
+        use siumai_provider_minimax::providers::minimax::models as c;
 
         // Text
+        pub const MINIMAX_M3: &str = c::chat::MINIMAX_M3;
+        pub const MINIMAX_M2_7: &str = c::chat::MINIMAX_M2_7;
+        pub const MINIMAX_M2_7_HIGHSPEED: &str = c::chat::MINIMAX_M2_7_HIGHSPEED;
+        pub const MINIMAX_M2_5: &str = c::chat::MINIMAX_M2_5;
+        pub const MINIMAX_M2_5_HIGHSPEED: &str = c::chat::MINIMAX_M2_5_HIGHSPEED;
+        pub const MINIMAX_M2_1: &str = c::chat::MINIMAX_M2_1;
+        pub const MINIMAX_M2_1_HIGHSPEED: &str = c::chat::MINIMAX_M2_1_HIGHSPEED;
         pub const MINIMAX_M2: &str = c::chat::MINIMAX_M2;
-        pub const MINIMAX_M2_STABLE: &str = c::chat::MINIMAX_M2_STABLE;
 
         // Audio (TTS)
+        pub const SPEECH_2_8_HD: &str = c::speech::SPEECH_2_8_HD;
+        pub const SPEECH_2_8_TURBO: &str = c::speech::SPEECH_2_8_TURBO;
         pub const SPEECH_2_6_HD: &str = c::speech::SPEECH_2_6_HD;
         pub const SPEECH_2_6_TURBO: &str = c::speech::SPEECH_2_6_TURBO;
+        pub const SPEECH_02_HD: &str = c::speech::SPEECH_02_HD;
+        pub const SPEECH_02_TURBO: &str = c::speech::SPEECH_02_TURBO;
+
+        // Video
+        pub const HAILUO_2_3: &str = c::video::HAILUO_2_3;
+        pub const HAILUO_2_3_FAST: &str = c::video::HAILUO_2_3_FAST;
+        pub const HAILUO_02: &str = c::video::HAILUO_02;
+        pub const T2V_01_DIRECTOR: &str = c::video::T2V_01_DIRECTOR;
+        pub const T2V_01: &str = c::video::T2V_01;
+
+        // Music
+        pub const MUSIC_2_6: &str = c::music::MUSIC_2_6;
+        pub const MUSIC_2_6_FREE: &str = c::music::MUSIC_2_6_FREE;
+        pub const MUSIC_COVER: &str = c::music::MUSIC_COVER;
+        pub const MUSIC_COVER_FREE: &str = c::music::MUSIC_COVER_FREE;
 
         // Images
         pub const IMAGE_01: &str = c::image::IMAGE_01;

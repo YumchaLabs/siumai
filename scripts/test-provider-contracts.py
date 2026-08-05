@@ -19,7 +19,7 @@ PROFILES: dict[str, tuple[str, str]] = {
     "ollama": ("siumai-provider-ollama", "ollama"),
     "xai": ("siumai-provider-xai", "xai"),
     "groq": ("siumai-provider-groq", "groq"),
-    "minimaxi": ("siumai-provider-minimaxi", "minimaxi"),
+    "minimax": ("siumai-provider-minimax", "minimax"),
     "deepseek": ("siumai-provider-deepseek", "deepseek"),
     "cohere": ("siumai-provider-cohere", "cohere"),
     "togetherai": ("siumai-provider-togetherai", "togetherai"),

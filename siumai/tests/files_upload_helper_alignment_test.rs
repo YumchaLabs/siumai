@@ -226,19 +226,19 @@ async fn upload_rejects_invalid_base64_with_shared_data_content_message() {
 }
 
 #[tokio::test]
-async fn upload_requires_explicit_purpose_for_minimaxi() {
-    let client = MockFilesClient::new("minimaxi");
+async fn upload_requires_explicit_purpose_for_minimax() {
+    let client = MockFilesClient::new("minimax");
     let error = files::upload(
         &client,
         b"hello".to_vec(),
         UploadFileOptions::new().with_filename("sample.txt"),
     )
     .await
-    .expect_err("minimaxi upload should require purpose");
+    .expect_err("minimax upload should require purpose");
 
     match error {
         LlmError::InvalidInput(message) => {
-            assert!(message.contains("MiniMaxi file uploads require UploadFileOptions.purpose"))
+            assert!(message.contains("MiniMax file uploads require UploadFileOptions.purpose"))
         }
         other => panic!("expected invalid input, got {other:?}"),
     }

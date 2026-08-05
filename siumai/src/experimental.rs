@@ -80,8 +80,8 @@ pub mod providers {
     pub use siumai_provider_google_vertex as google_vertex;
     #[cfg(feature = "groq")]
     pub use siumai_provider_groq as groq;
-    #[cfg(feature = "minimaxi")]
-    pub use siumai_provider_minimaxi as minimaxi;
+    #[cfg(feature = "minimax")]
+    pub use siumai_provider_minimax as minimax;
     #[cfg(feature = "ollama")]
     pub use siumai_provider_ollama as ollama;
     #[cfg(feature = "openai")]

@@ -24,7 +24,7 @@ pub struct UploadFileOptions {
     pub filename: Option<String>,
     /// Optional provider upload purpose.
     ///
-    /// This is required for providers such as MiniMaxi that do not have a stable default purpose.
+    /// This is required for providers such as MiniMax that do not have a stable default purpose.
     pub purpose: Option<String>,
     /// Optional provider upload metadata forwarded through low-level file APIs when supported.
     pub metadata: HashMap<String, String>,
@@ -255,17 +255,17 @@ impl FileUploadProvider for siumai_provider_gemini::providers::gemini::GeminiFil
     }
 }
 
-#[cfg(feature = "minimaxi")]
-impl FileUploadProvider for siumai_provider_minimaxi::providers::minimaxi::MinimaxiClient {
+#[cfg(feature = "minimax")]
+impl FileUploadProvider for siumai_provider_minimax::providers::minimax::MinimaxClient {
     fn upload_file_provider_id(&self) -> Cow<'static, str> {
         LlmClient::provider_id(self)
     }
 }
 
-#[cfg(feature = "minimaxi")]
-impl FileUploadProvider for siumai_provider_minimaxi::providers::minimaxi::MinimaxiFiles {
+#[cfg(feature = "minimax")]
+impl FileUploadProvider for siumai_provider_minimax::providers::minimax::MinimaxFiles {
     fn upload_file_provider_id(&self) -> Cow<'static, str> {
-        Cow::Borrowed("minimaxi")
+        Cow::Borrowed("minimax")
     }
 }
 
@@ -444,8 +444,8 @@ fn resolve_upload_purpose(provider_id: &str, purpose: Option<&str>) -> Result<St
             Ok("assistants".to_string())
         }
         "anthropic" | "gemini" | "google" => Ok(String::new()),
-        "minimaxi" => Err(LlmError::InvalidInput(
-            "MiniMaxi file uploads require UploadFileOptions.purpose.".to_string(),
+        "minimax" => Err(LlmError::InvalidInput(
+            "MiniMax file uploads require UploadFileOptions.purpose.".to_string(),
         )),
         _ => Err(LlmError::InvalidInput(format!(
             "File uploads for provider '{provider_id}' require UploadFileOptions.purpose."

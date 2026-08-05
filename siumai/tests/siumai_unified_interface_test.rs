@@ -218,7 +218,7 @@ async fn test_provider_id_mapping() {
         ("togetherai", ProviderType::TogetherAi),
         ("bedrock", ProviderType::Bedrock),
         ("gateway", ProviderType::Gateway),
-        ("minimaxi", ProviderType::MiniMaxi),
+        ("minimax", ProviderType::Minimax),
         ("openrouter", ProviderType::Custom("openrouter".to_string())),
     ];
 
@@ -496,7 +496,7 @@ fn test_provider_type_consistency() {
         ProviderType::Cerebras,
         ProviderType::Bedrock,
         ProviderType::Gateway,
-        ProviderType::MiniMaxi,
+        ProviderType::Minimax,
         ProviderType::Custom("openrouter".to_string()),
     ];
 

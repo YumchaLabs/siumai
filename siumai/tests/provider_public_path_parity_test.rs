@@ -10,7 +10,7 @@
     feature = "bedrock",
     feature = "deepseek",
     feature = "ollama",
-    feature = "minimaxi",
+    feature = "minimax",
     feature = "google",
     feature = "google-vertex"
 ))]
@@ -829,9 +829,9 @@ mod groq_public_path;
 #[path = "provider_public_path_parity/ollama_public_path.rs"]
 mod ollama_public_path;
 
-#[cfg(feature = "minimaxi")]
-#[path = "provider_public_path_parity/minimaxi_public_path.rs"]
-mod minimaxi_public_path;
+#[cfg(feature = "minimax")]
+#[path = "provider_public_path_parity/minimax_public_path.rs"]
+mod minimax_public_path;
 
 #[cfg(feature = "bedrock")]
 #[path = "provider_public_path_parity/bedrock_public_path.rs"]

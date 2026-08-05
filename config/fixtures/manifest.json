@@ -85,8 +85,8 @@
       "disposition": "retain-and-reverify"
     },
     {
-      "path": "minimaxi/**",
-      "owner": "siumai-provider-minimaxi",
+      "path": "minimax/**",
+      "owner": "siumai-provider-minimax",
       "protocol": "minimax-anthropic-compatible",
       "behaviors": ["request", "error"],
       "source_kind": "provider behavior",

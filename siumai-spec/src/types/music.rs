@@ -117,7 +117,7 @@ pub struct MusicGenerationRequest {
     ///
     /// Use this for provider-specific features not covered by standard fields.
     /// Examples:
-    /// - MiniMaxi: `{"aigc_watermark": true}`
+    /// - MiniMax: `{"aigc_watermark": true}`
     /// - Suno: `{"make_instrumental": false, "wait_audio": true}`
     /// - Stable Audio: `{"cfg_scale": 7.0, "steps": 100}`
     #[serde(skip_serializing_if = "Option::is_none")]

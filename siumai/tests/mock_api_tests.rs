@@ -26,6 +26,6 @@ mod ollama_mock_api_test;
 #[path = "mock_api/xai_mock_api_test.rs"]
 mod xai_mock_api_test;
 
-#[cfg(feature = "minimaxi")]
-#[path = "mock_api/minimaxi_mock_api_test.rs"]
-mod minimaxi_mock_api_test;
+#[cfg(feature = "minimax")]
+#[path = "mock_api/minimax_mock_api_test.rs"]
+mod minimax_mock_api_test;

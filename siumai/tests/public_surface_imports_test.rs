@@ -4151,14 +4151,14 @@ fn public_surface_ollama_provider_ext_compiles() {
     );
 }
 
-#[cfg(feature = "minimaxi")]
+#[cfg(feature = "minimax")]
 #[test]
-fn public_surface_minimaxi_provider_ext_compiles() {
+fn public_surface_minimax_provider_ext_compiles() {
     use siumai::compat::content::ContentPart;
     use siumai::prelude::unified::*;
-    use siumai::provider_ext::minimaxi::{
-        MinimaxiBuilder, MinimaxiClient, MinimaxiConfig, chat,
-        ext::{music, structured_output, thinking, video},
+    use siumai::provider_ext::minimax::{
+        MinimaxBuilder, MinimaxClient, MinimaxConfig, chat,
+        ext::{music, thinking, video},
         image,
         metadata::*,
         model_sets, music as music_models,
@@ -4168,41 +4168,42 @@ fn public_surface_minimaxi_provider_ext_compiles() {
     };
     use std::collections::HashMap;
 
-    let _ = size_of::<MinimaxiBuilder>();
-    let _ = size_of::<MinimaxiClient>();
-    let _ = size_of::<MinimaxiConfig>();
-    let _ = size_of::<MinimaxiOptions>();
-    let _ = size_of::<MinimaxiResponseFormat>();
-    let _ = size_of::<MinimaxiThinkingModeConfig>();
-    let _ = size_of::<MinimaxiTtsOptions>();
-    let _ = size_of::<MinimaxiVideoOptions>();
-    let _ = size_of::<MinimaxiTtsRequestBuilder>();
-    let _ = size_of::<music::MinimaxiMusicRequestBuilder>();
-    let _ = size_of::<video::MinimaxiVideoRequestBuilder>();
-    let _ = size_of::<MinimaxiFiles>();
-    let _ = size_of::<MinimaxiMetadata>();
-    let _ = size_of::<MinimaxiSource>();
-    let _ = size_of::<MinimaxiToolCallMetadata>();
-    let _ = size_of::<MinimaxiToolCaller>();
+    let _ = size_of::<MinimaxBuilder>();
+    let _ = size_of::<MinimaxClient>();
+    let _ = size_of::<MinimaxConfig>();
+    let _ = size_of::<MinimaxOptions>();
+    let _ = size_of::<MinimaxThinking>();
+    let _ = size_of::<MinimaxServiceTier>();
+    let _ = size_of::<MinimaxTtsOptions>();
+    let _ = size_of::<MinimaxVideoOptions>();
+    let _ = size_of::<MinimaxTtsRequestBuilder>();
+    let _ = size_of::<music::MinimaxMusicRequestBuilder>();
+    let _ = size_of::<video::MinimaxVideoRequestBuilder>();
+    let _ = size_of::<MinimaxFiles>();
+    let _ = size_of::<MinimaxMetadata>();
+    let _ = size_of::<MinimaxSource>();
+    let _ = size_of::<MinimaxToolCallMetadata>();
+    let _ = size_of::<MinimaxToolCaller>();
     let _ = chat::MINIMAX_M2;
     let _ = speech::SPEECH_2_6_HD;
     let _ = video_models::HAILUO_2_3;
-    let _ = music_models::MUSIC_2_0;
+    let _ = music_models::MUSIC_2_6;
+    let _ = music_models::MUSIC_2_6_FREE;
+    let _ = music_models::MUSIC_COVER_FREE;
     let _ = image::IMAGE_01;
     let _ = model_sets::CHAT;
 
-    fn _assert_chat_req_ext<T: MinimaxiChatRequestExt>() {}
-    fn _assert_req_ext<T: MinimaxiTtsRequestExt>() {}
-    fn _assert_video_req_ext<T: MinimaxiVideoRequestExt>() {}
-    fn _assert_resp_ext<T: MinimaxiChatResponseExt>() {}
-    fn _assert_part_ext<T: MinimaxiContentPartExt>() {}
+    fn _assert_chat_req_ext<T: MinimaxChatRequestExt>() {}
+    fn _assert_req_ext<T: MinimaxTtsRequestExt>() {}
+    fn _assert_video_req_ext<T: MinimaxVideoRequestExt>() {}
+    fn _assert_resp_ext<T: MinimaxChatResponseExt>() {}
+    fn _assert_part_ext<T: MinimaxContentPartExt>() {}
     _assert_chat_req_ext::<ChatRequest>();
     _assert_req_ext::<siumai::prelude::unified::TtsRequest>();
     _assert_video_req_ext::<siumai::prelude::extensions::types::VideoGenerationRequest>();
     _assert_resp_ext::<ChatResponse>();
     _assert_part_ext::<ContentPart>();
-    let _ = structured_output::chat_with_json_object::<MinimaxiClient>;
-    let _ = thinking::chat_with_thinking::<MinimaxiClient>;
+    let _ = thinking::chat_with_thinking::<MinimaxClient>;
 
     let mut resp = ChatResponse::new(MessageContent::Text("ok".to_string()));
     let mut inner = HashMap::new();
@@ -4217,16 +4218,16 @@ fn public_surface_minimaxi_provider_ext_compiles() {
     );
     let mut outer = HashMap::new();
     outer.insert(
-        "minimaxi".to_string(),
+        "minimax".to_string(),
         serde_json::Value::Object(inner.into_iter().collect()),
     );
     resp.provider_metadata = Some(outer);
-    let typed = resp.minimaxi_metadata().expect("minimaxi metadata");
+    let typed = resp.minimax_metadata().expect("minimax metadata");
     let source = typed
         .sources
         .as_ref()
         .and_then(|sources| sources.first())
-        .expect("minimaxi source");
+        .expect("minimax source");
     assert_eq!(source.source_type, "document");
     assert_eq!(source.filename.as_deref(), Some("example.pdf"));
 }

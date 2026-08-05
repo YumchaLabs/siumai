@@ -1,0 +1,1 @@
+https://api.minimax.io/anthropic/v1/messages

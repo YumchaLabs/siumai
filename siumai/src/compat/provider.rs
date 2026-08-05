@@ -32,7 +32,7 @@
     feature = "ollama",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi",
+    feature = "minimax",
     feature = "google-vertex",
     feature = "deepseek"
 ))]
@@ -221,10 +221,10 @@ impl Provider {
         siumai_provider_groq::providers::groq::GroqBuilder::new(BuilderBase::default())
     }
 
-    /// Create a MiniMaxi client builder
-    #[cfg(feature = "minimaxi")]
-    pub fn minimaxi() -> siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder {
-        siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(BuilderBase::default())
+    /// Create a MiniMax client builder
+    #[cfg(feature = "minimax")]
+    pub fn minimax() -> siumai_provider_minimax::providers::minimax::MinimaxBuilder {
+        siumai_provider_minimax::providers::minimax::MinimaxBuilder::new(BuilderBase::default())
     }
 
     /// Create a Google Vertex client builder

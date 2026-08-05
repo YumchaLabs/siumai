@@ -2885,7 +2885,7 @@ dependencies = [
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
  "siumai-provider-groq",
- "siumai-provider-minimaxi",
+ "siumai-provider-minimax",
  "siumai-provider-ollama",
  "siumai-provider-openai",
  "siumai-provider-openai-compatible",
@@ -3434,7 +3434,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "siumai-provider-minimaxi"
+name = "siumai-provider-minimax"
 version = "0.11.0-beta.9"
 dependencies = [
  "async-stream",

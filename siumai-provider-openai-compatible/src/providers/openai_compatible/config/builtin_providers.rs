@@ -272,13 +272,13 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
 
     // Mistral AI - European AI
     // Docs: https://docs.mistral.ai/api/
-    // MiniMaxi - OpenAI-compatible M2 text API
+    // MiniMax - OpenAI-compatible M2 text API
     providers.insert(
-        "minimaxi".to_string(),
+        "minimax".to_string(),
         ProviderConfig {
-            id: "minimaxi".to_string(),
-            name: "MiniMaxi".to_string(),
-            base_url: "https://api.minimaxi.com/v1".to_string(),
+            id: "minimax".to_string(),
+            name: "MiniMax".to_string(),
+            base_url: "https://api.minimax.io/v1".to_string(),
             field_mappings: ProviderFieldMappings {
                 thinking_fields: vec![
                     "reasoning_content".to_string(),
@@ -290,7 +290,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
                 role_field: "role".to_string(),
             },
             capabilities: vec!["tools".to_string(), "reasoning".to_string()],
-            default_model: Some("MiniMax-M2".to_string()),
+            default_model: Some("MiniMax-M2.7".to_string()),
             supports_reasoning: true,
             api_key_env: None,
             api_key_env_aliases: Vec::new(),
@@ -507,22 +507,6 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             field_mappings: ProviderFieldMappings::default(),
             capabilities: vec!["tools".to_string(), "vision".to_string()],
             default_model: Some("step-1v-8k".to_string()),
-            supports_reasoning: false,
-            api_key_env: None,
-            api_key_env_aliases: Vec::new(),
-        },
-    );
-
-    // MiniMax - Chinese AI with advanced capabilities
-    providers.insert(
-        "minimax".to_string(),
-        ProviderConfig {
-            id: "minimax".to_string(),
-            name: "MiniMax".to_string(),
-            base_url: "https://api.minimax.chat/v1".to_string(),
-            field_mappings: ProviderFieldMappings::default(),
-            capabilities: vec!["tools".to_string(), "vision".to_string()],
-            default_model: Some("abab6.5s-chat".to_string()),
             supports_reasoning: false,
             api_key_env: None,
             api_key_env_aliases: Vec::new(),
