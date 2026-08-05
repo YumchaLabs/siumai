@@ -360,6 +360,13 @@ impl SnapshotReason {
         self.message.as_deref()
     }
 
+    pub(crate) fn runtime_code(code: &'static str) -> Self {
+        Self {
+            code: code.to_string(),
+            message: None,
+        }
+    }
+
     fn dispatch_outcome_unknown() -> Self {
         Self {
             code: "dispatch_outcome_unknown".to_string(),

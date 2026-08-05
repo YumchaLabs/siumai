@@ -1,42 +1,40 @@
 //! Durable orchestration over the shared step engine and snapshot store.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use futures::StreamExt;
 use sha2::{Digest, Sha256};
-use siumai_core::{
-    CallOptions, ContentPart, Error, ExecutionOwner, LanguageModel, LanguageRequest, Message,
-    MessageRole, ToolOutcome, ToolResult,
-};
+use siumai_core::{CallOptions, Error, LanguageModel, LanguageRequest};
 use thiserror::Error;
 
 use crate::approval::{
-    ApprovalConsumeStore, ApprovalEnvelope, ApprovalVerificationError, ApprovalVerifier,
-    TrustContext, TrustContextBuildError, TrustIdentity, verify_and_consume_at_unix_ms,
+    ApprovalConsumeStore, ApprovalEnvelope, ApprovalVerificationError, ApprovalVerificationInput,
+    ApprovalVerifier, TrustContext, TrustContextBuildError, TrustIdentity, VerifiedApproval,
+    verify_and_consume_many_at_unix_ms,
 };
-use crate::engine::{StepEngine, ToolHandling};
-use crate::selection::{PreparedStepModel, prepare_selected_step_model, select_step_model};
+use crate::engine::checkpoint::{
+    CheckpointBoundary, CheckpointControl, EngineCheckpoint, EngineCheckpointPort,
+    EngineCheckpointState, PendingApprovalCheckpoint,
+};
+use crate::engine::{EngineResumeError, EngineResumeSeed, StepEngine, ToolHandling};
 use crate::snapshot::{
-    CheckpointId, CompletedToolSnapshot, IndeterminateReason, LineageId, PendingApprovalSnapshot,
-    PendingProviderStepSnapshot, PendingStepSnapshot, PreparedToolSnapshot, ProviderStateSnapshot,
+    CheckpointId, LineageId, PendingApprovalSnapshot, PendingStepSnapshot, PreparedToolSnapshot,
     ResumePoint, RunId, RunLease, RunSnapshot, RunSnapshotError, RunStore, RunStoreError,
     SnapshotCheckpoint, SnapshotEngineVersion, SnapshotFingerprint, SnapshotFingerprints,
-    SnapshotReason, SnapshotRevision, SnapshotTerminal, ToolExecutionEvent, ToolExecutionStatus,
+    SnapshotRevision, ToolExecutionEvent, ToolExecutionStatus,
 };
 use crate::tool::{
-    ApprovalPolicy, AuthorizedToolCall, EffectCertainty, ExternalApprovalDecider,
-    ToolExecutionError, ToolExecutionRequest, ToolSet,
+    ApprovalPolicy, EffectCertainty, ExternalApprovalDecider, ToolExecutionError,
+    ToolExecutionRequest, ToolSet,
 };
-use crate::tool_loop::{ToolOutcomeAction, ToolOutcomePolicy};
-use crate::{
-    ModelTarget, ProjectionPolicy, RunEvent, RunReport, RunTerminal, Runtime, StepModelSelector,
-    StepOptions, StepRecord,
-};
+use crate::tool_loop::ToolOutcomePolicy;
+use crate::{ModelTarget, ProjectionPolicy, RunReport, Runtime, StepModelSelector, StepOptions};
 
-const DURABLE_ENGINE_VERSION: &str = "siumai-runtime-durable-v4";
+const DURABLE_ENGINE_VERSION: &str = "siumai-runtime-durable-v5";
 const DEFAULT_LEASE_TTL: Duration = Duration::from_secs(300);
 static NEXT_CHECKPOINT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -137,6 +135,167 @@ impl DurableRun {
 struct ApprovalRuntime {
     verifier: Arc<dyn ApprovalVerifier>,
     consume_store: Arc<dyn ApprovalConsumeStore>,
+}
+
+struct DurableCheckpointPort<'a> {
+    owner: &'a DurableToolLoop,
+    lease: &'a mut RunLease,
+    run_id: RunId,
+    lineage_id: LineageId,
+    deadline_unix_ms: Option<u64>,
+    state: Option<DurableRun>,
+}
+
+impl<'a> DurableCheckpointPort<'a> {
+    fn new(
+        owner: &'a DurableToolLoop,
+        lease: &'a mut RunLease,
+        run_id: RunId,
+        lineage_id: LineageId,
+        deadline_unix_ms: Option<u64>,
+        state: Option<DurableRun>,
+    ) -> Self {
+        Self {
+            owner,
+            lease,
+            run_id,
+            lineage_id,
+            deadline_unix_ms,
+            state,
+        }
+    }
+
+    fn into_state(self) -> Result<DurableRun, DurableRunError> {
+        self.state.ok_or(DurableRunError::Invariant {
+            message: "step engine reached a durable boundary without committing a snapshot",
+        })
+    }
+
+    async fn commit_candidate(
+        &mut self,
+        checkpoint: EngineCheckpoint,
+    ) -> Result<CheckpointControl, DurableRunError> {
+        let (boundary, continuation, report, state) = checkpoint.into_parts();
+        let (resume_point, can_progress) = self.resume_point(state)?;
+        let (expected, parent, engine_version, fingerprints, deadline_unix_ms) =
+            match self.state.as_ref() {
+                Some(current) => (
+                    current.revision,
+                    Some(current.snapshot.checkpoint_id().clone()),
+                    current.snapshot.engine_version().clone(),
+                    current.snapshot.fingerprints().clone(),
+                    current.snapshot.deadline_unix_ms(),
+                ),
+                None => (
+                    SnapshotRevision::EMPTY,
+                    None,
+                    self.owner.engine_version.clone(),
+                    self.owner.fingerprints.clone(),
+                    self.deadline_unix_ms,
+                ),
+            };
+        let snapshot = RunSnapshot::new(
+            SnapshotCheckpoint::new(
+                engine_version,
+                self.run_id.clone(),
+                self.lineage_id.clone(),
+                next_checkpoint_id()?,
+                parent,
+            )?,
+            fingerprints,
+            continuation,
+            report,
+            deadline_unix_ms,
+            resume_point,
+        )?;
+        let snapshot_bytes = serde_json::to_vec(&snapshot)?.len();
+        snapshot
+            .budget()
+            .check_snapshot_bytes(snapshot_bytes, self.owner.runtime.run_budget())?;
+        self.owner.renew(self.lease).await?;
+        let revision = self
+            .owner
+            .store
+            .compare_and_swap(self.lease, expected, snapshot.clone())
+            .await
+            .map_err(|error| map_store_error_for_run(error, &self.run_id))?;
+        self.state = Some(DurableRun { revision, snapshot });
+
+        let pause = matches!(boundary, CheckpointBoundary::Quiescent) && !can_progress;
+        Ok(if pause {
+            CheckpointControl::Pause
+        } else {
+            CheckpointControl::Continue
+        })
+    }
+
+    fn resume_point(
+        &self,
+        state: EngineCheckpointState,
+    ) -> Result<(ResumePoint, bool), DurableRunError> {
+        match state {
+            EngineCheckpointState::PendingTools(pending) => {
+                let (index, target, response, prepared, completed, approvals, can_progress) =
+                    pending.into_parts();
+                let approvals = approvals
+                    .into_iter()
+                    .map(|approval| self.pending_approval(approval))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let step = PendingStepSnapshot::new(
+                    index, target, response, prepared, completed, approvals,
+                );
+                if step.pending_approvals().is_empty() {
+                    Ok((ResumePoint::ReadyToDispatch(step), can_progress))
+                } else {
+                    Ok((ResumePoint::AwaitingApprovals(step), can_progress))
+                }
+            }
+            EngineCheckpointState::AwaitingProvider(step) => {
+                Ok((ResumePoint::AwaitingProvider(step), false))
+            }
+            EngineCheckpointState::ReadyForModel { next_step, target } => {
+                Ok((ResumePoint::ReadyForModel { next_step, target }, true))
+            }
+            EngineCheckpointState::Terminal(terminal) => {
+                Ok((ResumePoint::Terminal(terminal), false))
+            }
+        }
+    }
+
+    fn pending_approval(
+        &self,
+        approval: PendingApprovalCheckpoint,
+    ) -> Result<PendingApprovalSnapshot, DurableRunError> {
+        Ok(PendingApprovalSnapshot {
+            approval_id: format!("approval:{}", approval.call().id),
+            call: approval.call().clone(),
+            binding: approval.binding().clone(),
+            claim_fingerprint: pending_approval_fingerprint_parts(
+                &approval.call().id,
+                approval.binding().fingerprint.as_str(),
+                approval.canonical_arguments_digest(),
+                &self.owner.fingerprints,
+            )?,
+            expires_at_unix_ms: None,
+        })
+    }
+}
+
+impl EngineCheckpointPort for DurableCheckpointPort<'_> {
+    type Error = DurableRunError;
+
+    const ENABLED: bool = true;
+
+    fn max_concurrent_tools(&self, configured: usize) -> usize {
+        configured
+    }
+
+    fn commit<'a>(
+        &'a mut self,
+        checkpoint: EngineCheckpoint,
+    ) -> Pin<Box<dyn Future<Output = Result<CheckpointControl, Self::Error>> + Send + 'a>> {
+        Box::pin(self.commit_candidate(checkpoint))
+    }
 }
 
 /// Clone-cheap durable tool loop backed by a lease/CAS [`RunStore`].
@@ -301,22 +460,24 @@ impl DurableToolLoop {
             options.deadline(),
             self.runtime.run_budget().timeouts().total(),
         )?;
-        let model_step = self
-            .run_model_step(Arc::clone(&self.model), None, 0, request, options.clone())
-            .await?;
-        let snapshot = self.snapshot_from_model_terminal(
-            run_id,
-            lineage_id,
-            None,
-            deadline_unix_ms,
-            model_step,
-        )?;
-        let revision = self
-            .checkpoint(lease, SnapshotRevision::EMPTY, snapshot.clone())
-            .await?;
-        let state = DurableRun { revision, snapshot };
-        self.advance(lease, state, DurableResume::default(), options)
-            .await
+        let mut engine = StepEngine::establish(
+            self.runtime.clone(),
+            Arc::clone(&self.model),
+            self.tools.clone(),
+            request,
+            self.step_options.clone(),
+            options,
+            self.outcome_policy,
+            Arc::new(ExternalApprovalDecider::default()),
+            self.model_selector.clone(),
+            self.projection_policy,
+            ToolHandling::Execute,
+        )
+        .await?;
+        let mut checkpoint =
+            DurableCheckpointPort::new(self, lease, run_id, lineage_id, deadline_unix_ms, None);
+        engine.drive(&mut checkpoint).await?;
+        checkpoint.into_state()
     }
 
     /// Resume an existing run under one exclusive store lease.
@@ -357,334 +518,113 @@ impl DurableToolLoop {
         let state = self
             .recover_if_needed(lease, state, resume.indeterminate_recovery)
             .await?;
-        self.advance(lease, state, resume, options).await
-    }
+        if matches!(
+            state.snapshot.resume_point(),
+            ResumePoint::Terminal(_) | ResumePoint::AwaitingProvider(_)
+        ) {
+            return Ok(state);
+        }
 
-    async fn advance(
-        &self,
-        lease: &mut RunLease,
-        mut state: DurableRun,
-        resume: DurableResume,
-        options: CallOptions,
-    ) -> Result<DurableRun, DurableRunError> {
         let approvals = collect_approvals(resume.approvals)?;
-        loop {
-            match state.snapshot.resume_point().clone() {
-                ResumePoint::Terminal(_) | ResumePoint::AwaitingProvider(_) => return Ok(state),
-                ResumePoint::AwaitingApprovals(step) | ResumePoint::ReadyToDispatch(step) => {
-                    let progressed = self
-                        .execute_pending_step(lease, state, step, &approvals, &options)
-                        .await?;
-                    state = progressed.state;
-                    if progressed.awaiting_approval || state.is_terminal() {
-                        return Ok(state);
-                    }
-                }
-                ResumePoint::ReadyForModel { next_step, target } => {
-                    self.renew(lease).await?;
-                    let call_options = options_for_snapshot(&state.snapshot, options.clone())?;
-                    let model_step = match self.prepare_durable_model_step(
-                        &state.snapshot,
-                        next_step,
-                        &target,
-                    )? {
-                        DurablePreparedModelStep::Ready(ready) => {
-                            let DurableReadyModelStep {
-                                model,
-                                report,
-                                request,
-                            } = *ready;
-                            self.run_model_step(
-                                model,
-                                Some(report),
-                                next_step,
-                                request,
-                                call_options,
-                            )
-                            .await?
-                        }
-                        DurablePreparedModelStep::Rejected(rejected) => {
-                            let DurableRejectedModelStep {
-                                report,
-                                continuation,
-                                transition,
-                            } = *rejected;
-                            DurableModelStep {
-                                terminal: RunTerminal::HistoryProjectionRejected {
-                                    transition: Box::new(transition),
-                                    report: Box::new(report),
-                                },
-                                continuation,
-                            }
-                        }
-                    };
-                    let snapshot = self.snapshot_from_model_terminal(
-                        state.snapshot.run_id().clone(),
-                        state.snapshot.lineage_id().clone(),
-                        Some(state.snapshot.checkpoint_id().clone()),
-                        state.snapshot.deadline_unix_ms(),
-                        model_step,
-                    )?;
-                    let revision = self
-                        .checkpoint(lease, state.revision, snapshot.clone())
-                        .await?;
-                    state = DurableRun { revision, snapshot };
-                }
-            }
-        }
+        let verified_approvals = self.verify_approvals(&state.snapshot, &approvals).await?;
+        let call_options = options_for_snapshot(&state.snapshot, options)?;
+        let mut engine = StepEngine::resume(
+            self.runtime.clone(),
+            Arc::clone(&self.model),
+            self.tools.clone(),
+            self.step_options.clone(),
+            call_options,
+            self.outcome_policy,
+            Arc::new(ExternalApprovalDecider::default()),
+            self.model_selector.clone(),
+            self.projection_policy,
+            EngineResumeSeed {
+                continuation: state.snapshot.continuation().clone(),
+                report: state.snapshot.report().clone(),
+                resume_point: state.snapshot.resume_point().clone(),
+                verified_approvals,
+            },
+        )
+        .map_err(map_engine_resume_error)?;
+        let mut checkpoint = DurableCheckpointPort::new(
+            self,
+            lease,
+            state.snapshot.run_id().clone(),
+            state.snapshot.lineage_id().clone(),
+            state.snapshot.deadline_unix_ms(),
+            Some(state),
+        );
+        engine.drive(&mut checkpoint).await?;
+        checkpoint.into_state()
     }
 
-    async fn execute_pending_step(
-        &self,
-        lease: &mut RunLease,
-        mut state: DurableRun,
-        mut step: PendingStepSnapshot,
-        approvals: &BTreeMap<String, DurableApproval>,
-        options: &CallOptions,
-    ) -> Result<PendingProgress, DurableRunError> {
-        loop {
-            let completed_ordinals = step
-                .completed()
-                .iter()
-                .map(CompletedToolSnapshot::ordinal)
-                .collect::<BTreeSet<_>>();
-            let Some(prepared) = step
-                .prepared()
-                .iter()
-                .find(|prepared| !completed_ordinals.contains(&prepared.ordinal()))
-                .cloned()
-            else {
-                let snapshot = self.finish_pending_step(&state.snapshot, &step, None)?;
-                let revision = self
-                    .checkpoint(lease, state.revision, snapshot.clone())
-                    .await?;
-                return Ok(PendingProgress {
-                    state: DurableRun { revision, snapshot },
-                    awaiting_approval: false,
-                });
-            };
-
-            match state.snapshot.execution_log().status(&prepared.call().id) {
-                Some(ToolExecutionStatus::Prepared) => {}
-                Some(ToolExecutionStatus::Completed) => {
-                    return Err(DurableRunError::Invariant {
-                        message: "completed execution is missing its pending-step receipt",
-                    });
-                }
-                Some(ToolExecutionStatus::Dispatched | ToolExecutionStatus::Indeterminate) => {
-                    return Err(DurableRunError::Invariant {
-                        message: "resume recovery must settle dispatched work before execution",
-                    });
-                }
-                None => {
-                    return Err(DurableRunError::Invariant {
-                        message: "pending tool is missing its prepared execution event",
-                    });
-                }
-            }
-
-            let request = self.restore_request(&prepared)?;
-            let authorized = match request.approval_policy() {
-                ApprovalPolicy::NotRequired => {
-                    request
-                        .authorize_not_required()
-                        .map_err(|_| DurableRunError::Invariant {
-                            message: "not-required tool authorization was rejected",
-                        })?
-                }
-                ApprovalPolicy::Required => {
-                    let Some(approval) = approvals.get(request.call_id()) else {
-                        return Ok(PendingProgress {
-                            state,
-                            awaiting_approval: true,
-                        });
-                    };
-                    self.verify_approval(&state.snapshot, &request, approval)
-                        .await?
-                }
-            };
-
-            self.renew(lease).await?;
-            // Persist dispatch intent before crossing the executor boundary. A
-            // crash in the narrow gap can conservatively over-report an
-            // indeterminate effect, but can never silently replay an effect
-            // that may already have happened.
-            let dispatched = self.dispatched_snapshot(&state.snapshot, &step, &prepared)?;
-            let revision = self
-                .checkpoint(lease, state.revision, dispatched.clone())
-                .await?;
-            state = DurableRun {
-                revision,
-                snapshot: dispatched,
-            };
-            step = state
-                .snapshot
-                .resume_point()
-                .pending_step()
-                .cloned()
-                .ok_or(DurableRunError::Invariant {
-                    message: "dispatched checkpoint lost its pending step",
-                })?;
-
-            let call_options = options_for_snapshot(&state.snapshot, options.clone())?;
-            let dispatch = dispatch_authorized(
-                authorized,
-                call_options,
-                self.runtime.run_budget().timeouts().tool(),
-            )
-            .await;
-            let result = match dispatch {
-                DispatchResult::Completed(Ok(result)) => result,
-                DispatchResult::Completed(Err(error))
-                    if error.effect_certainty() == EffectCertainty::Indeterminate =>
-                {
-                    let snapshot = self.indeterminate_snapshot(
-                        &state.snapshot,
-                        &prepared,
-                        IndeterminateReason::DispatchOutcomeUnknown,
-                    )?;
-                    let revision = self
-                        .checkpoint(lease, state.revision, snapshot.clone())
-                        .await?;
-                    return Ok(PendingProgress {
-                        state: DurableRun { revision, snapshot },
-                        awaiting_approval: false,
-                    });
-                }
-                DispatchResult::Completed(Err(error)) => ToolResult {
-                    call_id: prepared.call().id.clone(),
-                    name: prepared.call().name.clone(),
-                    outcome: execution_error_outcome(error),
-                },
-                DispatchResult::Cancelled => {
-                    let snapshot = self.indeterminate_snapshot(
-                        &state.snapshot,
-                        &prepared,
-                        IndeterminateReason::CancellationAfterDispatch,
-                    )?;
-                    let revision = self
-                        .checkpoint(lease, state.revision, snapshot.clone())
-                        .await?;
-                    return Ok(PendingProgress {
-                        state: DurableRun { revision, snapshot },
-                        awaiting_approval: false,
-                    });
-                }
-                DispatchResult::TimedOut => {
-                    let snapshot = self.indeterminate_snapshot(
-                        &state.snapshot,
-                        &prepared,
-                        IndeterminateReason::DispatchOutcomeUnknown,
-                    )?;
-                    let revision = self
-                        .checkpoint(lease, state.revision, snapshot.clone())
-                        .await?;
-                    return Ok(PendingProgress {
-                        state: DurableRun { revision, snapshot },
-                        awaiting_approval: false,
-                    });
-                }
-            };
-
-            let completed = match self.completed_snapshot(&state.snapshot, &step, &prepared, result)
-            {
-                Ok(snapshot) => snapshot,
-                Err(DurableRunError::Budget(_)) => self.indeterminate_snapshot(
-                    &state.snapshot,
-                    &prepared,
-                    IndeterminateReason::CheckpointFailure,
-                )?,
-                Err(error) => return Err(error),
-            };
-            let result_outcome = completed
-                .resume_point()
-                .pending_step()
-                .and_then(|pending| {
-                    pending
-                        .completed()
-                        .iter()
-                        .find(|completed| completed.ordinal() == prepared.ordinal())
-                })
-                .map(|completed| completed.result().outcome.clone());
-            let revision = self
-                .checkpoint(lease, state.revision, completed.clone())
-                .await?;
-            state = DurableRun {
-                revision,
-                snapshot: completed,
-            };
-            if state.is_terminal() {
-                return Ok(PendingProgress {
-                    state,
-                    awaiting_approval: false,
-                });
-            }
-            step = state
-                .snapshot
-                .resume_point()
-                .pending_step()
-                .cloned()
-                .ok_or(DurableRunError::Invariant {
-                    message: "completed checkpoint lost its pending step",
-                })?;
-
-            if result_outcome.as_ref().is_some_and(|outcome| {
-                self.outcome_policy.action(outcome) == ToolOutcomeAction::Stop
-            }) {
-                let snapshot = self.finish_pending_step(
-                    &state.snapshot,
-                    &step,
-                    Some(SnapshotTerminal::Completed {
-                        reason: Some(reason("tool_outcome_stopped")?),
-                    }),
-                )?;
-                let revision = self
-                    .checkpoint(lease, state.revision, snapshot.clone())
-                    .await?;
-                return Ok(PendingProgress {
-                    state: DurableRun { revision, snapshot },
-                    awaiting_approval: false,
-                });
-            }
-        }
-    }
-
-    async fn verify_approval(
+    async fn verify_approvals(
         &self,
         snapshot: &RunSnapshot,
-        request: &ToolExecutionRequest,
-        approval: &DurableApproval,
-    ) -> Result<AuthorizedToolCall, DurableRunError> {
+        approvals: &BTreeMap<String, DurableApproval>,
+    ) -> Result<BTreeMap<String, VerifiedApproval>, DurableRunError> {
+        if approvals.is_empty() {
+            return Ok(BTreeMap::new());
+        }
         let runtime = self
             .approval_runtime
             .as_ref()
             .ok_or(DurableRunError::ApprovalVerificationNotConfigured)?;
-        let context = TrustContext::builder(approval.identity.clone())
-            .model_target(snapshot.target().clone())
-            .run_id(snapshot.run_id().clone())
-            .lineage_id(snapshot.lineage_id().clone())
-            .checkpoint_id(snapshot.checkpoint_id().clone())
-            .execution_owner(request.owner().clone())
-            .binding_identity(request.binding_identity().clone())
-            .tool_call_id(request.call_id())
-            .canonical_arguments_digest(request.canonical_arguments_digest())
-            .catalog_fingerprint(snapshot.fingerprints().tool_catalog.as_str())
-            .policy_fingerprint(snapshot.fingerprints().approval_policy.as_str())
-            .build()?;
-        let verified = verify_and_consume_at_unix_ms(
+        let pending = snapshot
+            .resume_point()
+            .pending_step()
+            .ok_or(DurableRunError::Invariant {
+                message: "approvals were supplied outside a pending tool step",
+            })?;
+        let mut batch = Vec::with_capacity(approvals.len());
+        for (call_id, approval) in approvals {
+            let prepared = pending
+                .prepared()
+                .iter()
+                .find(|prepared| prepared.call().id == *call_id)
+                .ok_or_else(|| DurableRunError::UnexpectedApproval {
+                    call_id: call_id.clone(),
+                })?;
+            if !pending
+                .pending_approvals()
+                .iter()
+                .any(|pending| pending.call.id == *call_id)
+            {
+                return Err(DurableRunError::UnexpectedApproval {
+                    call_id: call_id.clone(),
+                });
+            }
+            let request = self.restore_request(prepared)?;
+            let context = TrustContext::builder(approval.identity.clone())
+                .model_target(snapshot.target().clone())
+                .run_id(snapshot.run_id().clone())
+                .lineage_id(snapshot.lineage_id().clone())
+                .checkpoint_id(snapshot.checkpoint_id().clone())
+                .execution_owner(request.owner().clone())
+                .binding_identity(request.binding_identity().clone())
+                .tool_call_id(request.call_id())
+                .canonical_arguments_digest(request.canonical_arguments_digest())
+                .catalog_fingerprint(snapshot.fingerprints().tool_catalog.as_str())
+                .policy_fingerprint(snapshot.fingerprints().approval_policy.as_str())
+                .build()?;
+            batch.push((call_id.clone(), &approval.envelope, context));
+        }
+        let inputs = batch
+            .iter()
+            .map(|(_, envelope, context)| ApprovalVerificationInput::new(envelope, context))
+            .collect::<Vec<_>>();
+        let verified = verify_and_consume_many_at_unix_ms(
             runtime.verifier.as_ref(),
             runtime.consume_store.as_ref(),
-            &approval.envelope,
-            &context,
+            &inputs,
             unix_millis()?,
         )
         .await?;
-        request
-            .clone()
-            .authorize_verified(verified)
-            .map_err(|_| DurableRunError::Invariant {
-                message: "verified approval did not authorize its frozen request",
-            })
+        Ok(batch
+            .into_iter()
+            .map(|(call_id, _, _)| call_id)
+            .zip(verified)
+            .collect())
     }
 
     async fn recover_if_needed(
@@ -829,494 +769,6 @@ impl DurableToolLoop {
         Ok(request)
     }
 
-    fn prepare_durable_model_step(
-        &self,
-        snapshot: &RunSnapshot,
-        next_step: u32,
-        frozen_target: &ModelTarget,
-    ) -> Result<DurablePreparedModelStep, DurableRunError> {
-        let mut report = snapshot.report().clone();
-        let previous_step = report.steps().last().ok_or(DurableRunError::Invariant {
-            message: "durable model selection requires a completed previous step",
-        })?;
-        let source = report.current_target().clone();
-        let selected = select_step_model(
-            self.model_selector.as_deref(),
-            Arc::clone(&self.model),
-            next_step,
-            &source,
-            previous_step,
-            &report,
-        )?;
-        if &selected.target != frozen_target {
-            return Err(DurableRunError::SelectedModelTargetChanged {
-                expected: Box::new(frozen_target.clone()),
-                actual: Box::new(selected.target),
-            });
-        }
-
-        match prepare_selected_step_model(
-            selected,
-            snapshot.continuation().clone(),
-            next_step,
-            &source,
-            self.projection_policy,
-        ) {
-            PreparedStepModel::Ready(ready) => {
-                let crate::selection::PreparedStepModelReady {
-                    model,
-                    request,
-                    transition,
-                    ..
-                } = *ready;
-                report.replace_messages(request.messages.clone());
-                if let Some(transition) = transition {
-                    report.model_transitions_mut().push(transition);
-                }
-                Ok(DurablePreparedModelStep::Ready(Box::new(
-                    DurableReadyModelStep {
-                        model,
-                        report,
-                        request,
-                    },
-                )))
-            }
-            PreparedStepModel::Rejected { transition } => {
-                let transition = *transition;
-                report.model_transitions_mut().push(transition.clone());
-                Ok(DurablePreparedModelStep::Rejected(Box::new(
-                    DurableRejectedModelStep {
-                        report,
-                        continuation: snapshot.continuation().clone(),
-                        transition,
-                    },
-                )))
-            }
-        }
-    }
-
-    async fn run_model_step(
-        &self,
-        model: Arc<dyn LanguageModel>,
-        report: Option<RunReport>,
-        step: u32,
-        request: LanguageRequest,
-        options: CallOptions,
-    ) -> Result<DurableModelStep, DurableRunError> {
-        let mut continuation = request.clone();
-        continuation.tools = self.tools.specs().to_vec();
-        let seeded = report.is_some();
-        let mut engine_request = request;
-        if seeded {
-            engine_request.tools.clear();
-        }
-        let engine = if let Some(report) = report {
-            StepEngine::establish_seeded(
-                self.runtime.clone(),
-                model,
-                self.tools.clone(),
-                engine_request,
-                self.step_options.clone(),
-                options,
-                self.outcome_policy,
-                Arc::new(ExternalApprovalDecider::default()),
-                None,
-                crate::ProjectionPolicy::Strict,
-                ToolHandling::ObserveOnly,
-                report,
-                step,
-            )
-            .await?
-        } else {
-            StepEngine::establish(
-                self.runtime.clone(),
-                model,
-                self.tools.clone(),
-                engine_request,
-                self.step_options.clone(),
-                options,
-                self.outcome_policy,
-                Arc::new(ExternalApprovalDecider::default()),
-                None,
-                crate::ProjectionPolicy::Strict,
-                ToolHandling::ObserveOnly,
-            )
-            .await?
-        };
-        let mut stream = Box::pin(engine.into_stream());
-        while let Some(event) = stream.next().await {
-            if let RunEvent::Terminal(terminal) = event? {
-                let report = terminal.report().ok_or(DurableRunError::Invariant {
-                    message: "step engine returned a terminal without a report",
-                })?;
-                continuation.messages = report.messages().to_vec();
-                return Ok(DurableModelStep {
-                    terminal,
-                    continuation,
-                });
-            }
-        }
-        Err(DurableRunError::Invariant {
-            message: "step engine ended without a terminal",
-        })
-    }
-
-    fn snapshot_from_model_terminal(
-        &self,
-        run_id: RunId,
-        lineage_id: LineageId,
-        parent: Option<CheckpointId>,
-        deadline_unix_ms: Option<u64>,
-        model_step: DurableModelStep,
-    ) -> Result<RunSnapshot, DurableRunError> {
-        let DurableModelStep {
-            terminal,
-            continuation,
-        } = model_step;
-        let (mut report, terminal) = match terminal {
-            RunTerminal::Completed { report } => (*report, None),
-            RunTerminal::Stopped { report, .. } => (
-                *report,
-                Some(SnapshotTerminal::Completed {
-                    reason: Some(reason("runtime_stopped")?),
-                }),
-            ),
-            RunTerminal::Suspended { report, .. } => (
-                *report,
-                Some(SnapshotTerminal::Failed {
-                    reason: reason("unexpected_runtime_suspension")?,
-                }),
-            ),
-            RunTerminal::BudgetExceeded { report, .. } | RunTerminal::TimedOut { report, .. } => (
-                *report,
-                Some(SnapshotTerminal::Exhausted {
-                    reason: reason("runtime_budget_exhausted")?,
-                }),
-            ),
-            RunTerminal::Indeterminate { report, .. } => (
-                *report,
-                Some(SnapshotTerminal::Indeterminate {
-                    reason: reason("runtime_indeterminate")?,
-                }),
-            ),
-            RunTerminal::HistoryProjectionRejected { report, .. } => (
-                *report,
-                Some(SnapshotTerminal::Failed {
-                    reason: reason("history_projection_rejected")?,
-                }),
-            ),
-            RunTerminal::Failed { report, .. } => (
-                *report,
-                Some(SnapshotTerminal::Failed {
-                    reason: reason("runtime_failed")?,
-                }),
-            ),
-            RunTerminal::Cancelled { report, .. } => (
-                *report,
-                Some(SnapshotTerminal::Cancelled {
-                    reason: reason("runtime_cancelled")?,
-                }),
-            ),
-            RunTerminal::ResumeConflict { .. } => {
-                return Err(DurableRunError::Invariant {
-                    message: "step engine returned an internal resume conflict",
-                });
-            }
-        };
-
-        let resume_point = if let Some(terminal) = terminal {
-            ResumePoint::Terminal(terminal)
-        } else {
-            let record = report.steps_mut().pop().ok_or(DurableRunError::Invariant {
-                message: "completed model step is missing its step record",
-            })?;
-            let calls = record
-                .response()
-                .content()
-                .iter()
-                .filter_map(|part| match part {
-                    ContentPart::ToolCall(call) => Some(call.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            if calls.is_empty() {
-                report.steps_mut().push(record);
-                ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None })
-            } else if calls
-                .iter()
-                .any(|call| !matches!(call.owner, ExecutionOwner::Local))
-            {
-                let provider_state = calls
-                    .iter()
-                    .map(provider_state_from_call)
-                    .collect::<Result<Vec<_>, _>>()?;
-                ResumePoint::AwaitingProvider(PendingProviderStepSnapshot::new(
-                    record.index(),
-                    record.target().clone(),
-                    record.response().clone(),
-                    provider_state,
-                ))
-            } else {
-                let pending = self.prepare_pending_step(&mut report, &record, calls)?;
-                if pending.pending_approvals().is_empty() {
-                    ResumePoint::ReadyToDispatch(pending)
-                } else {
-                    ResumePoint::AwaitingApprovals(pending)
-                }
-            }
-        };
-
-        let checkpoint = SnapshotCheckpoint::new(
-            self.engine_version.clone(),
-            run_id,
-            lineage_id,
-            next_checkpoint_id()?,
-            parent,
-        )?;
-        Ok(RunSnapshot::new(
-            checkpoint,
-            self.fingerprints.clone(),
-            continuation,
-            report,
-            deadline_unix_ms,
-            resume_point,
-        )?)
-    }
-
-    fn prepare_pending_step(
-        &self,
-        report: &mut RunReport,
-        record: &StepRecord,
-        calls: Vec<siumai_core::ToolCall>,
-    ) -> Result<PendingStepSnapshot, DurableRunError> {
-        let mut prepared = Vec::with_capacity(calls.len());
-        let mut approvals = Vec::new();
-        for (ordinal, call) in calls.into_iter().enumerate() {
-            let request = self.tools.resolve(call)?;
-            request.validate()?;
-            let argument_bytes = serde_json::to_vec(request.arguments())?.len();
-            report
-                .budget_mut()
-                .charge_tool_call(argument_bytes, self.runtime.run_budget())?;
-            let ordinal = u32::try_from(ordinal).map_err(|_| DurableRunError::Invariant {
-                message: "tool ordinal cannot be represented in a snapshot",
-            })?;
-            let tool = PreparedToolSnapshot::new(
-                ordinal,
-                request.call().clone(),
-                request.binding_identity().clone(),
-                request.recovery_policy(),
-                request.idempotency_key().cloned(),
-                request.attempt(),
-            );
-            let sequence = report.execution_log().next_sequence();
-            report
-                .execution_log_mut()
-                .append(ToolExecutionEvent::prepared(
-                    sequence,
-                    unix_millis()?,
-                    record.index(),
-                    tool.clone(),
-                ))?;
-            if request.approval_policy() == ApprovalPolicy::Required {
-                report
-                    .budget_mut()
-                    .reserve_pending_approval(self.runtime.run_budget())?;
-                approvals.push(PendingApprovalSnapshot {
-                    approval_id: format!("approval:{}", request.call_id()),
-                    call: request.call().clone(),
-                    binding: request.binding_identity().clone(),
-                    claim_fingerprint: pending_approval_fingerprint(&request, &self.fingerprints)?,
-                    expires_at_unix_ms: None,
-                });
-            }
-            prepared.push(tool);
-        }
-        Ok(PendingStepSnapshot::new(
-            record.index(),
-            record.target().clone(),
-            record.response().clone(),
-            prepared,
-            Vec::new(),
-            approvals,
-        ))
-    }
-
-    fn dispatched_snapshot(
-        &self,
-        previous: &RunSnapshot,
-        step: &PendingStepSnapshot,
-        prepared: &PreparedToolSnapshot,
-    ) -> Result<RunSnapshot, DurableRunError> {
-        let mut report = previous.report().clone();
-        let sequence = report.execution_log().next_sequence();
-        report
-            .execution_log_mut()
-            .append(ToolExecutionEvent::dispatched(
-                sequence,
-                unix_millis()?,
-                &prepared.call().id,
-                prepared.attempt(),
-                None,
-            ))?;
-        let pending_approvals = step
-            .pending_approvals()
-            .iter()
-            .filter(|approval| approval.call.id != prepared.call().id)
-            .cloned()
-            .collect::<Vec<_>>();
-        if pending_approvals.len() != step.pending_approvals().len() {
-            report.budget_mut().release_pending_approval();
-        }
-        let next_step = PendingStepSnapshot::new(
-            step.index(),
-            step.target().clone(),
-            step.response().clone(),
-            step.prepared().to_vec(),
-            step.completed().to_vec(),
-            pending_approvals,
-        );
-        let resume_point = if next_step.pending_approvals().is_empty() {
-            ResumePoint::ReadyToDispatch(next_step)
-        } else {
-            ResumePoint::AwaitingApprovals(next_step)
-        };
-        self.successor_snapshot(previous, report, resume_point)
-    }
-
-    fn completed_snapshot(
-        &self,
-        previous: &RunSnapshot,
-        step: &PendingStepSnapshot,
-        prepared: &PreparedToolSnapshot,
-        result: ToolResult,
-    ) -> Result<RunSnapshot, DurableRunError> {
-        let mut report = previous.report().clone();
-        let result_bytes = serde_json::to_vec(&result)?.len();
-        report
-            .budget_mut()
-            .charge_tool_result(result_bytes, self.runtime.run_budget())?;
-        let sequence = report.execution_log().next_sequence();
-        report
-            .execution_log_mut()
-            .append(ToolExecutionEvent::completed(
-                sequence,
-                unix_millis()?,
-                &result.call_id,
-                prepared.attempt(),
-                result.outcome.clone(),
-            ))?;
-        let mut completed = step.completed().to_vec();
-        completed.push(CompletedToolSnapshot::new(prepared.ordinal(), result));
-        completed.sort_unstable_by_key(CompletedToolSnapshot::ordinal);
-        let next_step = PendingStepSnapshot::new(
-            step.index(),
-            step.target().clone(),
-            step.response().clone(),
-            step.prepared().to_vec(),
-            completed,
-            step.pending_approvals().to_vec(),
-        );
-        let resume_point = if next_step.pending_approvals().is_empty() {
-            ResumePoint::ReadyToDispatch(next_step)
-        } else {
-            ResumePoint::AwaitingApprovals(next_step)
-        };
-        self.successor_snapshot(previous, report, resume_point)
-    }
-
-    fn indeterminate_snapshot(
-        &self,
-        previous: &RunSnapshot,
-        prepared: &PreparedToolSnapshot,
-        reason_kind: IndeterminateReason,
-    ) -> Result<RunSnapshot, DurableRunError> {
-        let mut report = previous.report().clone();
-        for _ in previous.pending_approvals() {
-            report.budget_mut().release_pending_approval();
-        }
-        let sequence = report.execution_log().next_sequence();
-        report
-            .execution_log_mut()
-            .append(ToolExecutionEvent::indeterminate(
-                sequence,
-                unix_millis()?,
-                &prepared.call().id,
-                prepared.attempt(),
-                reason_kind,
-            ))?;
-        self.successor_snapshot(
-            previous,
-            report,
-            ResumePoint::Terminal(SnapshotTerminal::Indeterminate {
-                reason: reason("tool_effect_indeterminate")?,
-            }),
-        )
-    }
-
-    fn finish_pending_step(
-        &self,
-        previous: &RunSnapshot,
-        step: &PendingStepSnapshot,
-        terminal: Option<SnapshotTerminal>,
-    ) -> Result<RunSnapshot, DurableRunError> {
-        let mut report = previous.report().clone();
-        let results = step
-            .completed()
-            .iter()
-            .map(|completed| completed.result().clone())
-            .collect::<Vec<_>>();
-        if !results.is_empty() {
-            report.messages_mut().push(Message {
-                role: MessageRole::Tool,
-                content: results
-                    .iter()
-                    .cloned()
-                    .map(ContentPart::ToolResult)
-                    .collect(),
-            });
-        }
-        report.steps_mut().push(StepRecord::new(
-            step.index(),
-            step.target().clone(),
-            step.response().clone(),
-            results,
-        ));
-        if terminal.is_some() {
-            for _ in step.pending_approvals() {
-                report.budget_mut().release_pending_approval();
-            }
-        }
-        let resume_point = match terminal {
-            Some(terminal) => ResumePoint::Terminal(terminal),
-            None => {
-                let next_step = step.index().saturating_add(1);
-                let target = self.freeze_next_model_target(next_step, &report)?;
-                ResumePoint::ReadyForModel { next_step, target }
-            }
-        };
-        self.successor_snapshot(previous, report, resume_point)
-    }
-
-    fn freeze_next_model_target(
-        &self,
-        next_step: u32,
-        report: &RunReport,
-    ) -> Result<ModelTarget, DurableRunError> {
-        let previous_step = report.steps().last().ok_or(DurableRunError::Invariant {
-            message: "durable model selection requires a completed previous step",
-        })?;
-        let selected = select_step_model(
-            self.model_selector.as_deref(),
-            Arc::clone(&self.model),
-            next_step,
-            report.current_target(),
-            previous_step,
-            report,
-        )?;
-        Ok(selected.target)
-    }
-
     fn successor_snapshot(
         &self,
         previous: &RunSnapshot,
@@ -1418,63 +870,6 @@ impl DurableToolLoop {
     }
 }
 
-struct PendingProgress {
-    state: DurableRun,
-    awaiting_approval: bool,
-}
-
-struct DurableModelStep {
-    terminal: RunTerminal,
-    continuation: LanguageRequest,
-}
-
-enum DurablePreparedModelStep {
-    Ready(Box<DurableReadyModelStep>),
-    Rejected(Box<DurableRejectedModelStep>),
-}
-
-struct DurableReadyModelStep {
-    model: Arc<dyn LanguageModel>,
-    report: RunReport,
-    request: LanguageRequest,
-}
-
-struct DurableRejectedModelStep {
-    report: RunReport,
-    continuation: LanguageRequest,
-    transition: crate::ModelTransitionRecord,
-}
-
-enum DispatchResult {
-    Completed(Result<ToolResult, ToolExecutionError>),
-    TimedOut,
-    Cancelled,
-}
-
-async fn dispatch_authorized(
-    authorized: AuthorizedToolCall,
-    options: CallOptions,
-    tool_timeout: Duration,
-) -> DispatchResult {
-    let cancellation = options.cancellation().clone();
-    let timeout =
-        Instant::now()
-            .checked_add(tool_timeout)
-            .map_or_else(Instant::now, |tool_deadline| {
-                options
-                    .deadline()
-                    .map_or(tool_deadline, |deadline| deadline.min(tool_deadline))
-            });
-    tokio::select! {
-        biased;
-        _ = cancellation.cancelled() => DispatchResult::Cancelled,
-        _ = tokio::time::sleep_until(tokio::time::Instant::from_std(timeout)) => {
-            DispatchResult::TimedOut
-        }
-        result = authorized.dispatch() => DispatchResult::Completed(result),
-    }
-}
-
 fn collect_approvals(
     approvals: Vec<DurableApproval>,
 ) -> Result<BTreeMap<String, DurableApproval>, DurableRunError> {
@@ -1488,53 +883,24 @@ fn collect_approvals(
     Ok(by_call)
 }
 
-fn provider_state_from_call(
-    call: &siumai_core::ToolCall,
-) -> Result<ProviderStateSnapshot, DurableRunError> {
-    let namespace = match &call.owner {
-        ExecutionOwner::Provider { provider } => format!("provider-tool:{}:{}", provider, call.id),
-        _ => format!("external-tool:{}", call.id),
-    };
-    Ok(ProviderStateSnapshot {
-        namespace,
-        correlation_id: Some(call.id.clone()),
-        encoding: "tool-call-id".to_string(),
-        payload: Vec::new(),
-    })
-}
-
-fn pending_approval_fingerprint(
-    request: &ToolExecutionRequest,
+fn pending_approval_fingerprint_parts(
+    call_id: &str,
+    binding_fingerprint: &str,
+    canonical_arguments_digest: &str,
     fingerprints: &SnapshotFingerprints,
 ) -> Result<SnapshotFingerprint, DurableRunError> {
     let mut digest = Sha256::new();
     digest.update(b"siumai.pending-approval.v1\0");
-    digest.update(request.call_id().as_bytes());
+    digest.update(call_id.as_bytes());
     digest.update([0]);
-    digest.update(request.binding_identity().fingerprint.as_bytes());
+    digest.update(binding_fingerprint.as_bytes());
     digest.update([0]);
-    digest.update(request.canonical_arguments_digest().as_bytes());
+    digest.update(canonical_arguments_digest.as_bytes());
     digest.update([0]);
     digest.update(fingerprints.tool_catalog.as_str().as_bytes());
     digest.update([0]);
     digest.update(fingerprints.approval_policy.as_str().as_bytes());
     SnapshotFingerprint::new(format!("sha256:{:x}", digest.finalize())).map_err(Into::into)
-}
-
-fn execution_error_outcome(error: ToolExecutionError) -> ToolOutcome {
-    match error {
-        ToolExecutionError::ExecutorFailed {
-            message, retryable, ..
-        } => ToolOutcome::ExecutionFailed { message, retryable },
-        ToolExecutionError::InvalidArguments { message, .. } => ToolOutcome::ExecutionFailed {
-            message,
-            retryable: false,
-        },
-        other => ToolOutcome::ExecutionFailed {
-            message: other.to_string(),
-            retryable: false,
-        },
-    }
 }
 
 fn options_for_snapshot(
@@ -1587,10 +953,6 @@ fn next_checkpoint_id() -> Result<CheckpointId, DurableRunError> {
     Ok(CheckpointId::new(format!("checkpoint-{now}-{sequence}"))?)
 }
 
-fn reason(code: &'static str) -> Result<SnapshotReason, DurableRunError> {
-    SnapshotReason::new(code, None).map_err(Into::into)
-}
-
 fn map_store_error(error: RunStoreError) -> DurableRunError {
     match error {
         RunStoreError::LeaseConflict { run_id } => DurableRunError::ResumeConflict { run_id },
@@ -1607,6 +969,21 @@ fn map_store_error_for_run(error: RunStoreError, run_id: &RunId) -> DurableRunEr
             run_id: run_id.clone(),
         },
         other => DurableRunError::Store(other),
+    }
+}
+
+fn map_engine_resume_error(error: EngineResumeError) -> DurableRunError {
+    match error {
+        EngineResumeError::SelectedModelTargetChanged { expected, actual } => {
+            DurableRunError::SelectedModelTargetChanged { expected, actual }
+        }
+        EngineResumeError::RecoveryNotPermitted { call_id } => {
+            DurableRunError::RecoveryNotPermitted { call_id }
+        }
+        EngineResumeError::FrozenRequestMismatch { call_id } => {
+            DurableRunError::FrozenRequestMismatch { call_id }
+        }
+        EngineResumeError::Runtime(error) => DurableRunError::Runtime(error),
     }
 }
 
@@ -1631,6 +1008,8 @@ pub enum DurableRunError {
     ApprovalVerificationNotConfigured,
     #[error("approval for call `{call_id}` was supplied more than once")]
     DuplicateApproval { call_id: String },
+    #[error("approval was supplied for non-pending call `{call_id}`")]
+    UnexpectedApproval { call_id: String },
     #[error("recovery is not permitted for call `{call_id}`")]
     RecoveryNotPermitted { call_id: String },
     #[error("restored frozen request does not match snapshot call `{call_id}`")]

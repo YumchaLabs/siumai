@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,8 +9,9 @@ use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, GenerationConfig,
     LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message,
-    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal,
-    StructuredOutputSpec, ToolCall, ToolChoice, ToolOutcome, ToolSpec, Usage,
+    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProviderId,
+    ProviderProvenance, StreamTerminal, StructuredOutputSpec, ToolCall, ToolChoice, ToolOutcome,
+    ToolSpec, Usage,
 };
 use siumai_runtime::approval::{
     ApprovalClaims, ApprovalEnvelope, ApprovalVerifier, ApprovalVerifierError,
@@ -35,6 +36,64 @@ struct ScriptedModel {
     descriptor: ModelDescriptor,
     responses: Mutex<VecDeque<LanguageResponse>>,
     requests: Mutex<Vec<LanguageRequest>>,
+}
+
+struct DeferredModel {
+    descriptor: ModelDescriptor,
+    item: OpaqueProviderItem,
+}
+
+impl DeferredModel {
+    fn new(item: OpaqueProviderItem) -> Arc<Self> {
+        Arc::new(Self {
+            descriptor: ModelDescriptor::new(
+                ProviderId::new("deferred-test").expect("valid provider"),
+                ModelId::new("deferred-model").expect("valid model"),
+                ModelFamily::Language,
+            ),
+            item,
+        })
+    }
+}
+
+impl Model for DeferredModel {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[async_trait]
+impl LanguageModel for DeferredModel {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageResponse, Error> {
+        Err(Error::new(
+            ErrorKind::Internal,
+            "deferred test model must use streaming",
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        let item = self.item.clone();
+        let cancellation = options.cancellation().clone();
+        Ok(established_stream(cancellation, move |_| {
+            futures::stream::iter([
+                Ok(LanguageStreamEvent::ProviderDeferred {
+                    id: "provider-state-1".to_string(),
+                    state: item,
+                }),
+                Ok(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
+                    response: Box::new(final_response()),
+                })),
+            ])
+        }))
+    }
 }
 
 impl ScriptedModel {
@@ -165,6 +224,31 @@ struct StaticVerifier {
     claims: Mutex<Option<ApprovalClaims>>,
 }
 
+#[derive(Default)]
+struct MapVerifier {
+    claims: Mutex<BTreeMap<Vec<u8>, ApprovalClaims>>,
+}
+
+impl MapVerifier {
+    fn insert(&self, envelope: &ApprovalEnvelope, claims: ApprovalClaims) {
+        self.claims
+            .lock()
+            .expect("claims lock")
+            .insert(envelope.as_bytes().to_vec(), claims);
+    }
+}
+
+impl ApprovalVerifier for MapVerifier {
+    fn verify(&self, envelope: &ApprovalEnvelope) -> Result<ApprovalClaims, ApprovalVerifierError> {
+        self.claims
+            .lock()
+            .expect("claims lock")
+            .get(envelope.as_bytes())
+            .cloned()
+            .ok_or(ApprovalVerifierError::Rejected)
+    }
+}
+
 impl StaticVerifier {
     fn set_claims(&self, claims: ApprovalClaims) {
         *self.claims.lock().expect("claims lock") = Some(claims);
@@ -206,6 +290,15 @@ fn tool_call() -> ToolCall {
     }
 }
 
+fn second_tool_call() -> ToolCall {
+    ToolCall {
+        id: "call-2".to_string(),
+        name: "write_record_2".to_string(),
+        arguments: json!({"value": 8}),
+        owner: ExecutionOwner::Local,
+    }
+}
+
 fn tool_response() -> LanguageResponse {
     LanguageResponse::completed(
         vec![ContentPart::ToolCall(tool_call())],
@@ -213,6 +306,18 @@ fn tool_response() -> LanguageResponse {
         Usage::default(),
     )
     .expect("valid tool response")
+}
+
+fn two_tool_response() -> LanguageResponse {
+    LanguageResponse::completed(
+        vec![
+            ContentPart::ToolCall(tool_call()),
+            ContentPart::ToolCall(second_tool_call()),
+        ],
+        FinishReason::ToolCalls,
+        Usage::default(),
+    )
+    .expect("valid two-tool response")
 }
 
 fn final_response() -> LanguageResponse {
@@ -268,6 +373,29 @@ fn not_required_binding(executions: Arc<AtomicUsize>, attempts: Option<AttemptLo
     )
     .expect("valid binding")
     .with_approval_policy(ApprovalPolicy::NotRequired)
+}
+
+fn required_binding(name: &str, executions: Arc<AtomicUsize>, revision: &str) -> ToolBinding {
+    let spec = ToolSpec::new(
+        name,
+        Some("write one record".to_string()),
+        json!({"type": "object"}),
+    )
+    .expect("valid tool spec");
+    ToolBinding::from_fn(
+        spec,
+        revision,
+        |_| Ok(()),
+        move |_| {
+            let executions = Arc::clone(&executions);
+            async move {
+                executions.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: json!(true) })
+            }
+        },
+    )
+    .expect("valid binding")
+    .with_approval_policy(ApprovalPolicy::Required)
 }
 
 fn run_id(suffix: &str) -> RunId {
@@ -393,7 +521,7 @@ async fn durable_selector_freezes_target_and_records_reproducible_transition() {
         .await
         .expect("run completes after switching models");
 
-    assert_eq!(selector_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(selector_calls.load(Ordering::SeqCst), 1);
     assert_eq!(source.requests().len(), 1);
     assert_eq!(target.requests().len(), 1);
     let transitions = completed.snapshot().report().model_transitions();
@@ -417,7 +545,10 @@ async fn durable_resume_rejects_selector_target_drift() {
     let executions = Arc::new(AtomicUsize::new(0));
     let binding = not_required_binding(Arc::clone(&executions), None);
     let tools = ToolSet::from_bindings([binding]).expect("unique tool");
-    let store = Arc::new(InMemoryRunStore::new());
+    // Fail after the selected target is frozen but before the destination
+    // model is called. Resume must re-evaluate the selector against that
+    // durable boundary and reject drift.
+    let store = FailOnceStore::new(5);
     let source = ScriptedModel::named("durable-source", "source", [tool_response()]);
     let first = ScriptedModel::named("durable-target", "first", []);
     let second = ScriptedModel::named("durable-target", "second", []);
@@ -442,15 +573,25 @@ async fn durable_resume_rejects_selector_target_drift() {
     let source_model: Arc<dyn LanguageModel> = source;
     let loop_ = durable_loop(source_model, tools, store).with_model_selector(selector);
 
-    let error = loop_
+    let run = run_id("selector-drift");
+    let initial = loop_
         .start(
-            run_id("selector-drift"),
+            run.clone(),
             lineage_id("selector-drift"),
             request(),
             CallOptions::default(),
         )
         .await
-        .expect_err("selector target drift must fail closed");
+        .expect_err("checkpoint failure leaves the frozen target resumable");
+    assert!(matches!(
+        initial,
+        DurableRunError::Store(RunStoreError::Unavailable)
+    ));
+
+    let error = loop_
+        .resume(&run, DurableResume::default(), CallOptions::default())
+        .await
+        .expect_err("selector target drift must fail closed on resume");
 
     assert!(matches!(
         error,
@@ -746,4 +887,123 @@ async fn verified_approval_executes_only_the_exact_frozen_binding() {
     assert!(completed.is_terminal());
     assert_eq!(executions.load(Ordering::SeqCst), 1);
     assert_eq!(replacement_executions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn provider_deferred_without_a_tool_call_is_a_durable_boundary() {
+    let item = OpaqueProviderItem::new(
+        ProviderProvenance {
+            provider: ProviderId::new("deferred-test").expect("valid provider"),
+            platform: None,
+            protocol: "native-orchestration".to_string(),
+            model: ModelId::new("deferred-model").expect("valid model"),
+        },
+        "provider.deferred",
+        json!({"opaque": true}),
+    )
+    .expect("valid opaque provider item");
+    let store = Arc::new(InMemoryRunStore::new());
+    let model: Arc<dyn LanguageModel> = DeferredModel::new(item);
+    let loop_ = durable_loop(model, ToolSet::default(), store);
+
+    let suspended = loop_
+        .start(
+            run_id("provider-deferred-only"),
+            lineage_id("provider-deferred-only"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("provider-owned suspension is persisted");
+
+    assert!(matches!(
+        suspended.snapshot().resume_point(),
+        ResumePoint::AwaitingProvider(_)
+    ));
+    assert_eq!(suspended.snapshot().report().steps().len(), 0);
+    assert_eq!(suspended.snapshot().provider_state().len(), 1);
+    assert!(!suspended.snapshot().provider_state()[0].payload.is_empty());
+    assert_eq!(suspended.snapshot().report().provider_deferred().len(), 1);
+}
+
+#[tokio::test]
+async fn multiple_approvals_are_verified_against_one_checkpoint_batch() {
+    let first_executions = Arc::new(AtomicUsize::new(0));
+    let second_executions = Arc::new(AtomicUsize::new(0));
+    let tools = ToolSet::from_bindings([
+        required_binding("write_record", Arc::clone(&first_executions), "v1"),
+        required_binding("write_record_2", Arc::clone(&second_executions), "v1"),
+    ])
+    .expect("unique required bindings");
+    let store = Arc::new(InMemoryRunStore::new());
+    let verifier = Arc::new(MapVerifier::default());
+    let consume_store = Arc::new(InMemoryApprovalConsumeStore::default());
+    let model = ScriptedModel::new([two_tool_response(), final_response()]);
+    let loop_ = durable_loop(model, tools, store)
+        .with_approval_verification(verifier.clone(), consume_store);
+    let run = run_id("approval-batch");
+
+    let suspended = loop_
+        .start(
+            run.clone(),
+            lineage_id("approval-batch"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("both calls wait at one checkpoint");
+    let pending = suspended
+        .snapshot()
+        .resume_point()
+        .pending_step()
+        .expect("pending step");
+    assert_eq!(pending.pending_approvals().len(), 2);
+
+    let identity =
+        TrustIdentity::new("issuer", "audience", "subject", "tenant").expect("valid identity");
+    let mut approvals = Vec::new();
+    for (index, prepared) in pending.prepared().iter().enumerate() {
+        let context = TrustContext::builder(identity.clone())
+            .model_target(pending.target().clone())
+            .run_id(suspended.snapshot().run_id().clone())
+            .lineage_id(suspended.snapshot().lineage_id().clone())
+            .checkpoint_id(suspended.snapshot().checkpoint_id().clone())
+            .execution_owner(prepared.call().owner.clone())
+            .binding_identity(prepared.binding().clone())
+            .tool_call_id(&prepared.call().id)
+            .canonical_arguments_digest(siumai_runtime::tool::canonical_arguments_digest(
+                &prepared.call().arguments,
+            ))
+            .catalog_fingerprint(suspended.snapshot().fingerprints().tool_catalog.as_str())
+            .policy_fingerprint(suspended.snapshot().fingerprints().approval_policy.as_str())
+            .build()
+            .expect("exact trust context");
+        let claims = ApprovalClaims::issue(&context, u64::MAX, format!("nonce-{index}"), "key-1")
+            .expect("valid claims");
+        let envelope = ApprovalEnvelope::from_bytes(format!("signed-{index}").into_bytes())
+            .expect("valid envelope");
+        verifier.insert(&envelope, claims);
+        approvals.push(DurableApproval::new(
+            prepared.call().id.clone(),
+            envelope,
+            identity.clone(),
+        ));
+    }
+
+    let completed = loop_
+        .resume(
+            &run,
+            approvals
+                .into_iter()
+                .fold(DurableResume::new(), |resume, approval| {
+                    resume.with_approval(approval)
+                }),
+            CallOptions::default(),
+        )
+        .await
+        .expect("batch-approved calls execute");
+    assert!(completed.is_terminal());
+    assert_eq!(first_executions.load(Ordering::SeqCst), 1);
+    assert_eq!(second_executions.load(Ordering::SeqCst), 1);
+    assert_eq!(completed.snapshot().budget().pending_approvals(), 0);
 }
