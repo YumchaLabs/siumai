@@ -135,11 +135,18 @@ impl ChatCompletionsStreamDecoder {
             ));
         }
 
-        if let Some(usage) = chunk.usage {
-            self.usage = decode_usage(usage);
+        let mut choice = chunk.choices.into_iter().next();
+        let usage = chunk.usage.or_else(|| {
+            self.dialect
+                .supports_stream_choice_usage()
+                .then(|| choice.as_mut().and_then(|choice| choice.usage.take()))
+                .flatten()
+        });
+        if let Some(usage) = usage {
+            self.usage = decode_usage(usage, &self.dialect);
             events.push(LanguageStreamEvent::Usage(self.usage.clone()));
         }
-        let Some(choice) = chunk.choices.into_iter().next() else {
+        let Some(choice) = choice else {
             return Ok(events);
         };
 
@@ -440,7 +447,7 @@ mod tests {
     use siumai_core::{ApiModeId, PlatformId, ProtocolId, ProviderId, UsageValue};
 
     use super::*;
-    use crate::chat_completions::ReasoningField;
+    use crate::chat_completions::WireFieldName;
 
     fn decoder() -> ChatCompletionsStreamDecoder {
         let scope = ProviderScope::new(ProviderId::new("deepseek").unwrap())
@@ -451,7 +458,7 @@ mod tests {
             scope,
             ModelId::new("deepseek-chat").unwrap(),
             ChatCompletionsDialect::generic()
-                .with_reasoning_output_field(ReasoningField::new("reasoning_content").unwrap()),
+                .with_reasoning_output_field(WireFieldName::new("reasoning_content").unwrap()),
         )
     }
 
@@ -524,5 +531,66 @@ mod tests {
         assert!(!decoder.terminal_seen());
         assert!(decoder.decode("[DONE]").is_err());
         assert!(decoder.finish().is_err());
+    }
+
+    #[test]
+    fn stream_maps_root_cache_usage_only_for_an_explicit_dialect() {
+        let scope = ProviderScope::new(ProviderId::new("moonshotai").unwrap())
+            .with_platform(PlatformId::new("kimi-public-api").unwrap())
+            .with_protocol(ProtocolId::new("openai").unwrap())
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap());
+        let mut decoder = ChatCompletionsStreamDecoder::new(
+            scope,
+            ModelId::new("kimi-k3").unwrap(),
+            ChatCompletionsDialect::generic()
+                .with_cache_read_tokens_field(WireFieldName::new("cached_tokens").unwrap()),
+        );
+        let events = decoder
+            .decode(
+                r#"{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"cached_tokens":7}}"#,
+            )
+            .unwrap();
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            LanguageStreamEvent::Usage(usage)
+                if usage.cache_read_tokens == UsageValue::Known(7)
+        )));
+        assert!(decoder.decode("[DONE]").is_ok());
+    }
+
+    #[test]
+    fn choice_usage_requires_an_explicit_dialect() {
+        let scope = ProviderScope::new(ProviderId::new("moonshotai").unwrap())
+            .with_platform(PlatformId::new("kimi-public-api").unwrap())
+            .with_protocol(ProtocolId::new("openai").unwrap())
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap());
+        let frame = r#"{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop","usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"cached_tokens":7}}]}"#;
+
+        let mut generic = ChatCompletionsStreamDecoder::new(
+            scope.clone(),
+            ModelId::new("kimi-k3").unwrap(),
+            ChatCompletionsDialect::generic(),
+        );
+        assert!(
+            !generic
+                .decode(frame)
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event, LanguageStreamEvent::Usage(_)))
+        );
+
+        let mut kimi = ChatCompletionsStreamDecoder::new(
+            scope,
+            ModelId::new("kimi-k3").unwrap(),
+            ChatCompletionsDialect::generic()
+                .with_stream_choice_usage(true)
+                .with_cache_read_tokens_field(WireFieldName::new("cached_tokens").unwrap()),
+        );
+        assert!(kimi.decode(frame).unwrap().iter().any(|event| matches!(
+            event,
+            LanguageStreamEvent::Usage(usage)
+                if usage.cache_read_tokens == UsageValue::Known(7)
+        )));
     }
 }

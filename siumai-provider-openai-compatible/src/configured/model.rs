@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,6 +20,7 @@ use siumai_transport::{
     TransportStreamResponse,
 };
 
+use super::codec_policy::PreparedChatCall;
 use super::provider::ProviderRuntime;
 
 /// Lightweight language model handle sharing one configured provider runtime.
@@ -66,18 +66,13 @@ impl OpenAiCompatibleLanguageModel {
         Ok((decision, warnings))
     }
 
-    fn plan(
-        &self,
-        request: &LanguageRequest,
-        stream: bool,
-        extra: &BTreeMap<String, serde_json::Value>,
-    ) -> Result<RequestPlan, Error> {
+    fn plan(&self, prepared: &PreparedChatCall, stream: bool) -> Result<RequestPlan, Error> {
         let body = encode_request(
             self.model_id(),
-            request,
+            &prepared.request,
             stream,
-            self.runtime.profile.dialect(),
-            extra,
+            &prepared.dialect,
+            &prepared.extra,
         )?;
         let headers = RequestHeaders::new()
             .try_insert(ACCEPT, HeaderValue::from_static("application/json"))
@@ -124,10 +119,22 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, Error> {
-        let (_, warnings) = self.policy(ModelOperation::Generate)?;
+        let (_, mut warnings) = self.policy(ModelOperation::Generate)?;
         let extra = self.runtime.merge_options(&options).map_err(option_error)?;
+        let prepared = self
+            .runtime
+            .profile
+            .codec_policy()
+            .prepare(
+                self.model_id(),
+                request,
+                self.runtime.profile.dialect().clone(),
+                extra,
+            )
+            .map_err(|error| self.contextualize(ModelOperation::Generate, error))?;
+        warnings.extend(prepared.warnings.iter().cloned());
         let plan = self
-            .plan(&request, false, &extra)
+            .plan(&prepared, false)
             .map_err(|error| self.contextualize(ModelOperation::Generate, error))?;
         let response = self
             .runtime
@@ -142,7 +149,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
             &self.runtime.scope,
             self.model_id(),
             response.body(),
-            self.runtime.profile.dialect(),
+            &prepared.dialect,
         )
         .map_err(|error| self.contextualize(ModelOperation::Generate, error))?;
         Ok(append_warnings(response, warnings))
@@ -153,10 +160,22 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
-        let (_, warnings) = self.policy(ModelOperation::Stream)?;
+        let (_, mut warnings) = self.policy(ModelOperation::Stream)?;
         let extra = self.runtime.merge_options(&options).map_err(option_error)?;
+        let prepared = self
+            .runtime
+            .profile
+            .codec_policy()
+            .prepare(
+                self.model_id(),
+                request,
+                self.runtime.profile.dialect().clone(),
+                extra,
+            )
+            .map_err(|error| self.contextualize(ModelOperation::Stream, error))?;
+        warnings.extend(prepared.warnings.iter().cloned());
         let plan = self
-            .plan(&request, true, &extra)
+            .plan(&prepared, true)
             .map_err(|error| self.contextualize(ModelOperation::Stream, error))?;
         let cancellation = options.cancellation().clone();
         let response = self
@@ -173,7 +192,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         let limits = self.runtime.transport.limits().clone();
         let scope = self.runtime.scope.as_ref().clone();
         let model = self.model_id().clone();
-        let dialect = self.runtime.profile.dialect().clone();
+        let dialect = prepared.dialect;
         let body = response.into_body();
         Ok(established_stream(cancellation, move |_| {
             async_stream::try_stream! {

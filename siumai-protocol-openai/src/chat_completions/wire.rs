@@ -82,6 +82,7 @@ pub(crate) struct StreamChoiceWire {
     #[serde(default)]
     pub delta: DeltaWire,
     pub finish_reason: Option<String>,
+    pub usage: Option<UsageWire>,
 }
 
 #[derive(Debug, Default, Deserialize)]

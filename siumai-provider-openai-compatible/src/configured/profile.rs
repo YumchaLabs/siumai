@@ -8,6 +8,7 @@ use siumai_core::{
 use siumai_protocol_openai::chat_completions::{API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID};
 use siumai_transport::{EndpointConfig, EndpointError, EndpointPolicy};
 
+use super::codec_policy::{ChatCodecPolicy, IdentityChatCodecPolicy};
 use super::provider::OpenAiCompatibleConfigError;
 
 /// One immutable endpoint, protocol dialect, and evidence-backed support profile.
@@ -18,6 +19,7 @@ pub struct OpenAiCompatibleProfile {
     scope: Arc<ProviderScope>,
     endpoint: EndpointConfig,
     dialect: ChatCompletionsDialect,
+    codec_policy: Arc<dyn ChatCodecPolicy>,
 }
 
 impl OpenAiCompatibleProfile {
@@ -106,7 +108,13 @@ impl OpenAiCompatibleProfile {
             scope,
             endpoint,
             dialect,
+            codec_policy: Arc::new(IdentityChatCodecPolicy),
         })
+    }
+
+    pub(crate) fn with_codec_policy(mut self, codec_policy: Arc<dyn ChatCodecPolicy>) -> Self {
+        self.codec_policy = codec_policy;
+        self
     }
 
     pub fn provider_profile(&self) -> &ProviderProfile {
@@ -132,6 +140,10 @@ impl OpenAiCompatibleProfile {
     pub(crate) fn dialect(&self) -> &ChatCompletionsDialect {
         &self.dialect
     }
+
+    pub(crate) fn codec_policy(&self) -> &Arc<dyn ChatCodecPolicy> {
+        &self.codec_policy
+    }
 }
 
 impl fmt::Debug for OpenAiCompatibleProfile {
@@ -142,6 +154,7 @@ impl fmt::Debug for OpenAiCompatibleProfile {
             .field("scope", &self.scope)
             .field("endpoint", &self.endpoint)
             .field("dialect", &self.dialect)
+            .field("codec_policy", &self.codec_policy.name())
             .finish()
     }
 }

@@ -37,8 +37,10 @@ pub use groq::{
 pub use mistral::{MistralChatOptions, MistralLanguageModelOptions, MistralReasoningEffort};
 #[allow(deprecated)]
 pub use moonshotai::{
-    MoonshotAIChatOptions, MoonshotAILanguageModelOptions, MoonshotAIProviderOptions,
-    MoonshotAIReasoningHistory, MoonshotAIThinkingConfig, MoonshotAIThinkingType,
+    KimiLanguageOptions, KimiReasoningEffort, KimiThinking, KimiThinkingMode,
+    KimiThinkingRetention, MoonshotAIChatOptions, MoonshotAILanguageModelOptions,
+    MoonshotAIProviderOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
+    MoonshotAIThinkingType,
 };
 #[allow(deprecated)]
 pub use openai_compatible::{

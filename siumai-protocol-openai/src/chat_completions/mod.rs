@@ -6,7 +6,7 @@ mod response;
 mod stream;
 mod wire;
 
-pub use dialect::{ChatCompletionsDialect, DialectError, MaxOutputTokensField, ReasoningField};
+pub use dialect::{ChatCompletionsDialect, DialectError, MaxOutputTokensField, WireFieldName};
 pub use request::{
     CHAT_COMPLETIONS_TARGET, ChatPromptCacheBlock, ChatRequestEncodingOptions, encode_request,
     encode_request_with_options, is_protected_option_field,

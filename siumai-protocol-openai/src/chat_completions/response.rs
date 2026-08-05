@@ -36,7 +36,9 @@ pub fn decode_response(
         model,
         content,
         finish_reason,
-        wire.usage.map(decode_usage).unwrap_or_default(),
+        wire.usage
+            .map(|usage| decode_usage(usage, dialect))
+            .unwrap_or_default(),
         selected_response_metadata(&wire.extra),
     )
 }
@@ -219,7 +221,7 @@ pub(crate) fn decode_finish_reason(value: &str) -> FinishReason {
     }
 }
 
-pub(crate) fn decode_usage(wire: UsageWire) -> Usage {
+pub(crate) fn decode_usage(wire: UsageWire, dialect: &ChatCompletionsDialect) -> Usage {
     let mut provider = BTreeMap::new();
     for key in [
         "accepted_prediction_tokens",
@@ -239,11 +241,15 @@ pub(crate) fn decode_usage(wire: UsageWire) -> Usage {
             .as_ref()
             .and_then(|details| details.reasoning_tokens),
     );
-    usage.cache_read_tokens = usage_value(
-        wire.prompt_tokens_details
-            .as_ref()
-            .and_then(|details| details.cached_tokens),
-    );
+    let standard_cache_read = wire
+        .prompt_tokens_details
+        .as_ref()
+        .and_then(|details| details.cached_tokens);
+    let dialect_cache_read = dialect
+        .cache_read_tokens_field()
+        .and_then(|field| wire.extra.get(field))
+        .and_then(Value::as_u64);
+    usage.cache_read_tokens = usage_value(standard_cache_read.or(dialect_cache_read));
     usage.audio_output_tokens = usage_value(
         wire.completion_tokens_details
             .and_then(|details| details.audio_tokens),
@@ -348,7 +354,7 @@ mod tests {
         }))
         .unwrap();
         let dialect = ChatCompletionsDialect::generic().with_reasoning_output_field(
-            super::super::ReasoningField::new("reasoning_content").unwrap(),
+            super::super::WireFieldName::new("reasoning_content").unwrap(),
         );
         let response = decode_response(
             &scope(),
@@ -398,5 +404,29 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn root_cache_usage_requires_an_explicit_dialect_mapping() {
+        let body = br#"{
+            "choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"cached_tokens":7}
+        }"#;
+        let model = ModelId::new("model").unwrap();
+
+        let generic =
+            decode_response(&scope(), &model, body, &ChatCompletionsDialect::generic()).unwrap();
+        assert_eq!(generic.usage().cache_read_tokens, UsageValue::Unknown);
+
+        let mapped = decode_response(
+            &scope(),
+            &model,
+            body,
+            &ChatCompletionsDialect::generic().with_cache_read_tokens_field(
+                super::super::WireFieldName::new("cached_tokens").unwrap(),
+            ),
+        )
+        .unwrap();
+        assert_eq!(mapped.usage().cache_read_tokens, UsageValue::Known(7));
     }
 }

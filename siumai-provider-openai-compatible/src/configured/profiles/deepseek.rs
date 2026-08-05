@@ -8,7 +8,7 @@ use siumai_core::{
     VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_openai::chat_completions::{
-    API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID, ReasoningField,
+    API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID, WireFieldName,
 };
 use siumai_transport::{EndpointConfig, OfficialOrigin};
 
@@ -73,7 +73,7 @@ pub fn profile() -> Result<OpenAiCompatibleProfile, OpenAiCompatibleConfigError>
             .expect("DeepSeek official origin is static and validated"),
     )?;
     let dialect = ChatCompletionsDialect::generic().with_reasoning_output_field(
-        ReasoningField::new("reasoning_content")
+        WireFieldName::new("reasoning_content")
             .expect("DeepSeek reasoning field is static and validated"),
     );
     OpenAiCompatibleProfile::verified(provider_profile, endpoint, dialect)

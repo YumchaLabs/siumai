@@ -4,6 +4,109 @@
 //! serialized into `providerOptions["moonshotai"]`.
 
 use serde::{Deserialize, Serialize};
+use siumai_core::{ProviderOptionError, TypedProviderOptions};
+
+/// Kimi K3 reasoning effort.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KimiReasoningEffort {
+    Low,
+    High,
+    Max,
+}
+
+/// Thinking mode supported by current Kimi K2.x models.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KimiThinkingMode {
+    Enabled,
+    Disabled,
+}
+
+/// Historical reasoning retention supported by current Kimi K2.x models.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KimiThinkingRetention {
+    All,
+}
+
+/// Current Kimi K2.x thinking configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KimiThinking {
+    #[serde(rename = "type")]
+    pub mode: KimiThinkingMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep: Option<KimiThinkingRetention>,
+}
+
+impl KimiThinking {
+    pub const fn new(mode: KimiThinkingMode) -> Self {
+        Self { mode, keep: None }
+    }
+
+    pub const fn with_preserved_history(mut self) -> Self {
+        self.keep = Some(KimiThinkingRetention::All);
+        self
+    }
+}
+
+/// Typed options for the current Kimi Chat Completions profile.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KimiLanguageOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<KimiReasoningEffort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<KimiThinking>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety_identifier: Option<String>,
+}
+
+impl KimiLanguageOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub const fn with_reasoning_effort(mut self, effort: KimiReasoningEffort) -> Self {
+        self.reasoning_effort = Some(effort);
+        self
+    }
+
+    pub fn with_thinking(mut self, thinking: KimiThinking) -> Self {
+        self.thinking = Some(thinking);
+        self
+    }
+
+    pub fn with_prompt_cache_key(mut self, key: impl Into<String>) -> Self {
+        self.prompt_cache_key = Some(key.into());
+        self
+    }
+
+    pub fn with_safety_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.safety_identifier = Some(identifier.into());
+        self
+    }
+}
+
+impl TypedProviderOptions for KimiLanguageOptions {
+    const NAMESPACE: &'static str = "moonshotai";
+
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        for (path, value) in [
+            ("prompt_cache_key", self.prompt_cache_key.as_deref()),
+            ("safety_identifier", self.safety_identifier.as_deref()),
+        ] {
+            if value.is_some_and(|value| value.trim().is_empty()) {
+                return Err(ProviderOptionError::Rejected {
+                    path: path.to_string(),
+                    reason: "must not be empty".to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
 
 /// MoonshotAI thinking mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +218,46 @@ pub type MoonshotAIProviderOptions = MoonshotAILanguageModelOptions;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use siumai_core::ProviderOptions;
+
+    #[test]
+    fn current_kimi_options_use_the_moonshotai_namespace_and_wire_names() {
+        let options = ProviderOptions::typed(
+            &KimiLanguageOptions::new()
+                .with_reasoning_effort(KimiReasoningEffort::High)
+                .with_thinking(
+                    KimiThinking::new(KimiThinkingMode::Enabled).with_preserved_history(),
+                )
+                .with_prompt_cache_key("session-42")
+                .with_safety_identifier("user-hash"),
+        )
+        .unwrap();
+
+        assert_eq!(options.namespace().as_str(), "moonshotai");
+        assert_eq!(
+            options.value(),
+            &serde_json::json!({
+                "reasoning_effort": "high",
+                "thinking": {"type": "enabled", "keep": "all"},
+                "prompt_cache_key": "session-42",
+                "safety_identifier": "user-hash"
+            })
+            .as_object()
+            .unwrap()
+            .clone()
+        );
+    }
+
+    #[test]
+    fn current_kimi_options_reject_empty_cache_and_safety_ids() {
+        assert!(
+            ProviderOptions::typed(&KimiLanguageOptions::new().with_prompt_cache_key("  "))
+                .is_err()
+        );
+        assert!(
+            ProviderOptions::typed(&KimiLanguageOptions::new().with_safety_identifier("")).is_err()
+        );
+    }
 
     #[test]
     fn moonshotai_options_serialize_to_ai_sdk_shape() {

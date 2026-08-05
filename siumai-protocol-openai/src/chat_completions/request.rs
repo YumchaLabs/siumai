@@ -148,13 +148,21 @@ pub fn encode_request_with_options(
             .tools
             .iter()
             .map(|tool| {
+                let mut function = Map::new();
+                function.insert("name".to_string(), Value::String(tool.name().to_string()));
+                if let Some(description) = tool.description() {
+                    function.insert(
+                        "description".to_string(),
+                        Value::String(description.to_string()),
+                    );
+                }
+                function.insert("parameters".to_string(), tool.input_schema().clone());
+                if let Some(strict) = dialect.function_tool_strict() {
+                    function.insert("strict".to_string(), Value::Bool(strict));
+                }
                 json!({
                     "type": "function",
-                    "function": {
-                        "name": tool.name(),
-                        "description": tool.description(),
-                        "parameters": tool.input_schema(),
-                    }
+                    "function": function,
                 })
             })
             .collect();
@@ -258,10 +266,13 @@ fn encode_message(
                 content_blocks.push((content_index, json!({ "type": "text", "text": value })));
             }
             ContentPart::Media(value)
-                if message.role == MessageRole::User && value.media_type.starts_with("image/") =>
+                if message.role == MessageRole::User
+                    && (value.media_type.starts_with("image/")
+                        || (dialect.supports_video_input()
+                            && value.media_type.starts_with("video/"))) =>
             {
                 has_media = true;
-                content_blocks.push((content_index, encode_image(value)?));
+                content_blocks.push((content_index, encode_media(value)?));
             }
             ContentPart::Reasoning { text: value }
                 if message.role == MessageRole::Assistant
@@ -329,7 +340,7 @@ fn encode_message(
     Ok(Value::Object(object))
 }
 
-fn encode_image(media: &siumai_core::MediaPart) -> Result<Value, Error> {
+fn encode_media(media: &siumai_core::MediaPart) -> Result<Value, Error> {
     let url = match &media.data {
         MediaData::Url(url) => url.clone(),
         MediaData::Bytes(bytes) => format!(
@@ -344,10 +355,15 @@ fn encode_image(media: &siumai_core::MediaPart) -> Result<Value, Error> {
             ));
         }
     };
-    Ok(json!({
-        "type": "image_url",
-        "image_url": { "url": url }
-    }))
+    let kind = if media.media_type.starts_with("video/") {
+        "video_url"
+    } else {
+        "image_url"
+    };
+    let mut object = Map::new();
+    object.insert("type".to_string(), Value::String(kind.to_string()));
+    object.insert(kind.to_string(), json!({ "url": url }));
+    Ok(Value::Object(object))
 }
 
 fn encode_tool_results(message: &Message, output: &mut Vec<Value>) -> Result<(), Error> {
@@ -454,6 +470,43 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .starts_with("data:image/png;base64,")
+        );
+    }
+
+    #[test]
+    fn video_input_requires_an_explicit_verified_dialect() {
+        let request = LanguageRequest::new(vec![Message {
+            role: MessageRole::User,
+            content: vec![ContentPart::Media(MediaPart {
+                media_type: "video/mp4".to_string(),
+                data: MediaData::Bytes(vec![1, 2, 3].into()),
+                name: None,
+            })],
+        }]);
+        assert!(
+            encode_request(
+                &ModelId::new("model").unwrap(),
+                &request,
+                false,
+                &ChatCompletionsDialect::generic(),
+                &BTreeMap::new(),
+            )
+            .is_err()
+        );
+
+        let body = encode_request(
+            &ModelId::new("model").unwrap(),
+            &request,
+            false,
+            &ChatCompletionsDialect::generic().with_video_input(true),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(
+            body["messages"][0]["content"][0]["video_url"]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:video/mp4;base64,")
         );
     }
 

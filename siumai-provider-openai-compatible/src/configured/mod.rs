@@ -1,3 +1,4 @@
+mod codec_policy;
 mod credentials;
 mod model;
 mod policy;

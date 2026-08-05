@@ -309,6 +309,45 @@ fn facade_registration_sources_cover_all_six_stable_families() {
     assert_registration_source::<elevenlabs::ElevenLabsProvider>();
 }
 
+#[cfg(feature = "openai-compatible")]
+#[test]
+fn facade_exposes_current_kimi_profile_and_typed_options() {
+    use siumai::core::ProviderOptions;
+    use siumai::providers::openai_compatible::options::{KimiLanguageOptions, KimiReasoningEffort};
+    use siumai::providers::openai_compatible::profiles::moonshotai;
+
+    let profile = moonshotai::profile().unwrap();
+    assert_eq!(profile.scope().provider_id().as_str(), "moonshotai");
+    assert_eq!(moonshotai::CHAT, moonshotai::KIMI_K3);
+    assert_eq!(
+        profile.provider_profile().verified_claims().unwrap()[0]
+            .evidence()
+            .source()
+            .as_str(),
+        moonshotai::OFFICIAL_SOURCE
+    );
+    assert_eq!(
+        profile
+            .provider_profile()
+            .catalog()
+            .unwrap()
+            .iter()
+            .next()
+            .unwrap()
+            .evidence()
+            .source()
+            .as_str(),
+        moonshotai::MODEL_SOURCE
+    );
+
+    let options = ProviderOptions::typed(
+        &KimiLanguageOptions::new().with_reasoning_effort(KimiReasoningEffort::High),
+    )
+    .unwrap();
+    assert_eq!(options.namespace().as_str(), "moonshotai");
+    assert_eq!(options.value()["reasoning_effort"], "high");
+}
+
 #[cfg(all(feature = "registry", feature = "openai"))]
 #[tokio::test]
 async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
