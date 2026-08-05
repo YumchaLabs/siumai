@@ -147,7 +147,10 @@ impl ProviderSpec for DeepSeekSpec {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        self.inner.capabilities()
+        ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
@@ -230,6 +233,18 @@ mod tests {
         ConfigurableAdapter, get_provider_config,
     };
     use std::collections::HashMap;
+
+    #[test]
+    fn deepseek_spec_does_not_claim_vision_support() {
+        let provider = get_provider_config("deepseek").expect("deepseek config");
+        let spec = DeepSeekSpec::new(Arc::new(ConfigurableAdapter::new(provider)));
+
+        let capabilities = spec.capabilities();
+        assert!(capabilities.chat);
+        assert!(capabilities.streaming);
+        assert!(capabilities.tools);
+        assert!(!capabilities.vision);
+    }
 
     #[test]
     fn deepseek_spec_normalizes_camel_case_provider_options() {

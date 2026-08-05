@@ -1,8 +1,18 @@
-//! `DeepSeek` model constants
-/// `DeepSeek` Chat model (points to DeepSeek-V3-0324)
-pub const CHAT: &str = "deepseek-chat";
-/// `DeepSeek` Reasoner model (points to DeepSeek-R1-0528)
-pub const REASONER: &str = "deepseek-reasoner";
+//! `DeepSeek` model constants.
+
+/// Current DeepSeek V4 Flash model.
+pub const DEEPSEEK_V4_FLASH: &str = "deepseek-v4-flash";
+/// Current DeepSeek V4 Pro model.
+pub const DEEPSEEK_V4_PRO: &str = "deepseek-v4-pro";
+/// Recommended chat model.
+pub const CHAT: &str = DEEPSEEK_V4_FLASH;
+/// Recommended high-capability reasoning model.
+pub const REASONER: &str = DEEPSEEK_V4_PRO;
+
+/// Retired compatibility alias for V4 Flash non-thinking mode.
+pub const LEGACY_CHAT: &str = "deepseek-chat";
+/// Retired compatibility alias for V4 Flash thinking mode.
+pub const LEGACY_REASONER: &str = "deepseek-reasoner";
 
 // Specific model versions
 /// `DeepSeek` V3 (2024-03-24)
@@ -19,15 +29,7 @@ pub const CODER: &str = "deepseek-coder";
 pub const DEEPSEEK_V3: &str = "deepseek-v3";
 
 /// All `DeepSeek` models
-pub const ALL: &[&str] = &[
-    CHAT,
-    REASONER,
-    DEEPSEEK_V3_0324,
-    DEEPSEEK_R1_0528,
-    DEEPSEEK_R1_20250120,
-    CODER,
-    DEEPSEEK_V3,
-];
+pub const ALL: &[&str] = &[CHAT, REASONER];
 
 /// Get all `DeepSeek` models
 pub fn all_models() -> Vec<String> {
@@ -36,11 +38,5 @@ pub fn all_models() -> Vec<String> {
 
 /// Get current active models (non-legacy)
 pub fn active_models() -> Vec<String> {
-    vec![
-        CHAT.to_string(),
-        REASONER.to_string(),
-        DEEPSEEK_V3_0324.to_string(),
-        DEEPSEEK_R1_0528.to_string(),
-        DEEPSEEK_R1_20250120.to_string(),
-    ]
+    all_models()
 }

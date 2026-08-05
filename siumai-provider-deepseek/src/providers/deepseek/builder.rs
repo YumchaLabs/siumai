@@ -27,7 +27,7 @@ pub struct DeepSeekBuilder {
 impl DeepSeekBuilder {
     pub fn new(base: BuilderBase) -> Self {
         Self {
-            inner: OpenAiCompatibleBuilder::new(base, "deepseek"),
+            inner: OpenAiCompatibleBuilder::new(base, "deepseek").model(super::models::CHAT),
             http_client_override: None,
             retry_options: None,
             extra_model_middlewares: Vec::new(),

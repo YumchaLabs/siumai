@@ -18,7 +18,7 @@ pub mod options {
 pub mod profiles {
     pub mod deepseek {
         pub use siumai_provider_openai_compatible::profiles::deepseek::{
-            CHAT, OFFICIAL_SOURCE, REASONER, VERIFIED_ON, profile,
+            CHAT, FLASH, OFFICIAL_SOURCE, PRO, REASONER, VERIFIED_ON, profile,
         };
     }
 }

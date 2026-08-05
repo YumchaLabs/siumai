@@ -233,7 +233,7 @@ mod tests {
         // Test DeepSeek defaults
         assert_eq!(
             registry.get_default_chat_model("deepseek"),
-            Some("deepseek-chat")
+            Some("deepseek-v4-flash")
         );
 
         // Test OpenRouter defaults
@@ -318,7 +318,10 @@ mod tests {
             get_default_chat_model("siliconflow"),
             Some("deepseek-ai/DeepSeek-V3")
         );
-        assert_eq!(get_default_chat_model("deepseek"), Some("deepseek-chat"));
+        assert_eq!(
+            get_default_chat_model("deepseek"),
+            Some("deepseek-v4-flash")
+        );
         assert_eq!(get_default_chat_model("openrouter"), Some("openai/gpt-4o"));
         assert_eq!(
             get_default_embedding_model("openrouter"),

@@ -14,10 +14,12 @@ use siumai_transport::{EndpointConfig, OfficialOrigin};
 
 use crate::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};
 
-pub const CHAT: &str = "deepseek-chat";
-pub const REASONER: &str = "deepseek-reasoner";
-pub const VERIFIED_ON: &str = "2026-08-04";
-pub const OFFICIAL_SOURCE: &str = "https://api-docs.deepseek.com/";
+pub const FLASH: &str = "deepseek-v4-flash";
+pub const PRO: &str = "deepseek-v4-pro";
+pub const CHAT: &str = FLASH;
+pub const REASONER: &str = PRO;
+pub const VERIFIED_ON: &str = "2026-08-05";
+pub const OFFICIAL_SOURCE: &str = "https://api-docs.deepseek.com/quick_start/pricing";
 
 pub fn profile() -> Result<OpenAiCompatibleProfile, OpenAiCompatibleConfigError> {
     let scope = SupportScope::new(
@@ -33,7 +35,7 @@ pub fn profile() -> Result<OpenAiCompatibleProfile, OpenAiCompatibleConfigError>
             NaiveDate::parse_from_str(VERIFIED_ON, "%Y-%m-%d")
                 .expect("DeepSeek verification date is static and validated"),
         ),
-        ProtocolContractId::new("deepseek-openai-chat-2026-08")?,
+        ProtocolContractId::new("deepseek-v4-openai-chat-2026-08")?,
     );
     let catalog = ModelCatalog::new([
         ModelProfile::new(

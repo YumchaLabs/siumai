@@ -19,8 +19,8 @@ pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
 
     match pid.as_str() {
         "deepseek" => match ml.as_str() {
-            "deepseek-r1" | "r1" | "reasoner" => "deepseek-reasoner".to_string(),
-            "deepseek-v3" | "v3" | "chat" => "deepseek-chat".to_string(),
+            "deepseek-r1" | "r1" | "reasoner" => "deepseek-v4-pro".to_string(),
+            "deepseek-v3" | "v3" | "chat" => "deepseek-v4-flash".to_string(),
             _ => m,
         },
         "siliconflow" => {
@@ -180,10 +180,10 @@ mod tests {
 
     #[test]
     fn deepseek_aliases() {
-        assert_eq!(norm("deepseek", "deepseek-v3"), "deepseek-chat");
-        assert_eq!(norm("deepseek", "deepseek-r1"), "deepseek-reasoner");
-        assert_eq!(norm("deepseek", "chat"), "deepseek-chat");
-        assert_eq!(norm("deepseek", "reasoner"), "deepseek-reasoner");
+        assert_eq!(norm("deepseek", "deepseek-v3"), "deepseek-v4-flash");
+        assert_eq!(norm("deepseek", "deepseek-r1"), "deepseek-v4-pro");
+        assert_eq!(norm("deepseek", "chat"), "deepseek-v4-flash");
+        assert_eq!(norm("deepseek", "reasoner"), "deepseek-v4-pro");
         assert_eq!(norm("deepseek", "deepseek-chat"), "deepseek-chat");
     }
 

@@ -63,7 +63,10 @@ impl DeepSeekConfig {
         Self {
             api_key: SecretString::from(api_key.into()),
             base_url: Self::DEFAULT_BASE_URL.to_string(),
-            common_params: CommonParams::default(),
+            common_params: CommonParams {
+                model: super::models::CHAT.to_string(),
+                ..Default::default()
+            },
             http_config: crate::defaults::http::config_default(),
             http_transport: None,
             http_interceptors: Vec::new(),
@@ -327,12 +330,21 @@ impl DeepSeekConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::deepseek::models;
     use std::time::Duration;
 
     #[derive(Clone, Default)]
     struct NoopInterceptor;
 
     impl HttpInterceptor for NoopInterceptor {}
+
+    #[test]
+    fn new_config_uses_current_v4_default() {
+        let config = DeepSeekConfig::new("test-key");
+
+        assert_eq!(config.common_params.model, models::DEEPSEEK_V4_FLASH);
+        assert!(config.validate().is_ok());
+    }
 
     #[test]
     fn deepseek_config_reasoning_defaults_roundtrip_into_compatible_config() {

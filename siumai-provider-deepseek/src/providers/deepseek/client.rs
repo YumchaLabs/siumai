@@ -629,6 +629,37 @@ data: [DONE]
             ]))
         );
     }
+
+    #[tokio::test]
+    async fn deepseek_client_exposes_only_verified_model_capabilities() {
+        let flash = DeepSeekClient::from_config(
+            super::super::config::DeepSeekConfig::new("test-key")
+                .with_model(super::super::models::DEEPSEEK_V4_FLASH),
+        )
+        .await
+        .expect("V4 Flash client");
+        let flash_capabilities = LlmClient::capabilities(&flash);
+        assert!(!flash_capabilities.vision);
+        assert!(flash_capabilities.supports("thinking"));
+        assert!(flash_capabilities.supports("context_cache"));
+        assert_eq!(
+            LlmClient::supported_models(&flash),
+            vec![
+                super::super::models::DEEPSEEK_V4_FLASH.to_string(),
+                super::super::models::DEEPSEEK_V4_PRO.to_string(),
+            ]
+        );
+
+        let unknown = DeepSeekClient::from_config(
+            super::super::config::DeepSeekConfig::new("test-key").with_model("deepseek-custom"),
+        )
+        .await
+        .expect("custom model client");
+        let unknown_capabilities = LlmClient::capabilities(&unknown);
+        assert!(!unknown_capabilities.vision);
+        assert!(!unknown_capabilities.supports("thinking"));
+        assert!(!unknown_capabilities.supports("context_cache"));
+    }
 }
 
 #[async_trait]
@@ -783,16 +814,34 @@ impl LlmClient for DeepSeekClient {
     }
 
     fn supported_models(&self) -> Vec<String> {
-        crate::core_compat::client::LlmClient::supported_models(&self.inner)
+        super::models::all_models()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
     }
 
     fn capabilities(&self) -> crate::traits::ProviderCapabilities {
-        crate::traits::ProviderCapabilities::new()
+        let mut capabilities = crate::traits::ProviderCapabilities::new()
             .with_chat()
             .with_streaming()
-            .with_tools()
-            .with_vision()
-            .with_custom_feature("thinking", true)
+            .with_tools();
+
+        if let Some(profile) = super::models::profile(self.inner.model()) {
+            if profile.supports_thinking {
+                capabilities = capabilities.with_custom_feature("thinking", true);
+            }
+            if profile.supports_context_cache {
+                capabilities = capabilities.with_custom_feature("context_cache", true);
+            }
+            if profile.supports_json_output {
+                capabilities = capabilities.with_custom_feature("json_output", true);
+            }
+            if profile.supports_vision {
+                capabilities = capabilities.with_vision();
+            }
+        }
+
+        capabilities
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

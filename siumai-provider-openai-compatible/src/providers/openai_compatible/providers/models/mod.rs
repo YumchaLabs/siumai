@@ -62,7 +62,7 @@ pub mod recommendations {
 
     /// Recommended model for coding tasks
     pub const fn for_coding() -> &'static str {
-        deepseek::DEEPSEEK_V3_0324 // Use latest V3 model for coding
+        deepseek::DEEPSEEK_V4_PRO
     }
 
     /// Recommended model for reasoning tasks
@@ -139,7 +139,7 @@ mod tests {
     fn test_deepseek_models() {
         let models = deepseek::all_models();
         assert!(!models.is_empty());
-        assert!(models.contains(&"deepseek-chat".to_string()));
+        assert!(models.contains(&"deepseek-v4-flash".to_string()));
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn test_is_model_supported() {
-        assert!(is_model_supported("deepseek", "deepseek-chat"));
+        assert!(is_model_supported("deepseek", "deepseek-v4-flash"));
         assert!(is_model_supported(
             "deepinfra",
             deepinfra::image::FLUX_1_KONTEXT_PRO
