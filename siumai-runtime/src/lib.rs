@@ -19,6 +19,7 @@ mod options;
 mod output;
 mod run;
 mod selection;
+mod single_step;
 mod structured_run;
 mod tool_loop;
 

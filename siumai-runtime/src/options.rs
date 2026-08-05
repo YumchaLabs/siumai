@@ -9,8 +9,6 @@ use siumai_core::{
 use thiserror::Error;
 
 use crate::RunBudget;
-use crate::call::validate_request;
-
 /// Complete model target used for model-default selection.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ModelTarget {
@@ -177,9 +175,8 @@ impl Runtime {
     where
         M: LanguageModel + ?Sized,
     {
-        validate_request(&request)?;
-        model
-            .generate(request, self.prepare_options(model, &step, options))
+        crate::single_step::SingleStep::new(self, model, &step)
+            .generate(request, options)
             .await
     }
 
@@ -193,13 +190,12 @@ impl Runtime {
     where
         M: LanguageModel + ?Sized,
     {
-        validate_request(&request)?;
-        model
-            .stream(request, self.prepare_options(model, &step, options))
+        crate::single_step::SingleStep::new(self, model, &step)
+            .stream(request, options)
             .await
     }
 
-    fn prepare_options<M>(
+    pub(crate) fn prepare_options<M>(
         &self,
         model: &M,
         step: &StepOptions,

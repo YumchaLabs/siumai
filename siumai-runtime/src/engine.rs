@@ -18,6 +18,7 @@ use crate::approval::VerifiedApproval;
 use crate::selection::{
     PreparedStepModel, SelectedStepModel, prepare_selected_step_model, select_step_model,
 };
+use crate::single_step::SingleStep;
 use crate::snapshot::{
     CompletedToolSnapshot, IndeterminateReason, PendingProviderStepSnapshot, PendingStepSnapshot,
     PreparedToolSnapshot, ProviderStateSnapshot, ResumePoint, SnapshotReason, SnapshotTerminal,
@@ -565,12 +566,8 @@ impl StepEngine {
         let mut request = self.request.clone();
         request.messages = self.report.messages().to_vec();
         request.tools = self.tools.specs().to_vec();
-        let future = self.runtime.stream(
-            self.model.as_ref(),
-            request,
-            self.step_options.clone(),
-            self.call_options.clone(),
-        );
+        let single_step = SingleStep::new(&self.runtime, self.model.as_ref(), &self.step_options);
+        let future = single_step.stream(request, self.call_options.clone());
 
         match wait_for(future, &self.cancellation, deadline, timeout_kind).await {
             WaitResult::Ready(result) => result.map(|stream| StepStream {
