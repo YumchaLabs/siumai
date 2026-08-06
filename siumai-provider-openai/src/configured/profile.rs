@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use chrono::NaiveDate;
 use siumai_core::{
-    ApiModeId, ApiStability, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
-    ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
-    ProviderId, ProviderProfile, ProviderScope, SupportScope, VerificationDate,
-    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ApiModeId, ApiStability, GenericSupportClaim, ModelCatalog, ModelFamily, ModelId,
+    ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileId,
+    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ProviderScope, SupportScope,
+    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_openai::chat_completions::PROTOCOL_ID as CHAT_COMPLETIONS_PROTOCOL;
 use siumai_protocol_openai::responses_next::OPENAI_RESPONSES_PROTOCOL;
@@ -16,6 +16,7 @@ use super::provider::OpenAiConfigError;
 
 pub(crate) const PROVIDER_ID: &str = "openai";
 pub(crate) const PLATFORM_ID: &str = "openai-api";
+const CUSTOM_PLATFORM_ID: &str = "custom-openai-api";
 
 const MODEL_GUIDANCE_SOURCE: &str = "https://developers.openai.com/api/docs/guides/latest-model";
 const RESPONSES_CONTRACT: &str = "openai-responses-2026-08-04";
@@ -111,6 +112,59 @@ impl OpenAiProfile {
         })
     }
 
+    /// Build an unverified profile for a caller-supplied OpenAI-compatible endpoint.
+    pub fn custom() -> Result<Self, OpenAiConfigError> {
+        let provider = ProviderId::new(PROVIDER_ID)?;
+        let platform = PlatformId::new(CUSTOM_PLATFORM_ID)?;
+        let responses_protocol = ProtocolId::new(OPENAI_RESPONSES_PROTOCOL)?;
+        let chat_completions_protocol = ProtocolId::new(CHAT_COMPLETIONS_PROTOCOL)?;
+        let responses_mode = OpenAiApiMode::Responses.id()?;
+        let chat_mode = OpenAiApiMode::ChatCompletions.id()?;
+        let responses_scope = SupportScope::new(
+            provider.clone(),
+            platform.clone(),
+            ModelFamily::Language,
+            responses_protocol.clone(),
+            responses_mode.clone(),
+        );
+        let chat_completions_scope = SupportScope::new(
+            provider.clone(),
+            platform.clone(),
+            ModelFamily::Language,
+            chat_completions_protocol.clone(),
+            chat_mode.clone(),
+        );
+        let profile = ProviderProfile::generic_many(
+            ProfileId::new("openai-custom")?,
+            vec![
+                GenericSupportClaim::new(responses_scope.clone(), ApiStability::Experimental),
+                GenericSupportClaim::new(
+                    chat_completions_scope.clone(),
+                    ApiStability::Experimental,
+                ),
+            ],
+        )?;
+        let responses_provider_scope = Arc::new(
+            ProviderScope::new(provider.clone())
+                .with_platform(platform.clone())
+                .with_protocol(responses_protocol)
+                .with_api_mode(responses_mode),
+        );
+        let chat_completions_provider_scope = Arc::new(
+            ProviderScope::new(provider)
+                .with_platform(platform)
+                .with_protocol(chat_completions_protocol)
+                .with_api_mode(chat_mode),
+        );
+        Ok(Self {
+            profile: Arc::new(profile),
+            responses_scope,
+            chat_completions_scope,
+            responses_provider_scope,
+            chat_completions_provider_scope,
+        })
+    }
+
     pub fn provider_profile(&self) -> &ProviderProfile {
         &self.profile
     }
@@ -182,5 +236,17 @@ mod tests {
             profile.provider_profile().catalog().unwrap().iter().count(),
             8
         );
+    }
+
+    #[test]
+    fn custom_profile_has_generic_mode_claims_without_a_catalog() {
+        let profile = OpenAiProfile::custom().unwrap();
+
+        assert!(profile.provider_profile().verified_claims().is_none());
+        assert_eq!(
+            profile.provider_profile().generic_claims().unwrap().len(),
+            2
+        );
+        assert!(profile.provider_profile().catalog().is_none());
     }
 }

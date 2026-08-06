@@ -1,7 +1,7 @@
 use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use siumai_core::{ProviderOptionError, TypedProviderOptions};
+use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
 
 /// Deepgram's supported summarization values for prerecorded audio.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -276,6 +276,8 @@ impl DeepgramTranscriptionOptions {
 
 impl TypedProviderOptions for DeepgramTranscriptionOptions {
     const NAMESPACE: &'static str = "deepgram";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Transcription;
+    const API_MODE: Option<&'static str> = Some("prerecorded");
 
     fn validate(&self) -> Result<(), ProviderOptionError> {
         self.validate_values()

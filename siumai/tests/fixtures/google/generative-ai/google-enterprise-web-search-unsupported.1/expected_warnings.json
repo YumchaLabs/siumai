@@ -1,7 +1,0 @@
-[
-  {
-    "type": "unsupported",
-    "details": "Enterprise Web Search requires Gemini 2.0 or newer.",
-    "feature": "google.enterprise_web_search"
-  }
-]

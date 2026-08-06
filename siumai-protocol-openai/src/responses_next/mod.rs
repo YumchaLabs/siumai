@@ -12,7 +12,8 @@ mod wire;
 
 pub use request::{
     FunctionToolCaller, FunctionToolEncodingOptions, PromptCacheBlock, RequestEncodingOptions,
-    TEXT_VERBOSITY_OPTION, encode_request, encode_request_with_options, is_protected_option_field,
+    ResponsesMediaDialect, TEXT_VERBOSITY_OPTION, encode_request, encode_request_with_options,
+    is_protected_option_field,
 };
 pub use response::{DecodedResponse, decode_response, decode_response_resource};
 pub use stream::ResponsesStreamDecoder;

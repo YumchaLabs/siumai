@@ -32,7 +32,7 @@ POLICY = {
     "msrv": "1.88",
     "package_rules": {
         "siumai-core": {
-            "current_allowed_workspace_dependencies": ["siumai-spec"],
+            "current_allowed_workspace_dependencies": [],
             "target_allowed_workspace_dependencies": [],
         },
         "siumai-registry": {
@@ -44,18 +44,7 @@ POLICY = {
             "target_allowed_workspace_dependencies": ["siumai-core"],
         },
     },
-    "provider_dependency_transitions": [
-        {
-            "sources": ["*"],
-            "dependency": "siumai-provider-utils",
-            "transition_expires": "U3",
-        },
-        {
-            "sources": ["siumai-provider-openai"],
-            "dependency": "siumai-provider-openai-compatible",
-            "transition_expires": "U10",
-        },
-    ],
+    "provider_dependency_transitions": [],
 }
 
 
@@ -107,8 +96,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
     def test_migration_policy_rejects_unnamed_registry_dependency(self) -> None:
         graph = metadata(
             [
-                package("siumai-spec", []),
-                package("siumai-core", ["siumai-spec"]),
+                package("siumai-core", []),
                 package("siumai-registry", ["siumai-core"]),
                 package("siumai-provider-openai", ["siumai-core"]),
                 package("siumai-runtime", ["siumai-core"]),
@@ -117,7 +105,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
 
         self.assertEqual(BOUNDARIES.validate(graph, POLICY, target=False), [])
 
-        graph["packages"][2]["dependencies"].append({"name": "siumai-provider-openai"})
+        graph["packages"][1]["dependencies"].append({"name": "siumai-provider-openai"})
 
         errors = BOUNDARIES.validate(graph, POLICY, target=False)
         self.assertEqual(len(errors), 1)
@@ -138,26 +126,6 @@ class WorkspaceBoundaryTests(unittest.TestCase):
         )
 
         errors = BOUNDARIES.validate(graph, POLICY, target=False)
-
-        self.assertEqual(len(errors), 1)
-        self.assertIn("provider-to-provider", errors[0])
-
-    def test_target_rejects_a_migration_only_provider_edge(self) -> None:
-        graph = metadata(
-            [
-                package("siumai-core", []),
-                package("siumai-registry", ["siumai-core"]),
-                package("siumai-runtime", ["siumai-core"]),
-                package(
-                    "siumai-provider-openai",
-                    ["siumai-core", "siumai-provider-openai-compatible"],
-                ),
-                package("siumai-provider-openai-compatible", ["siumai-core"]),
-            ]
-        )
-
-        self.assertEqual(BOUNDARIES.validate(graph, POLICY, target=False), [])
-        errors = BOUNDARIES.validate(graph, POLICY, target=True)
 
         self.assertEqual(len(errors), 1)
         self.assertIn("provider-to-provider", errors[0])

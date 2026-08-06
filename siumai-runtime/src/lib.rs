@@ -6,6 +6,8 @@
 #![deny(unsafe_code)]
 
 pub mod approval;
+#[cfg(feature = "json-schema")]
+pub mod json_schema;
 pub mod snapshot;
 pub mod tool;
 
@@ -33,6 +35,11 @@ pub use durable::{
 pub use history::{
     HistoryProjectionError, ProjectedHistory, ProjectionLocation, ProjectionLoss,
     ProjectionLossReason, ProjectionPolicy, ProjectionScope, ProjectionSeverity, project_history,
+};
+#[cfg(feature = "json-schema")]
+pub use json_schema::{
+    JsonSchemaCompilationError, JsonSchemaError, JsonSchemaValidationError, JsonSchemaValidator,
+    JsonSchemaViolation, validate_json,
 };
 pub use options::{ModelTarget, Runtime, RuntimeBuilder, RuntimeConfigError, StepOptions};
 pub use output::{

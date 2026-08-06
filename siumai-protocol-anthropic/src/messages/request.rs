@@ -1,0 +1,1285 @@
+use base64::Engine as _;
+use serde_json::{Map, Value, json};
+use siumai_core::{
+    ContentPart, ExecutionOwner, LanguageRequest, MediaData, MediaPart, Message, MessageRole,
+    ModelId, OpaqueProviderItem, ToolChoice, ToolOutcome, ToolResult, ToolSpec,
+};
+
+use super::annotations::{
+    AnthropicToolReferenceKind, CacheControl, CacheTtl, MessagesAnnotationResolver,
+    MidConversationToolChange, MidConversationToolChangeKind, NoMessagesAnnotations,
+};
+use super::options::{
+    AnthropicTool, McpToolConfig, MessagesRequestOptions, ServerFallback, ServerFallbacks,
+    ThinkingConfig, UserLocation, normalize_field, validate_tool_node_options,
+};
+use super::rules::{CacheControlWireStyle, MessagesEncodingRules, MidConversationSystemEncoding};
+use super::{MessagesCodecError, OPAQUE_CONTENT_BLOCK_KIND, PROTOCOL_ID};
+
+const MAX_CACHE_BREAKPOINTS: usize = 4;
+
+/// Return the sentinel JSON Schema used for Anthropic-defined tool anchors.
+///
+/// The schema is deliberately impossible for a local function tool. A provider
+/// annotation resolver must opt the tool into a typed Anthropic tool projection
+/// before the codec will accept this sentinel.
+pub const fn anthropic_tool_anchor_schema() -> Value {
+    Value::Bool(false)
+}
+
+/// Return whether a raw protocol option would override codec, provider, or
+/// transport ownership.
+pub fn is_protected_option_field(name: &str) -> bool {
+    matches!(
+        normalize_field(name).as_str(),
+        "model"
+            | "messages"
+            | "system"
+            | "max_tokens"
+            | "stream"
+            | "tools"
+            | "tool_choice"
+            | "temperature"
+            | "top_p"
+            | "top_k"
+            | "stop_sequences"
+            | "stop_sequence"
+            | "metadata"
+            | "thinking"
+            | "output_config"
+            | "output_format"
+            | "fallbacks"
+            | "fallback_credit_token"
+            | "speed"
+            | "service_tier"
+            | "container"
+            | "context_management"
+            | "mcp_servers"
+            | "mcp_toolset"
+            | "inference_geo"
+            | "cache_control"
+            | "diagnostics"
+            | "api_key"
+            | "x_api_key"
+            | "authorization"
+            | "auth"
+            | "token"
+            | "bearer"
+            | "endpoint"
+            | "base_url"
+            | "url"
+            | "host"
+            | "headers"
+            | "header"
+            | "anthropic_version"
+            | "anthropic_beta"
+            | "proxy"
+            | "tls"
+            | "audience"
+    )
+}
+
+/// Encode one canonical language request as an Anthropic Messages JSON body.
+pub fn encode_request(
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesRequestOptions,
+) -> Result<Value, MessagesCodecError> {
+    encode_request_with_resolver_and_rules(
+        model,
+        request,
+        options,
+        &NoMessagesAnnotations,
+        &MessagesEncodingRules::native(),
+    )
+}
+
+/// Encode a request using explicit compatible-dialect rules and no provider annotations.
+pub fn encode_request_with_rules(
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesRequestOptions,
+    rules: &MessagesEncodingRules,
+) -> Result<Value, MessagesCodecError> {
+    encode_request_with_resolver_and_rules(model, request, options, &NoMessagesAnnotations, rules)
+}
+
+/// Encode a request after a provider-owned resolver projects durable
+/// annotations into bounded Messages wire controls.
+pub fn encode_request_with_resolver(
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesRequestOptions,
+    resolver: &dyn MessagesAnnotationResolver,
+) -> Result<Value, MessagesCodecError> {
+    encode_request_with_resolver_and_rules(
+        model,
+        request,
+        options,
+        resolver,
+        &MessagesEncodingRules::native(),
+    )
+}
+
+/// Encode a request with both provider annotations and explicit dialect rules.
+pub fn encode_request_with_resolver_and_rules(
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesRequestOptions,
+    resolver: &dyn MessagesAnnotationResolver,
+    rules: &MessagesEncodingRules,
+) -> Result<Value, MessagesCodecError> {
+    request
+        .validate()
+        .map_err(MessagesCodecError::InvalidLanguageRequest)?;
+    options.validate(request)?;
+    if let Some(fallbacks) = &options.fallbacks {
+        fallbacks.validate_primary_model(model)?;
+    }
+
+    let max_tokens =
+        request
+            .generation
+            .max_output_tokens
+            .ok_or(MessagesCodecError::InvalidOption {
+                field: "max_output_tokens",
+                reason: "is required by Anthropic Messages",
+            })?;
+    if max_tokens == 0 {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "max_output_tokens",
+            reason: "must be greater than zero",
+        });
+    }
+    if request.generation.seed.is_some() {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "deterministic seed control",
+        });
+    }
+    let temperature_maximum = rules.temperature().maximum();
+    if request
+        .generation
+        .temperature
+        .is_some_and(|temperature| temperature > temperature_maximum)
+    {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "temperature",
+            reason: if temperature_maximum == 1.0 {
+                "must be between 0 and 1 for Anthropic Messages"
+            } else {
+                "exceeds the configured Messages dialect maximum"
+            },
+        });
+    }
+
+    let cache_style = rules.cache_control();
+    let (system, messages) = encode_prompt(
+        &request.messages,
+        resolver,
+        cache_style,
+        rules.video_input(),
+        rules.mid_conversation_system(),
+    )?;
+    if messages.is_empty() {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages",
+            reason: "must contain at least one user or assistant message",
+        });
+    }
+    let tools = encode_tools(&request.tools, resolver, cache_style)?;
+    validate_tool_change_references(&messages, &tools)?;
+    if tools.is_empty()
+        && request
+            .tool_choice
+            .as_ref()
+            .is_some_and(|choice| !matches!(choice, ToolChoice::None))
+    {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "tool_choice",
+            reason: "requires at least one model-visible tool",
+        });
+    }
+
+    validate_cache_breakpoints(&tools, &system, &messages, cache_style)?;
+
+    let mut body = Map::new();
+    body.insert("model".to_string(), Value::String(model.to_string()));
+    body.insert("max_tokens".to_string(), Value::from(max_tokens));
+    body.insert("messages".to_string(), Value::Array(messages));
+    body.insert("stream".to_string(), Value::Bool(options.stream));
+    if !system.is_empty() {
+        body.insert("system".to_string(), Value::Array(system));
+    }
+    if let Some(temperature) = request.generation.temperature {
+        body.insert("temperature".to_string(), Value::from(temperature));
+    }
+    if let Some(top_p) = request.generation.top_p {
+        body.insert("top_p".to_string(), Value::from(top_p));
+    }
+    if let Some(top_k) = options.top_k {
+        body.insert("top_k".to_string(), Value::from(top_k));
+    }
+    if !request.generation.stop_sequences.is_empty() {
+        body.insert(
+            "stop_sequences".to_string(),
+            serde_json::to_value(&request.generation.stop_sequences)
+                .map_err(MessagesCodecError::JsonEncode)?,
+        );
+    }
+    if !tools.is_empty() {
+        body.insert("tools".to_string(), Value::Array(tools));
+    }
+    if let Some(tool_choice) = &request.tool_choice {
+        body.insert("tool_choice".to_string(), encode_tool_choice(tool_choice)?);
+    }
+    if let Some(output_config) =
+        encode_output_config(options.output_effort, request.structured_output.as_ref())?
+    {
+        body.insert("output_config".to_string(), output_config);
+    }
+    if let Some(metadata) = &options.metadata {
+        body.insert(
+            "metadata".to_string(),
+            json!({ "user_id": metadata.user_id() }),
+        );
+    }
+    if let Some(thinking) = options.thinking {
+        body.insert("thinking".to_string(), encode_thinking(thinking));
+    }
+    if let Some(fallbacks) = &options.fallbacks {
+        body.insert("fallbacks".to_string(), encode_fallbacks(fallbacks)?);
+    }
+    if let Some(service_tier) = options.service_tier {
+        body.insert(
+            "service_tier".to_string(),
+            Value::String(service_tier.as_wire_str().to_string()),
+        );
+    }
+    body.extend(options.extra.clone());
+    Ok(Value::Object(body))
+}
+
+fn encode_prompt(
+    messages: &[Message],
+    resolver: &dyn MessagesAnnotationResolver,
+    cache_style: CacheControlWireStyle,
+    video_input: bool,
+    mid_conversation_system: MidConversationSystemEncoding,
+) -> Result<(Vec<Value>, Vec<Value>), MessagesCodecError> {
+    let mut system = Vec::new();
+    let mut encoded_messages = Vec::new();
+    let mut conversation_started = false;
+
+    for message in messages {
+        match message.role() {
+            MessageRole::System => {
+                let placement = if conversation_started {
+                    SystemMessagePlacement::Conversation
+                } else {
+                    SystemMessagePlacement::Preamble
+                };
+                if placement == SystemMessagePlacement::Conversation
+                    && mid_conversation_system == MidConversationSystemEncoding::Unsupported
+                {
+                    return Err(MessagesCodecError::Unsupported {
+                        feature: "mid-conversation system messages",
+                    });
+                }
+                let blocks = encode_system_message(message, resolver, placement, cache_style)?;
+                if placement == SystemMessagePlacement::Conversation {
+                    encoded_messages.push(json!({ "role": "system", "content": blocks }));
+                } else {
+                    system.extend(blocks);
+                }
+            }
+            MessageRole::Developer => {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "developer-role messages",
+                });
+            }
+            MessageRole::User | MessageRole::Assistant | MessageRole::Tool => {
+                conversation_started = true;
+                let (role, content) =
+                    encode_conversation_message(message, resolver, cache_style, video_input)?;
+                merge_wire_message(&mut encoded_messages, role, content)?;
+            }
+            _ => {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "this message role",
+                });
+            }
+        }
+    }
+
+    Ok((system, encoded_messages))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SystemMessagePlacement {
+    Preamble,
+    Conversation,
+}
+
+fn encode_system_message(
+    message: &Message,
+    resolver: &dyn MessagesAnnotationResolver,
+    placement: SystemMessagePlacement,
+    cache_style: CacheControlWireStyle,
+) -> Result<Vec<Value>, MessagesCodecError> {
+    let mut blocks = Vec::with_capacity(message.content().len());
+    for part in message.content() {
+        let content_options = resolver.resolve_content(part.annotations())?;
+        if let Some(tool_change) = content_options.tool_change() {
+            if placement != SystemMessagePlacement::Conversation {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "messages.tool_change",
+                    reason: "must appear after at least one conversational message",
+                });
+            }
+            if content_options.cache_control().is_some() {
+                return Err(MessagesCodecError::ConflictingCacheAnnotation);
+            }
+            if !matches!(part.content(), ContentPart::Text { text } if text.is_empty()) {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "messages.tool_change.anchor",
+                    reason: "must use the empty text anchor created by the provider helper",
+                });
+            }
+            blocks.push(encode_mid_conversation_tool_change(tool_change)?);
+            continue;
+        }
+        let ContentPart::Text { text } = part.content() else {
+            return Err(MessagesCodecError::Unsupported {
+                feature: "non-text system content",
+            });
+        };
+        let mut block = json!({ "type": "text", "text": text });
+        if let Some(cache_control) = content_options.cache_control() {
+            apply_cache_control(&mut block, cache_control, cache_style)?;
+        }
+        blocks.push(block);
+    }
+    apply_message_options(
+        resolver.resolve_message(message.annotations())?,
+        &mut blocks,
+        cache_style,
+    )?;
+    if blocks.is_empty() {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages",
+            reason: "system messages must not be empty",
+        });
+    }
+    Ok(blocks)
+}
+
+fn encode_mid_conversation_tool_change(
+    change: &MidConversationToolChange,
+) -> Result<Value, MessagesCodecError> {
+    change.validate()?;
+    let (kind, reference) = match change.kind() {
+        MidConversationToolChangeKind::ToolAddition { tool } => ("tool_addition", tool),
+        MidConversationToolChangeKind::ToolRemoval { tool } => ("tool_removal", tool),
+    };
+    Ok(json!({
+        "type": kind,
+        "tool": encode_anthropic_tool_reference(reference),
+    }))
+}
+
+fn encode_anthropic_tool_reference(reference: &super::AnthropicToolReference) -> Value {
+    match reference.kind() {
+        AnthropicToolReferenceKind::Tool { name } => {
+            json!({ "type": "tool_reference", "name": name })
+        }
+        AnthropicToolReferenceKind::McpTool { server_name, name } => json!({
+            "type": "mcp_tool_reference",
+            "server_name": server_name,
+            "name": name,
+        }),
+        AnthropicToolReferenceKind::McpToolset { server_name } => json!({
+            "type": "mcp_toolset_reference",
+            "server_name": server_name,
+        }),
+    }
+}
+
+fn validate_tool_change_references(
+    messages: &[Value],
+    tools: &[Value],
+) -> Result<(), MessagesCodecError> {
+    for block in messages
+        .iter()
+        .filter(|message| message.get("role").and_then(Value::as_str) == Some("system"))
+        .filter_map(|message| message.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter(|block| {
+            block
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| matches!(kind, "tool_addition" | "tool_removal"))
+        })
+    {
+        let reference = block.get("tool").and_then(Value::as_object).ok_or(
+            MessagesCodecError::ProtocolViolation {
+                reason: "internal tool-change projection omitted its reference",
+            },
+        )?;
+        let reference_type = reference.get("type").and_then(Value::as_str).ok_or(
+            MessagesCodecError::ProtocolViolation {
+                reason: "internal tool-change reference omitted its type",
+            },
+        )?;
+        let declared = match reference_type {
+            "tool_reference" => reference
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| {
+                    tools
+                        .iter()
+                        .any(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+                }),
+            "mcp_tool_reference" | "mcp_toolset_reference" => reference
+                .get("server_name")
+                .and_then(Value::as_str)
+                .is_some_and(|server_name| {
+                    tools.iter().any(|tool| {
+                        tool.get("mcp_server_name").and_then(Value::as_str) == Some(server_name)
+                    })
+                }),
+            _ => false,
+        };
+        if !declared {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.tool_change.tool",
+                reason: "must reference a tool or MCP toolset declared in the request",
+            });
+        }
+    }
+    Ok(())
+}
+
+fn encode_conversation_message(
+    message: &Message,
+    resolver: &dyn MessagesAnnotationResolver,
+    cache_style: CacheControlWireStyle,
+    video_input: bool,
+) -> Result<(&'static str, Vec<Value>), MessagesCodecError> {
+    let role = match message.role() {
+        MessageRole::User | MessageRole::Tool => "user",
+        MessageRole::Assistant => "assistant",
+        _ => {
+            return Err(MessagesCodecError::Unsupported {
+                feature: "this conversational message role",
+            });
+        }
+    };
+    let has_native_reasoning = message.content().iter().any(|part| {
+        matches!(
+            part.content(),
+            ContentPart::ProviderOpaque(item)
+                if is_native_reasoning_block(item)
+        )
+    });
+    let mut blocks = Vec::with_capacity(message.content().len());
+    for part in message.content() {
+        let content_options = resolver.resolve_content(part.annotations())?;
+        if content_options.tool_change().is_some() {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.tool_change",
+                reason: "must be attached to a mid-conversation system message",
+            });
+        }
+        let Some(mut block) = encode_content_part(
+            message.role(),
+            part.content(),
+            has_native_reasoning,
+            video_input,
+        )?
+        else {
+            if content_options.cache_control().is_some() {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "cache annotation on a suppressed reasoning projection",
+                });
+            }
+            continue;
+        };
+        if let Some(cache_control) = content_options.cache_control() {
+            if matches!(part.content(), ContentPart::ProviderOpaque(_)) {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "cache annotations on native opaque content",
+                });
+            }
+            apply_cache_control(&mut block, cache_control, cache_style)?;
+        }
+        blocks.push(block);
+    }
+    apply_message_options(
+        resolver.resolve_message(message.annotations())?,
+        &mut blocks,
+        cache_style,
+    )?;
+    if blocks.is_empty() {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages",
+            reason: "conversational messages must contain encodable content",
+        });
+    }
+    Ok((role, blocks))
+}
+
+fn encode_content_part(
+    role: MessageRole,
+    part: &ContentPart,
+    has_native_reasoning: bool,
+    video_input: bool,
+) -> Result<Option<Value>, MessagesCodecError> {
+    match part {
+        ContentPart::Text { text } if role != MessageRole::Tool => {
+            Ok(Some(json!({ "type": "text", "text": text })))
+        }
+        ContentPart::Text { .. } => Err(MessagesCodecError::Unsupported {
+            feature: "plain text in a tool-role message",
+        }),
+        ContentPart::Media(media) if role == MessageRole::User => {
+            Ok(Some(encode_media(media, video_input)?))
+        }
+        ContentPart::Media(_) => Err(MessagesCodecError::Unsupported {
+            feature: "media outside a user message",
+        }),
+        ContentPart::ToolCall(call) if role == MessageRole::Assistant => {
+            if !matches!(&call.owner, ExecutionOwner::Local) {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "provider-owned tool calls without native Anthropic content",
+                });
+            }
+            if call.id.trim().is_empty() || call.name.trim().is_empty() {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "messages.tool_use",
+                    reason: "tool call ID and name must not be empty",
+                });
+            }
+            if !call.arguments.is_object() {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "non-object function-tool input",
+                });
+            }
+            Ok(Some(json!({
+                "type": "tool_use",
+                "id": call.id,
+                "name": call.name,
+                "input": call.arguments,
+            })))
+        }
+        ContentPart::ToolCall(_) => Err(MessagesCodecError::Unsupported {
+            feature: "tool calls outside assistant messages",
+        }),
+        ContentPart::ToolResult(result)
+            if matches!(role, MessageRole::User | MessageRole::Tool) =>
+        {
+            Ok(Some(encode_tool_result(result)?))
+        }
+        ContentPart::ToolResult(_) => Err(MessagesCodecError::Unsupported {
+            feature: "tool results outside user or tool messages",
+        }),
+        ContentPart::Reasoning { .. } if has_native_reasoning => Ok(None),
+        ContentPart::Reasoning { .. } => Err(MessagesCodecError::Unsupported {
+            feature: "reasoning history without its native signed Anthropic block",
+        }),
+        ContentPart::ProviderOpaque(item) if role == MessageRole::Assistant => {
+            Ok(Some(encode_opaque_item(item)?))
+        }
+        ContentPart::ProviderOpaque(_) => Err(MessagesCodecError::Unsupported {
+            feature: "native Anthropic content outside assistant messages",
+        }),
+        ContentPart::Refusal { .. } => Err(MessagesCodecError::Unsupported {
+            feature: "portable refusal history",
+        }),
+        ContentPart::Citation(_) => Err(MessagesCodecError::Unsupported {
+            feature: "standalone citation history",
+        }),
+        _ => Err(MessagesCodecError::Unsupported {
+            feature: "this content part",
+        }),
+    }
+}
+
+fn encode_media(media: &MediaPart, video_input: bool) -> Result<Value, MessagesCodecError> {
+    let block_type = if media.media_type.starts_with("image/") {
+        "image"
+    } else if media.media_type == "application/pdf" {
+        "document"
+    } else if media.media_type.starts_with("video/") && video_input {
+        "video"
+    } else {
+        return Err(MessagesCodecError::Unsupported {
+            feature: if media.media_type.starts_with("video/") {
+                "video input is not enabled for this Messages dialect"
+            } else {
+                "media other than images, video, or PDF documents"
+            },
+        });
+    };
+    let source = match &media.data {
+        MediaData::Bytes(bytes) => json!({
+            "type": "base64",
+            "media_type": media.media_type,
+            "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+        }),
+        MediaData::Url(url) => json!({ "type": "url", "url": url }),
+        _ => {
+            return Err(MessagesCodecError::Unsupported {
+                feature: "this media source",
+            });
+        }
+    };
+    let mut block = Map::new();
+    block.insert("type".to_string(), Value::String(block_type.to_string()));
+    block.insert("source".to_string(), source);
+    if block_type == "document"
+        && let Some(name) = &media.name
+    {
+        block.insert("title".to_string(), Value::String(name.clone()));
+    }
+    Ok(Value::Object(block))
+}
+
+fn encode_tool_result(result: &ToolResult) -> Result<Value, MessagesCodecError> {
+    if result.call_id.trim().is_empty() {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages.tool_result.tool_use_id",
+            reason: "must not be empty",
+        });
+    }
+    let (content, is_error) = match &result.outcome {
+        ToolOutcome::Success { value } => {
+            let content = value.as_str().map_or_else(
+                || serde_json::to_string(value).map_err(MessagesCodecError::JsonEncode),
+                |value| Ok(value.to_string()),
+            )?;
+            (content, false)
+        }
+        ToolOutcome::Denied { reason } => (reason.clone(), true),
+        ToolOutcome::ExecutionFailed { message, .. } => (message.clone(), true),
+        ToolOutcome::Cancelled { reason } => (reason.clone(), true),
+        _ => {
+            return Err(MessagesCodecError::Unsupported {
+                feature: "this tool outcome",
+            });
+        }
+    };
+    let mut block = Map::new();
+    block.insert("type".to_string(), Value::String("tool_result".to_string()));
+    block.insert(
+        "tool_use_id".to_string(),
+        Value::String(result.call_id.clone()),
+    );
+    block.insert("content".to_string(), Value::String(content));
+    if is_error {
+        block.insert("is_error".to_string(), Value::Bool(true));
+    }
+    Ok(Value::Object(block))
+}
+
+fn encode_opaque_item(item: &OpaqueProviderItem) -> Result<Value, MessagesCodecError> {
+    if item.provenance().protocol != PROTOCOL_ID || item.kind() != OPAQUE_CONTENT_BLOCK_KIND {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "opaque content from another protocol",
+        });
+    }
+    let block = item.data();
+    let kind =
+        block
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or(MessagesCodecError::ProtocolViolation {
+                reason: "native content block omitted its type",
+            })?;
+    if !matches!(kind, "thinking" | "redacted_thinking") {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "replay of this native Anthropic content block",
+        });
+    }
+    if !block.is_object() {
+        return Err(MessagesCodecError::ProtocolViolation {
+            reason: "native content block was not an object",
+        });
+    }
+    let required_fields: &[&str] = match kind {
+        "thinking" => &["thinking", "signature"],
+        "redacted_thinking" => &["data"],
+        _ => &[],
+    };
+    if required_fields.iter().any(|field| {
+        block
+            .get(*field)
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+    }) {
+        return Err(MessagesCodecError::ProtocolViolation {
+            reason: "native reasoning block omitted required replay state",
+        });
+    }
+    Ok(block.clone())
+}
+
+fn is_native_reasoning_block(item: &OpaqueProviderItem) -> bool {
+    item.provenance().protocol == PROTOCOL_ID
+        && item.kind() == OPAQUE_CONTENT_BLOCK_KIND
+        && item
+            .data()
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| matches!(kind, "thinking" | "redacted_thinking"))
+}
+
+fn merge_wire_message(
+    messages: &mut Vec<Value>,
+    role: &'static str,
+    content: Vec<Value>,
+) -> Result<(), MessagesCodecError> {
+    if let Some(last) = messages.last_mut()
+        && last.get("role").and_then(Value::as_str) == Some(role)
+    {
+        let existing = last
+            .get_mut("content")
+            .and_then(Value::as_array_mut)
+            .ok_or(MessagesCodecError::ProtocolViolation {
+                reason: "internal message projection produced invalid content",
+            })?;
+        existing.extend(content);
+        return Ok(());
+    }
+    messages.push(json!({ "role": role, "content": content }));
+    Ok(())
+}
+
+fn encode_tools(
+    tools: &[ToolSpec],
+    resolver: &dyn MessagesAnnotationResolver,
+    cache_style: CacheControlWireStyle,
+) -> Result<Vec<Value>, MessagesCodecError> {
+    tools
+        .iter()
+        .map(|tool| {
+            let tool_options = resolver.resolve_tool(tool.annotations())?;
+            let anthropic_tool = tool_options.anthropic_tool();
+            validate_tool_node_options(&tool_options, anthropic_tool)?;
+            if let Some(anthropic_tool) = anthropic_tool {
+                validate_anthropic_tool_anchor(tool, anthropic_tool)?;
+                return encode_anthropic_tool(anthropic_tool, &tool_options, cache_style);
+            }
+
+            encode_function_tool(tool, &tool_options, cache_style)
+        })
+        .collect()
+}
+
+fn encode_function_tool(
+    tool: &ToolSpec,
+    options: &super::ToolNodeOptions,
+    cache_style: CacheControlWireStyle,
+) -> Result<Value, MessagesCodecError> {
+    if !tool.input_schema().is_object() {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "boolean function-tool JSON Schemas",
+        });
+    }
+    let mut encoded = Map::new();
+    encoded.insert("name".to_string(), Value::String(tool.name().to_string()));
+    if let Some(description) = tool.description() {
+        encoded.insert(
+            "description".to_string(),
+            Value::String(description.to_string()),
+        );
+    }
+    encoded.insert("input_schema".to_string(), tool.input_schema().clone());
+    apply_common_tool_options(&mut encoded, options, cache_style)?;
+    Ok(Value::Object(encoded))
+}
+
+fn validate_anthropic_tool_anchor(
+    tool: &ToolSpec,
+    anthropic_tool: &AnthropicTool,
+) -> Result<(), MessagesCodecError> {
+    if tool.name() != anthropic_tool.canonical_name() {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "tools.anthropic_tool.anchor.name",
+            reason: "must match the Anthropic tool's canonical name",
+        });
+    }
+    if tool.description().is_some() {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "tools.anthropic_tool.anchor.description",
+            reason: "must be omitted for an Anthropic-defined tool anchor",
+        });
+    }
+    if tool.input_schema() != &anthropic_tool_anchor_schema() {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "tools.anthropic_tool.anchor.input_schema",
+            reason: "must use anthropic_tool_anchor_schema()",
+        });
+    }
+    Ok(())
+}
+
+fn encode_anthropic_tool(
+    anthropic_tool: &AnthropicTool,
+    options: &super::ToolNodeOptions,
+    cache_style: CacheControlWireStyle,
+) -> Result<Value, MessagesCodecError> {
+    let mut encoded = Map::new();
+    encoded.insert(
+        "type".to_string(),
+        Value::String(anthropic_tool.wire_type().to_string()),
+    );
+
+    match anthropic_tool {
+        AnthropicTool::McpToolset(mcp) => {
+            encoded.insert(
+                "mcp_server_name".to_string(),
+                Value::String(mcp.server_name().to_string()),
+            );
+            if !mcp.configs().is_empty() {
+                let configs = mcp
+                    .configs()
+                    .iter()
+                    .map(|(name, config)| {
+                        (name.clone(), Value::Object(encode_mcp_tool_config(*config)))
+                    })
+                    .collect();
+                encoded.insert("configs".to_string(), Value::Object(configs));
+            }
+            if let Some(default_config) = mcp.default_config() {
+                encoded.insert(
+                    "default_config".to_string(),
+                    Value::Object(encode_mcp_tool_config(default_config)),
+                );
+            }
+        }
+        AnthropicTool::WebSearch20260318(web_search) => {
+            insert_anthropic_tool_name(&mut encoded, anthropic_tool);
+            insert_string_list(
+                &mut encoded,
+                "allowed_domains",
+                web_search.allowed_domains(),
+            );
+            insert_string_list(
+                &mut encoded,
+                "blocked_domains",
+                web_search.blocked_domains(),
+            );
+            insert_u32(&mut encoded, "max_uses", web_search.max_uses());
+            if let Some(response_inclusion) = web_search.response_inclusion() {
+                encoded.insert(
+                    "response_inclusion".to_string(),
+                    Value::String(response_inclusion.as_wire_str().to_string()),
+                );
+            }
+            if let Some(user_location) = web_search.user_location() {
+                encoded.insert(
+                    "user_location".to_string(),
+                    Value::Object(encode_user_location(user_location)),
+                );
+            }
+        }
+        AnthropicTool::WebFetch20260318(web_fetch) => {
+            insert_anthropic_tool_name(&mut encoded, anthropic_tool);
+            insert_string_list(&mut encoded, "allowed_domains", web_fetch.allowed_domains());
+            insert_string_list(&mut encoded, "blocked_domains", web_fetch.blocked_domains());
+            if let Some(citations) = web_fetch.citations() {
+                encoded.insert("citations".to_string(), json!({ "enabled": citations }));
+            }
+            insert_u32(
+                &mut encoded,
+                "max_content_tokens",
+                web_fetch.max_content_tokens(),
+            );
+            insert_u32(&mut encoded, "max_uses", web_fetch.max_uses());
+            if let Some(response_inclusion) = web_fetch.response_inclusion() {
+                encoded.insert(
+                    "response_inclusion".to_string(),
+                    Value::String(response_inclusion.as_wire_str().to_string()),
+                );
+            }
+            if let Some(use_cache) = web_fetch.use_cache() {
+                encoded.insert("use_cache".to_string(), Value::Bool(use_cache));
+            }
+        }
+        AnthropicTool::Advisor20260301(advisor) => {
+            insert_anthropic_tool_name(&mut encoded, anthropic_tool);
+            encoded.insert(
+                "model".to_string(),
+                Value::String(advisor.model_name().to_string()),
+            );
+            if let Some(max_tokens) = advisor.max_tokens() {
+                encoded.insert("max_tokens".to_string(), Value::from(max_tokens));
+            }
+            insert_u32(&mut encoded, "max_uses", advisor.max_uses());
+            if let Some(caching) = advisor.caching() {
+                encoded.insert(
+                    "caching".to_string(),
+                    encode_cache_control(caching, cache_style)?,
+                );
+            }
+        }
+        AnthropicTool::TextEditor20250728(text_editor) => {
+            insert_anthropic_tool_name(&mut encoded, anthropic_tool);
+            insert_u32(&mut encoded, "max_characters", text_editor.max_characters());
+        }
+        AnthropicTool::Computer20251124(computer) => {
+            insert_anthropic_tool_name(&mut encoded, anthropic_tool);
+            encoded.insert(
+                "display_width_px".to_string(),
+                Value::from(computer.display_width_px()),
+            );
+            encoded.insert(
+                "display_height_px".to_string(),
+                Value::from(computer.display_height_px()),
+            );
+            insert_u32(&mut encoded, "display_number", computer.display_number());
+            encoded.insert(
+                "enable_zoom".to_string(),
+                Value::Bool(computer.enable_zoom()),
+            );
+        }
+        AnthropicTool::CodeExecution20260521
+        | AnthropicTool::ToolSearchRegex20251119
+        | AnthropicTool::ToolSearchBm25V20251119
+        | AnthropicTool::Memory20250818
+        | AnthropicTool::Bash20250124 => insert_anthropic_tool_name(&mut encoded, anthropic_tool),
+    }
+
+    apply_common_tool_options(&mut encoded, options, cache_style)?;
+    Ok(Value::Object(encoded))
+}
+
+fn insert_anthropic_tool_name(encoded: &mut Map<String, Value>, anthropic_tool: &AnthropicTool) {
+    encoded.insert(
+        "name".to_string(),
+        Value::String(anthropic_tool.canonical_name().to_string()),
+    );
+}
+
+fn insert_string_list(encoded: &mut Map<String, Value>, field: &str, values: Option<&[String]>) {
+    if let Some(values) = values {
+        encoded.insert(
+            field.to_string(),
+            Value::Array(values.iter().cloned().map(Value::String).collect()),
+        );
+    }
+}
+
+fn insert_u32(encoded: &mut Map<String, Value>, field: &str, value: Option<u32>) {
+    if let Some(value) = value {
+        encoded.insert(field.to_string(), Value::from(value));
+    }
+}
+
+fn encode_user_location(location: &UserLocation) -> Map<String, Value> {
+    let mut encoded = Map::new();
+    encoded.insert("type".to_string(), Value::String("approximate".to_string()));
+    for (field, value) in [
+        ("city", location.city()),
+        ("country", location.country()),
+        ("region", location.region()),
+        ("timezone", location.timezone()),
+    ] {
+        if let Some(value) = value {
+            encoded.insert(field.to_string(), Value::String(value.to_string()));
+        }
+    }
+    encoded
+}
+
+fn encode_mcp_tool_config(config: McpToolConfig) -> Map<String, Value> {
+    let mut encoded = Map::new();
+    if let Some(enabled) = config.enabled() {
+        encoded.insert("enabled".to_string(), Value::Bool(enabled));
+    }
+    if let Some(defer_loading) = config.defer_loading() {
+        encoded.insert("defer_loading".to_string(), Value::Bool(defer_loading));
+    }
+    encoded
+}
+
+fn apply_common_tool_options(
+    encoded: &mut Map<String, Value>,
+    options: &super::ToolNodeOptions,
+    cache_style: CacheControlWireStyle,
+) -> Result<(), MessagesCodecError> {
+    if !options.allowed_callers().is_empty() {
+        encoded.insert(
+            "allowed_callers".to_string(),
+            Value::Array(
+                options
+                    .allowed_callers()
+                    .iter()
+                    .map(|caller| Value::String(caller.as_wire_str().to_string()))
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(strict) = options.strict() {
+        encoded.insert("strict".to_string(), Value::Bool(strict));
+    }
+    if let Some(defer_loading) = options.defer_loading() {
+        encoded.insert("defer_loading".to_string(), Value::Bool(defer_loading));
+    }
+    if let Some(cache_control) = options.cache_control() {
+        if encoded.contains_key("cache_control") {
+            return Err(MessagesCodecError::ConflictingCacheAnnotation);
+        }
+        encoded.insert(
+            "cache_control".to_string(),
+            encode_cache_control(cache_control, cache_style)?,
+        );
+    }
+    Ok(())
+}
+
+fn encode_tool_choice(choice: &ToolChoice) -> Result<Value, MessagesCodecError> {
+    match choice {
+        ToolChoice::Auto => Ok(json!({ "type": "auto" })),
+        ToolChoice::None => Ok(json!({ "type": "none" })),
+        ToolChoice::Required => Ok(json!({ "type": "any" })),
+        ToolChoice::Named { name } => Ok(json!({ "type": "tool", "name": name })),
+        _ => Err(MessagesCodecError::Unsupported {
+            feature: "this tool-choice mode",
+        }),
+    }
+}
+
+fn encode_thinking(thinking: ThinkingConfig) -> Value {
+    let mut encoded = match thinking {
+        ThinkingConfig::Disabled => return json!({ "type": "disabled" }),
+        ThinkingConfig::Enabled { budget_tokens, .. } => {
+            let mut encoded = Map::new();
+            encoded.insert("type".to_string(), Value::String("enabled".to_string()));
+            encoded.insert("budget_tokens".to_string(), Value::from(budget_tokens));
+            encoded
+        }
+        ThinkingConfig::Adaptive { .. } => {
+            let mut encoded = Map::new();
+            encoded.insert("type".to_string(), Value::String("adaptive".to_string()));
+            encoded
+        }
+    };
+    if let Some(display) = thinking.display() {
+        encoded.insert(
+            "display".to_string(),
+            Value::String(display.as_wire_str().to_string()),
+        );
+    }
+    Value::Object(encoded)
+}
+
+fn encode_output_config(
+    effort: Option<super::OutputEffort>,
+    format: Option<&siumai_core::StructuredOutputSpec>,
+) -> Result<Option<Value>, MessagesCodecError> {
+    let mut encoded = Map::new();
+    if let Some(effort) = effort {
+        encoded.insert(
+            "effort".to_string(),
+            Value::String(effort.as_wire_str().to_string()),
+        );
+    }
+    if let Some(format) = format {
+        encoded.insert("format".to_string(), encode_structured_output(format)?);
+    }
+    Ok((!encoded.is_empty()).then_some(Value::Object(encoded)))
+}
+
+fn encode_structured_output(
+    output: &siumai_core::StructuredOutputSpec,
+) -> Result<Value, MessagesCodecError> {
+    if !output.strict {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "non-strict structured output",
+        });
+    }
+    if !output.schema.is_object() {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "boolean structured-output schemas",
+        });
+    }
+    Ok(json!({
+        "type": "json_schema",
+        "schema": output.schema,
+    }))
+}
+
+fn encode_fallbacks(fallbacks: &ServerFallbacks) -> Result<Value, MessagesCodecError> {
+    match fallbacks {
+        ServerFallbacks::Default => Ok(Value::String("default".to_string())),
+        ServerFallbacks::Explicit(fallbacks) => fallbacks
+            .iter()
+            .map(encode_fallback)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
+    }
+}
+
+fn encode_fallback(fallback: &ServerFallback) -> Result<Value, MessagesCodecError> {
+    let mut encoded = Map::new();
+    encoded.insert(
+        "model".to_string(),
+        Value::String(fallback.model_name().to_string()),
+    );
+    if let Some(max_tokens) = fallback.max_tokens() {
+        encoded.insert("max_tokens".to_string(), Value::from(max_tokens));
+    }
+    if let Some(thinking) = fallback.thinking() {
+        encoded.insert("thinking".to_string(), encode_thinking(thinking));
+    }
+    if let Some(output_config) = fallback.output_config()
+        && let Some(output_config) =
+            encode_output_config(output_config.effort(), output_config.format())?
+    {
+        encoded.insert("output_config".to_string(), output_config);
+    }
+    if let Some(speed) = fallback.speed() {
+        encoded.insert(
+            "speed".to_string(),
+            Value::String(speed.as_wire_str().to_string()),
+        );
+    }
+    Ok(Value::Object(encoded))
+}
+
+fn apply_message_options(
+    options: super::MessageNodeOptions,
+    blocks: &mut [Value],
+    cache_style: CacheControlWireStyle,
+) -> Result<(), MessagesCodecError> {
+    let Some(cache_control) = options.cache_control() else {
+        return Ok(());
+    };
+    let last = blocks.last_mut().ok_or(MessagesCodecError::InvalidOption {
+        field: "messages",
+        reason: "a cache-annotated message must contain an encodable block",
+    })?;
+    if last
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| {
+            matches!(
+                kind,
+                "thinking" | "redacted_thinking" | "tool_addition" | "tool_removal"
+            )
+        })
+    {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "message-level caching after a native thinking or tool-change block",
+        });
+    }
+    apply_cache_control(last, cache_control, cache_style)
+}
+
+fn apply_cache_control(
+    block: &mut Value,
+    cache_control: CacheControl,
+    cache_style: CacheControlWireStyle,
+) -> Result<(), MessagesCodecError> {
+    let object = block
+        .as_object_mut()
+        .ok_or(MessagesCodecError::ProtocolViolation {
+            reason: "cacheable wire block was not an object",
+        })?;
+    if object.contains_key("cache_control") {
+        return Err(MessagesCodecError::ConflictingCacheAnnotation);
+    }
+    object.insert(
+        "cache_control".to_string(),
+        encode_cache_control(cache_control, cache_style)?,
+    );
+    Ok(())
+}
+
+fn encode_cache_control(
+    cache_control: CacheControl,
+    cache_style: CacheControlWireStyle,
+) -> Result<Value, MessagesCodecError> {
+    match (cache_style, cache_control.ttl()) {
+        (CacheControlWireStyle::ExplicitTtl, ttl) => Ok(json!({
+            "type": "ephemeral",
+            "ttl": ttl.as_wire_str(),
+        })),
+        (CacheControlWireStyle::FiveMinutesImplicit, CacheTtl::FiveMinutes) => {
+            Ok(json!({ "type": "ephemeral" }))
+        }
+        (CacheControlWireStyle::FiveMinutesImplicit, CacheTtl::OneHour) => {
+            Err(MessagesCodecError::Unsupported {
+                feature: "one-hour prompt caching when the Messages dialect omits cache TTL",
+            })
+        }
+    }
+}
+
+fn validate_cache_breakpoints(
+    tools: &[Value],
+    system: &[Value],
+    messages: &[Value],
+    cache_style: CacheControlWireStyle,
+) -> Result<(), MessagesCodecError> {
+    let mut ttls = Vec::new();
+    collect_cache_ttls(tools.iter(), &mut ttls, cache_style)?;
+    collect_cache_ttls(system.iter(), &mut ttls, cache_style)?;
+    for message in messages {
+        let content = message.get("content").and_then(Value::as_array).ok_or(
+            MessagesCodecError::ProtocolViolation {
+                reason: "internal message projection produced invalid content",
+            },
+        )?;
+        collect_cache_ttls(content.iter(), &mut ttls, cache_style)?;
+    }
+    if ttls.len() > MAX_CACHE_BREAKPOINTS {
+        return Err(MessagesCodecError::TooManyCacheBreakpoints {
+            actual: ttls.len(),
+            maximum: MAX_CACHE_BREAKPOINTS,
+        });
+    }
+    let mut saw_five_minutes = false;
+    for ttl in ttls {
+        match ttl {
+            CacheTtl::FiveMinutes => saw_five_minutes = true,
+            CacheTtl::OneHour if saw_five_minutes => {
+                return Err(MessagesCodecError::InvalidCacheTtlOrder);
+            }
+            CacheTtl::OneHour => {}
+        }
+    }
+    Ok(())
+}
+
+fn collect_cache_ttls<'a>(
+    blocks: impl IntoIterator<Item = &'a Value>,
+    ttls: &mut Vec<CacheTtl>,
+    cache_style: CacheControlWireStyle,
+) -> Result<(), MessagesCodecError> {
+    for block in blocks {
+        let Some(cache_control) = block.get("cache_control") else {
+            continue;
+        };
+        let ttl = cache_control.get("ttl").and_then(Value::as_str);
+        ttls.push(match ttl {
+            Some("5m") => CacheTtl::FiveMinutes,
+            Some("1h") => CacheTtl::OneHour,
+            None if cache_style == CacheControlWireStyle::FiveMinutesImplicit => {
+                CacheTtl::FiveMinutes
+            }
+            None => {
+                return Err(MessagesCodecError::ProtocolViolation {
+                    reason: "cache-control block omitted its TTL",
+                });
+            }
+            _ => {
+                return Err(MessagesCodecError::ProtocolViolation {
+                    reason: "cache-control block used an unknown TTL",
+                });
+            }
+        });
+    }
+    Ok(())
+}

@@ -2,6 +2,35 @@
 
 This repository uses [`release-plz`](https://github.com/release-plz/release-plz) to manage releases for a multi-crate Cargo workspace.
 
+## Release preflight
+
+Run the maintained release gates serially from a clean release candidate:
+
+```text
+cargo fmt --all -- --check
+python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
+python3 -B scripts/check_workspace_boundaries.py --target
+python3 -B scripts/test-workspace.py full --runner nextest
+cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
+cargo doc --workspace --all-features --no-deps -j 1
+cargo test --doc --workspace --all-features -j 1
+```
+
+Also run the CI MSRV lane with Rust 1.88 and inspect `cargo metadata --locked --no-deps` after any
+dependency or feature change. These checks are deterministic and offline; credentialed provider
+tests are not a release prerequisite unless a maintainer explicitly authorizes the external calls.
+
+Before publishing, verify package contents with `cargo package --list -p <crate>` for changed crates
+and run `cargo package -p <crate> --allow-dirty` in dependency order where crates.io dependency
+resolution permits it. New unpublished workspace dependencies can make local dry runs fail even when
+the package graph is correct; the manual release job handles the real dependency-ordered publish.
+
+Every package must carry the workspace license, repository, edition, MSRV, and a useful crate
+README/rustdoc entry point. The facade's documented feature set must match its `[package.metadata.docs.rs]`
+configuration. A breaking release updates the root changelog and migration guide together. The first
+published version after this API reset becomes the new semver baseline; do not hide intentional
+breaks behind compatibility aliases merely to satisfy the previous beta baseline.
+
 ## What gets released
 
 - **Crates.io**: all unpublished workspace crates are published in dependency order.

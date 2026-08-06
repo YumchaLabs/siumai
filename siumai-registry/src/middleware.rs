@@ -150,7 +150,7 @@ impl MiddlewareStack {
             })
             .map_err(|source| RegistryResolveError::Model {
                 context: context.clone(),
-                source,
+                source: Box::new(source),
             })?;
         Ok(Arc::new(RouteLanguageModel::new(
             model,
@@ -169,7 +169,7 @@ impl MiddlewareStack {
             })
             .map_err(|source| RegistryResolveError::Model {
                 context: context.clone(),
-                source,
+                source: Box::new(source),
             })?;
         Ok(Arc::new(RouteEmbeddingModel::new(
             model,
@@ -188,7 +188,7 @@ impl MiddlewareStack {
             })
             .map_err(|source| RegistryResolveError::Model {
                 context: context.clone(),
-                source,
+                source: Box::new(source),
             })?;
         Ok(Arc::new(RouteRerankModel::new(
             model,
@@ -207,7 +207,7 @@ impl MiddlewareStack {
             })
             .map_err(|source| RegistryResolveError::Model {
                 context: context.clone(),
-                source,
+                source: Box::new(source),
             })?;
         Ok(Arc::new(RouteImageModel::new(model, context.route.clone())))
     }
@@ -223,7 +223,7 @@ impl MiddlewareStack {
             })
             .map_err(|source| RegistryResolveError::Model {
                 context: context.clone(),
-                source,
+                source: Box::new(source),
             })?;
         Ok(Arc::new(RouteSpeechModel::new(
             model,
@@ -242,7 +242,7 @@ impl MiddlewareStack {
             })
             .map_err(|source| RegistryResolveError::Model {
                 context: context.clone(),
-                source,
+                source: Box::new(source),
             })?;
         Ok(Arc::new(RouteTranscriptionModel::new(
             model,

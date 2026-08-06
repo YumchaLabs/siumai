@@ -1,35 +1,18 @@
 //! siumai-provider-google-vertex
 //!
-//! Google Vertex AI provider implementation.
-//!
-//! This crate owns:
-//! - Vertex AI provider implementation (clients + specs)
-//! - provider-owned typed options and extension traits
-//!
-//! Vertex protocol mapping modules (e.g. Imagen via `:predict`) live in `crate::standards`.
+//! Anthropic Messages provider served through Google Vertex AI.
 #![deny(unsafe_code)]
 
-// Keep provider-agnostic core modules available only to this crate's implementation.
-// Provider crates must not publicly mirror `siumai-core`.
-#[allow(unused_imports)]
-pub(crate) use siumai_provider_utils as provider_utils;
+mod providers;
 
-#[allow(unused_imports)]
-pub(crate) use siumai_core::{
-    LlmError, compat as core_compat, core, defaults, error, execution, observability, retry,
-    retry_api, streaming, traits, types, utils,
+pub use providers::anthropic_vertex;
+pub use providers::anthropic_vertex::{
+    GoogleVertexAnthropicAnnotationResolver, GoogleVertexAnthropicCacheTtl,
+    GoogleVertexAnthropicConfigError, GoogleVertexAnthropicContentCache,
+    GoogleVertexAnthropicEndpointError, GoogleVertexAnthropicLanguageModel,
+    GoogleVertexAnthropicMessageCache, GoogleVertexAnthropicMessagesOptions,
+    GoogleVertexAnthropicProfileError, GoogleVertexAnthropicProvider,
+    GoogleVertexAnthropicProviderBuilder, GoogleVertexAnthropicTool,
+    GoogleVertexAnthropicToolOptions, GoogleVertexAnthropicToolSpecError, GoogleVertexCredential,
+    GoogleVertexCredentialError, GoogleVertexTokenSource,
 };
-
-/// Builder utilities shared across provider crates.
-pub(crate) mod builder {
-    #[allow(unused_imports)]
-    pub(crate) use siumai_core::builder::*;
-}
-
-pub mod auth;
-pub mod hosted_tools;
-pub mod provider_metadata;
-pub mod provider_options;
-pub mod providers;
-pub mod standards;
-pub mod tools;

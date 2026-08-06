@@ -40,9 +40,13 @@ impl ModelDescriptor {
         Self::from_scope(Arc::new(ProviderScope::new(provider)), model, family)
     }
 
-    pub fn from_scope(scope: Arc<ProviderScope>, model: ModelId, family: ModelFamily) -> Self {
+    pub fn from_scope(
+        scope: impl Into<Arc<ProviderScope>>,
+        model: ModelId,
+        family: ModelFamily,
+    ) -> Self {
         Self {
-            scope,
+            scope: scope.into(),
             model,
             family,
         }
@@ -67,8 +71,9 @@ impl ModelDescriptor {
         self.scope.provider_id()
     }
 
-    pub fn scope(&self) -> &Arc<ProviderScope> {
-        &self.scope
+    /// Exact technical execution scope for this model handle.
+    pub fn scope(&self) -> &ProviderScope {
+        self.scope.as_ref()
     }
 
     pub fn model(&self) -> &ModelId {

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "ElevenLabs provider implementation for siumai (speech and transcription)"
+description = "ElevenLabs speech provider for siumai"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
@@ -18,27 +18,19 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-utils = { workspace = true, default-features = false }
 siumai-transport = { workspace = true, default-features = false }
 
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 http.workspace = true
-reqwest.workspace = true
 tokio.workspace = true
-futures.workspace = true
-futures-util.workspace = true
 chrono.workspace = true
 secrecy.workspace = true
-urlencoding.workspace = true
 thiserror.workspace = true
 
 [features]
 default = []
-elevenlabs = []
-structured-messages = ["siumai-core/structured-messages", "siumai-provider-utils/structured-messages"]
 
 [dev-dependencies]
-tokio-test.workspace = true
 wiremock.workspace = true

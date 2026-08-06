@@ -1,41 +1,45 @@
-//! siumai-provider-anthropic
+//! Native Anthropic provider integration for Siumai.
 //!
-//! Anthropic provider implementation.
-//!
-//! This crate owns:
-//! - the Anthropic provider implementation (client + builder + extensions)
-//! - provider-owned typed options/metadata and extension traits
-//!
-//! The reusable Anthropic Messages protocol mapping lives in `siumai-protocol-anthropic`
-//! and is re-exported under `crate::standards` for compatibility.
+//! This crate owns Anthropic identity, authentication, official endpoint policy,
+//! typed Messages options, durable prompt-cache annotations, model advisories,
+//! and provider-native resource APIs. Canonical Anthropic Messages wire semantics
+//! and reusable execution live in the protocol and compatible-engine crates.
 #![deny(unsafe_code)]
 
-// Keep provider-agnostic core modules available only to this crate's implementation.
-// Provider crates must not publicly mirror `siumai-core`.
-#[allow(unused_imports)]
-pub(crate) use siumai_provider_utils as provider_utils;
+mod annotations;
+mod auth;
+mod models;
+mod options;
+mod profile;
+mod provider;
+mod request_policy;
+pub mod resources;
 
-#[allow(unused_imports)]
-pub(crate) use siumai_core::{
-    LlmError, auth, compat as core_compat, core, defaults, error, execution, observability, retry,
-    retry_api, streaming, traits, types, utils,
+pub use annotations::{
+    AnthropicAnnotationResolver, AnthropicCacheTtl, AnthropicContentOptions, AnthropicMessageCache,
+    AnthropicToolOptions, AnthropicToolSpecError,
+};
+pub use auth::{AnthropicCredential, AnthropicCredentialError};
+pub use models::{
+    CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5, CLAUDE_HAIKU_4_5_20251001, CLAUDE_MYTHOS_5,
+    CLAUDE_MYTHOS_PREVIEW, CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7,
+    CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_6, CLAUDE_SONNET_5, current_models,
+};
+pub use options::{AnthropicMessagesOptions, AnthropicThinking};
+pub use profile::AnthropicProfileError;
+pub use provider::{
+    AnthropicConfigError, AnthropicLanguageModel, AnthropicProvider, AnthropicProviderBuilder,
+};
+pub use siumai_protocol_anthropic::messages::MessagesMetadata;
+pub use siumai_protocol_anthropic::messages::{
+    AdvisorToolOptions, AnthropicTool, AnthropicToolReference, ComputerToolOptions,
+    FallbackOutputConfig, InferenceSpeed, McpToolConfig, McpToolsetOptions,
+    MidConversationToolChange, OutputEffort, ResponseInclusion, ServerFallback, ServerFallbacks,
+    TextEditorToolOptions, ThinkingDisplay, ToolCaller, UserLocation, WebFetchToolOptions,
+    WebSearchToolOptions,
 };
 
-/// Builder utilities shared across provider crates.
-pub(crate) mod builder {
-    #[allow(unused_imports)]
-    pub(crate) use siumai_core::builder::*;
-}
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Provider-owned legacy parameter types.
-pub mod params;
-
-// Provider-owned typed options and typed metadata re-exports (kept out of `siumai-core`).
-pub mod hosted_tools;
-pub mod provider_metadata;
-pub mod provider_options;
-
-pub mod providers;
-pub mod standards;
-
-pub use siumai_core::types::{ChatResponse, CommonParams};
+#[cfg(test)]
+mod tests;

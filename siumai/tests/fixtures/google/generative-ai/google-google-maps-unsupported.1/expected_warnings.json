@@ -1,7 +1,0 @@
-[
-  {
-    "type": "unsupported",
-    "details": "The Google Maps grounding tool is not supported with Gemini models other than Gemini 2 or newer.",
-    "feature": "google.google_maps"
-  }
-]

@@ -344,6 +344,7 @@ impl OpenAiChatCompletionsModel {
             ));
         }
         let body = encode_chat_request_with_options(
+            self.runtime.scope(OpenAiApiMode::ChatCompletions),
             self.model_id(),
             request,
             &official_chat_dialect(),
@@ -650,12 +651,13 @@ fn policy_warnings(
     model: &ModelId,
     operation: ModelOperation,
 ) -> Result<Vec<Warning>, Error> {
-    let decision = runtime.policy.evaluate(&siumai_core::ModelPolicyContext {
-        scope: runtime.scope_arc(mode),
-        model: model.clone(),
-        family: ModelFamily::Language,
-        operation,
-    });
+    let decision = runtime
+        .policy
+        .evaluate(&siumai_core::ModelPolicyContext::new(
+            runtime.scope_arc(mode),
+            model.clone(),
+            operation,
+        ));
     reject_unsupported(mode, &decision)?;
     Ok(decision.advisories().iter().map(advisory_warning).collect())
 }

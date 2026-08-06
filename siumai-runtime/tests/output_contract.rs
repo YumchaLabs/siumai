@@ -286,23 +286,19 @@ fn enabled_repair_is_tool_free_and_inherits_deadline_and_cancellation() {
         repair.initial_failure().kind(),
         StructuredOutputFailureKind::InvalidJson
     );
-    assert!(matches!(
-        repair.request().messages.as_slice(),
-        [
-            Message {
-                role: MessageRole::User,
-                ..
-            },
-            Message {
-                role: MessageRole::Assistant,
-                ..
-            },
-            Message {
-                role: MessageRole::Developer,
-                ..
-            }
+    assert_eq!(
+        repair
+            .request()
+            .messages
+            .iter()
+            .map(Message::role)
+            .collect::<Vec<_>>(),
+        vec![
+            MessageRole::User,
+            MessageRole::Assistant,
+            MessageRole::Developer,
         ]
-    ));
+    );
 
     cancellation.cancel();
     assert!(repair.call_options().cancellation().is_cancelled());

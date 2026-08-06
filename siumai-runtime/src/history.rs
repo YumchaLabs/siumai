@@ -11,7 +11,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use siumai_core::{ContentPart, ExecutionOwner, LanguageRequest, Message, OpaqueProviderItem};
+use siumai_core::{
+    ContentPart, ExecutionOwner, LanguageRequest, Message, MessagePart, OpaqueProviderItem,
+};
 use thiserror::Error;
 
 use crate::options::ModelTarget;
@@ -253,16 +255,20 @@ pub fn project_history(
     let mut projected_messages = Vec::with_capacity(messages.len());
 
     for (message_index, message) in messages.into_iter().enumerate() {
-        let had_content = !message.content.is_empty();
-        let mut projected_content = Vec::with_capacity(message.content.len());
+        let (role, content, message_annotations) = message.into_parts();
+        let had_content = !content.is_empty();
+        let mut projected_content = Vec::with_capacity(content.len());
 
-        for (content_index, part) in message.content.into_iter().enumerate() {
+        for (content_index, part) in content.into_iter().enumerate() {
             let location = ProjectionLocation::message_content(message_index, content_index);
-            match part {
-                ContentPart::Text { .. }
+            let (content, content_annotations) = part.into_parts();
+            match content {
+                portable @ (ContentPart::Text { .. }
                 | ContentPart::Reasoning { .. }
                 | ContentPart::Media(_)
-                | ContentPart::Refusal { .. } => projected_content.push(part),
+                | ContentPart::Refusal { .. }) => {
+                    projected_content.push(MessagePart::from_parts(portable, content_annotations))
+                }
                 ContentPart::Citation(mut citation) => {
                     if !same_domain && !citation.provider.is_empty() {
                         citation.provider.clear();
@@ -272,11 +278,17 @@ pub fn project_history(
                             location,
                         ));
                     }
-                    projected_content.push(ContentPart::Citation(citation));
+                    projected_content.push(MessagePart::from_parts(
+                        ContentPart::Citation(citation),
+                        content_annotations,
+                    ));
                 }
                 ContentPart::ProviderOpaque(item) => {
                     if opaque_matches_target(&item, source, target) {
-                        projected_content.push(ContentPart::ProviderOpaque(item));
+                        projected_content.push(MessagePart::from_parts(
+                            ContentPart::ProviderOpaque(item),
+                            content_annotations,
+                        ));
                     } else {
                         let (reason, severity) = classify_opaque_loss(&item);
                         losses.push(ProjectionLoss::new(reason, severity, location));
@@ -284,7 +296,10 @@ pub fn project_history(
                 }
                 ContentPart::ToolCall(call) => match call_dispositions.get(&call.id) {
                     Some(ToolCallDisposition::Portable) => {
-                        projected_content.push(ContentPart::ToolCall(call));
+                        projected_content.push(MessagePart::from_parts(
+                            ContentPart::ToolCall(call),
+                            content_annotations,
+                        ));
                     }
                     Some(ToolCallDisposition::Loss { reason, severity }) => {
                         losses.push(ProjectionLoss::new(reason.clone(), *severity, location));
@@ -300,16 +315,24 @@ pub fn project_history(
                         losses.push(ProjectionLoss::new(reason.clone(), *severity, location));
                     }
                     Some(ToolCallDisposition::Portable) => {
-                        projected_content.push(ContentPart::ToolResult(result));
+                        projected_content.push(MessagePart::from_parts(
+                            ContentPart::ToolResult(result),
+                            content_annotations,
+                        ));
                     }
-                    None if same_domain => projected_content.push(ContentPart::ToolResult(result)),
+                    None if same_domain => projected_content.push(MessagePart::from_parts(
+                        ContentPart::ToolResult(result),
+                        content_annotations,
+                    )),
                     None => losses.push(ProjectionLoss::new(
                         ProjectionLossReason::OrphanedToolResult,
                         ProjectionSeverity::Blocking,
                         location,
                     )),
                 },
-                other if same_domain => projected_content.push(other),
+                other if same_domain => {
+                    projected_content.push(MessagePart::from_parts(other, content_annotations))
+                }
                 _ => losses.push(ProjectionLoss::new(
                     ProjectionLossReason::UnsupportedContentPart,
                     ProjectionSeverity::Required,
@@ -319,10 +342,11 @@ pub fn project_history(
         }
 
         if !projected_content.is_empty() || !had_content {
-            projected_messages.push(Message {
-                role: message.role,
-                content: projected_content,
-            });
+            projected_messages.push(Message::from_parts(
+                role,
+                projected_content,
+                message_annotations,
+            ));
         }
     }
 
@@ -386,8 +410,8 @@ fn opaque_matches_target(
 fn collect_result_ids(messages: &[Message]) -> BTreeSet<String> {
     messages
         .iter()
-        .flat_map(|message| message.content.iter())
-        .filter_map(|part| match part {
+        .flat_map(Message::content)
+        .filter_map(|part| match part.content() {
             ContentPart::ToolResult(result) => Some(result.call_id.clone()),
             _ => None,
         })
@@ -410,8 +434,8 @@ fn collect_call_dispositions(
     target: &ModelTarget,
 ) -> BTreeMap<String, ToolCallDisposition> {
     let mut dispositions = BTreeMap::new();
-    for part in messages.iter().flat_map(|message| message.content.iter()) {
-        let ContentPart::ToolCall(call) = part else {
+    for part in messages.iter().flat_map(Message::content) {
+        let ContentPart::ToolCall(call) = part.content() else {
             continue;
         };
         if dispositions.contains_key(&call.id) {
@@ -597,11 +621,12 @@ fn is_provider_deferred_kind(kind: &str) -> bool {
 mod tests {
     use std::collections::BTreeMap;
 
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
     use siumai_core::{
-        Citation, ContentPart, ExecutionOwner, LanguageRequest, Message, MessageRole, ModelId,
-        OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance, ToolCall, ToolOutcome,
-        ToolResult,
+        Citation, ContentAnnotationTarget, ContentPart, ExecutionOwner, LanguageRequest, Message,
+        MessageAnnotationTarget, MessagePart, MessageRole, ModelId, OpaqueProviderItem, ProtocolId,
+        ProviderId, ProviderProvenance, ToolCall, ToolOutcome, ToolResult, TypedProviderAnnotation,
     };
 
     use super::*;
@@ -635,10 +660,31 @@ mod tests {
     }
 
     fn request(content: Vec<ContentPart>) -> LanguageRequest {
-        LanguageRequest::new(vec![Message {
-            role: MessageRole::User,
-            content,
-        }])
+        LanguageRequest::new(vec![Message::new(MessageRole::User, content)])
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct HistoryMessageAnnotation {
+        label: String,
+    }
+
+    impl TypedProviderAnnotation for HistoryMessageAnnotation {
+        type Target = MessageAnnotationTarget;
+
+        const NAMESPACE: &'static str = "openai";
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct HistoryContentAnnotation {
+        cache_boundary: bool,
+    }
+
+    impl TypedProviderAnnotation for HistoryContentAnnotation {
+        type Target = ContentAnnotationTarget;
+
+        const NAMESPACE: &'static str = "openai";
     }
 
     #[test]
@@ -680,8 +726,8 @@ mod tests {
         let projected = project_history(input, &source, &target, ProjectionPolicy::Strict)
             .expect("same protocol must preserve native item");
         assert_eq!(
-            projected.request().messages[0].content,
-            vec![ContentPart::ProviderOpaque(item)]
+            projected.request().messages[0].content()[0].content(),
+            &ContentPart::ProviderOpaque(item)
         );
         assert!(projected.losses().is_empty());
     }
@@ -757,12 +803,14 @@ mod tests {
 
         let projected = project_history(input, &source, &target, ProjectionPolicy::BestEffort)
             .expect("best effort may remove representational loss");
-        assert_eq!(projected.request().messages[0].content.len(), 2);
+        assert_eq!(projected.request().messages[0].content().len(), 2);
         assert!(matches!(
-            &projected.request().messages[0].content[0],
+            projected.request().messages[0].content()[0].content(),
             ContentPart::Text { .. }
         ));
-        let ContentPart::Citation(citation) = &projected.request().messages[0].content[1] else {
+        let ContentPart::Citation(citation) =
+            projected.request().messages[0].content()[1].content()
+        else {
             panic!("citation should remain portable");
         };
         assert!(citation.provider.is_empty());
@@ -776,6 +824,60 @@ mod tests {
                 .iter()
                 .any(|loss| loss.reason == ProjectionLossReason::ForeignProviderOpaque)
         );
+    }
+
+    #[test]
+    fn projection_preserves_message_and_content_annotations() {
+        let source = target("openai", "responses", "gpt-5.6");
+        let target = target("anthropic", "messages", "opus-5");
+        let message_annotation = HistoryMessageAnnotation {
+            label: "durable-turn".to_string(),
+        };
+        let content_annotation = HistoryContentAnnotation {
+            cache_boundary: true,
+        };
+        let mut citation = Citation {
+            source_id: "source-1".to_string(),
+            title: None,
+            url: None,
+            start: None,
+            end: None,
+            provider: BTreeMap::new(),
+        };
+        citation.provider.insert("trace".to_string(), json!(true));
+        let part = MessagePart::new(ContentPart::Citation(citation))
+            .with_provider_annotation(&content_annotation)
+            .expect("valid content annotation");
+        let message = Message::new(MessageRole::Assistant, [part])
+            .with_provider_annotation(&message_annotation)
+            .expect("valid message annotation");
+
+        let projected = project_history(
+            LanguageRequest::new(vec![message]),
+            &source,
+            &target,
+            ProjectionPolicy::BestEffort,
+        )
+        .expect("advisory citation metadata loss remains projectable");
+        let projected_message = &projected.request().messages[0];
+        assert_eq!(
+            projected_message
+                .annotations()
+                .decode::<HistoryMessageAnnotation>()
+                .expect("message annotation decodes"),
+            Some(message_annotation)
+        );
+        assert_eq!(
+            projected_message.content()[0]
+                .annotations()
+                .decode::<HistoryContentAnnotation>()
+                .expect("content annotation decodes"),
+            Some(content_annotation)
+        );
+        let ContentPart::Citation(citation) = projected_message.content()[0].content() else {
+            panic!("citation should remain portable");
+        };
+        assert!(citation.provider.is_empty());
     }
 
     #[test]
@@ -877,7 +979,7 @@ mod tests {
             ProjectionPolicy::Strict,
         )
         .expect("completed local tool state is portable");
-        assert_eq!(projected.request().messages[0].content.len(), 2);
+        assert_eq!(projected.request().messages[0].content().len(), 2);
         assert!(projected.losses().is_empty());
     }
 

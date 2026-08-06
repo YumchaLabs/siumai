@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use siumai_core::{ProviderOptionError, TypedProviderOptions};
+use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
+
+use super::profile::API_MODE_ID;
 
 const MAX_PRONUNCIATION_DICTIONARIES: usize = 3;
 
@@ -224,6 +226,8 @@ impl ElevenLabsSpeechOptions {
 
 impl TypedProviderOptions for ElevenLabsSpeechOptions {
     const NAMESPACE: &'static str = "elevenlabs";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Speech;
+    const API_MODE: Option<&'static str> = Some(API_MODE_ID);
 
     fn validate(&self) -> Result<(), ProviderOptionError> {
         if let Some(settings) = &self.voice_settings {

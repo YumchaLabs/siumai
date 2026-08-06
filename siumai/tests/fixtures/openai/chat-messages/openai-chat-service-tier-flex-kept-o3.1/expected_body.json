@@ -1,6 +1,0 @@
-{
-  "model": "o3-mini",
-  "messages": [{ "role": "user", "content": "Hello" }],
-  "service_tier": "flex"
-}
-

@@ -1,6 +1,0 @@
-[
-  {
-    "type": "other",
-    "message": "The 'vertex_rag_store' tool is only supported with the Google Vertex provider and might not be supported or could behave unexpectedly with the current Google provider (gemini)."
-  }
-]

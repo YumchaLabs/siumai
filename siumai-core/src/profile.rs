@@ -3,14 +3,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::NaiveDate;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 use url::Url;
 
 use crate::model::ModelFamily;
 use crate::provider::{
-    ApiModeId, ModelId, ModelOperation, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
-    ProviderId,
+    ApiModeId, ModelId, ModelOperation, NativeSurfaceId, PlatformId, ProfileId, ProtocolContractId,
+    ProtocolId, ProviderId,
 };
 
 /// Fidelity of one provider surface.
@@ -47,15 +47,6 @@ pub enum ApiStability {
     Experimental,
 }
 
-/// Optional region or deployment restriction on a support claim.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum AvailabilityScope {
-    Global,
-    Region(PlatformId),
-    Deployment(ProfileId),
-}
-
 /// Exact identity covered by one support claim.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SupportScope {
@@ -64,7 +55,6 @@ pub struct SupportScope {
     family: ModelFamily,
     protocol: ProtocolId,
     api_mode: ApiModeId,
-    availability: Option<AvailabilityScope>,
 }
 
 impl SupportScope {
@@ -81,13 +71,7 @@ impl SupportScope {
             family,
             protocol,
             api_mode,
-            availability: None,
         }
-    }
-
-    pub fn with_availability(mut self, availability: AvailabilityScope) -> Self {
-        self.availability = Some(availability);
-        self
     }
 
     pub fn provider(&self) -> &ProviderId {
@@ -109,14 +93,10 @@ impl SupportScope {
     pub fn api_mode(&self) -> &ApiModeId {
         &self.api_mode
     }
-
-    pub fn availability(&self) -> Option<&AvailabilityScope> {
-        self.availability.as_ref()
-    }
 }
 
 /// An official HTTPS documentation or specification source.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct OfficialSource(String);
 
@@ -136,6 +116,16 @@ impl OfficialSource {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for OfficialSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -247,6 +237,170 @@ impl GenericSupportClaim {
 
     pub fn stability(&self) -> ApiStability {
         self.stability
+    }
+}
+
+/// Kind of provider-native surface outside the portable model families.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum NativeSurfaceKind {
+    Resource,
+    Session,
+    Job,
+}
+
+/// Technical contract that identifies a provider-native surface.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum NativeSurfaceBinding {
+    Protocol {
+        protocol: ProtocolId,
+        api_mode: ApiModeId,
+    },
+    Surface(NativeSurfaceId),
+}
+
+impl NativeSurfaceBinding {
+    pub fn protocol(&self) -> Option<&ProtocolId> {
+        match self {
+            Self::Protocol { protocol, .. } => Some(protocol),
+            Self::Surface(_) => None,
+        }
+    }
+
+    pub fn api_mode(&self) -> Option<&ApiModeId> {
+        match self {
+            Self::Protocol { api_mode, .. } => Some(api_mode),
+            Self::Surface(_) => None,
+        }
+    }
+
+    pub fn surface_id(&self) -> Option<&NativeSurfaceId> {
+        match self {
+            Self::Protocol { .. } => None,
+            Self::Surface(surface) => Some(surface),
+        }
+    }
+}
+
+/// Exact identity covered by one provider-native support claim.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct NativeSupportScope {
+    provider: ProviderId,
+    platform: PlatformId,
+    kind: NativeSurfaceKind,
+    binding: NativeSurfaceBinding,
+}
+
+impl NativeSupportScope {
+    pub fn protocol(
+        provider: ProviderId,
+        platform: PlatformId,
+        kind: NativeSurfaceKind,
+        protocol: ProtocolId,
+        api_mode: ApiModeId,
+    ) -> Self {
+        Self {
+            provider,
+            platform,
+            kind,
+            binding: NativeSurfaceBinding::Protocol { protocol, api_mode },
+        }
+    }
+
+    pub fn surface(
+        provider: ProviderId,
+        platform: PlatformId,
+        kind: NativeSurfaceKind,
+        surface: NativeSurfaceId,
+    ) -> Self {
+        Self {
+            provider,
+            platform,
+            kind,
+            binding: NativeSurfaceBinding::Surface(surface),
+        }
+    }
+
+    pub fn provider(&self) -> &ProviderId {
+        &self.provider
+    }
+
+    pub fn platform(&self) -> &PlatformId {
+        &self.platform
+    }
+
+    pub fn kind(&self) -> NativeSurfaceKind {
+        self.kind
+    }
+
+    pub fn binding(&self) -> &NativeSurfaceBinding {
+        &self.binding
+    }
+}
+
+/// Official evidence for a provider-native surface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeVerificationEvidence {
+    source: OfficialSource,
+    verified_at: VerificationDate,
+}
+
+impl NativeVerificationEvidence {
+    pub fn new(source: OfficialSource, verified_at: VerificationDate) -> Self {
+        Self {
+            source,
+            verified_at,
+        }
+    }
+
+    pub fn source(&self) -> &OfficialSource {
+        &self.source
+    }
+
+    pub fn verified_at(&self) -> VerificationDate {
+        self.verified_at
+    }
+}
+
+/// An evidence-backed provider-native resource, session, or job declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerifiedNativeSupportClaim {
+    scope: NativeSupportScope,
+    fidelity: VerifiedFidelity,
+    stability: ApiStability,
+    evidence: NativeVerificationEvidence,
+}
+
+impl VerifiedNativeSupportClaim {
+    pub fn new(
+        scope: NativeSupportScope,
+        fidelity: VerifiedFidelity,
+        stability: ApiStability,
+        evidence: NativeVerificationEvidence,
+    ) -> Self {
+        Self {
+            scope,
+            fidelity,
+            stability,
+            evidence,
+        }
+    }
+
+    pub fn scope(&self) -> &NativeSupportScope {
+        &self.scope
+    }
+
+    pub fn fidelity(&self) -> VerifiedFidelity {
+        self.fidelity
+    }
+
+    pub fn stability(&self) -> ApiStability {
+        self.stability
+    }
+
+    pub fn evidence(&self) -> &NativeVerificationEvidence {
+        &self.evidence
     }
 }
 
@@ -418,6 +572,7 @@ impl ModelCatalog {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderProfile {
     id: ProfileId,
+    provider: ProviderId,
     kind: ProviderProfileKind,
 }
 
@@ -428,7 +583,7 @@ enum ProviderProfileKind {
         catalog: ModelCatalog,
     },
     Generic {
-        claim: GenericSupportClaim,
+        claims: Box<[GenericSupportClaim]>,
     },
 }
 
@@ -455,6 +610,7 @@ impl ProviderProfile {
         }
         Ok(Self {
             id,
+            provider: first.scope.provider.clone(),
             kind: ProviderProfileKind::Verified {
                 claims: claims.into_boxed_slice(),
                 catalog,
@@ -465,8 +621,33 @@ impl ProviderProfile {
     pub fn generic(id: ProfileId, claim: GenericSupportClaim) -> Self {
         Self {
             id,
-            kind: ProviderProfileKind::Generic { claim },
+            provider: claim.scope.provider.clone(),
+            kind: ProviderProfileKind::Generic {
+                claims: vec![claim].into_boxed_slice(),
+            },
         }
+    }
+
+    pub fn generic_many(
+        id: ProfileId,
+        claims: Vec<GenericSupportClaim>,
+    ) -> Result<Self, ProfileError> {
+        let Some(first) = claims.first() else {
+            return Err(ProfileError::EmptyGenericClaims);
+        };
+        if claims
+            .iter()
+            .any(|claim| claim.scope.provider != first.scope.provider)
+        {
+            return Err(ProfileError::MixedProviders);
+        }
+        Ok(Self {
+            id,
+            provider: first.scope.provider.clone(),
+            kind: ProviderProfileKind::Generic {
+                claims: claims.into_boxed_slice(),
+            },
+        })
     }
 
     pub fn id(&self) -> &ProfileId {
@@ -474,10 +655,7 @@ impl ProviderProfile {
     }
 
     pub fn provider_id(&self) -> &ProviderId {
-        match &self.kind {
-            ProviderProfileKind::Verified { claims, .. } => claims[0].scope.provider(),
-            ProviderProfileKind::Generic { claim } => claim.scope.provider(),
-        }
+        &self.provider
     }
 
     pub fn verified_claims(&self) -> Option<&[VerifiedSupportClaim]> {
@@ -490,7 +668,14 @@ impl ProviderProfile {
     pub fn generic_claim(&self) -> Option<&GenericSupportClaim> {
         match &self.kind {
             ProviderProfileKind::Verified { .. } => None,
-            ProviderProfileKind::Generic { claim } => Some(claim),
+            ProviderProfileKind::Generic { claims } => claims.first(),
+        }
+    }
+
+    pub fn generic_claims(&self) -> Option<&[GenericSupportClaim]> {
+        match &self.kind {
+            ProviderProfileKind::Verified { .. } => None,
+            ProviderProfileKind::Generic { claims } => Some(claims),
         }
     }
 
@@ -499,6 +684,102 @@ impl ProviderProfile {
             ProviderProfileKind::Verified { catalog, .. } => Some(catalog),
             ProviderProfileKind::Generic { .. } => None,
         }
+    }
+
+    fn support_scopes(&self) -> impl Iterator<Item = &SupportScope> {
+        self.verified_claims()
+            .into_iter()
+            .flatten()
+            .map(VerifiedSupportClaim::scope)
+            .chain(
+                self.generic_claims()
+                    .into_iter()
+                    .flatten()
+                    .map(GenericSupportClaim::scope),
+            )
+    }
+}
+
+/// Provider-wide support metadata assembled from portable profiles and native surfaces.
+///
+/// This is an evidence/introspection surface, not an executable capability allowlist. The provider
+/// identity is supplied explicitly so custom or native-only configurations can publish an empty
+/// manifest without borrowing identity from an arbitrary execution scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderSupportManifest {
+    provider: ProviderId,
+    profiles: Box<[ProviderProfile]>,
+    native_claims: Box<[VerifiedNativeSupportClaim]>,
+}
+
+impl ProviderSupportManifest {
+    /// Build a manifest for one canonical provider.
+    ///
+    /// `profiles` and `native_claims` may both be empty when the configured provider intentionally
+    /// makes no named support assertion. Callers must not infer official support from an empty
+    /// manifest.
+    pub fn new(
+        provider: ProviderId,
+        profiles: impl IntoIterator<Item = ProviderProfile>,
+        native_claims: impl IntoIterator<Item = VerifiedNativeSupportClaim>,
+    ) -> Result<Self, SupportManifestError> {
+        let profiles = profiles.into_iter().collect::<Vec<_>>();
+        let native_claims = native_claims.into_iter().collect::<Vec<_>>();
+
+        if let Some(profile) = profiles
+            .iter()
+            .find(|profile| profile.provider_id() != &provider)
+        {
+            return Err(SupportManifestError::MixedProviders {
+                expected: provider,
+                found: profile.provider_id().clone(),
+            });
+        }
+
+        let mut portable_scopes = BTreeSet::<SupportScope>::new();
+        for scope in profiles.iter().flat_map(ProviderProfile::support_scopes) {
+            if !portable_scopes.insert(scope.clone()) {
+                return Err(SupportManifestError::DuplicatePortableScope {
+                    scope: scope.clone(),
+                });
+            }
+        }
+
+        if let Some(claim) = native_claims
+            .iter()
+            .find(|claim| claim.scope.provider() != &provider)
+        {
+            return Err(SupportManifestError::MixedProviders {
+                expected: provider,
+                found: claim.scope.provider().clone(),
+            });
+        }
+        let mut native_scopes = BTreeSet::<NativeSupportScope>::new();
+        for claim in &native_claims {
+            if !native_scopes.insert(claim.scope().clone()) {
+                return Err(SupportManifestError::DuplicateNativeScope {
+                    scope: claim.scope().clone(),
+                });
+            }
+        }
+
+        Ok(Self {
+            provider,
+            profiles: profiles.into_boxed_slice(),
+            native_claims: native_claims.into_boxed_slice(),
+        })
+    }
+
+    pub fn provider_id(&self) -> &ProviderId {
+        &self.provider
+    }
+
+    pub fn profiles(&self) -> &[ProviderProfile] {
+        &self.profiles
+    }
+
+    pub fn native_claims(&self) -> &[VerifiedNativeSupportClaim] {
+        &self.native_claims
     }
 }
 
@@ -525,10 +806,26 @@ pub enum ProfileError {
     InvalidOfficialSource,
     #[error("verified provider profile requires at least one claim")]
     EmptyVerifiedClaims,
-    #[error("verified provider profile cannot mix canonical providers")]
+    #[error("generic provider profile requires at least one claim")]
+    EmptyGenericClaims,
+    #[error("provider profile cannot mix canonical providers")]
     MixedProviders,
     #[error("model catalog contains a scope absent from the verified claims")]
     CatalogScopeNotClaimed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum SupportManifestError {
+    #[error("provider support manifest cannot mix `{expected}` and `{found}`")]
+    MixedProviders {
+        expected: ProviderId,
+        found: ProviderId,
+    },
+    #[error("provider support manifest contains duplicate portable scope {scope:?}")]
+    DuplicatePortableScope { scope: SupportScope },
+    #[error("provider support manifest contains duplicate provider-native scope {scope:?}")]
+    DuplicateNativeScope { scope: NativeSupportScope },
 }
 
 #[cfg(test)]
@@ -562,6 +859,48 @@ mod tests {
             evidence(),
         )
         .unwrap()
+    }
+
+    fn verified_profile(provider: &str, family: ModelFamily, api_mode: &str) -> ProviderProfile {
+        let scope = SupportScope::new(
+            ProviderId::new(provider).unwrap(),
+            PlatformId::new("public-api").unwrap(),
+            family,
+            ProtocolId::new("openai").unwrap(),
+            ApiModeId::new(api_mode).unwrap(),
+        );
+        let claim = VerifiedSupportClaim::new(
+            scope,
+            VerifiedFidelity::Native,
+            ApiStability::Stable,
+            VerificationEvidence::new(
+                OfficialSource::new("https://platform.openai.com/docs").unwrap(),
+                VerificationDate::new(NaiveDate::from_ymd_opt(2026, 8, 6).unwrap()),
+                ProtocolContractId::new(format!("{api_mode}-v1")).unwrap(),
+            ),
+        );
+        ProviderProfile::verified(
+            ProfileId::new(format!("{provider}-{api_mode}")).unwrap(),
+            vec![claim],
+            ModelCatalog::default(),
+        )
+        .unwrap()
+    }
+
+    fn native_evidence() -> NativeVerificationEvidence {
+        NativeVerificationEvidence::new(
+            OfficialSource::new("https://platform.openai.com/docs").unwrap(),
+            VerificationDate::new(NaiveDate::from_ymd_opt(2026, 8, 6).unwrap()),
+        )
+    }
+
+    fn native_claim(scope: NativeSupportScope) -> VerifiedNativeSupportClaim {
+        VerifiedNativeSupportClaim::new(
+            scope,
+            VerifiedFidelity::Native,
+            ApiStability::Stable,
+            native_evidence(),
+        )
     }
 
     #[test]
@@ -617,5 +956,159 @@ mod tests {
     fn official_sources_reject_credentials_and_insecure_urls() {
         assert!(OfficialSource::new("http://example.com/docs").is_err());
         assert!(OfficialSource::new("https://secret@example.com/docs").is_err());
+        assert!(serde_json::from_str::<OfficialSource>("\"http://example.com/docs\"").is_err());
+    }
+
+    #[test]
+    fn manifest_combines_portable_profiles_and_native_surfaces() {
+        let files_scope = NativeSupportScope::protocol(
+            ProviderId::new("openai").unwrap(),
+            PlatformId::new("public-api").unwrap(),
+            NativeSurfaceKind::Resource,
+            ProtocolId::new("openai").unwrap(),
+            ApiModeId::new("files").unwrap(),
+        );
+        let batch_scope = NativeSupportScope::surface(
+            ProviderId::new("openai").unwrap(),
+            PlatformId::new("public-api").unwrap(),
+            NativeSurfaceKind::Job,
+            NativeSurfaceId::new("batches").unwrap(),
+        );
+
+        let manifest = ProviderSupportManifest::new(
+            ProviderId::new("openai").unwrap(),
+            [
+                verified_profile("openai", ModelFamily::Language, "responses"),
+                verified_profile("openai", ModelFamily::Image, "images"),
+            ],
+            [
+                native_claim(files_scope.clone()),
+                native_claim(batch_scope.clone()),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(manifest.provider_id().as_str(), "openai");
+        assert_eq!(manifest.profiles().len(), 2);
+        assert_eq!(manifest.native_claims().len(), 2);
+        assert_eq!(files_scope.binding().api_mode().unwrap().as_str(), "files");
+        assert_eq!(
+            batch_scope.binding().surface_id().unwrap().as_str(),
+            "batches"
+        );
+        assert_eq!(
+            manifest.native_claims()[0].evidence().source().as_str(),
+            "https://platform.openai.com/docs"
+        );
+    }
+
+    #[test]
+    fn manifest_can_describe_a_native_only_provider_surface() {
+        let claim = native_claim(NativeSupportScope::surface(
+            ProviderId::new("native-only").unwrap(),
+            PlatformId::new("public-api").unwrap(),
+            NativeSurfaceKind::Resource,
+            NativeSurfaceId::new("files").unwrap(),
+        ));
+
+        let manifest =
+            ProviderSupportManifest::new(ProviderId::new("native-only").unwrap(), [], [claim])
+                .unwrap();
+
+        assert_eq!(manifest.provider_id().as_str(), "native-only");
+        assert!(manifest.profiles().is_empty());
+        assert_eq!(manifest.native_claims().len(), 1);
+    }
+
+    #[test]
+    fn manifest_can_be_empty_for_an_unverified_custom_provider() {
+        let manifest =
+            ProviderSupportManifest::new(ProviderId::new("custom-provider").unwrap(), [], [])
+                .unwrap();
+
+        assert_eq!(manifest.provider_id().as_str(), "custom-provider");
+        assert!(manifest.profiles().is_empty());
+        assert!(manifest.native_claims().is_empty());
+    }
+
+    #[test]
+    fn manifest_rejects_mixed_providers() {
+        let native = native_claim(NativeSupportScope::surface(
+            ProviderId::new("anthropic").unwrap(),
+            PlatformId::new("public-api").unwrap(),
+            NativeSurfaceKind::Session,
+            NativeSurfaceId::new("message-batches").unwrap(),
+        ));
+
+        assert!(matches!(
+            ProviderSupportManifest::new(
+                ProviderId::new("openai").unwrap(),
+                [verified_profile(
+                    "openai",
+                    ModelFamily::Language,
+                    "responses"
+                )],
+                [native],
+            ),
+            Err(SupportManifestError::MixedProviders { expected, found })
+                if expected.as_str() == "openai" && found.as_str() == "anthropic"
+        ));
+    }
+
+    #[test]
+    fn manifest_rejects_duplicate_native_scopes() {
+        let native = native_claim(NativeSupportScope::surface(
+            ProviderId::new("openai").unwrap(),
+            PlatformId::new("public-api").unwrap(),
+            NativeSurfaceKind::Job,
+            NativeSurfaceId::new("batches").unwrap(),
+        ));
+
+        assert!(matches!(
+            ProviderSupportManifest::new(
+                ProviderId::new("openai").unwrap(),
+                [verified_profile(
+                    "openai",
+                    ModelFamily::Language,
+                    "responses"
+                )],
+                [native.clone(), native],
+            ),
+            Err(SupportManifestError::DuplicateNativeScope { scope })
+                if scope.binding().surface_id().is_some_and(|id| id.as_str() == "batches")
+        ));
+    }
+
+    #[test]
+    fn generic_model_profile_can_coexist_with_separately_scoped_native_evidence() {
+        let profile = ProviderProfile::generic(
+            ProfileId::new("custom-endpoint").unwrap(),
+            GenericSupportClaim::new(
+                SupportScope::new(
+                    ProviderId::new("custom-endpoint").unwrap(),
+                    PlatformId::new("custom-endpoint").unwrap(),
+                    ModelFamily::Language,
+                    ProtocolId::new("openai-compatible").unwrap(),
+                    ApiModeId::new("chat-completions").unwrap(),
+                ),
+                ApiStability::Experimental,
+            ),
+        );
+        let native = native_claim(NativeSupportScope::surface(
+            ProviderId::new("custom-endpoint").unwrap(),
+            PlatformId::new("custom-endpoint").unwrap(),
+            NativeSurfaceKind::Resource,
+            NativeSurfaceId::new("files").unwrap(),
+        ));
+
+        let manifest = ProviderSupportManifest::new(
+            ProviderId::new("custom-endpoint").unwrap(),
+            [profile],
+            [native],
+        )
+        .unwrap();
+
+        assert!(manifest.profiles()[0].generic_claims().is_some());
+        assert_eq!(manifest.native_claims().len(), 1);
     }
 }

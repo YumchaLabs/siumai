@@ -16,11 +16,18 @@ autoexamples = false
 autotests = false
 
 [lib]
-doctest = false
+doctest = true
 
 [package.metadata.docs.rs]
 no-default-features = true
-features = ["runtime", "registry", "openai-compatible"]
+features = [
+    "runtime",
+    "json-schema",
+    "registry",
+    "all-providers",
+    "openai-compatible",
+    "openai-realtime",
+]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
@@ -29,20 +36,16 @@ siumai-runtime = { workspace = true, default-features = false, optional = true }
 siumai-registry = { workspace = true, default-features = false, optional = true }
 
 siumai-provider-openai = { version = "0.11.0-beta.9", path = "../siumai-provider-openai", default-features = false, optional = true }
-siumai-provider-openai-compatible = { version = "0.11.0-beta.9", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
-siumai-provider-azure = { version = "0.11.0-beta.9", path = "../siumai-provider-azure", default-features = false, optional = true }
+siumai-provider-alibaba = { workspace = true, optional = true }
+siumai-openai-compatible = { version = "0.11.0-beta.9", path = "../siumai-openai-compatible", default-features = false, optional = true }
 siumai-provider-anthropic = { version = "0.11.0-beta.9", path = "../siumai-provider-anthropic", default-features = false, optional = true }
 siumai-provider-gemini = { version = "0.11.0-beta.9", path = "../siumai-provider-gemini", default-features = false, optional = true }
 siumai-provider-google-vertex = { version = "0.11.0-beta.9", path = "../siumai-provider-google-vertex", default-features = false, optional = true }
-siumai-provider-ollama = { version = "0.11.0-beta.9", path = "../siumai-provider-ollama", default-features = false, optional = true }
 siumai-provider-groq = { version = "0.11.0-beta.9", path = "../siumai-provider-groq", default-features = false, optional = true }
 siumai-provider-xai = { version = "0.11.0-beta.9", path = "../siumai-provider-xai", default-features = false, optional = true }
 siumai-provider-minimax = { version = "0.11.0-beta.9", path = "../siumai-provider-minimax", default-features = false, optional = true }
 siumai-provider-deepseek = { version = "0.11.0-beta.9", path = "../siumai-provider-deepseek", default-features = false, optional = true }
 siumai-provider-cohere = { version = "0.11.0-beta.9", path = "../siumai-provider-cohere", default-features = false, optional = true }
-siumai-provider-togetherai = { version = "0.11.0-beta.9", path = "../siumai-provider-togetherai", default-features = false, optional = true }
-siumai-provider-amazon-bedrock = { version = "0.11.0-beta.9", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
-siumai-provider-gateway = { version = "0.11.0-beta.9", path = "../siumai-provider-gateway", default-features = false, optional = true }
 siumai-provider-deepgram = { version = "0.11.0-beta.9", path = "../siumai-provider-deepgram", default-features = false, optional = true }
 siumai-provider-elevenlabs = { version = "0.11.0-beta.9", path = "../siumai-provider-elevenlabs", default-features = false, optional = true }
 
@@ -50,42 +53,34 @@ siumai-provider-elevenlabs = { version = "0.11.0-beta.9", path = "../siumai-prov
 default = ["registry", "runtime"]
 registry = ["dep:siumai-registry"]
 runtime = ["dep:siumai-runtime"]
+json-schema = ["runtime", "siumai-runtime/json-schema"]
 
-openai = ["dep:siumai-provider-openai", "siumai-provider-openai/openai"]
+openai = ["dep:siumai-provider-openai"]
+alibaba = ["dep:siumai-provider-alibaba"]
 openai-realtime = ["openai", "siumai-provider-openai/openai-realtime"]
-openai-compatible = ["dep:siumai-provider-openai-compatible"]
-azure = ["dep:siumai-provider-azure", "siumai-provider-azure/azure"]
-anthropic = ["dep:siumai-provider-anthropic", "siumai-provider-anthropic/anthropic"]
-google = ["dep:siumai-provider-gemini", "siumai-provider-gemini/google"]
-google-vertex = ["dep:siumai-provider-google-vertex", "siumai-provider-google-vertex/google-vertex"]
-ollama = ["dep:siumai-provider-ollama", "siumai-provider-ollama/ollama"]
-groq = ["dep:siumai-provider-groq", "siumai-provider-groq/groq"]
-xai = ["dep:siumai-provider-xai", "siumai-provider-xai/xai"]
-minimax = ["dep:siumai-provider-minimax", "siumai-provider-minimax/minimax"]
-deepseek = ["dep:siumai-provider-deepseek", "siumai-provider-deepseek/deepseek"]
-cohere = ["dep:siumai-provider-cohere", "siumai-provider-cohere/cohere"]
-togetherai = ["dep:siumai-provider-togetherai", "siumai-provider-togetherai/togetherai"]
-bedrock = ["dep:siumai-provider-amazon-bedrock", "siumai-provider-amazon-bedrock/bedrock"]
-gateway = ["dep:siumai-provider-gateway", "siumai-provider-gateway/gateway"]
-deepgram = ["dep:siumai-provider-deepgram", "siumai-provider-deepgram/deepgram"]
-elevenlabs = ["dep:siumai-provider-elevenlabs", "siumai-provider-elevenlabs/elevenlabs"]
+openai-compatible = ["dep:siumai-openai-compatible"]
+anthropic = ["dep:siumai-provider-anthropic"]
+google = ["dep:siumai-provider-gemini"]
+google-vertex-anthropic = ["dep:siumai-provider-google-vertex"]
+groq = ["dep:siumai-provider-groq"]
+xai = ["dep:siumai-provider-xai"]
+minimax = ["dep:siumai-provider-minimax"]
+deepseek = ["dep:siumai-provider-deepseek"]
+cohere = ["dep:siumai-provider-cohere"]
+deepgram = ["dep:siumai-provider-deepgram"]
+elevenlabs = ["dep:siumai-provider-elevenlabs"]
 
 all-providers = [
     "openai",
-    "openai-compatible",
-    "azure",
+    "alibaba",
     "anthropic",
     "google",
-    "google-vertex",
-    "ollama",
+    "google-vertex-anthropic",
     "groq",
     "xai",
     "minimax",
     "deepseek",
     "cohere",
-    "togetherai",
-    "bedrock",
-    "gateway",
     "deepgram",
     "elevenlabs",
 ]
@@ -99,4 +94,5 @@ async-trait.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 siumai-transport = { workspace = true, default-features = false }
+siumai-protocol-openai = { workspace = true, default-features = false }
 wiremock.workspace = true

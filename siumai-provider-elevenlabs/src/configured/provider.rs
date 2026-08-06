@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use siumai_core::{
-    InvalidId, ModelId, ModelLookupError, Provider, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderRegistration,
-    ProviderScope, SpeechLimits, SpeechModel, SpeechModelProvider, TypedProviderOptions,
+    InvalidId, ModelFamily, ModelId, ModelLookupError, Provider, ProviderOptionContext,
+    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
+    ProviderOptions, ProviderRegistration, ProviderScope, SpeechLimits, SpeechModel,
+    SpeechModelProvider, TypedProviderOptions,
 };
 use siumai_transport::{
     EndpointError, ProviderTransport, RetryPolicy, TransportConfigError, TransportLimits,
@@ -38,8 +39,7 @@ impl ElevenLabsProvider {
         &self,
         model: impl Into<String>,
     ) -> Result<ElevenLabsSpeechModel, ModelLookupError> {
-        let model = ModelId::new(model.into())
-            .map_err(|error| ModelLookupError::InvalidReference(error.to_string()))?;
+        let model = ModelId::new(model.into())?;
         Ok(self.create_speech_model(model))
     }
 
@@ -50,10 +50,13 @@ impl ElevenLabsProvider {
 
     pub fn registration(&self) -> ProviderRegistration {
         let provider = self.clone();
-        ProviderRegistration::from_scope(self.runtime.scope.clone(), self.runtime.policy.clone())
-            .with_speech(Arc::new(move |model| {
+        ProviderRegistration::from_speech(
+            self.runtime.scope.clone(),
+            self.runtime.policy.clone(),
+            Arc::new(move |model| {
                 Ok(Arc::new(provider.create_speech_model(model)) as Arc<dyn SpeechModel>)
-            }))
+            }),
+        )
     }
 
     pub fn profile(&self) -> &ElevenLabsProfile {
@@ -66,8 +69,8 @@ impl ElevenLabsProvider {
 }
 
 impl Provider for ElevenLabsProvider {
-    fn scope(&self) -> &ProviderScope {
-        &self.runtime.scope
+    fn provider_id(&self) -> &siumai_core::ProviderId {
+        self.runtime.scope.provider_id()
     }
 }
 
@@ -193,7 +196,7 @@ impl ElevenLabsProviderBuilder {
         ));
         Ok(ElevenLabsProvider {
             runtime: Arc::new(ProviderRuntime {
-                scope: self.profile.scope().clone(),
+                scope: self.profile.scope_arc(),
                 profile: self.profile,
                 transport,
                 policy,
@@ -224,7 +227,14 @@ impl ProviderRuntime {
     ) -> Result<ElevenLabsSpeechOptions, ProviderOptionError> {
         let layers = options
             .apply_provider_options(self.scope.provider_id(), ProviderOptionLayers::default())?;
-        layers.merge_for(self.scope.provider_id(), &self.option_merger)
+        layers.merge_for(
+            ProviderOptionContext::new(
+                self.scope.provider_id(),
+                ModelFamily::Speech,
+                self.scope.api_mode(),
+            ),
+            &self.option_merger,
+        )
     }
 
     pub(crate) fn speech_limits(&self, model: &ModelId) -> SpeechLimits {

@@ -1,7 +1,0 @@
-{
-  "model": "o1",
-  "messages": [{ "role": "user", "content": "Hello" }],
-  "max_completion_tokens": 10,
-  "reasoning_effort": "medium"
-}
-

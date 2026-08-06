@@ -105,11 +105,11 @@ impl Agent {
     {
         let instructions = instructions.into_iter().collect::<Vec<_>>();
         if let Some((index, message)) = instructions.iter().enumerate().find(|(_, message)| {
-            !matches!(message.role, MessageRole::System | MessageRole::Developer)
+            !matches!(message.role(), MessageRole::System | MessageRole::Developer)
         }) {
             return Err(AgentConfigError::InvalidInstructionRole {
                 index,
-                role: message.role,
+                role: message.role(),
             });
         }
         Ok(Self {

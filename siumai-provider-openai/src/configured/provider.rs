@@ -3,14 +3,17 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::NaiveDate;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, CatalogError, InvalidId, LanguageModel, LanguageModelProvider, ModelId,
-    ModelLookupError, ProfileError, Provider, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderRegistration,
-    ProviderScope,
+    ApiStability, CallOptions, CatalogError, InvalidId, LanguageModel, LanguageModelProvider,
+    ModelFamily, ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderOptionContext,
+    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
+    ProviderOptions, ProviderRegistration, ProviderScope, ProviderSupportManifest,
+    SupportManifestError, VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
 };
 use siumai_protocol_openai::responses_next::FunctionToolEncodingOptions;
 use siumai_transport::{
@@ -26,9 +29,10 @@ use super::options::{
     OpenAiChatCompletionsOptions, OpenAiPromptCacheBreakpoint, OpenAiResponsesOptions,
 };
 use super::policy::OpenAiModelPolicy;
-use super::profile::OpenAiProfile;
+use super::profile::{OpenAiProfile, PROVIDER_ID};
 #[cfg(feature = "openai-realtime")]
 use super::realtime::{
+    OPENAI_REALTIME_TRANSLATION_SOURCE_URL, OPENAI_REALTIME_WEBSOCKET_SOURCE_URL,
     OpenAiRealtimeConfig, OpenAiRealtimeConfigError, OpenAiRealtimeEndpoint,
     OpenAiTranslationConfig,
 };
@@ -38,6 +42,9 @@ use super::responses_resource::OpenAiResponsesResource;
 
 const OFFICIAL_ORIGIN: &str = "https://api.openai.com";
 const OFFICIAL_BASE_URL: &str = "https://api.openai.com/v1";
+const RESPONSES_RESOURCE_SOURCE: &str =
+    "https://developers.openai.com/api/reference/resources/responses/methods/create";
+const SUPPORT_VERIFIED_ON: &str = "2026-08-06";
 
 /// One synchronously configured OpenAI provider with explicit language modes.
 #[derive(Clone)]
@@ -163,7 +170,9 @@ impl OpenAiProvider {
     pub fn registration_for(&self, mode: OpenAiApiMode) -> ProviderRegistration {
         let provider = self.clone();
         let scope = self.runtime.scope_arc(mode);
-        ProviderRegistration::from_scope(scope, self.runtime.policy.clone()).with_language(
+        ProviderRegistration::from_language(
+            scope,
+            self.runtime.policy.clone(),
             Arc::new(move |model| match mode {
                 OpenAiApiMode::Responses => {
                     Ok(Arc::new(provider.create_responses_model(model)) as Arc<dyn LanguageModel>)
@@ -180,6 +189,11 @@ impl OpenAiProvider {
         &self.runtime.profile
     }
 
+    /// Inspect the exact model and provider-native scopes configured on this provider.
+    pub fn support_manifest(&self) -> &ProviderSupportManifest {
+        self.runtime.support_manifest.as_ref()
+    }
+
     pub const fn recommended_mode(&self) -> OpenAiApiMode {
         OpenAiApiMode::Responses
     }
@@ -194,8 +208,8 @@ impl OpenAiProvider {
 }
 
 impl Provider for OpenAiProvider {
-    fn scope(&self) -> &ProviderScope {
-        self.runtime.scope(OpenAiApiMode::Responses)
+    fn provider_id(&self) -> &siumai_core::ProviderId {
+        self.runtime.support_manifest.provider_id()
     }
 }
 
@@ -211,7 +225,7 @@ impl fmt::Debug for OpenAiProvider {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("OpenAiProvider")
-            .field("scope", self.scope())
+            .field("provider_id", self.provider_id())
             .field("recommended_mode", &OpenAiApiMode::Responses)
             .field("transport", &"shared")
             .finish()
@@ -368,11 +382,14 @@ impl OpenAiProviderBuilder {
         self.chat_completions_defaults
             .validate_values()
             .map_err(OpenAiConfigError::InvalidChatCompletionsDefaults)?;
-        let profile = OpenAiProfile::current()?;
         let endpoint = self.endpoint?;
-        if matches!(endpoint.policy(), EndpointPolicy::Official(_))
-            && self.credential.is_unauthenticated()
-        {
+        let verified_endpoint = matches!(endpoint.policy(), EndpointPolicy::Official(_));
+        let profile = if verified_endpoint {
+            OpenAiProfile::current()?
+        } else {
+            OpenAiProfile::custom()?
+        };
+        if verified_endpoint && self.credential.is_unauthenticated() {
             return Err(OpenAiConfigError::OfficialEndpointRequiresAuthentication);
         }
         #[cfg(feature = "openai-realtime")]
@@ -397,6 +414,44 @@ impl OpenAiProviderBuilder {
         let translation_endpoint = self
             .translation_endpoint
             .or_else(|| (!self.custom_endpoint).then(OpenAiRealtimeEndpoint::official));
+        let mut native_claims = Vec::new();
+        if verified_endpoint {
+            native_claims.push(native_support_claim(
+                "responses-resources",
+                NativeSurfaceKind::Resource,
+                ApiStability::Stable,
+                RESPONSES_RESOURCE_SOURCE,
+            )?);
+        }
+        #[cfg(feature = "openai-realtime")]
+        if realtime_endpoint
+            .as_ref()
+            .is_some_and(OpenAiRealtimeEndpoint::is_official)
+        {
+            native_claims.push(native_support_claim(
+                "realtime",
+                NativeSurfaceKind::Session,
+                ApiStability::Experimental,
+                OPENAI_REALTIME_WEBSOCKET_SOURCE_URL,
+            )?);
+        }
+        #[cfg(feature = "openai-realtime")]
+        if translation_endpoint
+            .as_ref()
+            .is_some_and(OpenAiRealtimeEndpoint::is_official)
+        {
+            native_claims.push(native_support_claim(
+                "realtime-translation",
+                NativeSurfaceKind::Session,
+                ApiStability::Experimental,
+                OPENAI_REALTIME_TRANSLATION_SOURCE_URL,
+            )?);
+        }
+        let support_manifest = Arc::new(ProviderSupportManifest::new(
+            siumai_core::ProviderId::new(PROVIDER_ID)?,
+            [profile.provider_profile().clone()],
+            native_claims,
+        )?);
         let auth = self.credential.into_auth(self.organization, self.project)?;
         let mut transport = ProviderTransport::builder(endpoint)
             .with_auth(auth)
@@ -419,6 +474,7 @@ impl OpenAiProviderBuilder {
         Ok(OpenAiProvider {
             runtime: Arc::new(OpenAiRuntime {
                 profile,
+                support_manifest,
                 transport,
                 policy,
                 responses_options: OpenAiOptionMerger::responses(self.responses_defaults)?,
@@ -492,6 +548,7 @@ impl fmt::Debug for OpenAiProviderBuilder {
 
 pub(crate) struct OpenAiRuntime {
     pub(crate) profile: OpenAiProfile,
+    pub(crate) support_manifest: Arc<ProviderSupportManifest>,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<OpenAiModelPolicy>,
     responses_options: OpenAiOptionMerger,
@@ -517,6 +574,28 @@ pub(crate) struct OpenAiRuntime {
     realtime_io_timeout: Option<Duration>,
 }
 
+fn native_support_claim(
+    surface: &str,
+    kind: NativeSurfaceKind,
+    stability: ApiStability,
+    source: &str,
+) -> Result<VerifiedNativeSupportClaim, OpenAiConfigError> {
+    Ok(VerifiedNativeSupportClaim::new(
+        NativeSupportScope::surface(
+            siumai_core::ProviderId::new("openai")?,
+            siumai_core::PlatformId::new("openai-api")?,
+            kind,
+            NativeSurfaceId::new(surface)?,
+        ),
+        VerifiedFidelity::Native,
+        stability,
+        NativeVerificationEvidence::new(
+            OfficialSource::new(source)?,
+            VerificationDate::new(NaiveDate::parse_from_str(SUPPORT_VERIFIED_ON, "%Y-%m-%d")?),
+        ),
+    ))
+}
+
 impl OpenAiRuntime {
     pub(crate) fn scope(&self, mode: OpenAiApiMode) -> &ProviderScope {
         self.profile.provider_scope(mode)
@@ -538,7 +617,14 @@ impl OpenAiRuntime {
             OpenAiApiMode::Responses => &self.responses_options,
             OpenAiApiMode::ChatCompletions => &self.chat_completions_options,
         };
-        layers.merge_for(scope.provider_id(), merger)
+        layers.merge_for(
+            ProviderOptionContext::new(
+                scope.provider_id(),
+                ModelFamily::Language,
+                scope.api_mode(),
+            ),
+            merger,
+        )
     }
 }
 
@@ -847,8 +933,7 @@ fn serialize_object<T: Serialize>(value: T) -> Result<Map<String, Value>, Provid
 }
 
 fn parse_model_id(model: impl Into<String>) -> Result<ModelId, ModelLookupError> {
-    ModelId::new(model.into())
-        .map_err(|error| ModelLookupError::InvalidReference(error.to_string()))
+    ModelId::new(model.into()).map_err(ModelLookupError::from)
 }
 
 #[derive(Debug, Error)]
@@ -866,6 +951,10 @@ pub enum OpenAiConfigError {
     Profile(#[from] ProfileError),
     #[error(transparent)]
     Catalog(#[from] CatalogError),
+    #[error(transparent)]
+    SupportManifest(#[from] SupportManifestError),
+    #[error("OpenAI support verification date is invalid: {0}")]
+    SupportDate(#[from] chrono::ParseError),
     #[error("OpenAI verification date is invalid")]
     InvalidVerificationDate,
     #[error("the official OpenAI endpoint requires authenticated credentials")]
@@ -878,7 +967,7 @@ pub enum OpenAiConfigError {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{Model, ModelAdvisory, ModelOperation, SupportState};
+    use siumai_core::{ApiStability, Model, ModelAdvisory, ModelOperation, SupportState};
 
     use super::*;
     use crate::configured::catalog::{GPT_5_6, GPT_5_6_SOL};
@@ -920,24 +1009,63 @@ mod tests {
     }
 
     #[test]
-    fn policy_keeps_alias_and_unknown_model_distinct() {
-        let provider = provider();
+    fn official_policy_keeps_alias_and_unknown_model_distinct() {
+        let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
+            .build()
+            .unwrap();
         let registration = provider.responses_registration();
-        let alias = registration.evaluate(
-            ModelId::new(GPT_5_6).unwrap(),
-            siumai_core::ModelFamily::Language,
-            ModelOperation::Generate,
-        );
+        let alias = registration.evaluate(ModelId::new(GPT_5_6).unwrap(), ModelOperation::Generate);
         assert_eq!(alias.state(), &SupportState::Supported);
         assert_eq!(alias.advisories(), &[ModelAdvisory::RollingAlias]);
 
         let future = registration.evaluate(
             ModelId::new("gpt-6-future").unwrap(),
-            siumai_core::ModelFamily::Language,
             ModelOperation::Generate,
         );
         assert_eq!(future.state(), &SupportState::Unknown);
         assert_eq!(future.advisories(), &[ModelAdvisory::UnknownModel]);
+    }
+
+    #[test]
+    fn custom_endpoint_uses_generic_profile_and_unknown_model_policy() {
+        let provider = provider();
+        let profile = provider.profile().provider_profile();
+
+        assert!(profile.verified_claims().is_none());
+        assert!(profile.catalog().is_none());
+        let decision = provider
+            .responses_registration()
+            .evaluate(ModelId::new(GPT_5_6_SOL).unwrap(), ModelOperation::Generate);
+        assert_eq!(decision.state(), &SupportState::Unknown);
+        assert_eq!(decision.advisories(), &[ModelAdvisory::UnknownModel]);
+        assert!(provider.support_manifest().native_claims().is_empty());
+    }
+
+    #[test]
+    fn support_manifest_declares_official_resources_and_sessions() {
+        let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
+            .build()
+            .unwrap();
+        let manifest = provider.support_manifest();
+
+        assert_eq!(manifest.profiles().len(), 1);
+        assert!(manifest.native_claims().iter().any(|claim| {
+            claim
+                .scope()
+                .binding()
+                .surface_id()
+                .is_some_and(|surface| surface.as_str() == "responses-resources")
+                && claim.stability() == ApiStability::Stable
+        }));
+        #[cfg(feature = "openai-realtime")]
+        assert!(manifest.native_claims().iter().any(|claim| {
+            claim
+                .scope()
+                .binding()
+                .surface_id()
+                .is_some_and(|surface| surface.as_str() == "realtime")
+                && claim.stability() == ApiStability::Experimental
+        }));
     }
 
     #[test]

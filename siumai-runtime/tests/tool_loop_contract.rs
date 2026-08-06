@@ -453,9 +453,16 @@ async fn run_and_stream_share_one_stream_only_execution_trace() {
         requests[1]
             .messages
             .iter()
-            .map(|message| message.role)
+            .map(Message::role)
             .collect::<Vec<_>>(),
         vec![MessageRole::User, MessageRole::Assistant, MessageRole::Tool]
+    );
+    assert!(requests[1].messages[1].annotations().is_empty());
+    assert!(
+        requests[1].messages[1]
+            .content()
+            .iter()
+            .all(|part| part.annotations().is_empty())
     );
 }
 

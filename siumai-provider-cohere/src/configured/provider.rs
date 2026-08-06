@@ -4,44 +4,29 @@ use std::time::Duration;
 
 use secrecy::SecretString;
 use siumai_core::{
-    ApiModeId, EmbeddingModel, EmbeddingModelProvider, InvalidId, ModelFamily, ModelId,
-    ModelLookupError, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
-    ProtocolId, Provider, ProviderId, ProviderRegistration, ProviderScope, RerankModel,
-    RerankModelProvider, UnsupportedReason,
+    EmbeddingModel, EmbeddingModelProvider, InvalidId, ModelId, ModelLookupError, ModelOperation,
+    ModelPolicy, ModelPolicyContext, ModelPolicyDecision, Provider, ProviderRegistration,
+    ProviderRegistrationError, ProviderScope, RerankModel, RerankModelProvider, UnsupportedReason,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, ReplaySafety, RetryPolicy,
-    TransportConfigError, TransportLimits,
+    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport, ReplaySafety,
+    RetryPolicy, TransportConfigError, TransportLimits,
 };
 use thiserror::Error;
 
 use super::auth::{CohereBearerAuth, validate_api_key};
 use super::model::{CohereEmbeddingModel, CohereRerankModel};
+use super::profile::{CohereProfile, CohereProfileError};
 
 const COHERE_ORIGIN: &str = "https://api.cohere.com";
 const COHERE_V2_BASE_URL: &str = "https://api.cohere.com/v2";
-
-const KNOWN_EMBEDDING_MODELS: &[&str] = &[
-    "embed-v4.0",
-    "embed-english-v3.0",
-    "embed-multilingual-v3.0",
-    "embed-english-light-v3.0",
-    "embed-multilingual-light-v3.0",
-    "embed-english-v2.0",
-    "embed-english-light-v2.0",
-    "embed-multilingual-v2.0",
-];
-
-const KNOWN_RERANK_MODELS: &[&str] = &[
-    "rerank-v3.5",
-    "rerank-english-v3.0",
-    "rerank-multilingual-v3.0",
-];
 
 /// A synchronously configured Cohere v2 provider.
 #[derive(Clone)]
 pub struct CohereProvider {
     pub(crate) runtime: Arc<CohereRuntime>,
+    profile: CohereProfile,
+    registration: ProviderRegistration,
 }
 
 impl CohereProvider {
@@ -83,16 +68,38 @@ impl CohereProvider {
 
     /// Capture narrow factories backed by this provider's shared runtime.
     pub fn registration(&self) -> ProviderRegistration {
-        let embedding_provider = self.clone();
-        let rerank_provider = self.clone();
-        ProviderRegistration::from_scope(self.runtime.scope.clone(), self.runtime.policy.clone())
-            .with_embedding(Arc::new(move |model| {
-                Ok(Arc::new(embedding_provider.create_embedding_model(model))
-                    as Arc<dyn EmbeddingModel>)
-            }))
-            .with_rerank(Arc::new(move |model| {
-                Ok(Arc::new(rerank_provider.create_rerank_model(model)) as Arc<dyn RerankModel>)
-            }))
+        self.registration.clone()
+    }
+
+    fn build_registration(
+        runtime: Arc<CohereRuntime>,
+    ) -> Result<ProviderRegistration, ProviderRegistrationError> {
+        let embedding_runtime = runtime.clone();
+        let rerank_runtime = runtime.clone();
+        ProviderRegistration::from_embedding(
+            runtime.scope.clone(),
+            runtime.policy.clone(),
+            Arc::new(move |model| {
+                Ok(
+                    Arc::new(CohereEmbeddingModel::new(embedding_runtime.clone(), model))
+                        as Arc<dyn EmbeddingModel>,
+                )
+            }),
+        )
+        .bind_rerank(
+            runtime.scope.clone(),
+            runtime.policy.clone(),
+            Arc::new(move |model| {
+                Ok(
+                    Arc::new(CohereRerankModel::new(rerank_runtime.clone(), model))
+                        as Arc<dyn RerankModel>,
+                )
+            }),
+        )
+    }
+
+    pub fn profile(&self) -> &CohereProfile {
+        &self.profile
     }
 
     fn create_embedding_model(&self, model: ModelId) -> CohereEmbeddingModel {
@@ -105,8 +112,8 @@ impl CohereProvider {
 }
 
 impl Provider for CohereProvider {
-    fn scope(&self) -> &ProviderScope {
-        &self.runtime.scope
+    fn provider_id(&self) -> &siumai_core::ProviderId {
+        self.runtime.scope.provider_id()
     }
 }
 
@@ -196,16 +203,17 @@ impl CohereProviderBuilder {
         if !validate_api_key(&self.api_key) {
             return Err(CohereConfigError::InvalidApiKey);
         }
-        let provider_id = ProviderId::new("cohere")?;
-        let scope = Arc::new(
-            ProviderScope::new(provider_id)
-                .with_protocol(ProtocolId::new("cohere-native")?)
-                .with_api_mode(ApiModeId::new("v2")?),
-        );
         let endpoint = match self.endpoint {
             Some(endpoint) => endpoint,
             None => default_endpoint()?,
         };
+        let verified_endpoint = matches!(endpoint.policy(), EndpointPolicy::Official(_));
+        let profile = if verified_endpoint {
+            CohereProfile::current()?
+        } else {
+            CohereProfile::custom()?
+        };
+        let scope = profile.scope();
         let mut transport = ProviderTransport::builder(endpoint)
             .with_auth(Arc::new(CohereBearerAuth::new(self.api_key)))
             .with_limits(self.limits)
@@ -220,13 +228,17 @@ impl CohereProviderBuilder {
             transport = transport.with_read_timeout(timeout);
         }
         let transport = transport.build()?;
+        let runtime = Arc::new(CohereRuntime {
+            scope: scope.clone(),
+            transport,
+            policy: Arc::new(CohereModelPolicy::new(scope, verified_endpoint)),
+            replay_safety: ReplaySafety::Never,
+        });
+        let registration = CohereProvider::build_registration(runtime.clone())?;
         Ok(CohereProvider {
-            runtime: Arc::new(CohereRuntime {
-                scope,
-                transport,
-                policy: Arc::new(CohereModelPolicy),
-                replay_safety: ReplaySafety::Never,
-            }),
+            runtime,
+            profile,
+            registration,
         })
     }
 }
@@ -264,25 +276,35 @@ impl fmt::Debug for CohereRuntime {
     }
 }
 
-pub(crate) struct CohereModelPolicy;
+pub(crate) struct CohereModelPolicy {
+    expected_scope: Arc<ProviderScope>,
+    verified_endpoint: bool,
+}
+
+impl CohereModelPolicy {
+    fn new(expected_scope: Arc<ProviderScope>, verified_endpoint: bool) -> Self {
+        Self {
+            expected_scope,
+            verified_endpoint,
+        }
+    }
+}
 
 impl ModelPolicy for CohereModelPolicy {
     fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        let operation_matches = matches!(
-            (context.family, context.operation),
-            (ModelFamily::Embedding, ModelOperation::Embed)
-                | (ModelFamily::Rerank, ModelOperation::Rerank)
-        );
-        if !operation_matches {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
+        if context.scope() != self.expected_scope.as_ref() {
+            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
         }
-
-        let known = match context.family {
-            ModelFamily::Embedding => KNOWN_EMBEDDING_MODELS.contains(&context.model.as_str()),
-            ModelFamily::Rerank => KNOWN_RERANK_MODELS.contains(&context.model.as_str()),
-            _ => false,
+        let known = match context.operation() {
+            ModelOperation::Embed => crate::models::is_current_embedding(context.model().as_str()),
+            ModelOperation::Rerank => crate::models::is_current_rerank(context.model().as_str()),
+            _ => {
+                return ModelPolicyDecision::unsupported(
+                    UnsupportedReason::OperationNotImplemented,
+                );
+            }
         };
-        if known {
+        if self.verified_endpoint && known {
             ModelPolicyDecision::supported()
         } else {
             ModelPolicyDecision::unknown_model()
@@ -291,8 +313,7 @@ impl ModelPolicy for CohereModelPolicy {
 }
 
 fn parse_model_id(model: impl Into<String>) -> Result<ModelId, ModelLookupError> {
-    ModelId::new(model.into())
-        .map_err(|error| ModelLookupError::InvalidReference(error.to_string()))
+    ModelId::new(model.into()).map_err(ModelLookupError::from)
 }
 
 fn default_endpoint() -> Result<EndpointConfig, EndpointError> {
@@ -304,10 +325,100 @@ fn default_endpoint() -> Result<EndpointConfig, EndpointError> {
 pub enum CohereConfigError {
     #[error("invalid Cohere provider identity: {0}")]
     Identity(#[from] InvalidId),
+    #[error("invalid Cohere support profile: {0}")]
+    Profile(#[from] CohereProfileError),
     #[error("Cohere API key is empty or contains invalid bytes")]
     InvalidApiKey,
     #[error("invalid Cohere endpoint: {0}")]
     Endpoint(#[from] EndpointError),
     #[error("invalid Cohere transport settings: {0}")]
     Transport(#[from] TransportConfigError),
+    #[error("invalid Cohere default registration: {0}")]
+    Registration(#[from] ProviderRegistrationError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use siumai_core::{ApiModeId, ModelFamily, PlatformId, ProtocolId, ProviderId, SupportState};
+
+    fn scope(provider: &str, platform: &str, protocol: &str, api_mode: &str) -> Arc<ProviderScope> {
+        Arc::new(
+            ProviderScope::new(ProviderId::new(provider).expect("provider ID"))
+                .with_platform(PlatformId::new(platform).expect("platform ID"))
+                .with_protocol(ProtocolId::new(protocol).expect("protocol ID"))
+                .with_api_mode(ApiModeId::new(api_mode).expect("API mode ID")),
+        )
+    }
+
+    fn context(scope: Arc<ProviderScope>) -> ModelPolicyContext {
+        ModelPolicyContext::new(
+            scope,
+            ModelId::new(crate::models::embedding::EMBED_V4).expect("model ID"),
+            ModelOperation::Embed,
+        )
+    }
+
+    #[test]
+    fn policy_requires_exact_scope_and_verified_endpoint_for_named_support() {
+        let official_scope = scope("cohere", "public-api", "cohere-native", "v2");
+        let official = CohereModelPolicy::new(official_scope.clone(), true);
+        assert_eq!(
+            official.evaluate(&context(official_scope)).state(),
+            &SupportState::Supported
+        );
+
+        for mismatched_scope in [
+            scope("other", "public-api", "cohere-native", "v2"),
+            scope("cohere", "other", "cohere-native", "v2"),
+            scope("cohere", "public-api", "other", "v2"),
+            scope("cohere", "public-api", "cohere-native", "other"),
+        ] {
+            assert!(matches!(
+                official.evaluate(&context(mismatched_scope)).state(),
+                SupportState::Unsupported { .. }
+            ));
+        }
+
+        let custom_scope = scope("cohere", "custom-cohere-v2", "cohere-native", "v2");
+        let custom = CohereModelPolicy::new(custom_scope.clone(), false);
+        assert_eq!(
+            custom.evaluate(&context(custom_scope)).state(),
+            &SupportState::Unknown
+        );
+    }
+
+    #[test]
+    fn default_registration_exposes_both_native_families() {
+        let provider = CohereProvider::builder("test-key")
+            .with_endpoint(
+                EndpointConfig::local_explicit("http://127.0.0.1:9/v2").expect("local endpoint"),
+            )
+            .build()
+            .expect("provider");
+        let registration = provider.registration();
+
+        assert!(registration.supports_family(ModelFamily::Embedding));
+        assert!(registration.supports_family(ModelFamily::Rerank));
+        assert_eq!(
+            registration.scope(ModelFamily::Embedding),
+            registration.scope(ModelFamily::Rerank)
+        );
+        assert_eq!(
+            registration
+                .embedding_model(ModelId::new("future-embed").expect("model ID"))
+                .expect("embedding model")
+                .descriptor()
+                .family(),
+            ModelFamily::Embedding
+        );
+        assert_eq!(
+            registration
+                .rerank_model(ModelId::new("future-rerank").expect("model ID"))
+                .expect("rerank model")
+                .descriptor()
+                .family(),
+            ModelFamily::Rerank
+        );
+    }
 }

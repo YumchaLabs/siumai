@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Replace the legacy universal-client wrapper with a provider-owned, model-independent
+  `DeepSeekProvider` backed by the configured OpenAI-compatible language runtime.
+- Expose Chat Completions and Responses as explicit API modes with provider-owned typed options,
+  open model identifiers, and dated official support evidence.
+- Preserve DeepSeek reasoning replay, strict function tools, JSON-object structured-output fallback,
+  cache hit/miss accounting, reasoning usage, and canonical stream termination semantics.
+
+### Removed
+
+- Remove the legacy builder, configuration, middleware, capability/specification bags, compatibility
+  aliases, and duplicated standards modules.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-deepseek-v0.11.0-beta.8...siumai-provider-deepseek-v0.11.0-beta.9) - 2026-05-27
 
 ### Other

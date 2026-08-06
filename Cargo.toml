@@ -5,32 +5,23 @@ members = [
     "siumai-core",
     "siumai-transport",
     "siumai-runtime",
-    "siumai-bridge",
     "siumai-mcp",
     "siumai-server",
-    "siumai-spec",
-    "siumai-provider-utils",
     "siumai-registry",
-    "siumai-extras",
     "siumai-provider-openai",
-    "siumai-provider-azure",
-    "siumai-provider-openai-compatible",
+    "siumai-provider-alibaba",
+    "siumai-openai-compatible",
+    "siumai-anthropic-compatible",
     "siumai-protocol-openai",
     "siumai-provider-anthropic",
-    "siumai-provider-anthropic-compatible",
     "siumai-protocol-anthropic",
-    "siumai-provider-ollama",
     "siumai-provider-gemini",
-    "siumai-protocol-gemini",
     "siumai-provider-google-vertex",
     "siumai-provider-groq",
     "siumai-provider-xai",
     "siumai-provider-minimax",
     "siumai-provider-deepseek",
     "siumai-provider-cohere",
-    "siumai-provider-togetherai",
-    "siumai-provider-amazon-bedrock",
-    "siumai-provider-gateway",
     "siumai-provider-deepgram",
     "siumai-provider-elevenlabs",
 ]
@@ -51,7 +42,6 @@ async-trait = "0.1"
 # Serialization
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
-jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
 
 # HTTP client
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json", "form", "stream", "multipart", "gzip", "brotli"] }
@@ -67,7 +57,6 @@ futures = "0.3"
 bytes = { version = "1", features = ["serde"] }
 futures-util = "0.3"
 async-stream = "0.3"
-eventsource-stream = "0.2"
 tokio-util = { version = "0.7", features = ["codec"] }
 
 # Time handling
@@ -82,59 +71,36 @@ thiserror = "2.0"
 # UUID generation
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
-# Lazy static initialization
-once_cell = "1.20"
-
-# Tracing and observability
-tracing = "0.1"
-
 # Random number generation (for retry jitter)
 rand = "0.10"
 
 # URL encoding
 urlencoding = "2.1"
 infer = "0.19"
-regex = "1.11"
 
 # Core crate (for workspace consumption)
 # Disable default features; downstream crates must opt-in provider features explicitly
-siumai = { version = "0.11.0-beta.9", path = "siumai", default-features = false }
 siumai-core = { version = "0.11.0-beta.9", path = "siumai-core", default-features = false }
+siumai-anthropic-compatible = { version = "0.11.0-beta.9", path = "siumai-anthropic-compatible", default-features = false }
+siumai-protocol-anthropic = { version = "0.11.0-beta.9", path = "siumai-protocol-anthropic", default-features = false }
+siumai-protocol-openai = { version = "0.11.0-beta.9", path = "siumai-protocol-openai", default-features = false }
 siumai-transport = { version = "0.11.0-beta.9", path = "siumai-transport", default-features = false }
 siumai-runtime = { version = "0.11.0-beta.9", path = "siumai-runtime", default-features = false }
-siumai-bridge = { version = "0.11.0-beta.9", path = "siumai-bridge", default-features = false }
-siumai-mcp = { version = "0.11.0-beta.9", path = "siumai-mcp", default-features = false }
-siumai-server = { version = "0.11.0-beta.9", path = "siumai-server", default-features = false }
-siumai-spec = { version = "0.11.0-beta.9", path = "siumai-spec", default-features = false }
-siumai-provider-utils = { version = "0.11.0-beta.9", path = "siumai-provider-utils", default-features = false }
 siumai-registry = { version = "0.11.0-beta.9", path = "siumai-registry", default-features = false }
+siumai-provider-alibaba = { version = "0.11.0-beta.9", path = "siumai-provider-alibaba", default-features = false }
 
 # Security
 secrecy = { version = "0.10", features = ["serde"] }
 sha2 = "0.10"
 
-# Retry mechanism
-backoff = { version = "0.4", features = ["tokio"] }
-lru = "0.18"
 base64 = "0.22.1"
 
-# Schema validation (for siumai-extras)
-jsonschema = "0.46"
+# Optional JSON Schema validation for siumai-runtime
+jsonschema = { version = "0.46", default-features = false }
 
-# Telemetry (for siumai-extras)
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "time", "chrono"] }
-tracing-appender = "0.2"
 rmcp = { version = "1.6", default-features = false }
-proptest = "1.5"
 
-# OpenTelemetry (for siumai-extras)
-opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.31", features = ["trace", "metrics", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.31", features = ["trace", "metrics", "grpc-tonic", "http-proto"] }
-opentelemetry-semantic-conventions = "0.31"
-opentelemetry-stdout = { version = "0.31", features = ["trace", "metrics"] }
-
-# Server adapters (for siumai-extras)
+# Server adapters
 axum = "0.8"
 http-body-util = "0.1"
 
@@ -142,8 +108,6 @@ http-body-util = "0.1"
 tokio-test = "0.4"
 mockito = "1.0"
 wiremock = "0.6"
-tracing-test = "0.2"
-tempfile = "3.0"
 
 [profile.dist]
 inherits = "release"

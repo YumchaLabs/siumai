@@ -8,6 +8,7 @@ use siumai_core::{
 };
 
 use super::ChatCompletionsDialect;
+use super::reasoning::ReasoningDetailsSnapshot;
 use super::response::{
     build_response, decode_finish_reason, decode_usage, parse_model, protocol_error,
 };
@@ -29,6 +30,7 @@ pub struct ChatCompletionsStreamDecoder {
     text_started: bool,
     reasoning: String,
     reasoning_started: bool,
+    reasoning_details: Option<ReasoningDetailsSnapshot>,
     refusals: Vec<Option<String>>,
     tools: BTreeMap<u32, ToolAssembly>,
     order: Vec<ContentOrder>,
@@ -47,6 +49,7 @@ impl std::fmt::Debug for ChatCompletionsStreamDecoder {
             .field("finished", &self.lifecycle.finish_seen())
             .field("text_bytes", &self.text.len())
             .field("reasoning_bytes", &self.reasoning.len())
+            .field("has_reasoning_details", &self.reasoning_details.is_some())
             .field("refusal_count", &self.refusals.len())
             .field("tool_count", &self.tools.len())
             .finish()
@@ -57,6 +60,7 @@ impl std::fmt::Debug for ChatCompletionsStreamDecoder {
 enum ContentOrder {
     Text,
     Reasoning,
+    ReasoningDetails,
     Refusal(usize),
     Tool(u32),
 }
@@ -87,6 +91,7 @@ impl ChatCompletionsStreamDecoder {
             text_started: false,
             reasoning: String::new(),
             reasoning_started: false,
+            reasoning_details: None,
             refusals: Vec::new(),
             tools: BTreeMap::new(),
             order: Vec::new(),
@@ -110,6 +115,15 @@ impl ChatCompletionsStreamDecoder {
     }
 
     fn decode_frame(&mut self, data: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
+        self.dialect
+            .validate_reasoning_configuration()
+            .map_err(|source| {
+                Error::new(
+                    ErrorKind::Configuration,
+                    "Chat Completions reasoning dialect configuration is invalid",
+                )
+                .with_source(source)
+            })?;
         if data.trim() == "[DONE]" {
             return self.complete();
         }
@@ -183,6 +197,16 @@ impl ChatCompletionsStreamDecoder {
                 id: "reasoning-0".to_string(),
                 delta: delta.to_string(),
             });
+        }
+        if let Some(field) = self.dialect.reasoning_details_field()
+            && let Some(value) = choice.delta.extra.get(field)
+            && !value.is_null()
+        {
+            let snapshot = ReasoningDetailsSnapshot::response(value)?;
+            if self.reasoning_details.is_none() {
+                self.order.push(ContentOrder::ReasoningDetails);
+            }
+            self.reasoning_details = Some(snapshot);
         }
         if let Some(reason) = choice.delta.refusal {
             let index = self.refusals.len();
@@ -359,6 +383,15 @@ impl ChatCompletionsStreamDecoder {
             completed_tools.insert(*index, call);
         }
 
+        let response_model = self
+            .response_model
+            .clone()
+            .unwrap_or_else(|| self.requested_model.clone());
+        let reasoning_details = self
+            .reasoning_details
+            .clone()
+            .map(|snapshot| snapshot.into_opaque(&self.scope, &response_model))
+            .transpose()?;
         let mut content = Vec::new();
         for part in &self.order {
             match *part {
@@ -368,6 +401,13 @@ impl ChatCompletionsStreamDecoder {
                 ContentOrder::Reasoning => content.push(ContentPart::Reasoning {
                     text: self.reasoning.clone(),
                 }),
+                ContentOrder::ReasoningDetails => {
+                    let item = reasoning_details.clone().ok_or_else(|| {
+                        protocol_error("Chat Completions reasoning_details assembly was incomplete")
+                    })?;
+                    events.push(LanguageStreamEvent::ProviderOpaque(item.clone()));
+                    content.push(ContentPart::ProviderOpaque(item));
+                }
                 ContentOrder::Refusal(index) => content.push(ContentPart::Refusal {
                     reason: self.refusals[index].clone(),
                 }),
@@ -381,9 +421,7 @@ impl ChatCompletionsStreamDecoder {
         }
         let response = build_response(
             self.response_id.clone(),
-            self.response_model
-                .clone()
-                .unwrap_or_else(|| self.requested_model.clone()),
+            response_model,
             content,
             finish_reason,
             self.usage.clone(),
@@ -462,6 +500,22 @@ mod tests {
         )
     }
 
+    fn minimax_decoder() -> ChatCompletionsStreamDecoder {
+        let scope = ProviderScope::new(ProviderId::new("minimax").unwrap())
+            .with_platform(PlatformId::new("minimax-api").unwrap())
+            .with_protocol(ProtocolId::new("openai").unwrap())
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap());
+        let reasoning = WireFieldName::new("reasoning_content").unwrap();
+        let dialect = ChatCompletionsDialect::generic()
+            .with_reasoning_input_field(reasoning.clone())
+            .with_reasoning_output_field(reasoning)
+            .with_replayable_reasoning_details_field(
+                WireFieldName::new("reasoning_details").unwrap(),
+            )
+            .unwrap();
+        ChatCompletionsStreamDecoder::new(scope, ModelId::new("MiniMax-M3").unwrap(), dialect)
+    }
+
     #[test]
     fn assembles_lossless_text_reasoning_tool_usage_and_one_terminal() {
         let mut decoder = decoder();
@@ -531,6 +585,74 @@ mod tests {
         assert!(!decoder.terminal_seen());
         assert!(decoder.decode("[DONE]").is_err());
         assert!(decoder.finish().is_err());
+    }
+
+    #[test]
+    fn preserves_cumulative_structured_reasoning_in_stream_terminal() {
+        let mut decoder = minimax_decoder();
+        let first = serde_json::json!({
+            "id": "chat-minimax-stream",
+            "model": "MiniMax-M3",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "reasoning_content": "inspect",
+                    "reasoning_details": [{
+                        "type": "reasoning.text",
+                        "id": "reasoning-text-1",
+                        "format": "MiniMax-response-v1",
+                        "index": 0,
+                        "text": "inspect"
+                    }]
+                },
+                "finish_reason": null
+            }]
+        })
+        .to_string();
+        decoder.decode(&first).unwrap();
+
+        let second = serde_json::json!({
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "reasoning_content": " the tool",
+                    "reasoning_details": [{
+                        "type": "reasoning.text",
+                        "id": "reasoning-text-1",
+                        "format": "MiniMax-response-v1",
+                        "index": 0,
+                        "text": "inspect the tool"
+                    }],
+                    "content": "done"
+                },
+                "finish_reason": "stop"
+            }]
+        })
+        .to_string();
+        decoder.decode(&second).unwrap();
+
+        let terminal = decoder.decode("[DONE]").unwrap();
+        let opaque_event = terminal.iter().find_map(|event| match event {
+            LanguageStreamEvent::ProviderOpaque(item) => Some(item),
+            _ => None,
+        });
+        assert!(matches!(
+            opaque_event,
+            Some(item)
+                if item.kind() == crate::chat_completions::REASONING_DETAILS_OPAQUE_KIND
+                    && item.data()[0]["text"] == "inspect the tool"
+        ));
+        let Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })) =
+            terminal.last()
+        else {
+            panic!("expected completed terminal")
+        };
+        assert!(response.content().iter().any(|part| matches!(
+            part,
+            ContentPart::ProviderOpaque(item)
+                if item.data()[0]["text"] == "inspect the tool"
+                    && item.provenance().provider.as_str() == "minimax"
+        )));
     }
 
     #[test]

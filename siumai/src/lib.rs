@@ -4,7 +4,11 @@
 //! immutable routing, and curated provider APIs under explicit namespaces.
 //! Native provider extensions remain provider-owned and are not flattened into
 //! a least-common-denominator client.
+//!
+//! The root README is included below so its maintained Rust examples are
+//! compiled by the facade doctest lane.
 
+#![doc = include_str!("../../README.md")]
 #![deny(unsafe_code)]
 
 pub mod families;
@@ -38,3 +42,7 @@ pub use siumai_core::{
 pub use runtime::{
     ModelTarget, Runtime, RuntimeBuilder, RuntimeConfigError, StepOptions, generate, stream,
 };
+
+#[cfg(doctest)]
+#[doc = include_str!("../../docs/migration/siumai-next.md")]
+mod migration_guide_doctests {}

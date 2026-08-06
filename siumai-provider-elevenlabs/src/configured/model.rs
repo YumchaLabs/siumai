@@ -44,12 +44,11 @@ impl ElevenLabsSpeechModel {
         let decision = self
             .runtime
             .policy
-            .evaluate(&siumai_core::ModelPolicyContext {
-                scope: self.runtime.scope.clone(),
-                model: self.model_id().clone(),
-                family: ModelFamily::Speech,
+            .evaluate(&siumai_core::ModelPolicyContext::new(
+                self.runtime.scope.clone(),
+                self.model_id().clone(),
                 operation,
-            });
+            ));
         if let SupportState::Unsupported { .. } = decision.state() {
             return Err(self.contextualize(Error::new(
                 ErrorKind::Unsupported,

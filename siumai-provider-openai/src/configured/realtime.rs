@@ -11,7 +11,6 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use http::header::{HeaderName, HeaderValue};
-use reqwest::Url;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -32,6 +31,7 @@ use siumai_transport::{
     WebSocketSender, WebSocketTransport,
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot};
+use url::Url;
 
 use super::credential::{OpenAiCredential, OpenAiCredentialError};
 

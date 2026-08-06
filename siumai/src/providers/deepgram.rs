@@ -1,12 +1,14 @@
 //! Curated Deepgram prerecorded transcription provider facade.
 
 pub use siumai_provider_deepgram::{
-    DeepgramConfigError, DeepgramCredential, DeepgramCredentialError, DeepgramProvider,
-    DeepgramProviderBuilder, DeepgramTranscriptionModel,
+    DeepgramConfigError, DeepgramCredential, DeepgramCredentialError, DeepgramProfile,
+    DeepgramProfileError, DeepgramProvider, DeepgramProviderBuilder, DeepgramTranscriptionModel,
 };
 
 pub mod models {
-    pub use siumai_provider_deepgram::models::{ALL_TRANSCRIPTION, DEFAULT_TRANSCRIPTION, NOVA_3};
+    pub use siumai_provider_deepgram::models::{
+        CURRENT_TRANSCRIPTION_MODELS, DEFAULT_TRANSCRIPTION, NOVA_3, transcription,
+    };
 }
 
 pub mod options {

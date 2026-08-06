@@ -8,6 +8,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::annotations::{
+    ContentAnnotationTarget, ContentAnnotations, MessageAnnotationTarget, MessageAnnotations,
+    ProviderAnnotationBudget, ProviderAnnotationError, ProviderAnnotationUsage,
+    TypedProviderAnnotation,
+};
 use crate::error::PublicDiagnosticText;
 use crate::provider::{ModelId, ProviderId};
 use crate::tool::{ToolCall, ToolResult, ToolSpec};
@@ -197,6 +202,42 @@ impl Default for OpaqueProviderBudget {
             DEFAULT_OPAQUE_ITEM_COUNT_LIMIT,
             DEFAULT_OPAQUE_ITEM_LIMIT,
             DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT,
+        )
+    }
+}
+
+/// Aggregate limits applied while validating one language request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LanguageRequestBudget {
+    opaque_provider_items: OpaqueProviderBudget,
+    provider_annotations: ProviderAnnotationBudget,
+}
+
+impl LanguageRequestBudget {
+    pub const fn new(
+        opaque_provider_items: OpaqueProviderBudget,
+        provider_annotations: ProviderAnnotationBudget,
+    ) -> Self {
+        Self {
+            opaque_provider_items,
+            provider_annotations,
+        }
+    }
+
+    pub const fn opaque_provider_items(self) -> OpaqueProviderBudget {
+        self.opaque_provider_items
+    }
+
+    pub const fn provider_annotations(self) -> ProviderAnnotationBudget {
+        self.provider_annotations
+    }
+}
+
+impl Default for LanguageRequestBudget {
+    fn default() -> Self {
+        Self::new(
+            OpaqueProviderBudget::default(),
+            ProviderAnnotationBudget::default(),
         )
     }
 }
@@ -478,16 +519,138 @@ pub enum ContentPart {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
-    pub role: MessageRole,
-    pub content: Vec<ContentPart>,
+    role: MessageRole,
+    content: Vec<MessagePart>,
+    #[serde(
+        default,
+        rename = "providerAnnotations",
+        skip_serializing_if = "MessageAnnotations::is_empty"
+    )]
+    provider_annotations: MessageAnnotations,
+}
+
+/// One request content part plus provider-owned durable annotations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MessagePart {
+    content: ContentPart,
+    #[serde(
+        default,
+        rename = "providerAnnotations",
+        skip_serializing_if = "ContentAnnotations::is_empty"
+    )]
+    provider_annotations: ContentAnnotations,
+}
+
+impl MessagePart {
+    pub fn new(content: ContentPart) -> Self {
+        Self::from_parts(content, ContentAnnotations::default())
+    }
+
+    /// Rebuild a content node while preserving previously validated annotations.
+    pub fn from_parts(content: ContentPart, provider_annotations: ContentAnnotations) -> Self {
+        Self {
+            content,
+            provider_annotations,
+        }
+    }
+
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::new(ContentPart::Text { text: text.into() })
+    }
+
+    pub fn content(&self) -> &ContentPart {
+        &self.content
+    }
+
+    pub fn content_mut(&mut self) -> &mut ContentPart {
+        &mut self.content
+    }
+
+    pub fn annotations(&self) -> &ContentAnnotations {
+        &self.provider_annotations
+    }
+
+    pub fn with_provider_annotation<T>(
+        mut self,
+        annotation: &T,
+    ) -> Result<Self, ProviderAnnotationError>
+    where
+        T: TypedProviderAnnotation<Target = ContentAnnotationTarget>,
+    {
+        self.provider_annotations.insert(annotation)?;
+        Ok(self)
+    }
+
+    pub fn into_parts(self) -> (ContentPart, ContentAnnotations) {
+        (self.content, self.provider_annotations)
+    }
+}
+
+impl From<ContentPart> for MessagePart {
+    fn from(content: ContentPart) -> Self {
+        Self::new(content)
+    }
 }
 
 impl Message {
-    pub fn text(role: MessageRole, text: impl Into<String>) -> Self {
+    pub fn new<I, Part>(role: MessageRole, content: I) -> Self
+    where
+        I: IntoIterator<Item = Part>,
+        Part: Into<MessagePart>,
+    {
+        Self::from_parts(role, content, MessageAnnotations::default())
+    }
+
+    /// Rebuild a message while preserving previously validated annotations.
+    pub fn from_parts<I, Part>(
+        role: MessageRole,
+        content: I,
+        provider_annotations: MessageAnnotations,
+    ) -> Self
+    where
+        I: IntoIterator<Item = Part>,
+        Part: Into<MessagePart>,
+    {
         Self {
             role,
-            content: vec![ContentPart::Text { text: text.into() }],
+            content: content.into_iter().map(Into::into).collect(),
+            provider_annotations,
         }
+    }
+
+    pub fn text(role: MessageRole, text: impl Into<String>) -> Self {
+        Self::new(role, [MessagePart::text(text)])
+    }
+
+    pub fn role(&self) -> MessageRole {
+        self.role
+    }
+
+    pub fn content(&self) -> &[MessagePart] {
+        &self.content
+    }
+
+    pub fn content_mut(&mut self) -> &mut Vec<MessagePart> {
+        &mut self.content
+    }
+
+    pub fn annotations(&self) -> &MessageAnnotations {
+        &self.provider_annotations
+    }
+
+    pub fn with_provider_annotation<T>(
+        mut self,
+        annotation: &T,
+    ) -> Result<Self, ProviderAnnotationError>
+    where
+        T: TypedProviderAnnotation<Target = MessageAnnotationTarget>,
+    {
+        self.provider_annotations.insert(annotation)?;
+        Ok(self)
+    }
+
+    pub fn into_parts(self) -> (MessageRole, Vec<MessagePart>, MessageAnnotations) {
+        (self.role, self.content, self.provider_annotations)
     }
 }
 
@@ -527,13 +690,13 @@ impl LanguageRequest {
 
     /// Validate cross-field invariants before provider policy and encoding.
     pub fn validate(&self) -> Result<(), LanguageRequestError> {
-        self.validate_with_opaque_budget(OpaqueProviderBudget::default())
+        self.validate_with_budget(LanguageRequestBudget::default())
     }
 
-    /// Validate with an explicit aggregate budget for retained provider state.
-    pub fn validate_with_opaque_budget(
+    /// Validate with explicit aggregate budgets for retained provider state.
+    pub fn validate_with_budget(
         &self,
-        opaque_budget: OpaqueProviderBudget,
+        budget: LanguageRequestBudget,
     ) -> Result<(), LanguageRequestError> {
         self.generation.validate()?;
         let mut names = BTreeSet::new();
@@ -557,12 +720,34 @@ impl LanguageRequest {
                 return Err(LanguageRequestError::InvalidStructuredOutputSchema);
             }
         }
-        opaque_budget.validate(self.messages.iter().flat_map(|message| {
-            message.content.iter().filter_map(|part| match part {
-                ContentPart::ProviderOpaque(item) => Some(item),
-                _ => None,
-            })
-        }))?;
+        budget
+            .opaque_provider_items
+            .validate(self.messages.iter().flat_map(|message| {
+                message
+                    .content
+                    .iter()
+                    .filter_map(|part| match part.content() {
+                        ContentPart::ProviderOpaque(item) => Some(item),
+                        _ => None,
+                    })
+            }))?;
+
+        let mut annotation_usage = ProviderAnnotationUsage::default();
+        for message in &self.messages {
+            budget
+                .provider_annotations
+                .validate_node(message.annotations(), &mut annotation_usage)?;
+            for part in message.content() {
+                budget
+                    .provider_annotations
+                    .validate_node(part.annotations(), &mut annotation_usage)?;
+            }
+        }
+        for tool in &self.tools {
+            budget
+                .provider_annotations
+                .validate_node(tool.annotations(), &mut annotation_usage)?;
+        }
         Ok(())
     }
 }
@@ -582,6 +767,8 @@ pub enum LanguageRequestError {
     InvalidStructuredOutputSchema,
     #[error(transparent)]
     OpaqueProviderItems(#[from] OpaqueProviderItemError),
+    #[error(transparent)]
+    ProviderAnnotations(#[from] ProviderAnnotationError),
 }
 
 /// Common generation controls with omission preserved explicitly.
@@ -955,9 +1142,41 @@ fn validate_response_status(
 
 #[cfg(test)]
 mod tests {
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
 
+    use crate::annotations::{
+        DEFAULT_PROVIDER_ANNOTATION_COLLECTION_BYTE_LIMIT,
+        DEFAULT_PROVIDER_ANNOTATION_ENTRY_BYTE_LIMIT, DEFAULT_PROVIDER_ANNOTATION_NAMESPACE_LIMIT,
+    };
+
     use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct CacheAnnotation {
+        cache_control: String,
+    }
+
+    impl TypedProviderAnnotation for CacheAnnotation {
+        type Target = ContentAnnotationTarget;
+
+        const NAMESPACE: &'static str = "anthropic";
+        const API_MODE: Option<&'static str> = Some("messages");
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct MessageLabelAnnotation {
+        label: String,
+    }
+
+    impl TypedProviderAnnotation for MessageLabelAnnotation {
+        type Target = MessageAnnotationTarget;
+
+        const NAMESPACE: &'static str = "anthropic";
+        const API_MODE: Option<&'static str> = Some("messages");
+    }
 
     fn provenance() -> ProviderProvenance {
         ProviderProvenance {
@@ -1037,22 +1256,139 @@ mod tests {
         let first = OpaqueProviderItem::new(provenance(), "program", json!({"wire": 1})).unwrap();
         let second =
             OpaqueProviderItem::new(provenance(), "program_output", json!({"wire": 2})).unwrap();
-        let request = LanguageRequest::new(vec![Message {
-            role: MessageRole::Assistant,
-            content: vec![
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            [
                 ContentPart::ProviderOpaque(first),
                 ContentPart::ProviderOpaque(second),
             ],
-        }]);
+        )]);
 
         assert!(matches!(
-            request.validate_with_opaque_budget(OpaqueProviderBudget::new(
-                1,
-                DEFAULT_OPAQUE_ITEM_LIMIT,
-                DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT,
+            request.validate_with_budget(LanguageRequestBudget::new(
+                OpaqueProviderBudget::new(
+                    1,
+                    DEFAULT_OPAQUE_ITEM_LIMIT,
+                    DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT,
+                ),
+                ProviderAnnotationBudget::default(),
             )),
             Err(LanguageRequestError::OpaqueProviderItems(
                 OpaqueProviderItemError::TooManyItems { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn message_parts_are_ergonomic_and_preserve_annotations_through_serde() {
+        let expected = CacheAnnotation {
+            cache_control: "ephemeral".to_string(),
+        };
+        let part = MessagePart::text("hello")
+            .with_provider_annotation(&expected)
+            .unwrap();
+        let message = Message::new(MessageRole::User, [part]);
+
+        let decoded: Message =
+            serde_json::from_value(serde_json::to_value(&message).unwrap()).unwrap();
+        assert_eq!(decoded.role(), MessageRole::User);
+        assert!(matches!(
+            decoded.content()[0].content(),
+            ContentPart::Text { text } if text == "hello"
+        ));
+        assert_eq!(
+            decoded.content()[0]
+                .annotations()
+                .decode::<CacheAnnotation>()
+                .unwrap(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn message_rebuild_paths_preserve_node_annotations() {
+        let content_annotation = CacheAnnotation {
+            cache_control: "ephemeral".to_string(),
+        };
+        let message_annotation = MessageLabelAnnotation {
+            label: "history-entry".to_string(),
+        };
+        let mut part = MessagePart::text("before")
+            .with_provider_annotation(&content_annotation)
+            .unwrap();
+        *part.content_mut() = ContentPart::Text {
+            text: "after".to_string(),
+        };
+        let message = Message::new(MessageRole::User, [part])
+            .with_provider_annotation(&message_annotation)
+            .unwrap();
+
+        let (role, content, annotations) = message.into_parts();
+        let rebuilt = Message::from_parts(role, content, annotations);
+
+        assert!(matches!(
+            rebuilt.content()[0].content(),
+            ContentPart::Text { text } if text == "after"
+        ));
+        assert_eq!(
+            rebuilt.content()[0]
+                .annotations()
+                .decode::<CacheAnnotation>()
+                .unwrap(),
+            Some(content_annotation)
+        );
+        assert_eq!(
+            rebuilt
+                .annotations()
+                .decode::<MessageLabelAnnotation>()
+                .unwrap(),
+            Some(message_annotation)
+        );
+    }
+
+    #[test]
+    fn language_request_budget_counts_annotations_across_nodes() {
+        let annotation = CacheAnnotation {
+            cache_control: "ephemeral".to_string(),
+        };
+        let first = MessagePart::text("first")
+            .with_provider_annotation(&annotation)
+            .unwrap();
+        let second = MessagePart::text("second")
+            .with_provider_annotation(&annotation)
+            .unwrap();
+        let entry_bytes = first.annotations().encoded_bytes();
+        let request = LanguageRequest::new(vec![Message::new(MessageRole::User, [first, second])]);
+        let budget = LanguageRequestBudget::new(
+            OpaqueProviderBudget::default(),
+            ProviderAnnotationBudget::new(
+                DEFAULT_PROVIDER_ANNOTATION_NAMESPACE_LIMIT,
+                1,
+                DEFAULT_PROVIDER_ANNOTATION_ENTRY_BYTE_LIMIT,
+                DEFAULT_PROVIDER_ANNOTATION_COLLECTION_BYTE_LIMIT,
+            ),
+        );
+
+        assert!(matches!(
+            request.validate_with_budget(budget),
+            Err(LanguageRequestError::ProviderAnnotations(
+                ProviderAnnotationError::TooManyEntries { .. }
+            ))
+        ));
+
+        let total_budget = LanguageRequestBudget::new(
+            OpaqueProviderBudget::default(),
+            ProviderAnnotationBudget::new(
+                DEFAULT_PROVIDER_ANNOTATION_NAMESPACE_LIMIT,
+                2,
+                DEFAULT_PROVIDER_ANNOTATION_ENTRY_BYTE_LIMIT,
+                entry_bytes.saturating_mul(2).saturating_sub(1),
+            ),
+        );
+        assert!(matches!(
+            request.validate_with_budget(total_budget),
+            Err(LanguageRequestError::ProviderAnnotations(
+                ProviderAnnotationError::CollectionTooLarge { .. }
             ))
         ));
     }

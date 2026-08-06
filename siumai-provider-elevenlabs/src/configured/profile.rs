@@ -157,8 +157,12 @@ impl ElevenLabsProfile {
         &self.profile
     }
 
-    pub fn scope(&self) -> &Arc<ProviderScope> {
-        &self.scope
+    pub fn scope(&self) -> &ProviderScope {
+        self.scope.as_ref()
+    }
+
+    pub(crate) fn scope_arc(&self) -> Arc<ProviderScope> {
+        self.scope.clone()
     }
 
     pub fn limits_for(&self, model: &ModelId) -> SpeechLimits {

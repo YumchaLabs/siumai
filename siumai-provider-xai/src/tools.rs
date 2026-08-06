@@ -1,341 +1,468 @@
-//! xAI provider-defined tool catalog.
+//! Typed xAI hosted tools for the Responses API.
 //!
-//! Canonical xAI hosted-tool IDs, default names, and direct `Tool` constructors live in the
-//! provider crate because they are provider-owned facts.
+//! Hosted tools are provider-owned request semantics. They deliberately do not reuse the
+//! provider-neutral function-tool contract and do not expose a raw JSON escape hatch.
 
-pub mod xai {
-    use siumai_core::types::Tool;
-    use std::collections::BTreeMap;
+use std::fmt;
 
-    /// Mapping of provider tool ids to xAI tool names (provider-native).
-    pub const PROVIDER_TOOL_NAMES: &[(&str, &str)] = &[
-        (WEB_SEARCH_ID, "web_search"),
-        (X_SEARCH_ID, "x_search"),
-        (CODE_EXECUTION_ID, "code_execution"),
-        (VIEW_IMAGE_ID, "view_image"),
-        (VIEW_X_VIDEO_ID, "view_x_video"),
-        (FILE_SEARCH_ID, "file_search"),
-        (MCP_ID, "mcp"),
-    ];
+use serde::{Deserialize, Serialize};
 
-    pub const WEB_SEARCH_ID: &str = "xai.web_search";
-    pub const X_SEARCH_ID: &str = "xai.x_search";
-    pub const CODE_EXECUTION_ID: &str = "xai.code_execution";
-    pub const VIEW_IMAGE_ID: &str = "xai.view_image";
-    pub const VIEW_X_VIDEO_ID: &str = "xai.view_x_video";
-    pub const FILE_SEARCH_ID: &str = "xai.file_search";
-    pub const MCP_ID: &str = "xai.mcp";
+/// xAI web-search configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct XaiWebSearchTool {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_domains: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_domains: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_image_search: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_image_understanding: Option<bool>,
+}
 
-    fn args_value<T: serde::Serialize>(args: T) -> serde_json::Value {
-        serde_json::to_value(args).expect("xAI tool args should serialize")
-    }
-
-    #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    pub struct WebSearchArgs {
-        #[serde(rename = "allowedDomains", skip_serializing_if = "Option::is_none")]
-        pub allowed_domains: Option<Vec<String>>,
-        #[serde(rename = "excludedDomains", skip_serializing_if = "Option::is_none")]
-        pub excluded_domains: Option<Vec<String>>,
-        #[serde(
-            rename = "enableImageUnderstanding",
-            skip_serializing_if = "Option::is_none"
-        )]
-        pub enable_image_understanding: Option<bool>,
-    }
-
-    impl WebSearchArgs {
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        pub fn with_allowed_domains<T, I>(mut self, domains: I) -> Self
-        where
-            T: Into<String>,
-            I: IntoIterator<Item = T>,
-        {
-            self.allowed_domains = Some(domains.into_iter().map(Into::into).collect());
-            self
-        }
-
-        pub fn with_excluded_domains<T, I>(mut self, domains: I) -> Self
-        where
-            T: Into<String>,
-            I: IntoIterator<Item = T>,
-        {
-            self.excluded_domains = Some(domains.into_iter().map(Into::into).collect());
-            self
-        }
-
-        pub fn with_enable_image_understanding(mut self, enabled: bool) -> Self {
-            self.enable_image_understanding = Some(enabled);
-            self
+impl XaiWebSearchTool {
+    pub const fn new() -> Self {
+        Self {
+            allowed_domains: Vec::new(),
+            excluded_domains: Vec::new(),
+            enable_image_search: None,
+            enable_image_understanding: None,
         }
     }
 
-    #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    pub struct XSearchArgs {
-        #[serde(rename = "allowedXHandles", skip_serializing_if = "Option::is_none")]
-        pub allowed_x_handles: Option<Vec<String>>,
-        #[serde(rename = "excludedXHandles", skip_serializing_if = "Option::is_none")]
-        pub excluded_x_handles: Option<Vec<String>>,
-        #[serde(rename = "fromDate", skip_serializing_if = "Option::is_none")]
-        pub from_date: Option<String>,
-        #[serde(rename = "toDate", skip_serializing_if = "Option::is_none")]
-        pub to_date: Option<String>,
-        #[serde(
-            rename = "enableImageUnderstanding",
-            skip_serializing_if = "Option::is_none"
-        )]
-        pub enable_image_understanding: Option<bool>,
-        #[serde(
-            rename = "enableVideoUnderstanding",
-            skip_serializing_if = "Option::is_none"
-        )]
-        pub enable_video_understanding: Option<bool>,
+    pub fn with_allowed_domains<I, S>(mut self, domains: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.allowed_domains = domains.into_iter().map(Into::into).collect();
+        self
     }
 
-    impl XSearchArgs {
-        pub fn new() -> Self {
-            Self::default()
-        }
+    pub fn with_excluded_domains<I, S>(mut self, domains: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.excluded_domains = domains.into_iter().map(Into::into).collect();
+        self
+    }
 
-        pub fn with_allowed_x_handles<T, I>(mut self, handles: I) -> Self
-        where
-            T: Into<String>,
-            I: IntoIterator<Item = T>,
-        {
-            self.allowed_x_handles = Some(handles.into_iter().map(Into::into).collect());
-            self
-        }
+    pub const fn with_image_understanding(mut self, enabled: bool) -> Self {
+        self.enable_image_understanding = Some(enabled);
+        self
+    }
 
-        pub fn with_excluded_x_handles<T, I>(mut self, handles: I) -> Self
-        where
-            T: Into<String>,
-            I: IntoIterator<Item = T>,
-        {
-            self.excluded_x_handles = Some(handles.into_iter().map(Into::into).collect());
-            self
-        }
+    pub const fn with_image_search(mut self, enabled: bool) -> Self {
+        self.enable_image_search = Some(enabled);
+        self
+    }
+}
 
-        pub fn with_from_date(mut self, date: impl Into<String>) -> Self {
-            self.from_date = Some(date.into());
-            self
-        }
+/// xAI X-search configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct XaiXSearchTool {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_x_handles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_x_handles: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_image_understanding: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_video_understanding: Option<bool>,
+}
 
-        pub fn with_to_date(mut self, date: impl Into<String>) -> Self {
-            self.to_date = Some(date.into());
-            self
-        }
-
-        pub fn with_enable_image_understanding(mut self, enabled: bool) -> Self {
-            self.enable_image_understanding = Some(enabled);
-            self
-        }
-
-        pub fn with_enable_video_understanding(mut self, enabled: bool) -> Self {
-            self.enable_video_understanding = Some(enabled);
-            self
+impl XaiXSearchTool {
+    pub const fn new() -> Self {
+        Self {
+            allowed_x_handles: Vec::new(),
+            excluded_x_handles: Vec::new(),
+            from_date: None,
+            to_date: None,
+            enable_image_understanding: None,
+            enable_video_understanding: None,
         }
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    pub struct FileSearchArgs {
-        #[serde(rename = "vectorStoreIds")]
-        pub vector_store_ids: Vec<String>,
-        #[serde(rename = "maxNumResults", skip_serializing_if = "Option::is_none")]
-        pub max_num_results: Option<u32>,
+    pub fn with_allowed_x_handles<I, S>(mut self, handles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.allowed_x_handles = handles.into_iter().map(Into::into).collect();
+        self
     }
 
-    impl FileSearchArgs {
-        pub fn new<T, I>(vector_store_ids: I) -> Self
-        where
-            T: Into<String>,
-            I: IntoIterator<Item = T>,
-        {
-            Self {
-                vector_store_ids: vector_store_ids.into_iter().map(Into::into).collect(),
-                max_num_results: None,
+    pub fn with_excluded_x_handles<I, S>(mut self, handles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.excluded_x_handles = handles.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn with_date_range(
+        mut self,
+        from_date: impl Into<String>,
+        to_date: impl Into<String>,
+    ) -> Self {
+        self.from_date = Some(from_date.into());
+        self.to_date = Some(to_date.into());
+        self
+    }
+
+    pub const fn with_image_understanding(mut self, enabled: bool) -> Self {
+        self.enable_image_understanding = Some(enabled);
+        self
+    }
+
+    pub const fn with_video_understanding(mut self, enabled: bool) -> Self {
+        self.enable_video_understanding = Some(enabled);
+        self
+    }
+}
+
+/// xAI file-search configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct XaiFileSearchTool {
+    pub vector_store_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_num_results: Option<u32>,
+}
+
+impl XaiFileSearchTool {
+    pub fn new<I, S>(vector_store_ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            vector_store_ids: vector_store_ids.into_iter().map(Into::into).collect(),
+            max_num_results: None,
+        }
+    }
+
+    pub const fn with_max_num_results(mut self, maximum: u32) -> Self {
+        self.max_num_results = Some(maximum);
+        self
+    }
+}
+
+/// xAI remote-MCP configuration.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct XaiMcpTool {
+    pub server_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_tools: Vec<String>,
+}
+
+impl XaiMcpTool {
+    pub fn new(server_url: impl Into<String>) -> Self {
+        Self {
+            server_url: server_url.into(),
+            server_label: None,
+            server_description: None,
+            allowed_tools: Vec::new(),
+        }
+    }
+
+    pub fn with_server_label(mut self, label: impl Into<String>) -> Self {
+        self.server_label = Some(label.into());
+        self
+    }
+
+    pub fn with_server_description(mut self, description: impl Into<String>) -> Self {
+        self.server_description = Some(description.into());
+        self
+    }
+
+    pub fn with_allowed_tools<I, S>(mut self, tools: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.allowed_tools = tools.into_iter().map(Into::into).collect();
+        self
+    }
+}
+
+impl fmt::Debug for XaiMcpTool {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("XaiMcpTool")
+            .field("server_url", &"[REDACTED]")
+            .field("server_label", &self.server_label)
+            .field("server_description", &self.server_description)
+            .field("allowed_tools", &self.allowed_tools)
+            .finish()
+    }
+}
+
+/// Provider-owned xAI hosted tool accepted by the Responses API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[non_exhaustive]
+pub enum XaiResponsesTool {
+    WebSearch { options: XaiWebSearchTool },
+    XSearch { options: XaiXSearchTool },
+    CodeExecution,
+    ViewImage,
+    ViewXVideo,
+    FileSearch { options: XaiFileSearchTool },
+    Mcp { options: XaiMcpTool },
+}
+
+impl XaiResponsesTool {
+    pub const fn web_search() -> Self {
+        Self::WebSearch {
+            options: XaiWebSearchTool::new(),
+        }
+    }
+
+    pub const fn web_search_with(options: XaiWebSearchTool) -> Self {
+        Self::WebSearch { options }
+    }
+
+    pub const fn x_search() -> Self {
+        Self::XSearch {
+            options: XaiXSearchTool::new(),
+        }
+    }
+
+    pub const fn x_search_with(options: XaiXSearchTool) -> Self {
+        Self::XSearch { options }
+    }
+
+    pub const fn code_execution() -> Self {
+        Self::CodeExecution
+    }
+
+    pub const fn view_image() -> Self {
+        Self::ViewImage
+    }
+
+    pub const fn view_x_video() -> Self {
+        Self::ViewXVideo
+    }
+
+    pub fn file_search<I, S>(vector_store_ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::FileSearch {
+            options: XaiFileSearchTool::new(vector_store_ids),
+        }
+    }
+
+    pub const fn file_search_with(options: XaiFileSearchTool) -> Self {
+        Self::FileSearch { options }
+    }
+
+    pub fn mcp(server_url: impl Into<String>) -> Self {
+        Self::Mcp {
+            options: XaiMcpTool::new(server_url),
+        }
+    }
+
+    pub const fn mcp_with(options: XaiMcpTool) -> Self {
+        Self::Mcp { options }
+    }
+
+    pub(crate) fn validate(&self, index: usize) -> Result<(), String> {
+        match self {
+            Self::WebSearch { options } => {
+                if !options.allowed_domains.is_empty() && !options.excluded_domains.is_empty() {
+                    return Err(format!(
+                        "native_tools[{index}] cannot combine allowed_domains and excluded_domains"
+                    ));
+                }
+                if options.allowed_domains.len() > 5 || options.excluded_domains.len() > 5 {
+                    return Err(format!(
+                        "native_tools[{index}] web-search domain filters accept at most five entries"
+                    ));
+                }
             }
-        }
-
-        pub fn with_max_num_results(mut self, max_num_results: u32) -> Self {
-            self.max_num_results = Some(max_num_results);
-            self
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    pub struct McpArgs {
-        #[serde(rename = "serverUrl")]
-        pub server_url: String,
-        #[serde(rename = "serverLabel", skip_serializing_if = "Option::is_none")]
-        pub server_label: Option<String>,
-        #[serde(rename = "serverDescription", skip_serializing_if = "Option::is_none")]
-        pub server_description: Option<String>,
-        #[serde(rename = "allowedTools", skip_serializing_if = "Option::is_none")]
-        pub allowed_tools: Option<Vec<String>>,
-        #[serde(rename = "headers", skip_serializing_if = "Option::is_none")]
-        pub headers: Option<BTreeMap<String, String>>,
-        #[serde(rename = "authorization", skip_serializing_if = "Option::is_none")]
-        pub authorization: Option<String>,
-    }
-
-    impl McpArgs {
-        pub fn new(server_url: impl Into<String>) -> Self {
-            Self {
-                server_url: server_url.into(),
-                server_label: None,
-                server_description: None,
-                allowed_tools: None,
-                headers: None,
-                authorization: None,
+            Self::XSearch { options } => {
+                if !options.allowed_x_handles.is_empty() && !options.excluded_x_handles.is_empty() {
+                    return Err(format!(
+                        "native_tools[{index}] cannot combine allowed_x_handles and excluded_x_handles"
+                    ));
+                }
+                if options.allowed_x_handles.len() > 10 || options.excluded_x_handles.len() > 10 {
+                    return Err(format!(
+                        "native_tools[{index}] X-search handle filters accept at most ten entries"
+                    ));
+                }
+                let from = parse_tool_date(options.from_date.as_deref(), index, "from_date")?;
+                let to = parse_tool_date(options.to_date.as_deref(), index, "to_date")?;
+                if from.zip(to).is_some_and(|(from, to)| from > to) {
+                    return Err(format!(
+                        "native_tools[{index}].from_date must not be later than to_date"
+                    ));
+                }
             }
+            Self::FileSearch { options } => {
+                if options.vector_store_ids.is_empty() {
+                    return Err(format!(
+                        "native_tools[{index}].vector_store_ids must not be empty"
+                    ));
+                }
+                if options.max_num_results == Some(0) {
+                    return Err(format!(
+                        "native_tools[{index}].max_num_results must be greater than zero"
+                    ));
+                }
+            }
+            Self::Mcp { options } => {
+                let server_url = url::Url::parse(&options.server_url).map_err(|_| {
+                    format!("native_tools[{index}].server_url must be an absolute HTTPS URL")
+                })?;
+                if server_url.scheme() != "https"
+                    || !server_url.username().is_empty()
+                    || server_url.password().is_some()
+                {
+                    return Err(format!(
+                        "native_tools[{index}].server_url must be an HTTPS URL without embedded credentials"
+                    ));
+                }
+            }
+            Self::CodeExecution | Self::ViewImage | Self::ViewXVideo => {}
         }
-
-        pub fn with_server_label(mut self, server_label: impl Into<String>) -> Self {
-            self.server_label = Some(server_label.into());
-            self
-        }
-
-        pub fn with_server_description(mut self, server_description: impl Into<String>) -> Self {
-            self.server_description = Some(server_description.into());
-            self
-        }
-
-        pub fn with_allowed_tools<T, I>(mut self, allowed_tools: I) -> Self
-        where
-            T: Into<String>,
-            I: IntoIterator<Item = T>,
-        {
-            self.allowed_tools = Some(allowed_tools.into_iter().map(Into::into).collect());
-            self
-        }
-
-        pub fn with_headers<K, V, I>(mut self, headers: I) -> Self
-        where
-            K: Into<String>,
-            V: Into<String>,
-            I: IntoIterator<Item = (K, V)>,
-        {
-            self.headers = Some(
-                headers
-                    .into_iter()
-                    .map(|(key, value)| (key.into(), value.into()))
-                    .collect(),
-            );
-            self
-        }
-
-        pub fn with_authorization(mut self, authorization: impl Into<String>) -> Self {
-            self.authorization = Some(authorization.into());
-            self
-        }
+        Ok(())
     }
 
-    pub fn web_search() -> Tool {
-        web_search_named("web_search")
+    /// Encode the provider-native flat object expected by the xAI Responses API.
+    ///
+    /// The typed Rust representation keeps each tool's options nested so Serde can reject
+    /// unknown fields reliably. Flattening happens only at the wire-codec boundary.
+    pub(crate) fn as_value(&self) -> Result<serde_json::Value, serde_json::Error> {
+        let (tool_type, options) = match self {
+            Self::WebSearch { options } => ("web_search", serde_json::to_value(options)?),
+            Self::XSearch { options } => ("x_search", serde_json::to_value(options)?),
+            Self::CodeExecution => ("code_interpreter", serde_json::Value::Null),
+            Self::ViewImage => ("view_image", serde_json::Value::Null),
+            Self::ViewXVideo => ("view_x_video", serde_json::Value::Null),
+            Self::FileSearch { options } => ("file_search", serde_json::to_value(options)?),
+            Self::Mcp { options } => ("mcp", serde_json::to_value(options)?),
+        };
+
+        let mut object = match options {
+            serde_json::Value::Null => serde_json::Map::new(),
+            serde_json::Value::Object(object) => object,
+            _ => {
+                return Err(<serde_json::Error as serde::ser::Error>::custom(
+                    "xAI hosted-tool options must serialize as an object",
+                ));
+            }
+        };
+        object.insert(
+            "type".to_string(),
+            serde_json::Value::String(tool_type.to_string()),
+        );
+        Ok(serde_json::Value::Object(object))
+    }
+}
+
+fn parse_tool_date(
+    value: Option<&str>,
+    index: usize,
+    field: &str,
+) -> Result<Option<chrono::NaiveDate>, String> {
+    value
+        .map(|value| {
+            chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                .map_err(|_| format!("native_tools[{index}].{field} must use YYYY-MM-DD format"))
+        })
+        .transpose()
+}
+
+pub fn web_search() -> XaiResponsesTool {
+    XaiResponsesTool::web_search()
+}
+
+pub fn web_search_with(options: XaiWebSearchTool) -> XaiResponsesTool {
+    XaiResponsesTool::web_search_with(options)
+}
+
+pub fn x_search() -> XaiResponsesTool {
+    XaiResponsesTool::x_search()
+}
+
+pub fn x_search_with(options: XaiXSearchTool) -> XaiResponsesTool {
+    XaiResponsesTool::x_search_with(options)
+}
+
+pub fn code_execution() -> XaiResponsesTool {
+    XaiResponsesTool::code_execution()
+}
+
+pub fn view_image() -> XaiResponsesTool {
+    XaiResponsesTool::view_image()
+}
+
+pub fn view_x_video() -> XaiResponsesTool {
+    XaiResponsesTool::view_x_video()
+}
+
+pub fn file_search<I, S>(vector_store_ids: I) -> XaiResponsesTool
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    XaiResponsesTool::file_search(vector_store_ids)
+}
+
+pub fn mcp(server_url: impl Into<String>) -> XaiResponsesTool {
+    XaiResponsesTool::mcp(server_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hosted_tools_encode_native_snake_case_shapes() {
+        let tool = XaiResponsesTool::web_search_with(
+            XaiWebSearchTool::new().with_allowed_domains(["example.com"]),
+        );
+        assert_eq!(
+            tool.as_value().expect("serialize hosted tool"),
+            serde_json::json!({
+                "type": "web_search",
+                "allowed_domains": ["example.com"]
+            })
+        );
     }
 
-    pub fn web_search_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(WEB_SEARCH_ID, name)
+    #[test]
+    fn code_execution_uses_xai_wire_type() {
+        assert_eq!(
+            XaiResponsesTool::code_execution()
+                .as_value()
+                .expect("serialize code execution tool"),
+            serde_json::json!({"type": "code_interpreter"})
+        );
     }
 
-    pub fn web_search_with(args: WebSearchArgs) -> Tool {
-        web_search_named_with("web_search", args)
-    }
-
-    pub fn web_search_named_with(name: impl Into<String>, args: WebSearchArgs) -> Tool {
-        Tool::provider_defined(WEB_SEARCH_ID, name).with_args(args_value(args))
-    }
-
-    pub fn x_search() -> Tool {
-        x_search_named("x_search")
-    }
-
-    pub fn x_search_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(X_SEARCH_ID, name)
-    }
-
-    pub fn x_search_with(args: XSearchArgs) -> Tool {
-        x_search_named_with("x_search", args)
-    }
-
-    pub fn x_search_named_with(name: impl Into<String>, args: XSearchArgs) -> Tool {
-        Tool::provider_defined(X_SEARCH_ID, name).with_args(args_value(args))
-    }
-
-    pub fn code_execution() -> Tool {
-        code_execution_named("code_execution")
-    }
-
-    pub fn code_execution_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(CODE_EXECUTION_ID, name)
-    }
-
-    pub fn view_image() -> Tool {
-        view_image_named("view_image")
-    }
-
-    pub fn view_image_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(VIEW_IMAGE_ID, name)
-    }
-
-    pub fn view_x_video() -> Tool {
-        view_x_video_named("view_x_video")
-    }
-
-    pub fn view_x_video_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(VIEW_X_VIDEO_ID, name)
-    }
-
-    pub fn file_search(vector_store_ids: Vec<String>) -> Tool {
-        file_search_named(vector_store_ids, "file_search")
-    }
-
-    pub fn file_search_named(vector_store_ids: Vec<String>, name: impl Into<String>) -> Tool {
-        file_search_named_with(name, FileSearchArgs::new(vector_store_ids))
-    }
-
-    pub fn file_search_with(args: FileSearchArgs) -> Tool {
-        file_search_named_with("file_search", args)
-    }
-
-    pub fn file_search_named_with(name: impl Into<String>, args: FileSearchArgs) -> Tool {
-        Tool::provider_defined(FILE_SEARCH_ID, name).with_args(args_value(args))
-    }
-
-    pub fn mcp(server_url: impl Into<String>) -> Tool {
-        mcp_named(server_url, "mcp")
-    }
-
-    pub fn mcp_named(server_url: impl Into<String>, name: impl Into<String>) -> Tool {
-        mcp_named_with(name, McpArgs::new(server_url))
-    }
-
-    pub fn mcp_with(args: McpArgs) -> Tool {
-        mcp_named_with("mcp", args)
-    }
-
-    pub fn mcp_named_with(name: impl Into<String>, args: McpArgs) -> Tool {
-        Tool::provider_defined(MCP_ID, name).with_args(args_value(args))
-    }
-
-    pub fn mcp_server(server_url: impl Into<String>) -> Tool {
-        mcp(server_url)
-    }
-
-    pub fn mcp_server_with(args: McpArgs) -> Tool {
-        mcp_with(args)
-    }
-    /// Create a provider-defined xAI tool by stable tool id when no required args are needed.
-    pub fn provider_defined_tool(id: &str) -> Option<Tool> {
-        match id {
-            WEB_SEARCH_ID => Some(web_search()),
-            X_SEARCH_ID => Some(x_search()),
-            CODE_EXECUTION_ID => Some(code_execution()),
-            VIEW_IMAGE_ID => Some(view_image()),
-            VIEW_X_VIDEO_ID => Some(view_x_video()),
-            _ => None,
-        }
+    #[test]
+    fn mcp_debug_redacts_server_url() {
+        let tool = XaiResponsesTool::mcp("https://mcp.example.test/path?token=secret");
+        let debug = format!("{tool:?}");
+        assert!(!debug.contains("token=secret"));
+        assert!(debug.contains("[REDACTED]"));
     }
 }

@@ -307,9 +307,9 @@ async fn best_effort_switch_drops_native_state_with_event_report_and_request_par
     let target_request = target.requests().pop().expect("target request");
     assert!(!target_request.messages.iter().any(|message| {
         message
-            .content
+            .content()
             .iter()
-            .any(|part| matches!(part, ContentPart::ProviderOpaque(_)))
+            .any(|part| matches!(part.content(), ContentPart::ProviderOpaque(_)))
     }));
     assert!(report.messages().starts_with(&target_request.messages));
 }
@@ -384,9 +384,9 @@ async fn same_protocol_model_switch_preserves_native_state() {
     assert!(report.model_transitions()[0].losses().is_empty());
     assert!(target.requests()[0].messages.iter().any(|message| {
         message
-            .content
+            .content()
             .iter()
-            .any(|part| matches!(part, ContentPart::ProviderOpaque(_)))
+            .any(|part| matches!(part.content(), ContentPart::ProviderOpaque(_)))
     }));
 }
 
@@ -414,8 +414,8 @@ async fn agent_reuses_instructions_without_sharing_run_history() {
     assert_eq!(requests.len(), 2);
     for request in requests {
         assert_eq!(request.messages.len(), 2);
-        assert_eq!(request.messages[0].role, MessageRole::System);
-        assert_eq!(request.messages[1].role, MessageRole::User);
+        assert_eq!(request.messages[0].role(), MessageRole::System);
+        assert_eq!(request.messages[1].role(), MessageRole::User);
     }
 }
 

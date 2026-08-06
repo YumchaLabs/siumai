@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use siumai_core::{ProviderOptionError, TypedProviderOptions};
+use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
+use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
+use siumai_protocol_openai::responses_next::API_MODE_ID as RESPONSES_API_MODE_ID;
 use siumai_protocol_openai::responses_next::{FunctionToolCaller, FunctionToolEncodingOptions};
 
 const MAX_TOP_LOGPROBS: u8 = 20;
@@ -565,6 +567,8 @@ pub(crate) struct OpenAiResponsesRequestOptions {
 
 impl TypedProviderOptions for OpenAiResponsesOptions {
     const NAMESPACE: &'static str = "openai";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some(RESPONSES_API_MODE_ID);
 
     fn validate(&self) -> Result<(), ProviderOptionError> {
         self.validate_values()
@@ -676,6 +680,8 @@ pub(crate) struct OpenAiChatCompletionsRequestOptions {
 
 impl TypedProviderOptions for OpenAiChatCompletionsOptions {
     const NAMESPACE: &'static str = "openai";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some(CHAT_API_MODE_ID);
 
     fn validate(&self) -> Result<(), ProviderOptionError> {
         self.validate_values()

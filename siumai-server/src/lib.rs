@@ -1,8 +1,8 @@
-//! Thin server projections over Siumai's provider-neutral runtime.
+//! Bounded server projections over Siumai's provider-neutral runtime.
 //!
-//! This crate does not own a tool loop. Plain routes perform one model call;
-//! local execution exists only after the host installs an explicit trusted
-//! tool route backed by [`siumai_runtime::ToolLoop`].
+//! This crate owns the downstream trust boundary, finite ingress limits, safe
+//! HTTP responses, and canonical stream projection. It does not own a second
+//! tool loop or provider-native protocol codec.
 
 #![deny(unsafe_code)]
 
@@ -11,6 +11,16 @@ pub mod axum;
 
 mod event;
 mod gateway;
+mod policy;
+mod trust;
 
-pub use event::GatewayEvent;
-pub use gateway::{ServerGateway, ServerGatewayError};
+pub use event::{GatewayEvent, GatewayLoss, GatewayProjectionError};
+pub use gateway::{ServerGateway, ServerGatewayError, TrustedApprovalDecider};
+pub use policy::{
+    DEFAULT_JSON_RESPONSE_LIMIT_BYTES, DEFAULT_REQUEST_BODY_LIMIT_BYTES,
+    DEFAULT_SSE_EVENT_LIMIT_BYTES, DEFAULT_UPSTREAM_BODY_LIMIT_BYTES, GatewayErrorDetail,
+    GatewayHeaderPolicy, GatewayLimits, GatewayLossPolicy, GatewayPolicy, GatewayPolicyError,
+    GatewayStreamPolicy, MAX_RESPONSE_HEADER_RULES, MAX_SERVER_BODY_LIMIT_BYTES,
+    MIN_SERVER_RESPONSE_LIMIT_BYTES,
+};
+pub use trust::ServerTrustContext;

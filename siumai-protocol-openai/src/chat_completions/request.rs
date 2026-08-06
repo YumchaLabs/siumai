@@ -4,10 +4,11 @@ use base64::Engine;
 use serde_json::{Map, Value, json};
 use siumai_core::{
     ContentPart, Error, ErrorKind, LanguageRequest, MediaData, Message, MessageRole, ModelId,
-    ToolChoice, ToolOutcome,
+    ProviderScope, ToolChoice, ToolOutcome,
 };
 
 use super::ChatCompletionsDialect;
+use super::reasoning::replay_reasoning_details;
 
 pub const CHAT_COMPLETIONS_TARGET: &str = "chat/completions";
 const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 50;
@@ -77,6 +78,7 @@ impl ChatRequestEncodingOptions {
 }
 
 pub fn encode_request(
+    scope: &ProviderScope,
     model: &ModelId,
     request: &LanguageRequest,
     stream: bool,
@@ -84,6 +86,7 @@ pub fn encode_request(
     extra: &BTreeMap<String, Value>,
 ) -> Result<Value, Error> {
     encode_request_with_options(
+        scope,
         model,
         request,
         dialect,
@@ -92,11 +95,21 @@ pub fn encode_request(
 }
 
 pub fn encode_request_with_options(
+    scope: &ProviderScope,
     model: &ModelId,
     request: &LanguageRequest,
     dialect: &ChatCompletionsDialect,
     options: &ChatRequestEncodingOptions,
 ) -> Result<Value, Error> {
+    dialect
+        .validate_reasoning_configuration()
+        .map_err(|source| {
+            Error::new(
+                ErrorKind::Configuration,
+                "Chat Completions reasoning dialect configuration is invalid",
+            )
+            .with_source(source)
+        })?;
     request.validate().map_err(|source| {
         Error::new(ErrorKind::InvalidInput, "language request is invalid").with_source(source)
     })?;
@@ -111,7 +124,13 @@ pub fn encode_request_with_options(
     body.insert("model".to_string(), Value::String(model.to_string()));
     body.insert(
         "messages".to_string(),
-        Value::Array(encode_messages(&request.messages, dialect, options)?),
+        Value::Array(encode_messages(
+            scope,
+            model,
+            &request.messages,
+            dialect,
+            options,
+        )?),
     );
     body.insert("stream".to_string(), Value::Bool(options.stream));
 
@@ -199,6 +218,8 @@ pub fn encode_request_with_options(
 }
 
 fn encode_messages(
+    scope: &ProviderScope,
+    model: &ModelId,
     messages: &[Message],
     dialect: &ChatCompletionsDialect,
     options: &ChatRequestEncodingOptions,
@@ -206,10 +227,12 @@ fn encode_messages(
     let mut encoded = Vec::with_capacity(messages.len());
     let mut seen_breakpoints = BTreeSet::new();
     for (message_index, message) in messages.iter().enumerate() {
-        if message.role == MessageRole::Tool {
+        if message.role() == MessageRole::Tool {
             encode_tool_results(message, &mut encoded)?;
         } else {
             encoded.push(encode_message(
+                scope,
+                model,
                 message,
                 message_index,
                 dialect,
@@ -228,13 +251,16 @@ fn encode_messages(
 }
 
 fn encode_message(
+    scope: &ProviderScope,
+    model: &ModelId,
     message: &Message,
     message_index: usize,
     dialect: &ChatCompletionsDialect,
     options: &ChatRequestEncodingOptions,
     seen_breakpoints: &mut BTreeSet<ChatPromptCacheBlock>,
 ) -> Result<Value, Error> {
-    let role = match message.role {
+    let message_role = message.role();
+    let role = match message_role {
         MessageRole::System => "system",
         MessageRole::Developer if dialect.supports_developer_role() => "developer",
         MessageRole::Developer => {
@@ -258,15 +284,16 @@ fn encode_message(
     let mut content_blocks = Vec::new();
     let mut has_media = false;
     let mut reasoning = Vec::new();
+    let mut reasoning_details = None;
     let mut tool_calls = Vec::new();
-    for (content_index, part) in message.content.iter().enumerate() {
-        match part {
+    for (content_index, part) in message.content().iter().enumerate() {
+        match part.content() {
             ContentPart::Text { text: value } => {
                 text.push(value.as_str());
                 content_blocks.push((content_index, json!({ "type": "text", "text": value })));
             }
             ContentPart::Media(value)
-                if message.role == MessageRole::User
+                if message_role == MessageRole::User
                     && (value.media_type.starts_with("image/")
                         || (dialect.supports_video_input()
                             && value.media_type.starts_with("video/"))) =>
@@ -275,12 +302,27 @@ fn encode_message(
                 content_blocks.push((content_index, encode_media(value)?));
             }
             ContentPart::Reasoning { text: value }
-                if message.role == MessageRole::Assistant
+                if message_role == MessageRole::Assistant
                     && dialect.reasoning_input_field().is_some() =>
             {
                 reasoning.push(value.as_str());
             }
-            ContentPart::ToolCall(call) if message.role == MessageRole::Assistant => {
+            ContentPart::ProviderOpaque(item) if message_role == MessageRole::Assistant => {
+                if dialect.reasoning_details_field().is_none() {
+                    return Err(Error::new(
+                        ErrorKind::Unsupported,
+                        "provider-native Chat Completions history is not replayable in this dialect",
+                    ));
+                }
+                let value = replay_reasoning_details(scope, model, item)?;
+                if reasoning_details.replace(value).is_some() {
+                    return Err(Error::new(
+                        ErrorKind::InvalidInput,
+                        "assistant history contained duplicate Chat Completions reasoning_details",
+                    ));
+                }
+            }
+            ContentPart::ToolCall(call) if message_role == MessageRole::Assistant => {
                 tool_calls.push(json!({
                     "id": call.id,
                     "type": "function",
@@ -334,6 +376,12 @@ fn encode_message(
     {
         object.insert(field.to_string(), Value::String(reasoning.concat()));
     }
+    if let Some(value) = reasoning_details {
+        let field = dialect
+            .reasoning_details_field()
+            .ok_or_else(|| Error::new(ErrorKind::Internal, "reasoning replay field was missing"))?;
+        object.insert(field.to_string(), value);
+    }
     if !tool_calls.is_empty() {
         object.insert("tool_calls".to_string(), Value::Array(tool_calls));
     }
@@ -367,14 +415,14 @@ fn encode_media(media: &siumai_core::MediaPart) -> Result<Value, Error> {
 }
 
 fn encode_tool_results(message: &Message, output: &mut Vec<Value>) -> Result<(), Error> {
-    if message.content.is_empty() {
+    if message.content().is_empty() {
         return Err(Error::new(
             ErrorKind::InvalidInput,
             "tool message requires at least one tool result",
         ));
     }
-    for part in &message.content {
-        let ContentPart::ToolResult(result) = part else {
+    for part in message.content() {
+        let ContentPart::ToolResult(result) = part.content() else {
             return Err(Error::new(
                 ErrorKind::Unsupported,
                 "tool messages may contain only tool results",
@@ -428,16 +476,20 @@ mod tests {
     use serde_json::json;
     use siumai_core::{
         ContentPart, GenerationConfig, LanguageRequest, MediaData, MediaPart, Message, MessageRole,
-        ModelId,
+        ModelId, ProviderId, ProviderScope,
     };
 
     use super::*;
 
+    fn scope() -> ProviderScope {
+        ProviderScope::new(ProviderId::new("test-provider").unwrap())
+    }
+
     #[test]
     fn encodes_omitted_controls_tools_images_and_structured_output() {
-        let request = LanguageRequest::new(vec![Message {
-            role: MessageRole::User,
-            content: vec![
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::User,
+            [
                 ContentPart::Text {
                     text: "inspect".to_string(),
                 },
@@ -447,12 +499,13 @@ mod tests {
                     name: None,
                 }),
             ],
-        }])
+        )])
         .with_generation(GenerationConfig {
             max_output_tokens: Some(100),
             ..GenerationConfig::default()
         });
         let body = encode_request(
+            &scope(),
             &ModelId::new("future:model").unwrap(),
             &request,
             true,
@@ -475,16 +528,17 @@ mod tests {
 
     #[test]
     fn video_input_requires_an_explicit_verified_dialect() {
-        let request = LanguageRequest::new(vec![Message {
-            role: MessageRole::User,
-            content: vec![ContentPart::Media(MediaPart {
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::User,
+            [ContentPart::Media(MediaPart {
                 media_type: "video/mp4".to_string(),
                 data: MediaData::Bytes(vec![1, 2, 3].into()),
                 name: None,
             })],
-        }]);
+        )]);
         assert!(
             encode_request(
+                &scope(),
                 &ModelId::new("model").unwrap(),
                 &request,
                 false,
@@ -495,6 +549,7 @@ mod tests {
         );
 
         let body = encode_request(
+            &scope(),
             &ModelId::new("model").unwrap(),
             &request,
             false,
@@ -512,14 +567,15 @@ mod tests {
 
     #[test]
     fn rejects_lossy_history_projection_and_protected_overrides() {
-        let request = LanguageRequest::new(vec![Message {
-            role: MessageRole::Assistant,
-            content: vec![ContentPart::Reasoning {
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            [ContentPart::Reasoning {
                 text: "private state".to_string(),
             }],
-        }]);
+        )]);
         assert!(
             encode_request(
+                &scope(),
                 &ModelId::new("model").unwrap(),
                 &request,
                 false,
@@ -534,6 +590,7 @@ mod tests {
         let request = LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]);
         assert!(
             encode_request(
+                &scope(),
                 &ModelId::new("model").unwrap(),
                 &request,
                 false,
@@ -546,9 +603,9 @@ mod tests {
 
     #[test]
     fn explicit_prompt_cache_breakpoints_preserve_content_coordinates() {
-        let request = LanguageRequest::new(vec![Message {
-            role: MessageRole::User,
-            content: vec![
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::User,
+            [
                 ContentPart::Text {
                     text: "stable prefix".to_string(),
                 },
@@ -556,7 +613,7 @@ mod tests {
                     text: "dynamic suffix".to_string(),
                 },
             ],
-        }]);
+        )]);
         let options = ChatRequestEncodingOptions::new(false)
             .with_extra(BTreeMap::from([(
                 "prompt_cache_options".to_string(),
@@ -564,6 +621,7 @@ mod tests {
             )]))
             .with_prompt_cache_breakpoint(ChatPromptCacheBlock::new(0, 0));
         let body = encode_request_with_options(
+            &scope(),
             &ModelId::new("gpt-5.6").unwrap(),
             &request,
             &ChatCompletionsDialect::generic(),
@@ -586,6 +644,7 @@ mod tests {
             .with_prompt_cache_breakpoint(ChatPromptCacheBlock::new(0, 1));
         assert!(
             encode_request_with_options(
+                &scope(),
                 &ModelId::new("gpt-5.6").unwrap(),
                 &request,
                 &ChatCompletionsDialect::generic(),
@@ -601,6 +660,7 @@ mod tests {
         }
         assert!(
             encode_request_with_options(
+                &scope(),
                 &ModelId::new("gpt-5.6").unwrap(),
                 &request,
                 &ChatCompletionsDialect::generic(),

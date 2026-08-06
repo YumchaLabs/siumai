@@ -8,6 +8,7 @@ use siumai_core::{
 };
 
 use super::ChatCompletionsDialect;
+use super::reasoning::preserve_reasoning_details;
 use super::wire::{AssistantMessageWire, ChatResponseWire, ToolCallWire, UsageWire};
 
 pub fn decode_response(
@@ -16,6 +17,15 @@ pub fn decode_response(
     body: &[u8],
     dialect: &ChatCompletionsDialect,
 ) -> Result<LanguageResponse, Error> {
+    dialect
+        .validate_reasoning_configuration()
+        .map_err(|source| {
+            Error::new(
+                ErrorKind::Configuration,
+                "Chat Completions reasoning dialect configuration is invalid",
+            )
+            .with_source(source)
+        })?;
     let wire = serde_json::from_slice::<ChatResponseWire>(body).map_err(json_decode_error)?;
     if wire.choices.len() != 1 || wire.choices[0].index != 0 {
         return Err(protocol_error(
@@ -98,6 +108,14 @@ pub(crate) fn decode_message(
         content.push(ContentPart::Reasoning {
             text: text.to_string(),
         });
+    }
+    if let Some(field) = dialect.reasoning_details_field()
+        && let Some(value) = message.extra.get(field)
+        && !value.is_null()
+    {
+        content.push(ContentPart::ProviderOpaque(preserve_reasoning_details(
+            scope, model, value,
+        )?));
     }
     if let Some(reason) = message.refusal {
         content.push(ContentPart::Refusal {
@@ -250,6 +268,12 @@ pub(crate) fn decode_usage(wire: UsageWire, dialect: &ChatCompletionsDialect) ->
         .and_then(|field| wire.extra.get(field))
         .and_then(Value::as_u64);
     usage.cache_read_tokens = usage_value(standard_cache_read.or(dialect_cache_read));
+    usage.cache_write_tokens = usage_value(
+        dialect
+            .cache_write_tokens_field()
+            .and_then(|field| wire.extra.get(field))
+            .and_then(Value::as_u64),
+    );
     usage.audio_output_tokens = usage_value(
         wire.completion_tokens_details
             .and_then(|details| details.audio_tokens),
@@ -314,13 +338,44 @@ pub(crate) fn protocol_error(message: &'static str) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use siumai_core::{ApiModeId, PlatformId, ProtocolId, ProviderId, ProviderScope};
+    use siumai_core::{
+        ApiModeId, LanguageRequest, Message, MessageRole, OpaqueProviderItem, PlatformId,
+        ProtocolId, ProviderId, ProviderProvenance, ProviderScope,
+    };
 
     fn scope() -> ProviderScope {
         ProviderScope::new(ProviderId::new("deepseek").unwrap())
             .with_platform(PlatformId::new("public-api").unwrap())
             .with_protocol(ProtocolId::new("openai").unwrap())
             .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+    }
+
+    fn minimax_scope() -> ProviderScope {
+        ProviderScope::new(ProviderId::new("minimax").unwrap())
+            .with_platform(PlatformId::new("minimax-api").unwrap())
+            .with_protocol(ProtocolId::new("openai").unwrap())
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+    }
+
+    fn minimax_dialect() -> ChatCompletionsDialect {
+        let reasoning = super::super::WireFieldName::new("reasoning_content").unwrap();
+        ChatCompletionsDialect::generic()
+            .with_reasoning_input_field(reasoning.clone())
+            .with_reasoning_output_field(reasoning)
+            .with_replayable_reasoning_details_field(
+                super::super::WireFieldName::new("reasoning_details").unwrap(),
+            )
+            .unwrap()
+    }
+
+    fn reasoning_details() -> Value {
+        serde_json::json!([{
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "inspect the weather tool"
+        }])
     }
 
     #[test]
@@ -407,26 +462,123 @@ mod tests {
     }
 
     #[test]
-    fn root_cache_usage_requires_an_explicit_dialect_mapping() {
+    fn preserves_and_replays_structured_reasoning_only_for_exact_provenance() {
+        let scope = minimax_scope();
+        let model = ModelId::new("MiniMax-M3").unwrap();
+        let details = reasoning_details();
+        let body = serde_json::to_vec(&serde_json::json!({
+            "id": "chat-minimax-1",
+            "model": model.as_str(),
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "calling the tool",
+                    "reasoning_content": "inspect the weather tool",
+                    "reasoning_details": details,
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {"name": "weather", "arguments": "{\"city\":\"SF\"}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        }))
+        .unwrap();
+        let dialect = minimax_dialect();
+        let response = decode_response(&scope, &model, &body, &dialect).unwrap();
+        let native = response
+            .content()
+            .iter()
+            .find_map(|part| match part {
+                ContentPart::ProviderOpaque(item) => Some(item.clone()),
+                _ => None,
+            })
+            .expect("reasoning details");
+        assert_eq!(native.kind(), super::super::REASONING_DETAILS_OPAQUE_KIND);
+        assert_eq!(native.provenance().provider.as_str(), "minimax");
+        assert_eq!(native.provenance().platform.as_deref(), Some("minimax-api"));
+        assert_eq!(native.provenance().protocol, "openai");
+        assert_eq!(native.provenance().model.as_str(), "MiniMax-M3");
+        assert_eq!(native.data(), &reasoning_details());
+
+        let history = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            response.content().iter().cloned(),
+        )]);
+        let encoded = super::super::encode_request(
+            &scope,
+            &model,
+            &history,
+            false,
+            &dialect,
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            encoded["messages"][0]["reasoning_content"],
+            "inspect the weather tool"
+        );
+        assert_eq!(
+            encoded["messages"][0]["reasoning_details"],
+            reasoning_details()
+        );
+
+        let foreign = OpaqueProviderItem::new(
+            ProviderProvenance {
+                provider: ProviderId::new("foreign").unwrap(),
+                platform: Some("minimax-api".to_string()),
+                protocol: "openai".to_string(),
+                model: model.clone(),
+            },
+            super::super::REASONING_DETAILS_OPAQUE_KIND,
+            reasoning_details(),
+        )
+        .unwrap();
+        let foreign_history = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            [ContentPart::ProviderOpaque(foreign)],
+        )]);
+        let foreign_error = super::super::encode_request(
+            &scope,
+            &model,
+            &foreign_history,
+            false,
+            &dialect,
+            &BTreeMap::new(),
+        )
+        .unwrap_err();
+        assert_eq!(foreign_error.kind(), ErrorKind::Unsupported);
+    }
+
+    #[test]
+    fn root_cache_usage_requires_explicit_dialect_mappings() {
         let body = br#"{
             "choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}],
-            "usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"cached_tokens":7}
+            "usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"cached_tokens":7,"created_cache_tokens":3}
         }"#;
         let model = ModelId::new("model").unwrap();
 
         let generic =
             decode_response(&scope(), &model, body, &ChatCompletionsDialect::generic()).unwrap();
         assert_eq!(generic.usage().cache_read_tokens, UsageValue::Unknown);
+        assert_eq!(generic.usage().cache_write_tokens, UsageValue::Unknown);
 
         let mapped = decode_response(
             &scope(),
             &model,
             body,
-            &ChatCompletionsDialect::generic().with_cache_read_tokens_field(
-                super::super::WireFieldName::new("cached_tokens").unwrap(),
-            ),
+            &ChatCompletionsDialect::generic()
+                .with_cache_read_tokens_field(
+                    super::super::WireFieldName::new("cached_tokens").unwrap(),
+                )
+                .with_cache_write_tokens_field(
+                    super::super::WireFieldName::new("created_cache_tokens").unwrap(),
+                ),
         )
         .unwrap();
         assert_eq!(mapped.usage().cache_read_tokens, UsageValue::Known(7));
+        assert_eq!(mapped.usage().cache_write_tokens, UsageValue::Known(3));
     }
 }

@@ -3,12 +3,9 @@
   "msrv": "1.88",
   "package_rules": {
     "siumai-core": {
-      "current_allowed_workspace_dependencies": [
-        "siumai-provider-utils",
-        "siumai-spec"
-      ],
+      "current_allowed_workspace_dependencies": [],
       "target_allowed_workspace_dependencies": [],
-      "transition_expires": "U2"
+      "transition_expires": "U13"
     },
     "siumai-transport": {
       "current_allowed_workspace_dependencies": [
@@ -37,22 +34,5 @@
       ],
       "transition_expires": "U8"
     }
-  },
-  "provider_dependency_transitions": [
-    {
-      "sources": ["*"],
-      "dependency": "siumai-provider-utils",
-      "transition_expires": "U3"
-    },
-    {
-      "sources": [
-        "siumai-provider-deepseek",
-        "siumai-provider-groq",
-        "siumai-provider-openai",
-        "siumai-provider-xai"
-      ],
-      "dependency": "siumai-provider-openai-compatible",
-      "transition_expires": "U10"
-    }
-  ]
+  }
 }

@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    ApiModeId, InvalidId, ModelFamily, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
-    ModelPolicyContext, ModelPolicyDecision, ProtocolId, Provider, ProviderId, ProviderOptionError,
+    InvalidId, ModelFamily, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
+    ModelPolicyContext, ModelPolicyDecision, Provider, ProviderOptionContext, ProviderOptionError,
     ProviderOptionLayers, ProviderOptionMerger, ProviderOptions, ProviderRegistration,
     ProviderScope, TranscriptionModelProvider, TypedProviderOptions, UnsupportedReason,
 };
@@ -18,6 +18,9 @@ use thiserror::Error;
 use crate::credential::{DeepgramCredential, DeepgramCredentialError};
 use crate::model::DeepgramTranscriptionModel;
 use crate::options::DeepgramTranscriptionOptions;
+use crate::profile::{
+    API_MODE_ID, DeepgramProfile, DeepgramProfileError, PROTOCOL_ID, PROVIDER_ID,
+};
 
 const DEEPGRAM_ORIGIN: &str = "https://api.deepgram.com";
 
@@ -25,6 +28,7 @@ const DEEPGRAM_ORIGIN: &str = "https://api.deepgram.com";
 #[derive(Clone)]
 pub struct DeepgramProvider {
     pub(crate) runtime: Arc<ProviderRuntime>,
+    profile: DeepgramProfile,
 }
 
 impl DeepgramProvider {
@@ -41,8 +45,7 @@ impl DeepgramProvider {
         &self,
         model: impl Into<String>,
     ) -> Result<DeepgramTranscriptionModel, ModelLookupError> {
-        let model = ModelId::new(model.into())
-            .map_err(|error| ModelLookupError::InvalidReference(error.to_string()))?;
+        let model = ModelId::new(model.into())?;
         Ok(self.create_transcription_model(model))
     }
 
@@ -62,11 +65,18 @@ impl DeepgramProvider {
 
     pub fn registration(&self) -> ProviderRegistration {
         let provider = self.clone();
-        ProviderRegistration::from_scope(self.runtime.scope.clone(), self.runtime.policy.clone())
-            .with_transcription(Arc::new(move |model| {
+        ProviderRegistration::from_transcription(
+            self.runtime.scope.clone(),
+            self.runtime.policy.clone(),
+            Arc::new(move |model| {
                 Ok(Arc::new(provider.create_transcription_model(model))
                     as Arc<dyn siumai_core::TranscriptionModel>)
-            }))
+            }),
+        )
+    }
+
+    pub fn profile(&self) -> &DeepgramProfile {
+        &self.profile
     }
 
     fn create_transcription_model(&self, model: ModelId) -> DeepgramTranscriptionModel {
@@ -75,8 +85,8 @@ impl DeepgramProvider {
 }
 
 impl Provider for DeepgramProvider {
-    fn scope(&self) -> &ProviderScope {
-        self.runtime.scope.as_ref()
+    fn provider_id(&self) -> &siumai_core::ProviderId {
+        self.runtime.scope.provider_id()
     }
 }
 
@@ -166,6 +176,12 @@ impl DeepgramProviderBuilder {
         {
             return Err(DeepgramConfigError::OfficialEndpointRequiresCredential);
         }
+        let verified_endpoint = matches!(endpoint.policy(), EndpointPolicy::Official(_));
+        let profile = if verified_endpoint {
+            DeepgramProfile::current()?
+        } else {
+            DeepgramProfile::custom()?
+        };
 
         let mut transport = ProviderTransport::builder(endpoint)
             .with_auth(self.credential.into_auth())
@@ -180,20 +196,16 @@ impl DeepgramProviderBuilder {
             transport = transport.with_read_timeout(timeout);
         }
         let transport = transport.build()?;
-        let scope = Arc::new(
-            ProviderScope::new(ProviderId::new("deepgram")?)
-                .with_protocol(ProtocolId::new("deepgram-prerecorded")?)
-                .with_api_mode(ApiModeId::new("prerecorded")?),
-        );
-        let policy = Arc::new(DeepgramModelPolicy);
+        let policy = Arc::new(DeepgramModelPolicy { verified_endpoint });
         Ok(DeepgramProvider {
             runtime: Arc::new(ProviderRuntime {
-                scope,
+                scope: profile.scope(),
                 transport,
                 policy,
                 default_options,
                 option_merger: DeepgramOptionMerger,
             }),
+            profile,
         })
     }
 }
@@ -229,7 +241,14 @@ impl ProviderRuntime {
         let layers =
             ProviderOptionLayers::default().with_provider_default(self.default_options.clone())?;
         call.apply_provider_options(self.scope.provider_id(), layers)?
-            .merge_for(self.scope.provider_id(), &self.option_merger)
+            .merge_for(
+                ProviderOptionContext::new(
+                    self.scope.provider_id(),
+                    ModelFamily::Transcription,
+                    self.scope.api_mode(),
+                ),
+                &self.option_merger,
+            )
     }
 }
 
@@ -244,17 +263,22 @@ impl fmt::Debug for ProviderRuntime {
     }
 }
 
-pub(crate) struct DeepgramModelPolicy;
+pub(crate) struct DeepgramModelPolicy {
+    verified_endpoint: bool,
+}
 
 impl ModelPolicy for DeepgramModelPolicy {
     fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        if context.family != ModelFamily::Transcription {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::FamilyNotImplemented);
+        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
+            && context.scope().protocol().map(|value| value.as_str()) == Some(PROTOCOL_ID)
+            && context.scope().api_mode().map(|value| value.as_str()) == Some(API_MODE_ID);
+        if !matches_scope {
+            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
         }
-        if context.operation != ModelOperation::Transcribe {
+        if context.operation() != ModelOperation::Transcribe {
             return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
         }
-        if crate::models::ALL_TRANSCRIPTION.contains(&context.model.as_str()) {
+        if self.verified_endpoint && crate::models::is_current(context.model().as_str()) {
             ModelPolicyDecision::supported()
         } else {
             ModelPolicyDecision::unknown_model()
@@ -310,6 +334,8 @@ fn official_endpoint() -> Result<EndpointConfig, EndpointError> {
 pub enum DeepgramConfigError {
     #[error("invalid Deepgram identity: {0}")]
     Identity(#[from] InvalidId),
+    #[error("invalid Deepgram support profile: {0}")]
+    Profile(#[from] DeepgramProfileError),
     #[error("invalid Deepgram endpoint: {0}")]
     Endpoint(#[from] EndpointError),
     #[error("invalid Deepgram transport settings: {0}")]
@@ -324,7 +350,9 @@ pub enum DeepgramConfigError {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{CallOptions, Model, ModelFamily};
+    use siumai_core::{
+        ApiStability, CallOptions, Model, ModelFamily, ProviderId, VerifiedFidelity,
+    };
 
     use super::*;
 
@@ -357,6 +385,22 @@ mod tests {
         assert_eq!(direct.descriptor(), erased.descriptor());
         assert_eq!(direct.descriptor().protocol(), Some("deepgram-prerecorded"));
         assert_eq!(direct.descriptor().api_mode(), Some("prerecorded"));
+    }
+
+    #[test]
+    fn official_profile_exposes_only_current_prerecorded_models() {
+        let provider = DeepgramProvider::builder(DeepgramCredential::api_key("test-key"))
+            .build()
+            .unwrap();
+        let profile = provider.profile().provider_profile();
+        let claims = profile.verified_claims().unwrap();
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].fidelity(), VerifiedFidelity::Native);
+        assert_eq!(claims[0].stability(), ApiStability::Stable);
+        assert_eq!(
+            profile.catalog().unwrap().iter().count(),
+            crate::models::CURRENT_TRANSCRIPTION_MODELS.len()
+        );
     }
 
     #[test]

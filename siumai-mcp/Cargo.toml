@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/siumai-mcp"
+readme = "../README.md"
 keywords = ["llm", "ai", "mcp", "tools"]
 categories = ["api-bindings"]
 

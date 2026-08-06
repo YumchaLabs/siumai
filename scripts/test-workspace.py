@@ -11,33 +11,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-SMOKE_PROFILES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    "openai": (
-        ("openai-native", "openai-compat"),
-        ("registry-openai",),
-    ),
-    "openai-compatible": (
-        ("openai-native", "openai-compat", "groq", "xai", "deepseek"),
-        ("compatible-stack",),
-    ),
-    "all-providers": (
-        ("all",),
-        ("all-providers",),
-    ),
-}
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run current, no-network Siumai test suites without parallel Cargo jobs."
     )
-    parser.add_argument("suite", choices=("fast", "smoke", "full"))
-    parser.add_argument(
-        "--profile",
-        choices=tuple(SMOKE_PROFILES),
-        default="openai",
-        help="provider profile used by the smoke suite (default: openai)",
-    )
+    parser.add_argument("suite", choices=("fast", "full"))
     parser.add_argument(
         "--runner",
         choices=("auto", "nextest", "cargo-test"),
@@ -97,8 +76,6 @@ def workspace_test_command(runner: str) -> list[str]:
             "--workspace",
             "--all-features",
             "--no-fail-fast",
-            "--test-threads",
-            "1",
         ]
     return [
         "cargo",
@@ -114,10 +91,7 @@ def workspace_test_command(runner: str) -> list[str]:
 
 
 def common_checks() -> list[list[str]]:
-    return [
-        [sys.executable, "-B", "scripts/check_workspace_boundaries.py"],
-        [sys.executable, "-B", "scripts/check_fixture_inventory.py"],
-    ]
+    return [[sys.executable, "-B", "scripts/check_workspace_boundaries.py", "--target"]]
 
 
 def commands_for(args: argparse.Namespace, runner: str) -> list[list[str]]:
@@ -135,30 +109,6 @@ def commands_for(args: argparse.Namespace, runner: str) -> list[list[str]]:
             ),
         ]
 
-    if args.suite == "smoke":
-        provider_profiles, facade_profiles = SMOKE_PROFILES[args.profile]
-        commands = [
-            *common_checks(),
-            package_test_command(
-                runner,
-                (
-                    "siumai-core",
-                    "siumai-runtime",
-                    "siumai-transport",
-                    "siumai-registry",
-                ),
-            ),
-        ]
-        commands.extend(
-            [sys.executable, "-B", "scripts/test-provider-contracts.py", profile]
-            for profile in provider_profiles
-        )
-        commands.extend(
-            [sys.executable, "-B", "scripts/test-cross-feature-contracts.py", profile]
-            for profile in facade_profiles
-        )
-        return commands
-
     return [
         [
             sys.executable,
@@ -172,7 +122,6 @@ def commands_for(args: argparse.Namespace, runner: str) -> list[list[str]]:
             "test_*.py",
         ],
         *common_checks(),
-        [sys.executable, "-B", "scripts/test-cross-feature-contracts.py"],
         workspace_test_command(runner),
     ]
 

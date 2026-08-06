@@ -190,6 +190,24 @@ async fn direct_family_helper_preserves_one_call_per_batch() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
+#[cfg(all(feature = "runtime", feature = "json-schema"))]
+#[test]
+fn facade_keeps_json_schema_validation_in_the_runtime_namespace() {
+    use serde_json::json;
+    use siumai::runtime::json_schema::JsonSchemaValidator;
+
+    let validator = JsonSchemaValidator::new(&json!({
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": false
+    }))
+    .unwrap();
+
+    assert!(validator.is_valid(&json!({"answer": "ok"})));
+    assert!(!validator.is_valid(&json!({"answer": 42})));
+}
+
 #[cfg(feature = "runtime")]
 #[tokio::test]
 async fn runtime_facade_reexports_one_call_language_execution() {
@@ -227,12 +245,15 @@ async fn direct_and_registry_image_paths_share_one_family_contract() {
 
     let calls = Arc::new(AtomicUsize::new(0));
     let direct = fake_image(ModelId::new("image-v1").unwrap(), calls.clone());
+    let scope = Arc::new(direct.descriptor().scope().clone());
     let factory_calls = calls.clone();
-    let registration =
-        ProviderRegistration::new(ProviderId::new("fake").unwrap(), Arc::new(UnknownPolicy))
-            .with_image(Arc::new(move |model| {
-                Ok(Arc::new(fake_image(model, factory_calls.clone())) as Arc<dyn ImageModel>)
-            }));
+    let registration = ProviderRegistration::from_image(
+        scope,
+        Arc::new(UnknownPolicy),
+        Arc::new(move |model| {
+            Ok(Arc::new(fake_image(model, factory_calls.clone())) as Arc<dyn ImageModel>)
+        }),
+    );
     let mut builder = Registry::builder();
     builder.register_named("primary", registration).unwrap();
     let registry = builder.build().unwrap();
@@ -263,12 +284,15 @@ async fn direct_and_registry_paths_use_the_same_family_contract() {
 
     let calls = Arc::new(AtomicUsize::new(0));
     let direct = fake(ModelId::new("embed-v1").unwrap(), calls.clone());
+    let scope = Arc::new(direct.descriptor().scope().clone());
     let factory_calls = calls.clone();
-    let registration =
-        ProviderRegistration::new(ProviderId::new("fake").unwrap(), Arc::new(UnknownPolicy))
-            .with_embedding(Arc::new(move |model| {
-                Ok(Arc::new(fake(model, factory_calls.clone())) as Arc<dyn EmbeddingModel>)
-            }));
+    let registration = ProviderRegistration::from_embedding(
+        scope,
+        Arc::new(UnknownPolicy),
+        Arc::new(move |model| {
+            Ok(Arc::new(fake(model, factory_calls.clone())) as Arc<dyn EmbeddingModel>)
+        }),
+    );
     let mut builder = Registry::builder();
     builder.register_named("primary", registration).unwrap();
     let registry = builder.build().unwrap();
@@ -290,34 +314,433 @@ async fn direct_and_registry_paths_use_the_same_family_contract() {
     feature = "openai",
     feature = "openai-compatible",
     feature = "google",
+    feature = "alibaba",
     feature = "cohere",
     feature = "deepgram",
     feature = "elevenlabs"
 ))]
 #[test]
 fn facade_registration_sources_cover_all_six_stable_families() {
-    use siumai::providers::{cohere, deepgram, elevenlabs, google, openai, openai_compatible};
+    use siumai::providers::{
+        alibaba, cohere, deepgram, elevenlabs, google, openai, openai_compatible,
+    };
     use siumai::registry::ProviderRegistrationSource;
 
     fn assert_registration_source<T: ProviderRegistrationSource>() {}
 
     assert_registration_source::<openai::OpenAiProvider>();
+    assert_registration_source::<alibaba::AlibabaProvider>();
     assert_registration_source::<openai_compatible::OpenAiCompatibleProvider>();
-    assert_registration_source::<google::GoogleImagenProvider>();
+    assert_registration_source::<google::GoogleImageProvider>();
     assert_registration_source::<cohere::CohereProvider>();
     assert_registration_source::<deepgram::DeepgramProvider>();
     assert_registration_source::<elevenlabs::ElevenLabsProvider>();
+}
+
+#[cfg(feature = "google")]
+#[test]
+fn facade_exposes_the_current_google_interactions_image_slice() {
+    use siumai::core::{ApiStability, Model, ProviderOptions, VerifiedFidelity};
+    use siumai::providers::google::models::{GEMINI_3_1_FLASH_IMAGE, current_models};
+    use siumai::providers::google::options::{
+        GoogleImageAspectRatio, GoogleImageOptions, GoogleImageSize,
+    };
+    use siumai::providers::google::{GoogleCredential, GoogleImageProvider};
+
+    let provider = GoogleImageProvider::builder(GoogleCredential::api_key("test-key"))
+        .build()
+        .unwrap();
+    let claim = &provider
+        .profile()
+        .provider_profile()
+        .verified_claims()
+        .unwrap()[0];
+    assert_eq!(claim.scope().api_mode().as_str(), "interactions-image");
+    assert_eq!(
+        provider
+            .image(GEMINI_3_1_FLASH_IMAGE)
+            .unwrap()
+            .model_id()
+            .as_str(),
+        GEMINI_3_1_FLASH_IMAGE
+    );
+    assert_eq!(current_models().len(), 3);
+
+    let options = ProviderOptions::typed(
+        &GoogleImageOptions::new()
+            .with_aspect_ratio(GoogleImageAspectRatio::LandscapeSixteenNine)
+            .with_image_size(GoogleImageSize::TwoK),
+    )
+    .unwrap();
+    assert_eq!(options.namespace().as_str(), "google");
+
+    let claims = provider
+        .profile()
+        .provider_profile()
+        .verified_claims()
+        .unwrap();
+    assert_eq!(claims[0].fidelity(), VerifiedFidelity::Native);
+    assert_eq!(claims[0].stability(), ApiStability::Experimental);
+}
+
+#[cfg(all(feature = "registry", feature = "deepseek"))]
+#[test]
+fn facade_exposes_deepseek_as_a_curated_registration_source() {
+    use siumai::core::ProviderOptions;
+    use siumai::providers::deepseek::options::{
+        DeepSeekChatOptions, DeepSeekReasoningEffort, DeepSeekResponsesOptions,
+    };
+    use siumai::providers::deepseek::{DeepSeekCredential, DeepSeekLanguageApi, DeepSeekProvider};
+    use siumai::registry::ProviderRegistrationSource;
+
+    fn assert_registration_source<T: ProviderRegistrationSource>() {}
+
+    assert_registration_source::<DeepSeekProvider>();
+
+    let provider = DeepSeekProvider::builder(DeepSeekCredential::unauthenticated())
+        .build()
+        .unwrap();
+    assert_eq!(
+        provider.language("future-deepseek-model").unwrap().api(),
+        DeepSeekLanguageApi::ChatCompletions
+    );
+    assert_eq!(
+        provider.responses("future-deepseek-model").unwrap().api(),
+        DeepSeekLanguageApi::Responses
+    );
+    assert_eq!(
+        provider
+            .registration()
+            .api_mode(ModelFamily::Language)
+            .map(siumai::core::ApiModeId::as_str),
+        Some("chat-completions")
+    );
+
+    let chat_options = ProviderOptions::typed(
+        &DeepSeekChatOptions::new().with_reasoning_effort(DeepSeekReasoningEffort::High),
+    )
+    .unwrap();
+    assert_eq!(chat_options.namespace().as_str(), "deepseek");
+    assert_eq!(chat_options.value()["reasoning_effort"], "high");
+
+    let responses_options = ProviderOptions::typed(
+        &DeepSeekResponsesOptions::new()
+            .with_reasoning_effort(DeepSeekReasoningEffort::Max)
+            .with_web_search(),
+    )
+    .unwrap();
+    assert_eq!(
+        responses_options
+            .api_mode()
+            .map(siumai::core::ApiModeId::as_str),
+        Some("responses")
+    );
+    assert_eq!(responses_options.value()["native_tools"][0], "web_search");
+}
+
+#[cfg(all(feature = "registry", feature = "minimax"))]
+#[test]
+fn facade_exposes_minimax_as_a_curated_composite_provider() {
+    use siumai::core::ProviderOptions;
+    use siumai::providers::minimax::options::{
+        MinimaxMessagesOptions, MinimaxReasoningEffort, MinimaxResponsesOptions,
+        MinimaxServiceTier, MinimaxThinking,
+    };
+    use siumai::providers::minimax::resources::MinimaxVideoResolution;
+    use siumai::providers::minimax::{MinimaxCredential, MinimaxLanguageApi, MinimaxProvider};
+    use siumai::registry::ProviderRegistrationSource;
+
+    fn assert_registration_source<T: ProviderRegistrationSource>() {}
+
+    assert_registration_source::<MinimaxProvider>();
+    assert_eq!(MinimaxVideoResolution::K2.as_str(), "2K");
+
+    let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .build()
+        .unwrap();
+    let _files = provider.files();
+    let _images = provider.images();
+    let _music = provider.music();
+    let _speech = provider.speech();
+    let _video = provider.video();
+    assert_eq!(
+        provider.language("future-minimax-model").unwrap().api(),
+        MinimaxLanguageApi::Messages
+    );
+    assert_eq!(
+        provider
+            .chat_completions("future-minimax-model")
+            .unwrap()
+            .api(),
+        MinimaxLanguageApi::ChatCompletions
+    );
+    assert_eq!(
+        provider.responses("future-minimax-model").unwrap().api(),
+        MinimaxLanguageApi::Responses
+    );
+    assert_eq!(
+        provider
+            .provider_registration()
+            .unwrap()
+            .api_mode(ModelFamily::Language)
+            .map(siumai::core::ApiModeId::as_str),
+        Some("messages")
+    );
+
+    let messages = ProviderOptions::typed(
+        &MinimaxMessagesOptions::new()
+            .with_thinking(MinimaxThinking::Adaptive)
+            .with_service_tier(MinimaxServiceTier::Priority),
+    )
+    .unwrap();
+    assert_eq!(messages.namespace().as_str(), "minimax");
+    assert_eq!(messages.value()["thinking"]["type"], "adaptive");
+
+    let responses = ProviderOptions::typed(
+        &MinimaxResponsesOptions::new()
+            .with_reasoning_effort(MinimaxReasoningEffort::High)
+            .with_prompt_cache_key("conversation-1"),
+    )
+    .unwrap();
+    assert_eq!(
+        responses.api_mode().map(siumai::core::ApiModeId::as_str),
+        Some("responses")
+    );
+    assert_eq!(responses.value()["reasoning"]["effort"], "high");
+}
+
+#[cfg(all(feature = "registry", feature = "anthropic"))]
+#[test]
+fn facade_exposes_anthropic_as_a_curated_provider() {
+    use siumai::core::ProviderOptions;
+    use siumai::providers::anthropic::options::{AnthropicMessagesOptions, AnthropicThinking};
+    use siumai::providers::anthropic::{AnthropicCredential, AnthropicProvider};
+    use siumai::registry::ProviderRegistrationSource;
+
+    fn assert_registration_source<T: ProviderRegistrationSource>() {}
+
+    assert_registration_source::<AnthropicProvider>();
+
+    let provider = AnthropicProvider::builder(AnthropicCredential::api_key("test-key"))
+        .build()
+        .unwrap();
+    let _files = provider.files();
+    let _batches = provider.message_batches();
+    let _tokens = provider.tokens();
+    let _skills = provider.skills();
+    let _language = provider.language("future-claude-model").unwrap();
+    assert_eq!(
+        provider
+            .provider_registration()
+            .unwrap()
+            .api_mode(ModelFamily::Language)
+            .map(siumai::core::ApiModeId::as_str),
+        Some("messages")
+    );
+
+    let options = ProviderOptions::typed(
+        &AnthropicMessagesOptions::new().with_thinking(AnthropicThinking::adaptive()),
+    )
+    .unwrap();
+    assert_eq!(options.namespace().as_str(), "anthropic");
+    assert_eq!(options.value()["thinking"]["type"], "adaptive");
+}
+
+#[cfg(all(feature = "registry", feature = "google-vertex-anthropic"))]
+#[test]
+fn facade_exposes_anthropic_on_vertex_as_a_curated_provider() {
+    use siumai::core::{ApiModeId, Model, ProviderOptions};
+    use siumai::providers::google_vertex_anthropic::models::CLAUDE_SONNET_5;
+    use siumai::providers::google_vertex_anthropic::options::GoogleVertexAnthropicMessagesOptions;
+    use siumai::providers::google_vertex_anthropic::{
+        GoogleVertexAnthropicProvider, GoogleVertexCredential,
+    };
+    use siumai::registry::ProviderRegistrationSource;
+
+    fn assert_registration_source<T: ProviderRegistrationSource>() {}
+
+    assert_registration_source::<GoogleVertexAnthropicProvider>();
+
+    let provider = GoogleVertexAnthropicProvider::builder(
+        "test-project",
+        "us-east5",
+        GoogleVertexCredential::access_token("test-token"),
+    )
+    .build()
+    .unwrap();
+    assert_eq!(
+        provider
+            .language(CLAUDE_SONNET_5)
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("messages")
+    );
+    assert_eq!(
+        provider
+            .provider_registration()
+            .unwrap()
+            .api_mode(ModelFamily::Language)
+            .map(ApiModeId::as_str),
+        Some("messages")
+    );
+
+    let options = ProviderOptions::typed(
+        &GoogleVertexAnthropicMessagesOptions::new().with_adaptive_thinking(),
+    )
+    .unwrap();
+    assert_eq!(options.namespace().as_str(), "google");
+    assert_eq!(options.api_mode().map(ApiModeId::as_str), Some("messages"));
+    assert_eq!(options.value()["thinking"]["type"], "adaptive");
+}
+
+#[cfg(all(feature = "registry", feature = "groq"))]
+#[test]
+fn facade_exposes_groq_language_modes_and_transcription() {
+    use siumai::core::ProviderOptions;
+    use siumai::providers::groq::options::{
+        GroqLanguageOptions, GroqResponsesOptions, GroqResponsesServiceTier, GroqServiceTier,
+    };
+    use siumai::providers::groq::{GroqCredential, GroqProvider};
+    use siumai::registry::ProviderRegistrationSource;
+
+    fn assert_registration_source<T: ProviderRegistrationSource>() {}
+
+    assert_registration_source::<GroqProvider>();
+
+    let provider = GroqProvider::builder(GroqCredential::api_key("test-key"))
+        .build()
+        .unwrap();
+    assert_eq!(
+        provider
+            .language("future-groq-chat-model")
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("chat-completions")
+    );
+    assert_eq!(
+        provider
+            .responses("future-groq-responses-model")
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("responses")
+    );
+    assert_eq!(
+        provider
+            .transcription("future-groq-transcription-model")
+            .unwrap()
+            .descriptor()
+            .provider()
+            .as_str(),
+        "groq"
+    );
+    assert_eq!(
+        provider
+            .registration()
+            .api_mode(ModelFamily::Language)
+            .map(siumai::core::ApiModeId::as_str),
+        Some("chat-completions")
+    );
+
+    let chat = ProviderOptions::typed(
+        &GroqLanguageOptions::new().with_service_tier(GroqServiceTier::Flex),
+    )
+    .unwrap();
+    assert_eq!(
+        chat.api_mode().map(siumai::core::ApiModeId::as_str),
+        Some("chat-completions")
+    );
+    assert_eq!(chat.value()["service_tier"], "flex");
+
+    let responses = ProviderOptions::typed(
+        &GroqResponsesOptions::new()
+            .with_service_tier(GroqResponsesServiceTier::Flex)
+            .with_code_execution(true),
+    )
+    .unwrap();
+    assert_eq!(
+        responses.api_mode().map(siumai::core::ApiModeId::as_str),
+        Some("responses")
+    );
+    assert_eq!(responses.value()["code_execution"], true);
+
+    let browser_search =
+        ProviderOptions::typed(&siumai::providers::groq::tools::browser_search()).unwrap();
+    assert_eq!(browser_search.value()["browser_search"], true);
+}
+
+#[cfg(all(feature = "registry", feature = "xai"))]
+#[test]
+fn facade_exposes_xai_language_modes_and_typed_tools() {
+    use siumai::core::{ApiModeId, Model, ProviderOptions};
+    use siumai::providers::xai::options::{XaiResponsesOptions, XaiResponsesReasoningEffort};
+    use siumai::providers::xai::tools;
+    use siumai::providers::xai::{XaiCredential, XaiProvider};
+    use siumai::registry::ProviderRegistrationSource;
+
+    fn assert_registration_source<T: ProviderRegistrationSource>() {}
+
+    assert_registration_source::<XaiProvider>();
+
+    let provider = XaiProvider::builder(XaiCredential::api_key("test-key"))
+        .build()
+        .unwrap();
+    assert_eq!(
+        provider
+            .language("future-grok-model")
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("responses")
+    );
+    assert_eq!(
+        provider
+            .chat_completions("future-grok-model")
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("chat-completions")
+    );
+    assert_eq!(
+        provider
+            .registration()
+            .api_mode(ModelFamily::Language)
+            .map(ApiModeId::as_str),
+        Some("responses")
+    );
+
+    let options = ProviderOptions::typed(
+        &XaiResponsesOptions::new()
+            .with_reasoning_effort(XaiResponsesReasoningEffort::High)
+            .with_prompt_cache_key("stable-prompt")
+            .with_native_tool(tools::web_search()),
+    )
+    .unwrap();
+    assert_eq!(options.namespace().as_str(), "xai");
+    assert_eq!(options.api_mode().map(ApiModeId::as_str), Some("responses"));
+    assert_eq!(options.value()["promptCacheKey"], "stable-prompt");
+    assert_eq!(options.value()["native_tools"][0]["type"], "web_search");
 }
 
 #[cfg(feature = "openai-compatible")]
 #[test]
 fn facade_exposes_current_kimi_profile_and_typed_options() {
     use siumai::core::ProviderOptions;
+    use siumai::providers::openai_compatible::OpenAiCompatibleApiMode;
     use siumai::providers::openai_compatible::options::{KimiLanguageOptions, KimiReasoningEffort};
     use siumai::providers::openai_compatible::profiles::moonshotai;
 
     let profile = moonshotai::profile().unwrap();
-    assert_eq!(profile.scope().provider_id().as_str(), "moonshotai");
+    assert_eq!(
+        profile
+            .scope(OpenAiCompatibleApiMode::ChatCompletions)
+            .unwrap()
+            .provider_id()
+            .as_str(),
+        "moonshotai"
+    );
     assert_eq!(moonshotai::CHAT, moonshotai::KIMI_K3);
     assert_eq!(
         profile.provider_profile().verified_claims().unwrap()[0]
@@ -346,6 +769,121 @@ fn facade_exposes_current_kimi_profile_and_typed_options() {
     .unwrap();
     assert_eq!(options.namespace().as_str(), "moonshotai");
     assert_eq!(options.value()["reasoning_effort"], "high");
+}
+
+#[cfg(feature = "alibaba")]
+#[test]
+fn facade_exposes_alibaba_without_a_dashscope_route_surface() {
+    use siumai::core::ProviderOptions;
+    use siumai::providers::alibaba::experimental::{
+        AlibabaVideoProviderBuilderExt, AlibabaVideoProviderExt, WAN_2_7_T2V,
+    };
+    use siumai::providers::alibaba::options::{AlibabaReasoningEffort, AlibabaResponsesOptions};
+    use siumai::providers::alibaba::{AlibabaCredential, AlibabaProvider};
+
+    let provider = AlibabaProvider::builder(AlibabaCredential::api_key("test-key"))
+        .with_legacy_singapore_language()
+        .with_legacy_singapore_embedding()
+        .with_legacy_singapore_video()
+        .build()
+        .unwrap();
+    assert_eq!(
+        provider
+            .registration()
+            .unwrap()
+            .api_mode(ModelFamily::Language)
+            .map(siumai::core::ApiModeId::as_str),
+        Some("responses")
+    );
+    assert_eq!(
+        provider
+            .responses("future-qwen-model")
+            .unwrap()
+            .provider_id()
+            .as_str(),
+        "alibaba"
+    );
+    assert_eq!(
+        provider
+            .chat_completions("future-qwen-model")
+            .unwrap()
+            .provider_id()
+            .as_str(),
+        "alibaba"
+    );
+    ProviderOptions::typed(
+        &AlibabaResponsesOptions::new().with_reasoning_effort(AlibabaReasoningEffort::Minimal),
+    )
+    .unwrap();
+    assert_eq!(
+        provider.video(WAN_2_7_T2V).unwrap().model_id().as_str(),
+        WAN_2_7_T2V
+    );
+}
+
+#[cfg(all(feature = "alibaba", feature = "registry"))]
+#[test]
+fn facade_registers_alibaba_with_its_recommended_language_mode() {
+    use siumai::providers::alibaba::{AlibabaCredential, AlibabaProvider};
+    use siumai::registry::{Registry, RegistryBuilderExt};
+
+    let provider = AlibabaProvider::builder(AlibabaCredential::api_key("test-key"))
+        .with_legacy_singapore_language()
+        .build()
+        .unwrap();
+    let mut builder = Registry::builder();
+    builder.register_provider("alibaba", &provider).unwrap();
+    let registry = builder.build().unwrap();
+    assert_eq!(
+        registry
+            .language_model("alibaba:future-qwen-model")
+            .unwrap()
+            .provider_id()
+            .as_str(),
+        "alibaba"
+    );
+}
+
+#[cfg(all(feature = "alibaba", feature = "registry"))]
+#[test]
+fn facade_rejects_provider_registration_without_a_portable_family() {
+    use siumai::providers::alibaba::experimental::AlibabaVideoProviderBuilderExt;
+    use siumai::providers::alibaba::{AlibabaCredential, AlibabaProvider};
+    use siumai::registry::{RegisterProviderError, Registry, RegistryBuilderExt};
+
+    let provider = AlibabaProvider::builder(AlibabaCredential::api_key("test-key"))
+        .with_legacy_singapore_video()
+        .build()
+        .unwrap();
+    let mut builder = Registry::builder();
+    let error = builder
+        .register_provider("alibaba-video", &provider)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        RegisterProviderError::NoPortableFamilyRegistration { .. }
+    ));
+}
+
+#[cfg(feature = "openai-compatible")]
+#[test]
+fn facade_exposes_verified_ark_modes() {
+    use siumai::core::ProviderOptions;
+    use siumai::providers::openai_compatible::OpenAiCompatibleApiMode;
+    use siumai::providers::openai_compatible::options::{ArkCaching, ArkResponsesOptions};
+    use siumai::providers::openai_compatible::profiles::ark;
+
+    let ark = ark::profile().unwrap();
+    assert_eq!(
+        ark.scope(OpenAiCompatibleApiMode::Responses)
+            .unwrap()
+            .provider_id()
+            .as_str(),
+        "volcengine"
+    );
+    ProviderOptions::typed(&ArkResponsesOptions::new().with_caching(ArkCaching::disabled()))
+        .unwrap();
 }
 
 #[cfg(all(feature = "registry", feature = "openai"))]

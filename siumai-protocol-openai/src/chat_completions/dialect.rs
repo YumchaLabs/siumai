@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 const MAX_FIELD_BYTES: usize = 128;
+const RESERVED_ASSISTANT_FIELDS: &[&str] = &["role", "content", "refusal", "tool_calls"];
 
 /// Wire field used for the canonical maximum-output-token control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +55,9 @@ pub struct ChatCompletionsDialect {
     video_input: bool,
     reasoning_input_field: Option<WireFieldName>,
     reasoning_output_field: Option<WireFieldName>,
+    reasoning_details_field: Option<WireFieldName>,
     cache_read_tokens_field: Option<WireFieldName>,
+    cache_write_tokens_field: Option<WireFieldName>,
     max_output_tokens_field: MaxOutputTokensField,
     function_tool_strict: Option<bool>,
     stream_usage: bool,
@@ -68,7 +71,9 @@ impl Default for ChatCompletionsDialect {
             video_input: false,
             reasoning_input_field: None,
             reasoning_output_field: None,
+            reasoning_details_field: None,
             cache_read_tokens_field: None,
+            cache_write_tokens_field: None,
             max_output_tokens_field: MaxOutputTokensField::MaxTokens,
             function_tool_strict: None,
             stream_usage: true,
@@ -103,9 +108,33 @@ impl ChatCompletionsDialect {
         self
     }
 
+    /// Preserve one structured reasoning-details field for exact same-scope replay.
+    ///
+    /// The codec preserves a bounded array of objects as provider-native state.
+    /// Replay still requires the caller's exact provider, platform, protocol,
+    /// and model scope; provider identity is deliberately not stored in the
+    /// protocol dialect itself.
+    pub fn with_replayable_reasoning_details_field(
+        mut self,
+        field: WireFieldName,
+    ) -> Result<Self, DialectError> {
+        if RESERVED_ASSISTANT_FIELDS.contains(&field.as_str()) {
+            return Err(DialectError::ReservedAssistantFieldName);
+        }
+        self.reasoning_details_field = Some(field);
+        self.validate_reasoning_configuration()?;
+        Ok(self)
+    }
+
     /// Map one top-level numeric usage field to canonical cache-read tokens.
     pub fn with_cache_read_tokens_field(mut self, field: WireFieldName) -> Self {
         self.cache_read_tokens_field = Some(field);
+        self
+    }
+
+    /// Map one top-level numeric usage field to canonical cache-write tokens.
+    pub fn with_cache_write_tokens_field(mut self, field: WireFieldName) -> Self {
+        self.cache_write_tokens_field = Some(field);
         self
     }
 
@@ -151,8 +180,21 @@ impl ChatCompletionsDialect {
             .map(WireFieldName::as_str)
     }
 
+    /// Return the configured structured reasoning-details wire field.
+    pub fn reasoning_details_field(&self) -> Option<&str> {
+        self.reasoning_details_field
+            .as_ref()
+            .map(WireFieldName::as_str)
+    }
+
     pub fn cache_read_tokens_field(&self) -> Option<&str> {
         self.cache_read_tokens_field
+            .as_ref()
+            .map(WireFieldName::as_str)
+    }
+
+    pub fn cache_write_tokens_field(&self) -> Option<&str> {
+        self.cache_write_tokens_field
             .as_ref()
             .map(WireFieldName::as_str)
     }
@@ -172,6 +214,18 @@ impl ChatCompletionsDialect {
     pub fn supports_stream_choice_usage(&self) -> bool {
         self.stream_choice_usage
     }
+
+    pub(crate) fn validate_reasoning_configuration(&self) -> Result<(), DialectError> {
+        let Some(field) = self.reasoning_details_field() else {
+            return Ok(());
+        };
+        if self.reasoning_input_field() == Some(field)
+            || self.reasoning_output_field() == Some(field)
+        {
+            return Err(DialectError::ConflictingReasoningField);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -179,4 +233,8 @@ impl ChatCompletionsDialect {
 pub enum DialectError {
     #[error("wire field name must be 1..=128 ASCII letters, digits, or '_'")]
     InvalidWireFieldName,
+    #[error("structured reasoning replay cannot replace a standard assistant message field")]
+    ReservedAssistantFieldName,
+    #[error("structured reasoning details must use a field distinct from reasoning text")]
+    ConflictingReasoningField,
 }

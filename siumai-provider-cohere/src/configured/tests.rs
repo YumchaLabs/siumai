@@ -1,9 +1,9 @@
 use std::time::Instant;
 
 use siumai_core::{
-    CallOptions, Cancellation, EmbeddingModel, EmbeddingRequest, ErrorDetail, ErrorKind, Model,
-    ModelFamily, ModelId, ModelOperation, ProviderOptions, RerankCandidate, RerankModel,
-    RerankRequest, ResourceKind, SupportState, UsageValue,
+    ApiStability, CallOptions, Cancellation, EmbeddingModel, EmbeddingRequest, ErrorDetail,
+    ErrorKind, Model, ModelFamily, ModelId, ModelOperation, ProviderOptions, RerankCandidate,
+    RerankModel, RerankRequest, ResourceKind, SupportState, UsageValue, VerifiedFidelity,
 };
 use siumai_transport::{EndpointConfig, RetryPolicy};
 use wiremock::matchers::{body_json, header, method, path};
@@ -52,6 +52,23 @@ fn static_configuration_is_validated_and_debug_is_redacted() {
 }
 
 #[test]
+fn official_profile_covers_current_embedding_and_rerank_models() {
+    let provider = CohereProvider::builder("test-api-key")
+        .build()
+        .expect("configured Cohere provider");
+    let profile = provider.profile().provider_profile();
+    let claims = profile.verified_claims().expect("verified claims");
+    assert_eq!(claims.len(), 2);
+    assert!(claims.iter().all(|claim| {
+        claim.fidelity() == VerifiedFidelity::Native && claim.stability() == ApiStability::Stable
+    }));
+    assert_eq!(
+        profile.catalog().expect("model catalog").iter().count(),
+        crate::models::CURRENT_EMBEDDING_MODELS.len() + crate::models::CURRENT_RERANK_MODELS.len()
+    );
+}
+
+#[test]
 fn canonical_requests_reject_empty_embedding_and_rerank_inputs() {
     assert!(EmbeddingRequest::new(Vec::<String>::new()).is_err());
     assert!(EmbeddingRequest::single("   ").is_err());
@@ -88,7 +105,6 @@ fn models_share_one_runtime_and_registration_exposes_only_native_families() {
         registration
             .evaluate(
                 ModelId::new("future-embed-model").expect("future model ID"),
-                ModelFamily::Embedding,
                 ModelOperation::Embed,
             )
             .state(),

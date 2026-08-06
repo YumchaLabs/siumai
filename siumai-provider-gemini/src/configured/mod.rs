@@ -1,9 +1,15 @@
 mod model;
+mod models;
 mod options;
+mod profile;
 mod provider;
 
-pub use model::GoogleImagenModel;
-pub use options::{GoogleImagenAspectRatio, GoogleImagenOptions, GoogleImagenPersonGeneration};
+pub use model::GoogleImageModel;
+pub use models::{
+    GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_LITE_IMAGE, GEMINI_3_PRO_IMAGE, current_models,
+};
+pub use options::{GoogleImageAspectRatio, GoogleImageOptions, GoogleImageSize};
+pub use profile::{GoogleImageProfile, GoogleImageProfileError};
 pub use provider::{
-    GoogleCredential, GoogleImagenConfigError, GoogleImagenProvider, GoogleImagenProviderBuilder,
+    GoogleCredential, GoogleImageConfigError, GoogleImageProvider, GoogleImageProviderBuilder,
 };

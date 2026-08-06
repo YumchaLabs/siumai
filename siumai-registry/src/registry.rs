@@ -89,7 +89,7 @@ impl Registry {
                 .language_model(model)
                 .map_err(|error| RegistryResolveError::Model {
                     context: context.clone(),
-                    source: contextualize_lookup(error, context.route()),
+                    source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
         self.snapshot.middleware.language(&context, model)
     }
@@ -104,7 +104,7 @@ impl Registry {
                 .embedding_model(model)
                 .map_err(|error| RegistryResolveError::Model {
                     context: context.clone(),
-                    source: contextualize_lookup(error, context.route()),
+                    source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
         self.snapshot.middleware.embedding(&context, model)
     }
@@ -119,7 +119,7 @@ impl Registry {
                 .rerank_model(model)
                 .map_err(|error| RegistryResolveError::Model {
                     context: context.clone(),
-                    source: contextualize_lookup(error, context.route()),
+                    source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
         self.snapshot.middleware.rerank(&context, model)
     }
@@ -134,7 +134,7 @@ impl Registry {
                 .image_model(model)
                 .map_err(|error| RegistryResolveError::Model {
                     context: context.clone(),
-                    source: contextualize_lookup(error, context.route()),
+                    source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
         self.snapshot.middleware.image(&context, model)
     }
@@ -149,7 +149,7 @@ impl Registry {
                 .speech_model(model)
                 .map_err(|error| RegistryResolveError::Model {
                     context: context.clone(),
-                    source: contextualize_lookup(error, context.route()),
+                    source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
         self.snapshot.middleware.speech(&context, model)
     }
@@ -162,7 +162,7 @@ impl Registry {
         let model = registration.transcription_model(model).map_err(|error| {
             RegistryResolveError::Model {
                 context: context.clone(),
-                source: contextualize_lookup(error, context.route()),
+                source: Box::new(contextualize_lookup(error, context.route())),
             }
         })?;
         self.snapshot.middleware.transcription(&context, model)
@@ -171,11 +171,10 @@ impl Registry {
     pub fn evaluate(
         &self,
         reference: impl AsRef<str>,
-        family: siumai_core::ModelFamily,
         operation: ModelOperation,
     ) -> Result<ModelPolicyDecision, RegistryResolveError> {
         let (registration, model, _) = self.resolve(reference)?;
-        Ok(registration.evaluate(model, family, operation))
+        Ok(registration.evaluate(model, operation))
     }
 
     fn resolve(
@@ -547,8 +546,10 @@ mod tests {
                 .with_api_mode(ApiModeId::new(mode).unwrap()),
         );
         let factory_scope = scope.clone();
-        ProviderRegistration::from_scope(scope, Arc::new(AdvisoryPolicy)).with_language(Arc::new(
-            move |model| {
+        ProviderRegistration::from_language(
+            scope,
+            Arc::new(AdvisoryPolicy),
+            Arc::new(move |model| {
                 constructions.fetch_add(1, Ordering::SeqCst);
                 Ok(Arc::new(FakeLanguageModel {
                     descriptor: ModelDescriptor::from_scope(
@@ -558,8 +559,8 @@ mod tests {
                     ),
                     runtime: runtime.clone(),
                 }) as Arc<dyn LanguageModel>)
-            },
-        ))
+            }),
+        )
     }
 
     fn all_family_registration() -> ProviderRegistration {
@@ -580,8 +581,10 @@ mod tests {
             }};
         }
 
-        ProviderRegistration::from_scope(scope.clone(), Arc::new(AdvisoryPolicy))
-            .with_language(Arc::new(move |model| {
+        ProviderRegistration::from_language(
+            scope.clone(),
+            Arc::new(AdvisoryPolicy),
+            Arc::new(move |model| {
                 Ok(Arc::new(FakeLanguageModel {
                     descriptor: ModelDescriptor::new(
                         ProviderId::new("all-families").unwrap(),
@@ -590,16 +593,38 @@ mod tests {
                     ),
                     runtime: Arc::new(1),
                 }) as Arc<dyn LanguageModel>)
-            }))
-            .with_embedding(factory!(FakeEmbeddingModel, EmbeddingModel, Embedding))
-            .with_rerank(factory!(FakeRerankModel, RerankModel, Rerank))
-            .with_image(factory!(FakeImageModel, ImageModel, Image))
-            .with_speech(factory!(FakeSpeechModel, SpeechModel, Speech))
-            .with_transcription(factory!(
-                FakeTranscriptionModel,
-                TranscriptionModel,
-                Transcription
-            ))
+            }),
+        )
+        .bind_embedding(
+            scope.clone(),
+            Arc::new(AdvisoryPolicy),
+            factory!(FakeEmbeddingModel, EmbeddingModel, Embedding),
+        )
+        .unwrap()
+        .bind_rerank(
+            scope.clone(),
+            Arc::new(AdvisoryPolicy),
+            factory!(FakeRerankModel, RerankModel, Rerank),
+        )
+        .unwrap()
+        .bind_image(
+            scope.clone(),
+            Arc::new(AdvisoryPolicy),
+            factory!(FakeImageModel, ImageModel, Image),
+        )
+        .unwrap()
+        .bind_speech(
+            scope.clone(),
+            Arc::new(AdvisoryPolicy),
+            factory!(FakeSpeechModel, SpeechModel, Speech),
+        )
+        .unwrap()
+        .bind_transcription(
+            scope.clone(),
+            Arc::new(AdvisoryPolicy),
+            factory!(FakeTranscriptionModel, TranscriptionModel, Transcription),
+        )
+        .unwrap()
     }
 
     fn route(value: &str) -> RouteId {
@@ -723,7 +748,7 @@ mod tests {
         assert_eq!(context.requested_route().as_str(), "recommended");
         assert_eq!(context.route().as_str(), "known");
         assert!(matches!(
-            source,
+            *source,
             ModelLookupError::UnsupportedFamily {
                 family: ModelFamily::Image,
                 ..
@@ -738,8 +763,10 @@ mod tests {
         let scope = Arc::new(ProviderScope::new(ProviderId::new("fake").unwrap()));
         let factory_scope = scope.clone();
         let factory_calls = calls.clone();
-        let registration = ProviderRegistration::from_scope(scope, Arc::new(AdvisoryPolicy))
-            .with_embedding(Arc::new(move |model| {
+        let registration = ProviderRegistration::from_embedding(
+            scope,
+            Arc::new(AdvisoryPolicy),
+            Arc::new(move |model| {
                 Ok(Arc::new(FailingEmbeddingModel {
                     descriptor: ModelDescriptor::from_scope(
                         factory_scope.clone(),
@@ -748,7 +775,8 @@ mod tests {
                     ),
                     calls: factory_calls.clone(),
                 }) as Arc<dyn EmbeddingModel>)
-            }));
+            }),
+        );
         let mut builder = Registry::builder();
         builder
             .middleware(Arc::new(CountingMiddleware {
@@ -808,7 +836,7 @@ mod tests {
         };
         assert_eq!(context.requested_route().as_str(), "production");
         assert_eq!(context.route().as_str(), "production");
-        assert!(matches!(source, ModelLookupError::IdentityMismatch { .. }));
+        assert!(matches!(*source, ModelLookupError::IdentityMismatch { .. }));
     }
 
     #[test]

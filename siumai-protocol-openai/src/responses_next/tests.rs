@@ -212,20 +212,20 @@ fn request_replays_native_program_history_and_copies_caller_to_tool_output() {
     )
     .unwrap();
     let user = Message::text(MessageRole::User, "Check inventory");
-    let assistant = Message {
-        role: MessageRole::Assistant,
-        content: decoded.canonical().content().to_vec(),
-    };
-    let tool = Message {
-        role: MessageRole::Tool,
-        content: vec![ContentPart::ToolResult(ToolResult {
+    let assistant = Message::new(
+        MessageRole::Assistant,
+        decoded.canonical().content().iter().cloned(),
+    );
+    let tool = Message::new(
+        MessageRole::Tool,
+        [ContentPart::ToolResult(ToolResult {
             call_id: "call_inventory".to_string(),
             name: "inventory".to_string(),
             outcome: ToolOutcome::Success {
                 value: json!({"available": 42}),
             },
         })],
-    };
+    );
     let mut request = LanguageRequest::new(vec![user, assistant, tool]);
     request.structured_output = Some(StructuredOutputSpec {
         name: "inventory_result".to_string(),
@@ -281,10 +281,10 @@ fn opaque_history_cannot_cross_provider_platform_boundaries() {
         &model(),
     )
     .unwrap();
-    let request = LanguageRequest::new(vec![Message {
-        role: MessageRole::Assistant,
-        content: decoded.canonical().content().to_vec(),
-    }]);
+    let request = LanguageRequest::new(vec![Message::new(
+        MessageRole::Assistant,
+        decoded.canonical().content().iter().cloned(),
+    )]);
     let azure_scope = ProviderScope::new(ProviderId::new("openai").unwrap())
         .with_platform(PlatformId::new("azure").unwrap())
         .with_protocol(ProtocolId::new(OPENAI_RESPONSES_PROTOCOL).unwrap())
@@ -369,9 +369,9 @@ fn background_resource_decode_remains_native_until_it_is_terminal() {
 
 #[test]
 fn explicit_prompt_cache_breakpoints_cover_text_image_and_file_blocks() {
-    let request = LanguageRequest::new(vec![Message {
-        role: MessageRole::User,
-        content: vec![
+    let request = LanguageRequest::new(vec![Message::new(
+        MessageRole::User,
+        [
             ContentPart::Text {
                 text: "inspect these inputs".to_string(),
             },
@@ -386,7 +386,7 @@ fn explicit_prompt_cache_breakpoints_cover_text_image_and_file_blocks() {
                 name: Some("input.pdf".to_string()),
             }),
         ],
-    }]);
+    )]);
     let options = RequestEncodingOptions::new(false)
         .with_prompt_cache_breakpoint(PromptCacheBlock::new(0, 0))
         .with_prompt_cache_breakpoint(PromptCacheBlock::new(0, 1))
@@ -405,15 +405,55 @@ fn explicit_prompt_cache_breakpoints_cover_text_image_and_file_blocks() {
 }
 
 #[test]
+fn compatible_media_dialect_encodes_video_without_enabling_generic_files() {
+    let video = ContentPart::Media(MediaPart {
+        media_type: "video/mp4".to_string(),
+        data: MediaData::Url("https://example.com/input.mp4".to_string()),
+        name: None,
+    });
+    let request = LanguageRequest::new(vec![Message::new(MessageRole::User, [video.clone()])]);
+
+    let native_error = encode_request_with_options(
+        &scope(),
+        &model(),
+        &request,
+        &RequestEncodingOptions::new(false),
+    )
+    .unwrap_err();
+    assert_eq!(native_error.kind(), ErrorKind::Unsupported);
+
+    let dialect = ResponsesMediaDialect::native()
+        .with_video_input(true)
+        .with_file_input(false);
+    let options = RequestEncodingOptions::new(false).with_media_dialect(dialect);
+    let body = encode_request_with_options(&scope(), &model(), &request, &options).unwrap();
+    assert_eq!(body["input"][0]["content"][0]["type"], "input_video");
+    assert_eq!(
+        body["input"][0]["content"][0]["video_url"],
+        "https://example.com/input.mp4"
+    );
+
+    let file_request = LanguageRequest::new(vec![Message::new(
+        MessageRole::User,
+        [ContentPart::Media(MediaPart {
+            media_type: "application/pdf".to_string(),
+            data: MediaData::Url("https://example.com/input.pdf".to_string()),
+            name: Some("input.pdf".to_string()),
+        })],
+    )]);
+    let file_error =
+        encode_request_with_options(&scope(), &model(), &file_request, &options).unwrap_err();
+    assert_eq!(file_error.kind(), ErrorKind::Unsupported);
+}
+
+#[test]
 fn explicit_prompt_cache_breakpoints_are_bounded() {
-    let request = LanguageRequest::new(vec![Message {
-        role: MessageRole::User,
-        content: (0..51)
-            .map(|index| ContentPart::Text {
-                text: format!("cache block {index}"),
-            })
-            .collect(),
-    }]);
+    let request = LanguageRequest::new(vec![Message::new(
+        MessageRole::User,
+        (0..51).map(|index| ContentPart::Text {
+            text: format!("cache block {index}"),
+        }),
+    )]);
     let mut options = RequestEncodingOptions::new(false);
     for content_index in 0..51 {
         options = options.with_prompt_cache_breakpoint(PromptCacheBlock::new(0, content_index));
@@ -862,21 +902,15 @@ fn repository_response_fixtures_round_trip_native_items_losslessly() {
     for (name, body) in [
         (
             "encrypted reasoning",
-            include_str!(
-                "../../../siumai/tests/fixtures/openai/responses/response/reasoning-encrypted-content.1/response.json"
-            ),
+            include_str!("../../tests/fixtures/responses/reasoning-encrypted-content.json"),
         ),
         (
             "web search",
-            include_str!(
-                "../../../siumai/tests/fixtures/openai/responses/response/web-search-tool.1/response.json"
-            ),
+            include_str!("../../tests/fixtures/responses/web-search-tool.json"),
         ),
         (
             "apply patch",
-            include_str!(
-                "../../../siumai/tests/fixtures/openai/responses/response/apply-patch-tool.1/response.json"
-            ),
+            include_str!("../../tests/fixtures/responses/apply-patch-tool.json"),
         ),
     ] {
         let original = serde_json::from_str::<Value>(body).unwrap();

@@ -6,21 +6,124 @@ unknown IDs remain valid input.
 
 ## Claim scope
 
-Every claim is scoped by:
+Every model-family claim is scoped by:
 
 ```text
-provider + platform + family + api_mode [+ region/deployment]
+provider + technical_platform + family + protocol + api_mode + fidelity + stability
 ```
+
+Provider-native resources, sessions, and jobs use the same identity and evidence fields but name a
+native surface instead of pretending to be a model family. Every public named scope also carries an
+official source and verification date through a provider-owned profile or support manifest.
+
+Profiles and manifests are evidence surfaces, not executable capability authorities. Registry uses
+the selected registration and request policy instead. A custom endpoint may expose generic claims or
+an explicitly identified empty manifest when Siumai makes no named support assertion.
 
 A broad provider name alone is not a support claim. For example, a native language
 implementation does not imply native image or realtime support, and a cloud-hosted
 deployment may differ from the provider's first-party platform.
 
+Custom endpoints and generic compatibility configurations never inherit official fidelity or
+named-model support merely because they use a branded provider builder. A custom service is generic
+until the caller supplies a separately verified profile.
+
+Account entitlement, commercial region availability, quotas, pricing, compliance, health, default
+models, and fallback policy are host control-plane facts and are not part of a Siumai support claim.
+When a remote API requires a caller-selected region, project, workspace, or deployment to address
+or sign a request, Siumai models that value only as technical addressing context. It does not infer
+that a model is commercially available there or publish an exhaustive region/deployment inventory.
+
+## Current facade surface
+
+The `0.11.0-beta.9` facade intentionally exposes narrow provider slices. This table is an inventory
+of compiled public scope, not a promise that every account can use every model or endpoint.
+
+| Facade feature | Public scope | Deliberately not claimed |
+|---|---|---|
+| `openai` | Native Chat Completions, Responses, and Responses resources | Legacy universal client and unrelated media/resource APIs |
+| `openai-realtime` | Experimental native Realtime bootstrap and session transport | A stable provider-neutral realtime family |
+| `anthropic` | Native Messages plus Anthropic-owned files, message batches, token counting, and skills | OpenAI-shaped language modes |
+| `google` | Experimental native image generation through Gemini Interactions | Gemini language, Live, files, and broad Vertex support |
+| `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
+| `alibaba` | Verified Chat Completions and Responses dialects, native embeddings, and experimental Wan video jobs | A separate DashScope provider identity or business-region routing |
+| `openai-compatible` | Explicit generic-compatible configuration plus verified ARK and Kimi profiles | Unverified named vendor presets or native-provider fidelity |
+| `groq` | Verified Chat Completions and Responses dialects plus final-result transcription | A universal OpenAI clone or unrelated Groq products |
+| `xai` | Verified Responses and Chat Completions language modes with typed xAI tools/options | Files, image, speech, video, or a generic native-resource client |
+| `minimax` | Verified Messages, Chat Completions, and bounded Responses modes plus native files, image, video, music, and speech resources | Cross-provider resource abstractions or hidden polling workflows |
+| `deepseek` | Verified Chat Completions and Responses language modes | Unverified non-language products |
+| `cohere` | Native v2 embedding, including Embed v4, and rerank through Rerank v4/v3 | Cohere chat |
+| `deepgram` | Native final-result prerecorded transcription with current Nova-3/Nova-2 hints | Flux/live transcription or legacy-model lifecycle claims |
+| `elevenlabs` | Native speech synthesis | Transcription and broad resource clients |
+
+`all-providers` activates the retained branded provider slices but intentionally does not enable
+the generic `openai-compatible` escape hatch or experimental `openai-realtime` transport.
+
+## Exact portable claim matrix
+
+The rows below mirror the provider-owned profiles compiled on 2026-08-06. `Protocol / API mode`
+names the exact execution surface; it is not provider-wide identity.
+
+| Facade feature / provider | Provider / platform | Family | Protocol / API mode | Fidelity | Stability | Official source | Verified |
+|---|---|---|---|---|---|---|---|
+| `openai` / OpenAI | `openai` / `openai-api` | Language | `openai.responses` / `responses` | `native` | `stable` | https://developers.openai.com/api/docs/guides/latest-model | 2026-08-04 |
+| `openai` / OpenAI | `openai` / `openai-api` | Language | `openai` / `chat-completions` | `native` | `stable` | https://developers.openai.com/api/docs/guides/latest-model | 2026-08-04 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Language | `anthropic-messages` / `messages` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages | 2026-08-06 |
+| `google` / Google Gemini | `google` / `gemini-api` | Image | `google-interactions` / `interactions-image` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/image-generation | 2026-08-06 |
+| `google-vertex-anthropic` / Claude on Vertex AI | `google` / `vertex-ai` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/use-claude | 2026-08-06 |
+| `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions | 2026-08-05 |
+| `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses | 2026-08-05 |
+| `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Embedding | `alibaba-native` / `text-embedding` | `native` | `stable` | https://www.alibabacloud.com/help/en/model-studio/text-embedding-synchronous-api | 2026-08-06 |
+| `openai-compatible` / Kimi | `moonshotai` / `kimi-public-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://platform.kimi.ai/docs/api/chat | 2026-08-05 |
+| `openai-compatible` / Volcengine ARK | `volcengine` / `ark-cn-beijing` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1330626 | 2026-08-05 |
+| `openai-compatible` / Volcengine ARK | `volcengine` / `ark-cn-beijing` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1585128 | 2026-08-05 |
+| `groq` / Groq | `groq` / `groq-cloud` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://console.groq.com/docs/openai | 2026-08-05 |
+| `groq` / Groq | `groq` / `groq-cloud` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://console.groq.com/docs/responses-api | 2026-08-05 |
+| `groq` / Groq | `groq` / `groq-cloud` | Transcription | `groq-audio-transcriptions` / `audio-transcriptions` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-06 |
+| `xai` / xAI | `xai` / `xai-public-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://docs.x.ai/developers/rest-api-reference/inference/chat | 2026-08-06 |
+| `xai` / xAI | `xai` / `xai-public-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://docs.x.ai/developers/rest-api-reference/inference/responses | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://platform.minimax.io/docs/api-reference/text-chat-anthropic | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/text-chat-openai | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/responses-create | 2026-08-06 |
+| `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/api/create-chat-completion | 2026-08-05 |
+| `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/guides/responses_api | 2026-08-05 |
+| `cohere` / Cohere | `cohere` / `public-api` | Embedding | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/embed | 2026-08-06 |
+| `cohere` / Cohere | `cohere` / `public-api` | Rerank | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/rerank | 2026-08-06 |
+| `deepgram` / Deepgram | `deepgram` / `public-api` | Transcription | `deepgram-prerecorded` / `prerecorded` | `native` | `stable` | https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded | 2026-08-06 |
+| `elevenlabs` / ElevenLabs | `elevenlabs` / `public-api` | Speech | `elevenlabs-native` / `text-to-speech` | `native` | `stable` | https://elevenlabs.io/docs/api-reference/text-to-speech/convert | 2026-08-04 |
+
+The caller-supplied `openai-compatible` builder exposes either Chat Completions or Responses with a
+caller-selected provider ID and `custom-endpoint` or `local` platform. Those claims are
+`generic-compatible` and `experimental`; by design they have no Siumai-owned official source or
+verification date.
+
+## Exact provider-native claim matrix
+
+Native resources, sessions, and jobs remain provider-owned lifecycle APIs rather than additional
+portable model families.
+
+| Facade feature / provider | Provider / platform | Kind / surface | Fidelity | Stability | Official source | Verified |
+|---|---|---|---|---|---|---|
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `responses-resources` | `native` | `stable` | https://developers.openai.com/api/reference/resources/responses/methods/create | 2026-08-06 |
+| `openai-realtime` / OpenAI | `openai` / `openai-api` | Session / `realtime` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/realtime-websocket | 2026-08-06 |
+| `openai-realtime` / OpenAI | `openai` / `openai-api` | Session / `realtime-translation` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/realtime-translation | 2026-08-06 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `files` | `native` | `experimental` | https://platform.claude.com/docs/en/api/files-create | 2026-08-06 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Job / `message-batches` | `native` | `stable` | https://platform.claude.com/docs/en/api/creating-message-batches | 2026-08-06 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `token-counting` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages-count-tokens | 2026-08-06 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `skills` | `native` | `experimental` | https://platform.claude.com/docs/en/api/skills/create-skill | 2026-08-06 |
+| `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Job / `video-tasks` | `native` | `experimental` | https://www.alibabacloud.com/help/en/model-studio/text-to-video-api-reference | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `files` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/file-management-upload | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `images` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/image-generation-t2i | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Job / `video-tasks` | `native` | `experimental` | https://platform.minimax.io/docs/api-reference/video-generation-v2-create | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `music` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/music-generation | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `speech-http` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/speech-t2a-http | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Job / `speech-async-tasks` | `native` | `experimental` | https://platform.minimax.io/docs/api-reference/speech-t2a-async-create | 2026-08-06 |
+
 ## Fidelity
 
 | Value | Meaning |
 |---|---|
-| `native` | Siumai implements the provider's native control plane and preserves its relevant wire semantics. |
+| `native` | Siumai implements the provider's material native protocol/resource semantics for the claimed scope. |
 | `verified-compatible` | Siumai uses a compatibility protocol with a named, tested dialect profile for this provider and scope. |
 | `generic-compatible` | Users may supply an endpoint and credentials through a generic compatibility builder; Siumai makes no named provider claim. |
 

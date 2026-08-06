@@ -32,6 +32,6 @@ pub enum RegistryResolveError {
     Model {
         context: RegistryModelContext,
         #[source]
-        source: ModelLookupError,
+        source: Box<ModelLookupError>,
     },
 }

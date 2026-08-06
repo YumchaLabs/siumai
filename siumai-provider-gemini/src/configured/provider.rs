@@ -6,26 +6,26 @@ use async_trait::async_trait;
 use http::header::{HeaderName, HeaderValue};
 use secrecy::{ExposeSecret, SecretString};
 use siumai_core::{
-    ApiModeId, Error as CoreError, ErrorKind, ImageModel, ImageModelProvider, InvalidId,
-    ModelFamily, ModelId, ModelLookupError, ModelOperation, ModelPolicy, ModelPolicyContext,
-    ModelPolicyDecision, PlatformId, ProtocolId, Provider, ProviderId, ProviderRegistration,
-    ProviderScope, UnsupportedReason,
+    Error as CoreError, ErrorKind, ImageModel, ImageModelProvider, ModelId, ModelLookupError,
+    ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, Provider,
+    ProviderOptionError, ProviderOptions, ProviderRegistration, ProviderScope, UnsupportedReason,
 };
 use siumai_transport::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, EndpointError,
-    OfficialOrigin, ProviderTransport, RetryPolicy, TransportConfigError, TransportLimits,
+    EndpointPolicy, OfficialOrigin, ProviderTransport, RetryPolicy, TransportConfigError,
+    TransportLimits,
 };
 use thiserror::Error;
 
-use super::model::GoogleImagenModel;
-use super::options::GoogleImagenOptions;
+use super::model::GoogleImageModel;
+use super::models::is_current;
+use super::options::GoogleImageOptions;
+use super::profile::{
+    API_MODE_ID, GoogleImageProfile, GoogleImageProfileError, PROTOCOL_ID, PROVIDER_ID,
+};
 
 const OFFICIAL_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 const OFFICIAL_ORIGIN: &str = "https://generativelanguage.googleapis.com";
-const GOOGLE_PROVIDER_ID: &str = "google";
-const GEMINI_API_PLATFORM_ID: &str = "gemini-api";
-const IMAGEN_PROTOCOL_ID: &str = "google-imagen";
-const IMAGEN_PREDICT_API_MODE_ID: &str = "imagen-predict";
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 
 /// Authentication used by one configured Google runtime.
@@ -45,7 +45,7 @@ impl GoogleCredential {
         Self::Unauthenticated
     }
 
-    fn validate(&self) -> Result<(), GoogleImagenConfigError> {
+    fn validate(&self) -> Result<(), GoogleImageConfigError> {
         let Self::ApiKey(value) = self else {
             return Ok(());
         };
@@ -55,7 +55,7 @@ impl GoogleCredential {
             || value.len() > MAX_CREDENTIAL_BYTES
             || HeaderValue::from_str(value).is_err()
         {
-            return Err(GoogleImagenConfigError::InvalidCredential);
+            return Err(GoogleImageConfigError::InvalidCredential);
         }
         Ok(())
     }
@@ -110,62 +110,69 @@ impl AuthApplier for GoogleApiKeyAuth {
     }
 }
 
-/// A synchronously configured Google Imagen provider in explicit `:predict` mode.
+/// A synchronously configured Google image provider using Gemini Interactions.
 #[derive(Clone)]
-pub struct GoogleImagenProvider {
+pub struct GoogleImageProvider {
     pub(crate) runtime: Arc<ProviderRuntime>,
+    profile: GoogleImageProfile,
 }
 
-impl GoogleImagenProvider {
-    pub fn builder(credential: GoogleCredential) -> GoogleImagenProviderBuilder {
-        GoogleImagenProviderBuilder::new(credential)
+impl GoogleImageProvider {
+    pub fn builder(credential: GoogleCredential) -> GoogleImageProviderBuilder {
+        GoogleImageProviderBuilder::new(credential)
     }
 
-    pub fn imagen(&self, model: impl Into<String>) -> Result<GoogleImagenModel, ModelLookupError> {
-        let model = ModelId::new(model.into())
-            .map_err(|error| ModelLookupError::InvalidReference(error.to_string()))?;
+    pub fn image(&self, model: impl Into<String>) -> Result<GoogleImageModel, ModelLookupError> {
+        let model = ModelId::new(model.into())?;
         Ok(self.create_image_model(model))
     }
 
     pub fn registration(&self) -> ProviderRegistration {
         let provider = self.clone();
-        ProviderRegistration::from_scope(self.runtime.scope.clone(), self.runtime.policy.clone())
-            .with_image(Arc::new(move |model| {
+        ProviderRegistration::from_image(
+            self.runtime.scope.clone(),
+            self.runtime.policy.clone(),
+            Arc::new(move |model| {
                 Ok(Arc::new(provider.create_image_model(model)) as Arc<dyn ImageModel>)
-            }))
+            }),
+        )
     }
 
-    fn create_image_model(&self, model: ModelId) -> GoogleImagenModel {
-        GoogleImagenModel::new(self.runtime.clone(), model)
+    pub fn profile(&self) -> &GoogleImageProfile {
+        &self.profile
+    }
+
+    fn create_image_model(&self, model: ModelId) -> GoogleImageModel {
+        GoogleImageModel::new(self.runtime.clone(), model)
     }
 }
 
-impl Provider for GoogleImagenProvider {
-    fn scope(&self) -> &ProviderScope {
-        &self.runtime.scope
+impl Provider for GoogleImageProvider {
+    fn provider_id(&self) -> &siumai_core::ProviderId {
+        self.runtime.scope.provider_id()
     }
 }
 
-impl ImageModelProvider for GoogleImagenProvider {
-    type Model = GoogleImagenModel;
+impl ImageModelProvider for GoogleImageProvider {
+    type Model = GoogleImageModel;
 
     fn image_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
         Ok(self.create_image_model(model))
     }
 }
 
-impl fmt::Debug for GoogleImagenProvider {
+impl fmt::Debug for GoogleImageProvider {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("GoogleImagenProvider")
+            .debug_struct("GoogleImageProvider")
             .field("scope", &self.runtime.scope)
             .field("transport", &"shared")
             .finish()
     }
 }
 
-/// Builder for one shared Google Imagen runtime.
-pub struct GoogleImagenProviderBuilder {
+/// Builder for one shared Google Interactions image runtime.
+pub struct GoogleImageProviderBuilder {
     credential: GoogleCredential,
     endpoint: Result<EndpointConfig, EndpointError>,
     limits: TransportLimits,
@@ -173,10 +180,10 @@ pub struct GoogleImagenProviderBuilder {
     connect_timeout: Option<Duration>,
     call_timeout: Option<Duration>,
     read_timeout: Option<Duration>,
-    default_options: GoogleImagenOptions,
+    default_options: GoogleImageOptions,
 }
 
-impl GoogleImagenProviderBuilder {
+impl GoogleImageProviderBuilder {
     fn new(credential: GoogleCredential) -> Self {
         let endpoint = OfficialOrigin::new(OFFICIAL_ORIGIN)
             .and_then(|origin| EndpointConfig::official(OFFICIAL_BASE_URL, origin));
@@ -188,7 +195,7 @@ impl GoogleImagenProviderBuilder {
             connect_timeout: None,
             call_timeout: None,
             read_timeout: None,
-            default_options: GoogleImagenOptions::default(),
+            default_options: GoogleImageOptions::default(),
         }
     }
 
@@ -223,15 +230,22 @@ impl GoogleImagenProviderBuilder {
         self
     }
 
-    pub fn with_default_options(mut self, options: GoogleImagenOptions) -> Self {
+    pub fn with_default_options(mut self, options: GoogleImageOptions) -> Self {
         self.default_options = options;
         self
     }
 
     /// Validate static settings and create exactly one shared transport runtime.
-    pub fn build(self) -> Result<GoogleImagenProvider, GoogleImagenConfigError> {
+    pub fn build(self) -> Result<GoogleImageProvider, GoogleImageConfigError> {
         self.credential.validate()?;
+        ProviderOptions::typed(&self.default_options)?;
         let endpoint = self.endpoint?;
+        let verified_endpoint = matches!(endpoint.policy(), EndpointPolicy::Official(_));
+        let profile = if verified_endpoint {
+            GoogleImageProfile::current()?
+        } else {
+            GoogleImageProfile::custom()?
+        };
         let mut transport = ProviderTransport::builder(endpoint)
             .with_auth(self.credential.into_auth())
             .with_limits(self.limits)
@@ -245,30 +259,27 @@ impl GoogleImagenProviderBuilder {
         if let Some(timeout) = self.read_timeout {
             transport = transport.with_read_timeout(timeout);
         }
-        let scope = Arc::new(
-            ProviderScope::new(ProviderId::new(GOOGLE_PROVIDER_ID)?)
-                .with_platform(PlatformId::new(GEMINI_API_PLATFORM_ID)?)
-                .with_protocol(ProtocolId::new(IMAGEN_PROTOCOL_ID)?)
-                .with_api_mode(ApiModeId::new(IMAGEN_PREDICT_API_MODE_ID)?),
-        );
-        Ok(GoogleImagenProvider {
+        Ok(GoogleImageProvider {
             runtime: Arc::new(ProviderRuntime {
-                scope,
+                scope: profile.scope(),
                 transport: transport.build()?,
-                policy: Arc::new(GoogleImagenPolicy),
+                policy: Arc::new(GoogleImagePolicy { verified_endpoint }),
                 default_options: self.default_options,
             }),
+            profile,
         })
     }
 }
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum GoogleImagenConfigError {
+pub enum GoogleImageConfigError {
     #[error("Google API key must be non-empty and at most 16 KiB")]
     InvalidCredential,
-    #[error("invalid Google provider identifier: {0}")]
-    Identifier(#[from] InvalidId),
+    #[error("invalid Google image profile: {0}")]
+    Profile(#[from] GoogleImageProfileError),
+    #[error("invalid Google image options: {0}")]
+    Options(#[from] ProviderOptionError),
     #[error("invalid Google endpoint: {0}")]
     Endpoint(#[from] EndpointError),
     #[error("invalid Google transport settings: {0}")]
@@ -278,8 +289,8 @@ pub enum GoogleImagenConfigError {
 pub(crate) struct ProviderRuntime {
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<GoogleImagenPolicy>,
-    pub(crate) default_options: GoogleImagenOptions,
+    pub(crate) policy: Arc<GoogleImagePolicy>,
+    pub(crate) default_options: GoogleImageOptions,
 }
 
 impl fmt::Debug for ProviderRuntime {
@@ -293,36 +304,25 @@ impl fmt::Debug for ProviderRuntime {
     }
 }
 
-pub(crate) struct GoogleImagenPolicy;
+pub(crate) struct GoogleImagePolicy {
+    verified_endpoint: bool,
+}
 
-impl ModelPolicy for GoogleImagenPolicy {
+impl ModelPolicy for GoogleImagePolicy {
     fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        let matches_scope = context.scope.provider_id().as_str() == GOOGLE_PROVIDER_ID
-            && context.scope.platform().map(PlatformId::as_str) == Some(GEMINI_API_PLATFORM_ID)
-            && context.scope.protocol().map(ProtocolId::as_str) == Some(IMAGEN_PROTOCOL_ID)
-            && context.scope.api_mode().map(ApiModeId::as_str) == Some(IMAGEN_PREDICT_API_MODE_ID);
+        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
+            && context.scope().protocol().map(|value| value.as_str()) == Some(PROTOCOL_ID)
+            && context.scope().api_mode().map(|value| value.as_str()) == Some(API_MODE_ID);
         if !matches_scope {
             return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
         }
-        if context.family != ModelFamily::Image {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::FamilyNotImplemented);
-        }
-        if context.operation != ModelOperation::GenerateImage {
+        if context.operation() != ModelOperation::GenerateImage {
             return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
         }
-        if is_known_imagen_model(context.model.as_str()) {
+        if self.verified_endpoint && is_current(context.model().as_str()) {
             ModelPolicyDecision::supported()
         } else {
             ModelPolicyDecision::unknown_model()
         }
     }
-}
-
-fn is_known_imagen_model(model: &str) -> bool {
-    matches!(
-        model,
-        "imagen-4.0-generate-001"
-            | "imagen-4.0-ultra-generate-001"
-            | "imagen-4.0-fast-generate-001"
-    )
 }

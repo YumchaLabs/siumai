@@ -4,19 +4,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use siumai_core::language::{FinishReason, MediaData};
 use siumai_core::stream::{StreamTerminal, established_stream};
 use siumai_core::{
-    ApiModeId, CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse,
-    Error, ImageArtifact, ImageLimits, ImageModel, ImageRequest, ImageResponse, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
-    Model, ModelDescriptor, ModelFamily, ModelId, ModelPolicy, ModelPolicyContext,
-    ModelPolicyDecision, ProtocolId, ProviderId, ProviderOptions, ProviderRegistration,
-    ProviderScope, RerankCandidate, RerankLimits, RerankModel, RerankRequest, RerankResponse,
-    RerankResult, ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
-    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
-    TypedProviderOptions, Usage,
+    ApiModeId, CallOptions, ContentAnnotationTarget, EmbeddingLimits, EmbeddingModel,
+    EmbeddingRequest, EmbeddingResponse, Error, ImageArtifact, ImageLimits, ImageModel,
+    ImageRequest, ImageResponse, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
+    LanguageStreamEvent, Message, MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily,
+    ModelId, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ProtocolId, ProviderId,
+    ProviderOptions, ProviderRegistration, ProviderScope, RerankCandidate, RerankLimits,
+    RerankModel, RerankRequest, RerankResponse, RerankResult, ResponseMetadata, SpeechLimits,
+    SpeechModel, SpeechRequest, SpeechResponse, TranscriptionLimits, TranscriptionModel,
+    TranscriptionRequest, TranscriptionResponse, TypedProviderAnnotation, TypedProviderOptions,
+    Usage,
 };
 
 fn descriptor(family: ModelFamily, model: &str) -> ModelDescriptor {
@@ -263,6 +264,20 @@ struct CustomOptions {
 
 impl TypedProviderOptions for CustomOptions {
     const NAMESPACE: &'static str = "custom";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CustomContentAnnotation {
+    cache: bool,
+}
+
+impl TypedProviderAnnotation for CustomContentAnnotation {
+    type Target = ContentAnnotationTarget;
+
+    const NAMESPACE: &'static str = "custom";
+    const API_MODE: Option<&'static str> = Some("native");
 }
 
 struct CustomPolicy;
@@ -275,6 +290,21 @@ impl ModelPolicy for CustomPolicy {
 
 fn prompt() -> LanguageRequest {
     LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")])
+}
+
+#[test]
+fn external_provider_annotations_are_target_typed_and_decodable() {
+    let expected = CustomContentAnnotation { cache: true };
+    let part = MessagePart::text("hello")
+        .with_provider_annotation(&expected)
+        .unwrap();
+
+    assert_eq!(
+        part.annotations()
+            .decode::<CustomContentAnnotation>()
+            .unwrap(),
+        Some(expected)
+    );
 }
 
 async fn call_generic_embedding<M>(model: &M) -> Result<EmbeddingResponse, Error>
@@ -373,13 +403,16 @@ async fn registration_captures_shared_runtime_and_returns_cheap_models() {
             .with_protocol(ProtocolId::new("test").unwrap())
             .with_api_mode(ApiModeId::new("native").unwrap()),
     );
-    let registration = ProviderRegistration::from_scope(scope, Arc::new(CustomPolicy))
-        .with_language(Arc::new(move |model| {
+    let registration = ProviderRegistration::from_language(
+        scope,
+        Arc::new(CustomPolicy),
+        Arc::new(move |model| {
             factory_count.fetch_add(1, Ordering::SeqCst);
             Ok(Arc::new(
                 FakeLanguage::new(model.as_str()).with_api_mode("native"),
             ))
-        }));
+        }),
+    );
 
     let first = registration
         .language_model(ModelId::new("future:model").unwrap())
@@ -390,7 +423,9 @@ async fn registration_captures_shared_runtime_and_returns_cheap_models() {
 
     assert_eq!(constructions.load(Ordering::SeqCst), 2);
     assert_eq!(
-        registration.api_mode().map(ApiModeId::as_str),
+        registration
+            .api_mode(ModelFamily::Language)
+            .map(ApiModeId::as_str),
         Some("native")
     );
     assert_eq!(first.model_id(), second.model_id());
@@ -406,11 +441,12 @@ async fn registration_captures_shared_runtime_and_returns_cheap_models() {
 
 #[test]
 fn registration_rejects_factory_identity_drift() {
-    let registration =
-        ProviderRegistration::new(ProviderId::new("other").unwrap(), Arc::new(CustomPolicy))
-            .with_language(Arc::new(|model| {
-                Ok(Arc::new(FakeLanguage::new(model.as_str())))
-            }));
+    let scope = Arc::new(ProviderScope::new(ProviderId::new("other").unwrap()));
+    let registration = ProviderRegistration::from_language(
+        scope,
+        Arc::new(CustomPolicy),
+        Arc::new(|model| Ok(Arc::new(FakeLanguage::new(model.as_str())))),
+    );
 
     let error = registration
         .language_model(ModelId::new("future:model").unwrap())

@@ -10,8 +10,8 @@ use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt, stream};
 use siumai_core::{
     CallOptions, Cancellation, ContentPart, Error, ErrorKind, ExecutionOwner, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
-    StreamTerminal, ToolCall, ToolOutcome, ToolResult,
+    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessagePart,
+    MessageRole, StreamTerminal, ToolCall, ToolOutcome, ToolResult,
 };
 
 use crate::approval::VerifiedApproval;
@@ -1968,22 +1968,22 @@ impl StepEngine {
     }
 
     fn append_assistant_message(&mut self, response: &LanguageResponse) {
-        self.report.messages_mut().push(Message {
-            role: MessageRole::Assistant,
-            content: response.content().to_vec(),
-        });
+        self.report.messages_mut().push(Message::new(
+            MessageRole::Assistant,
+            response.content().iter().cloned().map(MessagePart::from),
+        ));
     }
 
     fn finish_step(&mut self, response: LanguageResponse, results: Vec<ToolResult>) {
         if !results.is_empty() {
-            self.report.messages_mut().push(Message {
-                role: MessageRole::Tool,
-                content: results
+            self.report.messages_mut().push(Message::new(
+                MessageRole::Tool,
+                results
                     .iter()
                     .cloned()
                     .map(ContentPart::ToolResult)
-                    .collect(),
-            });
+                    .map(MessagePart::from),
+            ));
         }
         let record = StepRecord::new(self.step, self.target.clone(), response, results);
         self.report.steps_mut().push(record.clone());

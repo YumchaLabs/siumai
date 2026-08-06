@@ -1,7 +1,0 @@
-[
-  {
-    "type": "unsupported",
-    "details": "thinking budget is required when thinking is enabled. using default budget of 1024 tokens.",
-    "feature": "extended thinking"
-  }
-]

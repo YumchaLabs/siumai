@@ -9,9 +9,9 @@ use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, ContentPart, Error, ExecutionOwner, FinishReason, LanguageModel, LanguageRequest,
     LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, ProviderId, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, RouteId, StreamTerminal, ToolCall,
-    TypedProviderOptions, Usage,
+    ModelDescriptor, ModelFamily, ModelId, ProviderId, ProviderOptionContext, ProviderOptionError,
+    ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, RouteId,
+    StreamTerminal, ToolCall, TypedProviderOptions, Usage,
 };
 use siumai_runtime::{ModelTarget, Runtime, RuntimeConfigError, StepOptions, generate, stream};
 
@@ -22,6 +22,7 @@ struct TestOptions {
 
 impl TypedProviderOptions for TestOptions {
     const NAMESPACE: &'static str = "test";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
 }
 
 #[derive(Debug, Serialize)]
@@ -31,6 +32,7 @@ struct OtherOptions {
 
 impl TypedProviderOptions for OtherOptions {
     const NAMESPACE: &'static str = "other";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
 }
 
 fn options(value: &'static str) -> ProviderOptions {
@@ -102,7 +104,14 @@ impl LanguageModel for ScriptedModel {
             )
             .map_err(provider_options_error)?;
         *self.observed.lock().unwrap() = layers
-            .merge_for(self.provider_id(), &CaptureMerger)
+            .merge_for(
+                ProviderOptionContext::new(
+                    self.provider_id(),
+                    self.family(),
+                    self.descriptor().scope().api_mode(),
+                ),
+                &CaptureMerger,
+            )
             .map_err(provider_options_error)?;
         LanguageResponse::completed(
             vec![ContentPart::ToolCall(ToolCall {

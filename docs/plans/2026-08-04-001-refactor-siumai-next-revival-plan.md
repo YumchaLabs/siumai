@@ -21,6 +21,11 @@ execution: code
 | Stop conditions | Stop only when official provider behavior contradicts a requirement, a security boundary cannot be implemented safely, or a change would destroy unrelated user work. Compile failures caused by removed legacy APIs, stale tests, stale examples, or stale documents are migration work, not blockers. |
 | Tail ownership | `ce-work` owns implementation, serial verification, simplification, code review, and reviewable Conventional Commits. The plan remains the authority; implementation progress is tracked outside this file. |
 
+Product Contract preservation: changed R12, R14, R19, R24, R28-R32 and their dependent flows, examples, decisions, and units on 2026-08-05 to adopt the user-directed provider-plane/host-control-plane boundary and Alibaba-only public identity. Changed R43-R45, KTD13, U13-U14, and the Verification Contract on 2026-08-06 to require focused observable-contract tests and small orchestration/schema scripts instead of source parsing, digests, exhaustive cross-products, or repeated smoke matrices. Changed R18-R19, R27-R30, U10, provider scope, and Global Completion on 2026-08-06 so the release contains only providers that satisfy the target architecture; incomplete legacy providers are removed from the workspace/facade/publish set and documented for later clean reintroduction rather than preserved behind false green features. Revised R3, R20, F4, F7, AE9, U6, U12, the scope boundaries, and Global Completion on 2026-08-06 to make Realtime, translation, streaming transcription, and asynchronous media optional provider-owned experimental extensions: an unshipped extension is not a release obligation and cannot create a false support claim. Revised R27, AE9, U1, U6, U10, U13-U14, and provider evidence expectations on 2026-08-06 to replace the deprecated Imagen `:predict` release slice with experimental Gemini Interactions image generation and to keep only owner-local fixtures exercised by current tests rather than a central archive of removed-provider snapshots.
+Revised U10-U12, U14, the Verification Contract, and Global Completion on 2026-08-06 after the release-scope audit: every public named model, resource, session, or job scope now requires an inspectable provider-owned claim; official verification must not leak onto custom endpoints; and the compact support matrix must map each facade surface to its exact mode, fidelity, stability, source, and verification date.
+Revised R12-R13, KTD5-KTD7, U4, U7, and U14 on 2026-08-06 after implementing composite providers: the base `Provider` is canonical identity only; `ProviderScope` describes one technical execution surface; and each family binding in `ProviderRegistration` owns its own scope, policy, and factory. Provider-owned profiles and support manifests are inspectable evidence, not a mandatory capability method on the base trait or a Registry allowlist.
+Revised R11-R13, KTD5-KTD7, U4, U7, U14, and the documentation contract on 2026-08-06 after the public-API review: `ModelOperation` determines `ModelFamily`; policy contexts cannot encode a contradictory pair or expose shared `Arc` storage; composite registrations can be narrowed by family; facade registration is fallible for native-resource-only providers; and same-provider registration merge is explicit host-owned composition rather than an unverifiable same-runtime guarantee.
+
 ---
 
 ## Product Contract
@@ -63,7 +68,7 @@ The current workspace contains several partially overlapping architectures:
 
 - R1. The unified facade remains a first-class supported entry point, but it exposes explicit family-model values and high-level operations rather than a capability-discovering universal client. `(session-settled: user-approved - chosen over provider-only entry points because a unified interface is a valued convenience.)`
 - R2. Siumai has six stable model families: language generation/streaming, one-request multi-input embedding, one-query candidate rerank, final-result image generation, final-result speech synthesis, and final-result transcription. Each has one callable, object-safe, `Send + Sync` model trait with consistent metadata, owned request/result data, `CallOptions`, error, cancellation, and async conventions; hidden multi-request batching and async job/session lifecycles are not trait primitives.
-- R3. Video generation/async media jobs, Realtime/Live bidirectional sessions, streaming transcription, and streaming speech translation are experimental extension families until their cross-provider lifecycle is stable. Completion, batch jobs, files, skills, assistants/agents, music, voices, and other resources are provider extensions rather than additions to a universal model trait.
+- R3. Video generation/async media jobs and bidirectional sessions are experimental extension families when a retained provider has a clean, provider-owned lifecycle contract. Streaming transcription and speech translation remain optional provider-owned experimental extensions; an absent extension is not a release obligation. Completion, batch jobs, files, skills, assistants/agents, music, voices, and other resources are provider extensions rather than additions to a universal model trait.
 - R4. Stable contracts use Siumai names and semantics. AI SDK `V4` names, mirror modules, marker traits, and TypeScript-specific version labels are removed from the public Rust API.
 - R5. Library errors are typed, matchable, non-panicking, and preserve operation, provider, model, HTTP status, provider code/type, request ID, retry-after, relevant headers, bounded response diagnostics, and error source when available. Their default `Display`, `Debug`, tracing, and serialization surfaces are sanitized; access to raw headers/body is an explicitly sensitive opt-in rather than an ambient logging surface.
 - R6. Usage fields preserve `Unknown` instead of converting absent values to zero. The usage model can represent input, output, reasoning, cache read/write, orchestration, audio, and provider-specific details without changing the stable base structure for every provider addition.
@@ -74,34 +79,34 @@ The current workspace contains several partially overlapping architectures:
 - R8. A configured provider is model-independent, long-lived, and clone-cheap. It owns shared HTTP/auth/runtime state, and `provider.language_model(model_id)` and sibling family constructors are synchronous and cheap.
 - R9. Model acquisition performs no network call and requires no model-object LRU, TTL, or same-key singleflight. Singleflight is allowed only for measured provider-level work such as lazy initialization or credential refresh.
 - R10. Model IDs are open strings/newtypes. Built-in constants are completion conveniences, never allowlists; unknown future model IDs remain callable for stable operations, receive no model-specific defaults, and produce an explicit policy warning. A syntactically valid native option may pass only when the selected protocol can encode it safely; `Unknown` never becomes an advertised `Supported` capability.
-- R11. Model-dependent behavior is resolved by a `ModelPolicy` using provider, platform, model ID, operation, and protocol/dialect context. Capability results are `Supported`, `Unsupported`, or `Unknown`; provider-level boolean capability bags cannot gate execution.
-- R12. `ProviderId` identifies canonical vendor/platform ownership, while `RouteId` identifies one configured Registry instance and captures account/region/deployment plus a default API mode/dialect. Provider identity, model aliases/defaults, family/mode availability, endpoint policy, model advisories, lifecycle state, source URL, and verification date have one provider-owned source; Registry owns only normalized route IDs/aliases and derives its display view.
-- R13. Direct provider APIs may return concrete typed models for ergonomics. Dynamic registration uses narrow family factory traits or explicit registration closures that capture a configured provider and API mode; it never rediscovers traits with `Any`, downcasts, or an `as_*` ladder. Request middleware cannot mutate route/provider/model identity or bypass policy; rerouting is an explicit decision that restarts the complete policy/encoding pipeline.
-- R14. Provider-specific options are typed in provider crates. Precedence is provider defaults < route/model defaults < runtime-step options < call options < explicit raw override; typed providers own merge semantics rather than receiving a generic recursive JSON merge. A validated opaque provider-options escape hatch remains for dynamic cross-provider workflows, but every field is sent or rejected, foreign history metadata is not treated as call configuration, and no option can override credentials, endpoint/audience, proxy/TLS/Host/redirect policy, or protected headers.
+- R11. Model-dependent behavior is resolved by a `ModelPolicy` using provider, platform, model ID, operation, and protocol/dialect context. `ModelOperation` uniquely determines `ModelFamily`, so policy and Registry APIs do not accept a second family value that could contradict it. Capability results are `Supported`, `Unsupported`, or `Unknown`; provider-level boolean capability bags cannot gate execution.
+- R12. `ProviderId` identifies canonical vendor/product ownership, and the base `Provider` trait exposes only that identity. `ProviderScope` identifies one executable technical surface and belongs to model descriptors, family registrations, and policy contexts rather than to the provider as a whole. Dated portable and native support evidence uses `SupportScope` and `NativeSupportScope` instead. `RouteId` is an opaque caller-owned name for one already configured Registry registration and its captured family bindings. The host control plane selects accounts, projects, workspaces, regions, deployments, aliases, defaults, allowlists, compliance, health, weights, and fallback before provider construction or registration. Provider crates own only technical endpoint/auth/transport/protocol behavior, request policy, typed extensions, provider resources, and optional advisory model hints. Registry owns normalized route IDs and immutable local mappings, performs no network discovery, and does not interpret route business meaning.
+- R13. Direct provider APIs may return concrete typed models for ergonomics. A `ProviderRegistration` contains one or more family bindings for one canonical provider; each binding captures its own exact technical scope, request policy, and erased factory. The host may merge disjoint family registrations with the same canonical provider identity or project a combined registration to one family; merge does not claim that credentials or runtime instances are identical. Alternative API modes for the same family use explicit mode-specific registrations/routes rather than an implicit selector inside one binding. Facade registration is fallible when a valid configured provider exposes only provider-native resources and therefore has no portable family binding; an empty registration is never synthesized. Dynamic registration never rediscovers traits with `Any`, downcasts, or an `as_*` ladder. Request middleware cannot mutate route/provider/model identity or bypass policy; rerouting is an explicit decision that restarts the complete policy/encoding pipeline.
+- R14. Provider-specific options are typed in provider crates. The host/runtime may resolve application, route, model, step, and call layers before the request reaches the provider, while the provider owns typed validation, deterministic merge semantics, and final wire encoding rather than receiving a generic recursive JSON merge. A validated opaque provider-options escape hatch remains for dynamic cross-provider workflows, but every field is sent or rejected, foreign history metadata is not treated as call configuration, and no option can override credentials, endpoint/audience, proxy/TLS/Host/redirect policy, or protected headers.
 
 **Protocol and transport ownership**
 
 - R15. Native protocol engines are preferred when protocol semantics differ materially. OpenAI-compatible support is one explicit Chat/Responses dialect runtime with bounded hooks for model policy, message conversion, request normalization, usage/metadata conversion, and stream conversion; it is not a URL-only preset collection or a substitute for native protocols.
 - R16. OpenAI Chat Completions and Responses are separate engines. Responses items, reasoning continuation, program/program-output items, callers, stored response IDs, provider tools, and lifecycle events remain lossless.
 - R17. Anthropic Messages preserves content blocks, thinking/refusal/fallback behavior, tool and cache semantics, signatures, provider tools, and model-specific request restrictions rather than flattening them into chat strings.
-- R18. Gemini uses Interactions as the current native stateful engine and retains GenerateContent as an explicit adapter. Direct Gemini and Vertex policies can differ, including function-call IDs, sampling rules, media, and hosted tools.
-- R19. Bedrock exposes an explicit API selection policy across supported platform APIs rather than assuming Converse is the only route. Model lifecycle and behavior are scoped by Bedrock platform, region, and model/deployment identifier.
-- R20. Realtime/Live uses a session contract for bidirectional JSON/binary events, interruption, reconnection, expiration, resume tokens, and close semantics; it is not implemented as language-model text streaming.
+- R18. A branded provider or named platform enters the release workspace/facade/publish set only after its configured provider, canonical family/resource contracts, shared transport, typed options, and focused fixtures satisfy the target architecture. A narrower verified slice such as Gemini Interactions image generation or Anthropic-on-Vertex may ship under an equally narrow public name; it must not imply full Gemini or Vertex support.
+- R19. Remote-required region, project, workspace, deployment, and model identifiers remain open provider settings/addresses used for endpoint construction, signing, and request encoding; account availability, inventory, defaults, and routing remain host-owned. Bedrock or another platform with multiple native APIs is reintroduced only through an explicit configured API-selection policy, never by preserving its legacy universal client.
+- R20. Any retained Realtime/Live implementation uses a session contract for bidirectional JSON/binary events, interruption, reconnection, expiration, resume tokens, and close semantics; it is not implemented as language-model text streaming. Providers without a verified session contract expose no session feature.
 - R21. A single provider transport deep module owns HTTP client reuse, endpoint validation, credential audience, auth application, request replay classification, retry budget, backoff/jitter, timeouts, sanitized observability, response/resource limits, error capture, download/redirect/proxy/DNS/SSRF safety, SSE, WebSocket connect policy, backpressure, and cancellation. Its `EndpointPolicy` distinguishes official, public custom, and explicitly authorized local/private endpoints; downloaded response resources never inherit provider credentials.
 - R22. Retry is opt-in by operation and proven replay safety. Once a request may have reached the remote service, it retries only when the method is semantically idempotent or the provider supports a stable per-logical-call idempotency key and the body is rebuildable; receiving no response or no first stream event is not evidence that a POST is safe to replay. Non-idempotent POST, multipart streams, tool side effects, and async job creation default to one attempt, including around credential refresh.
 - R23. Protocol crates own wire codecs and stateful decoders. A decoder consumes raw events and emits zero or more canonical events, then has exactly one finish/flush path. Bridge and server gateway code reuse these codecs rather than maintaining equivalent converter traits.
 
 **Current provider support**
 
-- R24. Each `{provider, platform, family, api_mode}` support claim records two orthogonal dimensions: fidelity is `native`, `verified-compatible`, or `generic-compatible`, while public API stability is `stable` or `experimental`; optional region/deployment scope may narrow either. A named built-in profile requires an official source, a fidelity-specific current verification date, typed dialect policy where behavior differs, and offline wire/error/stream tests; one native family cannot inflate another mode's claim, and a native protocol implementation may still expose an experimental Siumai contract.
+- R24. Each `{provider, technical_platform, family, api_mode}` support claim records two orthogonal dimensions: fidelity is `native`, `verified-compatible`, or `generic-compatible`, while public API stability is `stable` or `experimental`. Claims describe protocol evidence only and never account, region, deployment, entitlement, quota, pricing, or business availability. A named built-in profile requires an official source, a fidelity-specific current verification date, typed dialect policy where behavior differs, and offline wire/error/stream tests; one native family cannot inflate another mode's claim, and a native protocol implementation may still expose an experimental Siumai contract.
 - R25. OpenAI support targets Responses first and current GPT-5.6 behavior, including current reasoning modes/efforts, prompt caching, persisted reasoning, programmatic tool calling, provider tools, and Realtime extensions. Retired Assistants-specific defaults and deprecated realtime/audio model assumptions are removed.
 - R26. Anthropic support targets current Fable 5, Opus 5, and Sonnet 5 behavior, including adaptive thinking, refusal, fallback, usage, tool evolution, prompt caching, and unknown-future-model defaults. Retired Claude generations are not defaults.
-- R27. Google support targets current Gemini 3.5/3.6 behavior, Interactions `steps`, current thinking/sampling semantics, current function-call identity rules, Live sessions, speech, and translation where officially supported. Vertex remains a distinct platform policy.
-- R28. Bedrock, xAI, and AI Gateway support their current native control planes and family surfaces. AI Gateway's remote catalog is authoritative for routed model metadata; static generated mega-lists are not introduced.
-- R29. Chinese providers are first-class: DeepSeek V4 reasoning replay and strict tool behavior; Kimi current model/tool policies; DashScope/Qwen Chat/Responses plus native embedding/video/search semantics; MiniMax current Anthropic-oriented thinking and native media jobs; ARK Responses; and verified GLM, Qianfan, Hunyuan, and SiliconFlow compatibility profiles. Unsupported native surfaces remain honestly labeled rather than inferred.
-- R30. Alibaba/DashScope, MiniMax, AI Gateway, and similar multi-family services are composite providers: each family may use a different underlying protocol while sharing one configured provider identity and runtime.
-- R31. Unverified, inactive, duplicate, or URL-only named presets are removed. Their users retain the generic OpenAI-compatible builder and can define an explicit custom profile.
-- R32. Model lifecycle data records active/deprecated/retired/rolling-alias state, replacement, platform scope, source, and `verified_at`. It is advisory and provider-owned; CI validates structure and staleness policy but does not scrape provider websites or generate Rust by parsing TypeScript unions.
+- R27. Google support claims match the implemented slice exactly. The current release may retain an experimental configured Gemini Interactions image provider and an explicitly named Anthropic-on-Vertex provider when they independently pass the target contracts; deprecated Imagen `:predict`, legacy Gemini language, broad Vertex, and generated-content client surfaces are removed until clean native providers are implemented.
+- R28. xAI ships its target-architecture Responses and Chat Completions language surface. Provider-native files, image, speech, video, Realtime, or transcription ship only after they use canonical errors/transport/lifecycles; otherwise they are removed from the stable release surface. Bedrock, AI Gateway, Azure, or another legacy-only provider is absent from the release workspace/facade/publish set until independently rebuilt and verified. The migration guide names every removal.
+- R29. Chinese providers are first-class: DeepSeek V4 reasoning replay and strict tool behavior; Kimi current model/tool policies; Alibaba/Qwen Chat/Responses plus native embedding/video/search semantics; MiniMax current Anthropic-oriented thinking and native media jobs; and ARK Responses where verified. GLM, Qianfan, Hunyuan, SiliconFlow, DeepInfra, or another named compatible profile enters the release only with current official evidence, typed policy, and focused fixtures; otherwise it is absent rather than inherited from a stale URL preset. Alibaba is the only public provider identity for its composite surface; DashScope remains a private endpoint/protocol implementation name. Unsupported native surfaces remain honestly labeled rather than inferred.
+- R30. Alibaba, MiniMax, and similar multi-family services are composite providers: each family may use a different underlying protocol while sharing one configured public provider identity and runtime. Infrastructure service names do not create parallel provider identities or duplicate construction paths. A future AI Gateway implementation must satisfy the same rule before re-entering the release.
+- R31. Unverified, inactive, duplicate, URL-only, or implementation-service named presets are removed. Their users retain the generic OpenAI-compatible builder and can define an explicit custom profile. Branded composite providers reuse compatible engines internally rather than living as public profiles inside the generic compatible package.
+- R32. Known model IDs and lifecycle facts are optional dated advisories for ergonomics, maintenance, and protocol quirks, not runtime inventories or allowlists. They never encode account/region/deployment availability, and unknown future IDs remain callable. CI may validate declared evidence and staleness policy but does not scrape provider websites or generate Rust by parsing TypeScript unions; remote catalog snapshots and their routing interpretation remain host-owned.
 
 **Unified runtime and trust boundaries**
 
@@ -118,9 +123,9 @@ The current workspace contains several partially overlapping architectures:
 
 - R41. `LlmClient`, `ClientWrapper`, legacy capability traits, generic capability/downcast APIs, broad provider factories/facets, `SiumaiBuilder`, compatibility provider wrappers, completion-family core APIs, and duplicate aliases are deleted from production code and exports. `(session-settled: user-directed - chosen over preserving source compatibility; all breaking changes and deletion of obsolete code are authorized.)`
 - R42. The package graph is redrawn so contracts do not depend upward on transport, providers, Registry, facade, server gateway, or agent integrations. Registry does not depend on built-in providers.
-- R43. Source-scanning and textual architecture tests are deleted. Public APIs are validated by compiling real usage; dependency boundaries use `cargo metadata`; protocol behavior uses table-driven wire fixtures and shared family/provider contract suites.
+- R43. Source-scanning, textual architecture, source-layout, checksum, and digest-as-semantics tests are deleted. Public APIs are validated by compiling real usage; dependency boundaries use `cargo metadata`; protocol behavior uses a focused set of request/response/stream/error fixtures for distinct codec and lifecycle branches. Tests do not enumerate a Cartesian product when the cases exercise the same implementation path.
 - R44. Superseded ADRs, alignment inventories, completed workstream journals/handoffs, obsolete migration notes, stale examples, and stale provider documentation are deleted. The maintained documentation set is small and current.
-- R45. The workspace declares and tests an MSRV compatible with the chosen Rust 2024 APIs and dependencies, uses serial `cargo nextest` lanes, and publishes crates in dependency order only after the reduced feature matrix, docs, examples, clippy, and package checks pass.
+- R45. The workspace declares and tests an MSRV compatible with the chosen Rust 2024 APIs and dependencies, uses serial `cargo nextest` lanes, and publishes crates in dependency order only after focused affected-package checks plus one release-level reduced feature matrix, docs, examples, clippy, and package validation pass. Repeated smoke suites that prove the same compile or codec path are not retained.
 
 ### Key Flows
 
@@ -132,7 +137,7 @@ The current workspace contains several partially overlapping architectures:
 - F2. Dynamic Registry resolution
   - **Trigger:** A2 resolves `route:model` or a named route alias.
   - **Steps:** Registry splits on the first `:`, preserves the model remainder, selects the mode-bound family constructor captured by that configured route, creates a lightweight model, and applies identity-preserving middleware once. Registry snapshots are immutable; replacement creates a new snapshot while existing models retain their old provider runtime.
-  - **Outcome:** Multiple accounts, deployments, regions, and API modes of one canonical provider can coexist; the returned object implements the same family contract as F1, and Registry contains no credentials or provider package imports.
+  - **Outcome:** Multiple host-selected configured environments and API modes of one canonical provider can coexist under opaque route names; the returned object implements the same family contract as F1, and Registry contains no credentials, provider package imports, network discovery, or business routing policy.
   - **Covered by:** R1, R8-R13, R42
 - F3. Provider-neutral language call
   - **Trigger:** A3 calls `generate` or `stream` on any language model.
@@ -140,13 +145,13 @@ The current workspace contains several partially overlapping architectures:
   - **Outcome:** Common semantics are uniform without erasing provider-native items, and established streams terminate exactly once through canonical events.
   - **Covered by:** R2-R7, R14-R23
 - F4. Native protocol extension
-  - **Trigger:** A1 uses OpenAI Responses, Anthropic thinking/cache, Gemini Interactions/Live, Bedrock routing, or another typed provider feature.
-  - **Steps:** Provider-owned typed options select the native engine; model policy validates model/platform restrictions; protocol codec preserves native request and result items.
+  - **Trigger:** A1 uses OpenAI Responses/Realtime, Anthropic thinking/cache, Alibaba search/cache, MiniMax resources, or another typed provider feature.
+  - **Steps:** Provider-owned typed options select the native engine; request policy validates protocol and encoding constraints after any host-side route decision; protocol codec preserves native request and result items.
   - **Outcome:** Unsupported combinations fail explicitly, unknown combinations warn or pass through according to policy, and the common facade remains usable.
   - **Covered by:** R11, R14-R20, R24-R32
 - F5. Verified compatible provider
   - **Trigger:** A1 selects a named Kimi, GLM, Qianfan, Hunyuan, SiliconFlow, or other verified compatibility profile.
-  - **Steps:** The profile supplies identity, endpoint, auth, model policy, and bounded dialect hooks; the shared compatible engine performs the call; provider-specific metadata remains available.
+  - **Steps:** The profile supplies technical identity, endpoint, auth, request policy, and bounded dialect hooks; the shared compatible engine performs the call; provider-specific metadata remains available. It does not supply account inventory, regional model availability, business defaults, or fallback.
   - **Outcome:** The profile is more trustworthy than a base-URL alias without becoming a duplicate provider runtime.
   - **Covered by:** R12, R15, R24, R29-R32
 - F6. Tool-loop run and resume
@@ -154,14 +159,14 @@ The current workspace contains several partially overlapping architectures:
   - **Steps:** One step engine owns history, stream events, tool ownership, approval, execution, checkpointing, usage, stopping, cancellation, and typed terminal state.
   - **Outcome:** Direct, agent, MCP, and server gateway projections have identical run semantics. Completed receipts do not replay; denied, failed, cancelled, conflicting resume, and indeterminate side effects remain distinct outcomes rather than an unprovable exactly-once promise.
   - **Covered by:** R33-R40
-- F7. Realtime/Live session
-  - **Trigger:** A1 opens a provider realtime session.
+- F7. Retained realtime/session extension
+  - **Trigger:** A1 opens a provider realtime or bidirectional session that is explicitly enabled and documented.
   - **Steps:** A typed session factory obtains any ephemeral token, opens the supported transport, maps bidirectional JSON/binary events, handles interruption and provider-supported cursor/resume with duplicate suppression, and closes deterministically.
   - **Outcome:** Session lifecycle is explicit and separate from text streaming; when continuity cannot be proven, reconnect starts a new session lineage rather than presenting a seamless resume.
   - **Covered by:** R3, R20-R23, R25, R27-R28
 - F8. Provider freshness maintenance
   - **Trigger:** A6 audits a provider or a staleness gate expires.
-  - **Steps:** Maintainer checks official lifecycle/protocol sources first, updates the provider-owned profile/policy and behavior fixtures, then uses the local AI SDK reference as a secondary delta signal.
+  - **Steps:** Maintainer checks official protocol/resource sources first, updates provider-owned request policy, advisory hints, and behavior fixtures, then uses the local AI SDK reference as a secondary delta signal. Account inventory and regional availability are not compiled into the provider package.
   - **Outcome:** Siumai can accept future model IDs immediately while named support claims remain dated, sourced, and testable.
   - **Covered by:** R10-R12, R24-R32, R43-R45
 - F9. Cross-provider continuation
@@ -217,11 +222,11 @@ The current workspace contains several partially overlapping architectures:
   - **Given:** A current Claude model returns HTTP 200 with `stop_reason=refusal` after provisional streamed text.
   - **When:** The Anthropic decoder finishes.
   - **Then:** The result is a refusal terminal state, invalid provisional text is not presented as a successful answer, usage remains correct, and prohibited legacy sampling/thinking fields were omitted from the request.
-- AE9. Gemini Interactions and Live
-  - **Covers:** R18, R20, R27
-  - **Given:** A stateless Interactions tool continuation and a Live session that emits out-of-order transcript data and a GoAway/resume token.
-  - **When:** Both flows run.
-  - **Then:** Interactions replays required `steps` and thought/function-call identity; Live keeps independent session ordering, reconnect, and close semantics.
+- AE9. Scoped Google slices
+  - **Covers:** R18, R19, R24, R27
+  - **Given:** A configured Gemini Interactions image provider and a configured Anthropic-on-Vertex provider with caller-selected project/location.
+  - **When:** The facade constructs their model handles and Registry registrations.
+  - **Then:** the Google provider exposes only the image family over Interactions, Anthropic-on-Vertex exposes only Messages language, technical addressing is preserved, and Gemini language/Live or broad Vertex media APIs are not implied.
 - AE10. DeepSeek V4 reasoning replay
   - **Covers:** R11, R15, R29
   - **Given:** A multi-turn DeepSeek V4 tool conversation.
@@ -229,7 +234,7 @@ The current workspace contains several partially overlapping architectures:
   - **Then:** Required assistant `reasoning_content` is replayed for every applicable turn, unsupported vision is not advertised, and retired aliases are not chosen as defaults.
 - AE11. Composite Chinese provider
   - **Covers:** R24, R29-R32
-  - **Given:** One configured DashScope provider used for chat/Responses, embedding, search citations, and Wan video.
+  - **Given:** One configured Alibaba provider used for chat/Responses, embedding, search citations, and Wan video.
   - **When:** Each family is requested.
   - **Then:** The provider shares identity/runtime but selects the correct protocol and typed policy per family; native search/media metadata is not forced through Chat Completions.
 - AE12. Tool approval and snapshot integrity
@@ -251,12 +256,12 @@ The current workspace contains several partially overlapping architectures:
   - **Covers:** R24-R32, R41-R45
   - **Given:** A named provider profile, a generic custom profile, obsolete architecture tests, and historical workstream documents.
   - **When:** The release checks run.
-  - **Then:** The named profile has a source/date/fidelity/stability claim and behavior fixtures; the custom profile remains usable without a named support claim; source-scanning tests and superseded documents are absent; current examples compile.
+  - **Then:** The named profile has a protocol-scoped source/date/fidelity/stability claim and behavior fixtures without account or regional availability assertions; the custom profile remains usable without a named support claim; source-scanning tests and superseded documents are absent; current examples compile.
 - AE16. Route identity and mode selection
   - **Covers:** R8-R14, R42
-  - **Given:** Two Azure deployments and one OpenAI account register separate Chat and Responses routes under canonical OpenAI ownership.
+  - **Given:** Host code configures two Azure environments and one OpenAI account, then registers separate Chat and Responses routes under their canonical provider identities.
   - **When:** Registry resolves each `route:model` reference and a new Registry snapshot replaces one route.
-  - **Then:** All instances coexist without fake provider IDs, each uses its captured deployment/mode, model IDs containing `:` remain intact, and previously resolved handles keep their original runtime.
+  - **Then:** All instances coexist without fake provider IDs, each uses its captured host-selected endpoint/deployment and mode, Registry does not interpret those values, model IDs containing `:` remain intact, and previously resolved handles keep their original runtime.
 - AE17. Cross-provider continuation loss policy
   - **Covers:** R6-R7, R16-R18, R33, R38
   - **Given:** One OpenAI Responses history contains portable text plus encrypted reasoning/provider-tool state, and one Gemini history contains signed thought/function state.
@@ -280,8 +285,8 @@ The current workspace contains several partially overlapping architectures:
 - `provider.language_model(id)` and sibling constructors are synchronous, cheap, and share provider runtime state.
 - Registry has one provider record store, no built-in provider dependencies, no per-family model cache, and no credentials/request policy.
 - `LlmClient`, capability bags/downcasts, compatibility factories, generic builders, old V4 mirror APIs, and duplicate runtime owners are absent from production/public code.
-- Current flagship and Chinese-provider behavior listed in R25-R30 has offline protocol and negative-capability coverage.
-- Every named provider/profile has an honest tier, official source, verification date, and provider-owned policy; arbitrary model IDs and custom compatibility profiles remain available.
+- Every provider/profile retained in the release workspace, facade, and publish set has offline protocol and negative-capability coverage for its claimed surface; removed providers make no support claim.
+- Every named provider/profile has an honest protocol tier, official source, verification date, and provider-owned request policy without account/region availability claims; arbitrary model IDs and custom compatibility profiles remain available.
 - One transport owns retry and diagnostics; one stream decoder contract owns lifecycle; one step engine owns tool/structured-output runtime semantics.
 - Tool approval, server gateway local-execution defaults, cancellation, snapshot resume, and MCP lifecycle pass adversarial tests.
 - Maintained architecture/provider/migration/release documentation replaces the 500-plus historical workstream corpus.
@@ -293,15 +298,16 @@ The current workspace contains several partially overlapping architectures:
 
 - A full breaking redesign of public traits, provider construction, Registry, facade, package boundaries, feature flags, runtime, and provider integrations.
 - Deletion or replacement of obsolete source, packages, tests, examples, fixtures that assert obsolete behavior, documents, ADRs, workstream logs, scripts, and generated/parity artifacts.
-- Current protocol behavior and model-policy updates for OpenAI, Anthropic, Gemini/Vertex, Bedrock, xAI, AI Gateway, DeepSeek, Kimi, DashScope/Qwen, MiniMax, ARK, GLM, Qianfan, Hunyuan, and SiliconFlow at the support depth stated in R24-R31.
+- Current protocol behavior and request-policy updates for every provider/profile retained in the release set, including OpenAI, Anthropic, xAI language, DeepSeek, Kimi, Alibaba/Qwen, MiniMax, and the explicitly scoped Gemini Interactions image/Anthropic-on-Vertex slices. Legacy-only Gemini/Vertex, Bedrock, AI Gateway, Azure, or other providers are deleted from the release surface and listed in migration guidance until clean reintroduction.
 - Stable non-language family migration for existing providers, plus experimental asynchronous video/resource behavior where already supported or required by the current provider contract.
-- Experimental Realtime/Live, streaming transcription/translation, and asynchronous media contracts with flagship provider implementations and deterministic mock coverage.
+- OpenAI Realtime/translation and retained provider-owned asynchronous media contracts with deterministic mock coverage where those implementations are present. Unshipped streaming-transcription or other session extensions remain deferred.
 - A versioned in-memory/serializable run snapshot contract, approval signing hooks, and MCP tool lifecycle.
 
 **Deferred**
 
 - A built-in distributed workflow scheduler, durable snapshot database, or general exactly-once guarantee. Siumai provides quiescent snapshots, completed-receipt replay prevention, indeterminate-effect handling, and optional lease/CAS/idempotency hooks; durable coordination and executor idempotency remain application responsibilities.
 - A universal provider-agent/assistant abstraction over Qianfan application runs, OpenAI stored workflows, vendor knowledge bases, or other hosted stateful applications. These remain typed provider resources.
+- A built-in account/region/deployment control plane, compliance router, availability inventory, pricing/quota engine, health-weighted fallback system, or implicit remote discovery in Registry. Hosts may build these above Siumai or use future optional provider-resource/control-plane packages.
 - A universal async batch-job trait until at least three provider contracts demonstrate compatible lifecycle and result semantics.
 - Native Tencent TC3 file/thread/group-chat APIs while the provider is migrating surfaces; verified Chat/Embedding compatibility remains supported.
 - Hard-coded pricing as a stable API. AI Gateway/provider model endpoints may expose current pricing as dated advisory metadata.
@@ -328,17 +334,17 @@ The current workspace contains several partially overlapping architectures:
 
 - KTD1. **Keep the unified interface as a facade, not as a universal object.** `(session-settled: user-approved - chosen over deleting the unified interface.)` Direct provider models, Registry models, and helpers meet at family traits; the facade performs construction/routing/ergonomic projection only. Governs R1-R4, R13-R14, R33.
 - KTD2. **Use one fearless API reset.** `(session-settled: user-directed - chosen over a staged compatibility migration.)` Old public and internal APIs are deleted after their replacement path is wired; deprecation shims do not become a second permanent architecture. Governs R41-R45.
-- KTD3. **Treat official provider documentation as primary and the AI SDK as secondary prior art.** This prevents a locally current AI SDK model union from overriding newer official retirements or platform-specific behavior, while retaining its useful wire fixtures and edge-case history. Governs R12, R24-R32.
+- KTD3. **Treat official provider documentation as primary and the AI SDK as secondary prior art.** Official documentation governs current wire/resource behavior; AI SDK helps identify useful provider-package and contract seams. Neither source turns mutable account inventory or regional availability into a stable Siumai runtime type. Governs R12, R24-R32.
 - KTD4. **Stabilize six invocation families only after representative wire proofs; keep job/session lifecycles experimental.** Each stable family must prove its primitive request/result/partial/error/cancellation semantics against at least one real provider before the public traits freeze. Video generation remains experimental because its create/poll/materialize lifecycle is an asynchronous job rather than a one-shot model invocation; Realtime/Live, streaming transcription, and streaming translation are also experimental sessions/streams. Completion, batch, files, skills, assistants, and hosted applications remain provider resources. Governs R2-R4, R20, R30.
-- KTD5. **Configure providers once, separate route identity, and construct models synchronously.** Models hold an `Arc` to immutable/shared provider runtime plus `ModelId`; async auth refresh occurs at request time. `ProviderId` is canonical ownership, while Registry `RouteId` selects one configured instance and default mode. This deletes Registry's model cache and fixes the root cause instead of optimizing repeated client reconstruction. Governs R8-R13, R21-R22.
-- KTD6. **Use object-safe family model traits and explicit dynamic registration.** `async_trait` is acceptable as the single future-boxing boundary because network I/O dominates allocation cost and Registry requires `dyn`; streams use one boxed `Send + 'static` carrier. Direct providers may expose concrete models, while Registry registration stores narrow family constructors. Governs R2, R7, R13.
-- KTD7. **Separate family availability from model capability.** Registration says which family factories a provider exposes; `ModelPolicy` says whether a model/operation/protocol combination is supported, unsupported, or unknown. Neither is a universal runtime capability bag. Governs R10-R14, R24, R32.
+- KTD5. **Configure providers once, keep route meaning host-owned, and construct models synchronously.** Models hold shared immutable provider runtime plus `ModelId`; async auth refresh occurs at request time. `ProviderId` is canonical vendor/product ownership and is the only base-provider identity, while `ProviderScope` is exact to one execution surface. Registry treats `RouteId` as an opaque local key for one host-composed registration and its captured family bindings; the normal path registers one configured provider, while explicit merge may combine disjoint same-provider bindings without claiming identical credentials or runtime origin. This deletes Registry's model cache without turning Registry into a cloud control plane. Governs R8-R13, R21-R22.
+- KTD6. **Use object-safe family model traits and explicit per-family dynamic registration.** `async_trait` is acceptable as the single future-boxing boundary because network I/O dominates allocation cost and Registry requires `dyn`; streams use one boxed `Send + 'static` carrier. Direct providers may expose concrete models, while each erased Registry family binding stores its own exact scope, policy, and constructor. A registration has at least one family and cannot represent an empty capability bag. Governs R2, R7, R13.
+- KTD7. **Separate host route policy, execution-surface identity, provider request policy, and support evidence.** Registration says which family factories a route exposes and preserves the exact `ProviderScope` for each family. `ModelOperation` determines the selected family, and policy contexts expose borrowed domain values instead of shared-storage internals. Provider request policy answers only whether a request/model/protocol combination can be encoded safely as `Supported`, `Unsupported`, or `Unknown`. Provider-owned profiles or support manifests publish dated `SupportScope` or `NativeSupportScope` evidence but are not executable capability authorities or Registry allowlists. Account entitlement, regional availability, defaults, compliance, and fallback are resolved before the provider seam. Governs R10-R14, R24, R32.
 - KTD8. **Prefer native protocols, then verified dialect profiles, then a generic escape hatch.** A dedicated provider/protocol exists only when authentication, endpoints, wire semantics, resource lifecycle, or typed capabilities justify it. Compatible vendors share one engine and bounded hooks rather than copying it. Governs R15-R20, R24-R31.
-- KTD9. **Redraw package ownership around dependency direction.** `siumai-core` absorbs the durable neutral types/traits currently mirrored in `siumai-spec`; a provider transport package owns HTTP/WS/retry/security; protocol crates own codecs; provider crates own configured runtimes/models/policies; `siumai-runtime` owns high-level execution; Registry depends only on core; facade aggregates optional providers; MCP and server gateway integration are optional focused packages. Governs R21-R23, R33-R45.
+- KTD9. **Redraw package ownership around dependency direction.** `siumai-core` absorbs durable neutral types/traits currently mirrored in `siumai-spec`; a provider transport package owns HTTP/WS/retry/security; protocol crates own codecs; provider crates own configured runtimes/models/request policy/resources; `siumai-runtime` owns high-level execution; Registry depends only on core and remains network-free; facade aggregates optional providers; host control-plane policy stays above these packages; MCP and server gateway integration are optional focused packages. Governs R21-R23, R33-R45.
 - KTD10. **Use one canonical lifecycle stream and explicit history projection.** The stable event vocabulary has one post-establishment terminal algebra, while opaque provider items preserve provenance and same-protocol round trips. Cross-protocol continuation projects only portable content and reports/rejects loss explicitly; no native item is silently reinterpreted. Governs R5-R7, R16-R23, R33.
-- KTD11. **Keep typed provider options primary with provider-owned merge semantics.** Common requests contain only stable cross-provider semantics. Provider extension traits/builders merge a fixed precedence stack and insert validated provider options; dynamic JSON remains an explicit checked escape hatch whose fields are sent or rejected. Governs R11, R14-R20, R24-R31.
+- KTD11. **Keep typed provider options primary with provider-owned validation and merge semantics.** Common requests contain only stable cross-provider semantics. Host/runtime code may resolve its configuration layers, but provider extension traits/builders perform the final deterministic merge and validation for the exact provider/family/API mode; dynamic JSON remains an explicit checked escape hatch whose fields are sent or rejected. Governs R11, R14-R20, R24-R31.
 - KTD12. **Make tool execution an explicit trust boundary.** One engine separates tool description, frozen binding, execution owner, host-authenticated trust context, atomically consumed approval, execution log, snapshot, and provider-deferred state. The server gateway defaults deny local execution; uncertain side effects become `Indeterminate`, and portable sensitive continuations require confidentiality as well as integrity. Governs R33-R40.
-- KTD13. **Test observable contracts, not source layout.** Wire fixtures, scripted models, mock transports, compile examples, `cargo metadata`, and shared contract suites replace string scanning and mirrored upstream file inventories. Governs R24-R32, R43-R45.
+- KTD13. **Test the smallest observable contract that proves each distinct behavior.** Focused wire fixtures, scripted models, mock transports, compile examples, and `cargo metadata` replace string scanning, mirrored upstream inventories, SHA/digest gates, exhaustive option cross-products, and repeated smoke suites. Add another case only when it exercises a different encoding, decoding, error, stream, security, or lifecycle branch. Governs R24-R32, R43-R45.
 
 ### High-Level Technical Design
 
@@ -361,8 +367,7 @@ flowchart TD
     Transport --> Core
     MCP[siumai-mcp] --> Runtime
     Server[siumai-server] --> Runtime
-    Server --> Bridge[siumai-bridge]
-    Bridge --> Protocols
+    Server --> Protocols
 ```
 
 Target dependency rules:
@@ -411,10 +416,10 @@ Current provider delta and target placement, based on official sources checked o
 |---|---|---|---|
 | OpenAI | Responses is primary; GPT-5.6 reasoning/cache/programmatic tools and Realtime 2.x behavior are missing or incomplete; Assistants shutdown is imminent. | Native Chat, Responses, Realtime/translation extensions. | P0 |
 | Anthropic | Fable/Opus/Sonnet 5 adaptive thinking, refusal/fallback, usage, sampling restrictions, and future-model policy differ from current code. | Native Messages/resources. | P0 |
-| Gemini / Vertex | Gemini 3.5/3.6, Interactions `steps`, current function IDs/thinking/sampling, Live/reconnect, speech/translation are incomplete. | Native, with distinct Gemini and Vertex platform policies. | P0 |
-| Bedrock | Platform lifecycle and multiple APIs cannot be inferred from source-provider model constants; strict/schema/provider-tool/media behavior is incomplete. | Native composite platform provider. | P0 |
+| Google / Vertex | Only configured Gemini Interactions image and Anthropic-on-Vertex slices currently satisfy the new provider shape; legacy Gemini/Vertex clients overclaim the platform. | Retain only narrowly named, evidence-backed slices; remove deprecated Imagen `:predict` and broad legacy claims until clean native providers return. | P0 |
+| Bedrock | No target-architecture provider exists; the package is entirely coupled to the legacy client/executor stack. | Remove from this release workspace/facade/publish set; rebuild later as a native composite provider. | P0 |
 | xAI | Responses is primary; Grok lifecycle, 202 handling, Realtime/voice/STT, and typed media options need updates. | Native Responses plus experimental session/media extensions. | P1 |
-| AI Gateway | Local implementation has only part of the current family/catalog/control plane and stale options. | Native routing/control-plane provider with remote catalog. | P0 |
+| AI Gateway | No target-architecture provider exists; the package exposes the legacy V4/universal-client surface. | Remove from this release workspace/facade/publish set; rebuild later as a configured provider with native resources. | P0 |
 | DeepSeek | Retired aliases/defaults, V4 reasoning-history replay, strict tools, cache usage, and false vision claims. | Native policy over verified compatible protocols. | P0 |
 | Kimi/Moonshot | K3/K2.6/K2.7 policy, reasoning differences, dynamic/hosted tools, schema cleanup, encrypted context. | Verified-compatible profile with typed Kimi hooks. | P1 |
 | DashScope/Qwen | Chat/Responses compatibility plus native search citations, embeddings, Wan media, and Assistant-to-Responses migration. | Native composite provider reusing shared dialect engines. | P0/P1 |
@@ -472,7 +477,9 @@ stateDiagram-v2
 - The request pipeline order is neutral middleware, model policy, provider encoding/hooks, auth/signing, and transport; response projection reverses the corresponding layers. Identity changes use an explicit reroute and rerun the whole pipeline.
 - Do not expose Tower generic stacks in public model traits. A provider transport may use a service internally, but request replay and provider error decoding stay explicit.
 - Do not add a generalized cache, retry, workflow, schema, or code-generation framework without a demonstrated second use and a behavior test.
-- Do not parse Rust source or TypeScript model unions to prove public API safety. Use compiler checks, `cargo metadata`, explicit data files, and simple schema/staleness validation.
+- Do not parse Rust source or TypeScript model unions to prove public API safety. Use compiler checks and `cargo metadata`; use an explicit data file only when it is already the maintained source of truth and validate only its small schema. Do not add digests or a parallel metadata catalog merely to create another gate.
+- Keep repository scripts as thin cross-platform orchestration around authoritative tools or bounded validation of maintained data. Do not move codec, type, call-graph, ABI, or provider-capability inference into Python.
+- Keep tests proportional to distinct behavior. Prefer one representative request, response, stream, error, and lifecycle case where applicable; do not multiply cases for equivalent field combinations or rerun the same smoke path through every wrapper.
 - Preserve valuable protocol fixtures, but relocate them to the package that owns the codec. Delete fixtures only when they encode retired behavior and have a current replacement.
 - Run cargo operations serially and reuse the workspace target directory. Narrow package tests precede workspace-wide gates.
 - Do not silently retain legacy exports under `compat`, `experimental`, or feature aliases after their replacement is complete.
@@ -514,7 +521,7 @@ stateDiagram-v2
 - `siumai-core/src/compat/client.rs`, `siumai-core/src/traits/capabilities.rs` - universal client and provider-wide capability discovery.
 - `siumai-core/src/execution/`, `siumai-core/src/streaming/` - shared transport and duplicate stream lifecycle candidates.
 - `siumai-registry/src/registry/entry.rs`, `entry/factory.rs`, `registry/factories/` - async factories, facets, built-in dependencies, and five caches.
-- `siumai-provider-openai-compatible/src/providers/openai_compatible/config/builtin_providers.rs` - URL-only profiles and duplicated identity/catalog data.
+- `siumai-openai-compatible/src/providers/openai_compatible/config/builtin_providers.rs` - URL-only profiles and duplicated identity/catalog data.
 - `siumai-protocol-openai/src/standards/openai/utils/message_dialect.rs` - provider/model message dialect branching and DeepSeek history behavior.
 - `siumai-provider-minimaxi/src/providers/minimaxi/spec.rs` - adaptive-thinking conversion bug and old media endpoints.
 - `siumai-extras/src/orchestrator/`, `siumai-extras/src/server/tool_loop.rs`, `siumai-extras/src/mcp.rs` - duplicate step engines and integration lifecycle risks.
@@ -563,8 +570,8 @@ stateDiagram-v2
 | U7 | Replace Registry and converge the facade | U4-U6 | Small provider-agnostic routing Registry and ergonomic top-level API. |
 | U8 | Build the single language/tool/structured-output runtime | U2, U6 | One step engine, cancellation, approval, snapshot, and output owner. |
 | U9 | Split and secure MCP and server gateway integrations | U8 | Focused optional integrations projected from the shared runtime. |
-| U10 | Migrate current flagship native providers | U3-U8 | Anthropic, Gemini/Vertex, Bedrock, xAI, and AI Gateway current semantics. |
-| U11 | Make Chinese providers first-class | U3-U8, U10 patterns | DeepSeek, Kimi, DashScope, MiniMax, ARK, GLM, Qianfan, Hunyuan, SiliconFlow. |
+| U10 | Converge the stable flagship release surface | U3-U8 | Anthropic and xAI converge; scoped Google/Vertex slices survive only if clean; legacy-only providers are removed. |
+| U11 | Make Chinese providers first-class | U3-U8, U10 patterns | DeepSeek, Kimi, Alibaba/Qwen, MiniMax, ARK, GLM, Qianfan, Hunyuan, SiliconFlow. |
 | U12 | Migrate remaining providers and non-language families | U3-U8, U10-U11 | Honest native/profile placement and complete stable-family coverage. |
 | U13 | Delete the legacy architecture and simplify the package graph | U6-U12 | No compatibility runtime, duplicate crate owner, stale feature, or source guard. |
 | U14 | Rebuild docs, maintenance, CI, and release readiness | U13 | Small current docs set, freshness workflow, migration guide, and green release gates. |
@@ -579,13 +586,13 @@ stateDiagram-v2
   - Record the target package dependency rules, six-family stability policy, support-tier vocabulary, public API sketch, and deletion policy in one canonical architecture decision derived from this plan.
   - Declare Rust 2024 `resolver = "3"` and a verified MSRV, initially testing 1.85 as the edition floor and raising it only when a retained dependency has a documented requirement that resolver 3 cannot satisfy.
   - Create compile-pass contract examples for custom language models, provider registration, direct provider use, Registry use, typed provider options, and `'static` streams before deleting old public surfaces.
-  - Inventory behavior-bearing wire fixtures separately from tests that inspect source strings, method order, module names, file presence, or upstream file parity.
+  - Keep behavior-bearing wire fixtures beside the owning protocol/provider test that executes them; delete unreferenced snapshot archives and tests that inspect source strings, method order, module names, file presence, or upstream file parity.
   - Delete the large source-scanning architecture tests once their intended dependency/API invariant is represented by compiler checks, metadata checks, or a behavior test. Do not delete protocol fixtures merely because their test harness uses old types.
   - Mark the 2026-07-11 plan and old ADR/workstream corpus as superseded; physical documentation deletion completes in U14 after the replacement docs exist.
 - **Test scenarios:**
   - A minimal external custom model compiles against only core contracts and returns both a generated response and a `'static` stream.
   - A metadata boundary test fails when Registry gains a concrete provider dependency and passes for the target graph without parsing Cargo TOML manually.
-  - The fixture inventory classifies each retained fixture by owner, protocol, behavior, and source date; no fixture is deleted without either a current replacement or an explicit retired-behavior record.
+  - Every retained external fixture is referenced by an executable owner-local protocol/provider test; removed provider snapshots and unused upstream archives are absent.
 - **Verification outcome:** The workspace has one accepted architecture authority, an MSRV/resolver decision, compiler-backed API anchors, and no textual test that blocks renaming or deleting the old architecture.
 
 ### U2. Rebuild canonical core contracts
@@ -636,22 +643,24 @@ stateDiagram-v2
 - **Requirements:** R8-R15, R24, R30-R32, R42
 - **Flows / examples:** F1-F2, F5, F8, F10; AE1-AE4, AE15-AE16, AE18
 - **Decisions:** KTD3, KTD5-KTD9, KTD11, KTD13
-- **Primary paths:** `siumai-core/src/provider.rs`; `siumai-registry/src/`; `siumai-provider-openai-compatible/src/`; provider-local `settings.rs`, `provider.rs`, `model.rs`, `policy.rs`, `profile.rs`; `scripts/` freshness validation
+- **Primary paths:** `siumai-core/src/provider.rs`; `siumai-registry/src/`; `siumai-openai-compatible/src/`; provider-local `settings.rs`, `provider.rs`, `model.rs`, `policy.rs`, `profile.rs`; `scripts/` freshness validation
 - **Approach:**
-  - Define a minimal base `Provider` identity and narrow family-provider/factory traits. Direct concrete providers return concrete lightweight models; a private-field `ProviderRegistration` binds one normalized `RouteId`, configured instance, and default API mode while erasing only the family constructors needed by Registry.
+  - Define a minimal base `Provider` identity and narrow family-provider/factory traits. Direct concrete providers return concrete lightweight models. A private-field `ProviderRegistration` represents one canonical provider and at least one family binding; each family binding owns its exact `ProviderScope`, `ModelPolicy`, and erased constructor. The operation selects the family, combined registrations can be projected to one family, and facade registration returns a typed error rather than inventing an empty registration for a native-resource-only provider. Registry binds the selected registration to one normalized `RouteId`, while alternate API modes for the same family remain explicit registrations/routes.
   - Standardize provider internals as immutable settings plus `Arc<ProviderRuntime>` and lightweight `{ runtime, model_id, api_mode/policy }` model values. Synchronous build validates static configuration; dynamic credentials resolve with provider-level refresh singleflight when a request is sent, without letting one cancelled waiter cancel all peers.
-  - Replace the current global built-in `HashMap` and scattered default/alias/catalog files with one provider-owned profile/model declaration that can derive constants, lookup, advisory catalog, and registration metadata without source generation.
-  - Model lifecycle and support claims include platform/family/API-mode scope, fidelity, API stability, state, replacement, official source, fidelity-specific verification date, and optional region/deployment scope. Unknown IDs get only a protocol baseline and `Unknown` warning, not guessed limits or model defaults.
-  - Redesign OpenAI-compatible as one explicit engine plus verified profiles and bounded hooks. Remove broad protocol re-exports and prevent a provider from being exposed simultaneously through an incompatible dedicated crate and duplicate preset.
+  - Replace the current global built-in `HashMap` and scattered runtime default/alias/catalog files with provider-owned technical declarations only where they deepen request policy, documentation, or maintenance. Do not expose a universal runtime catalog contract merely to publish known-model hints.
+  - Support claims include only technical platform/family/API-mode scope, fidelity, API stability, official source, and fidelity-specific verification date. Optional known-model lifecycle hints remain advisory and cannot encode account, region, deployment, entitlement, default, or fallback. Unknown IDs get only a protocol baseline and `Unknown` warning, not guessed limits or model defaults.
+  - Redesign OpenAI-compatible as one explicit engine plus verified profiles and bounded hooks. Remove broad protocol re-exports and prevent a provider from being exposed simultaneously through a dedicated branded crate and a duplicate public preset. Branded composite providers reuse this engine privately.
   - Replace the shell model-audit wrapper with a small cross-platform Python validation path if a script remains. It validates declared data/source dates and produces drift reports; it does not parse Rust or implement a compiler front end.
 - **Test scenarios:**
   - Thousands of same-model constructions allocate only lightweight handles and share one provider runtime; no HTTP client or async mutex is created per model.
   - Missing/invalid static credentials, URL, and headers fail synchronously as `ConfigError`; dynamic credential fetch/refresh failures are request-time auth errors, concurrent refresh is provider-level singleflight, and cancelling one waiter does not cancel the shared refresh.
   - Direct concrete model and dynamically erased registered model produce identical model metadata and wire request for the same configured route/mode.
-  - Unknown future model IDs pass through with conservative `Unknown` policy; retired known IDs produce an advisory/error according to provider lifecycle policy but are never silently remapped across behavior-changing aliases.
+  - Every `ModelOperation` maps to exactly one family; policy evaluation cannot express a contradictory family/operation pair.
+  - Same-provider disjoint-family merge and family projection preserve exact scopes and factories; cross-provider and same-family merge fail with typed scope-bearing errors.
+  - Unknown future model IDs pass through with conservative protocol policy. Known lifecycle hints may warn but cannot form an account/region allowlist, select a replacement, or silently remap behavior-changing aliases.
   - A verified profile cannot be registered without a source/date/fidelity/stability claim and representative protocol contract; a generic custom profile remains possible without claiming named support.
-  - Multiple routes for one provider coexist; duplicate route IDs, alias cycles, conflicting model-policy rules, and provider-options namespaces fail deterministically. Replacing an immutable Registry snapshot does not retarget previously resolved models.
-- **Verification outcome:** Provider construction is sync and cheap, identity/policy/catalog truth is provider-owned, and compatible profiles are explicit verified dialects rather than URL aliases.
+  - Multiple routes for one provider coexist; duplicate route IDs, alias cycles, conflicting technical request-policy rules, and provider-options namespaces fail deterministically. Registry performs no network discovery and treats account/region/deployment meaning as opaque. Replacing an immutable Registry snapshot does not retarget previously resolved models.
+- **Verification outcome:** Provider construction is sync and cheap, provider crates own execution/protocol truth rather than host control-plane state, and compatible profiles are explicit verified dialects rather than URL aliases.
 
 ### U5. Prove stable non-language family contracts
 
@@ -676,12 +685,12 @@ stateDiagram-v2
 - **Requirements:** R1-R23, R25, R33, R40
 - **Flows / examples:** F1-F4, F7, F9; AE1-AE7, AE16-AE19
 - **Decisions:** KTD1, KTD5-KTD11, KTD13
-- **Primary paths:** `siumai-provider-openai/src/`; `siumai-protocol-openai/src/`; `siumai-transport/src/`; provisional facade/registration integration; OpenAI fixtures currently under `siumai/tests/fixtures/`
+- **Primary paths:** `siumai-provider-openai/src/`; `siumai-protocol-openai/src/` and owner-local fixtures; `siumai-transport/src/`; provisional facade/registration integration
 - **Approach:**
   - Convert OpenAI settings into one configured provider runtime and lightweight concrete models. Keep Chat Completions and Responses as explicit language API modes with separate codecs under one language family.
   - Make Responses the recommended OpenAI mode. Implement current GPT-5.6 model policy and typed options for current reasoning effort/mode/context, explicit prompt caching, programmatic tool calling, provider tools, stored response continuation, compaction/background semantics that belong to Responses, and current usage fields.
   - Preserve Responses item IDs, reasoning/encrypted context, program/program-output/caller links, hosted tool results, citations, refusals, incomplete/cancelled/failed states, and response metadata through generate, stream, and follow-up replay.
-  - Introduce experimental OpenAI Realtime and streaming translation/session models with explicit ephemeral-token, WebSocket/WebRTC metadata, JSON/binary event, interruption, close, and error behavior; do not reuse the existing Responses WebSocket session as Realtime.
+  - Keep the explicit experimental OpenAI Realtime and translation/session models with ephemeral-token, WebSocket/WebRTC metadata, JSON/binary event, interruption, close, and error behavior; do not reuse the existing Responses WebSocket session as Realtime.
   - Remove Assistants-specific defaults and deprecated model assumptions from files/examples while retaining file purposes that official current APIs still support.
 - **Test scenarios:**
   - Chat and Responses models share the language trait but generate different expected endpoints/bodies/events for the same neutral prompt.
@@ -700,10 +709,12 @@ stateDiagram-v2
 - **Primary paths:** `siumai-registry/Cargo.toml`; rewritten `siumai-registry/src/lib.rs`, `registry.rs`, `registration.rs`, `reference.rs`, `alias.rs`; `siumai/src/lib.rs`, `prelude.rs`, family helper modules, built-in registration module
 - **Approach:**
   - Replace `ProviderFactory`, facets, handles, `BuildContext`, per-family caches, global provider metadata, typed builders, and built-in descriptor switches with one immutable-by-default Registry of configured provider registrations.
+  - Treat a registration as a set of per-family bindings, not as one provider-wide protocol scope. Composite providers may expose language, embedding, rerank, speech, or transcription through different protocols without inventing a provider-level default scope; Registry resolves the requested family directly.
+  - Let the host project a combined registration to one family for route-level allowlisting. Same-provider merge is explicit host composition and does not claim that credentials, endpoints, or runtime origins match.
   - Registry owns route identity, registration/replacement policy, `route:model` parsing, route aliases, and optional identity-preserving family-model middleware only. Provider identity, credentials, base URL, retry, HTTP, model aliases/defaults, API modes, and resources stay provider-owned.
   - Ship an immutable Registry snapshot in this release. Replacement builds a new snapshot with explicit route semantics; existing models remain bound to their captured provider runtime, and no generation-aware cache or in-place mutation machinery is rebuilt.
   - Rebuild the `siumai` facade as the preferred ergonomic aggregator: provider constructors, small unified prelude, direct family helpers, optional Registry, optional runtime. Protocol internals and every provider symbol are not glob-reexported.
-  - Built-in provider registration lives in facade integration and composes provider-owned registrations based on features. Registry's base package depends on core only.
+  - Built-in provider registration lives in facade integration and composes provider-owned registrations based on features. The adapter is fallible so a valid provider with only native resources returns `NoPortableFamilyRegistration` instead of being excluded from the ergonomic trait or represented by an empty registration. Registry's base package depends on core only.
   - Registry does not own or generically merge route/model provider options. U8 composes typed route/model default layers into the call pipeline, and the selected provider remains the only owner of provider-specific merge and validation semantics.
 - **Test scenarios:**
   - Registry resolves each stable family, unknown route, unsupported family, malformed reference, model IDs containing colons, alias, alias cycle, multiple accounts/modes of one provider, and snapshot replacement with typed outcomes.
@@ -745,13 +756,13 @@ stateDiagram-v2
 - **Requirements:** R33-R40, R42-R44
 - **Flows / examples:** F6; AE12-AE14
 - **Decisions:** KTD2, KTD9, KTD12-KTD13
-- **Primary paths:** new `siumai-mcp/Cargo.toml` and `src/`; new `siumai-server/Cargo.toml` and `src/`; `siumai-bridge/src/`; code migrated from `siumai-extras/src/mcp.rs`, `siumai-extras/src/server/`, and `siumai-extras/src/server/tool_loop.rs`
+- **Primary paths:** new `siumai-mcp/Cargo.toml` and `src/`; new `siumai-server/Cargo.toml` and `src/`; code migrated from `siumai-extras/src/mcp.rs`, `siumai-extras/src/server/`, and `siumai-extras/src/server/tool_loop.rs`; removal of the unused `siumai-bridge` package under ADR-0011
 - **Approach:**
   - Move MCP into a focused optional package depending on core/runtime and `rmcp`, never the umbrella facade. Own the complete running service/session lifetime and explicit close.
   - Implement MCP tools as `ToolSpec` plus `ToolBinding`, preserving bounded pagination, list change notifications, namespacing/conflicts, definition fingerprint, progress, cancellation, rich result content, inert resource links, structured content, `isError`, and metadata. Define `McpLimits` for pages/tools/schema/result/resource bytes, repeated cursors, notification/progress rate, and close deadline. Raw resources/prompts/sampling/elicitation capabilities are default-off, host-allowlisted, and unavailable to model/server gateway configuration; stdio commands and side-effect classification come only from trusted host configuration.
-  - Move Axum/server gateway integration into a focused optional package. It projects the shared runtime and bridge codecs; it contains no separate tool-loop state machine.
+  - Move Axum/server gateway integration into a focused optional package. It projects the shared runtime and depends directly on the protocol codecs for wire contracts it actually exposes; it contains no separate tool-loop state machine.
   - Make local tool execution default-deny. Bind server-owned tools in route configuration, require a host-authenticated `TrustContext`, prevent client-name collision from granting execution, and require atomic verified approval for externally resumed runs. Use an opaque server handle or AEAD continuation envelope when portable state contains tool arguments/results, credentials, or provider opaque state.
-  - Retain `siumai-bridge` only for genuine protocol transcoding. Declare loss policy explicitly and test fidelity; delete facade/protocol dependency inversions and no-op compatibility translations.
+  - Delete `siumai-bridge`: it has no workspace consumer and duplicates protocol codecs through legacy `Chat*` contracts. Keep canonical wire projection and loss validation in the owning protocol or concrete server/gateway integration; extract a shared package only after multiple real consumers prove the same bounded loss model.
 - **Test scenarios:**
   - MCP service remains connected through discovery and execution, paginates within limits, rejects repeated cursors and notification storms, refreshes on list changes, rejects fingerprint drift, forwards progress/cancel, and closes or terminates owned work within a deadline.
   - MCP error/multimodal/structured/resource-link results preserve their original semantics in model output.
@@ -759,51 +770,54 @@ stateDiagram-v2
   - Signed approval round trips reject mutation, cross-tenant/route/audience use, concurrent replay, expired lineage, and stale tool definitions; the external token reveals no sensitive continuation contents.
   - Malicious MCP declarations cannot self-authorize side effects, resource links are never auto-fetched, the server gateway cannot enable raw sampling/elicitation/resources, and credentials/session tokens never enter model messages, approval claims, snapshots, or logs.
   - Server gateway stream drop cancels model/tool work and emits at most one terminal event; direct runtime and server gateway traces are equivalent.
-  - Bridge round-trip fixtures document preserved and intentionally lossy fields for OpenAI, Anthropic, and Gemini directions.
+  - Protocol and server projection fixtures document preserved, rejected, and intentionally lossy fields for each externally exposed wire contract.
 - **Verification outcome:** MCP and server features are optional, lifecycle-correct, and thin over one runtime; external inputs cannot implicitly authorize local execution.
 
-### U10. Migrate current flagship native providers
+### U10. Converge the stable flagship release surface
 
 - **Requirements:** R11-R24, R26-R28, R30, R32
 - **Flows / examples:** F1-F5, F7-F8; AE2, AE5-AE9
 - **Decisions:** KTD3, KTD5, KTD7-KTD11, KTD13
-- **Primary paths:** `siumai-provider-anthropic/`, `siumai-protocol-anthropic/`, `siumai-provider-gemini/`, `siumai-protocol-gemini/`, `siumai-provider-google-vertex/`, `siumai-provider-amazon-bedrock/`, `siumai-provider-xai/`, `siumai-provider-gateway/`, `siumai-provider-azure/`
+- **Primary paths:** `siumai-provider-anthropic/`, `siumai-protocol-anthropic/`, `siumai-provider-xai/`; scoped configured slices in `siumai-provider-gemini/` and `siumai-provider-google-vertex/`; removal of legacy-only Bedrock, Gateway, Azure, broad Gemini/Vertex, and their facade/workspace/publish surfaces
 - **Approach:**
-  - Migrate each provider to configured runtime plus lightweight family models, provider-owned profile/policy, typed options/resources, canonical stream events, and shared transport. Remove generic client/capability implementations as each provider turns green.
+  - Apply one release-eligibility gate: a provider/profile remains in the release workspace/facade/publish set only if it uses configured runtime plus lightweight family models or provider-owned resources, canonical errors/streams, typed options, and shared transport. Delete legacy-only packages and public features instead of keeping compatibility shells.
   - Anthropic: update current Fable/Opus/Sonnet 5 model policy, adaptive thinking display/defaults, refusal/fallback, thinking usage, mid-conversation tool changes, cache semantics, server tools, unknown-model output limits, and retired model defaults.
-  - Gemini/Vertex: update current Gemini 3.5/3.6 policy, Interactions `steps`, GenerateContent adapter, function-call ID differences, sampling/thinking rules, hosted tools/media, response IDs, Live resume/reconnect, speech, and translation. Keep platform policy explicit.
-  - Bedrock: support explicit API route selection, platform/region model lifecycle, current content blocks, provider tools, strict/schema sanitization, guardrails/cache/reasoning, S3/video media, stream exceptions, and native rerank/embedding without pretending source-provider policy applies unchanged.
-  - xAI: make Responses the current language path, update Grok policy, strict output/tools/search/compaction, 202/empty-body async media handling, and experimental Realtime/voice/STT behavior.
-  - AI Gateway: implement current supported families, Realtime, remote model/catalog/credits/spend/generation metadata, routing options, errors, and remove retired options. Azure reuses OpenAI protocol engines but retains deployment/API-version/auth policy.
+  - OpenAI and Anthropic native resources and OpenAI Realtime expose provider-owned support claims independently from their language profiles. Stable and beta/experimental resource surfaces are declared separately instead of inheriting provider-wide stability.
+  - Google/Vertex: retain only independently clean, narrowly named configured slices for Gemini Interactions image generation and Anthropic-on-Vertex. Delete deprecated Imagen `:predict`, old Gemini/Vertex clients, protocol mirrors, broad feature claims, and any package surface that implies unimplemented language/Live/media support.
+  - Exact official Google model rows own image-size and aspect-ratio validation. Do not infer preview-only behavior from model-name prefixes or apply verified rows to unknown future IDs.
+  - xAI: keep Responses and Chat Completions language as the stable path. Migrate provider-native resources directly to shared transport and canonical errors, or remove them from stable exports until their lifecycle is complete.
+  - Official provider endpoints use dated verified profiles. Custom endpoints remain generic and return unknown model policy by default unless the caller explicitly supplies a separately verified profile.
+  - Remove Bedrock, AI Gateway, Azure, and any other legacy-only flagship package from the release workspace/facade/publish set. Record their removal and future clean-reintroduction requirement in migration/support docs.
 - **Test scenarios:**
-  - Each provider runs the shared family contract suite plus its official model-policy matrix for current, retired, and unknown future IDs.
+  - Each retained provider/profile runs the shared family contract suite plus its official model-policy cases for current, retired, and unknown future IDs; no removed provider feature or package name remains in the release graph.
   - Anthropic request/stream tests cover adaptive thinking, prohibited legacy fields, refusal invalidation, fallback metadata, thinking tokens, cache, and tool definition changes.
-  - Gemini direct/Vertex tests prove distinct function-call IDs and model policy; Interactions continuation and Live reconnect/resume preserve all required state.
-  - Bedrock tests cover API route selection, region-scoped identity, strict/schema differences, provider tools, S3/video input, stream exception diagnostics, and no fabricated structured output.
-  - xAI tests cover Responses tools/search, HTTP 202 empty body, Realtime/voice framing, and current lifecycle aliases.
-  - AI Gateway tests use an offline mock of its model endpoint dynamically, cover all declared families and metadata/control-plane calls, preserve open-ID behavior when the catalog is unavailable, and never rely on a generated static model union. Credentialed network smoke tests remain opt-in.
-- **Verification outcome:** Major global providers implement current official behavior through the target architecture and no longer depend on generic capability/client bridges.
+  - Scoped Google/Vertex tests prove only their named family/API mode and explicit negative assertions for omitted broad surfaces.
+  - xAI language tests cover Responses tools/search, Chat selection, open future model IDs, and exact provenance; any retained native resource has one focused wire/lifecycle contract.
+  - Workspace metadata, facade features, docs, and migration guidance prove Bedrock, Gateway, Azure, and other removed legacy-only providers make no release support claim.
+- **Verification outcome:** The flagship release surface is honest and entirely target-architecture based; incomplete providers are absent rather than hidden behind legacy features.
 
 ### U11. Make Chinese providers first-class
 
 - **Requirements:** R10-R15, R24, R29-R32
 - **Flows / examples:** F1, F4-F5, F8; AE2, AE10-AE11, AE15
 - **Decisions:** KTD3, KTD5, KTD7-KTD11, KTD13
-- **Primary paths:** `siumai-provider-deepseek/`; canonicalized `siumai-provider-minimax/` (renamed from `siumai-provider-minimaxi`); new composite DashScope/Alibaba provider package; ARK media/Responses modules; verified profiles in `siumai-provider-openai-compatible/`; provider fixtures and support declarations
+- **Primary paths:** `siumai-provider-deepseek/`; canonicalized `siumai-provider-minimax/` (renamed from `siumai-provider-minimaxi`); new `siumai-provider-alibaba/` composite provider; ARK media/Responses modules; verified profiles in `siumai-openai-compatible/`; provider fixtures and support declarations
 - **Approach:**
-  - Recheck every model/lifecycle fact against official sources at implementation time; update source/date with the policy. AI SDK unions are delta hints only.
+  - Recheck every protocol/resource fact and any optional model advisory against official sources at implementation time; update source/date with the policy. AI SDK unions are delta hints only, and mutable account/region availability is never compiled into provider types.
   - DeepSeek: replace retired defaults with current V4 policy, provide full multi-turn `reasoning_content` replay, strict tool/JSON behavior, cache usage, OpenAI/Anthropic dialect selection where officially supported, and remove false vision/embedding claims.
   - Kimi: add current K3/K2.6/K2.7 policy, model-specific reasoning configuration, structured-output/schema normalization, dynamic/hosted tool semantics, web search, encrypted context, and retired K2/Moonshot defaults handling through bounded compatible hooks.
-  - DashScope/Qwen: create one composite provider. Reuse verified OpenAI Chat/Responses and Anthropic dialects where appropriate; implement native search citations/options, embeddings, and Wan media job semantics, including current reference inputs and model policy.
+  - Alibaba/Qwen: create one composite `alibaba` provider and options/metadata namespace. Reuse verified OpenAI Chat/Responses and Anthropic dialects where appropriate; implement native search citations/options, embeddings, and Wan media job semantics. Keep DashScope names private to endpoint/protocol implementation; do not expose DashScope provider/profile/route types, regional model matrices, or business defaults.
+  - Alibaba construction never silently chooses a region or workspace. Callers select the technical endpoint/workspace explicitly; any legacy Singapore convenience is opt-in and clearly named. Native embedding validation follows current discrete dimensions and per-call limits, while unsupported sparse-only or multimodal behavior is not implied by the portable adapter.
   - MiniMax: canonicalize provider ID/environment/options as `minimax`; model current M3/H3/Music era behavior; prefer Anthropic-compatible thinking/interleaved tool semantics; fix adaptive handling; retain and verify native speech/image/video/music/files rather than deleting unreviewed functionality.
-  - ARK/Doubao: implement verified Responses dialect/provider tools/knowledge/search and current Seedream/Seedance media as a composite provider. GLM, Qianfan, Hunyuan, and SiliconFlow remain verified profiles plus separately tested family endpoints/resources where official evidence supports them.
-  - Delete inactive/duplicate Chinese URL presets and speculative capabilities. Generic compatible configuration remains the fallback for providers without a verified named profile.
+  - Alibaba embedding/video and MiniMax files/image/video/music/speech each expose resource-specific support claims with their own stability and dated evidence.
+  - ARK/Doubao: retain verified Responses dialect/provider tools/knowledge/search; add Seedream/Seedance media only when its provider-owned lifecycle is complete. GLM, Qianfan, Hunyuan, SiliconFlow, DeepInfra, and other historical presets are removed unless they independently satisfy the named-profile evidence gate.
+  - Delete inactive/duplicate Chinese URL presets, implementation-service identities, region/deployment model matrices, business defaults, and speculative capabilities. Generic compatible configuration remains the fallback for providers without a verified named profile.
 - **Test scenarios:**
   - DeepSeek old and current multi-turn reasoning fixtures prove the correct model-aware history rule and negative vision capability.
   - Kimi current-model matrix proves reasoning and schema/tool transforms differ by model without provider-wide booleans; encrypted provider context survives replay.
-  - DashScope one provider produces correct Chat, Responses/search citation, embedding, and video job wire behavior through different internal engines.
+  - One public Alibaba provider produces correct Chat, Responses/search citation, embedding, and video job wire behavior through different internal engines; no public DashScope identity or static regional availability matrix remains.
   - MiniMax `adaptive` remains adaptive across request/response/stream; `minimax` identity is unique; Anthropic/OpenAI dialect selection and H3/media jobs use correct endpoints and terminal states.
-  - ARK, GLM, Qianfan, Hunyuan, and SiliconFlow named profiles each have official compatibility evidence, dated policy, representative request/stream/error fixtures, and explicit negative assertions for unsupported native surfaces.
+  - ARK and every other named Chinese-compatible profile actually retained in the release each have official compatibility evidence, dated policy, representative request/stream/error fixtures, and explicit negative assertions for unsupported native surfaces; removed profile names are absent from exports and support docs.
   - Unknown future Chinese model IDs pass through with baseline dialect policy and no invented context/capabilities.
 - **Verification outcome:** Chinese-provider support is current, typed, tested, and honestly tiered rather than a stale base-URL list.
 
@@ -812,17 +826,18 @@ stateDiagram-v2
 - **Requirements:** R2-R3, R8-R15, R21-R24, R30-R32
 - **Flows / examples:** F1-F5, F8; AE2-AE6, AE11, AE15
 - **Decisions:** KTD4-KTD11, KTD13
-- **Primary paths:** `siumai-provider-ollama/`, `siumai-provider-groq/`, `siumai-provider-cohere/`, `siumai-provider-togetherai/`, `siumai-provider-deepgram/`, `siumai-provider-elevenlabs/`, remaining compatible profiles, image/video/audio/rerank/embedding helpers and fixtures
+- **Primary paths:** `siumai-provider-groq/`, `siumai-provider-cohere/`, `siumai-provider-deepgram/`, `siumai-provider-elevenlabs/`; removal of legacy-only `siumai-provider-ollama/` and `siumai-provider-togetherai/`; remaining verified compatible profiles and retained image/audio/rerank/embedding helpers and fixtures
 - **Approach:**
-  - Classify each remaining dedicated crate by actual distinct protocol, authentication, resource, or family behavior. Collapse language-only duplicates into verified profiles; retain dedicated crates for native non-language families/resources.
-  - Migrate Ollama local protocol, Cohere native rerank/embedding, Groq audio where distinct, Together/DeepInfra media/rerank where verified, Deepgram transcription, and ElevenLabs speech/resources to configured providers, shared transport, and stable family contracts.
-  - Add streaming transcription only as an experimental extension where official protocols support it. Keep video/media job traits experimental and provider-owned polling/materialization semantics explicit.
+  - Classify each remaining dedicated crate by actual distinct protocol, authentication, resource, or family behavior. Collapse language-only duplicates into verified profiles; retain dedicated crates only for native non-language families/resources that already meet the release gate.
+  - Retain Cohere native rerank/embedding, Groq language/transcription, Deepgram transcription, and ElevenLabs speech after deleting their old client tails. Remove Ollama and TogetherAI from this release because no target-architecture slice exists; reintroduce them only through a separate clean provider proposal.
+  - Scope Cohere claims to the implemented text/float embedding and text-document rerank adapters, validate model-specific options, and keep custom endpoints generic. Groq transcription has a separate provider-owned claim and does not inherit the language endpoint's verification implicitly.
+  - Keep Deepgram and other retained transcription providers on their verified final-result contract. Add streaming transcription only in a later provider-owned extension when an official protocol and complete lifecycle implementation exist; never add a placeholder universal trait to satisfy a matrix.
   - Replace central batching helpers that silently serialize or guess limits with family-owned request semantics and provider policy. Preserve known maximum-per-call hints as advisory metadata, not capability gates.
   - Remove dedicated crates whose only remaining behavior is a verified shared protocol profile; update facade features and package docs accordingly.
 - **Test scenarios:**
-  - Every retained stable family/provider pair passes shared request/result/error/cancel/usage contracts and provider-specific wire fixtures.
+  - Every retained stable family/provider pair passes shared request/result/error/cancel/usage contracts and provider-specific wire fixtures; removed provider packages/features are absent from the release graph and migration docs state the break.
   - Deepgram and ElevenLabs raw/multipart calls use the shared transport, preserve bytes/metadata, and apply replay-safe retry rules.
-  - Streaming transcription covers partial/final ordering, disconnect without terminal, cancellation, usage/duration, and unsupported provider behavior.
+  - Final-result transcription preserves segment ordering, usage/duration, cancellation, and unsupported streaming behavior without claiming a universal live-transcription contract.
   - Experimental video/media jobs cover create/poll/success/failure/timeout/cancel, HTTP 202/empty body, references, and materialization without pretending to be one-shot generation.
   - Collapsed provider crates and duplicate profiles leave one public construction path and one support declaration per provider identity.
 - **Verification outcome:** All retained providers use the same architectural contracts, and package count reflects real protocol/resource boundaries rather than historical duplication.
@@ -838,10 +853,11 @@ stateDiagram-v2
   - Delete Registry handles, factory facets, `BuildContext`, caches/TTL/LRU/singleflight state, provider descriptors, built-in provider dependencies, duplicate global metadata Registry, and old typed builder layers.
   - Complete the target package moves: remove `siumai-spec`, `siumai-provider-utils`, and `siumai-extras` after core/transport/runtime/MCP/server consumers have migrated. Remove temporary migration modules immediately after the final consumer moves.
   - Remove empty provider feature relays, duplicate provider identities, obsolete aliases, redundant protocol re-exports, stale default features, and packages reduced to a shared profile.
+  - Delete core/provider runtime types that encode host control-plane state, including region/deployment availability scopes and public static account inventories. Keep only protocol-scoped support evidence or move maintenance-only data out of the runtime contract.
   - Delete tests/examples/fixtures that exist solely to assert removed API names, old model defaults, old directory layout, or source parity. Keep and relocate behavior fixtures that still represent a supported protocol case.
-  - Run dead-code, dependency, feature, and public-export audits; simplify recently migrated code before broad verification.
+  - Run compiler/dependency/feature/public-export audits using Cargo metadata and real builds; simplify recently migrated code before broad verification. Do not replace removed source guards with hashes, digests, or another source parser.
 - **Test scenarios:**
-  - Forbidden-symbol scans are limited to a short removal audit and find no production/public `LlmClient`, `as_*_capability`, old V4 mirror, broad factory, cache handle, or compatibility builder; they do not assert implementation layout.
+  - A one-time removal audit finds no production/public `LlmClient`, `as_*_capability`, old V4 mirror, broad factory, cache handle, or compatibility builder. It is review evidence, not a permanent source-scanning test.
   - `cargo metadata` confirms the target acyclic dependency direction and Registry/core isolation.
   - All supported examples compile only with the new facade/direct provider APIs; no hidden compatibility feature makes them pass.
   - Minimal/no-default/each-provider feature builds do not activate unrelated protocols/providers; removed package names are absent from workspace/package manifests.
@@ -857,13 +873,15 @@ stateDiagram-v2
 - **Approach:**
   - Rewrite README around the actual usable library: direct provider construction first, unified Registry as an optional convenience, provider-neutral helpers, typed provider extensions, streaming/cancellation, structured output, explicit tool loops, and scoped fidelity/stability claims.
   - Keep a compact maintained documentation set: architecture and package graph, family/provider-extension policy, provider support matrix with sources/dates, one breaking migration guide, contributor provider checklist, security/retry notes, and release instructions.
+  - Every public named model-family, native resource, experimental session, or job surface resolves to an inspectable provider-owned profile or support-manifest claim containing provider, platform, protocol/API mode or native surface ID, fidelity, public stability, official source, and verification date. The base `Provider` trait does not require a manifest, and Registry does not use support evidence as an execution allowlist. A configured custom endpoint must not inherit an official verified claim implicitly; an explicitly identified empty manifest is valid when no named claim is made.
   - Delete superseded ADRs, alignment tables, old migration notes, all completed workstream journals/handoffs/inventories, outdated provider documents, and examples that target removed APIs. Do not retain them as an archive in the repository; Git history is the archive.
-  - Update the maintenance skill to audit official provider sources first and AI SDK second. Keep scripts small: provider declarations remain explicit data/code, and checks validate schema, dates, links, and expected fixtures without reimplementing Rust parsing or protocol inference.
+  - Update the maintenance skill to audit official provider sources first and AI SDK second. Keep scripts small and optional: orchestrate authoritative tools or validate an existing bounded data schema, dates, links, and fixture paths. Do not create a second provider catalog, parse Rust/TypeScript, or infer protocol support in scripts.
   - Rebuild CI as serial logical lanes for format, core/runtime contracts, protocol fixtures, provider contracts, feature graph, MSRV, clippy, docs/doctests, examples, package contents, and opt-in credentialed smoke tests.
   - Produce the next breaking-release migration and changelog, verify publish order and crate metadata, establish the new semver-check baseline, and remove any Compound Engineering branding/badges from release surfaces.
 - **Test scenarios:**
-  - Every README and migration code block compiles against the exact feature set it documents.
-  - Provider-support validation detects missing source/date/fidelity/stability/fixture, fidelity/family-specific stale verification windows, duplicate identity, and invalid lifecycle replacement without accessing the network; staleness downgrades or blocks a named release claim without blocking generic open-ID calls.
+  - Every maintained post-migration Rust block in the README and migration guide compiles as a facade doctest with the documented feature set. Historical removed-API snippets are explicitly `ignore` and are not presented as supported code.
+  - Provider-support review proves source/date/fidelity/stability and one representative fixture for each named claim. If these facts live in maintained structured data, a small offline validator checks required fields, unique scopes, parseable dates, and referenced paths; official freshness remains a maintainer review rather than a scraper or digest gate.
+  - The compact support matrix maps every facade provider feature and public mode/resource to the owning runtime claim; custom-endpoint tests prove official fidelity and named model support are not inferred from the URL or provider brand.
   - A maintainer can add a verified-compatible provider profile by editing its provider-owned declaration and fixtures without changing Registry/core or a central provider switch.
   - Documentation link checks and package-content checks contain no deleted workstream paths, local absolute paths, secret material, or repository-excluded fixture assumptions.
   - Release rehearsal validates dependency publish order, MSRV resolution, docs.rs features, all supported feature lanes, and the intended breaking semver baseline.
@@ -878,16 +896,17 @@ stateDiagram-v2
 - Run one cargo process at a time and reuse the workspace target directory.
 - Use `cargo nextest` for Rust test suites; narrow affected-package lanes run before workspace-wide lanes.
 - Default tests are deterministic and offline. Credentialed smoke tests are opt-in, provider-scoped, and redact keys, headers, request bodies, and account identifiers.
-- Every feature-bearing unit adds concrete success, error, cancellation, and boundary scenarios before old tests are removed.
+- Every feature-bearing unit preserves representative success and applicable error, cancellation, or boundary scenarios before old tests are removed. A scenario is required only when it exercises a distinct observable branch.
 - Official provider behavior is verified through request/response/stream/error fixtures and model-policy tables, not through file parity with an upstream TypeScript repository.
+- The provider contract matrix is a coverage checklist, not a Cartesian-product mandate. One test may prove several dimensions, and equivalent paths are not repeated through every facade or smoke wrapper.
 
 ### Required Gates
 
 1. **Format:** `cargo fmt --all -- --check` reports no diff.
-2. **Core contracts:** serial nextest lanes for core, transport, runtime, Registry, MCP, server, bridge, and each protocol crate pass.
-3. **Provider contracts:** every native provider and verified profile passes shared family contracts plus provider-specific policy/wire/stream/error suites.
-4. **Feature graph:** no-default, default, each provider, selected multi-provider combinations, experimental sessions, MCP, server, and all-supported-features builds pass without accidental feature activation.
-5. **Workspace:** `cargo nextest run --workspace --all-features --test-threads 1` passes after targeted lanes.
+2. **Core contracts:** serial nextest lanes for core, transport, runtime, Registry, MCP, server, and each protocol crate pass.
+3. **Provider contracts:** every native provider and verified profile passes the applicable shared family contract plus focused provider-specific policy/wire/stream/error cases for its distinct behavior.
+4. **Feature graph:** no-default, default, each provider, selected multi-provider combinations, experimental sessions, MCP, server, and one release-level all-supported-features build pass without accidental feature activation. Do not duplicate these compile paths in separate smoke suites.
+5. **Workspace:** `cargo nextest run --workspace --all-features -j 1` passes after targeted lanes.
 6. **Static quality:** workspace/all-target/all-feature clippy with warnings denied passes; unsafe code remains denied unless a separately reviewed package has an unavoidable documented need.
 7. **Docs and examples:** rustdoc, doctests for the public contract/facade packages, and every maintained example pass with their declared features.
 8. **MSRV:** the declared `rust-version` toolchain resolves with resolver 3 and checks the supported workspace surface; stable also passes all release lanes.
@@ -896,11 +915,11 @@ stateDiagram-v2
 
 ### Provider Contract Matrix
 
-For every claimed provider/model policy, tests cover applicable intersections of:
+For every claimed provider/model policy, tests collectively cover the applicable distinct branches below. This table does not require every Cartesian intersection or one test per cell:
 
 | Dimension | Required cases |
 |---|---|
-| Identity | canonical provider ID, configured route ID/alias, family/API mode, platform/region/deployment scope, duplicate rejection |
+| Identity | canonical provider ID, configured route ID/alias, family/API mode, platform and any remote-required technical addressing context (for example a caller-selected region or deployment), duplicate rejection; no inferred commercial availability |
 | Model lifecycle | current, rolling alias, deprecated, retired, replacement, unknown future ID |
 | Operation | generate, stream, embed, rerank, image, speech, transcription, experimental job/session as applicable |
 | Family primitive | scalar/batch input ownership, provider limit, partial-result policy, binary lifetime, no hidden multi-request batching/polling |
@@ -919,10 +938,12 @@ For every claimed provider/model policy, tests cover applicable intersections of
 
 - [ ] R1-R45 are implemented or explicitly superseded by a user-approved plan revision; no requirement is silently deferred.
 - [ ] AE1-AE19 pass as executable contract/integration scenarios.
-- [ ] Six stable family traits and experimental video/realtime/streaming-transcription/translation/job extensions are documented and implemented consistently.
+- [ ] Six stable family traits and each retained provider-owned experimental video/realtime/translation/job extension are documented and implemented consistently; unshipped experimental extensions are explicitly deferred rather than represented by placeholder traits.
 - [ ] Configured providers own shared runtime state and construct models synchronously; Registry has no model cache or provider construction settings.
 - [ ] Official-source provider policies and scoped fidelity/stability claims are current at release time for every named provider/profile.
-- [ ] OpenAI, Anthropic, Gemini/Vertex, Bedrock, xAI, AI Gateway, and the Chinese-provider scope in R29 pass their contract matrices.
+- [ ] Every facade support row, including provider-native resources and experimental sessions/jobs, resolves to an inspectable provider-owned claim with exact scope, fidelity, stability, official source, and verification date.
+- [ ] Custom endpoints and generic compatible configurations never inherit official verified claims or named-model support implicitly.
+- [ ] Every provider/profile retained in the release workspace/facade/publish set passes its applicable contract matrix; removed legacy providers are explicitly documented and make no feature, package, facade, or support claim.
 - [ ] One transport, canonical stream lifecycle, and one tool/structured-output step engine own the cross-provider runtime behavior.
 - [ ] Server gateway/MCP approval, cancellation, snapshot, tool ownership, and lifecycle security gates pass.
 - [ ] Legacy clients, capabilities, factories, builders, mirrors, caches, duplicate runtimes, obsolete packages/features, source guards, and stale documents are deleted.

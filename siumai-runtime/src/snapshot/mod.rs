@@ -21,11 +21,14 @@ pub use store::{
 mod tests {
     use std::time::Duration;
 
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
     use siumai_core::{
-        ContentPart, ExecutionOwner, FinishReason, LanguageRequest, LanguageResponse, Message,
-        MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId,
-        ProviderId, ProviderProvenance, RouteId, ToolBindingIdentity, ToolCall, ToolOutcome, Usage,
+        ContentAnnotationTarget, ContentPart, ExecutionOwner, FinishReason, LanguageRequest,
+        LanguageResponse, Message, MessageAnnotationTarget, MessagePart, MessageRole, Model,
+        ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId,
+        ProviderProvenance, RouteId, ToolAnnotationTarget, ToolBindingIdentity, ToolCall,
+        ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage,
     };
 
     use super::*;
@@ -232,6 +235,109 @@ mod tests {
                 target: target(),
             },
         )
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct SnapshotMessageAnnotation {
+        turn_id: String,
+    }
+
+    impl TypedProviderAnnotation for SnapshotMessageAnnotation {
+        type Target = MessageAnnotationTarget;
+
+        const NAMESPACE: &'static str = "anthropic";
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct SnapshotContentAnnotation {
+        cache_boundary: bool,
+    }
+
+    impl TypedProviderAnnotation for SnapshotContentAnnotation {
+        type Target = ContentAnnotationTarget;
+
+        const NAMESPACE: &'static str = "anthropic";
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct SnapshotToolAnnotation {
+        defer_loading: bool,
+    }
+
+    impl TypedProviderAnnotation for SnapshotToolAnnotation {
+        type Target = ToolAnnotationTarget;
+
+        const NAMESPACE: &'static str = "anthropic";
+    }
+
+    #[test]
+    fn snapshot_round_trip_preserves_node_annotations() {
+        let message_annotation = SnapshotMessageAnnotation {
+            turn_id: "turn-1".to_string(),
+        };
+        let content_annotation = SnapshotContentAnnotation {
+            cache_boundary: true,
+        };
+        let tool_annotation = SnapshotToolAnnotation {
+            defer_loading: true,
+        };
+        let part = MessagePart::text("durable input")
+            .with_provider_annotation(&content_annotation)
+            .expect("valid content annotation");
+        let message = Message::new(MessageRole::User, [part])
+            .with_provider_annotation(&message_annotation)
+            .expect("valid message annotation");
+        let tool = ToolSpec::new(
+            "lookup",
+            Some("Look up a value".to_string()),
+            json!({"type": "object"}),
+        )
+        .unwrap()
+        .with_provider_annotation(&tool_annotation)
+        .expect("valid tool annotation");
+        let mut continuation = LanguageRequest::new(vec![message.clone()]);
+        continuation.tools.push(tool);
+        let report = RunReport::new(target(), vec![message]);
+        let snapshot = RunSnapshot::new(
+            checkpoint("checkpoint-annotations", None),
+            fingerprints(),
+            continuation,
+            report,
+            Some(DEADLINE),
+            ResumePoint::ReadyForModel {
+                next_step: 0,
+                target: target(),
+            },
+        )
+        .unwrap();
+
+        let encoded = serde_json::to_value(&snapshot).unwrap();
+        let restored: RunSnapshot = serde_json::from_value(encoded).unwrap();
+        let restored_message = &restored.continuation().messages[0];
+        assert_eq!(
+            restored_message
+                .annotations()
+                .decode::<SnapshotMessageAnnotation>()
+                .expect("message annotation decodes"),
+            Some(message_annotation)
+        );
+        assert_eq!(
+            restored_message.content()[0]
+                .annotations()
+                .decode::<SnapshotContentAnnotation>()
+                .expect("content annotation decodes"),
+            Some(content_annotation)
+        );
+        assert_eq!(
+            restored.continuation().tools[0]
+                .annotations()
+                .decode::<SnapshotToolAnnotation>()
+                .expect("tool annotation decodes"),
+            Some(tool_annotation)
+        );
     }
 
     fn awaiting_approval_snapshot(
@@ -640,10 +746,10 @@ mod tests {
         .unwrap();
         let source_messages = vec![
             Message::text(MessageRole::User, "portable"),
-            Message {
-                role: MessageRole::Assistant,
-                content: vec![ContentPart::ProviderOpaque(native)],
-            },
+            Message::new(
+                MessageRole::Assistant,
+                [ContentPart::ProviderOpaque(native)],
+            ),
         ];
         let mut previous_report = RunReport::new(source.clone(), source_messages.clone());
         previous_report.steps_mut().push(StepRecord::new(
@@ -688,10 +794,14 @@ mod tests {
         )
         .unwrap();
         let mut continuation = projected.request().clone();
-        continuation.messages.push(Message {
-            role: MessageRole::Assistant,
-            content: final_response.content().to_vec(),
-        });
+        continuation.messages.push(Message::new(
+            MessageRole::Assistant,
+            final_response
+                .content()
+                .iter()
+                .cloned()
+                .map(MessagePart::from),
+        ));
         let mut successor_report = previous.report().clone();
         successor_report.replace_messages(continuation.messages.clone());
         successor_report

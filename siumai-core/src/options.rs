@@ -8,7 +8,8 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
-use crate::provider::ProviderId;
+use crate::model::ModelFamily;
+use crate::provider::{ApiModeId, ProviderId};
 
 /// Cloneable request cancellation shared by model, transport, and runtime layers.
 #[derive(Clone, Default)]
@@ -87,6 +88,17 @@ pub enum ProviderOptionError {
     ProtectedField { path: String },
     #[error("provider options namespace `{actual}` does not match `{expected}`")]
     NamespaceMismatch { expected: String, actual: String },
+    #[error("provider options API mode `{0}` is invalid")]
+    InvalidApiMode(String),
+    #[error(
+        "typed provider options target {actual_family:?}/{actual_api_mode:?} does not match {expected_family:?}/{expected_api_mode:?}"
+    )]
+    TargetMismatch {
+        expected_family: ModelFamily,
+        expected_api_mode: Option<String>,
+        actual_family: ModelFamily,
+        actual_api_mode: Option<String>,
+    },
     #[error("raw provider options may only occupy the explicit raw-override layer")]
     RawLayerMismatch,
     #[error("typed provider options are required for this precedence layer")]
@@ -111,6 +123,9 @@ pub enum ProviderOptionError {
 /// every layer is still checked by [`ProviderOptionMerger::validate_layer`].
 pub trait TypedProviderOptions: Serialize {
     const NAMESPACE: &'static str;
+    const MODEL_FAMILY: ModelFamily;
+    /// Exact API mode for mode-specific options; `None` denotes a family-wide contract.
+    const API_MODE: Option<&'static str> = None;
 
     /// Validate provider-specific relationships before serialization.
     fn validate(&self) -> Result<(), ProviderOptionError> {
@@ -118,9 +133,12 @@ pub trait TypedProviderOptions: Serialize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ProviderOptionKind {
-    Typed,
+    Typed {
+        family: ModelFamily,
+        api_mode: Option<ApiModeId>,
+    },
     Raw,
 }
 
@@ -149,9 +167,19 @@ impl ProviderOptions {
         value.validate()?;
         let namespace = ProviderId::new(T::NAMESPACE)
             .map_err(|_| ProviderOptionError::InvalidNamespace(T::NAMESPACE.to_string()))?;
+        let api_mode = T::API_MODE.map(ApiModeId::new).transpose().map_err(|_| {
+            ProviderOptionError::InvalidApiMode(T::API_MODE.unwrap_or_default().to_string())
+        })?;
         let value = serde_json::to_value(value)
             .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
-        Self::from_value(namespace, value, ProviderOptionKind::Typed)
+        Self::from_value(
+            namespace,
+            value,
+            ProviderOptionKind::Typed {
+                family: T::MODEL_FAMILY,
+                api_mode,
+            },
+        )
     }
 
     /// Build the explicit checked raw escape hatch.
@@ -187,7 +215,82 @@ impl ProviderOptions {
     }
 
     pub fn is_raw(&self) -> bool {
-        self.kind == ProviderOptionKind::Raw
+        matches!(self.kind, ProviderOptionKind::Raw)
+    }
+
+    pub fn model_family(&self) -> Option<ModelFamily> {
+        match self.kind {
+            ProviderOptionKind::Typed { family, .. } => Some(family),
+            ProviderOptionKind::Raw => None,
+        }
+    }
+
+    pub fn api_mode(&self) -> Option<&ApiModeId> {
+        match &self.kind {
+            ProviderOptionKind::Typed { api_mode, .. } => api_mode.as_ref(),
+            ProviderOptionKind::Raw => None,
+        }
+    }
+
+    fn validate_target(
+        &self,
+        context: ProviderOptionContext<'_>,
+    ) -> Result<(), ProviderOptionError> {
+        let ProviderOptionKind::Typed {
+            family: actual_family,
+            api_mode: actual_api_mode,
+        } = &self.kind
+        else {
+            return Ok(());
+        };
+        let actual_family = *actual_family;
+        let family_matches = actual_family == context.family;
+        let mode_matches = actual_api_mode
+            .as_ref()
+            .is_none_or(|actual| Some(actual) == context.api_mode);
+        if family_matches && mode_matches {
+            return Ok(());
+        }
+        Err(ProviderOptionError::TargetMismatch {
+            expected_family: context.family,
+            expected_api_mode: context.api_mode.map(ApiModeId::to_string),
+            actual_family,
+            actual_api_mode: actual_api_mode.as_ref().map(ApiModeId::to_string),
+        })
+    }
+}
+
+/// Exact model call context used to validate erased typed provider options.
+#[derive(Debug, Clone, Copy)]
+pub struct ProviderOptionContext<'a> {
+    provider: &'a ProviderId,
+    family: ModelFamily,
+    api_mode: Option<&'a ApiModeId>,
+}
+
+impl<'a> ProviderOptionContext<'a> {
+    pub const fn new(
+        provider: &'a ProviderId,
+        family: ModelFamily,
+        api_mode: Option<&'a ApiModeId>,
+    ) -> Self {
+        Self {
+            provider,
+            family,
+            api_mode,
+        }
+    }
+
+    pub const fn provider(self) -> &'a ProviderId {
+        self.provider
+    }
+
+    pub const fn family(self) -> ModelFamily {
+        self.family
+    }
+
+    pub const fn api_mode(self) -> Option<&'a ApiModeId> {
+        self.api_mode
     }
 }
 
@@ -295,16 +398,17 @@ impl ProviderOptionLayers {
     /// configuration through this contract.
     pub fn merge_for<M: ProviderOptionMerger>(
         &self,
-        expected: &ProviderId,
+        context: ProviderOptionContext<'_>,
         merger: &M,
     ) -> Result<M::Output, ProviderOptionError> {
         for (origin, options) in self.in_precedence_order() {
-            if options.namespace() != expected {
+            if options.namespace() != context.provider {
                 return Err(ProviderOptionError::NamespaceMismatch {
-                    expected: expected.to_string(),
+                    expected: context.provider.to_string(),
                     actual: options.namespace().to_string(),
                 });
             }
+            options.validate_target(context)?;
             merger.validate_layer(origin, options)?;
         }
         merger.merge(self)
@@ -514,7 +618,23 @@ const MAX_PROVIDER_OPTION_BYTES: usize = 64 * 1024;
 const MAX_PROVIDER_OPTION_DEPTH: usize = 32;
 const MAX_PROVIDER_OPTION_FIELDS: usize = 1024;
 
-fn validate_option_shape(object: &Map<String, Value>) -> Result<(), ProviderOptionError> {
+pub(crate) fn validate_option_shape(
+    object: &Map<String, Value>,
+) -> Result<(), ProviderOptionError> {
+    validate_option_structure(object)?;
+    let encoded = serde_json::to_vec(object)
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
+    if encoded.len() > MAX_PROVIDER_OPTION_BYTES {
+        return Err(ProviderOptionError::TooLarge {
+            maximum: MAX_PROVIDER_OPTION_BYTES,
+        });
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_option_structure(
+    object: &Map<String, Value>,
+) -> Result<(), ProviderOptionError> {
     let mut fields = object.len();
     if fields > MAX_PROVIDER_OPTION_FIELDS {
         return Err(ProviderOptionError::TooManyFields {
@@ -523,13 +643,6 @@ fn validate_option_shape(object: &Map<String, Value>) -> Result<(), ProviderOpti
     }
     for value in object.values() {
         validate_option_value(value, 1, &mut fields)?;
-    }
-    let encoded = serde_json::to_vec(object)
-        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
-    if encoded.len() > MAX_PROVIDER_OPTION_BYTES {
-        return Err(ProviderOptionError::TooLarge {
-            maximum: MAX_PROVIDER_OPTION_BYTES,
-        });
     }
     Ok(())
 }
@@ -566,7 +679,7 @@ fn validate_option_value(
     Ok(())
 }
 
-fn reject_protected_fields(
+pub(crate) fn reject_protected_fields(
     object: &Map<String, Value>,
     parent: &str,
 ) -> Result<(), ProviderOptionError> {
@@ -616,6 +729,8 @@ mod tests {
 
     impl TypedProviderOptions for OpenAiOptions {
         const NAMESPACE: &'static str = "openai";
+        const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+        const API_MODE: Option<&'static str> = Some("responses");
     }
 
     #[test]
@@ -691,8 +806,13 @@ mod tests {
             .with_raw_override(options)
             .unwrap();
 
+        let provider = ProviderId::new("openai").unwrap();
+        let api_mode = ApiModeId::new("responses").unwrap();
         let error = layers
-            .merge_for(&ProviderId::new("openai").unwrap(), &Merger)
+            .merge_for(
+                ProviderOptionContext::new(&provider, ModelFamily::Language, Some(&api_mode)),
+                &Merger,
+            )
             .unwrap_err();
         assert!(matches!(
             error,
@@ -808,6 +928,8 @@ mod tests {
 
             impl TypedProviderOptions for Layer {
                 const NAMESPACE: &'static str = "openai";
+                const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+                const API_MODE: Option<&'static str> = Some("responses");
             }
 
             ProviderOptions::typed(&Layer { value }).unwrap()
@@ -850,6 +972,8 @@ mod tests {
 
         impl TypedProviderOptions for ForgedOpenAiOptions {
             const NAMESPACE: &'static str = "openai";
+            const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+            const API_MODE: Option<&'static str> = Some("responses");
         }
 
         struct StrictMerger;
@@ -880,10 +1004,70 @@ mod tests {
 
         let forged = ProviderOptions::typed(&ForgedOpenAiOptions { unrecognized: true }).unwrap();
         let layers = ProviderOptionLayers::default().with_call(forged).unwrap();
+        let provider = ProviderId::new("openai").unwrap();
+        let api_mode = ApiModeId::new("responses").unwrap();
         assert!(matches!(
-            layers.merge_for(&ProviderId::new("openai").unwrap(), &StrictMerger),
+            layers.merge_for(
+                ProviderOptionContext::new(&provider, ModelFamily::Language, Some(&api_mode)),
+                &StrictMerger
+            ),
             Err(ProviderOptionError::Rejected { .. })
         ));
+    }
+
+    #[test]
+    fn typed_options_require_their_declared_family_and_api_mode() {
+        struct Merger;
+        impl ProviderOptionMerger for Merger {
+            type Output = ();
+
+            fn validate_layer(
+                &self,
+                _origin: ProviderOptionOrigin,
+                _options: &ProviderOptions,
+            ) -> Result<(), ProviderOptionError> {
+                Ok(())
+            }
+
+            fn merge(
+                &self,
+                _layers: &ProviderOptionLayers,
+            ) -> Result<Self::Output, ProviderOptionError> {
+                Ok(())
+            }
+        }
+
+        let provider = ProviderId::new("openai").unwrap();
+        let chat = ApiModeId::new("chat-completions").unwrap();
+        let typed = ProviderOptionLayers::default()
+            .with_call(
+                ProviderOptions::typed(&OpenAiOptions {
+                    reasoning_effort: "high",
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            typed.merge_for(
+                ProviderOptionContext::new(&provider, ModelFamily::Language, Some(&chat)),
+                &Merger
+            ),
+            Err(ProviderOptionError::TargetMismatch { .. })
+        ));
+
+        let raw = ProviderOptionLayers::default()
+            .with_raw_override(
+                ProviderOptions::checked_raw(provider.clone(), json!({"reasoning_effort":"high"}))
+                    .unwrap(),
+            )
+            .unwrap();
+        assert!(
+            raw.merge_for(
+                ProviderOptionContext::new(&provider, ModelFamily::Language, Some(&chat)),
+                &Merger
+            )
+            .is_ok()
+        );
     }
 
     #[test]

@@ -1,96 +1,77 @@
 ---
 name: siumai-ai-sdk-maintenance
-description: Maintains Siumai against the Vercel AI SDK reference by auditing public surface parity, core data structures, provider package shape, model catalogs, and new provider onboarding. Use when working in the Siumai Rust repo on AI SDK alignment, provider/model updates, public API compatibility boundaries, or questions about whether Siumai matches upstream AI SDK behavior.
+description: Maintains Siumai provider behavior and public APIs against current official provider documentation, using the local Vercel AI SDK checkout only as secondary reference material. Use when refreshing a provider, model advisory, capability, protocol profile, support claim, facade export, or provider-onboarding guidance in the Siumai Rust workspace.
 ---
 
-# Siumai AI SDK Maintenance
+# Siumai Provider Maintenance
 
-## Quick start
+Use this skill inside the Siumai workspace. Treat the repository `AGENTS.md`, current
+architecture documents, and provider support policy as the ownership contract.
 
-Use this skill only inside the Siumai Rust workspace or while planning Siumai work.
+## Evidence order
 
-1. Resolve the AI SDK reference repo:
-   ```bash
-   python .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py
-   ```
-2. If unresolved, ask for the AI SDK checkout path or set `AI_SDK_REPO`.
-3. Read Siumai's local architecture docs before changing code:
-   - repository agent instructions supplied by the session or local `AGENTS.md`
-   - `docs/architecture/public-surface.md`
-   - relevant ADRs under `docs/adr/`
-   - active workstream docs if one exists
-4. Prefer existing workstream skills for execution: `open-workstream`, `run-workstream-task`,
-   `verify-rust-workstream`, and `close-workstream`.
+1. Read the relevant official provider documentation for authentication, endpoint, request,
+   response, stream, error, resource lifecycle, and model-policy facts.
+2. Record the provider, technical platform, family, API mode, fidelity, stability, source, and
+   verification date in the provider-owned support declaration or documentation.
+3. Use `repo-ref/ai` only as secondary prior art for concepts, edge cases, and fixture ideas. It is
+   read-only reference material and never determines Siumai names, ownership, or model allowlists.
 
-## Reference Repo Resolution
+Do not encode account entitlement, commercial availability, pricing, quota, fallback, or regional
+catalogs in provider runtime types. A caller-selected region, project, workspace, deployment, or
+endpoint is allowed only when the remote protocol needs it for addressing or signing.
 
-Do not hard-code a user-specific AI SDK path. Resolve in this order:
+## Provider refresh workflow
 
-1. `AI_SDK_REPO`
-2. `VERCEL_AI_REPO`
-3. nearby `repo-ref/ai`, `repo-ref/vercel-ai`, `../repo-ref/ai`, `../../repo-ref/ai`
-4. common sibling names: `ai`, `vercel-ai`, `ai-sdk`
+1. Identify the owning provider, protocol, transport, family trait, and public facade path before
+   editing.
+2. Choose the smallest faithful implementation: native protocol/resource first, verified dialect
+   profile when semantics are proven compatible, and generic compatibility as the explicit escape
+   hatch.
+3. Keep model IDs open. Add dated constants or advisories only for ergonomics and verified quirks;
+   unknown future IDs remain callable with baseline behavior and no guessed capabilities.
+4. Put portable semantics in `siumai-core`. Keep provider-specific controls in typed provider
+   options, annotations, profiles, or native resources. Reject unsupported or ambiguous requests
+   before transport submission.
+5. Add a focused offline fixture for each changed wire contract and the necessary negative or
+   lifecycle boundary. Prefer one representative test over a combinatorial matrix when the same
+   codec path is already covered.
+6. Update the provider support document and user-facing examples in the same change.
+7. Run the narrow serial validation lane, then inspect `git diff --check` and the feature graph.
 
-The resolved path must look like the Vercel AI SDK repo: it should include `packages/ai` and at
-least one provider package under `packages/`.
+## Public-surface review
 
-## Workflow: Parity Audit
+Check direct provider construction, explicit family/API-mode selection, optional Registry
+registration, facade re-exports, typed options, annotations, native resources, stream termination,
+sanitized diagnostics, and unknown future model behavior. Keep stable preludes curated; do not add
+experimental APIs through broad wildcard exports.
 
-Use for core data structures, interface shape, public exports, or behavior questions.
+## Local tooling
 
-1. Identify the upstream AI SDK files that define the contract.
-2. Identify Siumai owners: spec types, core traits, provider crate, registry, facade exports, docs.
-3. Compare structure, names, serde keys, optionality, directionality, and runtime semantics.
-4. Classify gaps:
-   - `Green`: aligned or intentionally equivalent.
-   - `Amber`: acceptable divergence with documented rationale.
-   - `Red`: bug, public-surface mismatch, or missing provider behavior.
-5. Check compatibility boundaries:
-   - `prelude::unified` must stay curated and stable.
-   - Legacy compatibility types should remain under explicit compat paths.
-   - Provider-specific options/metadata should stay provider-owned.
-6. Recommend tests/source guards before implementation.
+Use the repository's small Python entry points for orchestration and bounded manifest/fixture
+checks. They may call Cargo, nextest, Clippy, rustdoc, or other authoritative tools, but must not
+parse Rust or TypeScript source, infer call graphs, regenerate provider code, or duplicate compiler
+and protocol logic.
 
-## Workflow: Model Catalog Refresh
+The local AI SDK checkout can be resolved when secondary comparison is useful:
 
-Use when provider model ids, default models, or supported model groups may have drifted.
+```bash
+python3 .agents/skills/siumai-ai-sdk-maintenance/scripts/resolve_ai_sdk_repo.py
+```
 
-1. Treat model freshness as time-sensitive. Inspect the AI SDK reference repo and, if the user asks
-   for latest/current models, verify against official provider docs or APIs when practical.
-2. Find upstream model unions or curated lists in the provider package.
-3. Run the local catalog audit before editing when the scope is broader than one provider:
-   ```text
-   python3 scripts/audit-model-catalogs.py
-   ```
-   The cross-platform wrapper uses the repository standard `--defer deepinfra` gate; call the
-   underlying audit script directly for custom strict audits.
-4. Update provider-owned Siumai sources first, usually `siumai-provider-*/src/providers/*/models.rs`.
-5. Reuse that source from facade `provider_ext::*::models`, registry catalog, and default-model
-   helpers. Avoid duplicated handwritten model arrays.
-6. Preserve intentional aliases and hidden compatibility ids only when documented.
-7. Add/adjust tests that lock defaults, family grouping, public facade exports, and registry catalog
-   output.
-
-## Workflow: New Provider Onboarding
-
-Use when adding or promoting a provider.
-
-1. Decide provider type: native provider, OpenAI-compatible preset, hybrid wrapper, or extension-only.
-2. Map AI SDK package surface: provider id, factory functions, model families, settings/options,
-   metadata, warnings, and unsupported families.
-3. Implement provider-owned identity, config, model catalog, typed options, and metadata extensions.
-4. Wire registry factories and facade exports without widening `prelude::unified` unnecessarily.
-5. Add public-path tests, lower-contract URL/request tests, capability tests, and docs.
-6. Record intentional divergence in docs or ADRs if behavior cannot match AI SDK exactly.
+Do not use a model-catalog scraper as a release gate. Model freshness is proven by the official
+source/date attached to the provider claim and by deterministic provider fixtures.
 
 ## Validation
 
-Prefer focused commands:
+Keep Cargo processes serial and reuse the workspace target directory. Start with the smallest
+meaningful lane:
 
 ```bash
-cargo fmt --check -p <crate>
-cargo nextest run -p <crate> <test-filter> --no-fail-fast
-cargo check -p <crate> --tests --no-default-features --features <features>
+cargo fmt --all -- --check
+cargo nextest run -p <crate> --all-features -j 1 --test-threads 1
+cargo clippy -p <crate> --all-targets --all-features -j 1 -- -D warnings
 ```
 
-If the work is broader than a narrow bug fix, open or reuse a workstream before editing code.
+Expand to dependent crates, facade feature combinations, doctests, MSRV, packaging, and workspace
+gates only when the changed surface requires them.

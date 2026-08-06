@@ -1,17 +1,24 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, TypedProviderOptions,
+    CallOptions, ModelFamily, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
+    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderScope,
+    TypedProviderOptions,
 };
 
 use crate::provider_options::{CohereEmbeddingOptions, CohereRerankOptions};
 
 pub(crate) fn embedding_options(
     call: &CallOptions,
+    scope: &ProviderScope,
 ) -> Result<CohereEmbeddingOptions, ProviderOptionError> {
     merge_options(
         call,
+        ProviderOptionContext::new(
+            scope.provider_id(),
+            ModelFamily::Embedding,
+            scope.api_mode(),
+        ),
         &["inputType", "truncate", "outputDimension"],
         canonical_embedding_field,
     )
@@ -19,9 +26,11 @@ pub(crate) fn embedding_options(
 
 pub(crate) fn rerank_options(
     call: &CallOptions,
+    scope: &ProviderScope,
 ) -> Result<CohereRerankOptions, ProviderOptionError> {
     merge_options(
         call,
+        ProviderOptionContext::new(scope.provider_id(), ModelFamily::Rerank, scope.api_mode()),
         &["maxTokensPerDoc", "priority"],
         canonical_rerank_field,
     )
@@ -29,6 +38,7 @@ pub(crate) fn rerank_options(
 
 fn merge_options<T>(
     call: &CallOptions,
+    context: ProviderOptionContext<'_>,
     allowed: &'static [&'static str],
     canonicalize: fn(&str) -> Option<&'static str>,
 ) -> Result<T, ProviderOptionError>
@@ -39,7 +49,7 @@ where
         .map_err(|_| ProviderOptionError::InvalidNamespace(T::NAMESPACE.to_string()))?;
     let layers = call.apply_provider_options(&provider, ProviderOptionLayers::default())?;
     let value = layers.merge_for(
-        &provider,
+        context,
         &CohereOptionMerger {
             allowed,
             canonicalize,

@@ -374,23 +374,19 @@ async fn one_attempt_reuses_the_engine_report_budget_and_usage_ledger() {
     assert!(calls[1].request.tools.is_empty());
     assert!(calls[1].request.tool_choice.is_none());
     assert!(calls[1].request.structured_output.is_some());
-    assert!(matches!(
-        calls[1].request.messages.as_slice(),
-        [
-            Message {
-                role: MessageRole::User,
-                ..
-            },
-            Message {
-                role: MessageRole::Assistant,
-                ..
-            },
-            Message {
-                role: MessageRole::Developer,
-                ..
-            }
+    assert_eq!(
+        calls[1]
+            .request
+            .messages
+            .iter()
+            .map(Message::role)
+            .collect::<Vec<_>>(),
+        vec![
+            MessageRole::User,
+            MessageRole::Assistant,
+            MessageRole::Developer,
         ]
-    ));
+    );
 }
 
 #[tokio::test]

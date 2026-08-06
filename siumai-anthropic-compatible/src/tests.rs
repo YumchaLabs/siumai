@@ -1,0 +1,906 @@
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use chrono::NaiveDate;
+use futures_util::StreamExt;
+use http::header::{AUTHORIZATION, CONTENT_TYPE, HOST, HeaderName, HeaderValue};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use siumai_core::{
+    ApiModeId, ApiStability, CallOptions, ContentAnnotationTarget, ContentAnnotations, Error,
+    ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent, Message, MessagePart,
+    MessageRole, Model, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
+    ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
+    ProviderId, ProviderOptions, ProviderProfile, StreamTerminal, SupportScope, SupportState,
+    TypedProviderAnnotation, TypedProviderOptions, VerificationDate, VerificationEvidence,
+    VerifiedFidelity, VerifiedSupportClaim,
+};
+use siumai_protocol_anthropic::messages::{
+    API_MODE_ID, CacheControl, CacheTtl, ContentNodeOptions, MessagesAnnotationResolver,
+    MessagesCodecError, PROTOCOL_ID,
+};
+use siumai_transport::{
+    AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, OfficialOrigin,
+    RequestHeaders, RequestTarget,
+};
+use wiremock::matchers::{body_json, header, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+use crate::{
+    AnthropicCompatibleCredential, AnthropicCompatibleProfile, AnthropicCompatibleProvider,
+    CacheControlWireStyle, MessagesCallOptions, MessagesEncodingRules, MessagesRequestProjection,
+    MessagesRequestProjectionContext, MessagesServiceTier, MidConversationSystemEncoding,
+    NativeMessagesRequestProjection, ProjectedMessagesRequest, TemperatureEncodingRule,
+};
+
+const PROVIDER_ID: &str = "test-compatible";
+const PLATFORM_ID: &str = "test-platform";
+const API_VERSION: &str = "2023-06-01";
+
+fn local_profile(server: &MockServer) -> AnthropicCompatibleProfile {
+    AnthropicCompatibleProfile::local_explicit(
+        ProfileId::new("test-compatible-local").unwrap(),
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        PlatformId::new(PLATFORM_ID).unwrap(),
+        format!("{}/v1", server.uri()),
+        API_VERSION,
+    )
+    .unwrap()
+}
+
+fn request(text: &str, max_tokens: u64) -> LanguageRequest {
+    let mut request = LanguageRequest::new(vec![Message::text(MessageRole::User, text)]);
+    request.generation.max_output_tokens = Some(max_tokens);
+    request
+}
+
+fn response(model: &str, id: &str, text: &str) -> serde_json::Value {
+    json!({
+        "id": id,
+        "type": "message",
+        "role": "assistant",
+        "model": model,
+        "content": [{"type": "text", "text": text}],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {"input_tokens": 1, "output_tokens": 1}
+    })
+}
+
+fn request_body(model: &str, text: &str, max_tokens: u64, stream: bool) -> serde_json::Value {
+    json!({
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "text", "text": text}]
+        }],
+        "stream": stream
+    })
+}
+
+#[test]
+fn credentials_and_configured_runtime_debug_are_secret_safe() {
+    let api_key = AnthropicCompatibleCredential::api_key("api-key-canary");
+    let bearer = AnthropicCompatibleCredential::bearer("bearer-canary");
+    assert!(!format!("{api_key:?}").contains("api-key-canary"));
+    assert!(!format!("{bearer:?}").contains("bearer-canary"));
+
+    let profile = AnthropicCompatibleProfile::public_custom(
+        ProfileId::new("debug-profile").unwrap(),
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        PlatformId::new(PLATFORM_ID).unwrap(),
+        "https://compatible.example/v1",
+        API_VERSION,
+    )
+    .unwrap();
+    assert_eq!(
+        profile.encoding_rules().mid_conversation_system(),
+        MidConversationSystemEncoding::Unsupported
+    );
+    let provider = AnthropicCompatibleProvider::builder(profile, api_key)
+        .build()
+        .unwrap();
+    let debug = format!("{provider:?}");
+    assert!(!debug.contains("api-key-canary"));
+    assert!(!debug.contains("compatible.example"));
+}
+
+#[tokio::test]
+async fn direct_and_erased_models_have_identical_api_key_wire_behavior() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-api-key", "test-api-key"))
+        .and(header("anthropic-version", API_VERSION))
+        .and(header("anthropic-beta", "default-test-beta-2026-08-06"))
+        .and(header("accept", "application/json"))
+        .and(body_json(request_body(
+            "future-model-v9",
+            "hello",
+            64,
+            false,
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "future-model-v9",
+            "msg_direct",
+            "ok",
+        )))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server)
+            .with_beta_feature("default-test-beta-2026-08-06")
+            .unwrap(),
+        AnthropicCompatibleCredential::api_key("test-api-key"),
+    )
+    .build()
+    .unwrap();
+    let direct = provider.language("future-model-v9").unwrap();
+    let erased = provider
+        .registration()
+        .language_model(ModelId::new("future-model-v9").unwrap())
+        .unwrap();
+    assert_eq!(direct.descriptor(), erased.descriptor());
+
+    let direct_response = direct
+        .generate(request("hello", 64), CallOptions::default())
+        .await
+        .unwrap();
+    let erased_response = erased
+        .generate(request("hello", 64), CallOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(direct_response.content(), erased_response.content());
+    assert!(
+        direct_response
+            .warnings()
+            .iter()
+            .any(|warning| warning.kind() == &siumai_core::WarningKind::UnknownModel)
+    );
+}
+
+struct BodyVersionProjection;
+
+impl MessagesRequestProjection for BodyVersionProjection {
+    fn project(
+        &self,
+        context: &MessagesRequestProjectionContext<'_>,
+        mut body: serde_json::Value,
+    ) -> Result<ProjectedMessagesRequest, Error> {
+        let object = body.as_object_mut().ok_or_else(|| {
+            Error::new(
+                ErrorKind::Protocol,
+                "canonical Messages request body must be an object",
+            )
+        })?;
+        object.remove("model");
+        object.insert(
+            "protocol_version".to_string(),
+            serde_json::Value::String(context.api_version().to_string()),
+        );
+        let operation = if context.is_streaming() {
+            "stream"
+        } else {
+            "generate"
+        };
+        ProjectedMessagesRequest::try_new(
+            format!("models/{}:{operation}", context.model()),
+            body,
+            RequestHeaders::new(),
+        )
+    }
+}
+
+#[test]
+fn custom_projection_selects_target_by_model_and_stream_and_places_version_in_body() {
+    let model = ModelId::new("projected-model").unwrap();
+    let default_target = RequestTarget::new("messages").unwrap();
+    for (stream, operation) in [(false, "generate"), (true, "stream")] {
+        let context = MessagesRequestProjectionContext::new(
+            &model,
+            stream,
+            API_VERSION,
+            &default_target,
+            Some("test-beta"),
+        );
+        let projected = BodyVersionProjection
+            .project(&context, json!({"model": model.as_str(), "stream": stream}))
+            .unwrap();
+        assert_eq!(
+            projected.target().as_str(),
+            format!("models/{model}:{operation}")
+        );
+        assert_eq!(projected.body()["protocol_version"], API_VERSION);
+        assert!(projected.body().get("model").is_none());
+        assert!(projected.headers().iter().next().is_none());
+    }
+}
+
+#[test]
+fn native_projection_preserves_target_body_version_and_beta_headers() {
+    let model = ModelId::new("native-model").unwrap();
+    let default_target = RequestTarget::new("messages").unwrap();
+    let body = json!({"model": model.as_str(), "stream": false});
+    let context = MessagesRequestProjectionContext::new(
+        &model,
+        false,
+        API_VERSION,
+        &default_target,
+        Some("beta-a,beta-b"),
+    );
+    let projected = NativeMessagesRequestProjection
+        .project(&context, body.clone())
+        .unwrap();
+    assert_eq!(projected.target().as_str(), "messages");
+    assert_eq!(projected.body(), &body);
+    assert_eq!(
+        projected
+            .headers()
+            .get(&HeaderName::from_static("anthropic-version"))
+            .unwrap(),
+        API_VERSION
+    );
+    assert_eq!(
+        projected
+            .headers()
+            .get(&HeaderName::from_static("anthropic-beta"))
+            .unwrap(),
+        "beta-a,beta-b"
+    );
+}
+
+#[test]
+fn projected_requests_reject_protected_headers_and_unsafe_targets() {
+    for protected in [AUTHORIZATION, HOST] {
+        assert!(
+            RequestHeaders::new()
+                .try_insert(protected, HeaderValue::from_static("protected"))
+                .is_err()
+        );
+    }
+
+    let content_type = RequestHeaders::new()
+        .try_insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"))
+        .unwrap();
+    let error = ProjectedMessagesRequest::new(
+        RequestTarget::new("messages").unwrap(),
+        json!({}),
+        content_type,
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+
+    for target in [
+        "https://attacker.invalid/messages",
+        "models/../secrets",
+        "models/%252e%252e/secrets",
+    ] {
+        let error = ProjectedMessagesRequest::try_new(target, json!({}), RequestHeaders::new())
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput, "target: {target}");
+    }
+}
+
+#[tokio::test]
+async fn configured_projection_runs_after_canonical_encoding() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/models/projected-model:generate"))
+        .and(header("accept", "application/json"))
+        .and(header("content-type", "application/json"))
+        .and(body_json(json!({
+            "protocol_version": API_VERSION,
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "hello"}]
+            }],
+            "stream": false
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "projected-model",
+            "msg_projected",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let profile = local_profile(&server).with_request_projection(Arc::new(BodyVersionProjection));
+    let provider = AnthropicCompatibleProvider::builder(
+        profile,
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+
+    provider
+        .language("projected-model")
+        .unwrap()
+        .generate(request("hello", 64), CallOptions::default())
+        .await
+        .unwrap();
+
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].headers.get("anthropic-version").is_none());
+}
+
+#[tokio::test]
+async fn bearer_and_custom_auth_are_applied_inside_transport() {
+    let bearer_server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("authorization", "Bearer test-bearer"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "model",
+            "msg_bearer",
+            "ok",
+        )))
+        .mount(&bearer_server)
+        .await;
+    let bearer = AnthropicCompatibleProvider::builder(
+        local_profile(&bearer_server),
+        AnthropicCompatibleCredential::bearer("test-bearer"),
+    )
+    .build()
+    .unwrap();
+    bearer
+        .language("model")
+        .unwrap()
+        .generate(request("hello", 32), CallOptions::default())
+        .await
+        .unwrap();
+
+    let custom_server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-compatible-auth", "custom-canary"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "model",
+            "msg_custom",
+            "ok",
+        )))
+        .mount(&custom_server)
+        .await;
+    let custom = AnthropicCompatibleProvider::builder_with_auth(
+        local_profile(&custom_server),
+        Arc::new(CustomAuth),
+    )
+    .build()
+    .unwrap();
+    custom
+        .language("model")
+        .unwrap()
+        .generate(request("hello", 32), CallOptions::default())
+        .await
+        .unwrap();
+}
+
+struct CustomAuth;
+
+#[async_trait]
+impl AuthApplier for CustomAuth {
+    async fn apply(
+        &self,
+        _context: AuthContext<'_>,
+        _refresh: AuthRefresh,
+    ) -> Result<CredentialPatch, Error> {
+        CredentialPatch::new()
+            .try_insert(
+                HeaderName::from_static("x-compatible-auth"),
+                HeaderValue::from_static("custom-canary"),
+            )
+            .map_err(|source| {
+                Error::new(ErrorKind::Configuration, "custom auth is invalid").with_source(source)
+            })
+    }
+}
+
+#[derive(Serialize)]
+struct TestTypedOptions {
+    metadata: serde_json::Value,
+    thinking: serde_json::Value,
+    custom_level: &'static str,
+}
+
+#[derive(Serialize)]
+struct TestServiceTierOptions {
+    service_tier: Option<MessagesServiceTier>,
+}
+
+impl TypedProviderOptions for TestServiceTierOptions {
+    const NAMESPACE: &'static str = PROVIDER_ID;
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some(API_MODE_ID);
+}
+
+impl TypedProviderOptions for TestTypedOptions {
+    const NAMESPACE: &'static str = PROVIDER_ID;
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some(API_MODE_ID);
+}
+
+#[tokio::test]
+async fn typed_and_checked_raw_layers_merge_into_messages_request_options() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "thinking-model",
+            "max_tokens": 4096,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "reason"}]
+            }],
+            "stream": false,
+            "metadata": {"user_id": "typed-user"},
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+            "custom_level": "raw"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "thinking-model",
+            "msg_options",
+            "done",
+        )))
+        .mount(&server)
+        .await;
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let typed = ProviderOptions::typed(&TestTypedOptions {
+        metadata: json!({"user_id": "typed-user"}),
+        thinking: json!({"type": "enabled", "budget_tokens": 2048}),
+        custom_level: "typed",
+    })
+    .unwrap();
+    let raw = ProviderOptions::checked_raw(
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        json!({"custom_level": "raw"}),
+    )
+    .unwrap();
+    let options = CallOptions::default()
+        .with_provider_options(typed)
+        .with_provider_options(raw);
+    provider
+        .language("thinking-model")
+        .unwrap()
+        .generate(request("reason", 4096), options)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn typed_service_tier_uses_normal_precedence_and_raw_override_remains_protected() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "tier-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "tier"}]
+            }],
+            "stream": false,
+            "service_tier": "priority"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "tier-model",
+            "msg_tier",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .with_default_options(
+        MessagesCallOptions::new().with_service_tier(MessagesServiceTier::Standard),
+    )
+    .build()
+    .unwrap();
+    let typed = ProviderOptions::typed(&TestServiceTierOptions {
+        service_tier: Some(MessagesServiceTier::Priority),
+    })
+    .unwrap();
+    provider
+        .language("tier-model")
+        .unwrap()
+        .generate(
+            request("tier", 64),
+            CallOptions::default().with_provider_options(typed),
+        )
+        .await
+        .unwrap();
+
+    let raw = ProviderOptions::checked_raw(
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        json!({"service_tier": "auto"}),
+    )
+    .unwrap();
+    let error = provider
+        .language("tier-model")
+        .unwrap()
+        .generate(
+            request("tier", 64),
+            CallOptions::default().with_provider_options(raw),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
+    let server = MockServer::start().await;
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    for field in ["anthropicVersion", "requestEndpoint", "credentialToken"] {
+        let mut value = serde_json::Map::new();
+        value.insert(field.to_string(), json!("canary-secret"));
+        let options = ProviderOptions::checked_raw(
+            ProviderId::new(PROVIDER_ID).unwrap(),
+            serde_json::Value::Object(value),
+        )
+        .unwrap();
+        let error = provider
+            .language("model")
+            .unwrap()
+            .generate(
+                request("hello", 32),
+                CallOptions::default().with_provider_options(options),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert!(!format!("{error:?}").contains("canary-secret"));
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TestCacheAnnotation {
+    enabled: bool,
+}
+
+impl TypedProviderAnnotation for TestCacheAnnotation {
+    type Target = ContentAnnotationTarget;
+
+    const NAMESPACE: &'static str = PROVIDER_ID;
+    const API_MODE: Option<&'static str> = Some(API_MODE_ID);
+}
+
+struct TestAnnotationResolver;
+
+impl MessagesAnnotationResolver for TestAnnotationResolver {
+    fn resolve_content(
+        &self,
+        annotations: &ContentAnnotations,
+    ) -> Result<ContentNodeOptions, MessagesCodecError> {
+        let annotation = annotations
+            .decode::<TestCacheAnnotation>()
+            .map_err(|source| MessagesCodecError::InvalidAnnotation {
+                node: "content",
+                source,
+            })?;
+        Ok(if annotation.is_some_and(|annotation| annotation.enabled) {
+            ContentNodeOptions::default()
+                .with_cache_control(CacheControl::new(CacheTtl::FiveMinutes))
+        } else {
+            ContentNodeOptions::default()
+        })
+    }
+}
+
+#[tokio::test]
+async fn profile_owned_annotation_resolver_projects_node_local_cache_control() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "cache-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "cache me",
+                    "cache_control": {"type": "ephemeral", "ttl": "5m"}
+                }]
+            }],
+            "stream": false
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "cache-model",
+            "msg_cache",
+            "ok",
+        )))
+        .mount(&server)
+        .await;
+    let profile = local_profile(&server).with_annotation_resolver(Arc::new(TestAnnotationResolver));
+    let provider = AnthropicCompatibleProvider::builder(
+        profile,
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let part = MessagePart::text("cache me")
+        .with_provider_annotation(&TestCacheAnnotation { enabled: true })
+        .unwrap();
+    let mut annotated = LanguageRequest::new(vec![Message::new(MessageRole::User, [part])]);
+    annotated.generation.max_output_tokens = Some(64);
+    provider
+        .language("cache-model")
+        .unwrap()
+        .generate(annotated, CallOptions::default())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn profile_owned_encoding_rules_apply_compatible_temperature_and_cache_wire_forms() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "dialect-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "cache me",
+                    "cache_control": {"type": "ephemeral"}
+                }]
+            }],
+            "stream": false,
+            "temperature": 1.5
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "dialect-model",
+            "msg_dialect",
+            "ok",
+        )))
+        .mount(&server)
+        .await;
+    let rules = MessagesEncodingRules::native()
+        .with_temperature(TemperatureEncodingRule::new(2.0).unwrap())
+        .with_cache_control(CacheControlWireStyle::FiveMinutesImplicit);
+    let profile = local_profile(&server)
+        .with_annotation_resolver(Arc::new(TestAnnotationResolver))
+        .with_encoding_rules(rules);
+    let provider = AnthropicCompatibleProvider::builder(
+        profile,
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let part = MessagePart::text("cache me")
+        .with_provider_annotation(&TestCacheAnnotation { enabled: true })
+        .unwrap();
+    let mut annotated = LanguageRequest::new(vec![Message::new(MessageRole::User, [part])]);
+    annotated.generation.max_output_tokens = Some(64);
+    annotated.generation.temperature = Some(1.5);
+    provider
+        .language("dialect-model")
+        .unwrap()
+        .generate(annotated, CallOptions::default())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn streaming_uses_canonical_decoder_and_emits_one_terminal() {
+    let server = MockServer::start().await;
+    let frames = [
+        json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_stream",
+                "type": "message",
+                "role": "assistant",
+                "model": "stream-model",
+                "usage": {"input_tokens": 2}
+            }
+        }),
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "hello"}
+        }),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+            "usage": {"output_tokens": 1}
+        }),
+        json!({"type": "message_stop"}),
+    ];
+    let sse = frames
+        .into_iter()
+        .map(|frame| format!("data: {frame}\n\n"))
+        .collect::<String>();
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("accept", "text/event-stream"))
+        .and(body_json(request_body("stream-model", "hello", 64, true)))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&server)
+        .await;
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let events = provider
+        .language("stream-model")
+        .unwrap()
+        .stream(request("hello", 64), CallOptions::default())
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert!(events.iter().any(|event| matches!(
+        event,
+        LanguageStreamEvent::TextDelta { delta, .. } if delta == "hello"
+    )));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, LanguageStreamEvent::Terminal(_)))
+            .count(),
+        1
+    );
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(
+            StreamTerminal::Completed { .. }
+        ))
+    ));
+}
+
+#[tokio::test]
+async fn post_is_not_replayed_and_http_diagnostics_are_sanitized() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("request-id", "request-safe")
+                .insert_header("set-cookie", "secret-cookie-canary")
+                .set_body_json(json!({
+                    "type": "error",
+                    "error": {
+                        "type": "rate_limit_error",
+                        "message": "private-body-canary"
+                    }
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let error = provider
+        .language("model")
+        .unwrap()
+        .generate(request("hello", 32), CallOptions::default())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::RateLimited);
+    let diagnostics = error.diagnostics().unwrap();
+    assert_eq!(diagnostics.status(), Some(429));
+    assert_eq!(diagnostics.request_id(), Some("request-safe"));
+    assert_eq!(diagnostics.provider_type(), Some("rate_limit_error"));
+    assert!(diagnostics.headers().get("set-cookie").is_none());
+    let public = format!("{error:?} {error}");
+    assert!(!public.contains("private-body-canary"));
+    assert!(!public.contains("secret-cookie-canary"));
+    assert!(error.sensitive_response().is_some());
+}
+
+#[test]
+fn verified_profile_carries_exact_evidence_and_open_model_policy() {
+    let scope = SupportScope::new(
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        PlatformId::new(PLATFORM_ID).unwrap(),
+        ModelFamily::Language,
+        ProtocolId::new(PROTOCOL_ID).unwrap(),
+        ApiModeId::new(API_MODE_ID).unwrap(),
+    );
+    let evidence = VerificationEvidence::new(
+        OfficialSource::new("https://docs.example.com/anthropic-compatible").unwrap(),
+        VerificationDate::new(NaiveDate::from_ymd_opt(2026, 8, 6).unwrap()),
+        ProtocolContractId::new("anthropic-messages-2023-06-01").unwrap(),
+    );
+    let catalog = ModelCatalog::new([ModelProfile::new(
+        ModelId::new("known-model").unwrap(),
+        scope.clone(),
+        [ModelOperation::Generate, ModelOperation::Stream],
+        ModelLifecycle::Active,
+        evidence.clone(),
+    )
+    .unwrap()])
+    .unwrap();
+    let provider_profile = ProviderProfile::verified(
+        ProfileId::new("verified-compatible").unwrap(),
+        vec![VerifiedSupportClaim::new(
+            scope,
+            VerifiedFidelity::Compatible,
+            ApiStability::Stable,
+            evidence,
+        )],
+        catalog,
+    )
+    .unwrap();
+    let endpoint = EndpointConfig::official(
+        "https://api.compatible.example/v1",
+        OfficialOrigin::new("https://api.compatible.example").unwrap(),
+    )
+    .unwrap();
+    let profile =
+        AnthropicCompatibleProfile::verified(provider_profile, endpoint, API_VERSION).unwrap();
+    let provider = AnthropicCompatibleProvider::builder(
+        profile,
+        AnthropicCompatibleCredential::api_key("test-key"),
+    )
+    .build()
+    .unwrap();
+    let registration = provider.registration();
+    assert!(matches!(
+        registration
+            .evaluate(
+                ModelId::new("known-model").unwrap(),
+                ModelOperation::Generate,
+            )
+            .state(),
+        SupportState::Supported
+    ));
+    assert!(matches!(
+        registration
+            .evaluate(
+                ModelId::new("future-model").unwrap(),
+                ModelOperation::Generate,
+            )
+            .state(),
+        SupportState::Unknown
+    ));
+    assert_eq!(
+        provider
+            .profile()
+            .provider_profile()
+            .verified_claims()
+            .unwrap()[0]
+            .evidence()
+            .verified_at()
+            .value(),
+        NaiveDate::from_ymd_opt(2026, 8, 6).unwrap()
+    );
+}

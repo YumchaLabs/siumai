@@ -4,6 +4,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::annotations::{
+    ProviderAnnotationError, ToolAnnotationTarget, ToolAnnotations, TypedProviderAnnotation,
+};
 use crate::provider::ProviderId;
 
 /// Invalid model-visible tool definition.
@@ -17,6 +20,21 @@ pub struct ToolSpec {
     name: String,
     description: Option<String>,
     input_schema: Value,
+    #[serde(
+        default,
+        rename = "providerAnnotations",
+        skip_serializing_if = "ToolAnnotations::is_empty"
+    )]
+    provider_annotations: ToolAnnotations,
+}
+
+/// Owned components returned when decomposing a [`ToolSpec`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolSpecParts {
+    pub name: String,
+    pub description: Option<String>,
+    pub input_schema: Value,
+    pub provider_annotations: ToolAnnotations,
 }
 
 impl ToolSpec {
@@ -25,7 +43,22 @@ impl ToolSpec {
         description: Option<String>,
         input_schema: Value,
     ) -> Result<Self, InvalidToolSpec> {
-        let name = name.into();
+        Self::from_parts(ToolSpecParts {
+            name: name.into(),
+            description,
+            input_schema,
+            provider_annotations: ToolAnnotations::default(),
+        })
+    }
+
+    /// Rebuild a tool definition while preserving previously validated annotations.
+    pub fn from_parts(parts: ToolSpecParts) -> Result<Self, InvalidToolSpec> {
+        let ToolSpecParts {
+            name,
+            description,
+            input_schema,
+            provider_annotations,
+        } = parts;
         if name.is_empty()
             || name.len() > 128
             || !name
@@ -45,6 +78,7 @@ impl ToolSpec {
             name,
             description,
             input_schema,
+            provider_annotations,
         })
     }
 
@@ -60,8 +94,28 @@ impl ToolSpec {
         &self.input_schema
     }
 
-    pub fn into_parts(self) -> (String, Option<String>, Value) {
-        (self.name, self.description, self.input_schema)
+    pub fn annotations(&self) -> &ToolAnnotations {
+        &self.provider_annotations
+    }
+
+    pub fn with_provider_annotation<T>(
+        mut self,
+        annotation: &T,
+    ) -> Result<Self, ProviderAnnotationError>
+    where
+        T: TypedProviderAnnotation<Target = ToolAnnotationTarget>,
+    {
+        self.provider_annotations.insert(annotation)?;
+        Ok(self)
+    }
+
+    pub fn into_parts(self) -> ToolSpecParts {
+        ToolSpecParts {
+            name: self.name,
+            description: self.description,
+            input_schema: self.input_schema,
+            provider_annotations: self.provider_annotations,
+        }
     }
 }
 
@@ -70,6 +124,8 @@ struct ToolSpecWire {
     name: String,
     description: Option<String>,
     input_schema: Value,
+    #[serde(default, rename = "providerAnnotations")]
+    provider_annotations: ToolAnnotations,
 }
 
 impl<'de> Deserialize<'de> for ToolSpec {
@@ -78,7 +134,13 @@ impl<'de> Deserialize<'de> for ToolSpec {
         D: Deserializer<'de>,
     {
         let wire = ToolSpecWire::deserialize(deserializer)?;
-        Self::new(wire.name, wire.description, wire.input_schema).map_err(serde::de::Error::custom)
+        Self::from_parts(ToolSpecParts {
+            name: wire.name,
+            description: wire.description,
+            input_schema: wire.input_schema,
+            provider_annotations: wire.provider_annotations,
+        })
+        .map_err(serde::de::Error::custom)
     }
 }
 
@@ -142,9 +204,23 @@ pub struct ToolResult {
 
 #[cfg(test)]
 mod tests {
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
 
     use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct HostedToolAnnotation {
+        hosted_tool: String,
+    }
+
+    impl TypedProviderAnnotation for HostedToolAnnotation {
+        type Target = ToolAnnotationTarget;
+
+        const NAMESPACE: &'static str = "openai";
+        const API_MODE: Option<&'static str> = Some("responses");
+    }
 
     #[test]
     fn denied_and_failed_outcomes_are_not_success_json() {
@@ -174,6 +250,35 @@ mod tests {
                 "input_schema": {"type": "object"}
             }))
             .is_err()
+        );
+    }
+
+    #[test]
+    fn tool_spec_parts_retain_provider_annotations() {
+        let expected = HostedToolAnnotation {
+            hosted_tool: "web_search".to_string(),
+        };
+        let tool = ToolSpec::new(
+            "search",
+            Some("Search the web".to_string()),
+            json!({"type": "object"}),
+        )
+        .unwrap()
+        .with_provider_annotation(&expected)
+        .unwrap();
+
+        let decoded: ToolSpec =
+            serde_json::from_value(serde_json::to_value(&tool).unwrap()).unwrap();
+        let parts = decoded.into_parts();
+
+        assert_eq!(parts.name, "search");
+        let rebuilt = ToolSpec::from_parts(parts).unwrap();
+        assert_eq!(
+            rebuilt
+                .annotations()
+                .decode::<HostedToolAnnotation>()
+                .unwrap(),
+            Some(expected)
         );
     }
 }

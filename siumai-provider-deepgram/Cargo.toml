@@ -27,10 +27,10 @@ serde_json.workspace = true
 secrecy.workspace = true
 thiserror.workspace = true
 url.workspace = true
+chrono.workspace = true
 
 [features]
 default = []
-deepgram = []
 
 [dev-dependencies]
 bytes.workspace = true

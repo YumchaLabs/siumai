@@ -16,6 +16,50 @@ use super::{API_MODE_ID, OPENAI_RESPONSES_OPAQUE_KIND, OPENAI_RESPONSES_PROTOCOL
 pub const TEXT_VERBOSITY_OPTION: &str = "text_verbosity";
 const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 50;
 
+/// Media kinds accepted by one Responses-compatible wire dialect.
+///
+/// Native OpenAI Responses accepts images and generic files. Compatible
+/// providers may opt into video input or disable generic file input without
+/// gaining authority over endpoint, authentication, or transport behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResponsesMediaDialect {
+    image_input: bool,
+    video_input: bool,
+    file_input: bool,
+}
+
+impl ResponsesMediaDialect {
+    /// Native OpenAI Responses media behavior.
+    pub const fn native() -> Self {
+        Self {
+            image_input: true,
+            video_input: false,
+            file_input: true,
+        }
+    }
+
+    pub const fn with_image_input(mut self, enabled: bool) -> Self {
+        self.image_input = enabled;
+        self
+    }
+
+    pub const fn with_video_input(mut self, enabled: bool) -> Self {
+        self.video_input = enabled;
+        self
+    }
+
+    pub const fn with_file_input(mut self, enabled: bool) -> Self {
+        self.file_input = enabled;
+        self
+    }
+}
+
+impl Default for ResponsesMediaDialect {
+    fn default() -> Self {
+        Self::native()
+    }
+}
+
 /// One original neutral content location that should carry an explicit OpenAI
 /// prompt-cache breakpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -104,6 +148,7 @@ pub struct RequestEncodingOptions {
     native_tools: Vec<Value>,
     function_tools: BTreeMap<String, FunctionToolEncodingOptions>,
     prompt_cache_breakpoints: BTreeSet<PromptCacheBlock>,
+    media_dialect: ResponsesMediaDialect,
 }
 
 impl RequestEncodingOptions {
@@ -139,6 +184,11 @@ impl RequestEncodingOptions {
 
     pub fn with_prompt_cache_breakpoint(mut self, block: PromptCacheBlock) -> Self {
         self.prompt_cache_breakpoints.insert(block);
+        self
+    }
+
+    pub const fn with_media_dialect(mut self, dialect: ResponsesMediaDialect) -> Self {
+        self.media_dialect = dialect;
         self
     }
 }
@@ -248,15 +298,18 @@ pub fn encode_request_with_options(
         .tools
         .iter()
         .map(|tool| {
-            let (name, description, parameters) = tool.clone().into_parts();
-            let tool_options = options.function_tools.get(&name);
+            let name = tool.name();
+            let tool_options = options.function_tools.get(name);
             let mut object = Map::new();
             object.insert("type".to_string(), Value::String("function".to_string()));
-            object.insert("name".to_string(), Value::String(name));
-            if let Some(description) = description {
-                object.insert("description".to_string(), Value::String(description));
+            object.insert("name".to_string(), Value::String(name.to_string()));
+            if let Some(description) = tool.description() {
+                object.insert(
+                    "description".to_string(),
+                    Value::String(description.to_string()),
+                );
             }
-            object.insert("parameters".to_string(), parameters);
+            object.insert("parameters".to_string(), tool.input_schema().clone());
             if let Some(tool_options) = tool_options {
                 if let Some(strict) = tool_options.strict {
                     object.insert("strict".to_string(), Value::Bool(strict));
@@ -296,7 +349,7 @@ pub fn encode_request_with_options(
         body.insert("tools".to_string(), Value::Array(tools));
     }
     if let Some(choice) = &request.tool_choice {
-        body.insert("tool_choice".to_string(), encode_tool_choice(choice));
+        body.insert("tool_choice".to_string(), encode_tool_choice(choice)?);
     }
     let text_verbosity = options.extra.get(TEXT_VERBOSITY_OPTION);
     if let Some(verbosity) = text_verbosity
@@ -366,8 +419,8 @@ fn collect_native_call_contexts(
 ) -> Result<BTreeMap<String, NativeCallContext>, Error> {
     let mut contexts = BTreeMap::new();
     for message in messages {
-        for part in &message.content {
-            let ContentPart::ProviderOpaque(opaque) = part else {
+        for part in message.content() {
+            let ContentPart::ProviderOpaque(opaque) = part.content() else {
                 continue;
             };
             let item = replayable_item(opaque, scope)?;
@@ -415,9 +468,9 @@ fn encode_message(
     input: &mut Vec<Value>,
 ) -> Result<(), Error> {
     let native_items = message
-        .content
+        .content()
         .iter()
-        .filter_map(|part| match part {
+        .filter_map(|part| match part.content() {
             ContentPart::ProviderOpaque(opaque) => Some(replayable_item(opaque, scope)),
             _ => None,
         })
@@ -434,13 +487,14 @@ fn encode_message(
         })?);
     }
 
+    let message_role = message.role();
     let mut message_content = Vec::new();
-    for (content_index, part) in message.content.iter().enumerate() {
+    for (content_index, part) in message.content().iter().enumerate() {
         let cache_block = PromptCacheBlock::new(message_index, content_index);
         let explicit_cache = options.prompt_cache_breakpoints.contains(&cache_block);
-        match part {
+        match part.content() {
             ContentPart::Text { text } if !suppression.message => {
-                let mut block = match message.role {
+                let mut block = match message_role {
                     MessageRole::Assistant => json!({"type": "output_text", "text": text}),
                     MessageRole::System
                     | MessageRole::Developer
@@ -465,7 +519,7 @@ fn encode_message(
                 ));
             }
             ContentPart::Media(media) if !suppression.message => {
-                let mut block = encode_media(media)?;
+                let mut block = encode_media(media, options.media_dialect)?;
                 apply_cache_breakpoint(&mut block, explicit_cache, cache_block, seen_breakpoints)?;
                 message_content.push(block);
             }
@@ -504,7 +558,7 @@ fn encode_message(
 
     if !message_content.is_empty() {
         input.push(json!({
-            "role": encode_role(&message.role)?,
+            "role": encode_role(message_role)?,
             "content": message_content,
         }));
     }
@@ -633,25 +687,52 @@ fn encode_tool_result(
     Ok(Value::Object(item))
 }
 
-fn encode_media(media: &siumai_core::MediaPart) -> Result<Value, Error> {
+fn encode_media(
+    media: &siumai_core::MediaPart,
+    dialect: ResponsesMediaDialect,
+) -> Result<Value, Error> {
     let is_image = media.media_type.starts_with("image/");
-    match (&media.data, is_image) {
-        (MediaData::Url(url), true) => Ok(json!({
+    let is_video = media.media_type.starts_with("video/");
+    match (&media.data, is_image, is_video) {
+        (_, true, _) if !dialect.image_input => Err(Error::new(
+            ErrorKind::Unsupported,
+            "this Responses dialect does not support image input",
+        )),
+        (_, _, true) if !dialect.video_input => Err(Error::new(
+            ErrorKind::Unsupported,
+            "this Responses dialect does not support video input",
+        )),
+        (_, false, false) if !dialect.file_input => Err(Error::new(
+            ErrorKind::Unsupported,
+            "this Responses dialect does not support generic file input",
+        )),
+        (MediaData::Url(url), true, _) => Ok(json!({
             "type": "input_image",
             "image_url": url,
         })),
-        (MediaData::Url(url), false) => Ok(json!({
+        (MediaData::Url(url), _, true) => Ok(json!({
+            "type": "input_video",
+            "video_url": url,
+        })),
+        (MediaData::Url(url), false, false) => Ok(json!({
             "type": "input_file",
             "file_url": url,
         })),
-        (MediaData::Bytes(bytes), true) => {
+        (MediaData::Bytes(bytes), true, _) => {
             let encoded = base64::engine::general_purpose::STANDARD.encode(bytes.as_ref());
             Ok(json!({
                 "type": "input_image",
                 "image_url": format!("data:{};base64,{encoded}", media.media_type),
             }))
         }
-        (MediaData::Bytes(bytes), false) => {
+        (MediaData::Bytes(bytes), _, true) => {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(bytes.as_ref());
+            Ok(json!({
+                "type": "input_video",
+                "video_url": format!("data:{};base64,{encoded}", media.media_type),
+            }))
+        }
+        (MediaData::Bytes(bytes), false, false) => {
             let encoded = base64::engine::general_purpose::STANDARD.encode(bytes.as_ref());
             Ok(json!({
                 "type": "input_file",
@@ -689,7 +770,7 @@ fn apply_cache_breakpoint(
     Ok(())
 }
 
-fn encode_role(role: &MessageRole) -> Result<&'static str, Error> {
+fn encode_role(role: MessageRole) -> Result<&'static str, Error> {
     match role {
         MessageRole::System => Ok("system"),
         MessageRole::Developer => Ok("developer"),
@@ -703,13 +784,16 @@ fn encode_role(role: &MessageRole) -> Result<&'static str, Error> {
     }
 }
 
-fn encode_tool_choice(choice: &ToolChoice) -> Value {
+fn encode_tool_choice(choice: &ToolChoice) -> Result<Value, Error> {
     match choice {
-        ToolChoice::Auto => Value::String("auto".to_string()),
-        ToolChoice::None => Value::String("none".to_string()),
-        ToolChoice::Required => Value::String("required".to_string()),
-        ToolChoice::Named { name } => json!({"type": "function", "name": name}),
-        _ => Value::String("auto".to_string()),
+        ToolChoice::Auto => Ok(Value::String("auto".to_string())),
+        ToolChoice::None => Ok(Value::String("none".to_string())),
+        ToolChoice::Required => Ok(Value::String("required".to_string())),
+        ToolChoice::Named { name } => Ok(json!({"type": "function", "name": name})),
+        _ => Err(Error::new(
+            ErrorKind::Unsupported,
+            "OpenAI Responses cannot encode this tool choice",
+        )),
     }
 }
 
