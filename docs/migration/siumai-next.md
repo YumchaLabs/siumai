@@ -286,6 +286,21 @@ Each resource has typed request, response, identifier, status, and validation ty
 operations; they do not start a hidden polling loop. Music and synchronous HTTP speech currently
 return buffered non-streaming responses.
 
+## Provider-owned Alibaba video jobs
+
+The unimplemented `StreamingTranscriptionModel` and the one-provider `VideoJobModel` and `MediaJob`
+with its untyped `Value` state were removed from `siumai-core::experimental`. Asynchronous media
+lifecycles remain provider-owned until multiple implementations demonstrate genuinely portable
+semantics.
+
+Alibaba callers should use `AlibabaVideoModel::create`, `poll`, `cancel`, and `materialize` with
+`AlibabaVideoRequest` and `AlibabaVideoJob`. The typed job now owns its
+validated `AlibabaVideoJobId` and `AlibabaVideoJobStatus` and is directly serializable. Its signed
+download URL is never persisted; materializing a restored completed job polls once to obtain a
+fresh URL. Snapshot diagnostic fields are bounded and control-free; use
+`AlibabaVideoUsage::size()` for the validated output-size text. No compatibility aliases are
+retained for the removed core types.
+
 ## Optional Registry migration
 
 There is no global provider registry populated from environment variables. Build an immutable

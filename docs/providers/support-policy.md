@@ -149,7 +149,7 @@ portable model families.
 | Value | Meaning |
 |---|---|
 | `stable` | The Siumai family contract is supported by the normal semver policy. |
-| `experimental` | The protocol may be native, but the Siumai session/job/stream contract may change in a breaking release. |
+| `experimental` | The protocol may be native, but the provider-owned session, job, or stream API may change in a breaking release. |
 
 Fidelity and stability are independent. Realtime can be both `native` and
 `experimental`.

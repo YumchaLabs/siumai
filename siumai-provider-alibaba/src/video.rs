@@ -1,12 +1,10 @@
 use std::fmt;
+use std::str::FromStr;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use http::header::{ACCEPT, HeaderName, HeaderValue};
 use http::{Method, StatusCode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::Value;
-use siumai_core::experimental::{JobId, JobStatus, MediaJob, VideoJobModel};
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ModelId, ProviderId, ProviderScope,
     PublicDiagnosticText, Warning, WarningKind,
@@ -41,6 +39,7 @@ pub const WAN_2_7_R2V_SNAPSHOT: &str = "wan2.7-r2v-2026-06-12";
 
 const VIDEO_CREATE_TARGET: &str = "services/aigc/video-generation/video-synthesis";
 const ASYNC_HEADER: HeaderName = HeaderName::from_static("x-dashscope-async");
+const MAX_VIDEO_JOB_ID_BYTES: usize = 512;
 
 const KNOWN_MODELS: &[&str] = &[
     WAN_2_7_T2V,
@@ -509,23 +508,132 @@ pub struct AlibabaVideoUsage {
     pub output_video_duration: Option<f32>,
     #[serde(rename = "SR")]
     pub super_resolution: Option<f32>,
-    pub size: Option<String>,
+    size: Option<PublicDiagnosticText>,
 }
 
-#[derive(Clone, PartialEq)]
+impl AlibabaVideoUsage {
+    pub fn size(&self) -> Option<&str> {
+        self.size.as_ref().map(PublicDiagnosticText::as_str)
+    }
+}
+
+/// A bounded Alibaba video task identifier that is safe in task request paths.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct AlibabaVideoJobId(String);
+
+impl AlibabaVideoJobId {
+    pub fn new(value: impl Into<String>) -> Result<Self, AlibabaVideoJobIdError> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(AlibabaVideoJobIdError::Empty);
+        }
+        if value.len() > MAX_VIDEO_JOB_ID_BYTES {
+            return Err(AlibabaVideoJobIdError::TooLong {
+                maximum: MAX_VIDEO_JOB_ID_BYTES,
+            });
+        }
+        if value.chars().any(|character| {
+            character.is_control()
+                || character.is_whitespace()
+                || matches!(character, '/' | '\\' | '?' | '#')
+        }) {
+            return Err(AlibabaVideoJobIdError::InvalidCharacter);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl fmt::Display for AlibabaVideoJobId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl FromStr for AlibabaVideoJobId {
+    type Err = AlibabaVideoJobIdError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for AlibabaVideoJobId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ThisError)]
+#[non_exhaustive]
+pub enum AlibabaVideoJobIdError {
+    #[error("Alibaba video job identifier must not be empty")]
+    Empty,
+    #[error("Alibaba video job identifier exceeds {maximum} bytes")]
+    TooLong { maximum: usize },
+    #[error("Alibaba video job identifier contains a character that is unsafe in a request path")]
+    InvalidCharacter,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AlibabaVideoJobStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Expired,
+}
+
+impl AlibabaVideoJobStatus {
+    pub const fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::Completed | Self::Failed | Self::Cancelled | Self::Expired
+        )
+    }
+
+    pub const fn is_successful(&self) -> bool {
+        matches!(self, Self::Completed)
+    }
+}
+
+/// A serializable Alibaba video-job snapshot.
+///
+/// Provider-signed download URLs are deliberately excluded. Materializing a restored completed
+/// job polls the task once to obtain a fresh URL.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AlibabaVideoJob {
-    id: JobId,
+    id: AlibabaVideoJobId,
     model: ModelId,
-    status: JobStatus,
-    request_id: Option<String>,
+    status: AlibabaVideoJobStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    request_id: Option<PublicDiagnosticText>,
+    #[serde(skip)]
     video_url: Option<String>,
-    provider_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_code: Option<PublicDiagnosticText>,
+    #[serde(default)]
     usage: AlibabaVideoUsage,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<Warning>,
 }
 
 impl AlibabaVideoJob {
-    pub fn id(&self) -> &JobId {
+    pub fn id(&self) -> &AlibabaVideoJobId {
         &self.id
     }
 
@@ -533,12 +641,12 @@ impl AlibabaVideoJob {
         &self.model
     }
 
-    pub fn status(&self) -> &JobStatus {
+    pub fn status(&self) -> &AlibabaVideoJobStatus {
         &self.status
     }
 
     pub fn request_id(&self) -> Option<&str> {
-        self.request_id.as_deref()
+        self.request_id.as_ref().map(PublicDiagnosticText::as_str)
     }
 
     /// Explicit access to the provider-returned download URL. Avoid logging signed URLs.
@@ -547,7 +655,9 @@ impl AlibabaVideoJob {
     }
 
     pub fn provider_code(&self) -> Option<&str> {
-        self.provider_code.as_deref()
+        self.provider_code
+            .as_ref()
+            .map(PublicDiagnosticText::as_str)
     }
 
     pub fn usage(&self) -> &AlibabaVideoUsage {
@@ -556,33 +666,6 @@ impl AlibabaVideoJob {
 
     pub fn warnings(&self) -> &[Warning] {
         &self.warnings
-    }
-
-    fn into_media_job(self) -> Result<MediaJob, Error> {
-        let state = serde_json::to_value(AlibabaVideoJobState {
-            model: self.model,
-            request_id: self.request_id,
-            provider_code: self.provider_code,
-            usage: self.usage,
-            warnings: self.warnings,
-        })
-        .map_err(job_state_error)?;
-        Ok(MediaJob::new(self.id, self.status, state))
-    }
-
-    fn from_media_job(job: &MediaJob) -> Result<Self, Error> {
-        let state = serde_json::from_value::<AlibabaVideoJobState>(job.state().clone())
-            .map_err(job_state_error)?;
-        Ok(Self {
-            id: job.id().clone(),
-            model: state.model,
-            status: job.status().clone(),
-            request_id: state.request_id,
-            video_url: None,
-            provider_code: state.provider_code,
-            usage: state.usage,
-            warnings: state.warnings,
-        })
     }
 }
 
@@ -600,15 +683,6 @@ impl fmt::Debug for AlibabaVideoJob {
             .field("warnings", &self.warnings)
             .finish()
     }
-}
-
-#[derive(Serialize, Deserialize)]
-struct AlibabaVideoJobState {
-    model: ModelId,
-    request_id: Option<String>,
-    provider_code: Option<String>,
-    usage: AlibabaVideoUsage,
-    warnings: Vec<Warning>,
 }
 
 pub(crate) struct AlibabaVideoRuntime {
@@ -653,7 +727,7 @@ impl AlibabaVideoModel {
         &self.model
     }
 
-    pub async fn create_video(
+    pub async fn create(
         &self,
         request: AlibabaVideoRequest,
         options: CallOptions,
@@ -680,7 +754,7 @@ impl AlibabaVideoModel {
         self.decode_job_response(response, None, model_warnings(&self.model))
     }
 
-    pub async fn poll_video(
+    pub async fn poll(
         &self,
         job: &AlibabaVideoJob,
         options: CallOptions,
@@ -701,7 +775,7 @@ impl AlibabaVideoModel {
         self.decode_job_response(response, Some(job.id()), job.warnings.clone())
     }
 
-    pub async fn cancel_video(
+    pub async fn cancel(
         &self,
         job: &AlibabaVideoJob,
         options: CallOptions,
@@ -722,13 +796,19 @@ impl AlibabaVideoModel {
         self.decode_job_response(response, Some(job.id()), job.warnings.clone())
     }
 
-    pub async fn materialize_video(
+    pub async fn materialize(
         &self,
         job: &AlibabaVideoJob,
         options: CallOptions,
     ) -> Result<Vec<u8>, Error> {
         self.validate_job(job)?;
         reject_provider_options(&options).map_err(|error| self.contextualize(error))?;
+        let refreshed = if job.status().is_successful() && job.video_url().is_none() {
+            Some(self.poll(job, options.clone()).await?)
+        } else {
+            None
+        };
+        let job = refreshed.as_ref().unwrap_or(job);
         if !job.status().is_successful() {
             return Err(self.contextualize(Error::new(
                 ErrorKind::InvalidInput,
@@ -773,7 +853,7 @@ impl AlibabaVideoModel {
     fn decode_job_response(
         &self,
         response: TransportResponse,
-        expected_job: Option<&JobId>,
+        expected_job: Option<&AlibabaVideoJobId>,
         warnings: Vec<Warning>,
     ) -> Result<AlibabaVideoJob, Error> {
         if !response.status().is_success() {
@@ -790,7 +870,7 @@ impl AlibabaVideoModel {
         })?;
         let id = match (output.task_id, expected_job) {
             (Some(id), expected) => {
-                let id = JobId::new(id).map_err(|error| {
+                let id = AlibabaVideoJobId::new(id).map_err(|error| {
                     self.contextualize(
                         Error::protocol_violation(
                             "Alibaba video response contains an invalid task identifier",
@@ -843,43 +923,6 @@ impl fmt::Debug for AlibabaVideoModel {
             .field("scope", &self.runtime.scope)
             .field("model", &self.model)
             .finish()
-    }
-}
-
-#[async_trait]
-impl VideoJobModel for AlibabaVideoModel {
-    async fn create(&self, request: Value, options: CallOptions) -> Result<MediaJob, Error> {
-        let request = serde_json::from_value::<AlibabaVideoRequest>(request).map_err(|source| {
-            self.contextualize(
-                Error::new(
-                    ErrorKind::InvalidInput,
-                    "dynamic Alibaba video request is invalid",
-                )
-                .with_source(source),
-            )
-        })?;
-        self.create_video(request, options).await?.into_media_job()
-    }
-
-    async fn poll(&self, job: &MediaJob, options: CallOptions) -> Result<MediaJob, Error> {
-        let job =
-            AlibabaVideoJob::from_media_job(job).map_err(|error| self.contextualize(error))?;
-        self.poll_video(&job, options).await?.into_media_job()
-    }
-
-    async fn cancel(&self, job: &MediaJob, options: CallOptions) -> Result<MediaJob, Error> {
-        let job =
-            AlibabaVideoJob::from_media_job(job).map_err(|error| self.contextualize(error))?;
-        self.cancel_video(&job, options).await?.into_media_job()
-    }
-
-    async fn materialize(&self, job: &MediaJob, options: CallOptions) -> Result<Vec<u8>, Error> {
-        let mut job =
-            AlibabaVideoJob::from_media_job(job).map_err(|error| self.contextualize(error))?;
-        if job.status().is_successful() {
-            job = self.poll_video(&job, options.clone()).await?;
-        }
-        self.materialize_video(&job, options).await
     }
 }
 
@@ -967,25 +1010,31 @@ fn empty_plan(
         .map_err(request_build_error)
 }
 
-fn task_target(id: &JobId) -> Result<RequestTarget, Error> {
+fn task_target(id: &AlibabaVideoJobId) -> Result<RequestTarget, Error> {
     RequestTarget::new(format!("tasks/{}", id.as_str())).map_err(request_build_error)
 }
 
-fn cancel_target(id: &JobId) -> Result<RequestTarget, Error> {
+fn cancel_target(id: &AlibabaVideoJobId) -> Result<RequestTarget, Error> {
     RequestTarget::new(format!("tasks/{}/cancel", id.as_str())).map_err(request_build_error)
 }
 
-fn decode_status(value: Option<&str>, creation: bool) -> Result<JobStatus, Error> {
+fn decode_status(value: Option<&str>, creation: bool) -> Result<AlibabaVideoJobStatus, Error> {
     match value.map(|value| value.to_ascii_uppercase()) {
-        Some(value) if value == "PENDING" || value == "QUEUED" => Ok(JobStatus::Queued),
-        Some(value) if value == "RUNNING" || value == "PROCESSING" => Ok(JobStatus::Running),
-        Some(value) if value == "SUCCEEDED" || value == "SUCCESS" => Ok(JobStatus::Completed),
-        Some(value) if value == "FAILED" || value == "FAIL" => Ok(JobStatus::Failed {
-            message: "Alibaba video job failed".to_string(),
-        }),
-        Some(value) if value == "CANCELED" || value == "CANCELLED" => Ok(JobStatus::Cancelled),
-        Some(value) if value == "UNKNOWN" || value == "EXPIRED" => Ok(JobStatus::Expired),
-        None if creation => Ok(JobStatus::Queued),
+        Some(value) if value == "PENDING" || value == "QUEUED" => Ok(AlibabaVideoJobStatus::Queued),
+        Some(value) if value == "RUNNING" || value == "PROCESSING" => {
+            Ok(AlibabaVideoJobStatus::Running)
+        }
+        Some(value) if value == "SUCCEEDED" || value == "SUCCESS" => {
+            Ok(AlibabaVideoJobStatus::Completed)
+        }
+        Some(value) if value == "FAILED" || value == "FAIL" => Ok(AlibabaVideoJobStatus::Failed),
+        Some(value) if value == "CANCELED" || value == "CANCELLED" => {
+            Ok(AlibabaVideoJobStatus::Cancelled)
+        }
+        Some(value) if value == "UNKNOWN" || value == "EXPIRED" => {
+            Ok(AlibabaVideoJobStatus::Expired)
+        }
+        None if creation => Ok(AlibabaVideoJobStatus::Queued),
         _ => Err(Error::protocol_violation(
             "Alibaba video response contains an unknown task status",
         )),
@@ -1003,12 +1052,8 @@ fn model_warnings(model: &ModelId) -> Vec<Warning> {
     }
 }
 
-fn safe_optional_text(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        PublicDiagnosticText::new(value)
-            .ok()
-            .map(|value| value.as_str().to_owned())
-    })
+fn safe_optional_text(value: Option<String>) -> Option<PublicDiagnosticText> {
+    value.and_then(|value| PublicDiagnosticText::new(value).ok())
 }
 
 fn reject_provider_options(options: &CallOptions) -> Result<(), Error> {
@@ -1029,14 +1074,6 @@ fn video_response_error(source: serde_json::Error) -> Error {
     Error::new(
         ErrorKind::Protocol,
         "Alibaba returned an invalid native video response",
-    )
-    .with_source(source)
-}
-
-fn job_state_error(source: serde_json::Error) -> Error {
-    Error::new(
-        ErrorKind::InvalidInput,
-        "Alibaba video job state is invalid",
     )
     .with_source(source)
 }
@@ -1075,8 +1112,8 @@ fn provider_status_error(response: TransportResponse) -> Error {
 #[cfg(test)]
 mod tests {
     use super::{
-        AlibabaVideoMedia, AlibabaVideoMediaType, AlibabaVideoParameters, AlibabaVideoRequest,
-        AlibabaVideoRequestError,
+        AlibabaVideoJobId, AlibabaVideoJobStatus, AlibabaVideoMedia, AlibabaVideoMediaType,
+        AlibabaVideoParameters, AlibabaVideoRequest, AlibabaVideoRequestError,
     };
 
     #[test]
@@ -1109,5 +1146,19 @@ mod tests {
             Err(AlibabaVideoRequestError::ConflictingGeometry)
         );
         assert!(AlibabaVideoRequest::new().validate().is_err());
+    }
+
+    #[test]
+    fn job_identifiers_are_bounded_and_path_safe() {
+        assert_eq!(
+            AlibabaVideoJobId::new("task-42").unwrap().as_str(),
+            "task-42"
+        );
+        assert!(AlibabaVideoJobId::new("").is_err());
+        assert!(AlibabaVideoJobId::new("task/42").is_err());
+        assert!(AlibabaVideoJobId::new("task?secret=value").is_err());
+        assert!(AlibabaVideoJobId::new("x".repeat(513)).is_err());
+        assert!(AlibabaVideoJobStatus::Completed.is_terminal());
+        assert!(AlibabaVideoJobStatus::Completed.is_successful());
     }
 }

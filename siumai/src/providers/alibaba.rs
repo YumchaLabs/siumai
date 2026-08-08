@@ -13,13 +13,14 @@ pub use siumai_provider_alibaba::{
 /// Explicit opt-in surface for Alibaba's unstable asynchronous video jobs.
 pub mod experimental {
     pub use siumai_provider_alibaba::experimental::{
-        AlibabaVideoDownloadPolicy, AlibabaVideoJob, AlibabaVideoMedia, AlibabaVideoMediaType,
-        AlibabaVideoModel, AlibabaVideoParameters, AlibabaVideoProviderBuilderExt,
-        AlibabaVideoProviderExt, AlibabaVideoRequest, AlibabaVideoRequestError,
-        AlibabaVideoShotType, AlibabaVideoUsage, LEGACY_SINGAPORE_VIDEO_BASE_URL,
-        VIDEO_API_MODE_ID, VIDEO_CANCEL_SOURCE, VIDEO_IMAGE_SOURCE, VIDEO_PROTOCOL_ID,
-        VIDEO_REFERENCE_SOURCE, VIDEO_TEXT_SOURCE, WAN_2_7_I2V, WAN_2_7_I2V_SNAPSHOT, WAN_2_7_R2V,
-        WAN_2_7_R2V_SNAPSHOT, WAN_2_7_T2V, WAN_2_7_T2V_SNAPSHOT,
+        AlibabaVideoDownloadPolicy, AlibabaVideoJob, AlibabaVideoJobId, AlibabaVideoJobIdError,
+        AlibabaVideoJobStatus, AlibabaVideoMedia, AlibabaVideoMediaType, AlibabaVideoModel,
+        AlibabaVideoParameters, AlibabaVideoProviderBuilderExt, AlibabaVideoProviderExt,
+        AlibabaVideoRequest, AlibabaVideoRequestError, AlibabaVideoShotType, AlibabaVideoUsage,
+        LEGACY_SINGAPORE_VIDEO_BASE_URL, VIDEO_API_MODE_ID, VIDEO_CANCEL_SOURCE,
+        VIDEO_IMAGE_SOURCE, VIDEO_PROTOCOL_ID, VIDEO_REFERENCE_SOURCE, VIDEO_TEXT_SOURCE,
+        WAN_2_7_I2V, WAN_2_7_I2V_SNAPSHOT, WAN_2_7_R2V, WAN_2_7_R2V_SNAPSHOT, WAN_2_7_T2V,
+        WAN_2_7_T2V_SNAPSHOT,
     };
 }
 

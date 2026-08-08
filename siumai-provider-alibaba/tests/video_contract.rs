@@ -1,11 +1,11 @@
 use serde_json::{Value, json};
-use siumai_core::experimental::{JobStatus, VideoJobModel};
 use siumai_core::{CallOptions, ErrorKind, ProviderOptions, WarningKind};
 use siumai_provider_alibaba::{
     AlibabaChatOptions, AlibabaCredential, AlibabaProvider,
     experimental::{
-        AlibabaVideoDownloadPolicy, AlibabaVideoMedia, AlibabaVideoParameters,
-        AlibabaVideoProviderBuilderExt, AlibabaVideoProviderExt, AlibabaVideoRequest, WAN_2_7_I2V,
+        AlibabaVideoDownloadPolicy, AlibabaVideoJob, AlibabaVideoJobStatus, AlibabaVideoMedia,
+        AlibabaVideoParameters, AlibabaVideoProviderBuilderExt, AlibabaVideoProviderExt,
+        AlibabaVideoRequest, WAN_2_7_I2V,
     },
 };
 use siumai_transport::EndpointConfig;
@@ -112,27 +112,21 @@ async fn typed_video_job_create_poll_and_materialize_preserve_native_wire_semant
     let model = provider(&server, AlibabaVideoDownloadPolicy::LoopbackExplicit)
         .video(WAN_2_7_I2V)
         .unwrap();
-    let created = model
-        .create_video(request, CallOptions::default())
-        .await
-        .unwrap();
-    assert_eq!(created.status(), &JobStatus::Queued);
+    let created = model.create(request, CallOptions::default()).await.unwrap();
+    assert_eq!(created.status(), &AlibabaVideoJobStatus::Queued);
     assert_eq!(created.request_id(), Some("create-request-42"));
     assert!(created.warnings().is_empty());
 
-    let completed = model
-        .poll_video(&created, CallOptions::default())
-        .await
-        .unwrap();
-    assert_eq!(completed.status(), &JobStatus::Completed);
+    let completed = model.poll(&created, CallOptions::default()).await.unwrap();
+    assert_eq!(completed.status(), &AlibabaVideoJobStatus::Completed);
     assert_eq!(completed.request_id(), Some("poll-request-42"));
     assert_eq!(completed.usage().output_video_duration, Some(5.0));
-    assert_eq!(completed.usage().size.as_deref(), Some("1920*1080"));
+    assert_eq!(completed.usage().size(), Some("1920*1080"));
     let debug = format!("{completed:?}");
     assert!(!debug.contains("token=canary"));
 
     let bytes = model
-        .materialize_video(&completed, CallOptions::default())
+        .materialize(&completed, CallOptions::default())
         .await
         .unwrap();
     assert_eq!(bytes, b"video-bytes");
@@ -168,7 +162,7 @@ async fn typed_video_job_create_poll_and_materialize_preserve_native_wire_semant
 }
 
 #[tokio::test]
-async fn dynamic_video_snapshot_omits_signed_url_and_repolls_before_materialization() {
+async fn typed_video_snapshot_omits_signed_url_and_repolls_before_materialization() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path(CREATE_PATH))
@@ -203,31 +197,36 @@ async fn dynamic_video_snapshot_omits_signed_url_and_repolls_before_materializat
     let model = provider(&server, AlibabaVideoDownloadPolicy::LoopbackExplicit)
         .video(WAN_2_7_I2V)
         .unwrap();
-    let created = VideoJobModel::create(
-        &model,
-        serde_json::to_value(AlibabaVideoRequest::text("persist safely")).unwrap(),
-        CallOptions::default(),
-    )
-    .await
-    .unwrap();
-    let completed = VideoJobModel::poll(&model, &created, CallOptions::default())
+    let created = model
+        .create(
+            AlibabaVideoRequest::text("persist safely"),
+            CallOptions::default(),
+        )
         .await
         .unwrap();
+    let completed = model.poll(&created, CallOptions::default()).await.unwrap();
 
     let snapshot = serde_json::to_string(&completed).unwrap();
     assert!(!snapshot.contains("serialized-canary"));
     assert!(!snapshot.contains("video_url"));
     assert!(!format!("{completed:?}").contains("serialized-canary"));
 
-    let restored: siumai_core::experimental::MediaJob = serde_json::from_str(&snapshot).unwrap();
-    let bytes = VideoJobModel::materialize(&model, &restored, CallOptions::default())
+    let restored: AlibabaVideoJob = serde_json::from_str(&snapshot).unwrap();
+    let mut invalid_request_id: Value = serde_json::from_str(&snapshot).unwrap();
+    invalid_request_id["request_id"] = json!("unsafe\nrequest-id");
+    assert!(serde_json::from_value::<AlibabaVideoJob>(invalid_request_id).is_err());
+    let mut invalid_usage: Value = serde_json::from_str(&snapshot).unwrap();
+    invalid_usage["usage"]["size"] = json!("unsafe\u{001b}size");
+    assert!(serde_json::from_value::<AlibabaVideoJob>(invalid_usage).is_err());
+    let bytes = model
+        .materialize(&restored, CallOptions::default())
         .await
         .unwrap();
     assert_eq!(bytes, b"persisted-video");
 }
 
 #[tokio::test]
-async fn dynamic_video_job_snapshots_update_on_cancel_and_keep_future_models_callable() {
+async fn typed_video_job_snapshots_update_on_cancel_and_keep_future_models_callable() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path(CREATE_PATH))
@@ -254,23 +253,16 @@ async fn dynamic_video_job_snapshots_update_on_cancel_and_keep_future_models_cal
             .with_resolution("future-tier", "future-ratio")
             .with_duration(12),
     );
-    let created = VideoJobModel::create(
-        &model,
-        serde_json::to_value(request).unwrap(),
-        CallOptions::default(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(created.status(), &JobStatus::Queued);
-    let cancelled = VideoJobModel::cancel(&model, &created, CallOptions::default())
+    let created = model.create(request, CallOptions::default()).await.unwrap();
+    assert_eq!(created.status(), &AlibabaVideoJobStatus::Queued);
+    let cancelled = model
+        .cancel(&created, CallOptions::default())
         .await
         .unwrap();
-    assert_eq!(cancelled.status(), &JobStatus::Cancelled);
-
-    let state = cancelled.state();
+    assert_eq!(cancelled.status(), &AlibabaVideoJobStatus::Cancelled);
     assert!(matches!(
-        state["warnings"][0]["kind"].as_str(),
-        Some("UnknownModel")
+        cancelled.warnings()[0].kind(),
+        WarningKind::UnknownModel
     ));
     let requests = server.received_requests().await.unwrap();
     let create = requests
@@ -291,14 +283,14 @@ async fn video_validation_and_foreign_call_options_fail_before_wire() {
         .unwrap();
 
     let error = model
-        .create_video(AlibabaVideoRequest::new(), CallOptions::default())
+        .create(AlibabaVideoRequest::new(), CallOptions::default())
         .await
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
     let chat_options = AlibabaChatOptions::new().with_enable_search(true);
     let error = model
-        .create_video(
+        .create(
             AlibabaVideoRequest::text("hello"),
             CallOptions::default()
                 .with_provider_options(ProviderOptions::typed(&chat_options).unwrap()),
@@ -330,7 +322,7 @@ async fn video_errors_expose_safe_code_and_request_id_only() {
     let error = provider(&server, AlibabaVideoDownloadPolicy::LoopbackExplicit)
         .video("future-wan-3")
         .unwrap()
-        .create_video(AlibabaVideoRequest::text("hello"), CallOptions::default())
+        .create(AlibabaVideoRequest::text("hello"), CallOptions::default())
         .await
         .unwrap_err();
 
