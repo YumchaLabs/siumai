@@ -33,11 +33,12 @@ pub use siumai_core::{
     ModelId, ModelLookupError, OpaqueProviderItem, PartialStructuredOutput, Provider, ProviderId,
     ProviderOptionError, ProviderOptions, ProviderProvenanceError, ReplayAudience, ReplayDomain,
     ReplayDomainId, RerankCandidate, RerankLimits, RerankModel, RerankModelProvider, RerankRequest,
-    RerankResponse, RerankResult, ResponseMetadata, SpeechLimits, SpeechModel, SpeechModelProvider,
-    SpeechRequest, SpeechResponse, StreamTerminal, StructuredOutputSpec, ToolCall, ToolCallParts,
-    ToolChoice, ToolInput, ToolOutcome, ToolResult, ToolSpec, TranscriptSegment,
-    TranscriptionLimits, TranscriptionModel, TranscriptionModelProvider, TranscriptionRequest,
-    TranscriptionResponse, TypedProviderOptions, Usage, UsageValue, Warning, WarningKind,
+    RerankResponse, RerankResult, ResponseDiagnostics, ResponseMetadata, SpeechLimits, SpeechModel,
+    SpeechModelProvider, SpeechRequest, SpeechResponse, StreamTerminal, StructuredOutputSpec,
+    ToolCall, ToolCallParts, ToolChoice, ToolInput, ToolOutcome, ToolResult, ToolSpec,
+    TranscriptSegment, TranscriptionLimits, TranscriptionModel, TranscriptionModelProvider,
+    TranscriptionRequest, TranscriptionResponse, TypedProviderOptions, Usage, UsageValue, Warning,
+    WarningKind,
 };
 
 #[cfg(feature = "runtime")]

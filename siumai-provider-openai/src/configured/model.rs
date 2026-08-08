@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use http::header::{ACCEPT, HeaderValue, RETRY_AFTER};
+use http::header::{ACCEPT, HeaderValue};
 use http::{Method, StatusCode};
 use serde_json::Value;
 use siumai_core::stream::established_stream;
@@ -12,8 +11,8 @@ use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
     LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelAdvisory,
     ModelDescriptor, ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision,
-    ProviderOptionError, PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders,
-    SensitiveResponse, StreamTerminal, SupportState, Warning, WarningKind,
+    ProviderOptionError, PublicDiagnosticText, SensitiveResponse, StreamTerminal, SupportState,
+    Warning, WarningKind,
 };
 use siumai_protocol_openai::chat_completions::{
     CHAT_COMPLETIONS_TARGET, ChatCompletionsDialect, ChatCompletionsStreamDecoder,
@@ -290,15 +289,18 @@ impl LanguageModel for OpenAiResponsesModel {
             let error = stream_response_error(OpenAiApiMode::Responses, response).await;
             return Err(self.contextualize(operation, error));
         }
+        let (status, headers, body) = response.into_parts();
+        let diagnostics = headers.diagnostics().with_status(status.as_u16());
 
         Ok(decode_sse_stream(
             cancellation,
-            response.into_body(),
+            body,
             self.runtime.transport.limits().clone(),
             ResponsesStreamDecoder::new(
                 self.runtime.scope(OpenAiApiMode::Responses).clone(),
                 self.model_id().clone(),
-            ),
+            )
+            .with_response_diagnostics(diagnostics),
             warnings,
             OpenAiApiMode::Responses,
             model_error_context(self, operation),
@@ -480,16 +482,19 @@ impl LanguageModel for OpenAiChatCompletionsModel {
             let error = stream_response_error(OpenAiApiMode::ChatCompletions, response).await;
             return Err(self.contextualize(operation, error));
         }
+        let (status, headers, body) = response.into_parts();
+        let diagnostics = headers.diagnostics().with_status(status.as_u16());
 
         Ok(decode_sse_stream(
             cancellation,
-            response.into_body(),
+            body,
             self.runtime.transport.limits().clone(),
             ChatCompletionsStreamDecoder::new(
                 self.runtime.scope(OpenAiApiMode::ChatCompletions).clone(),
                 self.model_id().clone(),
                 official_chat_dialect(),
-            ),
+            )
+            .with_response_diagnostics(diagnostics),
             warnings,
             OpenAiApiMode::ChatCompletions,
             model_error_context(self, operation),
@@ -935,18 +940,11 @@ fn provider_status_error(
     let kind = classify_http_error(
         status.as_u16(),
         provider_code.as_ref().map(PublicDiagnosticText::as_str),
+        provider_type.as_ref().map(PublicDiagnosticText::as_str),
     );
-    let safe_headers = safe_response_headers(&headers);
-    let request_id = response_header_text(&headers, "x-request-id")
-        .or_else(|| response_header_text(&headers, "request-id"));
-    let retry_after = headers
-        .get(&RETRY_AFTER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_secs);
-    let mut diagnostics = ResponseDiagnostics::default()
+    let mut diagnostics = headers
+        .diagnostics()
         .with_status(status.as_u16())
-        .with_headers(safe_headers)
         .with_body_truncated(body_truncated);
     if let Some(code) = provider_code {
         diagnostics = diagnostics.with_provider_code(code);
@@ -956,12 +954,6 @@ fn provider_status_error(
     }
     if let Some(param) = provider_param {
         diagnostics = diagnostics.with_provider_param(param);
-    }
-    if let Some(request_id) = request_id {
-        diagnostics = diagnostics.with_request_id(request_id);
-    }
-    if let Some(retry_after) = retry_after {
-        diagnostics = diagnostics.with_retry_after(retry_after);
     }
     let raw_headers = headers
         .expose()
@@ -988,27 +980,6 @@ fn public_provider_identifier(value: &str) -> Option<PublicDiagnosticText> {
         return None;
     }
     PublicDiagnosticText::new(value.to_string()).ok()
-}
-
-fn response_header_text(
-    headers: &ResponseHeaders,
-    name: &'static str,
-) -> Option<PublicDiagnosticText> {
-    headers
-        .expose()
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| PublicDiagnosticText::new(value.to_string()).ok())
-}
-
-fn safe_response_headers(headers: &ResponseHeaders) -> SafeResponseHeaders {
-    let mut safe = SafeResponseHeaders::default();
-    for (name, value) in headers.expose() {
-        if let Ok(value) = value.to_str() {
-            let _ = safe.try_insert(name.as_str(), value.to_string());
-        }
-    }
-    safe
 }
 
 #[cfg(test)]

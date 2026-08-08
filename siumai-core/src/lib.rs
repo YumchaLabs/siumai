@@ -24,9 +24,9 @@ pub use annotations::{
     TypedProviderAnnotation,
 };
 pub use error::{
-    DiagnosticHeaderError, DiagnosticTextError, Error, ErrorContext, ErrorDetail, ErrorKind,
-    PublicDiagnosticText, ResourceKind, ResponseDiagnostics, SafeResponseHeaders,
-    SensitiveErrorSource, SensitiveResponse,
+    DiagnosticTextError, Error, ErrorContext, ErrorDetail, ErrorKind, MAX_RETRY_AFTER_HINT,
+    PublicDiagnosticText, ResourceKind, ResponseDiagnostics, SensitiveErrorSource,
+    SensitiveResponse,
 };
 pub use language::{
     AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection, Citation,

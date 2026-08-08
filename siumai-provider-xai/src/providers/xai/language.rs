@@ -10,8 +10,8 @@ use siumai_core::{
     ApiModeId, ApiStability, CatalogError, Error, ErrorKind, InvalidId, LanguageRequest,
     LanguageResponse, LanguageStreamDecoder, ModelCatalog, ModelFamily, ModelId, ModelLifecycle,
     ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId,
-    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, SupportScope,
-    TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, ResponseDiagnostics,
+    SupportScope, TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
     VerifiedSupportClaim,
 };
 use siumai_openai_compatible::extension::{
@@ -386,6 +386,10 @@ struct XaiResponsesStreamDecoder {
 
 impl LanguageStreamDecoder for XaiResponsesStreamDecoder {
     type ProtocolFrame = str;
+
+    fn set_response_diagnostics(&mut self, diagnostics: ResponseDiagnostics) {
+        self.inner.set_response_diagnostics(diagnostics);
+    }
 
     fn decode(
         &mut self,

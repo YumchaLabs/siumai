@@ -11,9 +11,9 @@ use siumai_core::{
     LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelCatalog, ModelFamily,
     ModelId, ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId,
     ProfileError, ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile,
-    ProviderScope, PublicDiagnosticText, ReplayDomain, StreamTerminal, SupportScope,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning,
-    WarningKind,
+    ProviderScope, PublicDiagnosticText, ReplayDomain, ResponseDiagnostics, StreamTerminal,
+    SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    Warning, WarningKind,
 };
 use siumai_openai_compatible::extension::{
     ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,
@@ -578,6 +578,10 @@ struct GroqResponsesStreamDecoder {
 impl LanguageStreamDecoder for GroqResponsesStreamDecoder {
     type ProtocolFrame = str;
 
+    fn set_response_diagnostics(&mut self, diagnostics: ResponseDiagnostics) {
+        self.inner.set_response_diagnostics(diagnostics);
+    }
+
     fn decode(&mut self, frame: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
         if let Ok(value) = serde_json::from_str::<Value>(frame) {
             merge_metadata(&mut self.metadata, extract_responses_metadata(&value));
@@ -631,6 +635,10 @@ struct GroqStreamDecoder {
 
 impl LanguageStreamDecoder for GroqStreamDecoder {
     type ProtocolFrame = str;
+
+    fn set_response_diagnostics(&mut self, diagnostics: ResponseDiagnostics) {
+        self.inner.set_response_diagnostics(diagnostics);
+    }
 
     fn decode(&mut self, frame: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
         if frame.trim() == "[DONE]" {

@@ -13,10 +13,9 @@ use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor,
     ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
     ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptions, ProviderScope, PublicDiagnosticText, ResponseDiagnostics, ResponseMetadata,
-    SafeResponseHeaders, SensitiveResponse, SupportState, TranscriptSegment, TranscriptionLimits,
-    TranscriptionModel, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions,
-    UnsupportedReason, Usage, Warning, WarningKind,
+    ProviderOptions, ProviderScope, PublicDiagnosticText, ResponseMetadata, SensitiveResponse,
+    SupportState, TranscriptSegment, TranscriptionLimits, TranscriptionModel, TranscriptionRequest,
+    TranscriptionResponse, TypedProviderOptions, UnsupportedReason, Usage, Warning, WarningKind,
 };
 use siumai_transport::{
     MultipartBody, MultipartPart, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
@@ -589,9 +588,7 @@ fn provider_response_error(response: TransportResponse) -> Error {
         .as_ref()
         .and_then(|error| error.error.as_ref())
         .and_then(|error| error.kind.clone());
-    let mut diagnostics = ResponseDiagnostics::default()
-        .with_status(status.as_u16())
-        .with_headers(safe_response_headers(&headers));
+    let mut diagnostics = headers.diagnostics().with_status(status.as_u16());
     if let Some(value) = request_id.and_then(public_text) {
         diagnostics = diagnostics.with_request_id(value);
     }
@@ -668,16 +665,6 @@ fn status_error_kind(status: StatusCode) -> ErrorKind {
         StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => ErrorKind::Timeout,
         _ => ErrorKind::Provider,
     }
-}
-
-fn safe_response_headers(headers: &ResponseHeaders) -> SafeResponseHeaders {
-    let mut safe = SafeResponseHeaders::default();
-    for (name, value) in headers.expose() {
-        if let Ok(value) = value.to_str() {
-            let _ = safe.try_insert(name.as_str(), value.to_string());
-        }
-    }
-    safe
 }
 
 fn response_request_id(headers: &ResponseHeaders) -> Option<String> {

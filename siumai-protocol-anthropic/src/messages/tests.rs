@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -6,8 +7,8 @@ use siumai_core::{
     ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, ErrorKind, FinishReason,
     LanguageRequest, LanguageStreamDecoder, LanguageStreamEvent, MediaData, MediaPart, Message,
     MessageAnnotationTarget, MessageAnnotations, MessagePart, MessageRole, ModelId, ProtocolId,
-    ProviderId, ProviderScope, ReplayDomain, ReplayDomainId, StreamTerminal, ToolAnnotationTarget,
-    ToolAnnotations, ToolCall, ToolChoice, ToolOutcome, ToolResult, ToolSpec,
+    ProviderId, ProviderScope, ReplayDomain, ReplayDomainId, ResponseDiagnostics, StreamTerminal,
+    ToolAnnotationTarget, ToolAnnotations, ToolCall, ToolChoice, ToolOutcome, ToolResult, ToolSpec,
     TypedProviderAnnotation,
 };
 
@@ -612,11 +613,16 @@ fn streamed_tool_input_is_bounded_before_json_normalization() {
 
 #[test]
 fn stream_error_event_is_a_canonical_failed_terminal() {
-    let mut decoder = MessagesStreamDecoder::new(scope(), model());
+    let mut decoder = MessagesStreamDecoder::new(scope(), model()).with_response_diagnostics(
+        ResponseDiagnostics::default()
+            .with_status(200)
+            .with_retry_after(Duration::from_secs(7)),
+    );
     let events = decoder
         .decode(
             &json!({
                 "type": "error",
+                "request_id": "req_in_band",
                 "error": {"type": "overloaded_error", "message": "private body"}
             })
             .to_string(),
@@ -625,7 +631,15 @@ fn stream_error_event_is_a_canonical_failed_terminal() {
     assert!(matches!(
         events.as_slice(),
         [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, response: None })]
-            if error.kind() == ErrorKind::Provider
+            if error.kind() == ErrorKind::Unavailable
+                && error.diagnostics().is_some_and(|diagnostics|
+                    diagnostics.status() == Some(200)
+                        && diagnostics.provider_type() == Some("overloaded_error")
+                        && diagnostics.request_id() == Some("req_in_band")
+                        && diagnostics.retry_after() == Some(Duration::from_secs(7)))
+                && error.sensitive_response().is_some_and(|response|
+                    response.expose().1.windows("private body".len()).any(|window|
+                        window == "private body".as_bytes()))
     ));
     assert!(!format!("{:?}", events).contains("private body"));
 }

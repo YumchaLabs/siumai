@@ -395,8 +395,6 @@ async fn native_resource_errors_keep_provider_payloads_off_default_surfaces() {
     assert_eq!(diagnostics.status(), Some(400));
     assert_eq!(diagnostics.provider_type(), Some("base_resp"));
     assert_eq!(diagnostics.provider_code(), Some("1004"));
-    assert_eq!(diagnostics.headers().get("x-private-canary"), None);
-
     for rendered in [
         error.to_string(),
         format!("{error:?}"),

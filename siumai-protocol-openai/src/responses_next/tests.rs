@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, ContentPart, ErrorKind, FinishReason, LanguageIncompleteReason, LanguageRequest,
     LanguageResponseStatus, LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole,
     ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId,
-    StreamTerminal, StructuredOutputSpec, ToolCall, ToolOutcome, ToolResult, ToolSpec, UsageValue,
+    ResponseDiagnostics, StreamTerminal, StructuredOutputSpec, ToolCall, ToolOutcome, ToolResult,
+    ToolSpec, UsageValue,
 };
 
 use super::*;
@@ -1190,7 +1192,11 @@ fn terminal_status_matrix_preserves_partial_failed_and_cancelled_responses() {
 
 #[test]
 fn early_error_and_eof_are_terminal_failures_not_success() {
-    let mut early_error = ResponsesStreamDecoder::new(scope(), model());
+    let mut early_error = ResponsesStreamDecoder::new(scope(), model()).with_response_diagnostics(
+        ResponseDiagnostics::default()
+            .with_status(200)
+            .with_retry_after(Duration::from_secs(2)),
+    );
     let events = early_error
         .decode(
             &json!({
@@ -1203,13 +1209,21 @@ fn early_error_and_eof_are_terminal_failures_not_success() {
             .to_string(),
         )
         .unwrap();
-    assert!(matches!(
-        events.as_slice(),
-        [LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+    let [
+        LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+            error,
             response: None,
-            ..
-        })]
-    ));
+        }),
+    ] = events.as_slice()
+    else {
+        panic!("expected one canonical failed terminal");
+    };
+    assert_eq!(error.kind(), ErrorKind::RateLimited);
+    assert_eq!(
+        error.diagnostics().and_then(|value| value.retry_after()),
+        Some(Duration::from_secs(2))
+    );
+    assert!(!format!("{error:?}").contains("provider detail"));
     assert!(early_error.decode("{}").is_err());
 
     let mut eof = ResponsesStreamDecoder::new(scope(), model());
@@ -1226,6 +1240,331 @@ fn early_error_and_eof_are_terminal_failures_not_success() {
     assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
     assert!(!eof.terminal_seen());
     assert!(eof.finish().is_err());
+}
+
+#[test]
+fn terminal_reconciliation_compares_function_calls_semantically() {
+    let mut matching = completed_function_decoder("{\"q\":\"tea\"}");
+    let events = matching
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "fc_reconcile",
+                "type": "function_call",
+                "status": "completed",
+                "call_id": "call_reconcile",
+                "name": "lookup",
+                "arguments": "{ \"q\": \"tea\" }",
+                "terminal_metadata": "preserved"
+            }]),
+        ))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().any(|part| matches!(
+                part,
+                ContentPart::ToolCall(call) if call.arguments() == &json!({"q": "tea"})
+            ))
+    ));
+
+    let mut caller_metadata = completed_function_decoder_with_caller(
+        "{\"q\":\"tea\"}",
+        Some(json!({
+            "type": "program",
+            "caller_id": "program_1",
+            "phase": "stream"
+        })),
+    );
+    caller_metadata
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "fc_reconcile",
+                "type": "function_call",
+                "status": "completed",
+                "call_id": "call_reconcile",
+                "name": "lookup",
+                "arguments": "{\"q\":\"tea\"}",
+                "caller": {
+                    "type": "program",
+                    "caller_id": "program_1",
+                    "phase": "terminal",
+                    "provider_metadata": true
+                }
+            }]),
+        ))
+        .unwrap();
+
+    let mut mismatching = completed_function_decoder("{\"q\":\"tea\"}");
+    let error = mismatching
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "fc_reconcile",
+                "type": "function_call",
+                "status": "completed",
+                "call_id": "call_reconcile",
+                "name": "lookup",
+                "arguments": "{\"q\":\"coffee\"}"
+            }]),
+        ))
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+}
+
+#[test]
+fn terminal_reconciliation_rejects_executable_identity_mutations() {
+    let base = json!({
+        "id": "fc_reconcile",
+        "type": "function_call",
+        "status": "completed",
+        "call_id": "call_reconcile",
+        "name": "lookup",
+        "arguments": "{\"q\":\"tea\"}"
+    });
+    let mut variants = Vec::new();
+    let mut changed_item_id = base.clone();
+    changed_item_id["id"] = json!("fc_changed");
+    variants.push(changed_item_id);
+    let mut changed_call_id = base.clone();
+    changed_call_id["call_id"] = json!("call_changed");
+    variants.push(changed_call_id);
+    let mut changed_name = base.clone();
+    changed_name["name"] = json!("other_tool");
+    variants.push(changed_name);
+    let mut changed_caller = base.clone();
+    changed_caller["caller"] = json!({"type": "program", "caller_id": "program_1"});
+    variants.push(changed_caller);
+    let mut changed_kind = base;
+    changed_kind["type"] = json!("custom_tool_call");
+    changed_kind["input"] = json!("{\"q\":\"tea\"}");
+    variants.push(changed_kind);
+
+    for terminal_item in variants {
+        let mut decoder = completed_function_decoder("{\"q\":\"tea\"}");
+        let error = decoder
+            .decode(&completed_function_response(3, json!([terminal_item])))
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Protocol);
+    }
+}
+
+#[test]
+fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot() {
+    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}");
+    let events = decoder
+        .decode(&completed_function_response(3, json!([])))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().any(|part| matches!(
+                part,
+                ContentPart::ToolCall(call) if call.id() == "call_reconcile"
+            ))
+    ));
+
+    let mut terminal_only = ResponsesStreamDecoder::new(scope(), model());
+    terminal_only
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let events = terminal_only
+        .decode(&completed_function_response(
+            1,
+            json!([{
+                "id": "fc_terminal_only",
+                "type": "function_call",
+                "status": "completed",
+                "call_id": "call_terminal_only",
+                "name": "lookup",
+                "arguments": "{\"q\":\"tea\"}"
+            }]),
+        ))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().any(|part| matches!(
+                part,
+                ContentPart::ToolCall(call) if call.id() == "call_terminal_only"
+            ))
+    ));
+}
+
+#[test]
+fn terminal_reconciliation_merges_a_function_omitted_before_a_retained_item() {
+    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}");
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 3,
+                "output_index": 1,
+                "item": {
+                    "id": "msg_after_call",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "in_progress",
+                    "content": []
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let terminal_message = json!({
+        "id": "msg_after_call",
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{
+            "type": "output_text",
+            "text": "done",
+            "annotations": []
+        }]
+    });
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.done",
+                "sequence_number": 4,
+                "output_index": 1,
+                "item": terminal_message.clone()
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let events = decoder
+        .decode(&completed_function_response(5, json!([terminal_message])))
+        .unwrap();
+    let Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })) = events.last()
+    else {
+        panic!("expected a completed terminal response");
+    };
+    let tool_index = response
+        .content()
+        .iter()
+        .position(
+            |part| matches!(part, ContentPart::ToolCall(call) if call.id() == "call_reconcile"),
+        )
+        .unwrap();
+    let text_index = response
+        .content()
+        .iter()
+        .position(|part| matches!(part, ContentPart::Text { text } if text == "done"))
+        .unwrap();
+    assert!(tool_index < text_index);
+}
+
+#[test]
+fn terminal_reconciliation_does_not_synthesize_provider_native_items() {
+    let mut decoder = completed_native_item_decoder(
+        json!({
+            "id": "future_1",
+            "type": "future_provider_tool_call",
+            "status": "in_progress",
+            "payload": {"phase": "stream"}
+        }),
+        json!({
+            "id": "future_1",
+            "type": "future_provider_tool_call",
+            "status": "completed",
+            "payload": {"phase": "stream"}
+        }),
+    );
+
+    let events = decoder
+        .decode(&completed_function_response(3, json!([])))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().is_empty()
+    ));
+}
+
+#[test]
+fn terminal_reconciliation_accepts_provider_native_metadata_changes() {
+    let mut decoder = completed_native_item_decoder(
+        json!({
+            "id": "future_1",
+            "type": "future_provider_tool_call",
+            "status": "in_progress",
+            "payload": {"phase": "stream"}
+        }),
+        json!({
+            "id": "future_1",
+            "type": "future_provider_tool_call",
+            "status": "completed",
+            "payload": {"phase": "stream"}
+        }),
+    );
+
+    let events = decoder
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "future_1",
+                "type": "future_provider_tool_call",
+                "status": "completed",
+                "payload": {"phase": "terminal", "provider_metadata": true}
+            }]),
+        ))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(
+            StreamTerminal::Completed { .. }
+        ))
+    ));
+}
+
+#[test]
+fn terminal_reconciliation_keeps_related_native_items_out_of_function_identity() {
+    let function = json!({
+        "id": "fc_reconcile",
+        "type": "function_call",
+        "status": "completed",
+        "call_id": "call_reconcile",
+        "name": "lookup",
+        "arguments": "{\"q\":\"tea\"}"
+    });
+    let related_output = json!({
+        "id": "fco_related",
+        "type": "function_call_output",
+        "status": "completed",
+        "call_id": "call_reconcile",
+        "output": "{\"result\":\"ok\"}"
+    });
+
+    let mut retained = completed_function_decoder("{\"q\":\"tea\"}");
+    retained
+        .decode(&completed_function_response(
+            3,
+            json!([function, related_output.clone()]),
+        ))
+        .unwrap();
+
+    let mut omitted = completed_function_decoder("{\"q\":\"tea\"}");
+    let events = omitted
+        .decode(&completed_function_response(3, json!([related_output])))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().any(|part| matches!(
+                part,
+                ContentPart::ToolCall(call) if call.id() == "call_reconcile"
+            ))
+    ));
 }
 
 #[test]
@@ -1311,6 +1650,126 @@ fn progress_response(status: &str) -> Value {
         "incomplete_details": null,
         "reasoning": null
     })
+}
+
+fn completed_function_decoder(arguments: &str) -> ResponsesStreamDecoder {
+    completed_function_decoder_with_caller(arguments, None)
+}
+
+fn completed_function_decoder_with_caller(
+    arguments: &str,
+    caller: Option<Value>,
+) -> ResponsesStreamDecoder {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let mut added = json!({
+        "id": "fc_reconcile",
+        "type": "function_call",
+        "status": "in_progress",
+        "call_id": "call_reconcile",
+        "name": "lookup",
+        "arguments": ""
+    });
+    let mut done = json!({
+        "id": "fc_reconcile",
+        "type": "function_call",
+        "status": "completed",
+        "call_id": "call_reconcile",
+        "name": "lookup",
+        "arguments": arguments
+    });
+    if let Some(caller) = caller {
+        added["caller"] = caller.clone();
+        done["caller"] = caller;
+    }
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 1,
+                "output_index": 0,
+                "item": added
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.done",
+                "sequence_number": 2,
+                "output_index": 0,
+                "item": done
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+}
+
+fn completed_native_item_decoder(added: Value, done: Value) -> ResponsesStreamDecoder {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 1,
+                "output_index": 0,
+                "item": added
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.done",
+                "sequence_number": 2,
+                "output_index": 0,
+                "item": done
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+}
+
+fn completed_function_response(sequence_number: u64, output: Value) -> String {
+    json!({
+        "type": "response.completed",
+        "sequence_number": sequence_number,
+        "response": {
+            "id": "resp_stream",
+            "created_at": 1785811200,
+            "model": "gpt-5.6",
+            "status": "completed",
+            "output": output,
+            "usage": null,
+            "error": null,
+            "incomplete_details": null,
+            "reasoning": null
+        }
+    })
+    .to_string()
 }
 
 #[test]

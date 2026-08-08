@@ -602,7 +602,7 @@ pub struct ResponseErrorWire {
     pub message: String,
     #[serde(default)]
     pub param: Option<String>,
-    #[serde(default)]
+    #[serde(rename = "type", default)]
     pub kind: Option<String>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,

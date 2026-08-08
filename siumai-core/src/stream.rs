@@ -7,7 +7,7 @@ use std::task::{Context, Poll};
 use futures::{FutureExt, Stream, StreamExt, pin_mut, select_biased};
 use thiserror::Error;
 
-use crate::error::{Error, ErrorKind};
+use crate::error::{Error, ErrorKind, ResponseDiagnostics};
 use crate::language::{Citation, LanguageResponse, LanguageResponseStatus, OpaqueProviderItem};
 use crate::options::Cancellation;
 use crate::provider::ModelId;
@@ -338,6 +338,12 @@ pub trait LanguageStreamDecoder {
     /// One transport-framed protocol value, such as SSE data, JSONL JSON, or a
     /// decoded WebSocket message.
     type ProtocolFrame: ?Sized;
+
+    /// Attach bounded transport diagnostics before the first protocol frame is decoded.
+    ///
+    /// Decoders use this context only when an established stream reports an in-band failure.
+    /// The default implementation ignores it for protocols that do not expose such failures.
+    fn set_response_diagnostics(&mut self, _diagnostics: ResponseDiagnostics) {}
 
     /// Consume one protocol frame and emit zero or more canonical events.
     fn decode(&mut self, frame: &Self::ProtocolFrame) -> Result<Vec<LanguageStreamEvent>, Error>;

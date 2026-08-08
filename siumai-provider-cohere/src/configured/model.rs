@@ -8,9 +8,8 @@ use siumai_core::{
     CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, Error,
     ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor, ModelFamily, ModelId,
     ModelOperation, ModelPolicy, ModelPolicyContext, ProviderOptionError, PublicDiagnosticText,
-    RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult, ResponseDiagnostics,
-    ResponseMetadata, SafeResponseHeaders, SensitiveResponse, SupportState, Usage, UsageValue,
-    Warning, WarningKind,
+    RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult, ResponseMetadata,
+    SensitiveResponse, SupportState, Usage, UsageValue, Warning, WarningKind,
 };
 use siumai_transport::{
     RequestBody, RequestBuildError, RequestHeaders, RequestPlan, RequestTarget, ResponseHeaders,
@@ -446,13 +445,9 @@ fn provider_status_error(response: TransportResponse) -> Error {
                 .map(|value| (name.to_string(), value.to_string()))
         })
         .collect::<BTreeMap<_, _>>();
-    let mut safe_headers = SafeResponseHeaders::default();
-    for (name, value) in &raw_headers {
-        let _ = safe_headers.try_insert(name, value.clone());
-    }
-    let mut diagnostics = ResponseDiagnostics::default()
+    let mut diagnostics = headers
+        .diagnostics()
         .with_status(status.as_u16())
-        .with_headers(safe_headers)
         .with_body_truncated(body.len() > ERROR_CAPTURE_BYTES);
     if let Some(request_id) = response_request_id(&headers)
         && let Ok(request_id) = PublicDiagnosticText::new(request_id)

@@ -2,11 +2,13 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
-    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, StreamTerminal,
+    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ExecutionOwner,
+    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, ResponseDiagnostics,
+    StreamTerminal,
 };
 
 use super::MessagesCodecError;
+use super::error::classify_stream_failure;
 use super::response::{
     StreamResponseParts, build_stream_response, decode_content_block, decode_refusal_reason,
 };
@@ -33,6 +35,7 @@ pub struct MessagesStreamDecoder {
     refusal_event_emitted: bool,
     active_blocks: BTreeMap<u64, ActiveBlock>,
     completed_blocks: BTreeMap<u64, Vec<ContentPart>>,
+    response_diagnostics: ResponseDiagnostics,
 }
 
 impl MessagesStreamDecoder {
@@ -52,14 +55,23 @@ impl MessagesStreamDecoder {
             refusal_event_emitted: false,
             active_blocks: BTreeMap::new(),
             completed_blocks: BTreeMap::new(),
+            response_diagnostics: ResponseDiagnostics::default(),
         }
+    }
+
+    pub fn with_response_diagnostics(mut self, diagnostics: ResponseDiagnostics) -> Self {
+        self.response_diagnostics = diagnostics;
+        self
     }
 
     fn decode_frame(&mut self, frame: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
         if frame.trim() == "[DONE]" {
             return Err(MessagesCodecError::UnexpectedEof.into());
         }
-        let event = serde_json::from_str::<StreamEventWire>(frame)
+        let envelope = serde_json::from_str::<Value>(frame)
+            .map_err(MessagesCodecError::JsonDecode)
+            .map_err(Error::from)?;
+        let event = serde_json::from_value::<StreamEventWire>(envelope.clone())
             .map_err(MessagesCodecError::JsonDecode)
             .map_err(Error::from)?;
         match event.kind.as_str() {
@@ -72,10 +84,8 @@ impl MessagesStreamDecoder {
             "ping" => Ok(Vec::new()),
             "error" => Ok(vec![LanguageStreamEvent::Terminal(
                 StreamTerminal::Failed {
-                    error: Error::new(
-                        ErrorKind::Provider,
-                        "Anthropic Messages stream reported a provider error",
-                    ),
+                    error: classify_stream_failure(&envelope, self.response_diagnostics.clone())
+                        .map_err(Error::from)?,
                     response: None,
                 },
             )]),
@@ -362,6 +372,10 @@ fn fallback_target_model(value: &Value) -> Result<Option<ModelId>, MessagesCodec
 
 impl LanguageStreamDecoder for MessagesStreamDecoder {
     type ProtocolFrame = str;
+
+    fn set_response_diagnostics(&mut self, diagnostics: ResponseDiagnostics) {
+        self.response_diagnostics = diagnostics;
+    }
 
     fn decode(&mut self, frame: &Self::ProtocolFrame) -> Result<Vec<LanguageStreamEvent>, Error> {
         self.lifecycle

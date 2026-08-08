@@ -10,9 +10,9 @@ use siumai_core::{
     LanguageRequest, LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelCatalog,
     ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId,
     ProfileError, ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile,
-    ProviderScope, ReplayDomain, StreamTerminal, SupportScope, TypedProviderOptions, Usage,
-    UsageValue, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
-    Warning,
+    ProviderScope, ReplayDomain, ResponseDiagnostics, StreamTerminal, SupportScope,
+    TypedProviderOptions, Usage, UsageValue, VerificationDate, VerificationEvidence,
+    VerifiedFidelity, VerifiedSupportClaim, Warning,
 };
 use siumai_openai_compatible::extension::{
     ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,
@@ -617,6 +617,10 @@ struct DeepSeekChatStreamDecoder {
 
 impl LanguageStreamDecoder for DeepSeekChatStreamDecoder {
     type ProtocolFrame = str;
+
+    fn set_response_diagnostics(&mut self, diagnostics: ResponseDiagnostics) {
+        self.inner.set_response_diagnostics(diagnostics);
+    }
 
     fn decode(&mut self, frame: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
         self.usage.merge(DeepSeekUsageDetails::from_frame(frame));

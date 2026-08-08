@@ -6,9 +6,11 @@ use serde_json::{Value, json};
 use siumai_core::{
     Citation, ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, Error, ErrorContext, ErrorKind,
     FinishReason, LanguageIncompleteReason, LanguageResponse, LanguageResponseStatus, ModelId,
-    OpaqueProviderItem, ProviderItemRelation, ProviderProvenance, ProviderScope, ToolCall, Usage,
-    Warning, WarningKind,
+    OpaqueProviderItem, ProviderItemRelation, ProviderProvenance, ProviderScope,
+    ResponseDiagnostics, ToolCall, Usage, Warning, WarningKind,
 };
+
+use crate::openai_error::classify_stream_error;
 
 use super::wire::{
     AnnotationWire, MessageItemWire, OutputContentPart, OutputItem, ResponseStatus,
@@ -510,18 +512,19 @@ pub(crate) fn failed_response_error(
     response: &ResponseWire,
     scope: &ProviderScope,
     requested_model: &ModelId,
+    diagnostics: ResponseDiagnostics,
 ) -> Error {
-    let mut error = Error::new(ErrorKind::Provider, "OpenAI Responses generation failed")
-        .with_context(error_context(scope, requested_model));
     if let Some(source) = &response.error {
-        error = error.with_source(NativeResponseFailure {
-            code: source.code.clone(),
-            kind: source.kind.clone(),
-            message: source.message.clone(),
-            param: source.param.clone(),
-        });
+        return classify_stream_error(
+            &json!({ "error": source }),
+            diagnostics,
+            "OpenAI Responses generation failed",
+        )
+        .with_context(error_context(scope, requested_model));
     }
-    error
+    Error::new(ErrorKind::Provider, "OpenAI Responses generation failed")
+        .with_diagnostics(diagnostics)
+        .with_context(error_context(scope, requested_model))
 }
 
 pub(crate) fn error_context(scope: &ProviderScope, requested_model: &ModelId) -> ErrorContext {
@@ -536,30 +539,3 @@ pub(crate) fn error_context(scope: &ProviderScope, requested_model: &ModelId) ->
 pub(crate) fn protocol_error(message: &'static str) -> Error {
     Error::new(ErrorKind::Protocol, message)
 }
-
-struct NativeResponseFailure {
-    code: Option<String>,
-    kind: Option<String>,
-    message: String,
-    param: Option<String>,
-}
-
-impl std::fmt::Debug for NativeResponseFailure {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("NativeResponseFailure")
-            .field("code", &self.code)
-            .field("kind", &self.kind)
-            .field("message_present", &!self.message.is_empty())
-            .field("param_present", &self.param.is_some())
-            .finish()
-    }
-}
-
-impl std::fmt::Display for NativeResponseFailure {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("native OpenAI Responses failure")
-    }
-}
-
-impl std::error::Error for NativeResponseFailure {}

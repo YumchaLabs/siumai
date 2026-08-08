@@ -717,7 +717,6 @@ async fn default_error_surfaces_redact_credentials_response_headers_and_body() {
         assert!(!surface.contains("canary-response-header"));
         assert!(!surface.contains("canary-response-body"));
     }
-    assert!(error.diagnostics().unwrap().headers().is_empty());
     assert!(error.sensitive_response().unwrap().expose().1.len() <= 4);
 }
 
@@ -926,7 +925,6 @@ async fn resource_default_total_timeout_and_error_capture_are_bounded() {
         assert!(!surface.contains("canary-resource-body"));
     }
     let diagnostics = status_error.diagnostics().unwrap();
-    assert!(diagnostics.headers().is_empty());
     assert!(diagnostics.body_truncated());
     assert_eq!(
         status_error.sensitive_response().unwrap().expose().1.len(),

@@ -93,11 +93,16 @@ facade feature must not activate unrelated providers, protocols, or job/session 
 Family calls return the canonical error type with operation/provider/model context, sanitized
 public diagnostics, retry hints, and bounded provider details where available. Credentials, signed
 URLs, raw headers, and unbounded response bodies never appear in ordinary `Debug` or display output.
+`ErrorKind::ContextWindowExceeded` and `ErrorKind::Unavailable` distinguish exact provider signals
+that callers commonly handle differently from invalid input or an unknown provider failure. A
+provider message is never inspected heuristically to infer either category.
 
 Language streaming begins only after the provider stream is established. The stream owns its
 transport resources and cancellation child; dropping it releases those resources. Consumers must
 observe a terminal completed, failed, or cancelled event. Protocol/server encoders reject events
-after terminal and do not manufacture success on unexpected EOF.
+after terminal and do not manufacture success on unexpected EOF. In-band provider errors are failed
+terminals carrying the same typed `Error` contract as setup failures; raw provider error JSON is not
+a second high-level failure channel.
 
 ## Documentation rule
 

@@ -2,7 +2,7 @@
 
 mod contract;
 pub use contract::{
-    DiagnosticHeaderError, DiagnosticTextError, Error, ErrorContext, ErrorDetail, ErrorKind,
-    PublicDiagnosticText, ResourceKind, ResponseDiagnostics, SafeResponseHeaders,
-    SensitiveErrorSource, SensitiveResponse,
+    DiagnosticTextError, Error, ErrorContext, ErrorDetail, ErrorKind, MAX_RETRY_AFTER_HINT,
+    PublicDiagnosticText, ResourceKind, ResponseDiagnostics, SensitiveErrorSource,
+    SensitiveResponse,
 };

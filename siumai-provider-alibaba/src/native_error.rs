@@ -3,10 +3,7 @@ use std::collections::BTreeMap;
 use http::StatusCode;
 use http::header::HeaderName;
 use serde::Deserialize;
-use siumai_core::{
-    Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders,
-    SensitiveResponse,
-};
+use siumai_core::{Error, ErrorKind, PublicDiagnosticText, SensitiveResponse};
 use siumai_transport::{ResponseHeaders, TransportResponse};
 
 const ERROR_CAPTURE_BYTES: usize = 64 * 1024;
@@ -35,14 +32,10 @@ pub(crate) fn provider_status_error(
                 .map(|value| (name.to_string(), value.to_string()))
         })
         .collect::<BTreeMap<_, _>>();
-    let mut safe_headers = SafeResponseHeaders::default();
-    for (name, value) in &raw_headers {
-        let _ = safe_headers.try_insert(name, value.clone());
-    }
     let error_body = serde_json::from_slice::<AlibabaErrorWire>(&body).ok();
-    let mut diagnostics = ResponseDiagnostics::default()
+    let mut diagnostics = headers
+        .diagnostics()
         .with_status(status.as_u16())
-        .with_headers(safe_headers)
         .with_body_truncated(body.len() > ERROR_CAPTURE_BYTES);
     if let Some(code) = error_body.as_ref().and_then(|error| error.code.as_deref())
         && let Ok(code) = PublicDiagnosticText::new(code)

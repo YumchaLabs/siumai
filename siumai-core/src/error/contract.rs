@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::provider::{ModelId, ModelOperation, ProviderId, RouteId};
 
-const MAX_DIAGNOSTIC_HEADERS: usize = 32;
-const MAX_DIAGNOSTIC_HEADER_VALUE_BYTES: usize = 1024;
 const MAX_PUBLIC_DIAGNOSTIC_TEXT_BYTES: usize = 4096;
+/// Largest provider-supplied retry delay retained in public diagnostics.
+pub const MAX_RETRY_AFTER_HINT: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Invalid text requested for a default logging or serialization surface.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -88,100 +88,6 @@ impl<'de> Deserialize<'de> for PublicDiagnosticText {
     }
 }
 
-/// Failure to add an unsafe or unbounded header to default diagnostics.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[non_exhaustive]
-pub enum DiagnosticHeaderError {
-    #[error("response header is not allowed in default diagnostics")]
-    UnsafeName,
-    #[error("response diagnostic header `{name}` contains unsafe control characters")]
-    UnsafeValue { name: String },
-    #[error("response diagnostic header `{name}` exceeds {maximum} bytes")]
-    ValueTooLong { name: String, maximum: usize },
-    #[error("response diagnostics exceed the {0}-header limit")]
-    TooMany(usize),
-}
-
-/// Bounded response headers that are safe on default diagnostic surfaces.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct SafeResponseHeaders(BTreeMap<String, String>);
-
-impl SafeResponseHeaders {
-    pub fn try_insert(
-        &mut self,
-        name: impl AsRef<str>,
-        value: impl Into<String>,
-    ) -> Result<(), DiagnosticHeaderError> {
-        let name = name.as_ref().trim().to_ascii_lowercase();
-        if !is_diagnostic_header_allowed(&name) {
-            return Err(DiagnosticHeaderError::UnsafeName);
-        }
-        let value = value.into();
-        if value
-            .chars()
-            .any(|character| character.is_control() && character != '\t')
-        {
-            return Err(DiagnosticHeaderError::UnsafeValue { name });
-        }
-        if value.len() > MAX_DIAGNOSTIC_HEADER_VALUE_BYTES {
-            return Err(DiagnosticHeaderError::ValueTooLong {
-                name,
-                maximum: MAX_DIAGNOSTIC_HEADER_VALUE_BYTES,
-            });
-        }
-        if !self.0.contains_key(&name) && self.0.len() >= MAX_DIAGNOSTIC_HEADERS {
-            return Err(DiagnosticHeaderError::TooMany(MAX_DIAGNOSTIC_HEADERS));
-        }
-        self.0.insert(name, value);
-        Ok(())
-    }
-
-    pub fn get(&self, name: &str) -> Option<&str> {
-        self.0.get(&name.to_ascii_lowercase()).map(String::as_str)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.0
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str()))
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl<'de> Deserialize<'de> for SafeResponseHeaders {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let headers = BTreeMap::<String, String>::deserialize(deserializer)?;
-        let mut safe = Self::default();
-        for (name, value) in headers {
-            safe.try_insert(name, value)
-                .map_err(serde::de::Error::custom)?;
-        }
-        Ok(safe)
-    }
-}
-
-fn is_diagnostic_header_allowed(name: &str) -> bool {
-    matches!(
-        name,
-        "content-type"
-            | "date"
-            | "request-id"
-            | "retry-after"
-            | "traceparent"
-            | "x-correlation-id"
-            | "x-request-id"
-    ) || name.starts_with("ratelimit-")
-        || name.starts_with("x-ratelimit-")
-        || name.starts_with("anthropic-ratelimit-")
-}
-
 /// Stable failure classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -193,7 +99,9 @@ pub enum ErrorKind {
     Unsupported,
     RateLimited,
     QuotaExceeded,
+    ContextWindowExceeded,
     Timeout,
+    Unavailable,
     Cancelled,
     Transport,
     Protocol,
@@ -261,8 +169,6 @@ pub struct ResponseDiagnostics {
         with = "duration_millis"
     )]
     retry_after: Option<Duration>,
-    #[serde(default, skip_serializing_if = "SafeResponseHeaders::is_empty")]
-    headers: SafeResponseHeaders,
     body_truncated: bool,
 }
 
@@ -297,10 +203,6 @@ impl ResponseDiagnostics {
         self.retry_after
     }
 
-    pub fn headers(&self) -> &SafeResponseHeaders {
-        &self.headers
-    }
-
     pub fn body_truncated(&self) -> bool {
         self.body_truncated
     }
@@ -331,12 +233,15 @@ impl ResponseDiagnostics {
     }
 
     pub fn with_retry_after(mut self, retry_after: Duration) -> Self {
-        self.retry_after = Some(retry_after);
+        if retry_after <= MAX_RETRY_AFTER_HINT {
+            self.retry_after = Some(retry_after);
+        }
         self
     }
 
-    pub fn with_headers(mut self, headers: SafeResponseHeaders) -> Self {
-        self.headers = headers;
+    /// Remove a retry hint when independent provider signals disagree.
+    pub fn without_retry_after(mut self) -> Self {
+        self.retry_after = None;
         self
     }
 
@@ -364,7 +269,13 @@ mod duration_millis {
     where
         D: Deserializer<'de>,
     {
-        Option::<u64>::deserialize(deserializer).map(|value| value.map(Duration::from_millis))
+        let value = Option::<u64>::deserialize(deserializer)?.map(Duration::from_millis);
+        if value.is_some_and(|duration| duration > super::MAX_RETRY_AFTER_HINT) {
+            return Err(serde::de::Error::custom(
+                "response retry hint exceeds the maximum duration",
+            ));
+        }
+        Ok(value)
     }
 }
 
@@ -690,11 +601,27 @@ mod tests {
         let diagnostics = ResponseDiagnostics::default()
             .with_provider_code(PublicDiagnosticText::new("invalid_parameter").unwrap())
             .with_provider_type(PublicDiagnosticText::new("invalid_request_error").unwrap())
-            .with_provider_param(PublicDiagnosticText::new("thinking.keep").unwrap());
+            .with_provider_param(PublicDiagnosticText::new("thinking.keep").unwrap())
+            .with_retry_after(Duration::from_secs(3));
 
         assert_eq!(diagnostics.provider_code(), Some("invalid_parameter"));
         assert_eq!(diagnostics.provider_type(), Some("invalid_request_error"));
         assert_eq!(diagnostics.provider_param(), Some("thinking.keep"));
+        assert_eq!(diagnostics.retry_after(), Some(Duration::from_secs(3)));
+        assert_eq!(
+            diagnostics
+                .clone()
+                .with_retry_after(MAX_RETRY_AFTER_HINT + Duration::from_secs(1))
+                .retry_after(),
+            Some(Duration::from_secs(3))
+        );
+        assert_eq!(diagnostics.without_retry_after().retry_after(), None);
+        assert!(
+            serde_json::from_value::<ResponseDiagnostics>(serde_json::json!({
+                "retry_after": (MAX_RETRY_AFTER_HINT + Duration::from_secs(1)).as_millis()
+            }))
+            .is_err()
+        );
     }
 
     #[test]
@@ -744,19 +671,6 @@ mod tests {
         assert_eq!(headers.len(), 1);
         assert_eq!(headers["first"], "long");
         assert!(response.was_truncated());
-    }
-
-    #[test]
-    fn diagnostic_headers_reject_secrets_and_log_injection() {
-        let mut headers = SafeResponseHeaders::default();
-        headers.try_insert("x-request-id", "request-1").unwrap();
-        assert_eq!(headers.get("X-Request-Id"), Some("request-1"));
-        assert!(headers.try_insert("authorization", "secret").is_err());
-        assert!(headers.try_insert("set-cookie", "secret").is_err());
-        assert!(headers.try_insert("x-request-id", "ok\nsecret").is_err());
-        assert!(
-            serde_json::from_str::<SafeResponseHeaders>(r#"{"authorization":"secret"}"#).is_err()
-        );
     }
 
     #[test]

@@ -10,9 +10,9 @@ use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor,
     ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision, ProviderOptionError,
-    PublicDiagnosticText, ResponseDiagnostics, ResponseMetadata, SafeResponseHeaders,
-    SensitiveResponse, SupportState, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
-    TranscriptionRequest, TranscriptionResponse, Usage, Warning, WarningKind,
+    PublicDiagnosticText, ResponseMetadata, SensitiveResponse, SupportState, TranscriptSegment,
+    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse, Usage,
+    Warning, WarningKind,
 };
 use siumai_transport::{
     ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan, RequestTarget,
@@ -416,7 +416,6 @@ fn request_build_error(source: RequestBuildError) -> Error {
 fn provider_response_error(response: TransportResponse) -> Error {
     let (status, headers, body) = response.into_parts();
     let parsed = serde_json::from_slice::<DeepgramErrorResponse>(&body).ok();
-    let safe_headers = safe_response_headers(&headers);
     let request_id = parsed
         .as_ref()
         .and_then(DeepgramErrorResponse::request_id)
@@ -428,9 +427,9 @@ fn provider_response_error(response: TransportResponse) -> Error {
     let provider_type = parsed
         .as_ref()
         .and_then(DeepgramErrorResponse::provider_type);
-    let mut diagnostics = ResponseDiagnostics::default()
+    let mut diagnostics = headers
+        .diagnostics()
         .with_status(status.as_u16())
-        .with_headers(safe_headers)
         .with_body_truncated(body.len() > SENSITIVE_BODY_LIMIT);
     if let Some(value) = request_id.and_then(public_text) {
         diagnostics = diagnostics.with_request_id(value);
@@ -532,16 +531,6 @@ fn status_error_kind(status: StatusCode) -> ErrorKind {
         StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => ErrorKind::Timeout,
         _ => ErrorKind::Provider,
     }
-}
-
-fn safe_response_headers(headers: &ResponseHeaders) -> SafeResponseHeaders {
-    let mut safe = SafeResponseHeaders::default();
-    for (name, value) in headers.expose() {
-        if let Ok(value) = value.to_str() {
-            let _ = safe.try_insert(name.as_str(), value.to_string());
-        }
-    }
-    safe
 }
 
 fn response_request_id(headers: &ResponseHeaders) -> Option<String> {

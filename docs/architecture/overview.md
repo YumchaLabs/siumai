@@ -151,6 +151,18 @@ to a shared protocol engine.
 Stable language streams use one canonical event vocabulary and exactly one terminal outcome:
 completed, failed, or cancelled. Protocol decoders own framing-specific state, reject unexpected
 EOF, preserve known-zero versus unknown usage, and never infer success from a clean transport close.
+Failures reported inside an established provider stream use the failed terminal rather than a
+second raw error-event lane. Protocol decoders classify only explicit, bounded wire identifiers;
+transport passes bounded response diagnostics and retry hints into the decoder before body
+consumption. Provider messages and raw envelopes remain available only through explicitly accessed,
+bounded sensitive diagnostics.
+
+When an executable item appears in both stable stream events and the terminal response, both views
+must agree on item kind, identity, ownership, tool name, and normalized JSON input. A protocol may
+merge a completed stable-only caller-executable function call when its terminal format permits
+omission, and may accept a terminal-only item without inventing a retroactive event. Provider-native
+items remain terminal-owned, and provider-only metadata does not participate in portable semantic
+equality.
 
 Opaque provider items retain provenance for same-protocol continuation. Cross-protocol projection
 may emit only portable content and must reject or report loss instead of silently reinterpreting

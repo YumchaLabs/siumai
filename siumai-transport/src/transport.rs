@@ -15,8 +15,8 @@ use http::{Method, StatusCode};
 use reqwest::dns::{Addrs, Name, Resolve as ReqwestResolve, Resolving};
 use reqwest::redirect;
 use siumai_core::{
-    CallOptions, Cancellation, Error, ErrorKind, ResponseDiagnostics, RetryIntent,
-    SensitiveResponse,
+    CallOptions, Cancellation, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics,
+    RetryIntent, SensitiveResponse,
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -753,6 +753,36 @@ impl ResponseHeaders {
     pub fn get(&self, name: &HeaderName) -> Option<&HeaderValue> {
         self.0.get(name)
     }
+
+    /// Build the bounded diagnostic context that may accompany an in-band stream failure.
+    pub fn diagnostics(&self) -> ResponseDiagnostics {
+        let request_id = self
+            .0
+            .get("x-request-id")
+            .or_else(|| self.0.get("request-id"))
+            .and_then(public_response_identifier);
+        let mut diagnostics = ResponseDiagnostics::default();
+        if let Some(request_id) = request_id {
+            diagnostics = diagnostics.with_request_id(request_id);
+        }
+        if let Some(retry_after) = retry_after(&self.0) {
+            diagnostics = diagnostics.with_retry_after(retry_after);
+        }
+        diagnostics
+    }
+}
+
+fn public_response_identifier(value: &HeaderValue) -> Option<PublicDiagnosticText> {
+    let value = value.to_str().ok()?;
+    if value.is_empty()
+        || value.len() > 256
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        return None;
+    }
+    PublicDiagnosticText::new(value.to_owned()).ok()
 }
 
 impl fmt::Debug for ResponseHeaders {
@@ -1148,8 +1178,26 @@ mod retry_after_tests {
             HeaderName::from_static("x-canary-header-name"),
             HeaderValue::from_static("canary-header-value"),
         );
+        headers.insert(RETRY_AFTER, HeaderValue::from_static("3"));
+        headers.insert(
+            HeaderName::from_static("x-request-id"),
+            HeaderValue::from_static("request-1"),
+        );
+        headers.insert(
+            HeaderName::from_static("x-ratelimit-api-key"),
+            HeaderValue::from_static("sentinel-secret"),
+        );
         let headers = ResponseHeaders::checked(headers, &TransportLimits::default()).unwrap();
         assert!(!format!("{headers:?}").contains("canary"));
+        let diagnostics = headers.diagnostics();
+        assert_eq!(diagnostics.retry_after(), Some(Duration::from_secs(3)));
+        assert_eq!(diagnostics.request_id(), Some("request-1"));
+        assert!(!format!("{diagnostics:?}").contains("sentinel-secret"));
+        assert!(
+            !serde_json::to_string(&diagnostics)
+                .unwrap()
+                .contains("sentinel-secret")
+        );
     }
 }
 

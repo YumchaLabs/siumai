@@ -1,14 +1,10 @@
 use std::collections::BTreeSet;
-use std::time::Duration;
 
 use bytes::Bytes;
-use http::header::{ACCEPT, HeaderName, HeaderValue, RETRY_AFTER};
+use http::header::{ACCEPT, HeaderName, HeaderValue};
 use http::{Method, StatusCode};
 use serde::{Deserialize, de::DeserializeOwned};
-use siumai_core::{
-    CallOptions, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders,
-    SensitiveResponse,
-};
+use siumai_core::{CallOptions, Error, ErrorKind, PublicDiagnosticText, SensitiveResponse};
 use siumai_transport::{
     MultipartBody, ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget,
     ResponseHeaders, TransportResponse,
@@ -165,19 +161,10 @@ fn resource_status_error(status: StatusCode, headers: ResponseHeaders, body: Byt
         status,
         provider_type.as_ref().map(PublicDiagnosticText::as_str),
     );
-    let request_id = response_header_text(&headers, "request-id")
-        .or_else(|| response_header_text(&headers, "x-request-id"))
-        .or_else(|| {
-            envelope
-                .as_ref()
-                .and_then(|envelope| envelope.request_id.as_deref())
-                .and_then(public_provider_identifier)
-        });
-    let retry_after = headers
-        .get(&RETRY_AFTER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_secs);
+    let body_request_id = envelope
+        .as_ref()
+        .and_then(|envelope| envelope.request_id.as_deref())
+        .and_then(public_provider_identifier);
     let raw_headers = headers
         .expose()
         .iter()
@@ -189,18 +176,17 @@ fn resource_status_error(status: StatusCode, headers: ResponseHeaders, body: Byt
         })
         .collect();
     let sensitive = SensitiveResponse::new(raw_headers, body.to_vec());
-    let mut diagnostics = ResponseDiagnostics::default()
+    let mut diagnostics = headers
+        .diagnostics()
         .with_status(status.as_u16())
-        .with_headers(safe_response_headers(&headers))
         .with_body_truncated(sensitive.was_truncated());
     if let Some(provider_type) = provider_type {
         diagnostics = diagnostics.with_provider_type(provider_type);
     }
-    if let Some(request_id) = request_id {
+    if diagnostics.request_id().is_none()
+        && let Some(request_id) = body_request_id
+    {
         diagnostics = diagnostics.with_request_id(request_id);
-    }
-    if let Some(retry_after) = retry_after {
-        diagnostics = diagnostics.with_retry_after(retry_after);
     }
     Error::new(kind, "Anthropic resource request was rejected")
         .with_diagnostics(diagnostics)
@@ -210,20 +196,24 @@ fn resource_status_error(status: StatusCode, headers: ResponseHeaders, body: Byt
 fn classify_http_error(status: StatusCode, provider_type: Option<&str>) -> ErrorKind {
     match provider_type {
         Some("authentication_error") => return ErrorKind::Authentication,
+        Some("billing_error") => return ErrorKind::QuotaExceeded,
         Some("permission_error") => return ErrorKind::Authorization,
         Some("rate_limit_error") => return ErrorKind::RateLimited,
-        Some("invalid_request_error") => return ErrorKind::InvalidInput,
-        Some("overloaded_error") => return ErrorKind::Provider,
+        Some("invalid_request_error" | "not_found_error") => return ErrorKind::InvalidInput,
+        Some("request_too_large") => return ErrorKind::LimitExceeded,
+        Some("timeout_error") => return ErrorKind::Timeout,
+        Some("api_error" | "overloaded_error") => return ErrorKind::Unavailable,
         _ => {}
     }
     match status.as_u16() {
         400 | 404 | 405 | 409 | 422 => ErrorKind::InvalidInput,
         401 => ErrorKind::Authentication,
+        402 => ErrorKind::QuotaExceeded,
         403 => ErrorKind::Authorization,
         408 | 504 => ErrorKind::Timeout,
         413 => ErrorKind::LimitExceeded,
         429 => ErrorKind::RateLimited,
-        500..=599 => ErrorKind::Provider,
+        500..=599 => ErrorKind::Unavailable,
         _ => ErrorKind::Provider,
     }
 }
@@ -238,25 +228,4 @@ fn public_provider_identifier(value: &str) -> Option<PublicDiagnosticText> {
         return None;
     }
     PublicDiagnosticText::new(value.to_string()).ok()
-}
-
-fn response_header_text(
-    headers: &ResponseHeaders,
-    name: &'static str,
-) -> Option<PublicDiagnosticText> {
-    headers
-        .expose()
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| PublicDiagnosticText::new(value.to_string()).ok())
-}
-
-fn safe_response_headers(headers: &ResponseHeaders) -> SafeResponseHeaders {
-    let mut safe = SafeResponseHeaders::default();
-    for (name, value) in headers.expose() {
-        if let Ok(value) = value.to_str() {
-            let _ = safe.try_insert(name.as_str(), value.to_string());
-        }
-    }
-    safe
 }

@@ -102,6 +102,32 @@ let options = CallOptions::default().with_provider_options(minimax);
 Do not move credentials, endpoints, authorization headers, or transport policy into provider
 options. The provider builder owns those settings.
 
+## Stream failures and terminal parity
+
+An established language stream now settles exactly once through `StreamTerminal`. Provider errors
+delivered over a successful HTTP SSE response appear as `StreamTerminal::Failed { error, .. }` with
+the canonical `Error` contract. Applications should match `ErrorKind` and inspect bounded
+`ResponseDiagnostics`; they should not parse provider messages or arbitrary error JSON. Exact
+context-window and temporary-unavailability signals use the new
+`ErrorKind::ContextWindowExceeded` and `ErrorKind::Unavailable` variants. Raw provider envelopes are
+available only through the explicitly sensitive error accessor.
+
+`SafeResponseHeaders`, `DiagnosticHeaderError`, `ResponseDiagnostics::headers`, and
+`ResponseDiagnostics::with_headers` were removed. Header names cannot prove that provider-controlled
+values are safe for default logs or serialization. Use the typed status, request ID, retry delay,
+provider code/type/parameter, and truncation fields instead; raw headers remain available only from
+the explicitly sensitive response accessor.
+
+Chat Completions retains a trailing usage-only chunk before publishing its terminal response.
+Responses streams compare an executable item shared by stable and terminal views using canonical
+JSON semantics, and reject changes to its call ID, name, caller, or tool kind. Consumers no longer
+need to normalize encoded tool-argument strings or reconcile disagreeing executable snapshots.
+
+Custom compatibility decoders that wrap another `LanguageStreamDecoder` should forward
+`set_response_diagnostics` to the inner decoder. The method has a default implementation for
+source compatibility, but forwarding is required to retain the validated request ID and
+`Retry-After` hint on in-band failures.
+
 ## Canonical messages and tool calls
 
 The portable language boundary now validates request direction and tool execution ownership. Prefer

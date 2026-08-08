@@ -358,15 +358,17 @@ the current branch changes the implementation priority:
   may be replayed is decided by transport/provider policy from submission state and idempotency, not
   by `ErrorKind`. Protocol baseline classification is shared only within a verified dialect; branded
   profiles may add a narrow code-mapping policy without teaching Core every vendor catalog. Stream
-  providers retain sanitized response headers through `TransportStreamResponse::into_parts()` so a
-  valid header retry hint is available before the body decoder owns the stream.
+  providers retain the redacted header boundary through `TransportStreamResponse::into_parts()` so
+  a validated request ID and retry hint are available before the body decoder owns the stream; raw
+  headers never enter public diagnostics.
 - **KTD6 — Compare three semantic views, not wire snapshots.** Direct projection, stable stream
   events, and terminal stream response use one semantic normalizer. When both stable and terminal
-  views contain an executable item they must match; a stable-only item is merged into a terminal
-  snapshot when the protocol permits it, and a terminal-only item is accepted without inventing a
-  retroactive stable event. Portable/replay-critical fields participate in equality; provider-only
-  metadata may differ. This avoids brittle byte-for-byte comparison without allowing a provider to
-  change the call an agent executes.
+  views contain an executable item they must match; a stable-only caller-executable function call is
+  merged into a terminal snapshot when the protocol permits it, while provider-native items remain
+  terminal-owned. A terminal-only item is accepted without inventing a retroactive stable event.
+  Portable/replay-critical fields participate in equality; provider-only metadata may differ. This
+  avoids brittle byte-for-byte comparison without allowing a provider to change the call an agent
+  executes.
 - **KTD7 — Rename the production Responses module now.** Move
   `siumai_protocol_openai::responses_next` to `responses`, delete the old public alias, and migrate all
   providers in one mechanical boundary before adding more Responses consumers.
@@ -740,10 +742,11 @@ sequenceDiagram
     protocol-declared `code`, `type`, `error_code`, and `status` fields. String status is valid only
     as exactly three ASCII digits; numeric status must be a valid HTTP status. Context-window
     classification requires an exact code/type and never message guessing. Retry delay comes only
-    from a valid explicit field or header. Stream providers preserve sanitized response headers with
-    `TransportStreamResponse::into_parts()` and pass only a prevalidated retry hint into the protocol
-    classifier before the body stream is consumed. Unknown values remain provider failures with
-    sanitized identifiers.
+    from a valid explicit field or header. Stream providers use
+    `TransportStreamResponse::into_parts()` and pass only a validated request ID and prevalidated
+    retry hint into the protocol classifier before the body stream is consumed. Raw response
+    headers remain sensitive diagnostics; header names or prefixes do not make their values safe for
+    default logs. Unknown values remain provider failures with sanitized identifiers.
   - Bound classifier recursion depth, visited nodes, identifier bytes, and total inspected text.
     Preserve the complete bounded envelope only in sensitive diagnostics; public messages are static
     and safe.
@@ -751,9 +754,10 @@ sequenceDiagram
     provider detail only as sensitive source material.
   - Extend Responses terminal validation from item ID/kind to executable call ID, name, owner, tool
     kind, and normalized input. Preserve documented terminal-only metadata.
-  - Use one semantic projector for direct and stream results. Merge a stable-only executable item
-    into the terminal snapshot only where the protocol allows omission; accept a terminal-only item
-    without inventing a retroactive stable event; require equality whenever both views contain it.
+  - Use one semantic projector for direct and stream results. Merge a stable-only caller-executable
+    function call into the terminal snapshot only where the protocol allows omission; keep
+    provider-native items terminal-owned; accept a terminal-only item without inventing a
+    retroactive stable event; require equality whenever both executable views contain it.
   - Retain exactly-once terminal behavior and trailing Chat usage. Add no second error lane.
 - **Test scenarios:**
   - One OpenAI Chat and one Responses HTTP-200 rate/concurrency error fixture settle as typed failures;

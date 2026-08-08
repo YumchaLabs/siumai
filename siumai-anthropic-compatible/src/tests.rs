@@ -821,7 +821,6 @@ async fn post_is_not_replayed_and_http_diagnostics_are_sanitized() {
     assert_eq!(diagnostics.status(), Some(429));
     assert_eq!(diagnostics.request_id(), Some("request-safe"));
     assert_eq!(diagnostics.provider_type(), Some("rate_limit_error"));
-    assert!(diagnostics.headers().get("set-cookie").is_none());
     let public = format!("{error:?} {error}");
     assert!(!public.contains("private-body-canary"));
     assert!(!public.contains("secret-cookie-canary"));

@@ -5,8 +5,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 use siumai_core::{
     DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
-    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, StreamTerminal, ToolCall,
+    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, ResponseDiagnostics,
+    StreamTerminal, ToolCall,
 };
+
+use crate::openai_error::classify_stream_error;
 
 use super::OPENAI_RESPONSES_OPAQUE_KIND;
 use super::response::{
@@ -42,6 +45,7 @@ pub struct ResponsesStreamDecoder {
     emitted_refusals: BTreeSet<String>,
     emitted_citations: BTreeSet<String>,
     terminal_native: Option<ResponseWire>,
+    response_diagnostics: ResponseDiagnostics,
 }
 
 impl std::fmt::Debug for ResponsesStreamDecoder {
@@ -88,7 +92,13 @@ impl ResponsesStreamDecoder {
             emitted_refusals: BTreeSet::new(),
             emitted_citations: BTreeSet::new(),
             terminal_native: None,
+            response_diagnostics: ResponseDiagnostics::default(),
         }
+    }
+
+    pub fn with_response_diagnostics(mut self, diagnostics: ResponseDiagnostics) -> Self {
+        self.response_diagnostics = diagnostics;
+        self
     }
 
     pub fn decode(&mut self, data: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
@@ -728,7 +738,7 @@ impl ResponsesStreamDecoder {
         &mut self,
         event: &StreamEventWire,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let native = decode_event_response(event)?.ok_or_else(|| {
+        let mut native = decode_event_response(event)?.ok_or_else(|| {
             protocol_error("OpenAI Responses terminal event omitted its response")
         })?;
         let expected = match event.kind.as_str() {
@@ -743,7 +753,7 @@ impl ResponsesStreamDecoder {
                 "OpenAI Responses terminal event disagreed with response status",
             ));
         }
-        self.validate_terminal_items(&native)?;
+        self.reconcile_terminal_items(&mut native)?;
         let mut events = self.observe_identity(&native)?;
         let decoded = decode_response_wire(native.clone(), &self.scope, &self.requested_model)?;
         if let Some(usage) = &native.usage {
@@ -759,7 +769,12 @@ impl ResponsesStreamDecoder {
                 response: Some(Box::new(canonical)),
             },
             ResponseStatus::Failed => StreamTerminal::Failed {
-                error: failed_response_error(&native, &self.scope, &self.requested_model),
+                error: failed_response_error(
+                    &native,
+                    &self.scope,
+                    &self.requested_model,
+                    self.response_diagnostics.clone(),
+                ),
                 response: Some(Box::new(canonical)),
             },
             ResponseStatus::Queued | ResponseStatus::InProgress | ResponseStatus::Other(_) => {
@@ -774,23 +789,24 @@ impl ResponsesStreamDecoder {
     }
 
     fn error_event(&mut self, event: &StreamEventWire) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let wire = if let Some(error) = event.field("error") {
-            serde_json::from_value::<ResponseErrorWire>(error.clone())
+        let envelope = encode_event_value(event)?;
+        let error = if let Some(error) = event.field("error") {
+            error.clone()
         } else {
-            serde_json::from_value::<ResponseErrorWire>(encode_event_value(event)?)
-        }
-        .map_err(|source| {
+            envelope.clone()
+        };
+        serde_json::from_value::<ResponseErrorWire>(error).map_err(|source| {
             Error::new(
                 ErrorKind::Protocol,
                 "OpenAI Responses error event was malformed",
             )
             .with_source(source)
         })?;
-        let error = Error::new(
-            ErrorKind::Provider,
+        let error = classify_stream_error(
+            &envelope,
+            self.response_diagnostics.clone(),
             "OpenAI emitted an error after establishing the Responses stream",
-        )
-        .with_source(NativeStreamFailure(wire));
+        );
         Ok(vec![LanguageStreamEvent::Terminal(
             StreamTerminal::Failed {
                 error,
@@ -851,25 +867,35 @@ impl ResponsesStreamDecoder {
         }
     }
 
-    fn validate_terminal_items(&self, response: &ResponseWire) -> Result<(), Error> {
-        for (index, streamed) in &self.items {
-            let index = usize::try_from(*index).map_err(|_| {
-                protocol_error("OpenAI Responses output index exceeded the platform limit")
-            })?;
-            let terminal = response.output.get(index).ok_or_else(|| {
-                protocol_error("OpenAI terminal response omitted a streamed output item")
-            })?;
-            if streamed.id() != terminal.id() || streamed.kind() != terminal.kind() {
-                return Err(protocol_error(
-                    "OpenAI terminal response changed a streamed output item identity",
-                ));
+    fn reconcile_terminal_items(&self, response: &mut ResponseWire) -> Result<(), Error> {
+        let mut missing_functions = Vec::new();
+        for (output_index, streamed) in &self.items {
+            if let Some(index) = terminal_item_index(&response.output, streamed)? {
+                let terminal = &response.output[index];
+                compare_terminal_item(
+                    streamed,
+                    terminal,
+                    self.completed_items.contains(output_index),
+                )?;
+            } else if self.completed_items.contains(output_index)
+                && matches!(streamed, OutputItem::FunctionCall(_))
+            {
+                missing_functions.push((*output_index, streamed.clone()));
             }
         }
-        if matches!(
-            &response.status,
-            ResponseStatus::Completed | ResponseStatus::Incomplete
-        ) && (self.completed_items.len() != self.items.len()
-            || response.output.len() != self.items.len())
+        for (output_index, function) in missing_functions {
+            let insert_at = response
+                .output
+                .iter()
+                .position(|terminal| {
+                    self.streamed_output_index(terminal)
+                        .is_some_and(|terminal_index| terminal_index > output_index)
+                })
+                .unwrap_or(response.output.len());
+            response.output.insert(insert_at, function);
+        }
+        if matches!(&response.status, ResponseStatus::Completed)
+            && self.completed_items.len() != self.items.len()
         {
             return Err(protocol_error(
                 "OpenAI terminal response arrived before all output items completed",
@@ -877,6 +903,117 @@ impl ResponsesStreamDecoder {
         }
         Ok(())
     }
+
+    fn streamed_output_index(&self, terminal: &OutputItem) -> Option<u64> {
+        terminal
+            .id()
+            .and_then(|item_id| self.item_indices.get(item_id).copied())
+            .or_else(|| {
+                let OutputItem::FunctionCall(terminal) = terminal else {
+                    return None;
+                };
+                self.items.iter().find_map(|(output_index, streamed)| {
+                    let OutputItem::FunctionCall(streamed) = streamed else {
+                        return None;
+                    };
+                    (streamed.call_id == terminal.call_id).then_some(*output_index)
+                })
+            })
+    }
+}
+
+fn terminal_item_index(
+    terminal: &[OutputItem],
+    streamed: &OutputItem,
+) -> Result<Option<usize>, Error> {
+    let streamed_id = streamed.id();
+    let streamed_call_id = matches!(streamed, OutputItem::FunctionCall(_))
+        .then(|| streamed.call_id())
+        .flatten();
+    let mut matches = terminal.iter().enumerate().filter_map(|(index, terminal)| {
+        let same_item_id = streamed_id.is_some() && streamed_id == terminal.id();
+        let same_call_id = matches!(terminal, OutputItem::FunctionCall(_))
+            && streamed_call_id.is_some()
+            && streamed_call_id == terminal.call_id();
+        (same_item_id || same_call_id).then_some(index)
+    });
+    let first = matches.next();
+    if matches.next().is_some() {
+        return Err(protocol_error(
+            "OpenAI terminal response duplicated a streamed output identity",
+        ));
+    }
+    Ok(first)
+}
+
+fn compare_terminal_item(
+    streamed: &OutputItem,
+    terminal: &OutputItem,
+    compare_semantics: bool,
+) -> Result<(), Error> {
+    if streamed.id() != terminal.id() || streamed.kind() != terminal.kind() {
+        return Err(protocol_error(
+            "OpenAI terminal response changed a streamed output item identity",
+        ));
+    }
+    if compare_semantics
+        && matches!(streamed, OutputItem::FunctionCall(_))
+        && !function_calls_semantically_equal(streamed, terminal)?
+    {
+        return Err(protocol_error(
+            "OpenAI terminal response changed completed streamed output semantics",
+        ));
+    }
+    Ok(())
+}
+
+fn function_calls_semantically_equal(
+    streamed: &OutputItem,
+    terminal: &OutputItem,
+) -> Result<bool, Error> {
+    match (streamed, terminal) {
+        (OutputItem::FunctionCall(streamed), OutputItem::FunctionCall(terminal)) => Ok(streamed
+            .call_id
+            == terminal.call_id
+            && streamed.name == terminal.name
+            && streamed.namespace == terminal.namespace
+            && tool_callers_semantically_equal(streamed.caller.as_ref(), terminal.caller.as_ref())
+            && function_arguments_equal(&streamed.arguments, &terminal.arguments)?),
+        _ => Ok(false),
+    }
+}
+
+fn tool_callers_semantically_equal(
+    streamed: Option<&super::wire::ToolCallerWire>,
+    terminal: Option<&super::wire::ToolCallerWire>,
+) -> bool {
+    match (streamed, terminal) {
+        (None, None) => true,
+        (Some(streamed), Some(terminal)) => {
+            streamed.kind == terminal.kind && streamed.caller_id == terminal.caller_id
+        }
+        _ => false,
+    }
+}
+
+fn function_arguments_equal(streamed: &str, terminal: &str) -> Result<bool, Error> {
+    ensure_tool_input_limit(streamed)?;
+    ensure_tool_input_limit(terminal)?;
+    let streamed = serde_json::from_str::<Value>(streamed).map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "OpenAI streamed function call ended with malformed JSON arguments",
+        )
+        .with_source(source)
+    })?;
+    let terminal = serde_json::from_str::<Value>(terminal).map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "OpenAI terminal function call contained malformed JSON arguments",
+        )
+        .with_source(source)
+    })?;
+    Ok(streamed == terminal)
 }
 
 fn ensure_tool_input_limit(input: &str) -> Result<(), Error> {
@@ -906,6 +1043,10 @@ fn append_tool_input(buffer: &mut String, delta: &str) -> Result<(), Error> {
 
 impl LanguageStreamDecoder for ResponsesStreamDecoder {
     type ProtocolFrame = str;
+
+    fn set_response_diagnostics(&mut self, diagnostics: ResponseDiagnostics) {
+        self.response_diagnostics = diagnostics;
+    }
 
     fn decode(&mut self, frame: &Self::ProtocolFrame) -> Result<Vec<LanguageStreamEvent>, Error> {
         self.lifecycle
@@ -981,25 +1122,3 @@ fn encode_event_value(event: &StreamEventWire) -> Result<Value, Error> {
 fn content_id(item_id: &str, lane: &str, index: u64) -> String {
     format!("{item_id}:{lane}:{index}")
 }
-
-struct NativeStreamFailure(ResponseErrorWire);
-
-impl std::fmt::Debug for NativeStreamFailure {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("NativeStreamFailure")
-            .field("code", &self.0.code)
-            .field("kind", &self.0.kind)
-            .field("message_present", &!self.0.message.is_empty())
-            .field("param_present", &self.0.param.is_some())
-            .finish()
-    }
-}
-
-impl std::fmt::Display for NativeStreamFailure {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("native OpenAI Responses stream failure")
-    }
-}
-
-impl std::error::Error for NativeStreamFailure {}

@@ -5,8 +5,7 @@ use http::header::{ACCEPT, HeaderValue, RETRY_AFTER};
 use http::{Method, StatusCode};
 use serde::{Deserialize, de::DeserializeOwned};
 use siumai_core::{
-    CallOptions, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics, SafeResponseHeaders,
-    SensitiveResponse,
+    CallOptions, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics, SensitiveResponse,
 };
 use siumai_transport::{
     MultipartBody, ProviderTransport, ReplaySafety, RequestBody, RequestHeaders, RequestPlan,
@@ -259,7 +258,6 @@ fn attach_response(
         .cloned()
         .unwrap_or_default()
         .with_status(status.as_u16())
-        .with_headers(safe_response_headers(headers))
         .with_body_truncated(sensitive.was_truncated());
     if let Some(request_id) = response_header_text(headers, "request-id")
         .or_else(|| response_header_text(headers, "x-request-id"))
@@ -295,16 +293,6 @@ fn response_header_text(
         .get(name)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| PublicDiagnosticText::new(value.to_string()).ok())
-}
-
-fn safe_response_headers(headers: &ResponseHeaders) -> SafeResponseHeaders {
-    let mut safe = SafeResponseHeaders::default();
-    for (name, value) in headers.expose() {
-        if let Ok(value) = value.to_str() {
-            let _ = safe.try_insert(name.as_str(), value.to_string());
-        }
-    }
-    safe
 }
 
 #[cfg(test)]

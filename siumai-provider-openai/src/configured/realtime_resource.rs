@@ -316,7 +316,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert_eq!(error.kind(), ErrorKind::Provider);
+        assert_eq!(error.kind(), ErrorKind::Unavailable);
         assert_eq!(
             error
                 .context()

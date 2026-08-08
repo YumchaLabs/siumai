@@ -4,8 +4,10 @@ use serde_json::Value;
 use siumai_core::{
     ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
     FinishReason, LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope,
-    StreamTerminal, ToolCall, Usage,
+    ResponseDiagnostics, StreamTerminal, ToolCall, Usage,
 };
+
+use crate::openai_error::classify_stream_error;
 
 use super::ChatCompletionsDialect;
 use super::reasoning::ReasoningDetailsSnapshot;
@@ -36,6 +38,7 @@ pub struct ChatCompletionsStreamDecoder {
     order: Vec<ContentOrder>,
     usage: Usage,
     finish_reason: Option<FinishReason>,
+    response_diagnostics: ResponseDiagnostics,
 }
 
 impl std::fmt::Debug for ChatCompletionsStreamDecoder {
@@ -97,7 +100,13 @@ impl ChatCompletionsStreamDecoder {
             order: Vec::new(),
             usage: Usage::default(),
             finish_reason: None,
+            response_diagnostics: ResponseDiagnostics::default(),
         }
+    }
+
+    pub fn with_response_diagnostics(mut self, diagnostics: ResponseDiagnostics) -> Self {
+        self.response_diagnostics = diagnostics;
+        self
     }
 
     /// Decode one framed SSE `data` value.
@@ -128,7 +137,28 @@ impl ChatCompletionsStreamDecoder {
             return self.complete();
         }
 
-        let chunk = serde_json::from_str::<ChatStreamChunkWire>(data).map_err(|source| {
+        let value = serde_json::from_str::<Value>(data).map_err(|source| {
+            Error::new(
+                ErrorKind::Protocol,
+                "provider returned malformed Chat Completions stream JSON",
+            )
+            .with_source(source)
+        })?;
+        if value.get("error").is_some_and(|error| !error.is_null())
+            || value.get("type").and_then(Value::as_str) == Some("error")
+        {
+            return Ok(vec![LanguageStreamEvent::Terminal(
+                StreamTerminal::Failed {
+                    error: classify_stream_error(
+                        &value,
+                        self.response_diagnostics.clone(),
+                        "provider reported an error after establishing the Chat Completions stream",
+                    ),
+                    response: None,
+                },
+            )]);
+        }
+        let chunk = serde_json::from_value::<ChatStreamChunkWire>(value).map_err(|source| {
             Error::new(
                 ErrorKind::Protocol,
                 "provider returned malformed Chat Completions stream JSON",
@@ -438,6 +468,10 @@ impl ChatCompletionsStreamDecoder {
 impl LanguageStreamDecoder for ChatCompletionsStreamDecoder {
     type ProtocolFrame = str;
 
+    fn set_response_diagnostics(&mut self, diagnostics: ResponseDiagnostics) {
+        self.response_diagnostics = diagnostics;
+    }
+
     fn decode(&mut self, frame: &Self::ProtocolFrame) -> Result<Vec<LanguageStreamEvent>, Error> {
         self.lifecycle
             .ensure_decode_allowed()
@@ -498,6 +532,8 @@ fn merge_identity(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use siumai_core::{
         ApiModeId, PlatformId, ProtocolId, ProviderId, ReplayDomain, ReplayDomainId, UsageValue,
     };
@@ -772,5 +808,55 @@ mod tests {
             LanguageStreamEvent::Usage(usage)
                 if usage.cache_read_tokens == UsageValue::Known(7)
         )));
+    }
+
+    #[test]
+    fn finish_reason_waits_for_trailing_usage_before_terminal() {
+        let mut decoder = decoder();
+        let finish = decoder
+            .decode(r#"{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}"#)
+            .unwrap();
+        assert!(finish.iter().all(|event| event.terminal().is_none()));
+
+        let usage = decoder
+            .decode(
+                r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"#,
+            )
+            .unwrap();
+        assert!(usage.iter().any(|event| matches!(
+            event,
+            LanguageStreamEvent::Usage(usage)
+                if usage.input_tokens == UsageValue::Known(10)
+                    && usage.output_tokens == UsageValue::Known(2)
+        )));
+
+        let terminal = decoder.decode("[DONE]").unwrap();
+        assert!(matches!(
+            terminal.as_slice(),
+            [.., LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })]
+                if response.usage().input_tokens == UsageValue::Known(10)
+                    && response.usage().output_tokens == UsageValue::Known(2)
+        ));
+    }
+
+    #[test]
+    fn in_band_error_is_a_typed_failed_terminal() {
+        let mut decoder = decoder().with_response_diagnostics(
+            ResponseDiagnostics::default().with_retry_after(Duration::from_secs(3)),
+        );
+        let events = decoder
+            .decode(
+                r#"{"error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"stream-secret","retry_after":3}}"#,
+            )
+            .unwrap();
+
+        assert!(matches!(
+            events.as_slice(),
+            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, response: None })]
+                if error.kind() == ErrorKind::RateLimited
+                    && error.diagnostics().and_then(ResponseDiagnostics::retry_after)
+                        == Some(Duration::from_secs(3))
+        ));
+        assert!(!format!("{events:?}").contains("stream-secret"));
     }
 }

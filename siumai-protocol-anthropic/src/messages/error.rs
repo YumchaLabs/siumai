@@ -1,6 +1,10 @@
+use std::collections::BTreeMap;
+
+use serde_json::Value;
 use siumai_core::{
     Error, ErrorKind, InvalidId, InvalidToolCall, LanguageRequestError, LanguageResponseError,
     OpaqueProviderItemError, ProviderAnnotationError, ProviderProvenanceError,
+    PublicDiagnosticText, ResponseDiagnostics, SensitiveResponse,
 };
 use thiserror::Error;
 
@@ -124,4 +128,65 @@ impl From<MessagesCodecError> for Error {
         }
         Self::new(error.error_kind(), error.public_message()).with_source(error)
     }
+}
+
+pub(crate) fn classify_stream_failure(
+    envelope: &Value,
+    mut diagnostics: ResponseDiagnostics,
+) -> Result<Error, MessagesCodecError> {
+    let error = envelope.get("error").and_then(Value::as_object).ok_or(
+        MessagesCodecError::ProtocolViolation {
+            reason: "stream error event omitted its error object",
+        },
+    )?;
+    let error_type = error
+        .get("type")
+        .and_then(Value::as_str)
+        .and_then(public_provider_identifier)
+        .ok_or(MessagesCodecError::ProtocolViolation {
+            reason: "stream error event omitted a bounded error type",
+        })?;
+    let kind = classify_error_type(error_type.as_str());
+    diagnostics = diagnostics.with_provider_type(error_type);
+    if let Some(request_id) = envelope
+        .get("request_id")
+        .and_then(Value::as_str)
+        .and_then(public_provider_identifier)
+    {
+        diagnostics = diagnostics.with_request_id(request_id);
+    }
+    let body = serde_json::to_vec(envelope).map_err(MessagesCodecError::JsonEncode)?;
+    let sensitive = SensitiveResponse::new(BTreeMap::new(), body);
+    let body_truncated = diagnostics.body_truncated() || sensitive.was_truncated();
+    Ok(
+        Error::new(kind, "Anthropic Messages stream reported a provider error")
+            .with_diagnostics(diagnostics.with_body_truncated(body_truncated))
+            .with_sensitive_response(sensitive),
+    )
+}
+
+fn classify_error_type(error_type: &str) -> ErrorKind {
+    match error_type {
+        "invalid_request_error" | "not_found_error" => ErrorKind::InvalidInput,
+        "authentication_error" => ErrorKind::Authentication,
+        "billing_error" => ErrorKind::QuotaExceeded,
+        "permission_error" => ErrorKind::Authorization,
+        "request_too_large" => ErrorKind::LimitExceeded,
+        "rate_limit_error" => ErrorKind::RateLimited,
+        "timeout_error" => ErrorKind::Timeout,
+        "api_error" | "overloaded_error" => ErrorKind::Unavailable,
+        _ => ErrorKind::Provider,
+    }
+}
+
+fn public_provider_identifier(value: &str) -> Option<PublicDiagnosticText> {
+    if value.is_empty()
+        || value.len() > 256
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return None;
+    }
+    PublicDiagnosticText::new(value.to_string()).ok()
 }
