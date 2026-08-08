@@ -7,7 +7,7 @@
 mod common;
 mod conversations;
 mod files;
-mod skills;
+pub(crate) mod skills;
 mod vector_stores;
 
 pub use common::{OpenAiCursorPage, OpenAiListOrder, OpenAiMetadata, OpenAiResourceCodecError};
@@ -18,11 +18,7 @@ pub use conversations::{
 };
 pub use files::{
     OpenAiFile, OpenAiFileDeleted, OpenAiFileExpirationAnchor, OpenAiFileExpiresAfter,
-    OpenAiFilePurpose,
-};
-pub use skills::{
-    OpenAiDeletedSkill, OpenAiDeletedSkillVersion, OpenAiSkill, OpenAiSkillUpdateRequest,
-    OpenAiSkillVersion,
+    OpenAiFilePurpose, OpenAiFileUploadPurpose,
 };
 pub use vector_stores::{
     OpenAiChunkingStrategy, OpenAiStaticChunkingSettings, OpenAiVectorStore,

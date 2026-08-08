@@ -31,7 +31,7 @@ pub const TTS_1_HD_1106: &str = "tts-1-hd-1106";
 
 const MAX_TEXT_CHARS: usize = 4_096;
 const MAX_VOICE_BYTES: usize = 2_048;
-const MAX_INSTRUCTIONS_BYTES: usize = 16 * 1024;
+const MAX_INSTRUCTIONS_CHARS: usize = 4_096;
 
 /// Provider-owned controls for buffered OpenAI speech synthesis.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,11 +64,12 @@ impl TypedProviderOptions for OpenAiSpeechOptions {
 
     fn validate(&self) -> Result<(), ProviderOptionError> {
         if let Some(instructions) = self.instructions.as_deref()
-            && (instructions.trim().is_empty() || instructions.len() > MAX_INSTRUCTIONS_BYTES)
+            && (instructions.trim().is_empty()
+                || instructions.chars().count() > MAX_INSTRUCTIONS_CHARS)
         {
             return Err(ProviderOptionError::Rejected {
                 path: "instructions".to_string(),
-                reason: "must be non-empty and at most 16384 bytes".to_string(),
+                reason: "must be non-empty and at most 4096 characters".to_string(),
             });
         }
         Ok(())
@@ -126,7 +127,9 @@ impl OpenAiSpeechModel {
                 "OpenAI speech synthesis does not expose a language override",
             ));
         }
-        if options.instructions.is_some() && self.model_id().as_str().starts_with("tts-1") {
+        if options.instructions.is_some()
+            && is_official_legacy_tts(self.descriptor.scope(), self.model_id())
+        {
             return Err(Error::new(
                 ErrorKind::Unsupported,
                 "OpenAI tts-1 models do not support speech instructions",
@@ -337,6 +340,14 @@ fn is_verified_model(scope: &ProviderScope, model: &ModelId) -> bool {
         )
 }
 
+fn is_official_legacy_tts(scope: &ProviderScope, model: &ModelId) -> bool {
+    scope.platform().map(|value| value.as_str()) == Some("openai-api")
+        && matches!(
+            model.as_str(),
+            TTS_1 | TTS_1_1106 | TTS_1_HD | TTS_1_HD_1106
+        )
+}
+
 fn option_error(source: ProviderOptionError) -> Error {
     Error::new(
         ErrorKind::InvalidInput,
@@ -371,11 +382,49 @@ fn response_request_id(headers: &siumai_transport::ResponseHeaders) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configured::profile::OpenAiProfile;
 
     #[test]
     fn portable_formats_are_strict_and_language_is_not_misrepresented() {
         assert_eq!(parse_format(Some("audio/wav")).unwrap(), SpeechFormat::Wav);
         assert!(parse_format(Some("ogg-vorbis")).is_err());
         assert!(OpenAiSpeechOptions::new().with_instructions("Warm").is_ok());
+    }
+
+    #[test]
+    fn instructions_enforce_the_official_character_limit() {
+        assert!(
+            OpenAiSpeechOptions::new()
+                .with_instructions("a".repeat(MAX_INSTRUCTIONS_CHARS))
+                .is_ok()
+        );
+        assert!(
+            OpenAiSpeechOptions::new()
+                .with_instructions("a".repeat(MAX_INSTRUCTIONS_CHARS + 1))
+                .is_err()
+        );
+        assert!(
+            OpenAiSpeechOptions::new()
+                .with_instructions("语".repeat(MAX_INSTRUCTIONS_CHARS))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn legacy_tts_instruction_restriction_is_scoped_to_the_official_platform() {
+        let official = OpenAiProfile::current().unwrap();
+        assert!(is_official_legacy_tts(
+            official.family_provider_scope(ModelFamily::Speech).unwrap(),
+            &ModelId::new(TTS_1).unwrap(),
+        ));
+
+        let custom = OpenAiProfile::custom(siumai_core::ReplayDomain::custom(
+            siumai_core::ReplayDomainId::new("custom-speech-fixture").unwrap(),
+        ))
+        .unwrap();
+        assert!(!is_official_legacy_tts(
+            custom.family_provider_scope(ModelFamily::Speech).unwrap(),
+            &ModelId::new(TTS_1).unwrap(),
+        ));
     }
 }

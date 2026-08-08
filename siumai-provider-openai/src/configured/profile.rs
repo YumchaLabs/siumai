@@ -182,7 +182,7 @@ impl OpenAiProfile {
             &image_scope,
             &image_evidence,
             [ModelOperation::GenerateImage],
-            image_models(),
+            image_models()?,
         )?;
         extend_models(
             &mut models,
@@ -473,16 +473,27 @@ fn embedding_models() -> impl IntoIterator<Item = (&'static str, ModelLifecycle)
     ]
 }
 
-fn image_models() -> impl IntoIterator<Item = (&'static str, ModelLifecycle)> {
-    [
+fn image_models() -> Result<Vec<(&'static str, ModelLifecycle)>, OpenAiConfigError> {
+    let gpt_image_2 = ModelId::new(GPT_IMAGE_2)?;
+    Ok(vec![
         (GPT_IMAGE_1, ModelLifecycle::Active),
         (GPT_IMAGE_1_MINI, ModelLifecycle::Active),
         (GPT_IMAGE_1_5, ModelLifecycle::Active),
         (GPT_IMAGE_2, ModelLifecycle::Active),
         (CHATGPT_IMAGE_LATEST, ModelLifecycle::RollingAlias),
-        (DALL_E_2, ModelLifecycle::Active),
-        (DALL_E_3, ModelLifecycle::Active),
-    ]
+        (
+            DALL_E_2,
+            ModelLifecycle::Deprecated {
+                replacement: Some(gpt_image_2.clone()),
+            },
+        ),
+        (
+            DALL_E_3,
+            ModelLifecycle::Deprecated {
+                replacement: Some(gpt_image_2),
+            },
+        ),
+    ])
 }
 
 fn speech_models() -> impl IntoIterator<Item = (&'static str, ModelLifecycle)> {
@@ -549,5 +560,24 @@ mod tests {
             6
         );
         assert!(profile.provider_profile().catalog().is_none());
+    }
+
+    #[test]
+    fn deprecated_dall_e_models_point_to_gpt_image_2() {
+        let profile = OpenAiProfile::current().unwrap();
+        let scope = profile.family_support_scope(ModelFamily::Image).unwrap();
+        let catalog = profile.provider_profile().catalog().unwrap();
+
+        for model in [DALL_E_2, DALL_E_3] {
+            assert_eq!(
+                catalog
+                    .get(scope, &ModelId::new(model).unwrap())
+                    .unwrap()
+                    .lifecycle(),
+                &ModelLifecycle::Deprecated {
+                    replacement: Some(ModelId::new(GPT_IMAGE_2).unwrap()),
+                }
+            );
+        }
     }
 }

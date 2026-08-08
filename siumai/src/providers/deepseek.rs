@@ -1,9 +1,9 @@
 //! Curated DeepSeek language provider facade.
 
 pub use siumai_provider_deepseek::{
-    CredentialSourceError, DeepSeekConfigError, DeepSeekCredential, DeepSeekLanguageApi,
-    DeepSeekLanguageModel, DeepSeekProfileError, DeepSeekProvider, DeepSeekProviderBuilder,
-    DynamicCredentialSource,
+    CredentialSourceError, DeepSeekAssistantPrefix, DeepSeekConfigError, DeepSeekCredential,
+    DeepSeekLanguageApi, DeepSeekLanguageModel, DeepSeekProfileError, DeepSeekProvider,
+    DeepSeekProviderBuilder, DynamicCredentialSource,
 };
 
 pub mod models {

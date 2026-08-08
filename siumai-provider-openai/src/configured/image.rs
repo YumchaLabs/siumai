@@ -236,7 +236,6 @@ impl OpenAiImageModel {
         request: &ImageRequest,
         options: &OpenAiImageOptions,
     ) -> Result<(RequestPlan, Option<ImageOutputFormat>), Error> {
-        validate_known_request(self.model_id(), request)?;
         let portable_format = request.format().map(parse_portable_format).transpose()?;
         let typed_format = options.output_format.map(protocol_output_format);
         if portable_format.is_some() && typed_format.is_some() && portable_format != typed_format {
@@ -266,6 +265,13 @@ impl OpenAiImageModel {
                 "OpenAI image compression is supported only for jpeg or webp output",
             ));
         }
+        validate_known_request(
+            self.descriptor.scope(),
+            self.model_id(),
+            request,
+            options,
+            output_format,
+        )?;
         let config = ImageGenerationConfig {
             quality: options.quality.map(protocol_quality),
             background: options.background.map(protocol_background),
@@ -320,11 +326,15 @@ impl Model for OpenAiImageModel {
 impl ImageModel for OpenAiImageModel {
     fn limits(&self) -> ImageLimits {
         ImageLimits {
-            max_outputs_per_call: Some(if self.model_id().as_str() == DALL_E_3 {
-                1
-            } else {
-                MAX_IMAGES_PER_CALL
-            }),
+            max_outputs_per_call: Some(
+                if known_image_model(self.descriptor.scope(), self.model_id())
+                    == Some(KnownImageModel::DallE3)
+                {
+                    1
+                } else {
+                    MAX_IMAGES_PER_CALL
+                },
+            ),
         }
     }
 
@@ -420,23 +430,153 @@ fn parse_portable_format(format: &str) -> Result<ImageOutputFormat, Error> {
     }
 }
 
-fn validate_known_request(model: &ModelId, request: &ImageRequest) -> Result<(), Error> {
-    let prompt_chars = request.prompt().chars().count();
-    let maximum = match model.as_str() {
-        DALL_E_2 => Some(1_000),
-        DALL_E_3 => Some(4_000),
-        GPT_IMAGE_1 | GPT_IMAGE_1_MINI | GPT_IMAGE_1_5 | GPT_IMAGE_2 | CHATGPT_IMAGE_LATEST => {
-            Some(32_000)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KnownImageModel {
+    GptImage,
+    GptImage2,
+    DallE2,
+    DallE3,
+}
+
+fn known_image_model(scope: &ProviderScope, model: &ModelId) -> Option<KnownImageModel> {
+    if scope.platform().map(|value| value.as_str()) != Some("openai-api") {
+        return None;
+    }
+    match model.as_str() {
+        GPT_IMAGE_1 | GPT_IMAGE_1_MINI | GPT_IMAGE_1_5 | CHATGPT_IMAGE_LATEST => {
+            Some(KnownImageModel::GptImage)
         }
+        GPT_IMAGE_2 => Some(KnownImageModel::GptImage2),
+        DALL_E_2 => Some(KnownImageModel::DallE2),
+        DALL_E_3 => Some(KnownImageModel::DallE3),
         _ => None,
+    }
+}
+
+fn validate_known_request(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &ImageRequest,
+    options: &OpenAiImageOptions,
+    output_format: Option<ImageOutputFormat>,
+) -> Result<(), Error> {
+    let Some(model_kind) = known_image_model(scope, model) else {
+        return Ok(());
     };
-    if maximum.is_some_and(|maximum| prompt_chars > maximum) {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
+    let prompt_chars = request.prompt().chars().count();
+    let maximum = match model_kind {
+        KnownImageModel::DallE2 => 1_000,
+        KnownImageModel::DallE3 => 4_000,
+        KnownImageModel::GptImage | KnownImageModel::GptImage2 => 32_000,
+    };
+    if prompt_chars > maximum {
+        return Err(invalid_known_request(
             "OpenAI image prompt exceeds the verified model limit",
         ));
     }
+    if let Some(size) = request.size() {
+        let valid = match model_kind {
+            KnownImageModel::GptImage => matches!(
+                (size.width(), size.height()),
+                (1024, 1024) | (1536, 1024) | (1024, 1536)
+            ),
+            KnownImageModel::GptImage2 => valid_gpt_image_2_size(size.width(), size.height()),
+            KnownImageModel::DallE2 => matches!(
+                (size.width(), size.height()),
+                (256, 256) | (512, 512) | (1024, 1024)
+            ),
+            KnownImageModel::DallE3 => matches!(
+                (size.width(), size.height()),
+                (1024, 1024) | (1792, 1024) | (1024, 1792)
+            ),
+        };
+        if !valid {
+            return Err(invalid_known_request(
+                "OpenAI image size is not supported by the selected model",
+            ));
+        }
+    }
+    if let Some(quality) = options.quality {
+        let valid = match model_kind {
+            KnownImageModel::GptImage | KnownImageModel::GptImage2 => matches!(
+                quality,
+                OpenAiImageGenerationQuality::Auto
+                    | OpenAiImageGenerationQuality::Low
+                    | OpenAiImageGenerationQuality::Medium
+                    | OpenAiImageGenerationQuality::High
+            ),
+            KnownImageModel::DallE2 => matches!(
+                quality,
+                OpenAiImageGenerationQuality::Auto | OpenAiImageGenerationQuality::Standard
+            ),
+            KnownImageModel::DallE3 => matches!(
+                quality,
+                OpenAiImageGenerationQuality::Auto
+                    | OpenAiImageGenerationQuality::Standard
+                    | OpenAiImageGenerationQuality::Hd
+            ),
+        };
+        if !valid {
+            return Err(invalid_known_request(
+                "OpenAI image quality is not supported by the selected model",
+            ));
+        }
+    }
+    match model_kind {
+        KnownImageModel::GptImage | KnownImageModel::GptImage2 => {
+            if options.response_format.is_some() {
+                return Err(invalid_known_request(
+                    "OpenAI GPT Image models do not support response_format",
+                ));
+            }
+            if options.style.is_some() {
+                return Err(invalid_known_request(
+                    "OpenAI GPT Image models do not support DALL-E style",
+                ));
+            }
+            if model_kind == KnownImageModel::GptImage2
+                && options.background == Some(OpenAiImageBackground::Transparent)
+            {
+                return Err(invalid_known_request(
+                    "OpenAI gpt-image-2 does not support transparent backgrounds",
+                ));
+            }
+        }
+        KnownImageModel::DallE2 | KnownImageModel::DallE3 => {
+            if options.background.is_some()
+                || options.moderation.is_some()
+                || options.output_compression.is_some()
+                || output_format.is_some()
+            {
+                return Err(invalid_known_request(
+                    "OpenAI DALL-E models do not support GPT Image output controls",
+                ));
+            }
+            if model_kind == KnownImageModel::DallE2 && options.style.is_some() {
+                return Err(invalid_known_request(
+                    "OpenAI dall-e-2 does not support style",
+                ));
+            }
+        }
+    }
     Ok(())
+}
+
+fn valid_gpt_image_2_size(width: u32, height: u32) -> bool {
+    let shorter = u64::from(width.min(height));
+    let longer = u64::from(width.max(height));
+    let pixels = u64::from(width) * u64::from(height);
+
+    width.is_multiple_of(16)
+        && height.is_multiple_of(16)
+        && shorter >= 512
+        && longer <= 3_840
+        && longer <= shorter * 3
+        && pixels <= 3_840 * 2_160
+}
+
+fn invalid_known_request(message: &'static str) -> Error {
+    Error::new(ErrorKind::InvalidInput, message)
 }
 
 fn protocol_quality(value: OpenAiImageGenerationQuality) -> ImageQuality {
@@ -488,17 +628,7 @@ fn protocol_style(value: OpenAiImageStyle) -> ImageStyle {
 }
 
 fn is_verified_model(scope: &ProviderScope, model: &ModelId) -> bool {
-    scope.platform().map(|value| value.as_str()) == Some("openai-api")
-        && matches!(
-            model.as_str(),
-            GPT_IMAGE_1
-                | GPT_IMAGE_1_MINI
-                | GPT_IMAGE_1_5
-                | GPT_IMAGE_2
-                | CHATGPT_IMAGE_LATEST
-                | DALL_E_2
-                | DALL_E_3
-        )
+    known_image_model(scope, model).is_some()
 }
 
 fn rejected(path: &str, reason: &str) -> ProviderOptionError {
@@ -542,6 +672,7 @@ fn response_request_id(headers: &siumai_transport::ResponseHeaders) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configured::profile::OpenAiProfile;
 
     #[test]
     fn options_reject_incompatible_output_controls() {
@@ -554,5 +685,84 @@ mod tests {
             .with_output_format(OpenAiImageOutputFormat::Png)
             .with_response_format(OpenAiImageResponseFormat::Url);
         assert!(options.validate().is_err());
+    }
+
+    #[test]
+    fn official_known_models_reject_invalid_size_and_option_combinations() {
+        let profile = OpenAiProfile::current().unwrap();
+        let scope = profile.family_provider_scope(ModelFamily::Image).unwrap();
+
+        let tiny = ImageRequest::new("image")
+            .unwrap()
+            .with_size(16, 16)
+            .unwrap();
+        assert!(
+            validate_known_request(
+                scope,
+                &ModelId::new(GPT_IMAGE_2).unwrap(),
+                &tiny,
+                &OpenAiImageOptions::default(),
+                None,
+            )
+            .is_err()
+        );
+
+        let standard = ImageRequest::new("image").unwrap();
+        assert!(
+            validate_known_request(
+                scope,
+                &ModelId::new(GPT_IMAGE_1).unwrap(),
+                &standard,
+                &OpenAiImageOptions::new().with_response_format(OpenAiImageResponseFormat::Url),
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_known_request(
+                scope,
+                &ModelId::new(DALL_E_2).unwrap(),
+                &standard,
+                &OpenAiImageOptions::new().with_output_format(OpenAiImageOutputFormat::Png),
+                Some(ImageOutputFormat::Png),
+            )
+            .is_err()
+        );
+        assert!(
+            validate_known_request(
+                scope,
+                &ModelId::new(GPT_IMAGE_2).unwrap(),
+                &standard,
+                &OpenAiImageOptions::new().with_background(OpenAiImageBackground::Transparent),
+                None,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn custom_endpoints_keep_open_model_baseline_behavior() {
+        let profile = OpenAiProfile::custom(siumai_core::ReplayDomain::custom(
+            siumai_core::ReplayDomainId::new("custom-image-fixture").unwrap(),
+        ))
+        .unwrap();
+        let scope = profile.family_provider_scope(ModelFamily::Image).unwrap();
+        let request = ImageRequest::new("image")
+            .unwrap()
+            .with_size(16, 16)
+            .unwrap();
+        let options =
+            OpenAiImageOptions::new().with_response_format(OpenAiImageResponseFormat::Url);
+
+        assert!(
+            validate_known_request(
+                scope,
+                &ModelId::new(GPT_IMAGE_2).unwrap(),
+                &request,
+                &options,
+                None,
+            )
+            .is_ok()
+        );
     }
 }

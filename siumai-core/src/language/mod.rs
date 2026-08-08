@@ -568,11 +568,23 @@ pub enum MessageRole {
 }
 
 /// Owned media input or output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum MediaData {
     Bytes(Bytes),
     Url(String),
+}
+
+impl fmt::Debug for MediaData {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bytes(bytes) => formatter
+                .debug_struct("Bytes")
+                .field("len", &bytes.len())
+                .finish(),
+            Self::Url(_) => formatter.debug_tuple("Url").field(&"<redacted>").finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1873,6 +1885,23 @@ mod tests {
         })
         .validate()
         .expect("tool results are valid tool content");
+    }
+
+    #[test]
+    fn media_debug_redacts_bytes_and_urls() {
+        let bytes_sentinel = b"media-bytes-debug-sentinel";
+        let url_sentinel = "https://example.com/private/media-url-debug-sentinel";
+
+        let bytes_debug = format!(
+            "{:?}",
+            MediaData::Bytes(Bytes::copy_from_slice(bytes_sentinel))
+        );
+        let url_debug = format!("{:?}", MediaData::Url(url_sentinel.to_string()));
+
+        assert!(!bytes_debug.contains("media-bytes-debug-sentinel"));
+        assert!(bytes_debug.contains(&bytes_sentinel.len().to_string()));
+        assert!(!url_debug.contains(url_sentinel));
+        assert!(url_debug.contains("<redacted>"));
     }
 
     #[test]

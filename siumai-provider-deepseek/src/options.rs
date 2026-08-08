@@ -50,10 +50,10 @@ pub struct DeepSeekChatOptions {
     pub thinking: Option<DeepSeekThinkingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<DeepSeekReasoningEffort>,
-    /// Emit DeepSeek's strict function-tool declaration for every portable function tool.
+    /// Request DeepSeek's beta-only strict function-tool declaration.
     ///
-    /// Strict mode is a provider policy control and is removed before the top-level request map is
-    /// sent. Callers remain responsible for selecting an endpoint that enables strict tool mode.
+    /// Stable Chat handles reject `true` before transport submission. A dedicated beta handle must
+    /// own endpoint selection and recursive schema validation before this option can be emitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict_tools: Option<bool>,
 }

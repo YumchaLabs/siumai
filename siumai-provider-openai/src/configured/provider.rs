@@ -43,7 +43,7 @@ use super::realtime::{
 };
 #[cfg(feature = "openai-realtime")]
 use super::realtime_resource::OpenAiRealtimeResource;
-use super::resources::{OpenAiConversations, OpenAiFiles, OpenAiSkills, OpenAiVectorStores};
+use super::resources::{OpenAiConversations, OpenAiFiles, OpenAiVectorStores};
 use super::responses_resource::OpenAiResponsesResource;
 use super::speech::{OpenAiSpeechModel, OpenAiSpeechOptions};
 use super::transcription::{OpenAiTranscriptionModel, OpenAiTranscriptionOptions};
@@ -166,11 +166,6 @@ impl OpenAiProvider {
     /// Access the provider-owned Vector Stores lifecycle.
     pub fn vector_stores(&self) -> OpenAiVectorStores {
         OpenAiVectorStores::new(self.runtime.clone())
-    }
-
-    /// Access the provider-owned Skills lifecycle.
-    pub fn skills(&self) -> OpenAiSkills {
-        OpenAiSkills::new(self.runtime.clone())
     }
 
     /// Access provider-authenticated Realtime client-secret operations.

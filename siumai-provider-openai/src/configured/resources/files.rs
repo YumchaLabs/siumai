@@ -6,7 +6,7 @@ use http::header::HeaderValue;
 use siumai_core::{CallOptions, Error};
 use siumai_protocol_openai::resources::{
     OpenAiCursorPage, OpenAiFile, OpenAiFileDeleted, OpenAiFileExpiresAfter, OpenAiFilePurpose,
-    OpenAiListOrder,
+    OpenAiFileUploadPurpose, OpenAiListOrder,
 };
 use siumai_transport::{MultipartBody, MultipartPart, ReplaySafety, RequestBody};
 
@@ -24,7 +24,7 @@ pub struct OpenAiFileUpload {
     pub filename: String,
     pub media_type: String,
     pub data: Vec<u8>,
-    pub purpose: OpenAiFilePurpose,
+    pub purpose: OpenAiFileUploadPurpose,
     pub expires_after: Option<OpenAiFileExpiresAfter>,
 }
 
@@ -33,7 +33,7 @@ impl OpenAiFileUpload {
         filename: impl Into<String>,
         media_type: impl Into<String>,
         data: impl Into<Vec<u8>>,
-        purpose: OpenAiFilePurpose,
+        purpose: OpenAiFileUploadPurpose,
     ) -> Self {
         Self {
             filename: filename.into(),

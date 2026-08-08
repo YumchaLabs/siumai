@@ -47,14 +47,14 @@ Provider features describe the exact retained slice, not every product sold unde
 | `anthropic` | Messages and Anthropic-native resources |
 | `google` | Gemini Interactions/GenerateContent language, embedding, image, speech, Files, and Veo |
 | `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
-| `alibaba` | Chat, Responses, embeddings, and experimental Wan video |
+| `alibaba` | Chat, Responses, Anthropic-compatible Messages, embeddings, and experimental Wan video |
 | `moonshotai` | Moonshot AI's Kimi Chat Completions product surface |
 | `volcengine` | Volcengine ARK Chat Completions and Responses modes |
 | `openai-compatible` | Explicit generic or custom OpenAI-compatible endpoints |
 | `groq` | Chat, Responses, and transcription |
 | `xai` | Responses and Chat Completions language modes |
 | `minimax` | Three language modes plus files, image, video, music, and speech |
-| `deepseek` | Chat and Responses language modes |
+| `deepseek` | Chat, beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes |
 | `cohere` | Embeddings and reranking |
 | `deepgram` | Final-result transcription |
 | `elevenlabs` | Speech synthesis |

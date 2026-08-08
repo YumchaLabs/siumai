@@ -1,13 +1,16 @@
 //! Alibaba Cloud Model Studio provider facade.
 
 pub use siumai_provider_alibaba::{
-    AlibabaConfigError, AlibabaCredential, AlibabaEmbeddingModel, AlibabaEmbeddingOptions,
-    AlibabaEmbeddingOutputType, AlibabaEmbeddingTextType, AlibabaLanguageApi, AlibabaLanguageModel,
-    AlibabaPromptCacheBreakpoint, AlibabaProvider, AlibabaProviderBuilder,
-    AlibabaWorkspaceEndpoint, AlibabaWorkspaceEndpointError, BearerCredential, CredentialRequest,
-    CredentialSourceError, DynamicCredentialSource, EMBEDDING_API_MODE_ID, EMBEDDING_PROTOCOL_ID,
-    EMBEDDING_SOURCE, EMBEDDING_VERIFIED_ON, LEGACY_SINGAPORE_EMBEDDING_BASE_URL,
-    LEGACY_SINGAPORE_LANGUAGE_BASE_URL, LEGACY_SINGAPORE_ORIGIN,
+    AlibabaConfigError, AlibabaContentCache, AlibabaCredential, AlibabaEmbeddingModel,
+    AlibabaEmbeddingOptions, AlibabaEmbeddingOutputType, AlibabaEmbeddingTextType,
+    AlibabaLanguageApi, AlibabaLanguageModel, AlibabaMessageCache, AlibabaMessagesOptions,
+    AlibabaMessagesThinking, AlibabaPromptCacheBreakpoint, AlibabaProvider, AlibabaProviderBuilder,
+    AlibabaToolCache, AlibabaWorkspaceEndpoint, AlibabaWorkspaceEndpointError, BearerCredential,
+    CredentialRequest, CredentialSourceError, DynamicCredentialSource, EMBEDDING_API_MODE_ID,
+    EMBEDDING_PROTOCOL_ID, EMBEDDING_SOURCE, EMBEDDING_VERIFIED_ON,
+    LEGACY_SINGAPORE_EMBEDDING_BASE_URL, LEGACY_SINGAPORE_LANGUAGE_BASE_URL,
+    LEGACY_SINGAPORE_MESSAGES_BASE_URL, LEGACY_SINGAPORE_ORIGIN, MESSAGES_SOURCE,
+    MESSAGES_VERIFIED_ON,
 };
 
 /// Explicit opt-in surface for Alibaba's unstable asynchronous video jobs.
@@ -26,8 +29,8 @@ pub mod experimental {
 
 pub mod options {
     pub use siumai_provider_alibaba::options::{
-        ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaPromptCacheBreakpoint,
-        AlibabaReasoningEffort, AlibabaResponsesOptions, AlibabaResponsesTool,
-        AlibabaSearchOptions, AlibabaSearchStrategy,
+        ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaMessagesOptions,
+        AlibabaMessagesThinking, AlibabaPromptCacheBreakpoint, AlibabaReasoningEffort,
+        AlibabaResponsesOptions, AlibabaResponsesTool, AlibabaSearchOptions, AlibabaSearchStrategy,
     };
 }

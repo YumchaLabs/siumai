@@ -6,9 +6,88 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
+use siumai_anthropic_compatible::MessagesCallOptions;
+use siumai_core::{ModelFamily, ProviderOptionError, ProviderOptions, TypedProviderOptions};
+use siumai_protocol_anthropic::messages::{API_MODE_ID as MESSAGES_API_MODE_ID, ThinkingConfig};
 use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
 use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
+
+/// Thinking modes verified for Alibaba's Anthropic-compatible Messages API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum AlibabaMessagesThinking {
+    Disabled,
+    Enabled { budget_tokens: u64 },
+}
+
+impl AlibabaMessagesThinking {
+    pub const fn enabled(budget_tokens: u64) -> Self {
+        Self::Enabled { budget_tokens }
+    }
+
+    const fn protocol(self) -> ThinkingConfig {
+        match self {
+            Self::Disabled => ThinkingConfig::Disabled,
+            Self::Enabled { budget_tokens } => ThinkingConfig::enabled(budget_tokens),
+        }
+    }
+}
+
+/// Typed options for Alibaba's Anthropic-compatible Messages mode.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "snake_case")]
+pub struct AlibabaMessagesOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<AlibabaMessagesThinking>,
+}
+
+impl AlibabaMessagesOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub const fn with_thinking(mut self, thinking: AlibabaMessagesThinking) -> Self {
+        self.thinking = Some(thinking);
+        self
+    }
+
+    pub const fn thinking(&self) -> Option<AlibabaMessagesThinking> {
+        self.thinking
+    }
+
+    pub fn provider_options(&self) -> Result<ProviderOptions, ProviderOptionError> {
+        ProviderOptions::typed(self)
+    }
+
+    pub(crate) fn to_engine(&self) -> MessagesCallOptions {
+        match self.thinking {
+            Some(thinking) => MessagesCallOptions::new().with_thinking(thinking.protocol()),
+            None => MessagesCallOptions::new(),
+        }
+    }
+}
+
+impl TypedProviderOptions for AlibabaMessagesOptions {
+    const NAMESPACE: &'static str = "alibaba";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some(MESSAGES_API_MODE_ID);
+
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        if matches!(
+            self.thinking,
+            Some(AlibabaMessagesThinking::Enabled {
+                budget_tokens: 0..=1_023
+            })
+        ) {
+            return Err(ProviderOptionError::Rejected {
+                path: "thinking.budget_tokens".to_string(),
+                reason: "thinking budget must be at least 1024 tokens".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
 
 /// One Chat Completions content block that should terminate an explicit prompt-cache prefix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

@@ -1,12 +1,13 @@
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use siumai_core::{
-    CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageStreamEvent, Message, MessageRole,
-    Model, ModelFamily, ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal, UsageValue,
-    WarningKind,
+    CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageStreamEvent, Message, MessagePart,
+    MessageRole, Model, ModelFamily, ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal,
+    UsageValue, WarningKind,
 };
 use siumai_provider_alibaba::{
-    ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaConfigError, AlibabaCredential,
+    ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaConfigError, AlibabaContentCache,
+    AlibabaCredential, AlibabaLanguageApi, AlibabaMessagesOptions, AlibabaMessagesThinking,
     AlibabaPromptCacheBreakpoint, AlibabaProvider, AlibabaReasoningEffort, AlibabaResponsesOptions,
     AlibabaResponsesTool, AlibabaSearchOptions,
 };
@@ -32,8 +33,16 @@ fn provider(server: &MockServer) -> AlibabaProvider {
         .unwrap()
 }
 
+fn messages_provider(server: &MockServer) -> AlibabaProvider {
+    AlibabaProvider::builder(AlibabaCredential::api_key("test-key"))
+        .with_messages_endpoint(EndpointConfig::local_explicit(server.uri()).unwrap())
+        .with_messages_replay_domain(test_replay_domain())
+        .build()
+        .unwrap()
+}
+
 #[test]
-fn one_public_provider_exposes_both_language_modes_for_open_model_ids() {
+fn one_public_provider_exposes_explicit_language_modes_for_open_model_ids() {
     let endpoint = EndpointConfig::local_explicit("http://127.0.0.1:9/v1").unwrap();
     let provider = AlibabaProvider::builder(AlibabaCredential::unauthenticated())
         .with_language_endpoint(endpoint)
@@ -56,6 +65,25 @@ fn one_public_provider_exposes_both_language_modes_for_open_model_ids() {
     assert_ne!(
         responses_registration.api_mode(ModelFamily::Language),
         chat_registration.api_mode(ModelFamily::Language)
+    );
+
+    let messages_only = AlibabaProvider::builder(AlibabaCredential::unauthenticated())
+        .with_messages_endpoint(
+            EndpointConfig::local_explicit("http://127.0.0.1:9/apps/anthropic").unwrap(),
+        )
+        .with_messages_replay_domain(test_replay_domain())
+        .build()
+        .unwrap();
+    let messages = messages_only.messages("future-qwen-messages").unwrap();
+    assert_eq!(messages.api(), AlibabaLanguageApi::Messages);
+    assert_eq!(messages.descriptor().api_mode(), Some("messages"));
+    assert_eq!(
+        messages_only
+            .messages_registration()
+            .unwrap()
+            .api_mode(ModelFamily::Language)
+            .map(siumai_core::ApiModeId::as_str),
+        Some("messages")
     );
 }
 
@@ -119,11 +147,13 @@ async fn chat_options_use_alibaba_namespace_and_decode_reasoning_content() {
         .with_enable_search(true)
         .with_search_options(AlibabaSearchOptions::agent())
         .with_prompt_cache_breakpoint(AlibabaPromptCacheBreakpoint::new(0, 0));
+    let mut request = request("hello");
+    request.generation.max_output_tokens = Some(2_048);
     let response = provider(&server)
         .chat_completions("qwen3-coder-plus")
         .unwrap()
         .generate(
-            request("hello"),
+            request,
             CallOptions::default().with_provider_options(ProviderOptions::typed(&options).unwrap()),
         )
         .await
@@ -147,6 +177,8 @@ async fn chat_options_use_alibaba_namespace_and_decode_reasoning_content() {
     assert_eq!(body["model"], json!("qwen3-coder-plus"));
     assert_eq!(body["enable_thinking"], json!(true));
     assert_eq!(body["thinking_budget"], json!(512));
+    assert_eq!(body["max_completion_tokens"], json!(2_048));
+    assert!(body.get("max_tokens").is_none());
     assert_eq!(body["enable_search"], json!(true));
     assert_eq!(body["search_options"], json!({"search_strategy": "agent"}));
     assert_eq!(
@@ -160,6 +192,145 @@ async fn chat_options_use_alibaba_namespace_and_decode_reasoning_content() {
     );
     assert!(body.get("prompt_cache_breakpoints").is_none());
     assert_eq!(body["stream"], json!(false));
+}
+
+#[tokio::test]
+async fn messages_direct_contract_preserves_thinking_cache_and_usage() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("authorization", "Bearer test-key"))
+        .and(header("anthropic-version", "2023-06-01"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg-alibaba",
+            "type": "message",
+            "role": "assistant",
+            "model": "future-qwen-messages",
+            "content": [{"type": "text", "text": "answer"}],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 3,
+                "output_tokens": 2,
+                "cache_creation_input_tokens": 2,
+                "cache_read_input_tokens": 1
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let part = MessagePart::text("cache me")
+        .with_provider_annotation(&AlibabaContentCache::new())
+        .unwrap();
+    let mut request =
+        siumai_core::LanguageRequest::new(vec![Message::new(MessageRole::User, [part])]);
+    request.generation.max_output_tokens = Some(2_048);
+    let options =
+        AlibabaMessagesOptions::new().with_thinking(AlibabaMessagesThinking::enabled(1_024));
+    let response = messages_provider(&server)
+        .messages("future-qwen-messages")
+        .unwrap()
+        .generate(
+            request,
+            CallOptions::default().with_provider_options(options.provider_options().unwrap()),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        response
+            .content()
+            .iter()
+            .any(|part| matches!(part, ContentPart::Text { text } if text == "answer"))
+    );
+    assert_eq!(response.usage().input_tokens, UsageValue::Known(3));
+    assert_eq!(response.usage().cache_write_tokens, UsageValue::Known(2));
+    assert_eq!(response.usage().cache_read_tokens, UsageValue::Known(1));
+    let requests = server.received_requests().await.unwrap();
+    let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(body["model"], json!("future-qwen-messages"));
+    assert_eq!(body["max_tokens"], json!(2_048));
+    assert_eq!(body["thinking"]["type"], json!("enabled"));
+    assert_eq!(body["thinking"]["budget_tokens"], json!(1_024));
+    assert_eq!(
+        body["messages"][0]["content"][0]["cache_control"],
+        json!({"type": "ephemeral"})
+    );
+}
+
+#[tokio::test]
+async fn messages_stream_contract_emits_one_terminal_with_usage() {
+    let server = MockServer::start().await;
+    let frames = [
+        json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg-stream",
+                "type": "message",
+                "role": "assistant",
+                "model": "future-qwen-messages",
+                "usage": {"input_tokens": 2}
+            }
+        }),
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "hello"}
+        }),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+            "usage": {"output_tokens": 1}
+        }),
+        json!({"type": "message_stop"}),
+    ];
+    let sse = frames
+        .into_iter()
+        .map(|frame| format!("data: {frame}\n\n"))
+        .collect::<String>();
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("accept", "text/event-stream"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut request = request("hello");
+    request.generation.max_output_tokens = Some(64);
+    let events = messages_provider(&server)
+        .messages("future-qwen-messages")
+        .unwrap()
+        .stream(request, CallOptions::default())
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.terminal().is_some())
+            .count(),
+        1
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })
+            if response.usage().input_tokens == UsageValue::Known(2)
+                && response.usage().output_tokens == UsageValue::Known(1)
+    )));
 }
 
 #[tokio::test]

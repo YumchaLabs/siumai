@@ -28,6 +28,17 @@ pub mod transcription;
 #[cfg(feature = "openai-responses")]
 pub mod responses;
 
+/// Experimental provider-native wire contracts.
+pub mod experimental {
+    /// OpenAI Skills directory and version resources.
+    pub mod skills {
+        pub use crate::resources::skills::{
+            OpenAiDeletedSkill, OpenAiDeletedSkillVersion, OpenAiSkill, OpenAiSkillUpdateRequest,
+            OpenAiSkillVersion,
+        };
+    }
+}
+
 /// Experimental Realtime and Realtime Translation wire codecs.
 #[cfg(feature = "openai-realtime")]
 pub mod realtime;

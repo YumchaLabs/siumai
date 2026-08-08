@@ -6,6 +6,7 @@
 
 #![deny(unsafe_code)]
 
+mod annotations;
 mod embedding;
 mod language;
 mod native_error;
@@ -13,6 +14,7 @@ pub mod options;
 mod provider;
 mod video;
 
+pub use annotations::{AlibabaContentCache, AlibabaMessageCache, AlibabaToolCache};
 pub use embedding::{
     AlibabaEmbeddingModel, AlibabaEmbeddingOptions, AlibabaEmbeddingOutputType,
     AlibabaEmbeddingProfileError, AlibabaEmbeddingTextType, EMBEDDING_API_MODE_ID,
@@ -20,13 +22,13 @@ pub use embedding::{
     LEGACY_SINGAPORE_EMBEDDING_BASE_URL, TEXT_EMBEDDING_V3, TEXT_EMBEDDING_V4,
 };
 pub use language::{
-    CHAT_SOURCE, LEGACY_SINGAPORE_LANGUAGE_BASE_URL, PLATFORM_ID, PROVIDER_ID, RESPONSES_SOURCE,
-    VERIFIED_ON,
+    CHAT_SOURCE, LEGACY_SINGAPORE_LANGUAGE_BASE_URL, LEGACY_SINGAPORE_MESSAGES_BASE_URL,
+    MESSAGES_SOURCE, MESSAGES_VERIFIED_ON, PLATFORM_ID, PROVIDER_ID, RESPONSES_SOURCE, VERIFIED_ON,
 };
 pub use options::{
-    ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaPromptCacheBreakpoint,
-    AlibabaReasoningEffort, AlibabaResponsesOptions, AlibabaResponsesTool, AlibabaSearchOptions,
-    AlibabaSearchStrategy,
+    ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaMessagesOptions,
+    AlibabaMessagesThinking, AlibabaPromptCacheBreakpoint, AlibabaReasoningEffort,
+    AlibabaResponsesOptions, AlibabaResponsesTool, AlibabaSearchOptions, AlibabaSearchStrategy,
 };
 pub use provider::{
     AlibabaConfigError, AlibabaCredential, AlibabaLanguageApi, AlibabaLanguageModel,

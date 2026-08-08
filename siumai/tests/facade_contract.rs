@@ -346,10 +346,14 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
         GPT_4O_TRANSCRIBE, OpenAiTranscriptionOptions,
     };
     use siumai::providers::openai::embeddings::{OpenAiEmbeddingOptions, TEXT_EMBEDDING_3_SMALL};
+    use siumai::providers::openai::experimental::skills::{
+        OpenAiSkillUpload, OpenAiSkillsProviderExt,
+    };
     use siumai::providers::openai::images::{GPT_IMAGE_1, OpenAiImageOptions};
     use siumai::providers::openai::resources::conversations::OpenAiConversationCreateRequest;
-    use siumai::providers::openai::resources::files::OpenAiBinaryContent;
-    use siumai::providers::openai::resources::skills::OpenAiSkillUpload;
+    use siumai::providers::openai::resources::files::{
+        OpenAiBinaryContent, OpenAiFileUploadPurpose,
+    };
     use siumai::providers::openai::resources::vector_stores::OpenAiVectorStoreCreateRequest;
     use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
     use siumai_transport::EndpointConfig;
@@ -385,6 +389,7 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     let _ = OpenAiConversationCreateRequest::new();
     let _ = OpenAiVectorStoreCreateRequest::new();
     let _: Option<OpenAiSkillUpload> = None;
+    let _: Option<OpenAiFileUploadPurpose> = Some(OpenAiFileUploadPurpose::UserData);
     let _: Option<OpenAiBinaryContent> = None;
 
     assert!(!format!("{:?}", provider.conversations()).contains("credential"));
@@ -566,6 +571,13 @@ fn facade_exposes_deepseek_as_a_curated_registration_source() {
     assert_eq!(
         provider.responses("future-deepseek-model").unwrap().api(),
         DeepSeekLanguageApi::Responses
+    );
+    assert_eq!(
+        provider
+            .beta_chat_completions("future-deepseek-model")
+            .unwrap()
+            .api(),
+        DeepSeekLanguageApi::BetaChatCompletions
     );
     assert_eq!(
         provider
@@ -962,11 +974,15 @@ fn facade_exposes_alibaba_without_a_dashscope_route_surface() {
     use siumai::providers::alibaba::experimental::{
         AlibabaVideoProviderBuilderExt, AlibabaVideoProviderExt, WAN_2_7_T2V,
     };
-    use siumai::providers::alibaba::options::{AlibabaReasoningEffort, AlibabaResponsesOptions};
+    use siumai::providers::alibaba::options::{
+        AlibabaMessagesOptions, AlibabaMessagesThinking, AlibabaReasoningEffort,
+        AlibabaResponsesOptions,
+    };
     use siumai::providers::alibaba::{AlibabaCredential, AlibabaProvider};
 
     let provider = AlibabaProvider::builder(AlibabaCredential::api_key("test-key"))
         .with_legacy_singapore_language()
+        .with_legacy_singapore_messages()
         .with_legacy_singapore_embedding()
         .with_legacy_singapore_video()
         .build()
@@ -989,6 +1005,14 @@ fn facade_exposes_alibaba_without_a_dashscope_route_surface() {
     );
     assert_eq!(
         provider
+            .messages("future-qwen-model")
+            .unwrap()
+            .provider_id()
+            .as_str(),
+        "alibaba"
+    );
+    assert_eq!(
+        provider
             .chat_completions("future-qwen-model")
             .unwrap()
             .provider_id()
@@ -999,6 +1023,10 @@ fn facade_exposes_alibaba_without_a_dashscope_route_surface() {
         &AlibabaResponsesOptions::new().with_reasoning_effort(AlibabaReasoningEffort::Minimal),
     )
     .unwrap();
+    AlibabaMessagesOptions::new()
+        .with_thinking(AlibabaMessagesThinking::enabled(1_024))
+        .provider_options()
+        .unwrap();
     assert_eq!(
         provider.video(WAN_2_7_T2V).unwrap().model_id().as_str(),
         WAN_2_7_T2V

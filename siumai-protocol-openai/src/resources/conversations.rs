@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -32,9 +33,22 @@ impl OpenAiConversationRole {
 /// OpenAI intentionally reuses the broad Responses input-item union here. The
 /// checked opaque carrier preserves future item kinds without pretending that
 /// every item is portable.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct OpenAiConversationInputItem(Value);
+
+impl fmt::Debug for OpenAiConversationInputItem {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiConversationInputItem")
+            .field(
+                "field_count",
+                &self.0.as_object().map_or(0, |object| object.len()),
+            )
+            .field("data", &"<redacted>")
+            .finish()
+    }
+}
 
 impl OpenAiConversationInputItem {
     pub fn from_value(value: Value) -> Result<Self, OpenAiResourceCodecError> {
@@ -78,9 +92,22 @@ impl<'de> Deserialize<'de> for OpenAiConversationInputItem {
 }
 
 /// A lossless item returned by the Conversations API.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct OpenAiConversationItem(Value);
+
+impl fmt::Debug for OpenAiConversationItem {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiConversationItem")
+            .field(
+                "field_count",
+                &self.0.as_object().map_or(0, |object| object.len()),
+            )
+            .field("data", &"<redacted>")
+            .finish()
+    }
+}
 
 impl OpenAiConversationItem {
     pub fn as_value(&self) -> &Value {
@@ -204,5 +231,21 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(item.as_value()["future"]["kept"], true);
+    }
+
+    #[test]
+    fn conversation_item_debug_redacts_provider_payloads() {
+        let sentinel = "conversation-debug-sentinel";
+        let input = OpenAiConversationInputItem::message(OpenAiConversationRole::User, sentinel);
+        let output: OpenAiConversationItem = serde_json::from_value(json!({
+            "type": "message",
+            "content": sentinel
+        }))
+        .unwrap();
+
+        for debug in [format!("{input:?}"), format!("{output:?}")] {
+            assert!(!debug.contains(sentinel));
+            assert!(debug.contains("<redacted>"));
+        }
     }
 }

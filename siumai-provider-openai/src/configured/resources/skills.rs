@@ -4,13 +4,14 @@ use std::sync::Arc;
 use http::Method;
 use http::header::HeaderValue;
 use siumai_core::{CallOptions, Error};
-use siumai_protocol_openai::resources::{
-    OpenAiCursorPage, OpenAiDeletedSkill, OpenAiDeletedSkillVersion, OpenAiListOrder, OpenAiSkill,
-    OpenAiSkillUpdateRequest, OpenAiSkillVersion,
+use siumai_protocol_openai::experimental::skills::{
+    OpenAiDeletedSkill, OpenAiDeletedSkillVersion, OpenAiSkill, OpenAiSkillUpdateRequest,
+    OpenAiSkillVersion,
 };
+use siumai_protocol_openai::resources::{OpenAiCursorPage, OpenAiListOrder};
 use siumai_transport::{MultipartBody, MultipartPart, ReplaySafety, RequestBody};
 
-use super::super::provider::OpenAiRuntime;
+use super::super::provider::{OpenAiProvider, OpenAiRuntime};
 use super::common::{
     OpenAiBinaryContent, OpenAiNativeRuntime, invalid_input, json_body, target, target_with_query,
     validate_bounded_text, validate_resource_id,
@@ -159,6 +160,20 @@ impl OpenAiSkillListOptions {
 #[derive(Clone)]
 pub struct OpenAiSkills {
     runtime: OpenAiNativeRuntime,
+}
+
+/// Experimental Skills lifecycle access for [`OpenAiProvider`].
+///
+/// Import this trait from `siumai_provider_openai::experimental::skills` to opt into the
+/// unstable provider-native resource contract without widening the stable provider surface.
+pub trait OpenAiSkillsProviderExt {
+    fn skills(&self) -> OpenAiSkills;
+}
+
+impl OpenAiSkillsProviderExt for OpenAiProvider {
+    fn skills(&self) -> OpenAiSkills {
+        OpenAiSkills::new(self.runtime.clone())
+    }
 }
 
 impl OpenAiSkills {

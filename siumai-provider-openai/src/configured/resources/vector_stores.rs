@@ -169,7 +169,7 @@ impl OpenAiVectorStores {
     ) -> Result<OpenAiVectorStore, Error> {
         validate_create(&request)?;
         self.runtime
-            .execute_json(
+            .execute_vector_store_json(
                 Method::POST,
                 target("vector_stores")?,
                 json_body(&request)?,
@@ -191,7 +191,7 @@ impl OpenAiVectorStores {
     ) -> Result<OpenAiVectorStore, Error> {
         validate_resource_id(vector_store_id)?;
         self.runtime
-            .execute_json(
+            .execute_vector_store_json(
                 Method::GET,
                 target(format!("vector_stores/{vector_store_id}"))?,
                 RequestBody::Empty,
@@ -219,7 +219,7 @@ impl OpenAiVectorStores {
         validate_resource_id(vector_store_id)?;
         validate_update(&request)?;
         self.runtime
-            .execute_json(
+            .execute_vector_store_json(
                 Method::POST,
                 target(format!("vector_stores/{vector_store_id}"))?,
                 json_body(&request)?,
@@ -241,7 +241,7 @@ impl OpenAiVectorStores {
     ) -> Result<OpenAiVectorStoreDeleted, Error> {
         validate_resource_id(vector_store_id)?;
         self.runtime
-            .execute_json(
+            .execute_vector_store_json(
                 Method::DELETE,
                 target(format!("vector_stores/{vector_store_id}"))?,
                 RequestBody::Empty,
@@ -265,7 +265,7 @@ impl OpenAiVectorStores {
     ) -> Result<OpenAiCursorPage<OpenAiVectorStore>, Error> {
         list.validate()?;
         self.runtime
-            .execute_json(
+            .execute_vector_store_json(
                 Method::GET,
                 target_with_query("vector_stores", list.query())?,
                 RequestBody::Empty,
@@ -297,7 +297,7 @@ impl OpenAiVectorStores {
             validate_chunking(strategy)?;
         }
         self.runtime
-            .execute_json(
+            .execute_vector_store_json(
                 Method::POST,
                 target(format!("vector_stores/{vector_store_id}/files"))?,
                 json_body(&request)?,
@@ -325,7 +325,7 @@ impl OpenAiVectorStores {
         validate_resource_id(vector_store_id)?;
         list.validate()?;
         self.runtime
-            .execute_json(
+            .execute_vector_store_json(
                 Method::GET,
                 target_with_query(
                     &format!("vector_stores/{vector_store_id}/files"),
@@ -356,7 +356,7 @@ impl OpenAiVectorStores {
         validate_resource_id(vector_store_id)?;
         validate_resource_id(file_id)?;
         self.runtime
-            .execute_json(
+            .execute_vector_store_json(
                 Method::DELETE,
                 target(format!("vector_stores/{vector_store_id}/files/{file_id}"))?,
                 RequestBody::Empty,

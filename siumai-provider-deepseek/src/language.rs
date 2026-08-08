@@ -1,17 +1,21 @@
 //! DeepSeek language profiles and bounded compatible codec policy.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::NaiveDate;
 use serde_json::{Map, Value};
+use siumai_anthropic_compatible::{
+    AnthropicCompatibleConfigError, AnthropicCompatibleProfile, MessagesCallOptions,
+    MessagesRequestPolicy, MessagesRequestRequirements,
+};
 use siumai_core::{
     ApiModeId, ApiStability, CatalogError, ContentPart, Error, ErrorKind, InvalidId,
-    LanguageRequest, LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelCatalog,
-    ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId,
-    ProfileError, ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile,
-    ProviderScope, ReplayDomain, ResponseDiagnostics, StreamTerminal, SupportScope,
-    TypedProviderOptions, Usage, UsageValue, VerificationDate, VerificationEvidence,
+    LanguageRequest, LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, MessageRole,
+    ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile,
+    OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId, ProtocolId,
+    ProviderId, ProviderProfile, ProviderScope, ReplayDomain, ResponseDiagnostics, StreamTerminal,
+    SupportScope, TypedProviderOptions, Usage, UsageValue, VerificationDate, VerificationEvidence,
     VerifiedFidelity, VerifiedSupportClaim, Warning,
 };
 use siumai_openai_compatible::extension::v1::{
@@ -19,6 +23,10 @@ use siumai_openai_compatible::extension::v1::{
     ResponsesCodecPolicy,
 };
 use siumai_openai_compatible::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};
+use siumai_protocol_anthropic::messages::{
+    API_MODE_ID as MESSAGES_API_MODE_ID, MessagesEncodingRuleError, MessagesEncodingRules,
+    PROTOCOL_ID as MESSAGES_PROTOCOL_ID, TemperatureEncodingRule, ThinkingConfig,
+};
 use siumai_protocol_openai::chat_completions::{
     API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, ChatCompletionsStreamDecoder,
     DialectError, PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
@@ -30,15 +38,82 @@ use siumai_protocol_openai::responses::{
 use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
 
+use crate::annotations::DeepSeekAssistantPrefix;
 use crate::models::{DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO, is_known_chat, is_known_responses};
 use crate::options::{DeepSeekChatOptions, DeepSeekResponsesOptions};
 
 pub(crate) const PROVIDER_ID: &str = "deepseek";
 pub(crate) const PLATFORM_ID: &str = "deepseek-api";
+pub(crate) const BETA_PLATFORM_ID: &str = "deepseek-beta-api";
 pub(crate) const DEFAULT_BASE_URL: &str = "https://api.deepseek.com/v1";
+pub(crate) const BETA_BASE_URL: &str = "https://api.deepseek.com/beta";
+pub(crate) const MESSAGES_BASE_URL: &str = "https://api.deepseek.com/anthropic";
 pub(crate) const CHAT_SOURCE: &str = "https://api-docs.deepseek.com/api/create-chat-completion";
 pub(crate) const RESPONSES_SOURCE: &str = "https://api-docs.deepseek.com/guides/responses_api";
+pub(crate) const BETA_SOURCE: &str = "https://api-docs.deepseek.com/guides/tool_calls";
+pub(crate) const MESSAGES_SOURCE: &str = "https://api-docs.deepseek.com/guides/anthropic_api";
 pub(crate) const VERIFIED_ON: &str = "2026-08-05";
+pub(crate) const MESSAGES_VERIFIED_ON: &str = "2026-08-08";
+pub(crate) const MESSAGES_API_VERSION: &str = "2023-06-01";
+
+pub(crate) fn messages_profile(
+    endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
+) -> Result<AnthropicCompatibleProfile, DeepSeekProfileError> {
+    let provider = ProviderId::new(PROVIDER_ID)?;
+    let platform = PlatformId::new(PLATFORM_ID)?;
+    let scope = SupportScope::new(
+        provider.clone(),
+        platform.clone(),
+        ModelFamily::Language,
+        ProtocolId::new(MESSAGES_PROTOCOL_ID)?,
+        ApiModeId::new(MESSAGES_API_MODE_ID)?,
+    );
+    let profile = if verified_endpoint {
+        let verified_at = VerificationDate::new(
+            NaiveDate::parse_from_str(MESSAGES_VERIFIED_ON, "%Y-%m-%d")
+                .map_err(|_| DeepSeekProfileError::InvalidVerificationDate)?,
+        );
+        let evidence = VerificationEvidence::new(
+            OfficialSource::new(MESSAGES_SOURCE)?,
+            verified_at,
+            ProtocolContractId::new("deepseek-anthropic-messages-2026-08")?,
+        );
+        let catalog = ModelCatalog::new([
+            model_profile(DEEPSEEK_V4_FLASH, &scope, &evidence)?,
+            model_profile(DEEPSEEK_V4_PRO, &scope, &evidence)?,
+        ])?;
+        let provider_profile = ProviderProfile::verified(
+            ProfileId::new("deepseek.messages")?,
+            vec![VerifiedSupportClaim::new(
+                scope,
+                VerifiedFidelity::Compatible,
+                ApiStability::Stable,
+                evidence,
+            )],
+            catalog,
+        )?;
+        AnthropicCompatibleProfile::verified(provider_profile, endpoint, MESSAGES_API_VERSION)?
+            .with_replay_domain(replay_domain)?
+    } else {
+        AnthropicCompatibleProfile::custom(
+            ProfileId::new("deepseek.messages")?,
+            provider,
+            platform,
+            endpoint,
+            replay_domain,
+            MESSAGES_API_VERSION,
+        )?
+    };
+    Ok(profile
+        .with_messages_target("v1/messages")?
+        .with_encoding_rules(
+            MessagesEncodingRules::compatible_baseline()
+                .with_temperature(TemperatureEncodingRule::new(2.0)?),
+        )
+        .with_request_policy(Arc::new(DeepSeekMessagesPolicy)))
+}
 
 pub(crate) fn profile(
     endpoint: EndpointConfig,
@@ -65,8 +140,85 @@ pub(crate) fn profile(
     };
 
     Ok(profile
-        .with_chat_codec_policy(Arc::new(DeepSeekChatCodecPolicy))
+        .with_chat_codec_policy(Arc::new(DeepSeekChatCodecPolicy::stable()))
         .with_responses_codec_policy(Arc::new(DeepSeekResponsesCodecPolicy)))
+}
+
+pub(crate) fn beta_profile(
+    endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
+) -> Result<OpenAiCompatibleProfile, DeepSeekProfileError> {
+    let provider = ProviderId::new(PROVIDER_ID)?;
+    let reasoning = WireFieldName::new("reasoning_content")?;
+    let cache_read = WireFieldName::new("prompt_cache_hit_tokens")?;
+    let dialect = ChatCompletionsDialect::generic()
+        .with_reasoning_input_field(reasoning.clone())
+        .with_reasoning_output_field(reasoning)
+        .with_cache_read_tokens_field(cache_read);
+    let profile = if verified_endpoint {
+        verified_beta_profile(provider, endpoint, dialect)?.with_replay_domain(replay_domain)?
+    } else {
+        OpenAiCompatibleProfile::custom_chat(provider, endpoint, replay_domain, dialect)?
+    };
+    Ok(profile.with_chat_codec_policy(Arc::new(DeepSeekChatCodecPolicy::beta())))
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct DeepSeekMessagesPolicy;
+
+impl MessagesRequestPolicy for DeepSeekMessagesPolicy {
+    fn prepare(
+        &self,
+        _model: &ModelId,
+        request: &LanguageRequest,
+        options: &mut MessagesCallOptions,
+    ) -> Result<MessagesRequestRequirements, Error> {
+        reject_media(request)?;
+        if request.structured_output.is_some() {
+            return Err(unsupported(
+                "DeepSeek Messages only supports output effort from Anthropic output_config",
+            ));
+        }
+        if let Some(thinking) = options.thinking() {
+            match thinking {
+                ThinkingConfig::Disabled => {}
+                ThinkingConfig::Enabled { .. } => {
+                    return Err(unsupported(
+                        "DeepSeek Messages ignores explicit thinking budgets",
+                    ));
+                }
+                ThinkingConfig::Adaptive { .. } => {
+                    return Err(unsupported(
+                        "DeepSeek Messages does not support adaptive thinking",
+                    ));
+                }
+                _ => {
+                    return Err(unsupported(
+                        "DeepSeek Messages received an unverified thinking mode",
+                    ));
+                }
+            }
+        }
+        if options.output_effort().is_some()
+            || options.task_budget().is_some()
+            || options.fallbacks().is_some()
+            || options.top_k().is_some()
+            || options.service_tier().is_some()
+            || options.cache_control().is_some()
+            || options.speed().is_some()
+            || options.inference_geo().is_some()
+            || options.container().is_some()
+            || options.context_management().is_some()
+            || options.mcp_servers().is_some()
+            || !options.extra().is_empty()
+        {
+            return Err(unsupported(
+                "DeepSeek Messages does not support the selected Anthropic request control",
+            ));
+        }
+        Ok(MessagesRequestRequirements::new())
+    }
 }
 
 fn verified_profile(
@@ -133,6 +285,46 @@ fn verified_profile(
     )?)
 }
 
+fn verified_beta_profile(
+    provider: ProviderId,
+    endpoint: EndpointConfig,
+    dialect: ChatCompletionsDialect,
+) -> Result<OpenAiCompatibleProfile, DeepSeekProfileError> {
+    let scope = SupportScope::new(
+        provider,
+        PlatformId::new(BETA_PLATFORM_ID)?,
+        ModelFamily::Language,
+        ProtocolId::new(CHAT_PROTOCOL_ID)?,
+        ApiModeId::new(CHAT_API_MODE_ID)?,
+    );
+    let verified_at = VerificationDate::new(
+        NaiveDate::parse_from_str(MESSAGES_VERIFIED_ON, "%Y-%m-%d")
+            .map_err(|_| DeepSeekProfileError::InvalidVerificationDate)?,
+    );
+    let evidence = VerificationEvidence::new(
+        OfficialSource::new(BETA_SOURCE)?,
+        verified_at,
+        ProtocolContractId::new("deepseek-beta-chat-strict-prefix-2026-08")?,
+    );
+    let catalog = ModelCatalog::new([
+        model_profile(DEEPSEEK_V4_FLASH, &scope, &evidence)?,
+        model_profile(DEEPSEEK_V4_PRO, &scope, &evidence)?,
+    ])?;
+    let profile = ProviderProfile::verified(
+        ProfileId::new("deepseek.beta")?,
+        vec![VerifiedSupportClaim::new(
+            scope,
+            VerifiedFidelity::Compatible,
+            ApiStability::Experimental,
+            evidence,
+        )],
+        catalog,
+    )?;
+    Ok(OpenAiCompatibleProfile::verified_chat(
+        profile, endpoint, dialect,
+    )?)
+}
+
 fn model_profile(
     model: &str,
     scope: &SupportScope,
@@ -160,45 +352,64 @@ pub enum DeepSeekProfileError {
     Dialect(#[from] DialectError),
     #[error("invalid DeepSeek compatible profile: {0}")]
     Compatible(#[from] OpenAiCompatibleConfigError),
+    #[error("invalid DeepSeek Anthropic-compatible Messages profile: {0}")]
+    MessagesCompatible(#[from] AnthropicCompatibleConfigError),
+    #[error("invalid DeepSeek Anthropic-compatible Messages encoding rules: {0}")]
+    MessagesRules(#[from] MessagesEncodingRuleError),
     #[error("DeepSeek verification date is invalid")]
     InvalidVerificationDate,
 }
 
-#[derive(Debug, Default)]
-struct DeepSeekChatCodecPolicy;
+#[derive(Debug, Clone, Copy)]
+struct DeepSeekChatCodecPolicy {
+    beta: bool,
+}
+
+impl DeepSeekChatCodecPolicy {
+    const fn stable() -> Self {
+        Self { beta: false }
+    }
+
+    const fn beta() -> Self {
+        Self { beta: true }
+    }
+}
 
 impl ChatCodecPolicy for DeepSeekChatCodecPolicy {
     fn name(&self) -> &'static str {
-        "deepseek-v4-chat-2026-08"
+        if self.beta {
+            "deepseek-beta-chat-2026-08"
+        } else {
+            "deepseek-v4-chat-2026-08"
+        }
     }
 
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: LanguageRequest,
-        mut dialect: ChatCompletionsDialect,
+        dialect: ChatCompletionsDialect,
         mut extra: BTreeMap<String, Value>,
     ) -> Result<PreparedChatCall, Error> {
         reject_legacy_options(&extra)?;
         reject_media(&request)?;
         let options = parse_chat_options(&extra)?;
-        if let Some(strict) = options.strict_tools {
-            if strict {
-                if !is_known_chat(model.as_str()) {
-                    return Err(invalid(
-                        "DeepSeek strict tools are not verified for this model identifier",
-                    ));
-                }
-                if request.tools.is_empty() {
-                    return Err(invalid(
-                        "DeepSeek strict tool mode requires at least one function tool",
-                    ));
-                }
-                validate_strict_tool_schemas(&request)?;
+        let prefix = assistant_prefix_index(&request)?;
+        if !self.beta {
+            if options.strict_tools == Some(true) {
+                return Err(unsupported(
+                    "DeepSeek strict tools require the beta Chat handle",
+                ));
             }
-            dialect = dialect.with_function_tool_strict(strict);
+            if prefix.is_some() {
+                return Err(unsupported(
+                    "DeepSeek prefix completion requires the beta Chat handle",
+                ));
+            }
+            extra.remove("strict_tools");
+        } else if options.strict_tools == Some(true) {
+            validate_strict_tools(&request)?;
         }
-        extra.remove("strict_tools");
 
         let mut warnings = Vec::new();
         if request.structured_output.is_some() {
@@ -225,20 +436,25 @@ impl ChatCodecPolicy for DeepSeekChatCodecPolicy {
         stream: bool,
     ) -> Result<Value, Error> {
         let mut body = prepared.encode(scope, model, stream)?;
-        let Some(output) = prepared.request.structured_output.as_ref() else {
-            return Ok(body);
-        };
-        {
-            let body = body.as_object_mut().ok_or_else(|| {
+        let strict = body
+            .as_object_mut()
+            .ok_or_else(|| {
                 Error::new(
                     ErrorKind::Internal,
                     "DeepSeek Chat encoder returned a non-object request",
                 )
-            })?;
-            body.insert(
-                "response_format".to_string(),
-                serde_json::json!({"type": "json_object"}),
-            );
+            })?
+            .remove("strict_tools")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+
+        if let Some(output) = prepared.request.structured_output.as_ref() {
+            body.as_object_mut()
+                .expect("DeepSeek Chat body was validated as an object")
+                .insert(
+                    "response_format".to_string(),
+                    serde_json::json!({"type": "json_object"}),
+                );
             let schema = serde_json::to_string(&output.schema).map_err(|source| {
                 Error::new(
                     ErrorKind::InvalidInput,
@@ -264,6 +480,15 @@ impl ChatCodecPolicy for DeepSeekChatCodecPolicy {
                     )
                 }),
             );
+        }
+
+        if self.beta {
+            if strict {
+                mark_strict_tools(&mut body)?;
+            }
+            if assistant_prefix_index(&prepared.request)?.is_some() {
+                mark_assistant_prefix(&mut body)?;
+            }
         }
         Ok(body)
     }
@@ -391,6 +616,186 @@ fn parse_responses_options(
     Ok(options)
 }
 
+fn assistant_prefix_index(request: &LanguageRequest) -> Result<Option<usize>, Error> {
+    let mut prefix_index = None;
+    for (index, message) in request.messages.iter().enumerate() {
+        let annotation = message
+            .annotations()
+            .decode::<DeepSeekAssistantPrefix>()
+            .map_err(|source| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "DeepSeek assistant-prefix annotation is invalid",
+                )
+                .with_source(source)
+            })?;
+        if annotation.is_none() {
+            continue;
+        }
+        if prefix_index.replace(index).is_some() {
+            return Err(invalid(
+                "DeepSeek prefix completion accepts exactly one annotated assistant message",
+            ));
+        }
+        if message.role() != MessageRole::Assistant {
+            return Err(invalid(
+                "DeepSeek prefix completion must annotate an assistant message",
+            ));
+        }
+    }
+    if prefix_index.is_some_and(|index| index + 1 != request.messages.len()) {
+        return Err(invalid(
+            "DeepSeek prefix completion must annotate the final message",
+        ));
+    }
+    Ok(prefix_index)
+}
+
+fn validate_strict_tools(request: &LanguageRequest) -> Result<(), Error> {
+    if request.tools.is_empty() {
+        return Err(invalid(
+            "DeepSeek strict tool mode requires at least one function tool",
+        ));
+    }
+    for tool in &request.tools {
+        validate_strict_schema(tool.input_schema())?;
+    }
+    Ok(())
+}
+
+fn validate_strict_schema(root: &Value) -> Result<(), Error> {
+    const MAX_SCHEMA_DEPTH: usize = 64;
+    const MAX_SCHEMA_NODES: usize = 4_096;
+
+    if root.get("type").and_then(Value::as_str) != Some("object") {
+        return Err(invalid(
+            "DeepSeek strict tools require a top-level object schema",
+        ));
+    }
+
+    let mut stack = vec![(root, 0_usize)];
+    let mut visited = 0_usize;
+    while let Some((schema, depth)) = stack.pop() {
+        visited += 1;
+        if depth > MAX_SCHEMA_DEPTH || visited > MAX_SCHEMA_NODES {
+            return Err(invalid(
+                "DeepSeek strict tool schema exceeds the supported structural budget",
+            ));
+        }
+        let object = schema
+            .as_object()
+            .ok_or_else(|| invalid("DeepSeek strict tool schemas must use JSON Schema objects"))?;
+        let is_object = object.get("type").and_then(Value::as_str) == Some("object")
+            || object.contains_key("properties");
+        if is_object {
+            if object.get("additionalProperties").and_then(Value::as_bool) != Some(false) {
+                return Err(invalid(
+                    "DeepSeek strict object schemas require additionalProperties=false",
+                ));
+            }
+            let properties = object
+                .get("properties")
+                .and_then(Value::as_object)
+                .ok_or_else(|| {
+                    invalid("DeepSeek strict object schemas require a properties object")
+                })?;
+            let required = object
+                .get("required")
+                .and_then(Value::as_array)
+                .ok_or_else(|| invalid("DeepSeek strict object schemas require every property"))?;
+            if required.len() != properties.len()
+                || properties.keys().any(|name| {
+                    required
+                        .iter()
+                        .filter(|required| required.as_str() == Some(name.as_str()))
+                        .count()
+                        != 1
+                })
+            {
+                return Err(invalid(
+                    "DeepSeek strict object schemas require every declared property exactly once",
+                ));
+            }
+            for property in properties.values() {
+                stack.push((property, depth + 1));
+            }
+        }
+
+        if object.get("type").and_then(Value::as_str) == Some("array") {
+            let items = object
+                .get("items")
+                .ok_or_else(|| invalid("DeepSeek strict array schemas require an items schema"))?;
+            stack.push((items, depth + 1));
+        }
+        for keyword in ["anyOf", "oneOf", "allOf"] {
+            if let Some(branches) = object.get(keyword) {
+                let branches = branches.as_array().ok_or_else(|| {
+                    invalid("DeepSeek strict schema combinators must contain schema arrays")
+                })?;
+                for branch in branches {
+                    stack.push((branch, depth + 1));
+                }
+            }
+        }
+        if let Some(definitions) = object.get("$defs") {
+            let definitions = definitions
+                .as_object()
+                .ok_or_else(|| invalid("DeepSeek strict schema definitions must be an object"))?;
+            for definition in definitions.values() {
+                stack.push((definition, depth + 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn mark_strict_tools(body: &mut Value) -> Result<(), Error> {
+    let tools = body
+        .get_mut("tools")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| {
+            Error::new(
+                ErrorKind::Internal,
+                "DeepSeek strict Chat encoding omitted the tools array",
+            )
+        })?;
+    for tool in tools {
+        let function = tool
+            .get_mut("function")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorKind::Internal,
+                    "DeepSeek strict Chat encoding produced a non-function tool",
+                )
+            })?;
+        function.insert("strict".to_string(), Value::Bool(true));
+    }
+    Ok(())
+}
+
+fn mark_assistant_prefix(body: &mut Value) -> Result<(), Error> {
+    let message = body
+        .get_mut("messages")
+        .and_then(Value::as_array_mut)
+        .and_then(|messages| messages.last_mut())
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| {
+            Error::new(
+                ErrorKind::Internal,
+                "DeepSeek prefix encoding omitted the final assistant message",
+            )
+        })?;
+    if message.get("role").and_then(Value::as_str) != Some("assistant") {
+        return Err(Error::new(
+            ErrorKind::Internal,
+            "DeepSeek prefix encoding changed the final assistant message role",
+        ));
+    }
+    message.insert("prefix".to_string(), Value::Bool(true));
+    Ok(())
+}
+
 fn reject_unsupported_responses_fields(extra: &BTreeMap<String, Value>) -> Result<(), Error> {
     for field in [
         "previous_response_id",
@@ -454,47 +859,12 @@ fn reject_media(request: &LanguageRequest) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_strict_tool_schemas(request: &LanguageRequest) -> Result<(), Error> {
-    for tool in &request.tools {
-        let schema = tool.input_schema().as_object().ok_or_else(|| {
-            invalid("DeepSeek strict tools require a top-level object JSON Schema")
-        })?;
-        if schema.get("type").and_then(Value::as_str) != Some("object") {
-            return Err(invalid("DeepSeek strict tools require schema type=object"));
-        }
-        if schema.get("additionalProperties").and_then(Value::as_bool) != Some(false) {
-            return Err(invalid(
-                "DeepSeek strict tools require additionalProperties=false",
-            ));
-        }
-        let properties = schema
-            .get("properties")
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid("DeepSeek strict tools require an object properties map"))?;
-        let required = schema
-            .get("required")
-            .and_then(Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default();
-        if properties
-            .keys()
-            .any(|name| !required.contains(name.as_str()))
-        {
-            return Err(invalid(
-                "DeepSeek strict tools require every declared property to be required",
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn invalid(message: &'static str) -> Error {
     Error::new(ErrorKind::InvalidInput, message)
+}
+
+fn unsupported(message: &'static str) -> Error {
+    Error::new(ErrorKind::Unsupported, message)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -671,9 +1041,13 @@ fn augment_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use siumai_anthropic_compatible::{
+        CacheControl, CacheTtl, MessagesServiceTierPreference, TokenTaskBudget,
+    };
     use siumai_core::{
         Message, MessageRole, StructuredOutputSpec, ToolCall, ToolOutcome, ToolResult, ToolSpec,
     };
+    use siumai_protocol_anthropic::messages::OutputEffort;
 
     fn model(value: &str) -> ModelId {
         ModelId::new(value).expect("test model id")
@@ -689,8 +1063,51 @@ mod tests {
     }
 
     #[test]
+    fn messages_policy_rejects_ignored_explicit_controls() {
+        let policy = DeepSeekMessagesPolicy;
+        let request = LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]);
+        let cases = [
+            ("top_k", MessagesCallOptions::new().with_top_k(8)),
+            (
+                "cache_control",
+                MessagesCallOptions::new()
+                    .with_cache_control(CacheControl::new(CacheTtl::FiveMinutes)),
+            ),
+            (
+                "service_tier",
+                MessagesCallOptions::new().with_service_tier(MessagesServiceTierPreference::Auto),
+            ),
+            (
+                "output_effort",
+                MessagesCallOptions::new().with_output_effort(OutputEffort::High),
+            ),
+            (
+                "task_budget",
+                MessagesCallOptions::new()
+                    .with_task_budget(TokenTaskBudget::new(20_000).expect("task budget")),
+            ),
+            (
+                "thinking",
+                MessagesCallOptions::new().with_thinking(
+                    siumai_protocol_anthropic::messages::ThinkingConfig::enabled(1_024),
+                ),
+            ),
+        ];
+
+        for (name, mut options) in cases {
+            let error = match policy.prepare(&model(DEEPSEEK_V4_FLASH), &request, &mut options) {
+                Ok(requirements) => {
+                    panic!("{name} unexpectedly produced {requirements:?}")
+                }
+                Err(error) => error,
+            };
+            assert_eq!(error.kind(), ErrorKind::Unsupported);
+        }
+    }
+
+    #[test]
     fn profile_replays_reasoning_for_every_assistant_tool_turn() {
-        let policy = DeepSeekChatCodecPolicy;
+        let policy = DeepSeekChatCodecPolicy::stable();
         let tool = ToolSpec::new(
             "lookup",
             None,
@@ -762,7 +1179,7 @@ mod tests {
 
     #[test]
     fn structured_output_uses_json_object_and_schema_instruction() {
-        let policy = DeepSeekChatCodecPolicy;
+        let policy = DeepSeekChatCodecPolicy::stable();
         let request = LanguageRequest {
             messages: vec![Message::text(MessageRole::User, "answer")],
             generation: Default::default(),
@@ -800,21 +1217,23 @@ mod tests {
     }
 
     #[test]
-    fn strict_tools_validate_the_documented_top_level_schema_contract() {
-        let policy = DeepSeekChatCodecPolicy;
-        let invalid_tool = ToolSpec::new(
+    fn stable_chat_policy_rejects_beta_strict_tools() {
+        let policy = DeepSeekChatCodecPolicy::stable();
+        let tool = ToolSpec::new(
             "lookup",
             None,
             serde_json::json!({
                 "type": "object",
-                "properties": {"q": {"type": "string"}}
+                "properties": {"q": {"type": "string"}},
+                "required": ["q"],
+                "additionalProperties": false
             }),
         )
         .expect("tool");
         let request = LanguageRequest {
             messages: vec![Message::text(MessageRole::User, "lookup")],
             generation: Default::default(),
-            tools: vec![invalid_tool],
+            tools: vec![tool],
             tool_choice: None,
             structured_output: None,
         };

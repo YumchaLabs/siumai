@@ -3,16 +3,12 @@
 mod common;
 mod conversations;
 mod files;
-mod skills;
+pub(crate) mod skills;
 mod vector_stores;
 
 pub use common::OpenAiBinaryContent;
 pub use conversations::{OpenAiConversationItemsListOptions, OpenAiConversations};
 pub use files::{OpenAiFileListOptions, OpenAiFileUpload, OpenAiFiles};
-pub use skills::{
-    OpenAiSkillFile, OpenAiSkillListOptions, OpenAiSkillUpload, OpenAiSkillVersionUpload,
-    OpenAiSkills,
-};
 pub use vector_stores::{
     OpenAiVectorStoreFileListOptions, OpenAiVectorStoreFileStatusFilter,
     OpenAiVectorStoreListOptions, OpenAiVectorStores,
@@ -22,10 +18,9 @@ pub use siumai_protocol_openai::resources::{
     OpenAiChunkingStrategy, OpenAiConversation, OpenAiConversationCreateRequest,
     OpenAiConversationDeleted, OpenAiConversationInputItem, OpenAiConversationItem,
     OpenAiConversationItemsCreateRequest, OpenAiConversationRole, OpenAiConversationUpdateRequest,
-    OpenAiCursorPage, OpenAiDeletedSkill, OpenAiDeletedSkillVersion, OpenAiFile, OpenAiFileDeleted,
-    OpenAiFileExpirationAnchor, OpenAiFileExpiresAfter, OpenAiFilePurpose, OpenAiListOrder,
-    OpenAiMetadata, OpenAiResourceCodecError, OpenAiSkill, OpenAiSkillUpdateRequest,
-    OpenAiSkillVersion, OpenAiStaticChunkingSettings, OpenAiVectorStore,
+    OpenAiCursorPage, OpenAiFile, OpenAiFileDeleted, OpenAiFileExpirationAnchor,
+    OpenAiFileExpiresAfter, OpenAiFilePurpose, OpenAiFileUploadPurpose, OpenAiListOrder,
+    OpenAiMetadata, OpenAiResourceCodecError, OpenAiStaticChunkingSettings, OpenAiVectorStore,
     OpenAiVectorStoreCreateRequest, OpenAiVectorStoreDeleted, OpenAiVectorStoreExpiration,
     OpenAiVectorStoreExpirationAnchor, OpenAiVectorStoreFile, OpenAiVectorStoreFileAttachRequest,
     OpenAiVectorStoreFileCounts, OpenAiVectorStoreFileDeleted, OpenAiVectorStoreFileError,
@@ -36,9 +31,10 @@ pub use siumai_protocol_openai::resources::{
 mod tests {
     use siumai_core::{ReplayDomain, ReplayDomainId};
     use siumai_transport::EndpointConfig;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    use super::skills::{OpenAiSkillFile, OpenAiSkillUpload, OpenAiSkillsProviderExt};
     use super::*;
     use crate::configured::{OpenAiCredential, OpenAiProvider};
 
@@ -106,7 +102,7 @@ mod tests {
                 "note.txt",
                 "text/plain",
                 b"data".to_vec(),
-                OpenAiFilePurpose::new(OpenAiFilePurpose::USER_DATA).unwrap(),
+                OpenAiFileUploadPurpose::UserData,
             ))
             .await
             .unwrap();
@@ -120,6 +116,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/vector_stores/vs_1/files"))
+            .and(header("openai-beta", "assistants=v2"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "id": "file_1",
                 "object": "vector_store.file",
@@ -144,6 +141,28 @@ mod tests {
 
         assert_eq!(file.vector_store_id, "vs_1");
         assert_eq!(file.extra["future"], true);
+    }
+
+    #[test]
+    fn vector_store_expiration_enforces_the_official_range() {
+        assert!(
+            super::common::validate_vector_store_expiration(
+                OpenAiVectorStoreExpiration::after_last_active(1),
+            )
+            .is_ok()
+        );
+        assert!(
+            super::common::validate_vector_store_expiration(
+                OpenAiVectorStoreExpiration::after_last_active(365),
+            )
+            .is_ok()
+        );
+        assert!(
+            super::common::validate_vector_store_expiration(
+                OpenAiVectorStoreExpiration::after_last_active(366),
+            )
+            .is_err()
+        );
     }
 
     #[tokio::test]

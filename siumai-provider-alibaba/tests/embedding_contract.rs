@@ -48,6 +48,10 @@ fn workspace_origin_derives_family_endpoints_without_modeling_regions() {
         workspace.embedding_endpoint().expose_base_url().as_str(),
         "https://workspace-id.ap-southeast-1.maas.aliyuncs.com/api/v1"
     );
+    assert_eq!(
+        workspace.messages_endpoint().expose_base_url().as_str(),
+        "https://workspace-id.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"
+    );
 }
 
 #[test]

@@ -6,6 +6,10 @@ use std::sync::Arc;
 use chrono::NaiveDate;
 use http::header::{HeaderName, HeaderValue};
 use serde_json::Value;
+use siumai_anthropic_compatible::{
+    AnthropicCompatibleConfigError, AnthropicCompatibleProfile, MessagesCallOptions,
+    MessagesRequestPolicy, MessagesRequestRequirements,
+};
 use siumai_core::{
     ApiModeId, ApiStability, Error, ErrorKind, InvalidId, LanguageRequest, ModelCatalog,
     ModelFamily, ModelId, OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId,
@@ -17,9 +21,13 @@ use siumai_openai_compatible::extension::v1::{
     ChatCodecPolicy, PreparedChatCall, PreparedResponsesCall, ResponsesCodecPolicy,
 };
 use siumai_openai_compatible::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};
+use siumai_protocol_anthropic::messages::{
+    API_MODE_ID as MESSAGES_API_MODE_ID, CacheControlWireStyle, MessagesEncodingRules,
+    PROTOCOL_ID as MESSAGES_PROTOCOL_ID,
+};
 use siumai_protocol_openai::chat_completions::{
     API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, ChatPromptCacheBlock, DialectError,
-    PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
+    MaxOutputTokensField, PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
 };
 use siumai_protocol_openai::responses::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL,
@@ -27,6 +35,7 @@ use siumai_protocol_openai::responses::{
 use siumai_transport::{EndpointConfig, RequestHeaders};
 use thiserror::Error as ThisError;
 
+use crate::annotations::AlibabaAnnotationResolver;
 use crate::options::{
     ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaResponsesOptions, AlibabaResponsesTool,
 };
@@ -35,11 +44,108 @@ pub const PROVIDER_ID: &str = "alibaba";
 pub const PLATFORM_ID: &str = "alibaba-model-studio";
 pub const LEGACY_SINGAPORE_LANGUAGE_BASE_URL: &str =
     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+pub const LEGACY_SINGAPORE_MESSAGES_BASE_URL: &str =
+    "https://dashscope-intl.aliyuncs.com/apps/anthropic";
 pub const CHAT_SOURCE: &str =
     "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions";
 pub const RESPONSES_SOURCE: &str =
     "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses";
 pub const VERIFIED_ON: &str = "2026-08-05";
+pub const MESSAGES_SOURCE: &str =
+    "https://www.alibabacloud.com/help/en/model-studio/anthropic-api-messages";
+pub const MESSAGES_VERIFIED_ON: &str = "2026-08-08";
+
+pub(crate) const MESSAGES_API_VERSION: &str = "2023-06-01";
+
+pub(crate) fn messages_profile(
+    endpoint: EndpointConfig,
+    verified_endpoint: bool,
+    replay_domain: ReplayDomain,
+) -> Result<AnthropicCompatibleProfile, AlibabaProfileError> {
+    let provider = ProviderId::new(PROVIDER_ID)?;
+    let platform = PlatformId::new(PLATFORM_ID)?;
+    let scope = SupportScope::new(
+        provider.clone(),
+        platform.clone(),
+        ModelFamily::Language,
+        ProtocolId::new(MESSAGES_PROTOCOL_ID)?,
+        ApiModeId::new(MESSAGES_API_MODE_ID)?,
+    );
+    let profile = if verified_endpoint {
+        let verified_at = VerificationDate::new(
+            NaiveDate::parse_from_str(MESSAGES_VERIFIED_ON, "%Y-%m-%d")
+                .map_err(|_| AlibabaProfileError::InvalidVerificationDate)?,
+        );
+        let evidence = VerificationEvidence::new(
+            OfficialSource::new(MESSAGES_SOURCE)?,
+            verified_at,
+            ProtocolContractId::new("alibaba-anthropic-messages-2026-08")?,
+        );
+        let provider_profile = ProviderProfile::verified(
+            ProfileId::new("alibaba-messages")?,
+            vec![VerifiedSupportClaim::new(
+                scope,
+                VerifiedFidelity::Compatible,
+                ApiStability::Stable,
+                evidence,
+            )],
+            ModelCatalog::default(),
+        )?;
+        AnthropicCompatibleProfile::verified(provider_profile, endpoint, MESSAGES_API_VERSION)?
+            .with_replay_domain(replay_domain)?
+    } else {
+        AnthropicCompatibleProfile::custom(
+            ProfileId::new("alibaba-messages")?,
+            provider,
+            platform,
+            endpoint,
+            replay_domain,
+            MESSAGES_API_VERSION,
+        )?
+    };
+    Ok(profile
+        .with_messages_target("v1/messages")?
+        .with_annotation_resolver(Arc::new(AlibabaAnnotationResolver))
+        .with_encoding_rules(
+            MessagesEncodingRules::compatible_baseline()
+                .with_cache_control(CacheControlWireStyle::FiveMinutesImplicit)
+                .with_video_input(true),
+        )
+        .with_request_policy(Arc::new(AlibabaMessagesPolicy)))
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct AlibabaMessagesPolicy;
+
+impl MessagesRequestPolicy for AlibabaMessagesPolicy {
+    fn prepare(
+        &self,
+        _model: &ModelId,
+        _request: &LanguageRequest,
+        options: &mut MessagesCallOptions,
+    ) -> Result<MessagesRequestRequirements, Error> {
+        if options.metadata().is_some()
+            || options.output_effort().is_some()
+            || options.task_budget().is_some()
+            || options.fallbacks().is_some()
+            || options.top_k().is_some()
+            || options.service_tier().is_some()
+            || options.cache_control().is_some()
+            || options.speed().is_some()
+            || options.inference_geo().is_some()
+            || options.container().is_some()
+            || options.context_management().is_some()
+            || options.mcp_servers().is_some()
+            || !options.extra().is_empty()
+        {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "Alibaba Messages accepts only verified Alibaba request controls",
+            ));
+        }
+        Ok(MessagesRequestRequirements::new())
+    }
+}
 
 pub(crate) fn profile(
     endpoint: EndpointConfig,
@@ -54,7 +160,8 @@ pub(crate) fn profile(
         .with_reasoning_input_field(reasoning.clone())
         .with_reasoning_output_field(reasoning)
         .with_cache_read_tokens_field(cache_read)
-        .with_cache_write_tokens_field(cache_write);
+        .with_cache_write_tokens_field(cache_write)
+        .with_max_output_tokens_field(MaxOutputTokensField::MaxCompletionTokens);
 
     let profile = if verified_endpoint {
         let platform = PlatformId::new(PLATFORM_ID)?;
@@ -131,6 +238,8 @@ pub enum AlibabaProfileError {
     Dialect(#[from] DialectError),
     #[error("invalid Alibaba compatible profile: {0}")]
     Compatible(#[from] OpenAiCompatibleConfigError),
+    #[error("invalid Alibaba Anthropic Messages profile: {0}")]
+    MessagesCompatible(#[from] AnthropicCompatibleConfigError),
     #[error("Alibaba verification date is invalid")]
     InvalidVerificationDate,
 }

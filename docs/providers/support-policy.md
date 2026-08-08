@@ -63,14 +63,14 @@ of compiled public scope, not a promise that every account can use every model o
 | `anthropic` | Native Messages plus Anthropic-owned files, message batches, token counting, and skills | OpenAI-shaped language modes |
 | `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, buffered speech, Files metadata, and Veo submit/status | Stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
-| `alibaba` | Verified Chat Completions and Responses dialects, native embeddings, and experimental Wan video jobs | A separate DashScope provider identity or business-region routing |
+| `alibaba` | Verified Chat Completions, Responses, and Anthropic-compatible Messages modes, native embeddings, and experimental Wan video jobs | Complete Anthropic parity, a separate DashScope provider identity, or business-region routing |
 | `moonshotai` | Verified Moonshot AI Kimi Chat Completions dialect with typed Kimi options and dated model advisories | Kimi resources or API modes not implemented by the branded provider |
 | `volcengine` | Verified Volcengine ARK Chat Completions and Responses dialects with typed ARK options | ARK media, MCP, or other native resources not implemented by the branded provider |
 | `openai-compatible` | Explicit generic-compatible configuration for caller-owned endpoints | Named-provider fidelity, model advice, or native-provider resources |
 | `groq` | Verified Chat Completions and Responses dialects plus final-result transcription | A universal OpenAI clone or unrelated Groq products |
 | `xai` | Verified Responses and Chat Completions language modes with typed xAI tools/options | Files, image, speech, video, or a generic native-resource client |
 | `minimax` | Verified Messages, Chat Completions, and bounded Responses modes plus native files, image, video, music, and speech resources | Cross-provider resource abstractions or hidden polling workflows |
-| `deepseek` | Verified Chat Completions and Responses language modes | Unverified non-language products |
+| `deepseek` | Verified Chat Completions, explicit beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes | Unverified non-language products |
 | `cohere` | Native v2 embedding, including Embed v4, and rerank through Rerank v4/v3 | Cohere chat |
 | `deepgram` | Native final-result prerecorded transcription with current Nova-3/Nova-2 hints | Flux/live transcription or legacy-model lifecycle claims |
 | `elevenlabs` | Native speech synthesis | Transcription and broad resource clients |
@@ -100,6 +100,7 @@ names the exact execution surface; it is not provider-wide identity.
 | `google-vertex-anthropic` / Claude on Vertex AI | `google` / `vertex-ai` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/use-claude | 2026-08-06 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions | 2026-08-05 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses | 2026-08-05 |
+| `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/anthropic-api-messages | 2026-08-08 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Embedding | `alibaba-native` / `text-embedding` | `native` | `stable` | https://www.alibabacloud.com/help/en/model-studio/text-embedding-synchronous-api | 2026-08-06 |
 | `moonshotai` / Kimi | `moonshotai` / `kimi-public-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://platform.kimi.ai/docs/api/chat | 2026-08-08 |
 | `volcengine` / ARK | `volcengine` / `ark-cn-beijing` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1330626 | 2026-08-08 |
@@ -114,6 +115,8 @@ names the exact execution surface; it is not provider-wide identity.
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/responses-create | 2026-08-06 |
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/api/create-chat-completion | 2026-08-05 |
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/guides/responses_api | 2026-08-05 |
+| `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/guides/anthropic_api | 2026-08-08 |
+| `deepseek` / DeepSeek | `deepseek` / `deepseek-beta-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `experimental` | https://api-docs.deepseek.com/guides/tool_calls | 2026-08-08 |
 | `cohere` / Cohere | `cohere` / `public-api` | Embedding | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/embed | 2026-08-06 |
 | `cohere` / Cohere | `cohere` / `public-api` | Rerank | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/rerank | 2026-08-06 |
 | `deepgram` / Deepgram | `deepgram` / `public-api` | Transcription | `deepgram-prerecorded` / `prerecorded` | `native` | `stable` | https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded | 2026-08-06 |

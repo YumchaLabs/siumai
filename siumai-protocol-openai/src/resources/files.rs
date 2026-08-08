@@ -19,7 +19,7 @@ impl OpenAiFilePurpose {
     pub const FINE_TUNE_RESULTS: &'static str = "fine-tune-results";
     pub const VISION: &'static str = "vision";
     pub const USER_DATA: &'static str = "user_data";
-    pub const EVALUATIONS: &'static str = "evaluations";
+    pub const EVALS: &'static str = "evals";
 
     pub fn new(value: impl Into<String>) -> Result<Self, OpenAiResourceCodecError> {
         let value = value.into();
@@ -35,6 +35,37 @@ impl OpenAiFilePurpose {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// A purpose accepted when uploading a file to the OpenAI Files API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum OpenAiFileUploadPurpose {
+    #[serde(rename = "assistants")]
+    Assistants,
+    #[serde(rename = "batch")]
+    Batch,
+    #[serde(rename = "fine-tune")]
+    FineTune,
+    #[serde(rename = "vision")]
+    Vision,
+    #[serde(rename = "user_data")]
+    UserData,
+    #[serde(rename = "evals")]
+    Evals,
+}
+
+impl OpenAiFileUploadPurpose {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Assistants => "assistants",
+            Self::Batch => "batch",
+            Self::FineTune => "fine-tune",
+            Self::Vision => "vision",
+            Self::UserData => "user_data",
+            Self::Evals => "evals",
+        }
     }
 }
 
@@ -110,5 +141,14 @@ mod tests {
         .unwrap();
         assert_eq!(file.purpose.as_str(), "future-purpose");
         assert_eq!(file.extra["future"], true);
+    }
+
+    #[test]
+    fn upload_purposes_use_only_create_file_wire_values() {
+        assert_eq!(OpenAiFileUploadPurpose::Evals.as_str(), "evals");
+        assert_eq!(
+            serde_json::to_value(OpenAiFileUploadPurpose::FineTune).unwrap(),
+            "fine-tune"
+        );
     }
 }

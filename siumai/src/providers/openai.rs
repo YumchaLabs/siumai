@@ -64,7 +64,7 @@ pub mod resources {
         pub use siumai_provider_openai::{
             OpenAiBinaryContent, OpenAiFile, OpenAiFileDeleted, OpenAiFileExpirationAnchor,
             OpenAiFileExpiresAfter, OpenAiFileListOptions, OpenAiFilePurpose, OpenAiFileUpload,
-            OpenAiFiles,
+            OpenAiFileUploadPurpose, OpenAiFiles,
         };
     }
 
@@ -77,14 +77,6 @@ pub mod resources {
             OpenAiVectorStoreFileDeleted, OpenAiVectorStoreFileError,
             OpenAiVectorStoreFileListOptions, OpenAiVectorStoreFileStatusFilter,
             OpenAiVectorStoreListOptions, OpenAiVectorStoreUpdateRequest, OpenAiVectorStores,
-        };
-    }
-
-    pub mod skills {
-        pub use siumai_provider_openai::{
-            OpenAiDeletedSkill, OpenAiDeletedSkillVersion, OpenAiSkill, OpenAiSkillFile,
-            OpenAiSkillListOptions, OpenAiSkillUpdateRequest, OpenAiSkillUpload,
-            OpenAiSkillVersion, OpenAiSkillVersionUpload, OpenAiSkills,
         };
     }
 
@@ -126,8 +118,16 @@ pub mod responses {
     };
 }
 
-#[cfg(feature = "openai-realtime")]
 pub mod experimental {
+    pub mod skills {
+        pub use siumai_provider_openai::experimental::skills::{
+            OpenAiDeletedSkill, OpenAiDeletedSkillVersion, OpenAiSkill, OpenAiSkillFile,
+            OpenAiSkillListOptions, OpenAiSkillUpdateRequest, OpenAiSkillUpload,
+            OpenAiSkillVersion, OpenAiSkillVersionUpload, OpenAiSkills, OpenAiSkillsProviderExt,
+        };
+    }
+
+    #[cfg(feature = "openai-realtime")]
     pub mod realtime {
         pub use siumai_provider_openai::experimental::realtime::{
             DecodedRealtimeEvent, FunctionCallArgumentsDeltaEvent, FunctionCallArgumentsDoneEvent,

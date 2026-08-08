@@ -45,9 +45,9 @@ imports directly; the `openai-responses` Cargo feature and all wire identifiers 
 Transcription. Code that needs only one language protocol should use the explicit registration:
 
 ```rust,ignore
-let all_portable_families = provider.registration()?;
-let responses_only = provider.responses_registration()?;
-let chat_only = provider.chat_completions_registration()?;
+let all_portable_families = provider.registration();
+let responses_only = provider.responses_registration();
+let chat_only = provider.chat_completions_registration();
 ```
 
 Model acquisition remains synchronous and network-free:
@@ -72,6 +72,7 @@ Provider-native lifecycle APIs remain separate from the portable families:
 let conversations = provider.conversations();
 let files = provider.files();
 let vector_stores = provider.vector_stores();
+// Import `OpenAiSkillsProviderExt` from the experimental facade namespace first.
 let skills = provider.skills();
 ```
 

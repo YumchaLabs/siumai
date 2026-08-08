@@ -200,6 +200,7 @@ impl OpenAiTranscriptionModel {
             ));
         }
         validate_portable_fields(request)?;
+        validate_known_model_request(self.descriptor.scope(), self.model_id(), request, options)?;
         let content_type = HeaderValue::from_str(request.media_type()).map_err(|source| {
             Error::new(
                 ErrorKind::InvalidInput,
@@ -386,6 +387,62 @@ fn validate_portable_fields(request: &TranscriptionRequest) -> Result<(), Error>
     Ok(())
 }
 
+fn validate_known_model_request(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &TranscriptionRequest,
+    options: &OpenAiTranscriptionOptions,
+) -> Result<(), Error> {
+    if scope.platform().map(|value| value.as_str()) != Some("openai-api") {
+        return Ok(());
+    }
+    match model.as_str() {
+        GPT_4O_MINI_TRANSCRIBE
+        | GPT_4O_MINI_TRANSCRIBE_2025_03_20
+        | GPT_4O_MINI_TRANSCRIBE_2025_12_15
+        | GPT_4O_TRANSCRIBE => {
+            if options
+                .response_format
+                .is_some_and(|format| format != OpenAiTranscriptionResponseFormat::Json)
+            {
+                return Err(invalid_known_model_request(
+                    "OpenAI GPT-4o transcription models support only JSON response format",
+                ));
+            }
+        }
+        GPT_4O_TRANSCRIBE_DIARIZE => {
+            if request.prompt().is_some() {
+                return Err(invalid_known_model_request(
+                    "OpenAI diarized transcription does not support prompt",
+                ));
+            }
+            if !options.timestamp_granularities.is_empty() {
+                return Err(invalid_known_model_request(
+                    "OpenAI diarized transcription does not support timestamp granularities",
+                ));
+            }
+            if options.response_format == Some(OpenAiTranscriptionResponseFormat::VerboseJson) {
+                return Err(invalid_known_model_request(
+                    "OpenAI diarized transcription does not support verbose_json",
+                ));
+            }
+        }
+        WHISPER_1
+            if options.response_format == Some(OpenAiTranscriptionResponseFormat::DiarizedJson) =>
+        {
+            return Err(invalid_known_model_request(
+                "OpenAI whisper-1 does not support diarized_json",
+            ));
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn invalid_known_model_request(message: &'static str) -> Error {
+    Error::new(ErrorKind::InvalidInput, message)
+}
+
 fn audio_file_name(media_type: &str) -> Result<&'static str, Error> {
     match media_type.to_ascii_lowercase().as_str() {
         "audio/flac" => Ok("audio.flac"),
@@ -479,6 +536,7 @@ fn response_request_id(headers: &siumai_transport::ResponseHeaders) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configured::profile::OpenAiProfile;
 
     #[test]
     fn options_require_verbose_json_for_timestamps() {
@@ -496,5 +554,71 @@ mod tests {
     fn supported_media_types_map_to_safe_static_file_names() {
         assert_eq!(audio_file_name("audio/wav").unwrap(), "audio.wav");
         assert!(audio_file_name("application/octet-stream").is_err());
+    }
+
+    #[test]
+    fn official_known_models_reject_unsupported_transcription_controls() {
+        let profile = OpenAiProfile::current().unwrap();
+        let scope = profile
+            .family_provider_scope(ModelFamily::Transcription)
+            .unwrap();
+        let request = TranscriptionRequest::new(vec![1_u8], "audio/wav").unwrap();
+        let prompted = request.clone().with_prompt("speaker context").unwrap();
+
+        assert!(
+            validate_known_model_request(
+                scope,
+                &ModelId::new(GPT_4O_TRANSCRIBE).unwrap(),
+                &request,
+                &OpenAiTranscriptionOptions::new()
+                    .with_response_format(OpenAiTranscriptionResponseFormat::VerboseJson),
+            )
+            .is_err()
+        );
+        assert!(
+            validate_known_model_request(
+                scope,
+                &ModelId::new(GPT_4O_TRANSCRIBE_DIARIZE).unwrap(),
+                &prompted,
+                &OpenAiTranscriptionOptions::default(),
+            )
+            .is_err()
+        );
+        assert!(
+            validate_known_model_request(
+                scope,
+                &ModelId::new(WHISPER_1).unwrap(),
+                &request,
+                &OpenAiTranscriptionOptions::new()
+                    .with_response_format(OpenAiTranscriptionResponseFormat::DiarizedJson),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn custom_transcription_endpoints_keep_open_model_baseline_behavior() {
+        let profile = OpenAiProfile::custom(siumai_core::ReplayDomain::custom(
+            siumai_core::ReplayDomainId::new("custom-transcription-fixture").unwrap(),
+        ))
+        .unwrap();
+        let scope = profile
+            .family_provider_scope(ModelFamily::Transcription)
+            .unwrap();
+        let request = TranscriptionRequest::new(vec![1_u8], "audio/wav")
+            .unwrap()
+            .with_prompt("speaker context")
+            .unwrap();
+
+        assert!(
+            validate_known_model_request(
+                scope,
+                &ModelId::new(GPT_4O_TRANSCRIBE_DIARIZE).unwrap(),
+                &request,
+                &OpenAiTranscriptionOptions::new()
+                    .with_response_format(OpenAiTranscriptionResponseFormat::VerboseJson),
+            )
+            .is_ok()
+        );
     }
 }

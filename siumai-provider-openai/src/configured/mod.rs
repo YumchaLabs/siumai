@@ -147,9 +147,21 @@ pub mod responses {
 }
 
 /// Experimental provider-native contracts that are intentionally outside the stable families.
-#[cfg(feature = "openai-realtime")]
 pub mod experimental {
+    /// Provider-native OpenAI Skills directory lifecycle.
+    pub mod skills {
+        pub use crate::configured::resources::skills::{
+            OpenAiSkillFile, OpenAiSkillListOptions, OpenAiSkillUpload, OpenAiSkillVersionUpload,
+            OpenAiSkills, OpenAiSkillsProviderExt,
+        };
+        pub use siumai_protocol_openai::experimental::skills::{
+            OpenAiDeletedSkill, OpenAiDeletedSkillVersion, OpenAiSkill, OpenAiSkillUpdateRequest,
+            OpenAiSkillVersion,
+        };
+    }
+
     /// Typed OpenAI Realtime and Realtime Translation sessions.
+    #[cfg(feature = "openai-realtime")]
     pub mod realtime {
         pub use crate::configured::{
             OPENAI_REALTIME_CLIENT_SECRETS_URL, OPENAI_REALTIME_MODEL,

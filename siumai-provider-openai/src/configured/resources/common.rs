@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use http::Method;
-use http::header::{ACCEPT, HeaderValue};
+use http::header::{ACCEPT, HeaderName, HeaderValue};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -25,6 +25,13 @@ pub(crate) const MAX_METADATA_KEY_BYTES: usize = 64;
 pub(crate) const MAX_METADATA_VALUE_BYTES: usize = 512;
 pub(crate) const MAX_FILE_EXPIRATION_SECONDS: u32 = 2_592_000;
 pub(crate) const MIN_FILE_EXPIRATION_SECONDS: u32 = 3_600;
+const MAX_VECTOR_STORE_EXPIRATION_DAYS: u32 = 365;
+
+#[derive(Clone, Copy)]
+enum OpenAiResourceApiHeaders {
+    Default,
+    VectorStoresV2,
+}
 
 /// Bounded provider-native binary content with payload-redacted diagnostics.
 #[derive(Clone, PartialEq, Eq)]
@@ -81,6 +88,45 @@ impl OpenAiNativeRuntime {
         replay_safety: ReplaySafety,
         options: CallOptions,
     ) -> Result<T, Error> {
+        self.execute_json_with_api_headers(
+            method,
+            target,
+            body,
+            replay_safety,
+            OpenAiResourceApiHeaders::Default,
+            options,
+        )
+        .await
+    }
+
+    pub(crate) async fn execute_vector_store_json<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        target: RequestTarget,
+        body: RequestBody,
+        replay_safety: ReplaySafety,
+        options: CallOptions,
+    ) -> Result<T, Error> {
+        self.execute_json_with_api_headers(
+            method,
+            target,
+            body,
+            replay_safety,
+            OpenAiResourceApiHeaders::VectorStoresV2,
+            options,
+        )
+        .await
+    }
+
+    async fn execute_json_with_api_headers<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        target: RequestTarget,
+        body: RequestBody,
+        replay_safety: ReplaySafety,
+        api_headers: OpenAiResourceApiHeaders,
+        options: CallOptions,
+    ) -> Result<T, Error> {
         let response = self
             .execute(
                 method,
@@ -88,6 +134,7 @@ impl OpenAiNativeRuntime {
                 body,
                 replay_safety,
                 "application/json",
+                api_headers,
                 options,
             )
             .await?;
@@ -115,12 +162,14 @@ impl OpenAiNativeRuntime {
                 RequestBody::Empty,
                 ReplaySafety::SemanticallyIdempotent,
                 accept,
+                OpenAiResourceApiHeaders::Default,
                 options,
             )
             .await?;
         Ok(OpenAiBinaryContent::new(response.body().to_vec()))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute(
         &self,
         method: Method,
@@ -128,10 +177,18 @@ impl OpenAiNativeRuntime {
         body: RequestBody,
         replay_safety: ReplaySafety,
         accept: &'static str,
+        api_headers: OpenAiResourceApiHeaders,
         options: CallOptions,
     ) -> Result<TransportResponse, Error> {
         let headers = RequestHeaders::new()
             .try_insert(ACCEPT, HeaderValue::from_static(accept))
+            .and_then(|headers| match api_headers {
+                OpenAiResourceApiHeaders::Default => Ok(headers),
+                OpenAiResourceApiHeaders::VectorStoresV2 => headers.try_insert(
+                    HeaderName::from_static("openai-beta"),
+                    HeaderValue::from_static("assistants=v2"),
+                ),
+            })
             .map_err(|source| {
                 http_error::request_build_error(
                     "OpenAI resource request violates the transport contract",
@@ -290,9 +347,9 @@ pub(crate) fn validate_file_expiration(expires: &OpenAiFileExpiresAfter) -> Resu
 pub(crate) fn validate_vector_store_expiration(
     expires: OpenAiVectorStoreExpiration,
 ) -> Result<(), Error> {
-    if expires.days == 0 {
+    if !(1..=MAX_VECTOR_STORE_EXPIRATION_DAYS).contains(&expires.days) {
         return Err(invalid_input(
-            "OpenAI vector-store expiration must be at least one day",
+            "OpenAI vector-store expiration must be between 1 and 365 days",
         ));
     }
     Ok(())

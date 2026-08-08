@@ -7,7 +7,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 ### Added
 
 - Added six Rust-first provider-neutral model-family contracts, configured provider APIs, typed provider options and annotations, an immutable caller-configured Registry, and a provider-neutral runtime for tool loops, structured output, approvals, budgets, and durable runs.
-- Added current, narrowly scoped provider surfaces for OpenAI Chat/Responses/Realtime, Anthropic Messages and native resources, MiniMax language and media resources, Alibaba language/embedding/video, xAI language, DeepSeek, Groq, Cohere, Deepgram, ElevenLabs, Gemini Interactions image generation, and Anthropic-on-Vertex.
+- Added current, narrowly scoped provider surfaces for OpenAI Chat/Responses/Realtime, Anthropic Messages and native resources, MiniMax language and media resources, Alibaba Chat/Responses/Messages plus embedding/video, xAI language, DeepSeek, Groq, Cohere, Deepgram, ElevenLabs, Gemini Interactions image generation, and Anthropic-on-Vertex.
 - Added explicit `google-vertex-anthropic` facade and Registry integration without an SDK-owned region or model-availability catalog.
 - Added dated native support profiles for Cohere v2 embedding/rerank and Deepgram prerecorded transcription, including current Embed v4, Rerank v4/v3, and Nova-3/Nova-2 model hints.
 - Added provider-owned support manifests for composite portable and native surfaces, including an exact Groq transcription claim and a dated facade support matrix.
@@ -15,6 +15,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Added OpenAI portable embedding, image-generation, buffered-speech, and final-result
   transcription families, plus typed provider-owned Conversations, Files, Vector Stores, and
   Skills lifecycle clients.
+- Added provider-owned Anthropic-compatible Messages modes for Alibaba and DeepSeek, plus an
+  explicit DeepSeek beta Chat lane for strict tools and assistant-prefix completion.
 
 ### Changed
 
@@ -24,6 +26,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Reduced the base `Provider` trait to canonical identity. `ProviderScope` now describes one execution surface, while each non-empty `ProviderRegistration` family binding owns its own scope, model policy, and factory; alternate modes for one family remain explicit registrations.
 - Made `ModelOperation` determine its model family, hid shared `Arc` storage from public scope accessors and policy contexts, added family projection for combined registrations, and made facade provider registration return a typed error for native-resource-only configurations.
 - Reworked Alibaba construction around caller-supplied workspace/family endpoints and named legacy Singapore opt-ins instead of SDK-maintained regions or a separate DashScope provider identity.
+- Added Alibaba's provider-owned Anthropic-compatible Messages mode with explicit endpoint/replay
+  ownership, typed thinking and cache annotations, while preserving Responses as the default
+  Registry language route and using `max_completion_tokens` for Chat output limits.
 - Reduced CI and local automation to focused Python orchestration, repository schema checks, one fast package lane, and one serial workspace/all-features release lane.
 - Replaced the image-shaped `GoogleImage*` public surface with product-level `Gemini*` types, moved
   Interactions image encoding and decoding into the protocol crate, and made caller-controlled
