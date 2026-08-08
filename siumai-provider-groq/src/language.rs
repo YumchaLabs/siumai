@@ -15,7 +15,7 @@ use siumai_core::{
     SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
     Warning, WarningKind,
 };
-use siumai_openai_compatible::extension::{
+use siumai_openai_compatible::extension::v1::{
     ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,
     ResponsesCodecPolicy,
 };

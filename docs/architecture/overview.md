@@ -43,7 +43,7 @@ catalogs are resources rather than model families.
 | `siumai-core` | provider-neutral identities, family traits, requests, responses, usage, errors, options, and canonical stream lifecycle |
 | `siumai-transport` | HTTP/WebSocket execution, endpoint policy, authentication application, redirects, replay safety, retries, deadlines, cancellation, and resource bounds |
 | `siumai-protocol-*` | wire schemas, request/response codecs, SSE or WebSocket state machines, and protocol-owned metadata projection |
-| `siumai-openai-compatible` | one configured OpenAI-compatible execution engine, verified profiles, and explicit custom-compatible escape hatches |
+| `siumai-openai-compatible` | one configured generic OpenAI-compatible execution engine, explicit custom-compatible escape hatches, and a bounded versioned provider-composition seam |
 | `siumai-provider-*` | provider construction, credentials, technical endpoints, API modes, typed options, model advisories, provider codecs, and native resources |
 | `siumai-registry` | immutable, network-free lookup from host-owned route IDs to configured provider registrations |
 | `siumai-runtime` | provider-neutral tool loops, structured output, approvals, budgets, and durable multi-step execution |
@@ -142,9 +142,10 @@ Reuse follows this order:
 2. use a verified compatible engine/profile when the provider documents a compatible protocol;
 3. expose an explicit custom-compatible escape hatch for caller-owned endpoints.
 
-A compatibility profile states only the fidelity that fixtures and official documentation prove.
-Provider-specific policy remains in the branded provider package even when execution is delegated
-to a shared protocol engine.
+A branded provider owns its compatibility profile, typed options, model advice, evidence, and
+fixtures. The shared engine exposes only a versioned provider-neutral codec seam and explicit
+generic/custom construction. Provider-specific policy remains in the branded provider package even
+when execution is delegated to that shared engine.
 
 ## Canonical stream lifecycle
 

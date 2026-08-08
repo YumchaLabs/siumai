@@ -383,9 +383,11 @@ or a temporary hidden feature:
 - OpenAI retains configured Chat Completions, Responses, Responses resources, and opt-in Realtime.
   The old universal client and unrelated files, image, audio, moderation, rerank, and skills
   surfaces are removed.
-- The generic OpenAI-compatible engine retains explicit custom endpoints and verified ARK and Kimi
-  profiles. Unverified GLM, Qianfan, Hunyuan, SiliconFlow, DeepInfra, and other named presets are no
-  longer shipped as support claims.
+- The generic OpenAI-compatible engine retains explicit generic and custom endpoints only. Kimi is
+  owned by `siumai-provider-moonshotai`; Volcengine ARK is owned by
+  `siumai-provider-volcengine`. Their typed options, model advisories, and support evidence no
+  longer appear below the compatibility-engine namespace. Unverified GLM, Qianfan, Hunyuan,
+  SiliconFlow, DeepInfra, and other named presets are not shipped as support claims.
 
 The old `siumai-spec` and `siumai-provider-utils` packages are removed. Legacy universal client
 traits, provider capability switches, provider-specific feature flags in core, compatibility

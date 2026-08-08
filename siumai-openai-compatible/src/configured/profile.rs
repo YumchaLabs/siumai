@@ -431,11 +431,6 @@ impl OpenAiCompatibleProfile {
         &self.endpoint
     }
 
-    #[cfg(test)]
-    pub(crate) fn chat_mode(&self) -> Option<&ChatModeProfile> {
-        self.chat.as_ref()
-    }
-
     pub(crate) fn language_mode(
         &self,
         mode: OpenAiCompatibleApiMode,
@@ -465,17 +460,6 @@ impl OpenAiCompatibleProfile {
     pub(crate) fn with_test_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = endpoint;
         self
-    }
-}
-
-#[cfg(test)]
-impl ChatModeProfile {
-    pub(crate) fn dialect(&self) -> &ChatCompletionsDialect {
-        &self.dialect
-    }
-
-    pub(crate) fn codec_policy(&self) -> &Arc<dyn ChatCodecPolicy> {
-        &self.codec_policy
     }
 }
 

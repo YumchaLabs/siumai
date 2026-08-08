@@ -731,34 +731,29 @@ fn facade_exposes_xai_language_modes_and_typed_tools() {
     assert_eq!(options.value()["native_tools"][0]["type"], "web_search");
 }
 
-#[cfg(feature = "openai-compatible")]
+#[cfg(feature = "moonshotai")]
 #[test]
-fn facade_exposes_current_kimi_profile_and_typed_options() {
+fn facade_exposes_moonshotai_provider_and_typed_kimi_options() {
     use siumai::core::ProviderOptions;
-    use siumai::providers::openai_compatible::OpenAiCompatibleApiMode;
-    use siumai::providers::openai_compatible::options::{KimiLanguageOptions, KimiReasoningEffort};
-    use siumai::providers::openai_compatible::profiles::moonshotai;
+    use siumai::providers::moonshotai::models;
+    use siumai::providers::moonshotai::options::{KimiLanguageOptions, KimiReasoningEffort};
+    use siumai::providers::moonshotai::{MoonshotCredential, MoonshotProvider};
 
-    let profile = moonshotai::profile().unwrap();
+    let provider = MoonshotProvider::builder(MoonshotCredential::unauthenticated())
+        .build()
+        .unwrap();
+    assert_eq!(provider.provider_id().as_str(), "moonshotai");
+    assert_eq!(models::CHAT, models::KIMI_K3);
     assert_eq!(
-        profile
-            .scope(OpenAiCompatibleApiMode::ChatCompletions)
-            .unwrap()
-            .provider_id()
-            .as_str(),
-        "moonshotai"
-    );
-    assert_eq!(moonshotai::CHAT, moonshotai::KIMI_K3);
-    assert_eq!(
-        profile.provider_profile().verified_claims().unwrap()[0]
+        provider.profile().verified_claims().unwrap()[0]
             .evidence()
             .source()
             .as_str(),
-        moonshotai::OFFICIAL_SOURCE
+        models::OFFICIAL_SOURCE
     );
     assert_eq!(
-        profile
-            .provider_profile()
+        provider
+            .profile()
             .catalog()
             .unwrap()
             .iter()
@@ -767,7 +762,7 @@ fn facade_exposes_current_kimi_profile_and_typed_options() {
             .evidence()
             .source()
             .as_str(),
-        moonshotai::MODEL_SOURCE
+        models::MODEL_SOURCE
     );
 
     let options = ProviderOptions::typed(
@@ -776,6 +771,29 @@ fn facade_exposes_current_kimi_profile_and_typed_options() {
     .unwrap();
     assert_eq!(options.namespace().as_str(), "moonshotai");
     assert_eq!(options.value()["reasoning_effort"], "high");
+}
+
+#[cfg(all(feature = "moonshotai", feature = "registry"))]
+#[test]
+fn facade_registers_moonshotai_without_compatible_engine_ownership() {
+    use siumai::providers::moonshotai::{MoonshotCredential, MoonshotProvider};
+    use siumai::registry::{Registry, RegistryBuilderExt};
+
+    let provider = MoonshotProvider::builder(MoonshotCredential::unauthenticated())
+        .build()
+        .unwrap();
+    let mut builder = Registry::builder();
+    builder.register_provider("kimi", &provider).unwrap();
+    let registry = builder.build().unwrap();
+
+    assert_eq!(
+        registry
+            .language_model("kimi:kimi-k4-future")
+            .unwrap()
+            .provider_id()
+            .as_str(),
+        "moonshotai"
+    );
 }
 
 #[cfg(feature = "alibaba")]
@@ -873,17 +891,21 @@ fn facade_rejects_provider_registration_without_a_portable_family() {
     ));
 }
 
-#[cfg(feature = "openai-compatible")]
+#[cfg(feature = "volcengine")]
 #[test]
-fn facade_exposes_verified_ark_modes() {
+fn facade_exposes_volcengine_provider_and_typed_ark_options() {
     use siumai::core::ProviderOptions;
-    use siumai::providers::openai_compatible::OpenAiCompatibleApiMode;
-    use siumai::providers::openai_compatible::options::{ArkCaching, ArkResponsesOptions};
-    use siumai::providers::openai_compatible::profiles::ark;
+    use siumai::providers::volcengine::options::{ArkCaching, ArkResponsesOptions};
+    use siumai::providers::volcengine::{VolcengineCredential, VolcengineProvider};
 
-    let ark = ark::profile().unwrap();
+    let provider = VolcengineProvider::builder(VolcengineCredential::unauthenticated())
+        .build()
+        .unwrap();
+    assert_eq!(provider.provider_id().as_str(), "volcengine");
+    assert!(provider.profile().verified_claims().is_some());
     assert_eq!(
-        ark.scope(OpenAiCompatibleApiMode::Responses)
+        provider
+            .language("future-ark-deployment")
             .unwrap()
             .provider_id()
             .as_str(),
@@ -891,6 +913,29 @@ fn facade_exposes_verified_ark_modes() {
     );
     ProviderOptions::typed(&ArkResponsesOptions::new().with_caching(ArkCaching::disabled()))
         .unwrap();
+}
+
+#[cfg(all(feature = "volcengine", feature = "registry"))]
+#[test]
+fn facade_registers_volcengine_with_recommended_responses_mode() {
+    use siumai::providers::volcengine::{VolcengineCredential, VolcengineProvider};
+    use siumai::registry::{Registry, RegistryBuilderExt};
+
+    let provider = VolcengineProvider::builder(VolcengineCredential::unauthenticated())
+        .build()
+        .unwrap();
+    let mut builder = Registry::builder();
+    builder.register_provider("ark", &provider).unwrap();
+    let registry = builder.build().unwrap();
+
+    assert_eq!(
+        registry
+            .language_model("ark:future-ark-deployment")
+            .unwrap()
+            .provider_id()
+            .as_str(),
+        "volcengine"
+    );
 }
 
 #[cfg(all(feature = "registry", feature = "openai"))]

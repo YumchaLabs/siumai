@@ -13,7 +13,7 @@ use siumai_core::{
     TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
     VerifiedSupportClaim,
 };
-use siumai_openai_compatible::extension::{
+use siumai_openai_compatible::extension::v1::{
     ChatCodecPolicy, PreparedChatCall, PreparedResponsesCall, ResponsesCodecPolicy,
 };
 use siumai_openai_compatible::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};

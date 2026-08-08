@@ -6,8 +6,6 @@ mod policy;
 mod profile;
 mod provider;
 
-pub mod profiles;
-
 #[doc(hidden)]
 pub use codec_policy::{
     ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,

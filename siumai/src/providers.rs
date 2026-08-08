@@ -24,9 +24,13 @@ pub mod google_vertex_anthropic;
 pub mod groq;
 #[cfg(feature = "minimax")]
 pub mod minimax;
+#[cfg(feature = "moonshotai")]
+pub mod moonshotai;
 #[cfg(feature = "openai")]
 pub mod openai;
 #[cfg(feature = "openai-compatible")]
 pub mod openai_compatible;
+#[cfg(feature = "volcengine")]
+pub mod volcengine;
 #[cfg(feature = "xai")]
 pub mod xai;

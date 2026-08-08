@@ -64,7 +64,9 @@ of compiled public scope, not a promise that every account can use every model o
 | `google` | Experimental native image generation through Gemini Interactions | Gemini language, Live, files, and broad Vertex support |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
 | `alibaba` | Verified Chat Completions and Responses dialects, native embeddings, and experimental Wan video jobs | A separate DashScope provider identity or business-region routing |
-| `openai-compatible` | Explicit generic-compatible configuration plus verified ARK and Kimi profiles | Unverified named vendor presets or native-provider fidelity |
+| `moonshotai` | Verified Moonshot AI Kimi Chat Completions dialect with typed Kimi options and dated model advisories | Kimi resources or API modes not implemented by the branded provider |
+| `volcengine` | Verified Volcengine ARK Chat Completions and Responses dialects with typed ARK options | ARK media, MCP, or other native resources not implemented by the branded provider |
+| `openai-compatible` | Explicit generic-compatible configuration for caller-owned endpoints | Named-provider fidelity, model advice, or native-provider resources |
 | `groq` | Verified Chat Completions and Responses dialects plus final-result transcription | A universal OpenAI clone or unrelated Groq products |
 | `xai` | Verified Responses and Chat Completions language modes with typed xAI tools/options | Files, image, speech, video, or a generic native-resource client |
 | `minimax` | Verified Messages, Chat Completions, and bounded Responses modes plus native files, image, video, music, and speech resources | Cross-provider resource abstractions or hidden polling workflows |
@@ -78,7 +80,7 @@ the generic `openai-compatible` escape hatch or experimental `openai-realtime` t
 
 ## Exact portable claim matrix
 
-The rows below mirror the provider-owned profiles compiled on 2026-08-06. `Protocol / API mode`
+The rows below mirror the provider-owned profiles compiled on 2026-08-08. `Protocol / API mode`
 names the exact execution surface; it is not provider-wide identity.
 
 | Facade feature / provider | Provider / platform | Family | Protocol / API mode | Fidelity | Stability | Official source | Verified |
@@ -91,9 +93,9 @@ names the exact execution surface; it is not provider-wide identity.
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions | 2026-08-05 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses | 2026-08-05 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Embedding | `alibaba-native` / `text-embedding` | `native` | `stable` | https://www.alibabacloud.com/help/en/model-studio/text-embedding-synchronous-api | 2026-08-06 |
-| `openai-compatible` / Kimi | `moonshotai` / `kimi-public-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://platform.kimi.ai/docs/api/chat | 2026-08-05 |
-| `openai-compatible` / Volcengine ARK | `volcengine` / `ark-cn-beijing` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1330626 | 2026-08-05 |
-| `openai-compatible` / Volcengine ARK | `volcengine` / `ark-cn-beijing` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1585128 | 2026-08-05 |
+| `moonshotai` / Kimi | `moonshotai` / `kimi-public-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://platform.kimi.ai/docs/api/chat | 2026-08-08 |
+| `volcengine` / ARK | `volcengine` / `ark-cn-beijing` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1330626 | 2026-08-08 |
+| `volcengine` / ARK | `volcengine` / `ark-cn-beijing` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1585128 | 2026-08-08 |
 | `groq` / Groq | `groq` / `groq-cloud` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://console.groq.com/docs/openai | 2026-08-05 |
 | `groq` / Groq | `groq` / `groq-cloud` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://console.groq.com/docs/responses-api | 2026-08-05 |
 | `groq` / Groq | `groq` / `groq-cloud` | Transcription | `groq-audio-transcriptions` / `audio-transcriptions` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-06 |

@@ -10,6 +10,8 @@ members = [
     "siumai-registry",
     "siumai-provider-openai",
     "siumai-provider-alibaba",
+    "siumai-provider-moonshotai",
+    "siumai-provider-volcengine",
     "siumai-openai-compatible",
     "siumai-anthropic-compatible",
     "siumai-protocol-openai",
@@ -88,6 +90,8 @@ siumai-transport = { version = "0.11.0-beta.9", path = "siumai-transport", defau
 siumai-runtime = { version = "0.11.0-beta.9", path = "siumai-runtime", default-features = false }
 siumai-registry = { version = "0.11.0-beta.9", path = "siumai-registry", default-features = false }
 siumai-provider-alibaba = { version = "0.11.0-beta.9", path = "siumai-provider-alibaba", default-features = false }
+siumai-provider-moonshotai = { version = "0.11.0-beta.9", path = "siumai-provider-moonshotai", default-features = false }
+siumai-provider-volcengine = { version = "0.11.0-beta.9", path = "siumai-provider-volcengine", default-features = false }
 
 # Security
 secrecy = { version = "0.10", features = ["serde"] }

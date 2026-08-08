@@ -48,7 +48,9 @@ Provider features describe the exact retained slice, not every product sold unde
 | `google` | Experimental Gemini Interactions image generation |
 | `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
 | `alibaba` | Chat, Responses, embeddings, and experimental Wan video |
-| `openai-compatible` | Generic custom endpoints plus verified ARK and Kimi profiles |
+| `moonshotai` | Moonshot AI's Kimi Chat Completions product surface |
+| `volcengine` | Volcengine ARK Chat Completions and Responses modes |
+| `openai-compatible` | Explicit generic or custom OpenAI-compatible endpoints |
 | `groq` | Chat, Responses, and transcription |
 | `xai` | Responses and Chat Completions language modes |
 | `minimax` | Three language modes plus files, image, video, music, and speech |

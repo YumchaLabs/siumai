@@ -169,6 +169,13 @@ impl ProviderRegistrationSource for siumai_provider_minimax::MinimaxProvider {
     }
 }
 
+#[cfg(feature = "moonshotai")]
+impl ProviderRegistrationSource for siumai_provider_moonshotai::MoonshotProvider {
+    fn provider_registration(&self) -> Result<ProviderRegistration, RegisterProviderError> {
+        Ok(self.registration())
+    }
+}
+
 #[cfg(feature = "groq")]
 impl ProviderRegistrationSource for siumai_provider_groq::GroqProvider {
     fn provider_registration(&self) -> Result<ProviderRegistration, RegisterProviderError> {
@@ -178,6 +185,13 @@ impl ProviderRegistrationSource for siumai_provider_groq::GroqProvider {
 
 #[cfg(feature = "xai")]
 impl ProviderRegistrationSource for siumai_provider_xai::XaiProvider {
+    fn provider_registration(&self) -> Result<ProviderRegistration, RegisterProviderError> {
+        Ok(self.registration())
+    }
+}
+
+#[cfg(feature = "volcengine")]
+impl ProviderRegistrationSource for siumai_provider_volcengine::VolcengineProvider {
     fn provider_registration(&self) -> Result<ProviderRegistration, RegisterProviderError> {
         Ok(self.registration())
     }

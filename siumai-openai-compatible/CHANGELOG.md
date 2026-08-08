@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename the crate from `siumai-provider-openai-compatible` to
   `siumai-openai-compatible` to reflect its role as the reusable compatible execution engine and
   generic provider surface. The old package name is not retained as an alias.
+- Move Moonshot AI/Kimi and Volcengine/ARK profiles, typed options, model advisories, evidence, and
+  fixtures into their branded provider crates. The compatible engine now exposes only generic
+  construction and the versioned `extension::v1` codec seam.
 
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-compatible-v0.11.0-beta.8...siumai-provider-openai-compatible-v0.11.0-beta.9) - 2026-05-27
 

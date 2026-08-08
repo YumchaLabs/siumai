@@ -1,7 +1,7 @@
-//! MoonshotAI provider options.
+//! Moonshot AI provider options for the Kimi Chat Completions surface.
 //!
-//! These typed option structs are owned by the OpenAI-compatible provider crate and are
-//! serialized into `providerOptions["moonshotai"]`.
+//! These typed option structs are owned by this branded provider crate and serialize into the
+//! `providerOptions["moonshotai"]` namespace.
 
 use serde::{Deserialize, Serialize};
 use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};

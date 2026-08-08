@@ -1,8 +1,8 @@
-//! Volcengine ARK / Doubao provider options.
+//! Volcengine ARK provider options.
 //!
 //! ARK's Chat and Responses endpoints are OpenAI-shaped but not fully OpenAI-compatible. These
 //! typed options preserve ARK-only thinking, caching, and built-in-tool semantics without putting
-//! them into the provider-agnostic core request types.
+//! them into provider-neutral core requests.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -202,8 +202,7 @@ impl ArkResponsesTool {
     }
 
     pub fn mcp(label: impl Into<String>, url: impl Into<String>) -> Self {
-        // Authenticated MCP headers are deliberately not modeled as request options.
-        // This profile currently supports only MCP servers that need no custom credentials.
+        // Authenticated MCP headers are deliberately not modeled as untyped request options.
         Self::Mcp {
             server_label: label.into(),
             server_url: url.into(),
