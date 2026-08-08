@@ -182,6 +182,37 @@ impl OpenAiResponsesResource {
         )
     }
 
+    /// Count the exact input tokens for a provider-native Responses request shape.
+    pub async fn count_input_tokens(
+        &self,
+        request: OpenAiResponsesInputTokenCountRequest,
+        call_options: CallOptions,
+    ) -> Result<OpenAiResponsesInputTokenCount, Error> {
+        request.validate()?;
+        let response = self
+            .execute(
+                json_request_plan(
+                    Method::POST,
+                    target("responses/input_tokens")?,
+                    &request,
+                    ReplaySafety::SemanticallyIdempotent,
+                )?,
+                call_options,
+            )
+            .await?;
+        let decoded: OpenAiResponsesInputTokenCount = self.decode_json(
+            response.body(),
+            "OpenAI returned a malformed Responses input-token count",
+        )?;
+        if decoded.object != "response.input_tokens" {
+            return Err(self.contextualize(Error::new(
+                ErrorKind::Protocol,
+                "OpenAI returned an unexpected Responses input-token object",
+            )));
+        }
+        Ok(decoded)
+    }
+
     async fn execute(
         &self,
         plan: RequestPlan,
@@ -405,6 +436,70 @@ pub struct OpenAiResponsesCompaction {
     pub extra: BTreeMap<String, Value>,
 }
 
+/// Provider-native request accepted by `POST /responses/input_tokens`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OpenAiResponsesInputTokenCountRequest {
+    pub model: ModelId,
+    pub input: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<Value>,
+}
+
+impl OpenAiResponsesInputTokenCountRequest {
+    pub fn new(model: ModelId, input: Value) -> Self {
+        Self {
+            model,
+            input,
+            instructions: None,
+            tools: Vec::new(),
+        }
+    }
+
+    pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
+        self.instructions = Some(instructions.into());
+        self
+    }
+
+    pub fn with_tool(mut self, tool: Value) -> Self {
+        self.tools.push(tool);
+        self
+    }
+
+    fn validate(&self) -> Result<(), Error> {
+        if !matches!(self.input, Value::String(_) | Value::Array(_)) {
+            return Err(invalid_input(
+                "Responses input-token count input must be a string or item array",
+            ));
+        }
+        if self
+            .instructions
+            .as_deref()
+            .is_some_and(|instructions| instructions.trim().is_empty())
+        {
+            return Err(invalid_input(
+                "Responses input-token count instructions cannot be empty",
+            ));
+        }
+        if self.tools.iter().any(|tool| !tool.is_object()) {
+            return Err(invalid_input(
+                "Responses input-token count tools must be JSON objects",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Exact input-token count returned by OpenAI Responses.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenAiResponsesInputTokenCount {
+    pub object: String,
+    pub input_tokens: u64,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 /// Typed deletion acknowledgement for a stored response.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiDeletedResponse {
@@ -602,6 +697,76 @@ mod tests {
             .unwrap();
         assert_eq!(compacted.id, "cmp_123");
         assert_eq!(compacted.output[0]["encrypted_content"], "opaque");
+    }
+
+    #[tokio::test]
+    async fn input_token_count_uses_the_native_endpoint_and_preserves_future_fields() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses/input_tokens"))
+            .and(body_json(json!({
+                "model": "gpt-5.6-sol",
+                "input": "hello",
+                "instructions": "Be concise",
+                "tools": [{"type": "web_search"}]
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "object": "response.input_tokens",
+                "input_tokens": 17,
+                "future_detail": {"cached": 3}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let counted = resource(&server)
+            .await
+            .count_input_tokens(
+                OpenAiResponsesInputTokenCountRequest::new(
+                    ModelId::new("gpt-5.6-sol").unwrap(),
+                    json!("hello"),
+                )
+                .with_instructions("Be concise")
+                .with_tool(json!({"type": "web_search"})),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(counted.input_tokens, 17);
+        assert_eq!(counted.extra["future_detail"], json!({"cached": 3}));
+    }
+
+    #[tokio::test]
+    async fn input_token_count_sanitizes_provider_error_bodies() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses/input_tokens"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+                "error": {
+                    "type": "rate_limit_error",
+                    "code": "rate_limit_exceeded",
+                    "message": "input-token-secret"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let error = resource(&server)
+            .await
+            .count_input_tokens(
+                OpenAiResponsesInputTokenCountRequest::new(
+                    ModelId::new("gpt-5.6-sol").unwrap(),
+                    json!("hello"),
+                ),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::RateLimited);
+        assert!(!format!("{error:?}").contains("input-token-secret"));
+        assert!(!error.to_string().contains("input-token-secret"));
     }
 
     #[test]

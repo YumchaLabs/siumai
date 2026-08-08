@@ -533,6 +533,7 @@ fn protected_fields_cannot_be_overridden_by_extra_options() {
     let error = encode_request(&scope(), &model(), &request, false, &extra).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
     assert!(is_protected_option_field("tools"));
+    assert!(is_protected_option_field("background"));
     assert!(!is_protected_option_field("reasoning"));
 }
 

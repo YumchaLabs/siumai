@@ -12,7 +12,8 @@ use crate::openai_error::classify_stream_error;
 use super::ChatCompletionsDialect;
 use super::reasoning::ReasoningDetailsSnapshot;
 use super::response::{
-    build_response, decode_finish_reason, decode_usage, parse_model, protocol_error,
+    build_response, decode_finish_reason, decode_usage, merge_response_metadata, merge_usage,
+    parse_model, protocol_error, selected_response_metadata,
 };
 use super::wire::{ChatStreamChunkWire, ToolCallDeltaWire};
 
@@ -37,6 +38,7 @@ pub struct ChatCompletionsStreamDecoder {
     tools: BTreeMap<u32, ToolAssembly>,
     order: Vec<ContentOrder>,
     usage: Usage,
+    response_metadata: BTreeMap<String, Value>,
     finish_reason: Option<FinishReason>,
     response_diagnostics: ResponseDiagnostics,
 }
@@ -99,6 +101,7 @@ impl ChatCompletionsStreamDecoder {
             tools: BTreeMap::new(),
             order: Vec::new(),
             usage: Usage::default(),
+            response_metadata: BTreeMap::new(),
             finish_reason: None,
             response_diagnostics: ResponseDiagnostics::default(),
         }
@@ -167,6 +170,7 @@ impl ChatCompletionsStreamDecoder {
         })?;
         let mut events = Vec::new();
         self.observe_identity(&chunk, &mut events)?;
+        merge_response_metadata(&mut self.response_metadata, chunk.extra)?;
 
         if chunk.choices.len() > 1
             || chunk
@@ -187,7 +191,8 @@ impl ChatCompletionsStreamDecoder {
                 .flatten()
         });
         if let Some(usage) = usage {
-            self.usage = decode_usage(usage, &self.dialect);
+            let update = decode_usage(usage, &self.dialect)?;
+            merge_usage(&mut self.usage, update);
             events.push(LanguageStreamEvent::Usage(self.usage.clone()));
         }
         let Some(choice) = choice else {
@@ -456,7 +461,7 @@ impl ChatCompletionsStreamDecoder {
             content,
             finish_reason,
             self.usage.clone(),
-            BTreeMap::new(),
+            selected_response_metadata(&self.response_metadata)?,
         )?;
         events.push(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
             response: Box::new(response),
@@ -814,20 +819,21 @@ mod tests {
     fn finish_reason_waits_for_trailing_usage_before_terminal() {
         let mut decoder = decoder();
         let finish = decoder
-            .decode(r#"{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}"#)
+            .decode(r#"{"id":"chat-stream-1","model":"gpt-5.6-sol","system_fingerprint":"fp_current","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}"#)
             .unwrap();
         assert!(finish.iter().all(|event| event.terminal().is_none()));
 
         let usage = decoder
             .decode(
-                r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"#,
+                r#"{"service_tier":"priority","future_scalar":true,"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18,"prompt_tokens_details":{"cached_tokens":4,"cache_write_tokens":3,"audio_tokens":2},"completion_tokens_details":{"reasoning_tokens":5,"audio_tokens":1,"accepted_prediction_tokens":6,"rejected_prediction_tokens":7}}}"#,
             )
             .unwrap();
         assert!(usage.iter().any(|event| matches!(
             event,
             LanguageStreamEvent::Usage(usage)
                 if usage.input_tokens == UsageValue::Known(10)
-                    && usage.output_tokens == UsageValue::Known(2)
+                    && usage.output_tokens == UsageValue::Known(8)
+                    && usage.cache_write_tokens == UsageValue::Known(3)
         )));
 
         let terminal = decoder.decode("[DONE]").unwrap();
@@ -835,7 +841,14 @@ mod tests {
             terminal.as_slice(),
             [.., LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })]
                 if response.usage().input_tokens == UsageValue::Known(10)
-                    && response.usage().output_tokens == UsageValue::Known(2)
+                    && response.usage().output_tokens == UsageValue::Known(8)
+                    && response.usage().cache_read_tokens == UsageValue::Known(4)
+                    && response.usage().cache_write_tokens == UsageValue::Known(3)
+                    && response.usage().provider["accepted_prediction_tokens"] == 6
+                    && response.provider_metadata()["openai"]["system_fingerprint"]
+                        == "fp_current"
+                    && response.provider_metadata()["openai"]["service_tier"] == "priority"
+                    && response.provider_metadata()["openai"]["future_scalar"] == true
         ));
     }
 

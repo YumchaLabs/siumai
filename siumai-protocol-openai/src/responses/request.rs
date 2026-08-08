@@ -391,6 +391,7 @@ pub fn is_protected_option_field(field: &str) -> bool {
         "model"
             | "input"
             | "stream"
+            | "background"
             | "max_output_tokens"
             | "temperature"
             | "top_p"

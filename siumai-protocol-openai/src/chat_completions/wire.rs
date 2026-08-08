@@ -59,12 +59,20 @@ pub(crate) struct UsageWire {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub(crate) struct PromptTokenDetailsWire {
     pub cached_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub audio_tokens: Option<u64>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub(crate) struct CompletionTokenDetailsWire {
     pub reasoning_tokens: Option<u64>,
     pub audio_tokens: Option<u64>,
+    pub accepted_prediction_tokens: Option<u64>,
+    pub rejected_prediction_tokens: Option<u64>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +82,8 @@ pub(crate) struct ChatStreamChunkWire {
     #[serde(default)]
     pub choices: Vec<StreamChoiceWire>,
     pub usage: Option<UsageWire>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]

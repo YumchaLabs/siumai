@@ -8,7 +8,13 @@ use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
 use siumai_protocol_openai::responses::{FunctionToolCaller, FunctionToolEncodingOptions};
 
 const MAX_TOP_LOGPROBS: u8 = 20;
-const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 50;
+const MAX_PROMPT_CACHE_MARKERS: usize = 50;
+const MAX_EXPLICIT_CACHE_WRITES: usize = 4;
+const MAX_IMPLICIT_CACHE_WRITES: usize = 3;
+const MAX_METADATA_ENTRIES: usize = 16;
+const MAX_METADATA_KEY_CHARS: usize = 64;
+const MAX_METADATA_VALUE_CHARS: usize = 512;
+const MAX_SAFETY_IDENTIFIER_BYTES: usize = 512;
 
 /// GPT-5.6 reasoning effort.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +109,15 @@ pub enum OpenAiPromptCacheTtl {
     ThirtyMinutes,
 }
 
+/// Legacy prompt-cache retention for models before GPT-5.6.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAiPromptCacheRetention {
+    InMemory,
+    #[serde(rename = "24h")]
+    TwentyFourHours,
+}
+
 /// GPT-5.6 prompt-cache controls.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -129,7 +144,7 @@ impl OpenAiPromptCacheOptions {
     }
 }
 
-/// One canonical request content block that should carry an explicit cache breakpoint.
+/// One canonical request content block that may carry an explicit cache breakpoint.
 ///
 /// Indices are zero-based and refer to `LanguageRequest.messages[message_index]` and
 /// that message's `content[content_index]` entry. The Responses codec validates that
@@ -416,8 +431,12 @@ pub struct OpenAiResponsesOptions {
     pub prompt_cache_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_options: Option<OpenAiPromptCacheOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<OpenAiPromptCacheRetention>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub prompt_cache_breakpoints: Vec<OpenAiPromptCacheBreakpoint>,
+    pub prompt_cache_history: Vec<OpenAiPromptCacheBreakpoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompt_cache_write_candidates: Vec<OpenAiPromptCacheBreakpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<OpenAiReasoning>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -451,8 +470,18 @@ impl OpenAiResponsesOptions {
         self
     }
 
-    pub fn with_prompt_cache_breakpoint(mut self, breakpoint: OpenAiPromptCacheBreakpoint) -> Self {
-        self.prompt_cache_breakpoints.push(breakpoint);
+    /// Add a breakpoint known to exist in cache and retained only for cache reads.
+    pub fn with_prompt_cache_history(mut self, breakpoint: OpenAiPromptCacheBreakpoint) -> Self {
+        self.prompt_cache_history.push(breakpoint);
+        self
+    }
+
+    /// Add a breakpoint eligible for one of this request's bounded cache writes.
+    pub fn with_prompt_cache_write_candidate(
+        mut self,
+        breakpoint: OpenAiPromptCacheBreakpoint,
+    ) -> Self {
+        self.prompt_cache_write_candidates.push(breakpoint);
         self
     }
 
@@ -481,8 +510,9 @@ impl OpenAiResponsesOptions {
         validate_optional_text("instructions", self.instructions.as_deref())?;
         validate_optional_text("previous_response_id", self.previous_response_id.as_deref())?;
         validate_optional_text("prompt_cache_key", self.prompt_cache_key.as_deref())?;
-        validate_optional_text("safety_identifier", self.safety_identifier.as_deref())?;
+        validate_safety_identifier(self.safety_identifier.as_deref())?;
         validate_optional_text("user", self.user.as_deref())?;
+        validate_metadata(self.metadata.as_ref())?;
         if self.max_tool_calls == Some(0) {
             return Err(rejected(
                 "max_tool_calls",
@@ -500,7 +530,9 @@ impl OpenAiResponsesOptions {
         }
         validate_prompt_cache(
             self.prompt_cache_options.as_ref(),
-            &self.prompt_cache_breakpoints,
+            self.prompt_cache_retention,
+            &self.prompt_cache_history,
+            &self.prompt_cache_write_candidates,
         )?;
         for tool in &self.native_tools {
             validate_provider_tool(tool.as_value())?;
@@ -517,6 +549,14 @@ impl OpenAiResponsesOptions {
     pub(crate) fn into_request_options(
         mut self,
     ) -> Result<OpenAiResponsesRequestOptions, ProviderOptionError> {
+        let prompt_cache_breakpoints = select_prompt_cache_breakpoints(
+            self.prompt_cache_options.as_ref(),
+            self.prompt_cache_retention,
+            &self.prompt_cache_history,
+            &self.prompt_cache_write_candidates,
+        )?;
+        self.prompt_cache_history.clear();
+        self.prompt_cache_write_candidates.clear();
         if self.top_logprobs.is_some()
             && !self
                 .include
@@ -525,12 +565,8 @@ impl OpenAiResponsesOptions {
             self.include.push(OpenAiResponseInclude::OutputTextLogprobs);
         }
         let mut value = object_from(self)?;
-        let prompt_cache_breakpoints = value
-            .remove("prompt_cache_breakpoints")
-            .map(serde_json::from_value)
-            .transpose()
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
-            .unwrap_or_default();
+        value.remove("prompt_cache_history");
+        value.remove("prompt_cache_write_candidates");
         let native_tools = value
             .remove("native_tools")
             .map(serde_json::from_value::<Vec<OpenAiProviderTool>>)
@@ -603,8 +639,12 @@ pub struct OpenAiChatCompletionsOptions {
     pub prompt_cache_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_options: Option<OpenAiPromptCacheOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<OpenAiPromptCacheRetention>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub prompt_cache_breakpoints: Vec<OpenAiPromptCacheBreakpoint>,
+    pub prompt_cache_history: Vec<OpenAiPromptCacheBreakpoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompt_cache_write_candidates: Vec<OpenAiPromptCacheBreakpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub safety_identifier: Option<String>,
 }
@@ -615,15 +655,24 @@ impl OpenAiChatCompletionsOptions {
         self
     }
 
-    pub fn with_prompt_cache_breakpoint(mut self, breakpoint: OpenAiPromptCacheBreakpoint) -> Self {
-        self.prompt_cache_breakpoints.push(breakpoint);
+    pub fn with_prompt_cache_history(mut self, breakpoint: OpenAiPromptCacheBreakpoint) -> Self {
+        self.prompt_cache_history.push(breakpoint);
+        self
+    }
+
+    pub fn with_prompt_cache_write_candidate(
+        mut self,
+        breakpoint: OpenAiPromptCacheBreakpoint,
+    ) -> Self {
+        self.prompt_cache_write_candidates.push(breakpoint);
         self
     }
 
     pub(crate) fn validate_values(&self) -> Result<(), ProviderOptionError> {
         validate_optional_text("user", self.user.as_deref())?;
         validate_optional_text("prompt_cache_key", self.prompt_cache_key.as_deref())?;
-        validate_optional_text("safety_identifier", self.safety_identifier.as_deref())?;
+        validate_safety_identifier(self.safety_identifier.as_deref())?;
+        validate_metadata(self.metadata.as_ref())?;
         if self
             .top_logprobs
             .is_some_and(|value| value > MAX_TOP_LOGPROBS)
@@ -648,21 +697,27 @@ impl OpenAiChatCompletionsOptions {
         }
         validate_prompt_cache(
             self.prompt_cache_options.as_ref(),
-            &self.prompt_cache_breakpoints,
+            self.prompt_cache_retention,
+            &self.prompt_cache_history,
+            &self.prompt_cache_write_candidates,
         )?;
         Ok(())
     }
 
     pub(crate) fn into_request_options(
-        self,
+        mut self,
     ) -> Result<OpenAiChatCompletionsRequestOptions, ProviderOptionError> {
+        let prompt_cache_breakpoints = select_prompt_cache_breakpoints(
+            self.prompt_cache_options.as_ref(),
+            self.prompt_cache_retention,
+            &self.prompt_cache_history,
+            &self.prompt_cache_write_candidates,
+        )?;
+        self.prompt_cache_history.clear();
+        self.prompt_cache_write_candidates.clear();
         let mut value = object_from(self)?;
-        let prompt_cache_breakpoints = value
-            .remove("prompt_cache_breakpoints")
-            .map(serde_json::from_value)
-            .transpose()
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
-            .unwrap_or_default();
+        value.remove("prompt_cache_history");
+        value.remove("prompt_cache_write_candidates");
         if let Some(verbosity) = value.remove("text_verbosity") {
             value.insert("verbosity".to_string(), verbosity);
         }
@@ -689,19 +744,99 @@ impl TypedProviderOptions for OpenAiChatCompletionsOptions {
 }
 
 fn validate_prompt_cache(
-    _options: Option<&OpenAiPromptCacheOptions>,
-    breakpoints: &[OpenAiPromptCacheBreakpoint],
+    options: Option<&OpenAiPromptCacheOptions>,
+    retention: Option<OpenAiPromptCacheRetention>,
+    history: &[OpenAiPromptCacheBreakpoint],
+    write_candidates: &[OpenAiPromptCacheBreakpoint],
 ) -> Result<(), ProviderOptionError> {
-    if breakpoints.len() > MAX_PROMPT_CACHE_BREAKPOINTS {
+    if options.is_some() && retention.is_some() {
         return Err(rejected(
-            "prompt_cache_breakpoints",
-            "OpenAI accepts at most 50 prompt-cache breakpoints per request",
+            "prompt_cache_retention",
+            "prompt_cache_options and prompt_cache_retention are mutually exclusive",
         ));
     }
-    if breakpoints.iter().copied().collect::<BTreeSet<_>>().len() != breakpoints.len() {
+    if history.len() > MAX_PROMPT_CACHE_MARKERS {
         return Err(rejected(
-            "prompt_cache_breakpoints",
-            "prompt-cache breakpoints must be unique",
+            "prompt_cache_history",
+            "prompt-cache history must not exceed 50 markers",
+        ));
+    }
+    if write_candidates.len() > MAX_PROMPT_CACHE_MARKERS {
+        return Err(rejected(
+            "prompt_cache_write_candidates",
+            "prompt-cache write candidates must not exceed 50 markers",
+        ));
+    }
+    let unique = history
+        .iter()
+        .chain(write_candidates)
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if unique.len() != history.len() + write_candidates.len() {
+        return Err(rejected(
+            "prompt_cache_history",
+            "prompt-cache coordinates must be unique across history and write candidates",
+        ));
+    }
+    Ok(())
+}
+
+fn select_prompt_cache_breakpoints(
+    options: Option<&OpenAiPromptCacheOptions>,
+    retention: Option<OpenAiPromptCacheRetention>,
+    history: &[OpenAiPromptCacheBreakpoint],
+    write_candidates: &[OpenAiPromptCacheBreakpoint],
+) -> Result<Vec<OpenAiPromptCacheBreakpoint>, ProviderOptionError> {
+    validate_prompt_cache(options, retention, history, write_candidates)?;
+    let write_budget = match options.and_then(|options| options.mode) {
+        Some(OpenAiPromptCacheMode::Explicit) => MAX_EXPLICIT_CACHE_WRITES,
+        Some(OpenAiPromptCacheMode::Implicit) | None => MAX_IMPLICIT_CACHE_WRITES,
+    };
+    let mut candidates = write_candidates.to_vec();
+    candidates.sort_unstable();
+    let selected_from = candidates.len().saturating_sub(write_budget);
+
+    let mut selected = history.to_vec();
+    selected.extend_from_slice(&candidates[selected_from..]);
+    selected.sort_unstable();
+    let retained_from = selected.len().saturating_sub(MAX_PROMPT_CACHE_MARKERS);
+    Ok(selected.split_off(retained_from))
+}
+
+fn validate_metadata(
+    metadata: Option<&BTreeMap<String, String>>,
+) -> Result<(), ProviderOptionError> {
+    let Some(metadata) = metadata else {
+        return Ok(());
+    };
+    if metadata.len() > MAX_METADATA_ENTRIES {
+        return Err(rejected("metadata", "metadata must not exceed 16 entries"));
+    }
+    for (key, value) in metadata {
+        if key.is_empty() || key.chars().count() > MAX_METADATA_KEY_CHARS {
+            return Err(rejected(
+                "metadata",
+                "metadata keys must contain 1..=64 characters",
+            ));
+        }
+        if value.chars().count() > MAX_METADATA_VALUE_CHARS {
+            return Err(rejected(
+                "metadata",
+                "metadata values must not exceed 512 characters",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_safety_identifier(value: Option<&str>) -> Result<(), ProviderOptionError> {
+    validate_optional_text("safety_identifier", value)?;
+    if value.is_some_and(|value| {
+        value.len() > MAX_SAFETY_IDENTIFIER_BYTES || value.chars().any(char::is_control)
+    }) {
+        return Err(rejected(
+            "safety_identifier",
+            "safety_identifier must not contain control characters or exceed 512 bytes",
         ));
     }
     Ok(())
@@ -802,6 +937,13 @@ mod tests {
 
     #[test]
     fn prompt_cache_uses_current_wire_shape() {
+        let options = OpenAiResponsesOptions {
+            prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
+            ..OpenAiResponsesOptions::default()
+        };
+        let value = serde_json::to_value(options).unwrap();
+        assert_eq!(value["prompt_cache_retention"], "24h");
+
         let options =
             OpenAiResponsesOptions::default().with_prompt_cache(OpenAiPromptCacheOptions {
                 mode: Some(OpenAiPromptCacheMode::Explicit),
@@ -830,8 +972,10 @@ mod tests {
     #[test]
     fn cache_breakpoint_helpers_preserve_implicit_request_mode() {
         let breakpoint = OpenAiPromptCacheBreakpoint::new(0, 0);
-        let responses = OpenAiResponsesOptions::default().with_prompt_cache_breakpoint(breakpoint);
-        let chat = OpenAiChatCompletionsOptions::default().with_prompt_cache_breakpoint(breakpoint);
+        let responses =
+            OpenAiResponsesOptions::default().with_prompt_cache_write_candidate(breakpoint);
+        let chat =
+            OpenAiChatCompletionsOptions::default().with_prompt_cache_write_candidate(breakpoint);
 
         assert!(responses.prompt_cache_options.is_none());
         assert!(chat.prompt_cache_options.is_none());
@@ -841,7 +985,7 @@ mod tests {
                 mode: Some(OpenAiPromptCacheMode::Implicit),
                 ttl: Some(OpenAiPromptCacheTtl::ThirtyMinutes),
             }),
-            prompt_cache_breakpoints: vec![breakpoint],
+            prompt_cache_write_candidates: vec![breakpoint],
             ..OpenAiResponsesOptions::default()
         };
         assert!(implicit_with_ttl.validate_values().is_ok());
@@ -851,22 +995,85 @@ mod tests {
     fn cache_breakpoints_are_unique_and_bounded() {
         let duplicate = OpenAiResponsesOptions {
             prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit()),
-            prompt_cache_breakpoints: vec![
-                OpenAiPromptCacheBreakpoint::new(0, 0),
-                OpenAiPromptCacheBreakpoint::new(0, 0),
-            ],
+            prompt_cache_history: vec![OpenAiPromptCacheBreakpoint::new(0, 0)],
+            prompt_cache_write_candidates: vec![OpenAiPromptCacheBreakpoint::new(0, 0)],
             ..OpenAiResponsesOptions::default()
         };
         assert!(duplicate.validate_values().is_err());
 
         let excessive = OpenAiChatCompletionsOptions {
             prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit()),
-            prompt_cache_breakpoints: (0..51)
+            prompt_cache_history: (0..51)
                 .map(|content_index| OpenAiPromptCacheBreakpoint::new(0, content_index))
                 .collect(),
             ..OpenAiChatCompletionsOptions::default()
         };
         assert!(excessive.validate_values().is_err());
+    }
+
+    #[test]
+    fn cache_write_selection_reserves_the_implicit_slot_and_keeps_latest_history() {
+        let history = (0..50)
+            .map(|content_index| OpenAiPromptCacheBreakpoint::new(0, content_index))
+            .collect::<Vec<_>>();
+        let candidates = (50..55)
+            .map(|content_index| OpenAiPromptCacheBreakpoint::new(0, content_index))
+            .collect::<Vec<_>>();
+
+        let implicit = select_prompt_cache_breakpoints(None, None, &history, &candidates).unwrap();
+        assert_eq!(implicit.len(), 50);
+        assert_eq!(implicit.first().unwrap().content_index, 3);
+        assert_eq!(
+            implicit
+                .iter()
+                .filter(|breakpoint| breakpoint.content_index >= 50)
+                .count(),
+            3
+        );
+
+        let explicit = select_prompt_cache_breakpoints(
+            Some(&OpenAiPromptCacheOptions::explicit()),
+            None,
+            &history,
+            &candidates,
+        )
+        .unwrap();
+        assert_eq!(explicit.len(), 50);
+        assert_eq!(explicit.first().unwrap().content_index, 4);
+        assert_eq!(
+            explicit
+                .iter()
+                .filter(|breakpoint| breakpoint.content_index >= 50)
+                .count(),
+            4
+        );
+        assert!(!explicit.contains(&OpenAiPromptCacheBreakpoint::new(0, 50)));
+    }
+
+    #[test]
+    fn cache_lifetime_metadata_and_safety_values_fail_closed() {
+        let conflicting_cache = OpenAiResponsesOptions {
+            prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit_30_minutes()),
+            prompt_cache_retention: Some(OpenAiPromptCacheRetention::InMemory),
+            ..OpenAiResponsesOptions::default()
+        };
+        assert!(conflicting_cache.validate_values().is_err());
+
+        let excessive_metadata = OpenAiChatCompletionsOptions {
+            metadata: Some(
+                (0..17)
+                    .map(|index| (format!("key-{index}"), "value".to_string()))
+                    .collect(),
+            ),
+            ..OpenAiChatCompletionsOptions::default()
+        };
+        assert!(excessive_metadata.validate_values().is_err());
+
+        let invalid_safety = OpenAiResponsesOptions {
+            safety_identifier: Some("user\nidentifier".to_string()),
+            ..OpenAiResponsesOptions::default()
+        };
+        assert!(invalid_safety.validate_values().is_err());
     }
 
     #[test]

@@ -11,6 +11,10 @@ use super::ChatCompletionsDialect;
 use super::reasoning::preserve_reasoning_details;
 use super::wire::{AssistantMessageWire, ChatResponseWire, ToolCallWire, UsageWire};
 
+const MAX_PROVIDER_METADATA_ENTRIES: usize = 32;
+const MAX_PROVIDER_METADATA_KEY_BYTES: usize = 128;
+const MAX_PROVIDER_METADATA_BYTES: usize = 32 * 1024;
+
 pub fn decode_response(
     scope: &ProviderScope,
     requested_model: &ModelId,
@@ -41,15 +45,17 @@ pub fn decode_response(
         .map(decode_finish_reason)
         .ok_or_else(|| protocol_error("Chat Completions response omitted its finish reason"))?;
 
+    let usage = match wire.usage {
+        Some(usage) => decode_usage(usage, dialect)?,
+        None => Usage::default(),
+    };
     build_response(
         wire.id,
         model,
         content,
         finish_reason,
-        wire.usage
-            .map(|usage| decode_usage(usage, dialect))
-            .unwrap_or_default(),
-        selected_response_metadata(&wire.extra),
+        usage,
+        selected_response_metadata(&wire.extra)?,
     )
 }
 
@@ -240,47 +246,81 @@ pub(crate) fn decode_finish_reason(value: &str) -> FinishReason {
     }
 }
 
-pub(crate) fn decode_usage(wire: UsageWire, dialect: &ChatCompletionsDialect) -> Usage {
-    let mut provider = BTreeMap::new();
-    for key in [
-        "accepted_prediction_tokens",
-        "rejected_prediction_tokens",
-        "cached_tokens",
+pub(crate) fn decode_usage(
+    wire: UsageWire,
+    dialect: &ChatCompletionsDialect,
+) -> Result<Usage, Error> {
+    let prompt_details = wire.prompt_tokens_details.as_ref();
+    let completion_details = wire.completion_tokens_details.as_ref();
+    let mut provider = wire.extra.clone();
+    for (key, value) in [
+        (
+            "accepted_prediction_tokens",
+            completion_details.and_then(|details| details.accepted_prediction_tokens),
+        ),
+        (
+            "rejected_prediction_tokens",
+            completion_details.and_then(|details| details.rejected_prediction_tokens),
+        ),
     ] {
-        if let Some(value) = wire.extra.get(key).filter(|value| value.is_number()) {
-            provider.insert(key.to_string(), value.clone());
+        if let Some(value) = value {
+            provider.insert(key.to_string(), Value::from(value));
         }
     }
+    preserve_detail_extras(
+        &mut provider,
+        "prompt_tokens_details",
+        prompt_details.map(|details| &details.extra),
+    );
+    preserve_detail_extras(
+        &mut provider,
+        "completion_tokens_details",
+        completion_details.map(|details| &details.extra),
+    );
+    validate_bounded_metadata(&provider)?;
     let mut usage = Usage::default();
     usage.input_tokens = usage_value(wire.prompt_tokens);
     usage.output_tokens = usage_value(wire.completion_tokens);
     usage.total_tokens = usage_value(wire.total_tokens);
-    usage.reasoning_tokens = usage_value(
-        wire.completion_tokens_details
-            .as_ref()
-            .and_then(|details| details.reasoning_tokens),
-    );
-    let standard_cache_read = wire
-        .prompt_tokens_details
-        .as_ref()
-        .and_then(|details| details.cached_tokens);
+    usage.reasoning_tokens =
+        usage_value(completion_details.and_then(|details| details.reasoning_tokens));
+    let standard_cache_read = prompt_details.and_then(|details| details.cached_tokens);
     let dialect_cache_read = dialect
         .cache_read_tokens_field()
         .and_then(|field| wire.extra.get(field))
         .and_then(Value::as_u64);
     usage.cache_read_tokens = usage_value(standard_cache_read.or(dialect_cache_read));
-    usage.cache_write_tokens = usage_value(
-        dialect
-            .cache_write_tokens_field()
-            .and_then(|field| wire.extra.get(field))
-            .and_then(Value::as_u64),
-    );
-    usage.audio_output_tokens = usage_value(
-        wire.completion_tokens_details
-            .and_then(|details| details.audio_tokens),
-    );
+    let standard_cache_write = prompt_details.and_then(|details| details.cache_write_tokens);
+    let dialect_cache_write = dialect
+        .cache_write_tokens_field()
+        .and_then(|field| wire.extra.get(field))
+        .and_then(Value::as_u64);
+    usage.cache_write_tokens = usage_value(standard_cache_write.or(dialect_cache_write));
+    usage.audio_input_tokens = usage_value(prompt_details.and_then(|details| details.audio_tokens));
+    usage.audio_output_tokens =
+        usage_value(completion_details.and_then(|details| details.audio_tokens));
     usage.provider = provider;
-    usage
+    Ok(usage)
+}
+
+pub(crate) fn merge_usage(current: &mut Usage, update: Usage) {
+    macro_rules! update_known {
+        ($field:ident) => {
+            if update.$field.value().is_some() {
+                current.$field = update.$field;
+            }
+        };
+    }
+    update_known!(input_tokens);
+    update_known!(output_tokens);
+    update_known!(total_tokens);
+    update_known!(reasoning_tokens);
+    update_known!(cache_read_tokens);
+    update_known!(cache_write_tokens);
+    update_known!(audio_input_tokens);
+    update_known!(audio_output_tokens);
+    update_known!(orchestration_tokens);
+    current.provider.extend(update.provider);
 }
 
 fn usage_value(value: Option<u64>) -> UsageValue {
@@ -303,18 +343,78 @@ pub(crate) fn parse_model(
     }
 }
 
-fn selected_response_metadata(extra: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
-    let mut selected = Map::new();
-    for key in ["service_tier", "system_fingerprint"] {
-        if let Some(value) = extra.get(key) {
-            selected.insert(key.to_string(), value.clone());
+pub(crate) fn merge_response_metadata(
+    current: &mut BTreeMap<String, Value>,
+    incoming: BTreeMap<String, Value>,
+) -> Result<(), Error> {
+    for (key, value) in incoming {
+        if value.is_null() {
+            continue;
         }
+        if matches!(key.as_str(), "service_tier" | "system_fingerprint")
+            && current
+                .get(&key)
+                .is_some_and(|existing| !existing.is_null() && existing != &value)
+        {
+            return Err(protocol_error(
+                "Chat Completions stream changed stable response metadata",
+            ));
+        }
+        current.insert(key, value);
     }
-    if selected.is_empty() {
-        BTreeMap::new()
+    validate_bounded_metadata(current)
+}
+
+pub(crate) fn selected_response_metadata(
+    extra: &BTreeMap<String, Value>,
+) -> Result<BTreeMap<String, Value>, Error> {
+    validate_bounded_metadata(extra)?;
+    if extra.is_empty() {
+        Ok(BTreeMap::new())
     } else {
-        BTreeMap::from([("openai".to_string(), Value::Object(selected))])
+        Ok(BTreeMap::from([(
+            "openai".to_string(),
+            Value::Object(extra.clone().into_iter().collect()),
+        )]))
     }
+}
+
+fn preserve_detail_extras(
+    provider: &mut BTreeMap<String, Value>,
+    key: &'static str,
+    extra: Option<&BTreeMap<String, Value>>,
+) {
+    if let Some(extra) = extra.filter(|extra| !extra.is_empty()) {
+        provider.insert(
+            key.to_string(),
+            Value::Object(extra.clone().into_iter().collect()),
+        );
+    }
+}
+
+fn validate_bounded_metadata(metadata: &BTreeMap<String, Value>) -> Result<(), Error> {
+    if metadata.len() > MAX_PROVIDER_METADATA_ENTRIES
+        || metadata.keys().any(|key| {
+            key.is_empty()
+                || key.len() > MAX_PROVIDER_METADATA_KEY_BYTES
+                || key.chars().any(char::is_control)
+        })
+    {
+        return Err(Error::new(
+            ErrorKind::ResponseLimit,
+            "Chat Completions provider metadata exceeded its field limit",
+        ));
+    }
+    let encoded = serde_json::to_vec(metadata).map_err(|source| {
+        Error::new(ErrorKind::Protocol, "provider metadata was not valid JSON").with_source(source)
+    })?;
+    if encoded.len() > MAX_PROVIDER_METADATA_BYTES {
+        return Err(Error::new(
+            ErrorKind::ResponseLimit,
+            "Chat Completions provider metadata exceeded its byte limit",
+        ));
+    }
+    Ok(())
 }
 
 fn required_string<'a>(object: &'a Map<String, Value>, name: &str) -> Result<&'a str, Error> {
@@ -495,6 +595,74 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+    }
+
+    #[test]
+    fn preserves_current_nested_usage_and_bounded_response_metadata() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "id": "chat-usage-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gpt-5.6-sol",
+            "service_tier": "priority",
+            "system_fingerprint": "fp_current",
+            "future_scalar": true,
+            "choices": [{
+                "index": 0,
+                "message": {"content": "ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 8,
+                "total_tokens": 18,
+                "prompt_tokens_details": {
+                    "cached_tokens": 4,
+                    "cache_write_tokens": 3,
+                    "audio_tokens": 2
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 5,
+                    "audio_tokens": 1,
+                    "accepted_prediction_tokens": 6,
+                    "rejected_prediction_tokens": 7
+                }
+            }
+        }))
+        .unwrap();
+
+        let response = decode_response(
+            &scope(),
+            &ModelId::new("gpt-5.6-sol").unwrap(),
+            &body,
+            &ChatCompletionsDialect::generic(),
+        )
+        .unwrap();
+
+        assert_eq!(response.usage().cache_read_tokens, UsageValue::Known(4));
+        assert_eq!(response.usage().cache_write_tokens, UsageValue::Known(3));
+        assert_eq!(response.usage().audio_input_tokens, UsageValue::Known(2));
+        assert_eq!(response.usage().audio_output_tokens, UsageValue::Known(1));
+        assert_eq!(
+            response.usage().provider["accepted_prediction_tokens"],
+            serde_json::json!(6)
+        );
+        assert_eq!(
+            response.usage().provider["rejected_prediction_tokens"],
+            serde_json::json!(7)
+        );
+        assert_eq!(
+            response.provider_metadata()["openai"]["service_tier"],
+            "priority"
+        );
+        assert_eq!(
+            response.provider_metadata()["openai"]["system_fingerprint"],
+            "fp_current"
+        );
+        assert_eq!(
+            response.provider_metadata()["openai"]["future_scalar"],
+            true
+        );
     }
 
     #[test]

@@ -535,6 +535,13 @@ fn normalize_request(
         return Ok((request, warnings));
     }
 
+    if merged.wire.contains_key("prompt_cache_retention") {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "GPT-5.6 requires prompt_cache_options.ttl instead of prompt_cache_retention",
+        ));
+    }
+
     let effort = selected_reasoning_effort(mode, &merged.wire);
     if effort == Some("minimal") {
         return Err(Error::new(
@@ -995,8 +1002,8 @@ mod tests {
     use crate::configured::{
         GPT_5_6_SOL, OpenAiChatCompletionsOptions, OpenAiCredential, OpenAiFunctionToolOptions,
         OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-        OpenAiProvider, OpenAiProviderTool, OpenAiReasoning, OpenAiReasoningEffort,
-        OpenAiResponsesOptions, OpenAiTextVerbosity,
+        OpenAiPromptCacheRetention, OpenAiProvider, OpenAiProviderTool, OpenAiReasoning,
+        OpenAiReasoningEffort, OpenAiResponsesOptions, OpenAiTextVerbosity,
     };
 
     fn provider() -> OpenAiProvider {
@@ -1067,7 +1074,7 @@ mod tests {
                 mode: Some(OpenAiPromptCacheMode::Explicit),
                 ttl: None,
             }),
-            prompt_cache_breakpoints: vec![OpenAiPromptCacheBreakpoint::new(0, 0)],
+            prompt_cache_write_candidates: vec![OpenAiPromptCacheBreakpoint::new(0, 0)],
             top_logprobs: Some(5),
             reasoning: Some(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::None)),
             text_verbosity: Some(OpenAiTextVerbosity::High),
@@ -1111,7 +1118,7 @@ mod tests {
         let model = provider.chat_completions(GPT_5_6_SOL).unwrap();
         let typed = OpenAiChatCompletionsOptions::default()
             .with_prompt_cache(OpenAiPromptCacheOptions::explicit_30_minutes())
-            .with_prompt_cache_breakpoint(OpenAiPromptCacheBreakpoint::new(0, 0));
+            .with_prompt_cache_write_candidate(OpenAiPromptCacheBreakpoint::new(0, 0));
         let call_options =
             CallOptions::default().with_provider_options(ProviderOptions::typed(&typed).unwrap());
         let merged = model
@@ -1160,6 +1167,89 @@ mod tests {
         assert!(
             matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "model")
         );
+
+        let background =
+            ProviderOptions::checked_raw(model.provider_id().clone(), json!({"background": true}))
+                .unwrap();
+        let result = model.runtime.merge_options(
+            OpenAiApiMode::Responses,
+            &CallOptions::default().with_provider_options(background),
+        );
+        assert!(
+            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "background")
+        );
+    }
+
+    #[test]
+    fn explicit_max_reasoning_survives_future_model_ids_without_implicit_summary() {
+        let provider = provider();
+        let responses = provider.responses("private-reasoning-model").unwrap();
+        let responses_options = OpenAiResponsesOptions::default()
+            .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::Max));
+        let responses_call = CallOptions::default()
+            .with_provider_options(ProviderOptions::typed(&responses_options).unwrap());
+        let mut merged = responses
+            .runtime
+            .merge_options(OpenAiApiMode::Responses, &responses_call)
+            .unwrap();
+        let (normalized, _) = normalize_request(
+            OpenAiApiMode::Responses,
+            responses.model_id(),
+            request(),
+            &mut merged,
+        )
+        .unwrap();
+        let responses_body = body_json(&responses.plan(&normalized, false, merged).unwrap());
+        assert_eq!(responses_body["reasoning"]["effort"], "max");
+        assert!(responses_body["reasoning"].get("summary").is_none());
+
+        let chat = provider
+            .chat_completions("private-reasoning-model")
+            .unwrap();
+        let chat_options = OpenAiChatCompletionsOptions {
+            reasoning_effort: Some(OpenAiReasoningEffort::Max),
+            ..OpenAiChatCompletionsOptions::default()
+        };
+        let chat_call = CallOptions::default()
+            .with_provider_options(ProviderOptions::typed(&chat_options).unwrap());
+        let mut merged = chat
+            .runtime
+            .merge_options(OpenAiApiMode::ChatCompletions, &chat_call)
+            .unwrap();
+        let (normalized, _) = normalize_request(
+            OpenAiApiMode::ChatCompletions,
+            chat.model_id(),
+            request(),
+            &mut merged,
+        )
+        .unwrap();
+        let chat_body = body_json(&chat.plan(&normalized, false, merged).unwrap());
+        assert_eq!(chat_body["reasoning_effort"], "max");
+    }
+
+    #[test]
+    fn gpt_5_6_rejects_legacy_prompt_cache_retention() {
+        let provider = provider();
+        let model = provider.responses(GPT_5_6_SOL).unwrap();
+        let typed = OpenAiResponsesOptions {
+            prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
+            ..OpenAiResponsesOptions::default()
+        };
+        let call_options =
+            CallOptions::default().with_provider_options(ProviderOptions::typed(&typed).unwrap());
+        let mut merged = model
+            .runtime
+            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .unwrap();
+
+        let error = normalize_request(
+            OpenAiApiMode::Responses,
+            model.model_id(),
+            request(),
+            &mut merged,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
     }
 
     #[test]

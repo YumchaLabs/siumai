@@ -794,14 +794,7 @@ impl ProviderOptionMerger for OpenAiOptionMerger {
                     .map(|(name, value)| (name.clone(), value.clone())),
             );
         }
-        let mut validation_wire = wire.clone().into_iter().collect::<Map<_, _>>();
-        if !prompt_cache_breakpoints.is_empty() {
-            validation_wire.insert(
-                "prompt_cache_breakpoints".to_string(),
-                serde_json::to_value(&prompt_cache_breakpoints)
-                    .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?,
-            );
-        }
+        let validation_wire = wire.clone().into_iter().collect::<Map<_, _>>();
         validate_final_wire(self.mode, &validation_wire)?;
         Ok(OpenAiMergedOptions {
             wire,
@@ -823,7 +816,9 @@ const RESPONSES_OPTION_FIELDS: &[&str] = &[
     "previous_response_id",
     "prompt_cache_key",
     "prompt_cache_options",
-    "prompt_cache_breakpoints",
+    "prompt_cache_retention",
+    "prompt_cache_history",
+    "prompt_cache_write_candidates",
     "reasoning",
     "safety_identifier",
     "service_tier",
@@ -849,7 +844,9 @@ const CHAT_COMPLETIONS_OPTION_FIELDS: &[&str] = &[
     "text_verbosity",
     "prompt_cache_key",
     "prompt_cache_options",
-    "prompt_cache_breakpoints",
+    "prompt_cache_retention",
+    "prompt_cache_history",
+    "prompt_cache_write_candidates",
     "safety_identifier",
 ];
 
@@ -920,7 +917,9 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
                 field,
                 "input"
                     | "text"
-                    | "prompt_cache_breakpoints"
+                    | "background"
+                    | "prompt_cache_history"
+                    | "prompt_cache_write_candidates"
                     | "native_tools"
                     | "function_tool_options"
             ),
@@ -931,7 +930,8 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
                     | "stream_options"
                     | "max_tokens"
                     | "max_completion_tokens"
-                    | "prompt_cache_breakpoints"
+                    | "prompt_cache_history"
+                    | "prompt_cache_write_candidates"
             ),
         }
 }
