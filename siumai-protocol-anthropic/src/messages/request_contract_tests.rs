@@ -3,7 +3,7 @@ use serde_json::json;
 use siumai_core::{
     ContentAnnotationTarget, ContentAnnotations, ContentPart, LanguageRequest, Message,
     MessagePart, MessageRole, ModelId, StructuredOutputSpec, ToolAnnotationTarget, ToolAnnotations,
-    ToolSpec, TypedProviderAnnotation,
+    ToolChoice, ToolSpec, TypedProviderAnnotation,
 };
 
 use super::annotations::{
@@ -11,14 +11,19 @@ use super::annotations::{
     MidConversationToolChange, ToolNodeOptions,
 };
 use super::options::{
-    AdvisorToolOptions, AnthropicTool, ComputerToolOptions, FallbackOutputConfig, InferenceSpeed,
-    McpToolConfig, McpToolsetOptions, MessagesRequestOptions, MessagesServiceTier, OutputEffort,
-    ResponseInclusion, ServerFallback, ServerFallbacks, TextEditorToolOptions, ThinkingConfig,
-    ThinkingDisplay, ToolCaller, UserLocation, WebFetchToolOptions, WebSearchToolOptions,
+    AdvisorToolOptions, AnthropicTool, ClearThinkingEdit, ClearThinkingKeep, ClearToolUsesEdit,
+    CompactionEdit, ComputerToolOptions, ContainerSkill, ContextManagement, FallbackOutputConfig,
+    InferenceGeo, InferenceSpeed, McpAuthorizationToken, McpServer, McpToolConfig,
+    McpToolsetOptions, MessagesContainer, MessagesRequestOptions, MessagesServiceTierPreference,
+    MessagesTokenCountOptions, OutputEffort, ResponseInclusion, ServerFallback, ServerFallbacks,
+    TextEditorToolOptions, ThinkingConfig, ThinkingDisplay, TokenTaskBudget, ToolCaller,
+    UserLocation, WebFetchToolOptions, WebSearchToolOptions,
 };
 use super::request::{
-    anthropic_tool_anchor_schema, encode_request, encode_request_with_resolver,
-    encode_request_with_resolver_and_rules, encode_request_with_rules,
+    anthropic_tool_anchor_schema, encode_count_tokens_request,
+    encode_count_tokens_request_with_resolver_and_rules, encode_request,
+    encode_request_with_resolver, encode_request_with_resolver_and_rules,
+    encode_request_with_rules,
 };
 use super::rules::{CacheControlWireStyle, MessagesEncodingRules, TemperatureEncodingRule};
 use super::{API_MODE_ID, MessagesCodecError};
@@ -366,7 +371,9 @@ fn projects_current_anthropic_tools_from_language_request_tools() {
     let encoded = encode_request_with_resolver(
         &model(),
         &request,
-        &MessagesRequestOptions::default(),
+        &MessagesRequestOptions::default().with_mcp_servers(vec![
+            McpServer::new("company_tools", "https://mcp.example.test").unwrap(),
+        ]),
         &TestResolver,
     )
     .unwrap();
@@ -667,12 +674,73 @@ fn implicit_cache_ttl_style_rejects_one_hour_requests() {
 }
 
 #[test]
-fn serializes_all_typed_messages_service_tiers() {
+fn automatic_cache_coexists_with_same_ttl_explicit_target() {
+    let request = request_with_cache(CacheTtl::FiveMinutes);
+    let options = MessagesRequestOptions::default()
+        .with_cache_control(CacheControl::new(CacheTtl::FiveMinutes));
+
+    let encoded =
+        encode_request_with_resolver(&model(), &request, &options, &TestResolver).unwrap();
+    assert_eq!(
+        encoded["cache_control"],
+        json!({"type": "ephemeral", "ttl": "5m"})
+    );
+    assert_eq!(
+        encoded["messages"][0]["content"][0]["cache_control"],
+        json!({"type": "ephemeral", "ttl": "5m"})
+    );
+}
+
+#[test]
+fn automatic_cache_consumes_a_breakpoint_unless_its_target_is_already_cached() {
+    let mut parts = (0..4)
+        .map(|index| {
+            MessagePart::text(format!("cached-{index}"))
+                .with_provider_annotation(&TestContentProjection {
+                    tool_change: None,
+                    cache_control: Some(CacheControl::new(CacheTtl::FiveMinutes)),
+                })
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    parts.push(MessagePart::text("automatic-target"));
+    let mut request = LanguageRequest::new(vec![Message::new(MessageRole::User, parts)]);
+    request.generation.max_output_tokens = Some(4_096);
+
+    assert!(matches!(
+        encode_request_with_resolver(
+            &model(),
+            &request,
+            &MessagesRequestOptions::default()
+                .with_cache_control(CacheControl::new(CacheTtl::FiveMinutes)),
+            &TestResolver,
+        ),
+        Err(MessagesCodecError::TooManyCacheBreakpoints {
+            actual: 5,
+            maximum: 4,
+        })
+    ));
+}
+
+#[test]
+fn automatic_cache_rejects_a_different_ttl_on_the_explicit_target() {
+    assert!(matches!(
+        encode_request_with_resolver(
+            &model(),
+            &request_with_cache(CacheTtl::FiveMinutes),
+            &MessagesRequestOptions::default()
+                .with_cache_control(CacheControl::new(CacheTtl::OneHour)),
+            &TestResolver,
+        ),
+        Err(MessagesCodecError::ConflictingCacheAnnotation)
+    ));
+}
+
+#[test]
+fn serializes_request_only_messages_service_tier_preferences() {
     for (tier, expected) in [
-        (MessagesServiceTier::Standard, "standard"),
-        (MessagesServiceTier::Priority, "priority"),
-        (MessagesServiceTier::Auto, "auto"),
-        (MessagesServiceTier::StandardOnly, "standard_only"),
+        (MessagesServiceTierPreference::Auto, "auto"),
+        (MessagesServiceTierPreference::StandardOnly, "standard_only"),
     ] {
         let encoded = encode_request(
             &model(),
@@ -682,4 +750,343 @@ fn serializes_all_typed_messages_service_tiers() {
         .unwrap();
         assert_eq!(encoded["service_tier"], expected);
     }
+}
+
+#[test]
+fn encodes_current_typed_request_controls_and_redacts_mcp_tokens() {
+    let container = MessagesContainer::configured()
+        .with_id("container-1")
+        .unwrap()
+        .with_skill(ContainerSkill::anthropic("pdfs").unwrap())
+        .unwrap();
+    assert!(container.has_skills());
+    assert_eq!(container.skills().len(), 1);
+    assert_eq!(InferenceGeo::us().as_str(), "us");
+    assert_eq!(InferenceGeo::global().as_str(), "global");
+    let context_management = ContextManagement::new()
+        .with_edit(
+            ClearToolUsesEdit::new()
+                .with_clear_at_least_input_tokens(8_000)
+                .with_keep_tool_uses(2),
+        )
+        .with_edit(ClearThinkingEdit::new().with_keep(ClearThinkingKeep::ThinkingTurns(1)))
+        .with_edit(
+            CompactionEdit::new()
+                .with_instructions("Keep decisions and open tasks")
+                .with_pause_after_compaction(true)
+                .with_trigger_input_tokens(100_000),
+        );
+    let mcp_server = McpServer::new("docs", "https://mcp.example.test")
+        .unwrap()
+        .with_authorization_token(McpAuthorizationToken::new("sentinel-secret").unwrap());
+    assert!(!format!("{mcp_server:?}").contains("sentinel-secret"));
+
+    let mut current_request = request();
+    current_request.tools = vec![
+        anthropic_tool(
+            AnthropicTool::CodeExecution20260521,
+            None,
+            Vec::new(),
+            None,
+            None,
+        ),
+        anthropic_tool(
+            AnthropicTool::mcp_toolset(McpToolsetOptions::new("docs").unwrap()),
+            None,
+            Vec::new(),
+            None,
+            None,
+        ),
+    ];
+
+    let options = MessagesRequestOptions::default()
+        .with_cache_control(CacheControl::new(CacheTtl::OneHour))
+        .with_service_tier(MessagesServiceTierPreference::Auto)
+        .with_speed(InferenceSpeed::Fast)
+        .with_inference_geo(InferenceGeo::Us)
+        .with_task_budget(TokenTaskBudget::new(20_000).unwrap())
+        .with_container(container)
+        .with_context_management(context_management)
+        .with_mcp_servers(vec![mcp_server]);
+
+    let encoded =
+        encode_request_with_resolver(&model(), &current_request, &options, &TestResolver).unwrap();
+    assert_eq!(
+        encoded["cache_control"],
+        json!({"type": "ephemeral", "ttl": "1h"})
+    );
+    assert_eq!(encoded["service_tier"], "auto");
+    assert_eq!(encoded["speed"], "fast");
+    assert_eq!(encoded["inference_geo"], "us");
+    assert_eq!(
+        encoded["output_config"]["task_budget"],
+        json!({"type": "tokens", "total": 20_000})
+    );
+    assert_eq!(encoded["container"]["id"], "container-1");
+    assert_eq!(encoded["container"]["skills"][0]["skill_id"], "pdfs");
+    assert_eq!(
+        encoded["context_management"]["edits"][2]["type"],
+        "compact_20260112"
+    );
+    assert_eq!(encoded["mcp_servers"][0]["type"], "url");
+    assert_eq!(
+        encoded["mcp_servers"][0]["authorization_token"],
+        "sentinel-secret"
+    );
+}
+
+#[test]
+fn protocol_rejects_incomplete_and_duplicate_mcp_bindings() {
+    let count_options = MessagesTokenCountOptions::new().with_mcp_servers(vec![
+        McpServer::new("docs", "https://mcp.example.test").unwrap(),
+    ]);
+    assert!(matches!(
+        encode_count_tokens_request(
+            &model(),
+            &LanguageRequest::new(vec![Message::user("Count this")]),
+            &count_options,
+        ),
+        Err(MessagesCodecError::InvalidOption {
+            field: "mcp_servers",
+            ..
+        })
+    ));
+
+    let mut duplicate_request = request();
+    duplicate_request.tools.push(anthropic_tool(
+        AnthropicTool::mcp_toolset(McpToolsetOptions::new("docs").unwrap()),
+        None,
+        Vec::new(),
+        None,
+        None,
+    ));
+    let duplicate_options = MessagesRequestOptions::default().with_mcp_servers(vec![
+        McpServer::new("docs", "https://mcp.example.test/one").unwrap(),
+        McpServer::new("docs", "https://mcp.example.test/two").unwrap(),
+    ]);
+    assert!(matches!(
+        encode_request_with_resolver(
+            &model(),
+            &duplicate_request,
+            &duplicate_options,
+            &TestResolver,
+        ),
+        Err(MessagesCodecError::InvalidOption {
+            field: "mcp_servers[].name",
+            ..
+        })
+    ));
+
+    let mut duplicate_toolset_request = request();
+    duplicate_toolset_request.tools = vec![
+        anthropic_tool(
+            AnthropicTool::mcp_toolset(
+                McpToolsetOptions::with_anchor("docs_primary", "docs").unwrap(),
+            ),
+            None,
+            Vec::new(),
+            None,
+            None,
+        ),
+        anthropic_tool(
+            AnthropicTool::mcp_toolset(
+                McpToolsetOptions::with_anchor("docs_secondary", "docs").unwrap(),
+            ),
+            None,
+            Vec::new(),
+            None,
+            None,
+        ),
+    ];
+    let duplicate_toolset_options = MessagesRequestOptions::default().with_mcp_servers(vec![
+        McpServer::new("docs", "https://mcp.example.test").unwrap(),
+    ]);
+    assert!(matches!(
+        encode_request_with_resolver(
+            &model(),
+            &duplicate_toolset_request,
+            &duplicate_toolset_options,
+            &TestResolver,
+        ),
+        Err(MessagesCodecError::InvalidOption {
+            field: "tools.mcp_toolset.mcp_server_name",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn protocol_rejects_container_skills_without_code_execution() {
+    let options = MessagesRequestOptions::default().with_container(
+        MessagesContainer::configured()
+            .with_skill(ContainerSkill::custom("skill_1").unwrap())
+            .unwrap(),
+    );
+    assert!(matches!(
+        encode_request(&model(), &request(), &options),
+        Err(MessagesCodecError::InvalidOption {
+            field: "container.skills",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn mcp_servers_require_safe_https_urls_and_redact_debug_output() {
+    let server = McpServer::new(
+        "docs",
+        "https://mcp.example.test/search?access=sentinel-query",
+    )
+    .unwrap()
+    .with_authorization_token(McpAuthorizationToken::new("sentinel-token").unwrap());
+    let debug = format!("{server:?}");
+    assert!(debug.contains("docs"));
+    assert!(debug.contains("has_authorization_token"));
+    assert!(!debug.contains("mcp.example.test"));
+    assert!(!debug.contains("sentinel-query"));
+    assert!(!debug.contains("sentinel-token"));
+
+    for invalid in [
+        "http://mcp.example.test",
+        "/relative",
+        "https://user@example.test/mcp",
+        "https://mcp.example.test/mcp#fragment",
+    ] {
+        assert!(matches!(
+            McpServer::new("docs", invalid),
+            Err(MessagesCodecError::InvalidOption {
+                field: "mcp_servers[].url",
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
+fn zero_max_tokens_is_supported_only_for_non_generating_create_requests() {
+    let mut zero = request();
+    zero.generation.max_output_tokens = Some(0);
+    let encoded = encode_request(&model(), &zero, &MessagesRequestOptions::default()).unwrap();
+    assert_eq!(encoded["max_tokens"], 0);
+
+    let mut invalid = zero;
+    invalid
+        .tools
+        .push(ToolSpec::new("lookup", None, json!({"type": "object"})).expect("valid tool"));
+    invalid.tool_choice = Some(ToolChoice::Required);
+    invalid.structured_output = Some(StructuredOutputSpec {
+        name: "answer".to_string(),
+        description: None,
+        schema: json!({"type": "object"}),
+        strict: true,
+    });
+    let options = MessagesRequestOptions::new(true).with_thinking(ThinkingConfig::adaptive());
+    assert!(matches!(
+        encode_request(&model(), &invalid, &options),
+        Err(MessagesCodecError::InvalidOption {
+            field: "max_output_tokens",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn token_count_encoder_emits_only_the_official_count_request_shape() {
+    let mut count = LanguageRequest::new(vec![Message::text(MessageRole::User, "Count this")]);
+    count.tools.push(anthropic_tool(
+        AnthropicTool::mcp_toolset(McpToolsetOptions::new("docs").unwrap()),
+        None,
+        Vec::new(),
+        None,
+        None,
+    ));
+    count.tool_choice = Some(ToolChoice::Auto);
+    count.structured_output = Some(StructuredOutputSpec {
+        name: "answer".to_string(),
+        description: None,
+        schema: json!({"type": "object", "properties": {}}),
+        strict: true,
+    });
+    let options = MessagesTokenCountOptions::new()
+        .with_cache_control(CacheControl::new(CacheTtl::FiveMinutes))
+        .with_thinking(ThinkingConfig::Disabled)
+        .with_output_effort(OutputEffort::Low)
+        .with_task_budget(TokenTaskBudget::new(20_000).unwrap())
+        .with_speed(InferenceSpeed::Fast)
+        .with_context_management(
+            ContextManagement::new()
+                .with_edit(ClearThinkingEdit::new().with_keep(ClearThinkingKeep::All)),
+        )
+        .with_mcp_servers(vec![
+            McpServer::new("docs", "https://mcp.example.test").unwrap(),
+        ]);
+
+    let encoded = encode_count_tokens_request_with_resolver_and_rules(
+        &model(),
+        &count,
+        &options,
+        &TestResolver,
+        &MessagesEncodingRules::native(),
+    )
+    .unwrap();
+    assert_eq!(
+        encoded,
+        json!({
+            "model": "claude-fable-5",
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "Count this"}]
+            }],
+            "tools": [{
+                "type": "mcp_toolset",
+                "mcp_server_name": "docs"
+            }],
+            "tool_choice": {"type": "auto"},
+            "cache_control": {"type": "ephemeral", "ttl": "5m"},
+            "thinking": {"type": "disabled"},
+            "output_config": {
+                "effort": "low",
+                "format": {
+                    "type": "json_schema",
+                    "schema": {"type": "object", "properties": {}}
+                },
+                "task_budget": {"type": "tokens", "total": 20_000}
+            },
+            "speed": "fast",
+            "context_management": {
+                "edits": [{"type": "clear_thinking_20251015", "keep": "all"}]
+            },
+            "mcp_servers": [{
+                "type": "url",
+                "name": "docs",
+                "url": "https://mcp.example.test"
+            }]
+        })
+    );
+    for forbidden in [
+        "max_tokens",
+        "stream",
+        "temperature",
+        "top_p",
+        "stop_sequences",
+        "metadata",
+        "service_tier",
+        "inference_geo",
+        "container",
+        "fallbacks",
+    ] {
+        assert!(encoded.get(forbidden).is_none(), "unexpected {forbidden}");
+    }
+}
+
+#[test]
+fn token_count_encoder_rejects_generation_only_fields() {
+    let mut count = LanguageRequest::new(vec![Message::text(MessageRole::User, "Count this")]);
+    count.generation.temperature = Some(0.5);
+    assert!(matches!(
+        encode_count_tokens_request(&model(), &count, &MessagesTokenCountOptions::new()),
+        Err(MessagesCodecError::Unsupported {
+            feature: "temperature in token-count requests",
+        })
+    ));
 }

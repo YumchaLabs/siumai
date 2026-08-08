@@ -2150,10 +2150,12 @@ name = "siumai-protocol-anthropic"
 version = "0.11.0-beta.9"
 dependencies = [
  "base64",
+ "secrecy",
  "serde",
  "serde_json",
  "siumai-core",
  "thiserror 2.0.18",
+ "url",
 ]
 
 [[package]]

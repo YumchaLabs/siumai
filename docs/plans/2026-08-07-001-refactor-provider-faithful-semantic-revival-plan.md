@@ -876,15 +876,22 @@ sequenceDiagram
     and MCP servers through typed options with provider-owned validation, beta-header policy, and
     secret redaction.
   - Keep explicit block/tool/message caching annotations and top-level automatic caching as separate
-    typed paths. Add a provider-native cache-prewarm operation for the official zero-output behavior
-    rather than weakening ordinary `LanguageRequest` output rules.
+    typed paths. Accept the official zero-output behavior in the Messages codec and add a
+    provider-owned `prewarm_cache` convenience that sets `max_tokens: 0` while reusing the ordinary
+    request, policy, transport, and response pipeline.
+  - Give `/messages/count_tokens` its own protocol request options and encoder. Reject
+    generation-only fields instead of encoding a create request and deleting `stream`, and expose a
+    narrower provider-owned `AnthropicTokenCountOptions` surface with the same beta-policy checks.
   - Correct dated model lifecycle advice from current official status; do not infer retirement solely
     from a previously announced date.
 - **Test scenarios:**
   - Anthropic request-only and response-only tier values cannot be confused; one combined current
     options fixture proves encoding, headers, incompatibility checks, and secret-safe `Debug`.
   - Automatic and explicit cache controls coexist without one silently overriding the other; cache
-    prewarm is available only through the provider-native operation.
+    prewarm uses the same Messages pipeline and requires automatic caching or an explicit cache
+    marker.
+  - Token Counting emits its exact official body without `max_tokens`, `stream`, or create-only
+    options, while supported prompt/tool options and required beta headers remain available.
   - Current lifecycle profiles match official Deprecated/Active state exactly.
 - **Verification outcome:** Anthropic's protocol capability is fully reachable through typed
   provider options and resources without protected-field extras or request/response enum confusion.

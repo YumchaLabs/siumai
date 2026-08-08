@@ -29,8 +29,13 @@ pub use provider::{
     AnthropicCompatibleConfigError, AnthropicCompatibleProvider, AnthropicCompatibleProviderBuilder,
 };
 pub use siumai_protocol_anthropic::messages::{
-    CacheControlWireStyle, MessagesEncodingRuleError, MessagesEncodingRules, MessagesServiceTier,
-    MidConversationSystemEncoding, TemperatureEncodingRule,
+    CacheControl, CacheControlWireStyle, CacheTtl, ClearThinkingEdit, ClearThinkingKeep,
+    ClearToolInputs, ClearToolUsesEdit, CompactionEdit, ContainerSkill, ContainerSkillType,
+    ContextManagement, ContextManagementEdit, ContextManagementTrigger, InferenceGeo,
+    InferenceSpeed, McpAuthorizationToken, McpServer, MessagesAssignedServiceTier,
+    MessagesContainer, MessagesEncodingRuleError, MessagesEncodingRules,
+    MessagesServiceTierPreference, MessagesTokenCountOptions, MidConversationSystemEncoding,
+    TemperatureEncodingRule, TokenTaskBudget,
 };
 
 #[cfg(test)]

@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use siumai_anthropic_compatible::MessagesCallOptions;
 use siumai_core::{ModelFamily, ProviderOptionError, ProviderOptions, TypedProviderOptions};
-use siumai_protocol_anthropic::messages::{MessagesServiceTier, ThinkingConfig};
+use siumai_protocol_anthropic::messages::ThinkingConfig;
 
 const PROVIDER_NAMESPACE: &str = "minimax";
 const MESSAGES_API_MODE: &str = "messages";
@@ -13,6 +14,7 @@ const MAX_METADATA_ENTRIES: usize = 64;
 const MAX_METADATA_KEY_BYTES: usize = 256;
 const MAX_METADATA_VALUE_BYTES: usize = 4 * 1024;
 const MAX_PROMPT_CACHE_KEY_BYTES: usize = 256;
+pub(crate) const MINIMAX_MESSAGES_SERVICE_TIER_OPTION: &str = "minimax_service_tier";
 
 /// Thinking controls supported by the hosted MiniMax M3 APIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +67,7 @@ pub struct MinimaxMessagesOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<MinimaxThinking>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "minimax_service_tier")]
     service_tier: Option<MinimaxServiceTier>,
 }
 
@@ -96,10 +99,16 @@ impl MinimaxMessagesOptions {
             });
         }
         if let Some(tier) = self.service_tier {
-            options = options.with_service_tier(match tier {
-                MinimaxServiceTier::Standard => MessagesServiceTier::Standard,
-                MinimaxServiceTier::Priority => MessagesServiceTier::Priority,
-            });
+            options = options.with_extra(BTreeMap::from([(
+                MINIMAX_MESSAGES_SERVICE_TIER_OPTION.to_string(),
+                Value::String(
+                    match tier {
+                        MinimaxServiceTier::Standard => "standard",
+                        MinimaxServiceTier::Priority => "priority",
+                    }
+                    .to_string(),
+                ),
+            )]));
         }
         options
     }

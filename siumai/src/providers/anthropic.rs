@@ -1,8 +1,11 @@
 //! Curated Anthropic provider facade.
 
 pub use siumai_provider_anthropic::{
+    AnthropicAssignedInferenceGeo, AnthropicAssignedServiceTier, AnthropicAssignedSpeed,
     AnthropicConfigError, AnthropicCredential, AnthropicCredentialError, AnthropicLanguageModel,
-    AnthropicProfileError, AnthropicProvider, AnthropicProviderBuilder,
+    AnthropicLanguageResponseExt, AnthropicProfileError, AnthropicProvider,
+    AnthropicProviderBuilder, AnthropicResponseMetadata, AnthropicResponseMetadataError,
+    AnthropicResponseUsage,
 };
 
 pub mod models {
@@ -14,7 +17,9 @@ pub mod models {
 }
 
 pub mod options {
-    pub use siumai_provider_anthropic::{AnthropicMessagesOptions, AnthropicThinking};
+    pub use siumai_provider_anthropic::{
+        AnthropicMessagesOptions, AnthropicThinking, AnthropicTokenCountOptions,
+    };
 }
 
 pub mod annotations {
@@ -26,11 +31,14 @@ pub mod annotations {
 
 pub mod messages {
     pub use siumai_provider_anthropic::{
-        AdvisorToolOptions, AnthropicTool, AnthropicToolReference, ComputerToolOptions,
-        FallbackOutputConfig, InferenceSpeed, McpToolConfig, McpToolsetOptions, MessagesMetadata,
-        MidConversationToolChange, OutputEffort, ResponseInclusion, ServerFallback,
-        ServerFallbacks, TextEditorToolOptions, ThinkingDisplay, ToolCaller, UserLocation,
-        WebFetchToolOptions, WebSearchToolOptions,
+        AdvisorToolOptions, AnthropicTool, AnthropicToolReference, ClearThinkingEdit,
+        ClearThinkingKeep, ClearToolInputs, ClearToolUsesEdit, CompactionEdit, ComputerToolOptions,
+        ContainerSkill, ContainerSkillType, ContextManagement, ContextManagementEdit,
+        ContextManagementTrigger, FallbackOutputConfig, InferenceGeo, InferenceSpeed,
+        McpAuthorizationToken, McpServer, McpToolConfig, McpToolsetOptions, MessagesContainer,
+        MessagesMetadata, MessagesServiceTierPreference, MidConversationToolChange, OutputEffort,
+        ResponseInclusion, ServerFallback, ServerFallbacks, TextEditorToolOptions, ThinkingDisplay,
+        TokenTaskBudget, ToolCaller, UserLocation, WebFetchToolOptions, WebSearchToolOptions,
     };
 }
 

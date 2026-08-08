@@ -21,8 +21,7 @@ use siumai_openai_compatible::extension::{
 use siumai_openai_compatible::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID as MESSAGES_API_MODE_ID, CacheControlWireStyle, MessagesEncodingRules,
-    MessagesServiceTier, PROTOCOL_ID as MESSAGES_PROTOCOL_ID, TemperatureEncodingRule,
-    ThinkingConfig,
+    PROTOCOL_ID as MESSAGES_PROTOCOL_ID, TemperatureEncodingRule, ThinkingConfig,
 };
 use siumai_protocol_openai::chat_completions::{
     API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, DialectError, MaxOutputTokensField,
@@ -37,6 +36,7 @@ use thiserror::Error as ThisError;
 
 use crate::MinimaxAnnotationResolver;
 use crate::models::{ALL_LANGUAGE, is_known_m2, is_m3};
+use crate::options::MINIMAX_MESSAGES_SERVICE_TIER_OPTION;
 
 pub(crate) const PROVIDER_ID: &str = "minimax";
 pub(crate) const PLATFORM_ID: &str = "minimax-api";
@@ -250,8 +250,18 @@ impl MessagesRequestProjection for MinimaxMessagesProjection {
     fn project(
         &self,
         context: &MessagesRequestProjectionContext<'_>,
-        body: Value,
+        mut body: Value,
     ) -> Result<ProjectedMessagesRequest, Error> {
+        let object = body.as_object_mut().ok_or_else(|| {
+            Error::new(
+                ErrorKind::Protocol,
+                "MiniMax Messages request projection expected an object",
+            )
+        })?;
+        if let Some(service_tier) = object.remove(MINIMAX_MESSAGES_SERVICE_TIER_OPTION) {
+            validate_service_tier(&service_tier)?;
+            object.insert("service_tier".to_string(), service_tier);
+        }
         ProjectedMessagesRequest::new(
             context.default_target().clone(),
             body,
@@ -287,18 +297,31 @@ impl MessagesRequestPolicy for MinimaxMessagesPolicy {
         if options.metadata().is_some() {
             return Err(unsupported("MiniMax Messages does not support metadata"));
         }
-        if !options.extra().is_empty() {
-            return Err(unsupported(
-                "MiniMax Messages accepts only typed MiniMax request options",
-            ));
-        }
-        match options.service_tier() {
-            None | Some(MessagesServiceTier::Standard | MessagesServiceTier::Priority) => {}
-            Some(_) => {
+        for (name, value) in options.extra() {
+            if name == MINIMAX_MESSAGES_SERVICE_TIER_OPTION {
+                validate_service_tier(value)?;
+            } else {
                 return Err(unsupported(
-                    "MiniMax supports only standard or priority service tier",
+                    "MiniMax Messages accepts only typed MiniMax request options",
                 ));
             }
+        }
+        if options.service_tier().is_some() {
+            return Err(unsupported(
+                "Anthropic service-tier preferences are not MiniMax service tiers",
+            ));
+        }
+        if options.task_budget().is_some()
+            || options.cache_control().is_some()
+            || options.speed().is_some()
+            || options.inference_geo().is_some()
+            || options.container().is_some()
+            || options.context_management().is_some()
+            || options.mcp_servers().is_some()
+        {
+            return Err(unsupported(
+                "MiniMax Messages does not support Anthropic request controls",
+            ));
         }
         validate_thinking(model, options.thinking())?;
         if !request.generation.stop_sequences.is_empty() {

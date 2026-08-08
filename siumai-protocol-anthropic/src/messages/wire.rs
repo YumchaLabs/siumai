@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
+
+use super::MessagesAssignedServiceTier;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MessageResponseWire {
@@ -28,7 +30,9 @@ pub(crate) struct UsageWire {
     pub output_tokens_details: Option<OutputTokensDetailsWire>,
     pub cache_creation_input_tokens: Option<u64>,
     pub cache_read_input_tokens: Option<u64>,
-    pub service_tier: Option<String>,
+    pub service_tier: Option<AssignedServiceTierWire>,
+    pub speed: Option<String>,
+    pub inference_geo: Option<String>,
     pub server_tool_use: Option<Value>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -51,6 +55,8 @@ impl UsageWire {
             update.cache_read_input_tokens,
         );
         merge_optional(&mut self.service_tier, update.service_tier);
+        merge_optional(&mut self.speed, update.speed);
+        merge_optional(&mut self.inference_geo, update.inference_geo);
         merge_optional(&mut self.server_tool_use, update.server_tool_use);
         self.extra.extend(update.extra);
     }
@@ -78,7 +84,16 @@ impl UsageWire {
         if let Some(service_tier) = &self.service_tier {
             details.insert(
                 "service_tier".to_string(),
-                Value::String(service_tier.clone()),
+                Value::String(service_tier.wire_value().to_string()),
+            );
+        }
+        if let Some(speed) = &self.speed {
+            details.insert("speed".to_string(), Value::String(speed.clone()));
+        }
+        if let Some(inference_geo) = &self.inference_geo {
+            details.insert(
+                "inference_geo".to_string(),
+                Value::String(inference_geo.clone()),
             );
         }
         if let Some(server_tool_use) = &self.server_tool_use {
@@ -89,6 +104,32 @@ impl UsageWire {
 
     pub fn iterations(&self) -> Option<&Value> {
         self.extra.get("iterations")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AssignedServiceTierWire {
+    raw: String,
+    assigned: Option<MessagesAssignedServiceTier>,
+}
+
+impl AssignedServiceTierWire {
+    fn wire_value(&self) -> &str {
+        match self.assigned {
+            Some(assigned) => assigned.as_wire_str(),
+            None => &self.raw,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AssignedServiceTierWire {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        let assigned = MessagesAssignedServiceTier::from_wire_str(&raw);
+        Ok(Self { raw, assigned })
     }
 }
 

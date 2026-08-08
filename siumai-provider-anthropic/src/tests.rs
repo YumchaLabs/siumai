@@ -19,10 +19,10 @@ use crate::resources::{
 use crate::{
     AdvisorToolOptions, AnthropicAnnotationResolver, AnthropicCacheTtl, AnthropicContentOptions,
     AnthropicCredential, AnthropicMessageCache, AnthropicMessagesOptions, AnthropicProvider,
-    AnthropicThinking, AnthropicTool, AnthropicToolOptions, CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5,
-    CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7, CLAUDE_OPUS_4_8, CLAUDE_OPUS_5,
-    CLAUDE_SONNET_4_6, CLAUDE_SONNET_5, MessagesMetadata, OutputEffort, ServerFallbacks,
-    ThinkingDisplay, current_models,
+    AnthropicThinking, AnthropicTokenCountOptions, AnthropicTool, AnthropicToolOptions,
+    CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5, CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7,
+    CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_6, CLAUDE_SONNET_5, MessagesMetadata,
+    OutputEffort, ServerFallbacks, ThinkingDisplay, current_models,
 };
 
 const API_VERSION: &str = "2023-06-01";
@@ -144,6 +144,99 @@ async fn fallback_options_encode_and_add_the_required_beta_header() {
         )
         .await
         .expect("fallback request");
+}
+
+#[tokio::test]
+async fn cache_prewarm_reuses_messages_with_zero_output_and_requires_cache_configuration() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "future-model",
+            "max_tokens": 0,
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "warm this prompt",
+                    "cache_control": {"type": "ephemeral", "ttl": "5m"}
+                }]
+            }],
+            "stream": false
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_prewarm",
+            "type": "message",
+            "role": "assistant",
+            "model": "future-model",
+            "content": [],
+            "stop_reason": "max_tokens",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 8,
+                "output_tokens": 0,
+                "cache_creation_input_tokens": 8
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "future-model",
+            "max_tokens": 0,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "warm automatically"}]
+            }],
+            "stream": false,
+            "cache_control": {"type": "ephemeral", "ttl": "5m"}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_automatic_prewarm",
+            "type": "message",
+            "role": "assistant",
+            "model": "future-model",
+            "content": [],
+            "stop_reason": "max_tokens",
+            "stop_sequence": null,
+            "usage": {"input_tokens": 8, "output_tokens": 0}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = local_provider(&server, AnthropicCredential::unauthenticated());
+    let model = provider.language("future-model").expect("model");
+    let missing_marker = model
+        .prewarm_cache(request("not marked", 64), AnthropicMessagesOptions::new())
+        .await
+        .expect_err("prewarming without cache configuration must fail");
+    assert_eq!(missing_marker.kind(), ErrorKind::InvalidInput);
+
+    let marked = Message::user("warm this prompt")
+        .with_provider_annotation(&AnthropicMessageCache::five_minutes())
+        .expect("cache marker");
+    let response = model
+        .prewarm_cache(
+            LanguageRequest::new(vec![marked]),
+            AnthropicMessagesOptions::new(),
+        )
+        .await
+        .expect("prewarm");
+    assert_eq!(response.id(), Some("msg_prewarm"));
+    assert_eq!(response.usage().input_tokens.value(), Some(8));
+    assert_eq!(response.usage().output_tokens.value(), Some(0));
+
+    let automatic = model
+        .prewarm_cache(
+            LanguageRequest::new(vec![Message::user("warm automatically")]),
+            AnthropicMessagesOptions::new().with_automatic_cache(AnthropicCacheTtl::FiveMinutes),
+        )
+        .await
+        .expect("automatic cache prewarm");
+    assert_eq!(automatic.id(), Some("msg_automatic_prewarm"));
 }
 
 #[tokio::test]
@@ -269,6 +362,18 @@ fn official_provider_is_network_free_and_catalog_is_advisory() {
             .expect("pinned model profile");
         assert_eq!(profile.lifecycle(), &ModelLifecycle::Active);
     }
+
+    let mythos_preview = ModelId::new(crate::CLAUDE_MYTHOS_PREVIEW).expect("model id");
+    let mythos_preview = catalog
+        .iter()
+        .find(|entry| entry.model() == &mythos_preview)
+        .expect("Mythos Preview profile");
+    assert_eq!(
+        mythos_preview.lifecycle(),
+        &ModelLifecycle::Deprecated {
+            replacement: Some(ModelId::new(crate::CLAUDE_MYTHOS_5).expect("replacement")),
+        }
+    );
 
     let unknown = provider
         .language("claude-future-2030")
@@ -665,7 +770,6 @@ async fn native_resources_share_auth_transport_and_canonical_message_encoding() 
         .and(header("x-api-key", "resource-key"))
         .and(body_json(json!({
             "model": "future-model",
-            "max_tokens": 64,
             "messages": [{
                 "role": "user",
                 "content": [{"type": "text", "text": "count me"}]
@@ -721,8 +825,8 @@ async fn native_resources_share_auth_transport_and_canonical_message_encoding() 
         .tokens()
         .count(
             "future-model",
-            request("count me", 64),
-            AnthropicMessagesOptions::default(),
+            LanguageRequest::new(vec![Message::user("count me")]),
+            AnthropicTokenCountOptions::default(),
         )
         .await
         .expect("count");

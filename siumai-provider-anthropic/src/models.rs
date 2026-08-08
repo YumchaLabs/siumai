@@ -11,7 +11,7 @@ pub const CLAUDE_SONNET_5: &str = "claude-sonnet-5";
 pub const CLAUDE_FABLE_5: &str = "claude-fable-5";
 /// Claude Mythos 5 pinned model ID, verified on 2026-08-06.
 pub const CLAUDE_MYTHOS_5: &str = "claude-mythos-5";
-/// Claude Mythos Preview model ID, retired on 2026-06-30.
+/// Claude Mythos Preview model ID, currently deprecated in favor of Mythos 5.
 pub const CLAUDE_MYTHOS_PREVIEW: &str = "claude-mythos-preview";
 /// Claude Haiku 4.5 rolling model ID, verified on 2026-08-06.
 pub const CLAUDE_HAIKU_4_5: &str = "claude-haiku-4-5";

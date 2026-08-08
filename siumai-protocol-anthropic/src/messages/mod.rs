@@ -20,14 +20,20 @@ pub use annotations::{
 };
 pub use error::MessagesCodecError;
 pub use options::{
-    AdvisorToolOptions, AnthropicTool, ComputerToolOptions, FallbackOutputConfig, InferenceSpeed,
-    McpToolConfig, McpToolsetOptions, MessagesMetadata, MessagesRequestOptions,
-    MessagesServiceTier, OutputEffort, ResponseInclusion, ServerFallback, ServerFallbacks,
-    TextEditorToolOptions, ThinkingConfig, ThinkingDisplay, ToolCaller, UserLocation,
-    WebFetchToolOptions, WebSearchToolOptions,
+    AdvisorToolOptions, AnthropicTool, ClearThinkingEdit, ClearThinkingKeep, ClearToolInputs,
+    ClearToolUsesEdit, CompactionEdit, ComputerToolOptions, ContainerSkill, ContainerSkillType,
+    ContextManagement, ContextManagementEdit, ContextManagementTrigger, FallbackOutputConfig,
+    InferenceGeo, InferenceSpeed, McpAuthorizationToken, McpServer, McpToolConfig,
+    McpToolsetOptions, MessagesAssignedServiceTier, MessagesContainer, MessagesMetadata,
+    MessagesRequestOptions, MessagesServiceTierPreference, MessagesTokenCountOptions, OutputEffort,
+    ResponseInclusion, ServerFallback, ServerFallbacks, TextEditorToolOptions, ThinkingConfig,
+    ThinkingDisplay, TokenTaskBudget, ToolCaller, UserLocation, WebFetchToolOptions,
+    WebSearchToolOptions,
 };
 pub use request::{
-    anthropic_tool_anchor_schema, encode_request, encode_request_for_scope,
+    anthropic_tool_anchor_schema, encode_count_tokens_request,
+    encode_count_tokens_request_for_scope_with_resolver_and_rules,
+    encode_count_tokens_request_with_resolver_and_rules, encode_request, encode_request_for_scope,
     encode_request_for_scope_with_resolver, encode_request_for_scope_with_resolver_and_rules,
     encode_request_with_resolver, encode_request_with_resolver_and_rules,
     encode_request_with_rules, is_protected_option_field,
@@ -47,6 +53,9 @@ pub const API_MODE_ID: &str = "messages";
 
 /// Anthropic Messages request target relative to a configured API base.
 pub const MESSAGES_TARGET: &str = "messages";
+
+/// Anthropic token-count target relative to a configured API base.
+pub const MESSAGES_COUNT_TOKENS_TARGET: &str = "messages/count_tokens";
 
 /// Opaque-item kind used for exact Anthropic content-block replay.
 pub const OPAQUE_CONTENT_BLOCK_KIND: &str = "anthropic.messages.content-block";

@@ -304,7 +304,12 @@ fn rejects_cache_breakpoint_limit_and_invalid_ttl_order() {
 
 #[test]
 fn rejects_protected_options() {
-    for (field, value) in [("api_key", "secret"), ("service_tier", "priority")] {
+    for (field, value) in [
+        ("api_key", "secret"),
+        ("service_tier", "auto"),
+        ("cache_control", "ephemeral"),
+        ("mcp_servers", "untyped"),
+    ] {
         let mut extra = BTreeMap::new();
         extra.insert(field.to_string(), Value::String(value.to_string()));
         let options = MessagesRequestOptions::default().with_extra(extra);
@@ -421,6 +426,44 @@ fn response_preserves_signed_thinking_as_replayable_opaque_state() {
             if item.kind() == OPAQUE_CONTENT_BLOCK_KIND
                 && item.data()["signature"] == "signed"
     )));
+}
+
+#[test]
+fn automatic_cache_without_an_eligible_target_keeps_the_request_valid() {
+    let body = serde_json::to_vec(&json!({
+        "id": "msg_thinking_only",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "inspect", "signature": "signed"}
+        ],
+        "model": "claude-fable-5",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {"input_tokens": 4, "output_tokens": 1}
+    }))
+    .unwrap();
+    let response = decode_response(&body, &scope(), &model()).unwrap();
+    let history = response
+        .project_assistant_history()
+        .into_parts()
+        .0
+        .expect("response projects assistant history");
+
+    let encoded = encode_request_for_scope(
+        &scope(),
+        &model(),
+        &request(vec![history]),
+        &MessagesRequestOptions::default()
+            .with_cache_control(CacheControl::new(CacheTtl::FiveMinutes)),
+    )
+    .unwrap();
+
+    assert_eq!(
+        encoded["cache_control"],
+        json!({"type": "ephemeral", "ttl": "5m"})
+    );
+    assert_eq!(encoded["messages"][0]["content"][0]["type"], "thinking");
 }
 
 #[test]

@@ -23,7 +23,10 @@ use siumai_transport::{
 };
 use thiserror::Error as ThisError;
 
-use crate::annotations::AnthropicAnnotationResolver;
+use crate::annotations::{
+    AnthropicAnnotationResolver, AnthropicContentOptions, AnthropicMessageCache,
+    AnthropicToolOptions,
+};
 use crate::auth::{AnthropicCredential, AnthropicCredentialError};
 use crate::options::AnthropicMessagesOptions;
 use crate::profile::{
@@ -315,6 +318,56 @@ pub struct AnthropicLanguageModel {
     inner: AnthropicCompatibleLanguageModel,
 }
 
+impl AnthropicLanguageModel {
+    /// Validate and prewarm prompt-cache content.
+    ///
+    /// This is the ordinary Messages operation with `max_tokens: 0`; it shares
+    /// the same request policy, codec, transport, response decoder, and cache
+    /// breakpoint rules as [`LanguageModel::generate`].
+    pub async fn prewarm_cache(
+        &self,
+        request: LanguageRequest,
+        options: AnthropicMessagesOptions,
+    ) -> Result<LanguageResponse, Error> {
+        self.prewarm_cache_with_call_options(request, options, CallOptions::default())
+            .await
+    }
+
+    pub async fn prewarm_cache_with_call_options(
+        &self,
+        mut request: LanguageRequest,
+        options: AnthropicMessagesOptions,
+        call_options: CallOptions,
+    ) -> Result<LanguageResponse, Error> {
+        if call_options.has_provider_options() {
+            return Err(Error::new(
+                siumai_core::ErrorKind::InvalidInput,
+                "Anthropic cache prewarming accepts one explicit provider-option layer",
+            ));
+        }
+        if options.automatic_cache_ttl().is_none() && !has_explicit_cache_marker(&request)? {
+            return Err(Error::new(
+                siumai_core::ErrorKind::InvalidInput,
+                "Anthropic cache prewarming requires automatic caching or an explicit cache annotation",
+            ));
+        }
+        request.generation.max_output_tokens = Some(0);
+        let provider_options = options.provider_options().map_err(|source| {
+            Error::new(
+                siumai_core::ErrorKind::InvalidInput,
+                "Anthropic cache prewarming options are invalid",
+            )
+            .with_source(source)
+        })?;
+        self.inner
+            .generate(
+                request,
+                call_options.with_provider_options(provider_options),
+            )
+            .await
+    }
+}
+
 impl Model for AnthropicLanguageModel {
     fn descriptor(&self) -> &ModelDescriptor {
         self.inner.descriptor()
@@ -348,6 +401,50 @@ impl fmt::Debug for AnthropicLanguageModel {
             .field("runtime", &"shared")
             .finish()
     }
+}
+
+fn has_explicit_cache_marker(request: &LanguageRequest) -> Result<bool, Error> {
+    for message in &request.messages {
+        if message
+            .annotations()
+            .decode::<AnthropicMessageCache>()
+            .map_err(annotation_error)?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        for part in message.content() {
+            if part
+                .annotations()
+                .decode::<AnthropicContentOptions>()
+                .map_err(annotation_error)?
+                .and_then(|options| options.cache_ttl())
+                .is_some()
+            {
+                return Ok(true);
+            }
+        }
+    }
+    for tool in &request.tools {
+        if tool
+            .annotations()
+            .decode::<AnthropicToolOptions>()
+            .map_err(annotation_error)?
+            .and_then(|options| options.cache_ttl())
+            .is_some()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn annotation_error(source: siumai_core::ProviderAnnotationError) -> Error {
+    Error::new(
+        siumai_core::ErrorKind::InvalidInput,
+        "invalid Anthropic cache annotation",
+    )
+    .with_source(source)
 }
 
 fn official_endpoint() -> Result<EndpointConfig, EndpointError> {

@@ -3,18 +3,23 @@ use siumai_anthropic_compatible::{
 };
 use siumai_core::{Error, ErrorKind, LanguageRequest, MessageRole, ModelId};
 use siumai_protocol_anthropic::messages::{
-    AnthropicTool, InferenceSpeed, OutputEffort, ServerFallback, ServerFallbacks, ThinkingConfig,
+    AnthropicTool, ContextManagement, ContextManagementEdit, InferenceSpeed, OutputEffort,
+    ServerFallback, ServerFallbacks, ThinkingConfig,
 };
 
 use crate::annotations::{AnthropicContentOptions, AnthropicToolOptions};
 use crate::models::{
     CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5, CLAUDE_HAIKU_4_5_20251001, CLAUDE_MYTHOS_5,
-    CLAUDE_MYTHOS_PREVIEW, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7, CLAUDE_OPUS_4_8, CLAUDE_OPUS_5,
-    CLAUDE_SONNET_4_6, CLAUDE_SONNET_5,
+    CLAUDE_MYTHOS_PREVIEW, CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7,
+    CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_6, CLAUDE_SONNET_5,
 };
 
 const SERVER_FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 const FAST_MODE_BETA: &str = "fast-mode-2026-02-01";
+const TASK_BUDGET_BETA: &str = "task-budgets-2026-03-13";
+const CONTEXT_MANAGEMENT_BETA: &str = "context-management-2025-06-27";
+const COMPACTION_BETA: &str = "compact-2026-01-12";
+const SKILLS_BETA: &str = "skills-2025-10-02";
 const ADVISOR_TOOL_BETA: &str = "advisor-tool-2026-03-01";
 const MCP_CLIENT_BETA: &str = "mcp-client-2025-11-20";
 const COMPUTER_USE_BETA: &str = "computer-use-2025-11-24";
@@ -51,13 +56,42 @@ impl MessagesRequestPolicy for AnthropicRequestPolicy {
             }
         }
 
+        if options.speed() == Some(InferenceSpeed::Fast) {
+            requirements = requirements.with_beta_feature(FAST_MODE_BETA)?;
+        }
+        if options.task_budget().is_some() {
+            requirements = requirements.with_beta_feature(TASK_BUDGET_BETA)?;
+        }
+        if let Some(context) = options.context_management() {
+            for edit in context.edits() {
+                requirements = match edit {
+                    ContextManagementEdit::Compact(_) => {
+                        requirements.with_beta_feature(COMPACTION_BETA)?
+                    }
+                    ContextManagementEdit::ClearToolUses(_)
+                    | ContextManagementEdit::ClearThinking(_) => {
+                        requirements.with_beta_feature(CONTEXT_MANAGEMENT_BETA)?
+                    }
+                    _ => requirements,
+                };
+            }
+        }
+
+        let container_uses_skills = options
+            .container()
+            .is_some_and(|container| container.has_skills());
+        if container_uses_skills {
+            requirements = requirements.with_beta_feature(SKILLS_BETA)?;
+        }
+
         for tool in &request.tools {
             let annotation = tool
                 .annotations()
                 .decode::<AnthropicToolOptions>()
                 .map_err(annotation_error)?;
-            if let Some(anthropic_tool) =
-                annotation.and_then(|value| value.anthropic_tool().cloned())
+            if let Some(anthropic_tool) = annotation
+                .as_ref()
+                .and_then(AnthropicToolOptions::anthropic_tool)
             {
                 let beta = match anthropic_tool {
                     AnthropicTool::Advisor20260301(_) => Some(ADVISOR_TOOL_BETA),
@@ -69,6 +103,10 @@ impl MessagesRequestPolicy for AnthropicRequestPolicy {
                     requirements = requirements.with_beta_feature(beta)?;
                 }
             }
+        }
+
+        if options.mcp_servers().is_some() {
+            requirements = requirements.with_beta_feature(MCP_CLIENT_BETA)?;
         }
 
         Ok(requirements)
@@ -141,6 +179,10 @@ fn validate_primary_request(
         }
     }
     validate_model_options(model.as_str(), options.thinking(), options.output_effort())?;
+    validate_speed(model.as_str(), options.speed())?;
+    validate_task_budget(model.as_str(), options.task_budget().is_some())?;
+    validate_inference_geo(model.as_str(), options.inference_geo().is_some())?;
+    validate_context_management(model.as_str(), options.context_management())?;
     validate_known_output_limit(model.as_str(), request.generation.max_output_tokens)
 }
 
@@ -153,9 +195,98 @@ fn validate_fallback(
         fallback.thinking(),
         fallback.output_config().and_then(|output| output.effort()),
     )?;
+    validate_speed(fallback.model_name(), fallback.speed())?;
     validate_known_output_limit(
         fallback.model_name(),
         fallback.max_tokens().or(request_max_output_tokens),
+    )
+}
+
+fn validate_speed(model: &str, speed: Option<InferenceSpeed>) -> Result<(), Error> {
+    if speed != Some(InferenceSpeed::Fast) || !is_known_model(model) {
+        return Ok(());
+    }
+    if matches!(model, CLAUDE_OPUS_5 | CLAUDE_OPUS_4_8) {
+        Ok(())
+    } else {
+        Err(invalid(
+            "fast inference is currently verified only for Claude Opus 5 and Opus 4.8",
+        ))
+    }
+}
+
+fn validate_task_budget(model: &str, enabled: bool) -> Result<(), Error> {
+    if !enabled || !is_known_model(model) {
+        return Ok(());
+    }
+    if matches!(
+        model,
+        CLAUDE_OPUS_5 | CLAUDE_FABLE_5 | CLAUDE_MYTHOS_5 | CLAUDE_OPUS_4_8 | CLAUDE_OPUS_4_7
+    ) {
+        Ok(())
+    } else {
+        Err(invalid(
+            "task budgets are not supported by this Claude model",
+        ))
+    }
+}
+
+fn validate_inference_geo(model: &str, configured: bool) -> Result<(), Error> {
+    if !configured || !is_known_model(model) {
+        return Ok(());
+    }
+    if matches!(
+        model,
+        CLAUDE_OPUS_4_1_20250805 | CLAUDE_HAIKU_4_5 | CLAUDE_HAIKU_4_5_20251001
+    ) {
+        Err(invalid(
+            "inference geography is supported only by Claude 4.6 and later",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_context_management(
+    model: &str,
+    context: Option<&ContextManagement>,
+) -> Result<(), Error> {
+    let uses_compaction = context.is_some_and(|context| {
+        context
+            .edits()
+            .iter()
+            .any(|edit| matches!(edit, ContextManagementEdit::Compact(_)))
+    });
+    if !uses_compaction || !is_known_model(model) {
+        return Ok(());
+    }
+    if matches!(
+        model,
+        CLAUDE_HAIKU_4_5 | CLAUDE_HAIKU_4_5_20251001 | CLAUDE_OPUS_4_1_20250805
+    ) {
+        Err(invalid(
+            "context compaction is not supported by this Claude model",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn is_known_model(model: &str) -> bool {
+    matches!(
+        model,
+        CLAUDE_OPUS_5
+            | CLAUDE_SONNET_5
+            | CLAUDE_FABLE_5
+            | CLAUDE_MYTHOS_5
+            | CLAUDE_MYTHOS_PREVIEW
+            | CLAUDE_OPUS_4_8
+            | CLAUDE_OPUS_4_7
+            | CLAUDE_OPUS_4_6
+            | CLAUDE_SONNET_4_6
+            | CLAUDE_HAIKU_4_5
+            | CLAUDE_HAIKU_4_5_20251001
+            | CLAUDE_OPUS_4_1_20250805
     )
 }
 
@@ -285,9 +416,10 @@ fn annotation_error(source: siumai_core::ProviderAnnotationError) -> Error {
 mod tests {
     use siumai_core::{LanguageRequest, Message, MessageRole, ModelId};
     use siumai_protocol_anthropic::messages::{
-        AdvisorToolOptions, AnthropicTool, AnthropicToolReference, ComputerToolOptions,
-        InferenceSpeed, McpToolsetOptions, MidConversationToolChange, ServerFallback,
-        ServerFallbacks, ThinkingConfig,
+        AdvisorToolOptions, AnthropicTool, AnthropicToolReference, CompactionEdit,
+        ComputerToolOptions, ContainerSkill, InferenceSpeed, McpServer, McpToolsetOptions,
+        MessagesContainer, MidConversationToolChange, ServerFallback, ServerFallbacks,
+        ThinkingConfig, TokenTaskBudget,
     };
 
     use super::*;
@@ -298,7 +430,11 @@ mod tests {
             .expect("fallback")
             .with_speed(InferenceSpeed::Fast);
         let mut options = MessagesCallOptions::new()
-            .with_fallbacks(ServerFallbacks::explicit(vec![fallback]).expect("fallback chain"));
+            .with_fallbacks(ServerFallbacks::explicit(vec![fallback]).expect("fallback chain"))
+            .with_mcp_servers(vec![
+                McpServer::new("company-tools", "https://mcp.example.test/events")
+                    .expect("MCP server"),
+            ]);
         let mut request = LanguageRequest::new(vec![Message::text(MessageRole::User, "tools")]);
         request.tools = vec![
             AnthropicToolOptions::for_tool(AnthropicTool::advisor_20260301(
@@ -335,6 +471,63 @@ mod tests {
                 SERVER_FALLBACK_BETA,
             ]
         );
+    }
+
+    #[test]
+    fn preparation_collects_current_option_betas_once() {
+        let mut options = MessagesCallOptions::new()
+            .with_speed(InferenceSpeed::Fast)
+            .with_task_budget(TokenTaskBudget::new(20_000).expect("task budget"))
+            .with_context_management(
+                siumai_protocol_anthropic::messages::ContextManagement::new()
+                    .with_edit(CompactionEdit::new()),
+            )
+            .with_container(
+                MessagesContainer::configured()
+                    .with_skill(ContainerSkill::custom("skill_1").expect("skill"))
+                    .expect("container"),
+            )
+            .with_mcp_servers(vec![
+                McpServer::new("company-tools", "https://mcp.example.test/events")
+                    .expect("MCP server"),
+            ]);
+        let mut request = LanguageRequest::new(vec![Message::user("tools")]);
+        request.tools = vec![
+            AnthropicToolOptions::for_tool(AnthropicTool::CodeExecution20260521)
+                .into_tool_spec()
+                .expect("code execution"),
+            AnthropicToolOptions::for_tool(AnthropicTool::mcp_toolset(
+                McpToolsetOptions::new("company-tools").expect("MCP toolset"),
+            ))
+            .into_tool_spec()
+            .expect("MCP tool"),
+        ];
+
+        let requirements = AnthropicRequestPolicy
+            .prepare(
+                &ModelId::new(CLAUDE_OPUS_5).expect("model"),
+                &request,
+                &mut options,
+            )
+            .expect("requirements");
+        assert_eq!(
+            requirements.beta_features().collect::<Vec<_>>(),
+            vec![
+                COMPACTION_BETA,
+                FAST_MODE_BETA,
+                MCP_CLIENT_BETA,
+                SKILLS_BETA,
+                TASK_BUDGET_BETA,
+            ]
+        );
+    }
+
+    #[test]
+    fn compaction_rejects_known_unsupported_models_without_closing_future_ids() {
+        let context = || ContextManagement::new().with_edit(CompactionEdit::new());
+        assert!(validate_context_management(CLAUDE_HAIKU_4_5, Some(&context())).is_err());
+        assert!(validate_context_management(CLAUDE_OPUS_5, Some(&context())).is_ok());
+        assert!(validate_context_management("future-claude", Some(&context())).is_ok());
     }
 
     #[test]

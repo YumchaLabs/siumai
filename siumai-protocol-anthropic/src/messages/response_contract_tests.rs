@@ -42,7 +42,9 @@ fn response_projects_refusal_and_preserves_current_usage_metadata() {
             "output_tokens_details": {"thinking_tokens": 3, "future_tokens": 2},
             "cache_read_input_tokens": 4,
             "iterations": [{"type": "message", "input_tokens": 10, "output_tokens": 5}],
-            "service_tier": "standard"
+            "service_tier": "standard",
+            "speed": "fast",
+            "inference_geo": "us"
         },
         "container": {"id": "container-1"}
     }))
@@ -68,7 +70,48 @@ fn response_projects_refusal_and_preserves_current_usage_metadata() {
         metadata["usage"]["output_tokens_details"]["future_tokens"],
         2
     );
+    assert_eq!(metadata["usage"]["service_tier"], "standard");
+    assert_eq!(metadata["usage"]["speed"], "fast");
+    assert_eq!(metadata["usage"]["inference_geo"], "us");
     assert_eq!(metadata["container"]["id"], "container-1");
+}
+
+#[test]
+fn unknown_assigned_service_tier_remains_forward_compatible_metadata() {
+    let body = serde_json::to_vec(&json!({
+        "id": "msg_future_tier",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-fable-5",
+        "content": [{"type": "text", "text": "ok"}],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "service_tier": "future_tier"
+        }
+    }))
+    .expect("serialize fixture");
+
+    let response = decode_response(&body, &scope(), &model()).expect("decode response");
+    let metadata = response
+        .provider_metadata()
+        .get(PROTOCOL_ID)
+        .and_then(serde_json::Value::as_object)
+        .expect("Anthropic response metadata");
+    assert_eq!(metadata["usage"]["service_tier"], "future_tier");
+}
+
+#[test]
+fn assigned_service_tier_uses_response_only_values() {
+    let assigned = serde_json::from_value::<MessagesAssignedServiceTier>(json!("batch"))
+        .expect("decode assigned tier");
+    assert_eq!(assigned, MessagesAssignedServiceTier::Batch);
+    assert!(
+        serde_json::from_value::<MessagesAssignedServiceTier>(json!("auto")).is_err(),
+        "request-only preferences must not decode as assigned tiers"
+    );
 }
 
 #[test]
@@ -176,6 +219,8 @@ fn streamed_fallback_updates_served_model_and_keeps_iteration_metadata() {
             "usage": {
                 "input_tokens": 412,
                 "output_tokens": 264,
+                "speed": "standard",
+                "inference_geo": "global",
                 "iterations": [
                     {"type": "message", "model": "claude-fable-5", "input_tokens": 408, "output_tokens": 0},
                     {"type": "fallback_message", "model": "claude-opus-5", "input_tokens": 412, "output_tokens": 264}
@@ -207,6 +252,8 @@ fn streamed_fallback_updates_served_model_and_keeps_iteration_metadata() {
         .and_then(serde_json::Value::as_object)
         .expect("Anthropic response metadata");
     assert_eq!(metadata["iterations"][1]["type"], "fallback_message");
+    assert_eq!(metadata["usage"]["speed"], "standard");
+    assert_eq!(metadata["usage"]["inference_geo"], "global");
 }
 
 #[test]

@@ -1,8 +1,9 @@
+use serde::Serialize;
 use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest,
     MediaData, MediaPart, Message, MessagePart, MessageRole, Model, ModelFamily, Provider,
-    ProviderOptions, ReplayDomain, ReplayDomainId, ToolSpec,
+    ProviderOptions, ReplayDomain, ReplayDomainId, ToolSpec, TypedProviderOptions,
 };
 use siumai_transport::{EndpointConfig, OfficialOrigin};
 use wiremock::matchers::{header, method, path};
@@ -127,6 +128,17 @@ fn responses_response(model: &str) -> Value {
         "incomplete_details": null,
         "reasoning": null
     })
+}
+
+#[derive(Serialize)]
+struct ForgedMinimaxMessagesOptions {
+    task_budget: Value,
+}
+
+impl TypedProviderOptions for ForgedMinimaxMessagesOptions {
+    const NAMESPACE: &'static str = "minimax";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some("messages");
 }
 
 #[test]
@@ -393,6 +405,33 @@ async fn messages_is_recommended_and_uses_minimax_dialect_controls() {
     assert_eq!(body["thinking"], json!({"type": "adaptive"}));
     assert_eq!(body["service_tier"], "priority");
     assert_eq!(body["messages"][0]["content"][1]["type"], "video");
+}
+
+#[tokio::test]
+async fn messages_rejects_forged_anthropic_controls_before_transport() {
+    let server = MockServer::start().await;
+    let options = ForgedMinimaxMessagesOptions {
+        task_budget: json!({"total": 20_000}),
+    };
+    let error = provider(&server, MinimaxCredential::unauthenticated())
+        .messages(MINIMAX_M3)
+        .expect("model")
+        .generate(
+            text_request("hello"),
+            CallOptions::default()
+                .with_provider_options(ProviderOptions::typed(&options).expect("typed options")),
+        )
+        .await
+        .expect_err("Anthropic-only controls must fail closed");
+
+    assert_eq!(error.kind(), ErrorKind::Unsupported);
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty()
+    );
 }
 
 #[tokio::test]

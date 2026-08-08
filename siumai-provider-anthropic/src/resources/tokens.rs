@@ -2,11 +2,16 @@ use std::sync::Arc;
 
 use http::Method;
 use serde::{Deserialize, Serialize};
+use siumai_anthropic_compatible::MessagesRequestPolicy;
 use siumai_core::{CallOptions, Error, ErrorKind, LanguageRequest, ModelId};
-use siumai_protocol_anthropic::messages::encode_request_for_scope_with_resolver;
+use siumai_protocol_anthropic::messages::{
+    MESSAGES_COUNT_TOKENS_TARGET, MessagesEncodingRules,
+    encode_count_tokens_request_for_scope_with_resolver_and_rules,
+};
 use siumai_transport::{ReplaySafety, RequestBody};
 
-use crate::AnthropicMessagesOptions;
+use crate::AnthropicTokenCountOptions;
+use crate::request_policy::AnthropicRequestPolicy;
 
 use super::NativeRuntime;
 use super::common::{execute_json, target};
@@ -32,7 +37,7 @@ impl AnthropicTokens {
         &self,
         model: impl Into<String>,
         request: LanguageRequest,
-        options: AnthropicMessagesOptions,
+        options: AnthropicTokenCountOptions,
     ) -> Result<AnthropicTokenCount, Error> {
         self.count_with_options(model, request, options, CallOptions::default())
             .await
@@ -42,7 +47,7 @@ impl AnthropicTokens {
         &self,
         model: impl Into<String>,
         request: LanguageRequest,
-        options: AnthropicMessagesOptions,
+        options: AnthropicTokenCountOptions,
         call_options: CallOptions,
     ) -> Result<AnthropicTokenCount, Error> {
         let model = ModelId::new(model.into()).map_err(|source| {
@@ -52,22 +57,23 @@ impl AnthropicTokens {
             )
             .with_source(source)
         })?;
-        let protocol_options = options.to_protocol(false);
-        let mut body = encode_request_for_scope_with_resolver(
+        let mut engine_options = options.to_engine();
+        let requirements = AnthropicRequestPolicy.prepare(&model, &request, &mut engine_options)?;
+        let protocol_options = options.to_protocol();
+        let body = encode_count_tokens_request_for_scope_with_resolver_and_rules(
             &self.runtime.scope,
             &model,
             &request,
             &protocol_options,
             self.runtime.annotation_resolver.as_ref(),
+            &MessagesEncodingRules::native(),
         )
         .map_err(Error::from)?;
-        if let Some(body) = body.as_object_mut() {
-            body.remove("stream");
-        }
+        let beta_features = requirements.beta_features().collect::<Vec<_>>();
         execute_json(
             &self.runtime,
             Method::POST,
-            target("messages/count_tokens")?,
+            target(MESSAGES_COUNT_TOKENS_TARGET)?,
             RequestBody::json(&body).map_err(|source| {
                 Error::new(
                     ErrorKind::InvalidInput,
@@ -76,7 +82,7 @@ impl AnthropicTokens {
                 .with_source(source)
             })?,
             ReplaySafety::SemanticallyIdempotent,
-            &[],
+            &beta_features,
             call_options,
         )
         .await

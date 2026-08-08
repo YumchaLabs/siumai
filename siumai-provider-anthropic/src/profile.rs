@@ -124,7 +124,7 @@ fn verified_profile(
         model_profile(
             CLAUDE_MYTHOS_PREVIEW,
             &scope,
-            ModelLifecycle::Retired {
+            ModelLifecycle::Deprecated {
                 replacement: Some(ModelId::new(CLAUDE_MYTHOS_5)?),
             },
             &retirement_evidence,

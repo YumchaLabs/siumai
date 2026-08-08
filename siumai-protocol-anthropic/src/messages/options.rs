@@ -1,8 +1,12 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use secrecy::{ExposeSecret, SecretString};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use siumai_core::{LanguageRequest, ModelId, StructuredOutputSpec};
+use siumai_core::{LanguageRequest, ModelId, StructuredOutputSpec, ToolChoice};
+use url::Url;
 
 use super::MessagesCodecError;
 use super::annotations::{CacheControl, ToolNodeOptions};
@@ -18,6 +22,18 @@ const MAX_DOMAIN_BYTES: usize = 253;
 const MAX_TOOL_CONFIGS: usize = 256;
 const MAX_TOOL_NAME_BYTES: usize = 128;
 const MAX_ALLOWED_CALLERS: usize = 4;
+const MIN_TASK_BUDGET_TOKENS: u64 = 20_000;
+const MAX_CONTAINER_ID_BYTES: usize = 256;
+const MAX_CONTAINER_SKILLS: usize = 8;
+const MAX_SKILL_ID_BYTES: usize = 256;
+const MAX_SKILL_VERSION_BYTES: usize = 128;
+const MAX_CONTEXT_EDITS: usize = 16;
+const MAX_CONTEXT_TOOL_NAMES: usize = 256;
+const MAX_CONTEXT_INSTRUCTIONS_BYTES: usize = 16 * 1024;
+const MAX_MCP_SERVERS: usize = 20;
+const MAX_MCP_SERVER_NAME_BYTES: usize = 128;
+const MAX_MCP_SERVER_URL_BYTES: usize = 2_048;
+const MAX_MCP_AUTHORIZATION_TOKEN_BYTES: usize = 16 * 1024;
 
 /// Anthropic extended-thinking display mode for one Messages request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,32 +134,54 @@ impl OutputEffort {
     }
 }
 
-/// Provider-neutral wire value for the Messages `service_tier` field.
-///
-/// Compatible providers decide which values they support in their request
-/// policy. The protocol codec only owns exact, typed serialization.
+/// Request-side preference accepted by the Messages `service_tier` field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
-pub enum MessagesServiceTier {
-    Standard,
-    Priority,
+pub enum MessagesServiceTierPreference {
     Auto,
     StandardOnly,
 }
 
-impl MessagesServiceTier {
+impl MessagesServiceTierPreference {
     pub(crate) const fn as_wire_str(self) -> &'static str {
         match self {
-            Self::Standard => "standard",
-            Self::Priority => "priority",
             Self::Auto => "auto",
             Self::StandardOnly => "standard_only",
         }
     }
 }
 
-/// Inference speed override for one server-side fallback attempt.
+/// Response-side service tier assigned by Anthropic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum MessagesAssignedServiceTier {
+    Standard,
+    Priority,
+    Batch,
+}
+
+impl MessagesAssignedServiceTier {
+    pub(crate) const fn as_wire_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Priority => "priority",
+            Self::Batch => "batch",
+        }
+    }
+
+    pub(crate) fn from_wire_str(value: &str) -> Option<Self> {
+        match value {
+            "standard" => Some(Self::Standard),
+            "priority" => Some(Self::Priority),
+            "batch" => Some(Self::Batch),
+            _ => None,
+        }
+    }
+}
+
+/// Inference speed override for a Messages request or fallback attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
@@ -158,6 +196,901 @@ impl InferenceSpeed {
             Self::Standard => "standard",
             Self::Fast => "fast",
         }
+    }
+}
+
+/// Request-side inference geography accepted by the current Messages API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum InferenceGeo {
+    Global,
+    Us,
+}
+
+impl InferenceGeo {
+    pub const fn global() -> Self {
+        Self::Global
+    }
+
+    pub const fn us() -> Self {
+        Self::Us
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            Self::Us => "us",
+        }
+    }
+}
+
+/// Token budget carried by `output_config.task_budget`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenTaskBudget {
+    total: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remaining: Option<u64>,
+}
+
+impl TokenTaskBudget {
+    pub fn new(total: u64) -> Result<Self, MessagesCodecError> {
+        let value = Self {
+            total,
+            remaining: None,
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub fn with_remaining(mut self, remaining: u64) -> Result<Self, MessagesCodecError> {
+        self.remaining = Some(remaining);
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub const fn total(self) -> u64 {
+        self.total
+    }
+
+    pub const fn remaining(self) -> Option<u64> {
+        self.remaining
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        if self.total < MIN_TASK_BUDGET_TOKENS {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "output_config.task_budget.total",
+                reason: "must be at least 20000 tokens",
+            });
+        }
+        if self
+            .remaining
+            .is_some_and(|remaining| remaining > self.total)
+        {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "output_config.task_budget.remaining",
+                reason: "must not exceed the total token budget",
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Source namespace for a container skill.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ContainerSkillType {
+    Anthropic,
+    Custom,
+}
+
+/// One skill mounted into an Anthropic code-execution container.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerSkill {
+    #[serde(rename = "type")]
+    kind: ContainerSkillType,
+    skill_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+}
+
+impl ContainerSkill {
+    pub fn anthropic(skill_id: impl Into<String>) -> Result<Self, MessagesCodecError> {
+        Self::new(ContainerSkillType::Anthropic, skill_id)
+    }
+
+    pub fn custom(skill_id: impl Into<String>) -> Result<Self, MessagesCodecError> {
+        Self::new(ContainerSkillType::Custom, skill_id)
+    }
+
+    pub fn new(
+        kind: ContainerSkillType,
+        skill_id: impl Into<String>,
+    ) -> Result<Self, MessagesCodecError> {
+        let value = Self {
+            kind,
+            skill_id: skill_id.into(),
+            version: None,
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub fn with_version(mut self, version: impl Into<String>) -> Result<Self, MessagesCodecError> {
+        self.version = Some(version.into());
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub const fn kind(&self) -> ContainerSkillType {
+        self.kind
+    }
+
+    pub fn skill_id(&self) -> &str {
+        &self.skill_id
+    }
+
+    pub fn version(&self) -> Option<&str> {
+        self.version.as_deref()
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        validate_printable_string(
+            &self.skill_id,
+            "container.skills[].skill_id",
+            MAX_SKILL_ID_BYTES,
+            "must be a non-empty printable value of at most 256 bytes",
+        )?;
+        if let Some(version) = &self.version {
+            validate_printable_string(
+                version,
+                "container.skills[].version",
+                MAX_SKILL_VERSION_BYTES,
+                "must be a non-empty printable value of at most 128 bytes",
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// Container reuse or construction settings for one Messages request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+#[non_exhaustive]
+pub enum MessagesContainer {
+    Existing(String),
+    Configured {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        skills: Vec<ContainerSkill>,
+    },
+}
+
+impl MessagesContainer {
+    pub fn existing(id: impl Into<String>) -> Result<Self, MessagesCodecError> {
+        let value = Self::Existing(id.into());
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub const fn configured() -> Self {
+        Self::Configured {
+            id: None,
+            skills: Vec::new(),
+        }
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Result<Self, MessagesCodecError> {
+        let id = id.into();
+        match &mut self {
+            Self::Existing(existing) => *existing = id,
+            Self::Configured {
+                id: configured_id, ..
+            } => *configured_id = Some(id),
+        }
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub fn with_skill(mut self, skill: ContainerSkill) -> Result<Self, MessagesCodecError> {
+        self = match self {
+            Self::Existing(id) => Self::Configured {
+                id: Some(id),
+                skills: vec![skill],
+            },
+            Self::Configured { id, mut skills } => {
+                skills.push(skill);
+                Self::Configured { id, skills }
+            }
+        };
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub fn skills(&self) -> &[ContainerSkill] {
+        match self {
+            Self::Existing(_) => &[],
+            Self::Configured { skills, .. } => skills,
+        }
+    }
+
+    pub fn has_skills(&self) -> bool {
+        !self.skills().is_empty()
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        match self {
+            Self::Existing(id) => validate_container_id(id),
+            Self::Configured { id, skills } => {
+                if let Some(id) = id {
+                    validate_container_id(id)?;
+                }
+                if skills.len() > MAX_CONTAINER_SKILLS {
+                    return Err(MessagesCodecError::InvalidOption {
+                        field: "container.skills",
+                        reason: "must contain at most eight skills",
+                    });
+                }
+                for skill in skills {
+                    skill.validate()?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Selection policy for tool inputs cleared by context management.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+#[non_exhaustive]
+pub enum ClearToolInputs {
+    All(bool),
+    Selected(Vec<String>),
+}
+
+/// Threshold that activates one context-management edit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ContextManagementTrigger {
+    InputTokens(u64),
+    ToolUses(u64),
+}
+
+/// Retention policy used by the clear-thinking edit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClearThinkingKeep {
+    All,
+    ThinkingTurns(u64),
+}
+
+/// Configuration for the `clear_tool_uses_20250919` edit.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClearToolUsesEdit {
+    clear_at_least_input_tokens: Option<u64>,
+    clear_tool_inputs: Option<ClearToolInputs>,
+    exclude_tools: Vec<String>,
+    keep_tool_uses: Option<u64>,
+    trigger: Option<ContextManagementTrigger>,
+}
+
+impl ClearToolUsesEdit {
+    pub const fn new() -> Self {
+        Self {
+            clear_at_least_input_tokens: None,
+            clear_tool_inputs: None,
+            exclude_tools: Vec::new(),
+            keep_tool_uses: None,
+            trigger: None,
+        }
+    }
+
+    pub fn with_clear_at_least_input_tokens(mut self, value: u64) -> Self {
+        self.clear_at_least_input_tokens = Some(value);
+        self
+    }
+
+    pub fn with_clear_tool_inputs(mut self, value: ClearToolInputs) -> Self {
+        self.clear_tool_inputs = Some(value);
+        self
+    }
+
+    pub fn with_excluded_tool(mut self, name: impl Into<String>) -> Self {
+        self.exclude_tools.push(name.into());
+        self
+    }
+
+    pub fn with_keep_tool_uses(mut self, value: u64) -> Self {
+        self.keep_tool_uses = Some(value);
+        self
+    }
+
+    pub fn with_trigger(mut self, value: ContextManagementTrigger) -> Self {
+        self.trigger = Some(value);
+        self
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        validate_positive_optional(
+            self.clear_at_least_input_tokens,
+            "context_management.edits[].clear_at_least.value",
+        )?;
+        validate_positive_optional(self.keep_tool_uses, "context_management.edits[].keep.value")?;
+        validate_trigger(self.trigger)?;
+        validate_context_tool_names(
+            &self.exclude_tools,
+            "context_management.edits[].exclude_tools",
+        )?;
+        if let Some(ClearToolInputs::Selected(names)) = &self.clear_tool_inputs {
+            validate_context_tool_names(names, "context_management.edits[].clear_tool_inputs")?;
+        }
+        Ok(())
+    }
+}
+
+/// Configuration for the `clear_thinking_20251015` edit.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClearThinkingEdit {
+    keep: Option<ClearThinkingKeep>,
+}
+
+impl ClearThinkingEdit {
+    pub const fn new() -> Self {
+        Self { keep: None }
+    }
+
+    pub const fn with_keep(mut self, value: ClearThinkingKeep) -> Self {
+        self.keep = Some(value);
+        self
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        if matches!(self.keep, Some(ClearThinkingKeep::ThinkingTurns(0))) {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "context_management.edits[].keep.value",
+                reason: "must be greater than zero",
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Configuration for the `compact_20260112` edit.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CompactionEdit {
+    instructions: Option<String>,
+    pause_after_compaction: Option<bool>,
+    trigger_input_tokens: Option<u64>,
+}
+
+impl CompactionEdit {
+    pub const fn new() -> Self {
+        Self {
+            instructions: None,
+            pause_after_compaction: None,
+            trigger_input_tokens: None,
+        }
+    }
+
+    pub fn with_instructions(mut self, value: impl Into<String>) -> Self {
+        self.instructions = Some(value.into());
+        self
+    }
+
+    pub const fn with_pause_after_compaction(mut self, value: bool) -> Self {
+        self.pause_after_compaction = Some(value);
+        self
+    }
+
+    pub const fn with_trigger_input_tokens(mut self, value: u64) -> Self {
+        self.trigger_input_tokens = Some(value);
+        self
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        if let Some(instructions) = &self.instructions {
+            validate_printable_string(
+                instructions,
+                "context_management.edits[].instructions",
+                MAX_CONTEXT_INSTRUCTIONS_BYTES,
+                "must be a non-empty printable value of at most 16 KiB",
+            )?;
+        }
+        validate_positive_optional(
+            self.trigger_input_tokens,
+            "context_management.edits[].trigger.value",
+        )
+    }
+}
+
+/// One versioned Anthropic context-management edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ContextManagementEdit {
+    ClearToolUses(ClearToolUsesEdit),
+    ClearThinking(ClearThinkingEdit),
+    Compact(CompactionEdit),
+}
+
+impl From<ClearToolUsesEdit> for ContextManagementEdit {
+    fn from(value: ClearToolUsesEdit) -> Self {
+        Self::ClearToolUses(value)
+    }
+}
+
+impl From<ClearThinkingEdit> for ContextManagementEdit {
+    fn from(value: ClearThinkingEdit) -> Self {
+        Self::ClearThinking(value)
+    }
+}
+
+impl From<CompactionEdit> for ContextManagementEdit {
+    fn from(value: CompactionEdit) -> Self {
+        Self::Compact(value)
+    }
+}
+
+impl ContextManagementEdit {
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        match self {
+            Self::ClearToolUses(edit) => edit.validate(),
+            Self::ClearThinking(edit) => edit.validate(),
+            Self::Compact(edit) => edit.validate(),
+        }
+    }
+}
+
+/// Ordered context-management edits for one Messages request.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContextManagement {
+    edits: Vec<ContextManagementEdit>,
+}
+
+impl ContextManagement {
+    pub const fn new() -> Self {
+        Self { edits: Vec::new() }
+    }
+
+    pub fn with_edit(mut self, edit: impl Into<ContextManagementEdit>) -> Self {
+        self.edits.push(edit.into());
+        self
+    }
+
+    pub fn edits(&self) -> &[ContextManagementEdit] {
+        &self.edits
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        if self.edits.is_empty() || self.edits.len() > MAX_CONTEXT_EDITS {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "context_management.edits",
+                reason: "must contain between one and 16 edits",
+            });
+        }
+        for edit in &self.edits {
+            edit.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContextManagementWire {
+    edits: Vec<ContextManagementEditWire>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+enum ContextManagementEditWire {
+    #[serde(rename = "clear_tool_uses_20250919")]
+    ClearToolUses {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        clear_at_least: Option<ContextThresholdWire>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        clear_tool_inputs: Option<ClearToolInputs>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        exclude_tools: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        keep: Option<ContextThresholdWire>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        trigger: Option<ContextThresholdWire>,
+    },
+    #[serde(rename = "clear_thinking_20251015")]
+    ClearThinking {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        keep: Option<ClearThinkingKeepWire>,
+    },
+    #[serde(rename = "compact_20260112")]
+    Compact {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        instructions: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pause_after_compaction: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        trigger: Option<ContextThresholdWire>,
+    },
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContextThresholdWire {
+    #[serde(rename = "type")]
+    kind: String,
+    value: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum ClearThinkingKeepWire {
+    All(String),
+    Threshold(ContextThresholdWire),
+}
+
+impl Serialize for ContextManagement {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        ContextManagementWire::from(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ContextManagement {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = ContextManagementWire::deserialize(deserializer)?;
+        Self::try_from(wire).map_err(D::Error::custom)
+    }
+}
+
+impl From<&ContextManagement> for ContextManagementWire {
+    fn from(value: &ContextManagement) -> Self {
+        Self {
+            edits: value
+                .edits
+                .iter()
+                .map(ContextManagementEditWire::from)
+                .collect(),
+        }
+    }
+}
+
+impl TryFrom<ContextManagementWire> for ContextManagement {
+    type Error = &'static str;
+
+    fn try_from(value: ContextManagementWire) -> Result<Self, Self::Error> {
+        let edits = value
+            .edits
+            .into_iter()
+            .map(ContextManagementEdit::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self { edits })
+    }
+}
+
+impl From<&ContextManagementEdit> for ContextManagementEditWire {
+    fn from(value: &ContextManagementEdit) -> Self {
+        match value {
+            ContextManagementEdit::ClearToolUses(edit) => Self::ClearToolUses {
+                clear_at_least: edit
+                    .clear_at_least_input_tokens
+                    .map(|value| ContextThresholdWire::new("input_tokens", value)),
+                clear_tool_inputs: edit.clear_tool_inputs.clone(),
+                exclude_tools: edit.exclude_tools.clone(),
+                keep: edit
+                    .keep_tool_uses
+                    .map(|value| ContextThresholdWire::new("tool_uses", value)),
+                trigger: edit.trigger.map(ContextThresholdWire::from),
+            },
+            ContextManagementEdit::ClearThinking(edit) => Self::ClearThinking {
+                keep: edit.keep.map(ClearThinkingKeepWire::from),
+            },
+            ContextManagementEdit::Compact(edit) => Self::Compact {
+                instructions: edit.instructions.clone(),
+                pause_after_compaction: edit.pause_after_compaction,
+                trigger: edit
+                    .trigger_input_tokens
+                    .map(|value| ContextThresholdWire::new("input_tokens", value)),
+            },
+        }
+    }
+}
+
+impl TryFrom<ContextManagementEditWire> for ContextManagementEdit {
+    type Error = &'static str;
+
+    fn try_from(value: ContextManagementEditWire) -> Result<Self, Self::Error> {
+        match value {
+            ContextManagementEditWire::ClearToolUses {
+                clear_at_least,
+                clear_tool_inputs,
+                exclude_tools,
+                keep,
+                trigger,
+            } => Ok(Self::ClearToolUses(ClearToolUsesEdit {
+                clear_at_least_input_tokens: clear_at_least
+                    .map(|value| value.require("input_tokens"))
+                    .transpose()?,
+                clear_tool_inputs,
+                exclude_tools,
+                keep_tool_uses: keep.map(|value| value.require("tool_uses")).transpose()?,
+                trigger: trigger
+                    .map(ContextManagementTrigger::try_from)
+                    .transpose()?,
+            })),
+            ContextManagementEditWire::ClearThinking { keep } => {
+                Ok(Self::ClearThinking(ClearThinkingEdit {
+                    keep: keep.map(ClearThinkingKeep::try_from).transpose()?,
+                }))
+            }
+            ContextManagementEditWire::Compact {
+                instructions,
+                pause_after_compaction,
+                trigger,
+            } => Ok(Self::Compact(CompactionEdit {
+                instructions,
+                pause_after_compaction,
+                trigger_input_tokens: trigger
+                    .map(|value| value.require("input_tokens"))
+                    .transpose()?,
+            })),
+        }
+    }
+}
+
+impl ContextThresholdWire {
+    fn new(kind: &str, value: u64) -> Self {
+        Self {
+            kind: kind.to_string(),
+            value,
+        }
+    }
+
+    fn require(self, expected: &'static str) -> Result<u64, &'static str> {
+        if self.kind == expected {
+            Ok(self.value)
+        } else {
+            Err("context-management threshold has an invalid type")
+        }
+    }
+}
+
+impl From<ContextManagementTrigger> for ContextThresholdWire {
+    fn from(value: ContextManagementTrigger) -> Self {
+        match value {
+            ContextManagementTrigger::InputTokens(value) => Self::new("input_tokens", value),
+            ContextManagementTrigger::ToolUses(value) => Self::new("tool_uses", value),
+        }
+    }
+}
+
+impl TryFrom<ContextThresholdWire> for ContextManagementTrigger {
+    type Error = &'static str;
+
+    fn try_from(value: ContextThresholdWire) -> Result<Self, Self::Error> {
+        match value.kind.as_str() {
+            "input_tokens" => Ok(Self::InputTokens(value.value)),
+            "tool_uses" => Ok(Self::ToolUses(value.value)),
+            _ => Err("context-management trigger has an invalid type"),
+        }
+    }
+}
+
+impl From<ClearThinkingKeep> for ClearThinkingKeepWire {
+    fn from(value: ClearThinkingKeep) -> Self {
+        match value {
+            ClearThinkingKeep::All => Self::All("all".to_string()),
+            ClearThinkingKeep::ThinkingTurns(value) => {
+                Self::Threshold(ContextThresholdWire::new("thinking_turns", value))
+            }
+        }
+    }
+}
+
+impl TryFrom<ClearThinkingKeepWire> for ClearThinkingKeep {
+    type Error = &'static str;
+
+    fn try_from(value: ClearThinkingKeepWire) -> Result<Self, Self::Error> {
+        match value {
+            ClearThinkingKeepWire::All(value) if value == "all" => Ok(Self::All),
+            ClearThinkingKeepWire::All(_) => Err("clear-thinking keep must be all"),
+            ClearThinkingKeepWire::Threshold(value) => {
+                value.require("thinking_turns").map(Self::ThinkingTurns)
+            }
+        }
+    }
+}
+
+/// Secret bearer value used by one remote MCP server.
+#[derive(Clone)]
+pub struct McpAuthorizationToken(SecretString);
+
+impl McpAuthorizationToken {
+    pub fn new(value: impl Into<String>) -> Result<Self, MessagesCodecError> {
+        let value = value.into();
+        validate_printable_string(
+            &value,
+            "mcp_servers[].authorization_token",
+            MAX_MCP_AUTHORIZATION_TOKEN_BYTES,
+            "must be a non-empty printable value of at most 16 KiB",
+        )?;
+        Ok(Self(SecretString::from(value)))
+    }
+
+    pub(crate) fn expose_secret(&self) -> &str {
+        self.0.expose_secret()
+    }
+
+    fn validate(&self) -> Result<(), MessagesCodecError> {
+        validate_printable_string(
+            self.0.expose_secret(),
+            "mcp_servers[].authorization_token",
+            MAX_MCP_AUTHORIZATION_TOKEN_BYTES,
+            "must be a non-empty printable value of at most 16 KiB",
+        )
+    }
+}
+
+impl PartialEq for McpAuthorizationToken {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.expose_secret() == other.0.expose_secret()
+    }
+}
+
+impl Eq for McpAuthorizationToken {}
+
+impl fmt::Debug for McpAuthorizationToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("McpAuthorizationToken([REDACTED])")
+    }
+}
+
+/// One remote MCP server available to a Messages request.
+#[derive(Clone, PartialEq, Eq)]
+pub struct McpServer {
+    name: String,
+    url: String,
+    authorization_token: Option<McpAuthorizationToken>,
+}
+
+impl fmt::Debug for McpServer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("McpServer")
+            .field("name", &self.name)
+            .field("has_authorization_token", &self.has_authorization_token())
+            .finish()
+    }
+}
+
+impl McpServer {
+    pub fn new(
+        name: impl Into<String>,
+        url: impl Into<String>,
+    ) -> Result<Self, MessagesCodecError> {
+        let value = Self {
+            name: name.into(),
+            url: url.into(),
+            authorization_token: None,
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub fn with_authorization_token(mut self, token: McpAuthorizationToken) -> Self {
+        self.authorization_token = Some(token);
+        self
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    pub const fn has_authorization_token(&self) -> bool {
+        self.authorization_token.is_some()
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
+        validate_printable_string(
+            &self.name,
+            "mcp_servers[].name",
+            MAX_MCP_SERVER_NAME_BYTES,
+            "must be a non-empty printable value of at most 128 bytes",
+        )?;
+        validate_printable_string(
+            &self.url,
+            "mcp_servers[].url",
+            MAX_MCP_SERVER_URL_BYTES,
+            "must be a non-empty printable value of at most 2048 bytes",
+        )?;
+        let parsed = Url::parse(&self.url).map_err(|_| MessagesCodecError::InvalidOption {
+            field: "mcp_servers[].url",
+            reason: "must be an absolute HTTPS URL",
+        })?;
+        if parsed.scheme() != "https" || parsed.host_str().is_none() {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "mcp_servers[].url",
+                reason: "must be an absolute HTTPS URL with a host",
+            });
+        }
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "mcp_servers[].url",
+                reason: "must not contain user information",
+            });
+        }
+        if parsed.fragment().is_some() {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "mcp_servers[].url",
+                reason: "must not contain a fragment",
+            });
+        }
+        if let Some(token) = &self.authorization_token {
+            token.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct McpServerWire {
+    #[serde(rename = "type")]
+    kind: String,
+    name: String,
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    authorization_token: Option<String>,
+}
+
+impl Serialize for McpServer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        McpServerWire {
+            kind: "url".to_string(),
+            name: self.name.clone(),
+            url: self.url.clone(),
+            authorization_token: self
+                .authorization_token
+                .as_ref()
+                .map(|value| value.expose_secret().to_string()),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for McpServer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = McpServerWire::deserialize(deserializer)?;
+        if wire.kind != "url" {
+            return Err(D::Error::custom("MCP server type must be url"));
+        }
+        let mut server = Self::new(wire.name, wire.url).map_err(D::Error::custom)?;
+        if let Some(token) = wire.authorization_token {
+            server = server.with_authorization_token(
+                McpAuthorizationToken::new(token).map_err(D::Error::custom)?,
+            );
+        }
+        Ok(server)
     }
 }
 
@@ -1110,16 +2043,130 @@ impl MessagesMetadata {
     }
 }
 
-/// Protocol-owned shaping for one Anthropic Messages request.
+/// Protocol-owned shaping for one Anthropic token-count request.
+#[derive(Debug, Clone, Default)]
+pub struct MessagesTokenCountOptions {
+    pub(crate) cache_control: Option<CacheControl>,
+    pub(crate) thinking: Option<ThinkingConfig>,
+    pub(crate) output_effort: Option<OutputEffort>,
+    pub(crate) task_budget: Option<TokenTaskBudget>,
+    pub(crate) speed: Option<InferenceSpeed>,
+    pub(crate) context_management: Option<ContextManagement>,
+    pub(crate) mcp_servers: Option<Vec<McpServer>>,
+}
+
+impl MessagesTokenCountOptions {
+    pub const fn new() -> Self {
+        Self {
+            cache_control: None,
+            thinking: None,
+            output_effort: None,
+            task_budget: None,
+            speed: None,
+            context_management: None,
+            mcp_servers: None,
+        }
+    }
+
+    pub const fn cache_control(&self) -> Option<CacheControl> {
+        self.cache_control
+    }
+
+    pub const fn thinking(&self) -> Option<ThinkingConfig> {
+        self.thinking
+    }
+
+    pub const fn output_effort(&self) -> Option<OutputEffort> {
+        self.output_effort
+    }
+
+    pub const fn task_budget(&self) -> Option<TokenTaskBudget> {
+        self.task_budget
+    }
+
+    pub const fn speed(&self) -> Option<InferenceSpeed> {
+        self.speed
+    }
+
+    pub fn context_management(&self) -> Option<&ContextManagement> {
+        self.context_management.as_ref()
+    }
+
+    pub fn mcp_servers(&self) -> Option<&[McpServer]> {
+        self.mcp_servers.as_deref()
+    }
+
+    pub const fn with_cache_control(mut self, cache_control: CacheControl) -> Self {
+        self.cache_control = Some(cache_control);
+        self
+    }
+
+    pub const fn with_thinking(mut self, thinking: ThinkingConfig) -> Self {
+        self.thinking = Some(thinking);
+        self
+    }
+
+    pub const fn with_output_effort(mut self, output_effort: OutputEffort) -> Self {
+        self.output_effort = Some(output_effort);
+        self
+    }
+
+    pub const fn with_task_budget(mut self, task_budget: TokenTaskBudget) -> Self {
+        self.task_budget = Some(task_budget);
+        self
+    }
+
+    pub const fn with_speed(mut self, speed: InferenceSpeed) -> Self {
+        self.speed = Some(speed);
+        self
+    }
+
+    pub fn with_context_management(mut self, context_management: ContextManagement) -> Self {
+        self.context_management = Some(context_management);
+        self
+    }
+
+    pub fn with_mcp_servers(mut self, mcp_servers: Vec<McpServer>) -> Self {
+        self.mcp_servers = Some(mcp_servers);
+        self
+    }
+
+    pub fn validate(&self, request: &LanguageRequest) -> Result<(), MessagesCodecError> {
+        validate_thinking(self.thinking, None, "thinking")?;
+        if let Some(task_budget) = self.task_budget {
+            task_budget.validate()?;
+        }
+        if let Some(context_management) = &self.context_management {
+            context_management.validate()?;
+        }
+        validate_mcp_servers(self.mcp_servers.as_deref())?;
+        if request.tools.len() > MAX_TOOL_LIST {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "tools",
+                reason: "must contain at most 256 tools",
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Protocol-owned shaping for one Anthropic Messages create request.
 #[derive(Debug, Clone, Default)]
 pub struct MessagesRequestOptions {
     pub(crate) stream: bool,
     pub(crate) metadata: Option<MessagesMetadata>,
     pub(crate) thinking: Option<ThinkingConfig>,
     pub(crate) output_effort: Option<OutputEffort>,
+    pub(crate) task_budget: Option<TokenTaskBudget>,
     pub(crate) fallbacks: Option<ServerFallbacks>,
     pub(crate) top_k: Option<u64>,
-    pub(crate) service_tier: Option<MessagesServiceTier>,
+    pub(crate) service_tier: Option<MessagesServiceTierPreference>,
+    pub(crate) cache_control: Option<CacheControl>,
+    pub(crate) speed: Option<InferenceSpeed>,
+    pub(crate) inference_geo: Option<InferenceGeo>,
+    pub(crate) container: Option<MessagesContainer>,
+    pub(crate) context_management: Option<ContextManagement>,
+    pub(crate) mcp_servers: Option<Vec<McpServer>>,
     pub(crate) extra: BTreeMap<String, Value>,
 }
 
@@ -1147,6 +2194,10 @@ impl MessagesRequestOptions {
         self.output_effort
     }
 
+    pub const fn task_budget(&self) -> Option<TokenTaskBudget> {
+        self.task_budget
+    }
+
     pub fn fallbacks(&self) -> Option<&ServerFallbacks> {
         self.fallbacks.as_ref()
     }
@@ -1155,8 +2206,32 @@ impl MessagesRequestOptions {
         self.top_k
     }
 
-    pub const fn service_tier(&self) -> Option<MessagesServiceTier> {
+    pub const fn service_tier(&self) -> Option<MessagesServiceTierPreference> {
         self.service_tier
+    }
+
+    pub const fn cache_control(&self) -> Option<CacheControl> {
+        self.cache_control
+    }
+
+    pub const fn speed(&self) -> Option<InferenceSpeed> {
+        self.speed
+    }
+
+    pub const fn inference_geo(&self) -> Option<InferenceGeo> {
+        self.inference_geo
+    }
+
+    pub fn container(&self) -> Option<&MessagesContainer> {
+        self.container.as_ref()
+    }
+
+    pub fn context_management(&self) -> Option<&ContextManagement> {
+        self.context_management.as_ref()
+    }
+
+    pub fn mcp_servers(&self) -> Option<&[McpServer]> {
+        self.mcp_servers.as_deref()
     }
 
     pub fn extra(&self) -> &BTreeMap<String, Value> {
@@ -1178,6 +2253,11 @@ impl MessagesRequestOptions {
         self
     }
 
+    pub const fn with_task_budget(mut self, task_budget: TokenTaskBudget) -> Self {
+        self.task_budget = Some(task_budget);
+        self
+    }
+
     pub fn with_fallbacks(mut self, fallbacks: ServerFallbacks) -> Self {
         self.fallbacks = Some(fallbacks);
         self
@@ -1188,8 +2268,38 @@ impl MessagesRequestOptions {
         self
     }
 
-    pub const fn with_service_tier(mut self, service_tier: MessagesServiceTier) -> Self {
+    pub const fn with_service_tier(mut self, service_tier: MessagesServiceTierPreference) -> Self {
         self.service_tier = Some(service_tier);
+        self
+    }
+
+    pub const fn with_cache_control(mut self, cache_control: CacheControl) -> Self {
+        self.cache_control = Some(cache_control);
+        self
+    }
+
+    pub const fn with_speed(mut self, speed: InferenceSpeed) -> Self {
+        self.speed = Some(speed);
+        self
+    }
+
+    pub const fn with_inference_geo(mut self, inference_geo: InferenceGeo) -> Self {
+        self.inference_geo = Some(inference_geo);
+        self
+    }
+
+    pub fn with_container(mut self, container: MessagesContainer) -> Self {
+        self.container = Some(container);
+        self
+    }
+
+    pub fn with_context_management(mut self, context_management: ContextManagement) -> Self {
+        self.context_management = Some(context_management);
+        self
+    }
+
+    pub fn with_mcp_servers(mut self, mcp_servers: Vec<McpServer>) -> Self {
+        self.mcp_servers = Some(mcp_servers);
         self
     }
 
@@ -1202,6 +2312,38 @@ impl MessagesRequestOptions {
         if let Some(metadata) = &self.metadata {
             metadata.validate()?;
         }
+        if request.generation.max_output_tokens == Some(0) {
+            if self.stream {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "max_output_tokens",
+                    reason: "zero-token Messages requests cannot stream",
+                });
+            }
+            if matches!(
+                self.thinking,
+                Some(ThinkingConfig::Enabled { .. } | ThinkingConfig::Adaptive { .. })
+            ) {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "thinking",
+                    reason: "enabled or adaptive thinking requires a positive max_tokens value",
+                });
+            }
+            if request.structured_output.is_some() {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "structured_output",
+                    reason: "structured output requires a positive max_tokens value",
+                });
+            }
+            if matches!(
+                request.tool_choice.as_ref(),
+                Some(ToolChoice::Required | ToolChoice::Named { .. })
+            ) {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "tool_choice",
+                    reason: "required tool use requires a positive max_tokens value",
+                });
+            }
+        }
         validate_thinking(
             self.thinking,
             request.generation.max_output_tokens,
@@ -1210,6 +2352,16 @@ impl MessagesRequestOptions {
         if let Some(fallbacks) = &self.fallbacks {
             fallbacks.validate(request.generation.max_output_tokens)?;
         }
+        if let Some(task_budget) = self.task_budget {
+            task_budget.validate()?;
+        }
+        if let Some(container) = &self.container {
+            container.validate()?;
+        }
+        if let Some(context_management) = &self.context_management {
+            context_management.validate()?;
+        }
+        validate_mcp_servers(self.mcp_servers.as_deref())?;
         if self.top_k == Some(0) {
             return Err(MessagesCodecError::InvalidOption {
                 field: "top_k",
@@ -1224,6 +2376,22 @@ impl MessagesRequestOptions {
         }
         validate_extra(&self.extra)
     }
+}
+
+fn validate_mcp_servers(mcp_servers: Option<&[McpServer]>) -> Result<(), MessagesCodecError> {
+    let Some(mcp_servers) = mcp_servers else {
+        return Ok(());
+    };
+    if mcp_servers.is_empty() || mcp_servers.len() > MAX_MCP_SERVERS {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "mcp_servers",
+            reason: "must contain between one and 20 servers",
+        });
+    }
+    for server in mcp_servers {
+        server.validate()?;
+    }
+    Ok(())
 }
 
 fn validate_thinking(
@@ -1258,6 +2426,75 @@ fn validate_structured_output(output: &StructuredOutputSpec) -> Result<(), Messa
         return Err(MessagesCodecError::Unsupported {
             feature: "boolean structured-output schemas",
         });
+    }
+    Ok(())
+}
+
+fn validate_printable_string(
+    value: &str,
+    field: &'static str,
+    maximum_bytes: usize,
+    reason: &'static str,
+) -> Result<(), MessagesCodecError> {
+    if value.trim().is_empty() || value.len() > maximum_bytes || value.chars().any(char::is_control)
+    {
+        return Err(MessagesCodecError::InvalidOption { field, reason });
+    }
+    Ok(())
+}
+
+fn validate_container_id(value: &str) -> Result<(), MessagesCodecError> {
+    validate_printable_string(
+        value,
+        "container.id",
+        MAX_CONTAINER_ID_BYTES,
+        "must be a non-empty printable value of at most 256 bytes",
+    )
+}
+
+fn validate_positive_optional(
+    value: Option<u64>,
+    field: &'static str,
+) -> Result<(), MessagesCodecError> {
+    if value == Some(0) {
+        return Err(MessagesCodecError::InvalidOption {
+            field,
+            reason: "must be greater than zero",
+        });
+    }
+    Ok(())
+}
+
+fn validate_trigger(trigger: Option<ContextManagementTrigger>) -> Result<(), MessagesCodecError> {
+    if matches!(
+        trigger,
+        Some(ContextManagementTrigger::InputTokens(0) | ContextManagementTrigger::ToolUses(0))
+    ) {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "context_management.edits[].trigger.value",
+            reason: "must be greater than zero",
+        });
+    }
+    Ok(())
+}
+
+fn validate_context_tool_names(
+    names: &[String],
+    field: &'static str,
+) -> Result<(), MessagesCodecError> {
+    if names.len() > MAX_CONTEXT_TOOL_NAMES {
+        return Err(MessagesCodecError::InvalidOption {
+            field,
+            reason: "must contain at most 256 tool names",
+        });
+    }
+    for name in names {
+        validate_printable_string(
+            name,
+            field,
+            MAX_TOOL_NAME_BYTES,
+            "tool names must be non-empty printable values of at most 128 bytes",
+        )?;
     }
     Ok(())
 }

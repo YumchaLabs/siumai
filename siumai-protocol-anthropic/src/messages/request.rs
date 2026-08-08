@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use base64::Engine as _;
 use serde_json::{Map, Value, json};
 use siumai_core::{
@@ -10,8 +12,9 @@ use super::annotations::{
     MidConversationToolChange, MidConversationToolChangeKind, NoMessagesAnnotations,
 };
 use super::options::{
-    AnthropicTool, McpToolConfig, MessagesRequestOptions, ServerFallback, ServerFallbacks,
-    ThinkingConfig, UserLocation, normalize_field, validate_tool_node_options,
+    AnthropicTool, McpServer, McpToolConfig, MessagesContainer, MessagesRequestOptions,
+    MessagesTokenCountOptions, ServerFallback, ServerFallbacks, ThinkingConfig, TokenTaskBudget,
+    UserLocation, normalize_field, validate_tool_node_options,
 };
 use super::rules::{CacheControlWireStyle, MessagesEncodingRules, MidConversationSystemEncoding};
 use super::{MessagesCodecError, OPAQUE_CONTENT_BLOCK_KIND};
@@ -48,6 +51,7 @@ pub fn is_protected_option_field(name: &str) -> bool {
             | "thinking"
             | "output_config"
             | "output_format"
+            | "task_budget"
             | "fallbacks"
             | "fallback_credit_token"
             | "speed"
@@ -179,6 +183,183 @@ pub fn encode_request_for_scope_with_resolver_and_rules(
     encode_request_with_optional_scope(Some(scope), model, request, options, resolver, rules)
 }
 
+/// Encode one canonical language request for Anthropic's token-count operation.
+pub fn encode_count_tokens_request(
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesTokenCountOptions,
+) -> Result<Value, MessagesCodecError> {
+    encode_count_tokens_request_with_optional_scope(
+        None,
+        model,
+        request,
+        options,
+        &NoMessagesAnnotations,
+        &MessagesEncodingRules::native(),
+    )
+}
+
+/// Encode a token-count request with provider annotations and explicit dialect rules.
+pub fn encode_count_tokens_request_with_resolver_and_rules(
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesTokenCountOptions,
+    resolver: &dyn MessagesAnnotationResolver,
+    rules: &MessagesEncodingRules,
+) -> Result<Value, MessagesCodecError> {
+    encode_count_tokens_request_with_optional_scope(None, model, request, options, resolver, rules)
+}
+
+/// Encode a token-count request with exact replay scope, annotations, and dialect rules.
+pub fn encode_count_tokens_request_for_scope_with_resolver_and_rules(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesTokenCountOptions,
+    resolver: &dyn MessagesAnnotationResolver,
+    rules: &MessagesEncodingRules,
+) -> Result<Value, MessagesCodecError> {
+    encode_count_tokens_request_with_optional_scope(
+        Some(scope),
+        model,
+        request,
+        options,
+        resolver,
+        rules,
+    )
+}
+
+fn encode_count_tokens_request_with_optional_scope(
+    scope: Option<&ProviderScope>,
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesTokenCountOptions,
+    resolver: &dyn MessagesAnnotationResolver,
+    rules: &MessagesEncodingRules,
+) -> Result<Value, MessagesCodecError> {
+    request
+        .validate()
+        .map_err(MessagesCodecError::InvalidLanguageRequest)?;
+    validate_count_tokens_generation_fields(request)?;
+    options.validate(request)?;
+
+    let cache_style = rules.cache_control();
+    let (system, messages) = encode_prompt(
+        scope,
+        &request.messages,
+        resolver,
+        cache_style,
+        rules.video_input(),
+        rules.mid_conversation_system(),
+    )?;
+    if messages.is_empty() {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages",
+            reason: "must contain at least one user or assistant message",
+        });
+    }
+    let tools = encode_tools(&request.tools, resolver, cache_style)?;
+    validate_tool_change_references(&messages, &tools)?;
+    validate_mcp_and_skills_bindings(&tools, None, options.mcp_servers.as_deref())?;
+    if tools.is_empty()
+        && request
+            .tool_choice
+            .as_ref()
+            .is_some_and(|choice| !matches!(choice, ToolChoice::None))
+    {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "tool_choice",
+            reason: "requires at least one model-visible tool",
+        });
+    }
+    validate_cache_breakpoints(
+        &tools,
+        &system,
+        &messages,
+        options.cache_control,
+        cache_style,
+    )?;
+
+    let mut body = Map::new();
+    body.insert("model".to_string(), Value::String(model.to_string()));
+    body.insert("messages".to_string(), Value::Array(messages));
+    if !system.is_empty() {
+        body.insert("system".to_string(), Value::Array(system));
+    }
+    if !tools.is_empty() {
+        body.insert("tools".to_string(), Value::Array(tools));
+    }
+    if let Some(tool_choice) = &request.tool_choice {
+        body.insert("tool_choice".to_string(), encode_tool_choice(tool_choice)?);
+    }
+    if let Some(output_config) = encode_output_config(
+        options.output_effort,
+        request.structured_output.as_ref(),
+        options.task_budget,
+    )? {
+        body.insert("output_config".to_string(), output_config);
+    }
+    if let Some(cache_control) = options.cache_control {
+        body.insert(
+            "cache_control".to_string(),
+            encode_cache_control(cache_control, cache_style)?,
+        );
+    }
+    if let Some(thinking) = options.thinking {
+        body.insert("thinking".to_string(), encode_thinking(thinking));
+    }
+    if let Some(speed) = options.speed {
+        body.insert(
+            "speed".to_string(),
+            Value::String(speed.as_wire_str().to_string()),
+        );
+    }
+    if let Some(context_management) = &options.context_management {
+        body.insert(
+            "context_management".to_string(),
+            serde_json::to_value(context_management).map_err(MessagesCodecError::JsonEncode)?,
+        );
+    }
+    if let Some(mcp_servers) = &options.mcp_servers {
+        body.insert(
+            "mcp_servers".to_string(),
+            serde_json::to_value(mcp_servers).map_err(MessagesCodecError::JsonEncode)?,
+        );
+    }
+    Ok(Value::Object(body))
+}
+
+fn validate_count_tokens_generation_fields(
+    request: &LanguageRequest,
+) -> Result<(), MessagesCodecError> {
+    if request.generation.max_output_tokens.is_some() {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "max_output_tokens in token-count requests",
+        });
+    }
+    if request.generation.temperature.is_some() {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "temperature in token-count requests",
+        });
+    }
+    if request.generation.top_p.is_some() {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "top_p in token-count requests",
+        });
+    }
+    if !request.generation.stop_sequences.is_empty() {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "stop_sequences in token-count requests",
+        });
+    }
+    if request.generation.seed.is_some() {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "seed in token-count requests",
+        });
+    }
+    Ok(())
+}
+
 fn encode_request_with_optional_scope(
     scope: Option<&ProviderScope>,
     model: &ModelId,
@@ -203,12 +384,6 @@ fn encode_request_with_optional_scope(
                 field: "max_output_tokens",
                 reason: "is required by Anthropic Messages",
             })?;
-    if max_tokens == 0 {
-        return Err(MessagesCodecError::InvalidOption {
-            field: "max_output_tokens",
-            reason: "must be greater than zero",
-        });
-    }
     if request.generation.seed.is_some() {
         return Err(MessagesCodecError::Unsupported {
             feature: "deterministic seed control",
@@ -247,6 +422,11 @@ fn encode_request_with_optional_scope(
     }
     let tools = encode_tools(&request.tools, resolver, cache_style)?;
     validate_tool_change_references(&messages, &tools)?;
+    validate_mcp_and_skills_bindings(
+        &tools,
+        options.container.as_ref(),
+        options.mcp_servers.as_deref(),
+    )?;
     if tools.is_empty()
         && request
             .tool_choice
@@ -259,7 +439,13 @@ fn encode_request_with_optional_scope(
         });
     }
 
-    validate_cache_breakpoints(&tools, &system, &messages, cache_style)?;
+    validate_cache_breakpoints(
+        &tools,
+        &system,
+        &messages,
+        options.cache_control,
+        cache_style,
+    )?;
 
     let mut body = Map::new();
     body.insert("model".to_string(), Value::String(model.to_string()));
@@ -291,9 +477,11 @@ fn encode_request_with_optional_scope(
     if let Some(tool_choice) = &request.tool_choice {
         body.insert("tool_choice".to_string(), encode_tool_choice(tool_choice)?);
     }
-    if let Some(output_config) =
-        encode_output_config(options.output_effort, request.structured_output.as_ref())?
-    {
+    if let Some(output_config) = encode_output_config(
+        options.output_effort,
+        request.structured_output.as_ref(),
+        options.task_budget,
+    )? {
         body.insert("output_config".to_string(), output_config);
     }
     if let Some(metadata) = &options.metadata {
@@ -312,6 +500,39 @@ fn encode_request_with_optional_scope(
         body.insert(
             "service_tier".to_string(),
             Value::String(service_tier.as_wire_str().to_string()),
+        );
+    }
+    if let Some(cache_control) = options.cache_control {
+        body.insert(
+            "cache_control".to_string(),
+            encode_cache_control(cache_control, cache_style)?,
+        );
+    }
+    if let Some(speed) = options.speed {
+        body.insert(
+            "speed".to_string(),
+            Value::String(speed.as_wire_str().to_string()),
+        );
+    }
+    if let Some(inference_geo) = &options.inference_geo {
+        body.insert(
+            "inference_geo".to_string(),
+            Value::String(inference_geo.as_str().to_string()),
+        );
+    }
+    if let Some(container) = &options.container {
+        body.insert("container".to_string(), encode_container(container)?);
+    }
+    if let Some(context_management) = &options.context_management {
+        body.insert(
+            "context_management".to_string(),
+            serde_json::to_value(context_management).map_err(MessagesCodecError::JsonEncode)?,
+        );
+    }
+    if let Some(mcp_servers) = &options.mcp_servers {
+        body.insert(
+            "mcp_servers".to_string(),
+            serde_json::to_value(mcp_servers).map_err(MessagesCodecError::JsonEncode)?,
         );
     }
     body.extend(options.extra.clone());
@@ -884,6 +1105,64 @@ fn encode_tools(
         .collect()
 }
 
+fn validate_mcp_and_skills_bindings(
+    tools: &[Value],
+    container: Option<&MessagesContainer>,
+    mcp_servers: Option<&[McpServer]>,
+) -> Result<(), MessagesCodecError> {
+    let mut server_names = BTreeSet::new();
+    for server in mcp_servers.unwrap_or_default() {
+        if !server_names.insert(server.name()) {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "mcp_servers[].name",
+                reason: "must be unique within one request",
+            });
+        }
+    }
+
+    let mut toolsets = BTreeMap::<&str, usize>::new();
+    let mut has_code_execution = false;
+    for tool in tools {
+        let Some(kind) = tool.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        has_code_execution |= kind.starts_with("code_execution_");
+        if kind != "mcp_toolset" {
+            continue;
+        }
+        let server_name = tool.get("mcp_server_name").and_then(Value::as_str).ok_or(
+            MessagesCodecError::ProtocolViolation {
+                reason: "internal MCP toolset projection omitted its server name",
+            },
+        )?;
+        *toolsets.entry(server_name).or_default() += 1;
+    }
+
+    if toolsets.values().any(|count| *count != 1) {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "tools.mcp_toolset.mcp_server_name",
+            reason: "each MCP server must have exactly one MCP toolset",
+        });
+    }
+    if server_names.len() != toolsets.len()
+        || server_names
+            .iter()
+            .any(|server_name| !toolsets.contains_key(*server_name))
+    {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "mcp_servers",
+            reason: "servers and MCP toolsets must reference each other exactly once",
+        });
+    }
+    if container.is_some_and(MessagesContainer::has_skills) && !has_code_execution {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "container.skills",
+            reason: "requires an Anthropic code-execution tool",
+        });
+    }
+    Ok(())
+}
+
 fn encode_function_tool(
     tool: &ToolSpec,
     options: &super::ToolNodeOptions,
@@ -1186,6 +1465,7 @@ fn encode_thinking(thinking: ThinkingConfig) -> Value {
 fn encode_output_config(
     effort: Option<super::OutputEffort>,
     format: Option<&siumai_core::StructuredOutputSpec>,
+    task_budget: Option<TokenTaskBudget>,
 ) -> Result<Option<Value>, MessagesCodecError> {
     let mut encoded = Map::new();
     if let Some(effort) = effort {
@@ -1197,7 +1477,20 @@ fn encode_output_config(
     if let Some(format) = format {
         encoded.insert("format".to_string(), encode_structured_output(format)?);
     }
+    if let Some(task_budget) = task_budget {
+        let mut budget = Map::new();
+        budget.insert("type".to_string(), Value::String("tokens".to_string()));
+        budget.insert("total".to_string(), Value::from(task_budget.total()));
+        if let Some(remaining) = task_budget.remaining() {
+            budget.insert("remaining".to_string(), Value::from(remaining));
+        }
+        encoded.insert("task_budget".to_string(), Value::Object(budget));
+    }
     Ok((!encoded.is_empty()).then_some(Value::Object(encoded)))
+}
+
+fn encode_container(container: &MessagesContainer) -> Result<Value, MessagesCodecError> {
+    serde_json::to_value(container).map_err(MessagesCodecError::JsonEncode)
 }
 
 fn encode_structured_output(
@@ -1244,7 +1537,7 @@ fn encode_fallback(fallback: &ServerFallback) -> Result<Value, MessagesCodecErro
     }
     if let Some(output_config) = fallback.output_config()
         && let Some(output_config) =
-            encode_output_config(output_config.effort(), output_config.format())?
+            encode_output_config(output_config.effort(), output_config.format(), None)?
     {
         encoded.insert("output_config".to_string(), output_config);
     }
@@ -1330,6 +1623,7 @@ fn validate_cache_breakpoints(
     tools: &[Value],
     system: &[Value],
     messages: &[Value],
+    automatic_cache: Option<CacheControl>,
     cache_style: CacheControlWireStyle,
 ) -> Result<(), MessagesCodecError> {
     let mut ttls = Vec::new();
@@ -1342,6 +1636,19 @@ fn validate_cache_breakpoints(
             },
         )?;
         collect_cache_ttls(content.iter(), &mut ttls, cache_style)?;
+    }
+    if let Some(automatic_cache) = automatic_cache
+        && let Some(target) = last_cacheable_block(tools, system, messages)
+    {
+        let explicit_ttl = target
+            .get("cache_control")
+            .map(|value| decode_cache_ttl(value, cache_style))
+            .transpose()?;
+        match explicit_ttl {
+            Some(explicit_ttl) if explicit_ttl == automatic_cache.ttl() => {}
+            Some(_) => return Err(MessagesCodecError::ConflictingCacheAnnotation),
+            None => ttls.push(automatic_cache.ttl()),
+        }
     }
     if ttls.len() > MAX_CACHE_BREAKPOINTS {
         return Err(MessagesCodecError::TooManyCacheBreakpoints {
@@ -1362,6 +1669,48 @@ fn validate_cache_breakpoints(
     Ok(())
 }
 
+fn last_cacheable_block<'a>(
+    tools: &'a [Value],
+    system: &'a [Value],
+    messages: &'a [Value],
+) -> Option<&'a Value> {
+    for message in messages.iter().rev() {
+        let Some(content) = message.get("content").and_then(Value::as_array) else {
+            continue;
+        };
+        if let Some(block) = content
+            .iter()
+            .rev()
+            .find(|block| is_automatic_cache_target(block))
+        {
+            return Some(block);
+        }
+    }
+    system
+        .iter()
+        .rev()
+        .find(|block| is_automatic_cache_target(block))
+        .or_else(|| {
+            tools
+                .iter()
+                .rev()
+                .find(|block| is_automatic_cache_target(block))
+        })
+}
+
+fn is_automatic_cache_target(block: &Value) -> bool {
+    block.as_object().is_some()
+        && !block
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| {
+                matches!(
+                    kind,
+                    "thinking" | "redacted_thinking" | "tool_addition" | "tool_removal"
+                )
+            })
+}
+
 fn collect_cache_ttls<'a>(
     blocks: impl IntoIterator<Item = &'a Value>,
     ttls: &mut Vec<CacheTtl>,
@@ -1371,24 +1720,29 @@ fn collect_cache_ttls<'a>(
         let Some(cache_control) = block.get("cache_control") else {
             continue;
         };
-        let ttl = cache_control.get("ttl").and_then(Value::as_str);
-        ttls.push(match ttl {
-            Some("5m") => CacheTtl::FiveMinutes,
-            Some("1h") => CacheTtl::OneHour,
-            None if cache_style == CacheControlWireStyle::FiveMinutesImplicit => {
-                CacheTtl::FiveMinutes
-            }
-            None => {
-                return Err(MessagesCodecError::ProtocolViolation {
-                    reason: "cache-control block omitted its TTL",
-                });
-            }
-            _ => {
-                return Err(MessagesCodecError::ProtocolViolation {
-                    reason: "cache-control block used an unknown TTL",
-                });
-            }
-        });
+        ttls.push(decode_cache_ttl(cache_control, cache_style)?);
     }
     Ok(())
+}
+
+fn decode_cache_ttl(
+    cache_control: &Value,
+    cache_style: CacheControlWireStyle,
+) -> Result<CacheTtl, MessagesCodecError> {
+    let ttl = cache_control.get("ttl").and_then(Value::as_str);
+    Ok(match ttl {
+        Some("5m") => CacheTtl::FiveMinutes,
+        Some("1h") => CacheTtl::OneHour,
+        None if cache_style == CacheControlWireStyle::FiveMinutesImplicit => CacheTtl::FiveMinutes,
+        None => {
+            return Err(MessagesCodecError::ProtocolViolation {
+                reason: "cache-control block omitted its TTL",
+            });
+        }
+        _ => {
+            return Err(MessagesCodecError::ProtocolViolation {
+                reason: "cache-control block used an unknown TTL",
+            });
+        }
+    })
 }

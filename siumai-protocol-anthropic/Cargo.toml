@@ -20,8 +20,10 @@ doctest = false
 siumai-core = { workspace = true, default-features = false }
 serde.workspace = true
 serde_json.workspace = true
+secrecy.workspace = true
 thiserror.workspace = true
 base64.workspace = true
+url.workspace = true
 
 [features]
 default = []

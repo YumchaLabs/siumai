@@ -8,9 +8,13 @@ use siumai_core::{
     TypedProviderOptions,
 };
 use siumai_protocol_anthropic::messages::{
-    API_MODE_ID, MessagesMetadata, MessagesRequestOptions, OutputEffort, ServerFallbacks,
-    ThinkingConfig, ThinkingDisplay, is_protected_option_field,
+    API_MODE_ID, CacheControl, CacheTtl, ContextManagement, InferenceGeo, InferenceSpeed,
+    McpServer, MessagesContainer, MessagesMetadata, MessagesRequestOptions,
+    MessagesServiceTierPreference, MessagesTokenCountOptions, OutputEffort, ServerFallbacks,
+    ThinkingConfig, ThinkingDisplay, TokenTaskBudget, is_protected_option_field,
 };
+
+use crate::annotations::AnthropicCacheTtl;
 
 /// Anthropic extended-thinking policy for one Messages call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,9 +88,25 @@ pub struct AnthropicMessagesOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     output_effort: Option<OutputEffort>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    task_budget: Option<TokenTaskBudget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     fallbacks: Option<ServerFallbacks>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top_k: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<MessagesServiceTierPreference>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_control: Option<CacheControl>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    speed: Option<InferenceSpeed>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inference_geo: Option<InferenceGeo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    container: Option<MessagesContainer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_management: Option<ContextManagement>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mcp_servers: Option<Vec<McpServer>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     extra: BTreeMap<String, Value>,
 }
@@ -108,12 +128,50 @@ impl AnthropicMessagesOptions {
         self.output_effort
     }
 
+    pub const fn task_budget(&self) -> Option<TokenTaskBudget> {
+        self.task_budget
+    }
+
     pub fn fallbacks(&self) -> Option<&ServerFallbacks> {
         self.fallbacks.as_ref()
     }
 
     pub const fn top_k(&self) -> Option<u64> {
         self.top_k
+    }
+
+    pub const fn service_tier(&self) -> Option<MessagesServiceTierPreference> {
+        self.service_tier
+    }
+
+    pub const fn automatic_cache_ttl(&self) -> Option<AnthropicCacheTtl> {
+        match self.cache_control {
+            Some(cache_control) => match cache_control.ttl() {
+                CacheTtl::FiveMinutes => Some(AnthropicCacheTtl::FiveMinutes),
+                CacheTtl::OneHour => Some(AnthropicCacheTtl::OneHour),
+            },
+            None => None,
+        }
+    }
+
+    pub const fn speed(&self) -> Option<InferenceSpeed> {
+        self.speed
+    }
+
+    pub const fn inference_geo(&self) -> Option<InferenceGeo> {
+        self.inference_geo
+    }
+
+    pub fn container(&self) -> Option<&MessagesContainer> {
+        self.container.as_ref()
+    }
+
+    pub fn context_management(&self) -> Option<&ContextManagement> {
+        self.context_management.as_ref()
+    }
+
+    pub fn mcp_servers(&self) -> Option<&[McpServer]> {
+        self.mcp_servers.as_deref()
     }
 
     pub fn extra(&self) -> &BTreeMap<String, Value> {
@@ -150,6 +208,11 @@ impl AnthropicMessagesOptions {
         self
     }
 
+    pub const fn with_task_budget(mut self, task_budget: TokenTaskBudget) -> Self {
+        self.task_budget = Some(task_budget);
+        self
+    }
+
     pub fn with_fallbacks(mut self, fallbacks: ServerFallbacks) -> Self {
         self.fallbacks = Some(fallbacks);
         self
@@ -157,6 +220,50 @@ impl AnthropicMessagesOptions {
 
     pub const fn with_top_k(mut self, top_k: u64) -> Self {
         self.top_k = Some(top_k);
+        self
+    }
+
+    pub const fn with_service_tier(mut self, service_tier: MessagesServiceTierPreference) -> Self {
+        self.service_tier = Some(service_tier);
+        self
+    }
+
+    /// Enable request-level automatic prompt caching.
+    ///
+    /// Explicit cache annotations remain available on messages, content nodes,
+    /// and tools. Anthropic counts the automatic target against the same four-slot
+    /// breakpoint budget unless the final cacheable block already has the same TTL.
+    pub const fn with_automatic_cache(mut self, ttl: AnthropicCacheTtl) -> Self {
+        let ttl = match ttl {
+            AnthropicCacheTtl::FiveMinutes => CacheTtl::FiveMinutes,
+            AnthropicCacheTtl::OneHour => CacheTtl::OneHour,
+        };
+        self.cache_control = Some(CacheControl::new(ttl));
+        self
+    }
+
+    pub const fn with_speed(mut self, speed: InferenceSpeed) -> Self {
+        self.speed = Some(speed);
+        self
+    }
+
+    pub fn with_inference_geo(mut self, inference_geo: InferenceGeo) -> Self {
+        self.inference_geo = Some(inference_geo);
+        self
+    }
+
+    pub fn with_container(mut self, container: MessagesContainer) -> Self {
+        self.container = Some(container);
+        self
+    }
+
+    pub fn with_context_management(mut self, context_management: ContextManagement) -> Self {
+        self.context_management = Some(context_management);
+        self
+    }
+
+    pub fn with_mcp_servers(mut self, servers: impl IntoIterator<Item = McpServer>) -> Self {
+        self.mcp_servers = Some(servers.into_iter().collect());
         self
     }
 
@@ -192,11 +299,35 @@ impl AnthropicMessagesOptions {
         if let Some(effort) = self.output_effort {
             options = options.with_output_effort(effort);
         }
+        if let Some(task_budget) = self.task_budget {
+            options = options.with_task_budget(task_budget);
+        }
         if let Some(fallbacks) = &self.fallbacks {
             options = options.with_fallbacks(fallbacks.clone());
         }
         if let Some(top_k) = self.top_k {
             options = options.with_top_k(top_k);
+        }
+        if let Some(service_tier) = self.service_tier {
+            options = options.with_service_tier(service_tier);
+        }
+        if let Some(cache_control) = self.cache_control {
+            options = options.with_cache_control(cache_control);
+        }
+        if let Some(speed) = self.speed {
+            options = options.with_speed(speed);
+        }
+        if let Some(inference_geo) = self.inference_geo {
+            options = options.with_inference_geo(inference_geo);
+        }
+        if let Some(container) = &self.container {
+            options = options.with_container(container.clone());
+        }
+        if let Some(context_management) = &self.context_management {
+            options = options.with_context_management(context_management.clone());
+        }
+        if let Some(mcp_servers) = &self.mcp_servers {
+            options = options.with_mcp_servers(mcp_servers.clone());
         }
         options
     }
@@ -212,11 +343,180 @@ impl AnthropicMessagesOptions {
         if let Some(effort) = self.output_effort {
             options = options.with_output_effort(effort);
         }
+        if let Some(task_budget) = self.task_budget {
+            options = options.with_task_budget(task_budget);
+        }
         if let Some(fallbacks) = &self.fallbacks {
             options = options.with_fallbacks(fallbacks.clone());
         }
         if let Some(top_k) = self.top_k {
             options = options.with_top_k(top_k);
+        }
+        if let Some(service_tier) = self.service_tier {
+            options = options.with_service_tier(service_tier);
+        }
+        if let Some(cache_control) = self.cache_control {
+            options = options.with_cache_control(cache_control);
+        }
+        if let Some(speed) = self.speed {
+            options = options.with_speed(speed);
+        }
+        if let Some(inference_geo) = self.inference_geo {
+            options = options.with_inference_geo(inference_geo);
+        }
+        if let Some(container) = &self.container {
+            options = options.with_container(container.clone());
+        }
+        if let Some(context_management) = &self.context_management {
+            options = options.with_context_management(context_management.clone());
+        }
+        if let Some(mcp_servers) = &self.mcp_servers {
+            options = options.with_mcp_servers(mcp_servers.clone());
+        }
+        options
+    }
+}
+
+/// Typed options accepted by Anthropic's token-count operation.
+///
+/// Generation controls and Messages-create-only fields are intentionally absent.
+#[derive(Debug, Clone, Default)]
+pub struct AnthropicTokenCountOptions {
+    cache_control: Option<CacheControl>,
+    thinking: Option<AnthropicThinking>,
+    output_effort: Option<OutputEffort>,
+    task_budget: Option<TokenTaskBudget>,
+    speed: Option<InferenceSpeed>,
+    context_management: Option<ContextManagement>,
+    mcp_servers: Option<Vec<McpServer>>,
+}
+
+impl AnthropicTokenCountOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub const fn automatic_cache_ttl(&self) -> Option<AnthropicCacheTtl> {
+        match self.cache_control {
+            Some(cache_control) => match cache_control.ttl() {
+                CacheTtl::FiveMinutes => Some(AnthropicCacheTtl::FiveMinutes),
+                CacheTtl::OneHour => Some(AnthropicCacheTtl::OneHour),
+            },
+            None => None,
+        }
+    }
+
+    pub const fn thinking(&self) -> Option<AnthropicThinking> {
+        self.thinking
+    }
+
+    pub const fn output_effort(&self) -> Option<OutputEffort> {
+        self.output_effort
+    }
+
+    pub const fn task_budget(&self) -> Option<TokenTaskBudget> {
+        self.task_budget
+    }
+
+    pub const fn speed(&self) -> Option<InferenceSpeed> {
+        self.speed
+    }
+
+    pub fn context_management(&self) -> Option<&ContextManagement> {
+        self.context_management.as_ref()
+    }
+
+    pub fn mcp_servers(&self) -> Option<&[McpServer]> {
+        self.mcp_servers.as_deref()
+    }
+
+    pub const fn with_automatic_cache(mut self, ttl: AnthropicCacheTtl) -> Self {
+        let ttl = match ttl {
+            AnthropicCacheTtl::FiveMinutes => CacheTtl::FiveMinutes,
+            AnthropicCacheTtl::OneHour => CacheTtl::OneHour,
+        };
+        self.cache_control = Some(CacheControl::new(ttl));
+        self
+    }
+
+    pub const fn with_thinking(mut self, thinking: AnthropicThinking) -> Self {
+        self.thinking = Some(thinking);
+        self
+    }
+
+    pub const fn with_output_effort(mut self, output_effort: OutputEffort) -> Self {
+        self.output_effort = Some(output_effort);
+        self
+    }
+
+    pub const fn with_task_budget(mut self, task_budget: TokenTaskBudget) -> Self {
+        self.task_budget = Some(task_budget);
+        self
+    }
+
+    pub const fn with_speed(mut self, speed: InferenceSpeed) -> Self {
+        self.speed = Some(speed);
+        self
+    }
+
+    pub fn with_context_management(mut self, context_management: ContextManagement) -> Self {
+        self.context_management = Some(context_management);
+        self
+    }
+
+    pub fn with_mcp_servers(mut self, servers: impl IntoIterator<Item = McpServer>) -> Self {
+        self.mcp_servers = Some(servers.into_iter().collect());
+        self
+    }
+
+    pub(crate) fn to_protocol(&self) -> MessagesTokenCountOptions {
+        let mut options = MessagesTokenCountOptions::new();
+        if let Some(cache_control) = self.cache_control {
+            options = options.with_cache_control(cache_control);
+        }
+        if let Some(thinking) = self.thinking {
+            options = options.with_thinking(thinking.protocol());
+        }
+        if let Some(output_effort) = self.output_effort {
+            options = options.with_output_effort(output_effort);
+        }
+        if let Some(task_budget) = self.task_budget {
+            options = options.with_task_budget(task_budget);
+        }
+        if let Some(speed) = self.speed {
+            options = options.with_speed(speed);
+        }
+        if let Some(context_management) = &self.context_management {
+            options = options.with_context_management(context_management.clone());
+        }
+        if let Some(mcp_servers) = &self.mcp_servers {
+            options = options.with_mcp_servers(mcp_servers.clone());
+        }
+        options
+    }
+
+    pub(crate) fn to_engine(&self) -> MessagesCallOptions {
+        let mut options = MessagesCallOptions::new();
+        if let Some(cache_control) = self.cache_control {
+            options = options.with_cache_control(cache_control);
+        }
+        if let Some(thinking) = self.thinking {
+            options = options.with_thinking(thinking.protocol());
+        }
+        if let Some(output_effort) = self.output_effort {
+            options = options.with_output_effort(output_effort);
+        }
+        if let Some(task_budget) = self.task_budget {
+            options = options.with_task_budget(task_budget);
+        }
+        if let Some(speed) = self.speed {
+            options = options.with_speed(speed);
+        }
+        if let Some(context_management) = &self.context_management {
+            options = options.with_context_management(context_management.clone());
+        }
+        if let Some(mcp_servers) = &self.mcp_servers {
+            options = options.with_mcp_servers(mcp_servers.clone());
         }
         options
     }

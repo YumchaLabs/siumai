@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
 
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai_core::{
     LanguageRequest, Message, MessageRole, ProviderOptionError, ProviderOptionLayers,
     ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
 };
 use siumai_protocol_anthropic::messages::{
-    MessagesMetadata, MessagesRequestOptions, MessagesServiceTier, OutputEffort, ServerFallbacks,
-    ThinkingConfig, is_protected_option_field,
+    CacheControl, ContextManagement, InferenceGeo, InferenceSpeed, McpServer, MessagesContainer,
+    MessagesMetadata, MessagesRequestOptions, MessagesServiceTierPreference, OutputEffort,
+    ServerFallbacks, ThinkingConfig, TokenTaskBudget, is_protected_option_field,
 };
 
 /// Provider-independent Messages call shaping understood by the compatible engine.
@@ -21,9 +23,16 @@ pub struct MessagesCallOptions {
     metadata: Option<MessagesMetadata>,
     thinking: Option<ThinkingConfig>,
     output_effort: Option<OutputEffort>,
+    task_budget: Option<TokenTaskBudget>,
     fallbacks: Option<ServerFallbacks>,
     top_k: Option<u64>,
-    service_tier: Option<MessagesServiceTier>,
+    service_tier: Option<MessagesServiceTierPreference>,
+    cache_control: Option<CacheControl>,
+    speed: Option<InferenceSpeed>,
+    inference_geo: Option<InferenceGeo>,
+    container: Option<MessagesContainer>,
+    context_management: Option<ContextManagement>,
+    mcp_servers: Option<Vec<McpServer>>,
     extra: BTreeMap<String, Value>,
 }
 
@@ -44,6 +53,10 @@ impl MessagesCallOptions {
         self.output_effort
     }
 
+    pub const fn task_budget(&self) -> Option<TokenTaskBudget> {
+        self.task_budget
+    }
+
     pub fn fallbacks(&self) -> Option<&ServerFallbacks> {
         self.fallbacks.as_ref()
     }
@@ -52,8 +65,32 @@ impl MessagesCallOptions {
         self.top_k
     }
 
-    pub const fn service_tier(&self) -> Option<MessagesServiceTier> {
+    pub const fn service_tier(&self) -> Option<MessagesServiceTierPreference> {
         self.service_tier
+    }
+
+    pub const fn cache_control(&self) -> Option<CacheControl> {
+        self.cache_control
+    }
+
+    pub const fn speed(&self) -> Option<InferenceSpeed> {
+        self.speed
+    }
+
+    pub const fn inference_geo(&self) -> Option<InferenceGeo> {
+        self.inference_geo
+    }
+
+    pub fn container(&self) -> Option<&MessagesContainer> {
+        self.container.as_ref()
+    }
+
+    pub fn context_management(&self) -> Option<&ContextManagement> {
+        self.context_management.as_ref()
+    }
+
+    pub fn mcp_servers(&self) -> Option<&[McpServer]> {
+        self.mcp_servers.as_deref()
     }
 
     pub fn extra(&self) -> &BTreeMap<String, Value> {
@@ -75,6 +112,11 @@ impl MessagesCallOptions {
         self
     }
 
+    pub const fn with_task_budget(mut self, task_budget: TokenTaskBudget) -> Self {
+        self.task_budget = Some(task_budget);
+        self
+    }
+
     pub fn with_fallbacks(mut self, fallbacks: ServerFallbacks) -> Self {
         self.fallbacks = Some(fallbacks);
         self
@@ -85,8 +127,38 @@ impl MessagesCallOptions {
         self
     }
 
-    pub const fn with_service_tier(mut self, service_tier: MessagesServiceTier) -> Self {
+    pub const fn with_service_tier(mut self, service_tier: MessagesServiceTierPreference) -> Self {
         self.service_tier = Some(service_tier);
+        self
+    }
+
+    pub const fn with_cache_control(mut self, cache_control: CacheControl) -> Self {
+        self.cache_control = Some(cache_control);
+        self
+    }
+
+    pub const fn with_speed(mut self, speed: InferenceSpeed) -> Self {
+        self.speed = Some(speed);
+        self
+    }
+
+    pub const fn with_inference_geo(mut self, inference_geo: InferenceGeo) -> Self {
+        self.inference_geo = Some(inference_geo);
+        self
+    }
+
+    pub fn with_container(mut self, container: MessagesContainer) -> Self {
+        self.container = Some(container);
+        self
+    }
+
+    pub fn with_context_management(mut self, context_management: ContextManagement) -> Self {
+        self.context_management = Some(context_management);
+        self
+    }
+
+    pub fn with_mcp_servers(mut self, mcp_servers: Vec<McpServer>) -> Self {
+        self.mcp_servers = Some(mcp_servers);
         self
     }
 
@@ -106,6 +178,9 @@ impl MessagesCallOptions {
         if let Some(effort) = self.output_effort {
             options = options.with_output_effort(effort);
         }
+        if let Some(task_budget) = self.task_budget {
+            options = options.with_task_budget(task_budget);
+        }
         if let Some(fallbacks) = self.fallbacks {
             options = options.with_fallbacks(fallbacks);
         }
@@ -114,6 +189,24 @@ impl MessagesCallOptions {
         }
         if let Some(service_tier) = self.service_tier {
             options = options.with_service_tier(service_tier);
+        }
+        if let Some(cache_control) = self.cache_control {
+            options = options.with_cache_control(cache_control);
+        }
+        if let Some(speed) = self.speed {
+            options = options.with_speed(speed);
+        }
+        if let Some(inference_geo) = self.inference_geo {
+            options = options.with_inference_geo(inference_geo);
+        }
+        if let Some(container) = self.container {
+            options = options.with_container(container);
+        }
+        if let Some(context_management) = self.context_management {
+            options = options.with_context_management(context_management);
+        }
+        if let Some(mcp_servers) = self.mcp_servers {
+            options = options.with_mcp_servers(mcp_servers);
         }
         options
     }
@@ -128,6 +221,9 @@ impl MessagesCallOptions {
         if let Some(output_effort) = patch.output_effort {
             self.output_effort = output_effort;
         }
+        if let Some(task_budget) = patch.task_budget {
+            self.task_budget = task_budget;
+        }
         if let Some(fallbacks) = patch.fallbacks {
             self.fallbacks = fallbacks;
         }
@@ -136,6 +232,24 @@ impl MessagesCallOptions {
         }
         if let Some(service_tier) = patch.service_tier {
             self.service_tier = service_tier;
+        }
+        if let Some(cache_control) = patch.cache_control {
+            self.cache_control = cache_control;
+        }
+        if let Some(speed) = patch.speed {
+            self.speed = speed;
+        }
+        if let Some(inference_geo) = patch.inference_geo {
+            self.inference_geo = inference_geo;
+        }
+        if let Some(container) = patch.container {
+            self.container = container;
+        }
+        if let Some(context_management) = patch.context_management {
+            self.context_management = context_management;
+        }
+        if let Some(mcp_servers) = patch.mcp_servers {
+            self.mcp_servers = mcp_servers;
         }
         self.extra.extend(patch.extra);
     }
@@ -190,9 +304,16 @@ struct OptionsPatch {
     metadata: Option<Option<MessagesMetadata>>,
     thinking: Option<Option<ThinkingConfig>>,
     output_effort: Option<Option<OutputEffort>>,
+    task_budget: Option<Option<TokenTaskBudget>>,
     fallbacks: Option<Option<ServerFallbacks>>,
     top_k: Option<Option<u64>>,
-    service_tier: Option<Option<MessagesServiceTier>>,
+    service_tier: Option<Option<MessagesServiceTierPreference>>,
+    cache_control: Option<Option<CacheControl>>,
+    speed: Option<Option<InferenceSpeed>>,
+    inference_geo: Option<Option<InferenceGeo>>,
+    container: Option<Option<MessagesContainer>>,
+    context_management: Option<Option<ContextManagement>>,
+    mcp_servers: Option<Option<Vec<McpServer>>>,
     extra: BTreeMap<String, Value>,
 }
 
@@ -209,6 +330,10 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
             "outputeffort" | "effort" => {
                 patch.output_effort = Some(parse_output_effort(value)?);
             }
+            "taskbudget" => {
+                reject_raw_typed_field(options, name)?;
+                patch.task_budget = Some(parse_typed(value, "task_budget")?);
+            }
             "fallbacks" => {
                 patch.fallbacks = Some(parse_fallbacks(value)?);
             }
@@ -216,10 +341,32 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
                 patch.top_k = Some(parse_top_k(value)?);
             }
             "servicetier" => {
-                if options.is_raw() {
-                    return Err(ProviderOptionError::ProtectedField { path: name.clone() });
-                }
+                reject_raw_typed_field(options, name)?;
                 patch.service_tier = Some(parse_service_tier(value)?);
+            }
+            "cachecontrol" => {
+                reject_raw_typed_field(options, name)?;
+                patch.cache_control = Some(parse_typed(value, "cache_control")?);
+            }
+            "speed" => {
+                reject_raw_typed_field(options, name)?;
+                patch.speed = Some(parse_typed(value, "speed")?);
+            }
+            "inferencegeo" => {
+                reject_raw_typed_field(options, name)?;
+                patch.inference_geo = Some(parse_typed(value, "inference_geo")?);
+            }
+            "container" => {
+                reject_raw_typed_field(options, name)?;
+                patch.container = Some(parse_typed(value, "container")?);
+            }
+            "contextmanagement" => {
+                reject_raw_typed_field(options, name)?;
+                patch.context_management = Some(parse_typed(value, "context_management")?);
+            }
+            "mcpservers" => {
+                reject_raw_typed_field(options, name)?;
+                patch.mcp_servers = Some(parse_typed(value, "mcp_servers")?);
             }
             "extra" => {
                 let object = value.as_object().ok_or_else(|| {
@@ -302,18 +449,39 @@ fn parse_top_k(value: &Value) -> Result<Option<u64>, ProviderOptionError> {
         .ok_or_else(|| rejected("top_k", "must be a positive integer"))
 }
 
-fn parse_service_tier(value: &Value) -> Result<Option<MessagesServiceTier>, ProviderOptionError> {
+fn parse_service_tier(
+    value: &Value,
+) -> Result<Option<MessagesServiceTierPreference>, ProviderOptionError> {
     if value.is_null() {
         return Ok(None);
     }
-    serde_json::from_value::<MessagesServiceTier>(value.clone())
+    serde_json::from_value::<MessagesServiceTierPreference>(value.clone())
         .map(Some)
-        .map_err(|_| {
-            rejected(
-                "service_tier",
-                "must be standard, priority, auto, or standard_only",
-            )
-        })
+        .map_err(|_| rejected("service_tier", "must be auto or standard_only"))
+}
+
+fn parse_typed<T: DeserializeOwned>(
+    value: &Value,
+    field: &'static str,
+) -> Result<Option<T>, ProviderOptionError> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|_| rejected(field, "must use the canonical typed option shape"))
+}
+
+fn reject_raw_typed_field(
+    options: &ProviderOptions,
+    name: &str,
+) -> Result<(), ProviderOptionError> {
+    if options.is_raw() {
+        return Err(ProviderOptionError::ProtectedField {
+            path: name.to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_extra_field(name: &str, value: &Value, path: &str) -> Result<(), ProviderOptionError> {
@@ -367,7 +535,11 @@ fn is_engine_protected(name: &str) -> bool {
             | "stopsequence"
             | "stopsequences"
             | "outputconfig"
+            | "taskbudget"
             | "servicetier"
+            | "cachecontrol"
+            | "speed"
+            | "inferencegeo"
             | "container"
             | "contextmanagement"
             | "mcpservers"

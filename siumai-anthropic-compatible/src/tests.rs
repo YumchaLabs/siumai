@@ -12,12 +12,14 @@ use siumai_core::{
     MessageRole, Model, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
     ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
     ProviderId, ProviderOptions, ProviderProfile, ReplayDomain, ReplayDomainId, StreamTerminal,
-    SupportScope, SupportState, TypedProviderAnnotation, TypedProviderOptions, VerificationDate,
-    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    SupportScope, SupportState, ToolAnnotationTarget, ToolAnnotations, ToolSpec,
+    TypedProviderAnnotation, TypedProviderOptions, VerificationDate, VerificationEvidence,
+    VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_anthropic::messages::{
-    API_MODE_ID, CacheControl, CacheTtl, ContentNodeOptions, MessagesAnnotationResolver,
-    MessagesCodecError, PROTOCOL_ID,
+    API_MODE_ID, AnthropicTool, CacheControl, CacheTtl, ContentNodeOptions, InferenceGeo,
+    InferenceSpeed, McpToolsetOptions, MessagesAnnotationResolver, MessagesCodecError,
+    MessagesContainer, PROTOCOL_ID, TokenTaskBudget, ToolNodeOptions, anthropic_tool_anchor_schema,
 };
 use siumai_transport::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, OfficialOrigin,
@@ -29,7 +31,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use crate::{
     AnthropicCompatibleCredential, AnthropicCompatibleProfile, AnthropicCompatibleProvider,
     CacheControlWireStyle, MessagesCallOptions, MessagesEncodingRules, MessagesRequestProjection,
-    MessagesRequestProjectionContext, MessagesServiceTier, MidConversationSystemEncoding,
+    MessagesRequestProjectionContext, MessagesServiceTierPreference, MidConversationSystemEncoding,
     NativeMessagesRequestProjection, ProjectedMessagesRequest, TemperatureEncodingRule,
 };
 
@@ -409,10 +411,27 @@ struct TestTypedOptions {
 
 #[derive(Serialize)]
 struct TestServiceTierOptions {
-    service_tier: Option<MessagesServiceTier>,
+    service_tier: Option<MessagesServiceTierPreference>,
+}
+
+#[derive(Serialize)]
+struct TestCurrentRequestOptions {
+    cache_control: CacheControl,
+    speed: InferenceSpeed,
+    inference_geo: InferenceGeo,
+    task_budget: TokenTaskBudget,
+    container: MessagesContainer,
+    context_management: serde_json::Value,
+    mcp_servers: serde_json::Value,
 }
 
 impl TypedProviderOptions for TestServiceTierOptions {
+    const NAMESPACE: &'static str = PROVIDER_ID;
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some(API_MODE_ID);
+}
+
+impl TypedProviderOptions for TestCurrentRequestOptions {
     const NAMESPACE: &'static str = PROVIDER_ID;
     const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
     const API_MODE: Option<&'static str> = Some(API_MODE_ID);
@@ -477,7 +496,7 @@ async fn typed_and_checked_raw_layers_merge_into_messages_request_options() {
 }
 
 #[tokio::test]
-async fn typed_service_tier_uses_normal_precedence_and_raw_override_remains_protected() {
+async fn typed_service_tier_preference_uses_precedence_and_raw_remains_protected() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
@@ -489,7 +508,7 @@ async fn typed_service_tier_uses_normal_precedence_and_raw_override_remains_prot
                 "content": [{"type": "text", "text": "tier"}]
             }],
             "stream": false,
-            "service_tier": "priority"
+            "service_tier": "standard_only"
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(response(
             "tier-model",
@@ -504,12 +523,12 @@ async fn typed_service_tier_uses_normal_precedence_and_raw_override_remains_prot
         AnthropicCompatibleCredential::unauthenticated(),
     )
     .with_default_options(
-        MessagesCallOptions::new().with_service_tier(MessagesServiceTier::Standard),
+        MessagesCallOptions::new().with_service_tier(MessagesServiceTierPreference::Auto),
     )
     .build()
     .unwrap();
     let typed = ProviderOptions::typed(&TestServiceTierOptions {
-        service_tier: Some(MessagesServiceTier::Priority),
+        service_tier: Some(MessagesServiceTierPreference::StandardOnly),
     })
     .unwrap();
     provider
@@ -538,6 +557,97 @@ async fn typed_service_tier_uses_normal_precedence_and_raw_override_remains_prot
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn current_typed_request_controls_survive_the_compatible_merge() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "current-options-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "current options"}]
+            }],
+            "stream": false,
+            "output_config": {
+                "task_budget": {"type": "tokens", "total": 20000}
+            },
+            "cache_control": {"type": "ephemeral", "ttl": "5m"},
+            "speed": "fast",
+            "inference_geo": "us",
+            "container": "container-1",
+            "context_management": {
+                "edits": [{
+                    "type": "compact_20260112",
+                    "trigger": {"type": "input_tokens", "value": 100000}
+                }]
+            },
+            "mcp_servers": [{
+                "type": "url",
+                "name": "docs",
+                "url": "https://mcp.example.test",
+                "authorization_token": "sentinel-secret"
+            }],
+            "tools": [{
+                "type": "mcp_toolset",
+                "mcp_server_name": "docs"
+            }]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "current-options-model",
+            "msg_current_options",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server).with_annotation_resolver(Arc::new(TestAnnotationResolver)),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let typed = ProviderOptions::typed(&TestCurrentRequestOptions {
+        cache_control: CacheControl::new(CacheTtl::FiveMinutes),
+        speed: InferenceSpeed::Fast,
+        inference_geo: InferenceGeo::Us,
+        task_budget: TokenTaskBudget::new(20_000).unwrap(),
+        container: MessagesContainer::existing("container-1").unwrap(),
+        context_management: json!({
+            "edits": [{
+                "type": "compact_20260112",
+                "trigger": {"type": "input_tokens", "value": 100000}
+            }]
+        }),
+        mcp_servers: json!([{
+            "type": "url",
+            "name": "docs",
+            "url": "https://mcp.example.test",
+            "authorization_token": "sentinel-secret"
+        }]),
+    })
+    .unwrap();
+    assert!(!format!("{typed:?}").contains("sentinel-secret"));
+
+    let mut current_request = request("current options", 64);
+    current_request.tools.push(
+        ToolSpec::new("docs", None, anthropic_tool_anchor_schema())
+            .unwrap()
+            .with_provider_annotation(&TestMcpToolsetAnnotation { enabled: true })
+            .unwrap(),
+    );
+    provider
+        .language("current-options-model")
+        .unwrap()
+        .generate(
+            current_request,
+            CallOptions::default().with_provider_options(typed),
+        )
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -578,8 +688,21 @@ struct TestCacheAnnotation {
     enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TestMcpToolsetAnnotation {
+    enabled: bool,
+}
+
 impl TypedProviderAnnotation for TestCacheAnnotation {
     type Target = ContentAnnotationTarget;
+
+    const NAMESPACE: &'static str = PROVIDER_ID;
+    const API_MODE: Option<&'static str> = Some(API_MODE_ID);
+}
+
+impl TypedProviderAnnotation for TestMcpToolsetAnnotation {
+    type Target = ToolAnnotationTarget;
 
     const NAMESPACE: &'static str = PROVIDER_ID;
     const API_MODE: Option<&'static str> = Some(API_MODE_ID);
@@ -603,6 +726,25 @@ impl MessagesAnnotationResolver for TestAnnotationResolver {
                 .with_cache_control(CacheControl::new(CacheTtl::FiveMinutes))
         } else {
             ContentNodeOptions::default()
+        })
+    }
+
+    fn resolve_tool(
+        &self,
+        annotations: &ToolAnnotations,
+    ) -> Result<ToolNodeOptions, MessagesCodecError> {
+        let annotation = annotations
+            .decode::<TestMcpToolsetAnnotation>()
+            .map_err(|source| MessagesCodecError::InvalidAnnotation {
+                node: "tool",
+                source,
+            })?;
+        Ok(if annotation.is_some_and(|annotation| annotation.enabled) {
+            ToolNodeOptions::default().with_anthropic_tool(AnthropicTool::mcp_toolset(
+                McpToolsetOptions::new("docs").expect("MCP toolset"),
+            ))
+        } else {
+            ToolNodeOptions::default()
         })
     }
 }
