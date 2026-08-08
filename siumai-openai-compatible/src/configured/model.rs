@@ -13,7 +13,7 @@ use siumai_core::{
 };
 use siumai_protocol_openai::chat_completions::CHAT_COMPLETIONS_TARGET;
 use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
-use siumai_protocol_openai::responses_next::RESPONSES_TARGET;
+use siumai_protocol_openai::responses::RESPONSES_TARGET;
 use siumai_transport::framing::{SseDecoder, SseFrameError};
 use siumai_transport::{
     RequestBody, RequestHeaders, RequestPlan, RequestTarget, ResponseHeaders, TransportByteStream,

@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{CallOptions, Error, ErrorContext, ErrorKind, ModelId, Warning};
-use siumai_protocol_openai::responses_next::{ResponseWire, decode_response_resource};
+use siumai_protocol_openai::responses::{ResponseWire, decode_response_resource};
 use siumai_transport::{
     ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget, TransportResponse,
 };

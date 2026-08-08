@@ -32,6 +32,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 Add `registry` or `runtime` only when the application uses those layers.
 
+## OpenAI Responses module path
+
+The temporary `siumai_protocol_openai::responses_next` module was renamed to
+`siumai_protocol_openai::responses`. The old module is not retained as an alias. Update protocol
+imports directly; the `openai-responses` Cargo feature and all wire identifiers remain unchanged.
+
 ## MiniMax construction
 
 The compatibility-era `MinimaxConfig` and `MinimaxClient` path is replaced by one long-lived,

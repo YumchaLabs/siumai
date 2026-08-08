@@ -16,7 +16,7 @@ use siumai_core::{
     ReplayDomainId, SupportManifestError, VerificationDate, VerifiedFidelity,
     VerifiedNativeSupportClaim,
 };
-use siumai_protocol_openai::responses_next::FunctionToolEncodingOptions;
+use siumai_protocol_openai::responses::FunctionToolEncodingOptions;
 use siumai_transport::{
     EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, ReplaySafety, RetryPolicy,
     TransportConfigError, TransportLimits, TransportObserver,

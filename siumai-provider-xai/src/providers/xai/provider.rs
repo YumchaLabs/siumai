@@ -428,7 +428,7 @@ mod tests {
         assert_eq!(model.descriptor().model().as_str(), "future-grok-model");
         assert_eq!(
             model.descriptor().api_mode(),
-            Some(siumai_protocol_openai::responses_next::API_MODE_ID)
+            Some(siumai_protocol_openai::responses::API_MODE_ID)
         );
         let replay_domain = model
             .descriptor()

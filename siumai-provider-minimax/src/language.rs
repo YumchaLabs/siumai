@@ -28,7 +28,7 @@ use siumai_protocol_openai::chat_completions::{
     API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, DialectError, MaxOutputTokensField,
     PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
 };
-use siumai_protocol_openai::responses_next::{
+use siumai_protocol_openai::responses::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, RequestEncodingOptions,
     ResponsesMediaDialect, encode_request_with_options as encode_responses_request,
 };

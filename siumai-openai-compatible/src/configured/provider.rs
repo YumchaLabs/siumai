@@ -11,7 +11,7 @@ use siumai_core::{
     ProviderScope,
 };
 use siumai_protocol_openai::chat_completions::is_protected_option_field as is_chat_protected_field;
-use siumai_protocol_openai::responses_next::is_protected_option_field as is_responses_protected_field;
+use siumai_protocol_openai::responses::is_protected_option_field as is_responses_protected_field;
 use siumai_transport::{
     AuthApplier, EndpointError, ProviderTransport, ReplaySafety, RetryPolicy, TransportConfigError,
     TransportLimits,
@@ -566,7 +566,7 @@ mod tests {
     use siumai_protocol_openai::chat_completions::{
         API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID as CHAT_PROTOCOL_ID,
     };
-    use siumai_protocol_openai::responses_next::{
+    use siumai_protocol_openai::responses::{
         API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL,
     };
     use siumai_transport::{EndpointConfig, OfficialOrigin, RequestHeaders};

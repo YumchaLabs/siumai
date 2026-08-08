@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
 use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
-use siumai_protocol_openai::responses_next::API_MODE_ID as RESPONSES_API_MODE_ID;
+use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
 
 use crate::transcription::TRANSCRIPTION_API_MODE_ID;
 

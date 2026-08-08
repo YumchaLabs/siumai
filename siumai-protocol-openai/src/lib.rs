@@ -11,7 +11,7 @@ pub mod openai_error;
 
 /// Native Responses codec and lifecycle decoder.
 #[cfg(feature = "openai-responses")]
-pub mod responses_next;
+pub mod responses;
 
 /// Experimental Realtime and Realtime Translation wire codecs.
 #[cfg(feature = "openai-realtime")]

@@ -9,7 +9,7 @@ use siumai_core::{
     VerifiedSupportClaim,
 };
 use siumai_protocol_openai::chat_completions::PROTOCOL_ID as CHAT_COMPLETIONS_PROTOCOL;
-use siumai_protocol_openai::responses_next::OPENAI_RESPONSES_PROTOCOL;
+use siumai_protocol_openai::responses::OPENAI_RESPONSES_PROTOCOL;
 
 use super::catalog::{GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA};
 use super::mode::OpenAiApiMode;

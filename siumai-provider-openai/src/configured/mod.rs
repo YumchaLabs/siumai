@@ -67,7 +67,7 @@ pub mod responses {
         OpenAiResponsesOptions, OpenAiResponsesResource, OpenAiResponsesRetrieveOptions,
         OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller, OpenAiTruncation,
     };
-    pub use siumai_protocol_openai::responses_next::{
+    pub use siumai_protocol_openai::responses::{
         AnnotationWire, CustomToolCallItemWire, FunctionCallItemWire, IncompleteDetailsWire,
         InputTokenDetailsWire, ItemStatus, MessageItemWire, OutputContentPart, OutputItem,
         OutputRefusalWire, OutputTextWire, OutputTokenDetailsWire, ProgramItemWire,

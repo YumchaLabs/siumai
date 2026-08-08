@@ -662,7 +662,7 @@ sequenceDiagram
   - `siumai-server/src/event.rs`
   - `siumai-mcp/`
   - `siumai-protocol-openai/src/chat_completions/`
-  - `siumai-protocol-openai/src/responses_next/`
+  - `siumai-protocol-openai/src/responses/`
   - `siumai-protocol-anthropic/src/messages/`
   - every provider/compatibility codec, facade example, or test that constructs, destructures,
     serializes, or inspects `ToolCall` or `Message`
@@ -726,8 +726,8 @@ sequenceDiagram
   - `siumai-core/src/stream.rs`
   - `siumai-protocol-openai/src/chat_completions/wire.rs`
   - `siumai-protocol-openai/src/chat_completions/stream.rs`
-  - `siumai-protocol-openai/src/responses_next/stream.rs`
-  - `siumai-protocol-openai/src/responses_next/tests.rs`
+  - `siumai-protocol-openai/src/responses/stream.rs`
+  - `siumai-protocol-openai/src/responses/tests.rs`
   - `siumai-protocol-anthropic/src/messages/stream.rs`
   - `siumai-protocol-anthropic/src/messages/tests.rs`
   - `siumai-provider-openai/src/configured/model.rs`

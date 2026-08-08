@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
 use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
-use siumai_protocol_openai::responses_next::API_MODE_ID as RESPONSES_API_MODE_ID;
+use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
 
 /// One Chat Completions content block that should terminate an explicit prompt-cache prefix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

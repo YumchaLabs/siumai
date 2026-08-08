@@ -21,7 +21,7 @@ use siumai_protocol_openai::chat_completions::{
     encode_request_with_options as encode_chat_request_with_options,
 };
 use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
-use siumai_protocol_openai::responses_next::{
+use siumai_protocol_openai::responses::{
     PromptCacheBlock, RequestEncodingOptions, ResponsesStreamDecoder,
     decode_response as decode_responses_response, encode_request_with_options,
 };
@@ -172,9 +172,8 @@ impl OpenAiResponsesModel {
                 response_error(OpenAiApiMode::Responses, response),
             ));
         }
-        let resource =
-            siumai_protocol_openai::responses_next::decode_response_resource(response.body())
-                .map_err(|error| self.contextualize(operation, error))?;
+        let resource = siumai_protocol_openai::responses::decode_response_resource(response.body())
+            .map_err(|error| self.contextualize(operation, error))?;
         Ok(OpenAiBackgroundResponse::new(resource, warnings))
     }
 }
