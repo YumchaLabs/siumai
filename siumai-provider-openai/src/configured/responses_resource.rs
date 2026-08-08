@@ -19,6 +19,7 @@ use super::mode::OpenAiApiMode;
 use super::model::{request_build_error, response_error};
 use super::options::{OpenAiReasoning, OpenAiResponseInclude, OpenAiTruncation};
 use super::provider::OpenAiRuntime;
+use super::tools::OpenAiResponsesTool;
 
 const MAX_RESOURCE_ID_BYTES: usize = 512;
 
@@ -460,7 +461,7 @@ pub struct OpenAiResponsesInputTokenCountRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tools: Vec<Value>,
+    pub tools: Vec<OpenAiResponsesTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncation: Option<OpenAiTruncation>,
 }
@@ -520,7 +521,7 @@ impl OpenAiResponsesInputTokenCountRequest {
         self
     }
 
-    pub fn with_tool(mut self, tool: Value) -> Self {
+    pub fn with_tool(mut self, tool: OpenAiResponsesTool) -> Self {
         self.tools.push(tool);
         self
     }
@@ -591,10 +592,11 @@ impl OpenAiResponsesInputTokenCountRequest {
                 "Responses input-token count tool choice must be a string or JSON object",
             ));
         }
-        if self.tools.iter().any(|tool| !tool.is_object()) {
-            return Err(invalid_input(
-                "Responses input-token count tools must be JSON objects",
-            ));
+        for tool in &self.tools {
+            tool.validate().map_err(|source| {
+                invalid_input("Responses input-token count contains an invalid tool")
+                    .with_source(source)
+            })?;
         }
         Ok(())
     }
@@ -849,7 +851,7 @@ mod tests {
                     )
                     .with_tool_choice(json!("auto"))
                     .with_truncation(OpenAiTruncation::Disabled)
-                    .with_tool(json!({"type": "web_search"})),
+                    .with_tool(OpenAiResponsesTool::web_search()),
                 CallOptions::default(),
             )
             .await

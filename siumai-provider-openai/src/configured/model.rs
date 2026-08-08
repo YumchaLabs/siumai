@@ -1024,8 +1024,8 @@ mod tests {
     use crate::configured::{
         GPT_5_5, GPT_5_6_SOL, OpenAiChatCompletionsOptions, OpenAiCredential,
         OpenAiFunctionToolOptions, OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode,
-        OpenAiPromptCacheOptions, OpenAiPromptCacheRetention, OpenAiProvider, OpenAiProviderTool,
-        OpenAiReasoning, OpenAiReasoningEffort, OpenAiResponsesOptions, OpenAiTextVerbosity,
+        OpenAiPromptCacheOptions, OpenAiPromptCacheRetention, OpenAiProvider, OpenAiReasoning,
+        OpenAiReasoningEffort, OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiTextVerbosity,
     };
 
     fn provider() -> OpenAiProvider {
@@ -1100,9 +1100,9 @@ mod tests {
             top_logprobs: Some(5),
             reasoning: Some(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::None)),
             text_verbosity: Some(OpenAiTextVerbosity::High),
-            native_tools: vec![
-                OpenAiProviderTool::web_search(),
-                OpenAiProviderTool::programmatic_tool_calling(),
+            tools: vec![
+                OpenAiResponsesTool::web_search(),
+                OpenAiResponsesTool::programmatic_tool_calling(),
             ],
             ..OpenAiResponsesOptions::default()
         };
@@ -1328,7 +1328,7 @@ mod tests {
             .unwrap(),
         );
         let typed = OpenAiResponsesOptions::default()
-            .with_native_tool(OpenAiProviderTool::programmatic_tool_calling())
+            .with_tool(OpenAiResponsesTool::programmatic_tool_calling())
             .with_function_tool_options(
                 "get_inventory",
                 OpenAiFunctionToolOptions::programmatic()

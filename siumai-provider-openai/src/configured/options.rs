@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
 use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
 use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
 use siumai_protocol_openai::responses::{FunctionToolCaller, FunctionToolEncodingOptions};
+
+use super::tools::OpenAiResponsesTool;
 
 const MAX_TOP_LOGPROBS: u8 = 20;
 const MAX_PROMPT_CACHE_MARKERS: usize = 80;
@@ -161,52 +163,6 @@ impl OpenAiPromptCacheBreakpoint {
             message_index,
             content_index,
         }
-    }
-}
-
-/// A validated OpenAI-native Responses tool definition.
-///
-/// Portable function tools continue to use `LanguageRequest.tools`. This type is
-/// reserved for provider-executed or provider-native tools whose wire contract is
-/// intentionally OpenAI-specific, such as web search, file search, MCP, shell, or
-/// custom/programmatic tools. The object remains open so newly released tool types
-/// do not require a core-trait revision.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(transparent)]
-pub struct OpenAiProviderTool(Value);
-
-impl OpenAiProviderTool {
-    pub fn new(value: Value) -> Result<Self, ProviderOptionError> {
-        validate_provider_tool(&value)?;
-        Ok(Self(value))
-    }
-
-    /// Construct the default OpenAI web-search tool.
-    pub fn web_search() -> Self {
-        Self(json!({ "type": "web_search" }))
-    }
-
-    /// Enable OpenAI's provider-native programmatic tool-calling runtime.
-    pub fn programmatic_tool_calling() -> Self {
-        Self(json!({ "type": "programmatic_tool_calling" }))
-    }
-
-    pub fn as_value(&self) -> &Value {
-        &self.0
-    }
-
-    pub(crate) fn into_value(self) -> Value {
-        self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for OpenAiProviderTool {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = Value::deserialize(deserializer)?;
-        Self::new(value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -404,8 +360,8 @@ pub enum OpenAiTruncation {
 /// These are provider-owned options layered through [`siumai_core::CallOptions`].
 /// Model, input, portable function tools, output schema, streaming, and common
 /// generation fields remain owned by the canonical language request and cannot
-/// be overridden here. `native_tools` is the explicit provider-specific lane for
-/// OpenAI-executed tools that have no portable `ToolSpec` representation.
+/// be overridden here. `tools` is the explicit provider-specific lane for OpenAI
+/// Responses tools that have no portable `ToolSpec` representation.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenAiResponsesOptions {
@@ -452,7 +408,7 @@ pub struct OpenAiResponsesOptions {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_management: Vec<OpenAiContextManagement>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub native_tools: Vec<OpenAiProviderTool>,
+    pub tools: Vec<OpenAiResponsesTool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub function_tool_options: BTreeMap<String, OpenAiFunctionToolOptions>,
 }
@@ -487,8 +443,8 @@ impl OpenAiResponsesOptions {
         self
     }
 
-    pub fn with_native_tool(mut self, tool: OpenAiProviderTool) -> Self {
-        self.native_tools.push(tool);
+    pub fn with_tool(mut self, tool: OpenAiResponsesTool) -> Self {
+        self.tools.push(tool);
         self
     }
 
@@ -534,8 +490,8 @@ impl OpenAiResponsesOptions {
             &self.prompt_cache_history,
             &self.prompt_cache_write_candidates,
         )?;
-        for tool in &self.native_tools {
-            validate_provider_tool(tool.as_value())?;
+        for tool in &self.tools {
+            tool.validate()?;
         }
         for (name, options) in &self.function_tool_options {
             options.validate(name)?;
@@ -566,14 +522,14 @@ impl OpenAiResponsesOptions {
         value.remove("prompt_cache_history");
         value.remove("prompt_cache_write_candidates");
         let native_tools = value
-            .remove("native_tools")
-            .map(serde_json::from_value::<Vec<OpenAiProviderTool>>)
+            .remove("tools")
+            .map(serde_json::from_value::<Vec<OpenAiResponsesTool>>)
             .transpose()
             .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
             .unwrap_or_default()
             .into_iter()
-            .map(OpenAiProviderTool::into_value)
-            .collect();
+            .map(OpenAiResponsesTool::into_value)
+            .collect::<Result<Vec<_>, _>>()?;
         let function_tools = value
             .remove("function_tool_options")
             .map(serde_json::from_value::<BTreeMap<String, OpenAiFunctionToolOptions>>)
@@ -841,32 +797,6 @@ fn object_from<T: Serialize>(value: T) -> Result<Map<String, Value>, ProviderOpt
             namespace: "openai".to_string(),
         }),
     }
-}
-
-fn validate_provider_tool(value: &Value) -> Result<(), ProviderOptionError> {
-    let Some(object) = value.as_object() else {
-        return Err(rejected(
-            "native_tools",
-            "OpenAI-native tools must be JSON objects",
-        ));
-    };
-    let Some(kind) = object.get("type").and_then(Value::as_str) else {
-        return Err(rejected(
-            "native_tools.type",
-            "OpenAI-native tools require a string type",
-        ));
-    };
-    if kind.trim().is_empty()
-        || kind != kind.trim()
-        || kind.len() > 128
-        || kind.chars().any(char::is_control)
-    {
-        return Err(rejected(
-            "native_tools.type",
-            "OpenAI-native tool type must be non-empty, trimmed, and at most 128 bytes",
-        ));
-    }
-    Ok(())
 }
 
 fn validate_tool_name(name: &str) -> Result<(), ProviderOptionError> {

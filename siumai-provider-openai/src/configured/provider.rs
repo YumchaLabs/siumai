@@ -827,7 +827,7 @@ const RESPONSES_OPTION_FIELDS: &[&str] = &[
     "truncation",
     "user",
     "context_management",
-    "native_tools",
+    "tools",
     "function_tool_options",
 ];
 
@@ -920,7 +920,7 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
                     | "background"
                     | "prompt_cache_history"
                     | "prompt_cache_write_candidates"
-                    | "native_tools"
+                    | "tools"
                     | "function_tool_options"
             ),
             OptionMode::ChatCompletions => matches!(

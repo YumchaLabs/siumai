@@ -16,6 +16,7 @@ mod realtime;
 #[cfg(feature = "openai-realtime")]
 mod realtime_resource;
 mod responses_resource;
+mod tools;
 
 pub use catalog::{
     GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,
@@ -27,10 +28,10 @@ pub use model::{OpenAiChatCompletionsModel, OpenAiResponsesModel};
 pub use options::{
     OpenAiChatCompletionsOptions, OpenAiContextManagement, OpenAiFunctionToolOptions,
     OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-    OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiProviderTool, OpenAiReasoning,
-    OpenAiReasoningContext, OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary,
-    OpenAiResponseInclude, OpenAiResponsesOptions, OpenAiServiceTier, OpenAiTextVerbosity,
-    OpenAiToolCaller, OpenAiTruncation,
+    OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext,
+    OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
+    OpenAiResponsesOptions, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller,
+    OpenAiTruncation,
 };
 pub use profile::OpenAiProfile;
 pub use provider::{OpenAiConfigError, OpenAiProvider, OpenAiProviderBuilder};
@@ -56,20 +57,47 @@ pub use responses_resource::{
     OpenAiResponsesInputItemsPage, OpenAiResponsesInputTokenCount,
     OpenAiResponsesInputTokenCountRequest, OpenAiResponsesResource, OpenAiResponsesRetrieveOptions,
 };
+pub use tools::{
+    NeverApprovalFilter, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
+    OpenAiCodeInterpreterContainer, OpenAiCodeInterpreterTool, OpenAiContainerMemoryLimit,
+    OpenAiContainerNetworkPolicy, OpenAiCustomTool, OpenAiCustomToolFormat, OpenAiDomainSecret,
+    OpenAiFileSearchFilter, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
+    OpenAiGrammarSyntax, OpenAiImageBackground, OpenAiImageGenerationTool,
+    OpenAiImageInputFidelity, OpenAiImageInputMask, OpenAiImageModeration, OpenAiImageOutputFormat,
+    OpenAiImageQuality, OpenAiImageSize, OpenAiInlineSkillSource, OpenAiLocalShellSkill,
+    OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpTool, OpenAiRawTool, OpenAiResponsesTool,
+    OpenAiShellEnvironment, OpenAiShellSkill, OpenAiShellTool, OpenAiToolSearchExecution,
+    OpenAiToolSearchTool, OpenAiWebSearchContextSize, OpenAiWebSearchFilters,
+    OpenAiWebSearchReturnTokenBudget, OpenAiWebSearchTool,
+};
 
 /// Provider-faithful Responses models, options, resources, and native wire values.
 pub mod responses {
     pub use crate::configured::{
+        NeverApprovalFilter, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
+        OpenAiCodeInterpreterContainer, OpenAiCodeInterpreterTool, OpenAiContainerMemoryLimit,
+        OpenAiContainerNetworkPolicy, OpenAiCustomTool, OpenAiCustomToolFormat, OpenAiDomainSecret,
+        OpenAiFileSearchFilter, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
+        OpenAiGrammarSyntax, OpenAiImageBackground, OpenAiImageGenerationTool,
+        OpenAiImageInputFidelity, OpenAiImageInputMask, OpenAiImageModeration,
+        OpenAiImageOutputFormat, OpenAiImageQuality, OpenAiImageSize, OpenAiInlineSkillSource,
+        OpenAiLocalShellSkill, OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpTool,
+        OpenAiRawTool, OpenAiResponsesTool, OpenAiShellEnvironment, OpenAiShellSkill,
+        OpenAiShellTool, OpenAiToolSearchExecution, OpenAiToolSearchTool,
+        OpenAiWebSearchContextSize, OpenAiWebSearchFilters, OpenAiWebSearchReturnTokenBudget,
+        OpenAiWebSearchTool,
+    };
+    pub use crate::configured::{
         OpenAiBackgroundResponse, OpenAiDeletedResponse, OpenAiFunctionToolOptions,
         OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiProviderTool, OpenAiReasoning,
-        OpenAiReasoningContext, OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary,
-        OpenAiResponseInclude, OpenAiResponsesCompactRequest, OpenAiResponsesCompaction,
-        OpenAiResponsesInputItemsOptions, OpenAiResponsesInputItemsOrder,
-        OpenAiResponsesInputItemsPage, OpenAiResponsesInputTokenCount,
-        OpenAiResponsesInputTokenCountRequest, OpenAiResponsesModel, OpenAiResponsesOptions,
-        OpenAiResponsesResource, OpenAiResponsesRetrieveOptions, OpenAiServiceTier,
-        OpenAiTextVerbosity, OpenAiToolCaller, OpenAiTruncation,
+        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext,
+        OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
+        OpenAiResponsesCompactRequest, OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
+        OpenAiResponsesInputItemsOrder, OpenAiResponsesInputItemsPage,
+        OpenAiResponsesInputTokenCount, OpenAiResponsesInputTokenCountRequest,
+        OpenAiResponsesModel, OpenAiResponsesOptions, OpenAiResponsesResource,
+        OpenAiResponsesRetrieveOptions, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller,
+        OpenAiTruncation,
     };
     pub use siumai_protocol_openai::responses::{
         AnnotationWire, CustomToolCallItemWire, FunctionCallItemWire, IncompleteDetailsWire,

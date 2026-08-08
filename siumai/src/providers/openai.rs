@@ -20,16 +20,30 @@ pub mod chat_completions {
 
 pub mod responses {
     pub use siumai_provider_openai::configured::{
+        NeverApprovalFilter, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
+        OpenAiCodeInterpreterContainer, OpenAiCodeInterpreterTool, OpenAiContainerMemoryLimit,
+        OpenAiContainerNetworkPolicy, OpenAiCustomTool, OpenAiCustomToolFormat, OpenAiDomainSecret,
+        OpenAiFileSearchFilter, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
+        OpenAiGrammarSyntax, OpenAiImageBackground, OpenAiImageGenerationTool,
+        OpenAiImageInputFidelity, OpenAiImageInputMask, OpenAiImageModeration,
+        OpenAiImageOutputFormat, OpenAiImageQuality, OpenAiImageSize, OpenAiInlineSkillSource,
+        OpenAiLocalShellSkill, OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpTool,
+        OpenAiRawTool, OpenAiResponsesTool, OpenAiShellEnvironment, OpenAiShellSkill,
+        OpenAiShellTool, OpenAiToolSearchExecution, OpenAiToolSearchTool,
+        OpenAiWebSearchContextSize, OpenAiWebSearchFilters, OpenAiWebSearchReturnTokenBudget,
+        OpenAiWebSearchTool,
+    };
+    pub use siumai_provider_openai::configured::{
         OpenAiBackgroundResponse, OpenAiDeletedResponse, OpenAiFunctionToolOptions,
         OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiProviderTool, OpenAiReasoning,
-        OpenAiReasoningContext, OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary,
-        OpenAiResponseInclude, OpenAiResponsesCompactRequest, OpenAiResponsesCompaction,
-        OpenAiResponsesInputItemsOptions, OpenAiResponsesInputItemsOrder,
-        OpenAiResponsesInputItemsPage, OpenAiResponsesInputTokenCount,
-        OpenAiResponsesInputTokenCountRequest, OpenAiResponsesModel, OpenAiResponsesOptions,
-        OpenAiResponsesResource, OpenAiResponsesRetrieveOptions, OpenAiServiceTier,
-        OpenAiTextVerbosity, OpenAiToolCaller, OpenAiTruncation,
+        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext,
+        OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
+        OpenAiResponsesCompactRequest, OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
+        OpenAiResponsesInputItemsOrder, OpenAiResponsesInputItemsPage,
+        OpenAiResponsesInputTokenCount, OpenAiResponsesInputTokenCountRequest,
+        OpenAiResponsesModel, OpenAiResponsesOptions, OpenAiResponsesResource,
+        OpenAiResponsesRetrieveOptions, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller,
+        OpenAiTruncation,
     };
 }
 
