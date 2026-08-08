@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::de::Error as DeError;
-use serde::ser::Error as SerError;
+use serde::ser::{Error as SerError, SerializeMap};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::{Map, Value};
+use serde_json::{Map, Number, Value};
 use siumai_core::ProviderOptionError;
 
 pub(crate) const MAX_RAW_TOOL_BYTES: usize = 1024 * 1024;
@@ -20,6 +20,14 @@ const MAX_DOMAIN_COUNT: usize = 100;
 const MAX_TOOL_NAMES: usize = 256;
 const MAX_FILTER_DEPTH: usize = 16;
 const MAX_FILTER_NODES: usize = 256;
+
+/// OpenAI execution paths allowed to invoke a caller-owned tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAiToolCaller {
+    Direct,
+    Programmatic,
+}
 
 /// A provider-native OpenAI Responses tool.
 ///
@@ -35,9 +43,8 @@ pub enum OpenAiResponsesTool {
     Computer,
     Mcp(OpenAiMcpTool),
     ImageGeneration(OpenAiImageGenerationTool),
-    LocalShell,
     Shell(OpenAiShellTool),
-    ApplyPatch,
+    ApplyPatch(OpenAiApplyPatchTool),
     ToolSearch(OpenAiToolSearchTool),
     ProgrammaticToolCalling,
     Custom(OpenAiCustomTool),
@@ -60,9 +67,8 @@ impl fmt::Debug for OpenAiResponsesTool {
                 .debug_tuple("ImageGeneration")
                 .field(value)
                 .finish(),
-            Self::LocalShell => formatter.write_str("LocalShell"),
             Self::Shell(value) => formatter.debug_tuple("Shell").field(value).finish(),
-            Self::ApplyPatch => formatter.write_str("ApplyPatch"),
+            Self::ApplyPatch(value) => formatter.debug_tuple("ApplyPatch").field(value).finish(),
             Self::ToolSearch(value) => formatter.debug_tuple("ToolSearch").field(value).finish(),
             Self::ProgrammaticToolCalling => formatter.write_str("ProgrammaticToolCalling"),
             Self::Custom(value) => formatter.debug_tuple("Custom").field(value).finish(),
@@ -85,6 +91,11 @@ impl OpenAiResponsesTool {
     /// Construct the default code-interpreter tool.
     pub fn code_interpreter() -> Self {
         Self::CodeInterpreter(OpenAiCodeInterpreterTool::default())
+    }
+
+    /// Construct the default apply-patch tool.
+    pub fn apply_patch() -> Self {
+        Self::ApplyPatch(OpenAiApplyPatchTool::default())
     }
 
     /// Construct an MCP tool from a validated builder shape.
@@ -122,10 +133,8 @@ impl OpenAiResponsesTool {
             Self::WebSearch(value) => value.validate(),
             Self::FileSearch(value) => value.validate(),
             Self::CodeInterpreter(value) => value.validate(),
-            Self::Computer
-            | Self::LocalShell
-            | Self::ApplyPatch
-            | Self::ProgrammaticToolCalling => Ok(()),
+            Self::Computer | Self::ProgrammaticToolCalling => Ok(()),
+            Self::ApplyPatch(value) => value.validate(),
             Self::Mcp(value) => value.validate(),
             Self::ImageGeneration(value) => value.validate(),
             Self::Shell(value) => value.validate(),
@@ -182,6 +191,12 @@ impl From<OpenAiImageGenerationTool> for OpenAiResponsesTool {
     }
 }
 
+impl From<OpenAiApplyPatchTool> for OpenAiResponsesTool {
+    fn from(value: OpenAiApplyPatchTool) -> Self {
+        Self::ApplyPatch(value)
+    }
+}
+
 impl From<OpenAiShellTool> for OpenAiResponsesTool {
     fn from(value: OpenAiShellTool) -> Self {
         Self::Shell(value)
@@ -212,9 +227,8 @@ impl Serialize for OpenAiResponsesTool {
             Self::Computer => Ok(unit_tagged("computer")),
             Self::Mcp(tool) => tagged("mcp", tool),
             Self::ImageGeneration(tool) => tagged("image_generation", tool),
-            Self::LocalShell => Ok(unit_tagged("local_shell")),
             Self::Shell(tool) => tagged("shell", tool),
-            Self::ApplyPatch => Ok(unit_tagged("apply_patch")),
+            Self::ApplyPatch(tool) => tagged("apply_patch", tool),
             Self::ToolSearch(tool) => tagged("tool_search", tool),
             Self::ProgrammaticToolCalling => Ok(unit_tagged("programmatic_tool_calling")),
             Self::Custom(tool) => tagged("custom", tool),
@@ -245,15 +259,8 @@ impl<'de> Deserialize<'de> for OpenAiResponsesTool {
             }
             "mcp" => Self::Mcp(decode_tagged(value)?),
             "image_generation" => Self::ImageGeneration(decode_tagged(value)?),
-            "local_shell" => {
-                decode_unit::<D::Error>(&value)?;
-                Self::LocalShell
-            }
             "shell" => Self::Shell(decode_tagged(value)?),
-            "apply_patch" => {
-                decode_unit::<D::Error>(&value)?;
-                Self::ApplyPatch
-            }
+            "apply_patch" => Self::ApplyPatch(decode_tagged(value)?),
             "tool_search" => Self::ToolSearch(decode_tagged(value)?),
             "programmatic_tool_calling" => {
                 decode_unit::<D::Error>(&value)?;
@@ -365,6 +372,10 @@ pub struct OpenAiWebSearchTool {
     pub search_context_size: Option<OpenAiWebSearchContextSize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_token_budget: Option<OpenAiWebSearchReturnTokenBudget>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_content_types: Vec<OpenAiWebSearchContentType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_settings: Option<OpenAiWebSearchImageSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_location: Option<OpenAiApproximateLocation>,
 }
@@ -387,8 +398,43 @@ impl OpenAiWebSearchTool {
         if let Some(location) = &self.user_location {
             location.validate()?;
         }
+        let mut seen = std::collections::BTreeSet::new();
+        for content_type in &self.search_content_types {
+            if !seen.insert(*content_type) {
+                return Err(rejected(
+                    "tools.search_content_types",
+                    "search content types must be unique",
+                ));
+            }
+        }
+        if let Some(settings) = &self.image_settings
+            && settings.max_results == Some(0)
+        {
+            return Err(rejected(
+                "tools.image_settings.max_results",
+                "image search max_results must be greater than zero",
+            ));
+        }
         Ok(())
     }
+}
+
+/// Content kinds returned by web search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAiWebSearchContentType {
+    Text,
+    Image,
+}
+
+/// Image-result controls for web search.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenAiWebSearchImageSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_results: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<bool>,
 }
 
 /// Web-search context size.
@@ -430,7 +476,7 @@ impl OpenAiWebSearchFilters {
 #[serde(deny_unknown_fields)]
 pub struct OpenAiApproximateLocation {
     #[serde(default = "approximate_location_type")]
-    pub r#type: String,
+    r#type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub country: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -486,16 +532,61 @@ impl OpenAiApproximateLocation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum OpenAiFileSearchFilter {
-    Eq { key: String, value: Value },
-    Ne { key: String, value: Value },
-    Gt { key: String, value: Value },
-    Gte { key: String, value: Value },
-    Lt { key: String, value: Value },
-    Lte { key: String, value: Value },
-    In { key: String, value: Vec<String> },
-    Nin { key: String, value: Vec<String> },
-    And { filters: Vec<Self> },
-    Or { filters: Vec<Self> },
+    Eq {
+        key: String,
+        value: OpenAiFileSearchFilterScalar,
+    },
+    Ne {
+        key: String,
+        value: OpenAiFileSearchFilterScalar,
+    },
+    Gt {
+        key: String,
+        value: OpenAiFileSearchFilterScalar,
+    },
+    Gte {
+        key: String,
+        value: OpenAiFileSearchFilterScalar,
+    },
+    Lt {
+        key: String,
+        value: OpenAiFileSearchFilterScalar,
+    },
+    Lte {
+        key: String,
+        value: OpenAiFileSearchFilterScalar,
+    },
+    In {
+        key: String,
+        value: OpenAiFileSearchFilterList,
+    },
+    Nin {
+        key: String,
+        value: OpenAiFileSearchFilterList,
+    },
+    And {
+        filters: Vec<Self>,
+    },
+    Or {
+        filters: Vec<Self>,
+    },
+}
+
+/// Scalar accepted by a file-search comparison filter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OpenAiFileSearchFilterScalar {
+    String(String),
+    Number(Number),
+    Boolean(bool),
+}
+
+/// Homogeneous values accepted by an `in` or `nin` file-search filter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OpenAiFileSearchFilterList {
+    Strings(Vec<String>),
+    Numbers(Vec<Number>),
 }
 
 /// File-search ranking options.
@@ -506,6 +597,16 @@ pub struct OpenAiFileSearchRankingOptions {
     pub ranker: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score_threshold: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hybrid_search: Option<OpenAiFileSearchHybridSearch>,
+}
+
+/// Hybrid ranking weights for file search.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenAiFileSearchHybridSearch {
+    pub embedding_weight: f64,
+    pub text_weight: f64,
 }
 
 /// File-search hosted tool controls.
@@ -541,10 +642,13 @@ impl OpenAiFileSearchTool {
         for id in &self.vector_store_ids {
             validate_text("tools.vector_store_ids", id, MAX_ID_CHARS)?;
         }
-        if self.max_num_results == Some(0) {
+        if self
+            .max_num_results
+            .is_some_and(|value| !(1..=50).contains(&value))
+        {
             return Err(rejected(
                 "tools.max_num_results",
-                "file-search max_num_results must be greater than zero",
+                "file-search max_num_results must be between 1 and 50",
             ));
         }
         if let Some(ranking) = &self.ranking_options {
@@ -559,6 +663,18 @@ impl OpenAiFileSearchTool {
             }
             if let Some(ranker) = &ranking.ranker {
                 validate_text("tools.ranking_options.ranker", ranker, 256)?;
+            }
+            if let Some(hybrid) = ranking.hybrid_search
+                && (!hybrid.embedding_weight.is_finite()
+                    || !hybrid.text_weight.is_finite()
+                    || hybrid.embedding_weight < 0.0
+                    || hybrid.text_weight < 0.0
+                    || (hybrid.embedding_weight == 0.0 && hybrid.text_weight == 0.0))
+            {
+                return Err(rejected(
+                    "tools.ranking_options.hybrid_search",
+                    "hybrid search weights must be finite, non-negative, and not both zero",
+                ));
             }
         }
         if let Some(filter) = &self.filters {
@@ -581,7 +697,7 @@ pub enum OpenAiCodeInterpreterContainer {
 #[serde(deny_unknown_fields)]
 pub struct OpenAiCodeInterpreterAutoContainer {
     #[serde(rename = "type", default = "auto_container_type")]
-    pub r#type: String,
+    r#type: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub file_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -670,6 +786,8 @@ impl fmt::Debug for OpenAiDomainSecret {
 #[serde(deny_unknown_fields)]
 pub struct OpenAiCodeInterpreterTool {
     pub container: OpenAiCodeInterpreterContainer,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_callers: Vec<OpenAiToolCaller>,
 }
 
 impl Default for OpenAiCodeInterpreterTool {
@@ -678,6 +796,7 @@ impl Default for OpenAiCodeInterpreterTool {
             container: OpenAiCodeInterpreterContainer::Auto(
                 OpenAiCodeInterpreterAutoContainer::default(),
             ),
+            allowed_callers: Vec::new(),
         }
     }
 }
@@ -703,6 +822,7 @@ impl OpenAiCodeInterpreterTool {
                 }
             }
         }
+        validate_callers(&self.allowed_callers)?;
         Ok(())
     }
 }
@@ -711,6 +831,8 @@ impl OpenAiCodeInterpreterTool {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenAiImageGenerationTool {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<OpenAiImageAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<OpenAiImageBackground>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -750,14 +872,28 @@ impl OpenAiImageGenerationTool {
         if let Some(model) = &self.model {
             validate_text("tools.model", model, MAX_ID_CHARS)?;
         }
-        if let Some(mask) = &self.input_image_mask
-            && mask.file_id.is_none()
-            && mask.image_url.is_none()
-        {
-            return Err(rejected(
-                "tools.input_image_mask",
-                "image input_image_mask requires file_id or image_url",
-            ));
+        if let Some(mask) = &self.input_image_mask {
+            match (&mask.file_id, &mask.image_url) {
+                (Some(file_id), None) => {
+                    validate_text("tools.input_image_mask.file_id", file_id, MAX_ID_CHARS)?;
+                }
+                (None, Some(image_url)) => {
+                    validate_text(
+                        "tools.input_image_mask.image_url",
+                        image_url,
+                        MAX_RAW_TOOL_BYTES,
+                    )?;
+                }
+                _ => {
+                    return Err(rejected(
+                        "tools.input_image_mask",
+                        "image input_image_mask requires exactly one file_id or image_url",
+                    ));
+                }
+            }
+        }
+        if let Some(size) = &self.size {
+            OpenAiImageSize::new(size.as_str())?;
         }
         Ok(())
     }
@@ -772,6 +908,15 @@ pub enum OpenAiImageBackground {
     Transparent,
 }
 
+/// Image-generation operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAiImageAction {
+    Generate,
+    Edit,
+    Auto,
+}
+
 /// Image input fidelity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -781,7 +926,7 @@ pub enum OpenAiImageInputFidelity {
 }
 
 /// Image input mask.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenAiImageInputMask {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -790,11 +935,22 @@ pub struct OpenAiImageInputMask {
     pub image_url: Option<String>,
 }
 
+impl fmt::Debug for OpenAiImageInputMask {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiImageInputMask")
+            .field("file_id", &self.file_id)
+            .field("image_url", &self.image_url.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
+}
+
 /// Image moderation mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OpenAiImageModeration {
     Auto,
+    Low,
 }
 
 /// Image output format.
@@ -817,41 +973,172 @@ pub enum OpenAiImageQuality {
 }
 
 /// Image output size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OpenAiImageSize {
-    #[serde(rename = "auto")]
-    Auto,
-    #[serde(rename = "1024x1024")]
-    Square,
-    #[serde(rename = "1024x1536")]
-    Portrait,
-    #[serde(rename = "1536x1024")]
-    Landscape,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct OpenAiImageSize(String);
+
+impl OpenAiImageSize {
+    pub const AUTO: &str = "auto";
+    pub const SQUARE: &str = "1024x1024";
+    pub const PORTRAIT: &str = "1024x1536";
+    pub const LANDSCAPE: &str = "1536x1024";
+
+    pub fn new(value: impl Into<String>) -> Result<Self, ProviderOptionError> {
+        let value = value.into();
+        validate_text("tools.size", &value, 64)?;
+        if !value.eq_ignore_ascii_case(Self::AUTO) && !value.contains('x') {
+            return Err(rejected(
+                "tools.size",
+                "image size must be auto or a provider-supported dimension",
+            ));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn auto() -> Self {
+        Self(Self::AUTO.to_string())
+    }
+
+    pub fn square() -> Self {
+        Self(Self::SQUARE.to_string())
+    }
+
+    pub fn portrait() -> Self {
+        Self(Self::PORTRAIT.to_string())
+    }
+
+    pub fn landscape() -> Self {
+        Self(Self::LANDSCAPE.to_string())
+    }
+}
+
+/// MCP endpoint selected for one hosted MCP tool.
+#[derive(Clone, PartialEq)]
+pub enum OpenAiMcpEndpoint {
+    ServerUrl { server_url: String },
+    Connector { connector_id: String },
+    Tunnel { tunnel_id: String },
+}
+
+impl fmt::Debug for OpenAiMcpEndpoint {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ServerUrl { .. } => formatter.write_str("ServerUrl(<redacted>)"),
+            Self::Connector { .. } => formatter.write_str("Connector(<redacted>)"),
+            Self::Tunnel { .. } => formatter.write_str("Tunnel(<redacted>)"),
+        }
+    }
 }
 
 /// MCP server tool controls.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, PartialEq)]
 pub struct OpenAiMcpTool {
     pub server_label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: OpenAiMcpEndpoint,
     pub allowed_tools: Option<OpenAiMcpAllowedTools>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_callers: Vec<OpenAiToolCaller>,
     pub authorization: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub connector_id: Option<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub require_approval: Option<OpenAiMcpApproval>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub server_description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub server_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub defer_loading: Option<bool>,
+}
+
+impl Serialize for OpenAiMcpTool {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("server_label", &self.server_label)?;
+        match &self.endpoint {
+            OpenAiMcpEndpoint::ServerUrl { server_url } => {
+                map.serialize_entry("server_url", server_url)?;
+            }
+            OpenAiMcpEndpoint::Connector { connector_id } => {
+                map.serialize_entry("connector_id", connector_id)?;
+            }
+            OpenAiMcpEndpoint::Tunnel { tunnel_id } => {
+                map.serialize_entry("tunnel_id", tunnel_id)?;
+            }
+        }
+        if let Some(value) = &self.allowed_tools {
+            map.serialize_entry("allowed_tools", value)?;
+        }
+        if !self.allowed_callers.is_empty() {
+            map.serialize_entry("allowed_callers", &self.allowed_callers)?;
+        }
+        if let Some(value) = &self.authorization {
+            map.serialize_entry("authorization", value)?;
+        }
+        if !self.headers.is_empty() {
+            map.serialize_entry("headers", &self.headers)?;
+        }
+        if let Some(value) = &self.require_approval {
+            map.serialize_entry("require_approval", value)?;
+        }
+        if let Some(value) = &self.server_description {
+            map.serialize_entry("server_description", value)?;
+        }
+        if let Some(value) = self.defer_loading {
+            map.serialize_entry("defer_loading", &value)?;
+        }
+        map.end()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenAiMcpToolWire {
+    server_label: String,
+    allowed_tools: Option<OpenAiMcpAllowedTools>,
+    #[serde(default)]
+    allowed_callers: Vec<OpenAiToolCaller>,
+    authorization: Option<String>,
+    connector_id: Option<String>,
+    #[serde(default)]
+    headers: BTreeMap<String, String>,
+    require_approval: Option<OpenAiMcpApproval>,
+    server_description: Option<String>,
+    server_url: Option<String>,
+    tunnel_id: Option<String>,
+    defer_loading: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for OpenAiMcpTool {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = OpenAiMcpToolWire::deserialize(deserializer)?;
+        let endpoint = match (wire.server_url, wire.connector_id, wire.tunnel_id) {
+            (Some(server_url), None, None) => OpenAiMcpEndpoint::ServerUrl { server_url },
+            (None, Some(connector_id), None) => OpenAiMcpEndpoint::Connector { connector_id },
+            (None, None, Some(tunnel_id)) => OpenAiMcpEndpoint::Tunnel { tunnel_id },
+            _ => {
+                return Err(D::Error::custom(
+                    "MCP tools require exactly one server_url, connector_id, or tunnel_id",
+                ));
+            }
+        };
+        let value = Self {
+            server_label: wire.server_label,
+            endpoint,
+            allowed_tools: wire.allowed_tools,
+            allowed_callers: wire.allowed_callers,
+            authorization: wire.authorization,
+            headers: wire.headers,
+            require_approval: wire.require_approval,
+            server_description: wire.server_description,
+            defer_loading: wire.defer_loading,
+        };
+        value.validate().map_err(D::Error::custom)?;
+        Ok(value)
+    }
 }
 
 impl fmt::Debug for OpenAiMcpTool {
@@ -859,60 +1146,67 @@ impl fmt::Debug for OpenAiMcpTool {
         formatter
             .debug_struct("OpenAiMcpTool")
             .field("server_label", &self.server_label)
+            .field("endpoint", &self.endpoint)
             .field("allowed_tools", &self.allowed_tools)
+            .field("allowed_callers", &self.allowed_callers)
             .field(
                 "authorization",
                 &self.authorization.as_ref().map(|_| "<redacted>"),
             )
-            .field("connector_id", &self.connector_id)
             .field(
                 "headers",
                 &self.headers.keys().map(String::as_str).collect::<Vec<_>>(),
             )
             .field("require_approval", &self.require_approval)
-            .field("server_description", &self.server_description)
-            .field("server_url", &self.server_url)
-            .field("tunnel_id", &self.tunnel_id)
+            .field(
+                "server_description",
+                &self.server_description.as_ref().map(|_| "<present>"),
+            )
             .field("defer_loading", &self.defer_loading)
             .finish()
     }
 }
 
 impl OpenAiMcpTool {
-    pub fn new(server_label: impl Into<String>) -> Self {
+    pub fn new(server_label: impl Into<String>, endpoint: OpenAiMcpEndpoint) -> Self {
         Self {
             server_label: server_label.into(),
+            endpoint,
             allowed_tools: None,
+            allowed_callers: Vec::new(),
             authorization: None,
-            connector_id: None,
             headers: BTreeMap::new(),
             require_approval: None,
             server_description: None,
-            server_url: None,
-            tunnel_id: None,
             defer_loading: None,
         }
     }
 
-    pub fn with_server_url(mut self, server_url: impl Into<String>) -> Self {
-        self.server_url = Some(server_url.into());
-        self.connector_id = None;
-        self.tunnel_id = None;
-        self
+    pub fn server(server_label: impl Into<String>, server_url: impl Into<String>) -> Self {
+        Self::new(
+            server_label,
+            OpenAiMcpEndpoint::ServerUrl {
+                server_url: server_url.into(),
+            },
+        )
     }
 
-    pub fn with_connector(mut self, connector_id: impl Into<String>) -> Self {
-        self.connector_id = Some(connector_id.into());
-        self.server_url = None;
-        self.tunnel_id = None;
-        self
+    pub fn connector(server_label: impl Into<String>, connector_id: impl Into<String>) -> Self {
+        Self::new(
+            server_label,
+            OpenAiMcpEndpoint::Connector {
+                connector_id: connector_id.into(),
+            },
+        )
     }
 
-    pub fn with_tunnel(mut self, tunnel_id: impl Into<String>) -> Self {
-        self.tunnel_id = Some(tunnel_id.into());
-        self.server_url = None;
-        self.connector_id = None;
-        self
+    pub fn tunnel(server_label: impl Into<String>, tunnel_id: impl Into<String>) -> Self {
+        Self::new(
+            server_label,
+            OpenAiMcpEndpoint::Tunnel {
+                tunnel_id: tunnel_id.into(),
+            },
+        )
     }
 
     pub fn with_authorization(mut self, authorization: impl Into<String>) -> Self {
@@ -927,24 +1221,18 @@ impl OpenAiMcpTool {
 
     fn validate(&self) -> Result<(), ProviderOptionError> {
         validate_text("tools.server_label", &self.server_label, 256)?;
-        let connection_count = usize::from(self.server_url.is_some())
-            + usize::from(self.connector_id.is_some())
-            + usize::from(self.tunnel_id.is_some());
-        if connection_count != 1 {
-            return Err(rejected(
-                "tools.mcp",
-                "MCP tools require exactly one server_url, connector_id, or tunnel_id",
-            ));
+        match &self.endpoint {
+            OpenAiMcpEndpoint::ServerUrl { server_url } => {
+                validate_text("tools.server_url", server_url, 2048)?;
+            }
+            OpenAiMcpEndpoint::Connector { connector_id } => {
+                validate_text("tools.connector_id", connector_id, MAX_ID_CHARS)?;
+            }
+            OpenAiMcpEndpoint::Tunnel { tunnel_id } => {
+                validate_text("tools.tunnel_id", tunnel_id, MAX_ID_CHARS)?;
+            }
         }
-        if let Some(url) = &self.server_url {
-            validate_text("tools.server_url", url, 2048)?;
-        }
-        if let Some(id) = &self.connector_id {
-            validate_text("tools.connector_id", id, MAX_ID_CHARS)?;
-        }
-        if let Some(id) = &self.tunnel_id {
-            validate_text("tools.tunnel_id", id, MAX_ID_CHARS)?;
-        }
+        validate_callers(&self.allowed_callers)?;
         if let Some(description) = &self.server_description {
             validate_text("tools.server_description", description, MAX_TEXT_CHARS)?;
         }
@@ -1003,7 +1291,10 @@ impl OpenAiMcpAllowedTools {
 pub enum OpenAiMcpApproval {
     Always,
     Never,
-    NeverFilter { never: NeverApprovalFilter },
+    Filter {
+        always: Option<OpenAiMcpApprovalFilter>,
+        never: Option<OpenAiMcpApprovalFilter>,
+    },
 }
 
 impl Serialize for OpenAiMcpApproval {
@@ -1014,12 +1305,20 @@ impl Serialize for OpenAiMcpApproval {
         match self {
             Self::Always => serializer.serialize_str("always"),
             Self::Never => serializer.serialize_str("never"),
-            Self::NeverFilter { never } => {
+            Self::Filter { always, never } => {
                 let mut object = Map::new();
-                object.insert(
-                    "never".to_string(),
-                    serde_json::to_value(never).map_err(serde::ser::Error::custom)?,
-                );
+                if let Some(always) = always {
+                    object.insert(
+                        "always".to_string(),
+                        serde_json::to_value(always).map_err(serde::ser::Error::custom)?,
+                    );
+                }
+                if let Some(never) = never {
+                    object.insert(
+                        "never".to_string(),
+                        serde_json::to_value(never).map_err(serde::ser::Error::custom)?,
+                    );
+                }
                 Value::Object(object).serialize(serializer)
             }
         }
@@ -1035,33 +1334,51 @@ impl<'de> Deserialize<'de> for OpenAiMcpApproval {
         match value {
             Value::String(value) if value == "always" => Ok(Self::Always),
             Value::String(value) if value == "never" => Ok(Self::Never),
-            Value::Object(mut object) if object.len() == 1 => {
+            Value::Object(mut object)
+                if !object.is_empty()
+                    && object.keys().all(|key| key == "always" || key == "never") =>
+            {
+                let always = object
+                    .remove("always")
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(D::Error::custom)?;
                 let never = object
                     .remove("never")
-                    .ok_or_else(|| D::Error::custom("expected never approval filter"))?;
-                Ok(Self::NeverFilter {
-                    never: serde_json::from_value(never).map_err(D::Error::custom)?,
-                })
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(D::Error::custom)?;
+                Ok(Self::Filter { always, never })
             }
             _ => Err(D::Error::custom(
-                "MCP approval must be always, never, or a never filter",
+                "MCP approval must be always, never, or an always/never filter object",
             )),
         }
     }
 }
 
-/// Tool-name filter for the MCP `never` approval policy.
+/// Tool filter for an MCP approval policy branch.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct NeverApprovalFilter {
+pub struct OpenAiMcpApprovalFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_only: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_names: Vec<String>,
 }
 
 impl OpenAiMcpApproval {
     fn validate(&self) -> Result<(), ProviderOptionError> {
-        if let Self::NeverFilter { never } = self {
-            validate_tool_names(&never.tool_names)?;
+        if let Self::Filter { always, never } = self {
+            if always.is_none() && never.is_none() {
+                return Err(rejected(
+                    "tools.require_approval",
+                    "MCP approval filter requires always or never",
+                ));
+            }
+            for filter in [always.as_ref(), never.as_ref()].into_iter().flatten() {
+                validate_tool_names(&filter.tool_names)?;
+            }
         }
         Ok(())
     }
@@ -1088,14 +1405,46 @@ pub enum OpenAiToolSearchExecution {
 }
 
 impl OpenAiToolSearchTool {
+    pub fn server() -> Self {
+        Self {
+            execution: Some(OpenAiToolSearchExecution::Server),
+            description: None,
+            parameters: None,
+        }
+    }
+
+    pub fn client(description: impl Into<String>, parameters: Value) -> Self {
+        Self {
+            execution: Some(OpenAiToolSearchExecution::Client),
+            description: Some(description.into()),
+            parameters: Some(parameters),
+        }
+    }
+
     fn validate(&self) -> Result<(), ProviderOptionError> {
         if let Some(description) = &self.description {
             validate_text("tools.description", description, MAX_TEXT_CHARS)?;
         }
-        if self
-            .parameters
-            .as_ref()
-            .is_some_and(|value| !value.is_object())
+        match self.execution {
+            Some(OpenAiToolSearchExecution::Client) => {
+                if self.description.is_none() || self.parameters.is_none() {
+                    return Err(rejected(
+                        "tools.tool_search",
+                        "client tool search requires description and parameters",
+                    ));
+                }
+            }
+            Some(OpenAiToolSearchExecution::Server) | None => {
+                if self.description.is_some() || self.parameters.is_some() {
+                    return Err(rejected(
+                        "tools.tool_search",
+                        "description and parameters are only valid for client tool search",
+                    ));
+                }
+            }
+        }
+        if let Some(parameters) = &self.parameters
+            && !parameters.is_object()
         {
             return Err(rejected(
                 "tools.parameters",
@@ -1115,6 +1464,10 @@ pub struct OpenAiCustomTool {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<OpenAiCustomToolFormat>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_callers: Vec<OpenAiToolCaller>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
 }
 
 impl OpenAiCustomTool {
@@ -1123,6 +1476,8 @@ impl OpenAiCustomTool {
             name: name.into(),
             description: None,
             format: None,
+            allowed_callers: Vec::new(),
+            defer_loading: None,
         }
     }
 
@@ -1134,6 +1489,7 @@ impl OpenAiCustomTool {
         if let Some(OpenAiCustomToolFormat::Grammar { definition, .. }) = &self.format {
             validate_text("tools.format.definition", definition, MAX_TEXT_CHARS)?;
         }
+        validate_callers(&self.allowed_callers)?;
         Ok(())
     }
 }
@@ -1163,6 +1519,8 @@ pub enum OpenAiGrammarSyntax {
 pub struct OpenAiShellTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<OpenAiShellEnvironment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_callers: Vec<OpenAiToolCaller>,
 }
 
 impl fmt::Debug for OpenAiShellTool {
@@ -1170,6 +1528,7 @@ impl fmt::Debug for OpenAiShellTool {
         formatter
             .debug_struct("OpenAiShellTool")
             .field("environment", &self.environment)
+            .field("allowed_callers", &self.allowed_callers)
             .finish()
     }
 }
@@ -1207,14 +1566,14 @@ impl fmt::Debug for OpenAiShellEnvironment {
                 skills,
             } => formatter
                 .debug_struct("ContainerAuto")
-                .field("file_ids", file_ids)
+                .field("file_ids", &format_args!("<{} entries>", file_ids.len()))
                 .field("memory_limit", memory_limit)
                 .field("network_policy", network_policy)
                 .field("skills", &format_args!("<{} entries>", skills.len()))
                 .finish(),
-            Self::ContainerReference { container_id } => formatter
+            Self::ContainerReference { .. } => formatter
                 .debug_struct("ContainerReference")
-                .field("container_id", container_id)
+                .field("container_id", &"<redacted>")
                 .finish(),
             Self::Local { skills } => formatter
                 .debug_struct("Local")
@@ -1241,12 +1600,23 @@ pub enum OpenAiShellSkill {
 }
 
 /// A host-local shell skill mounted from a caller-controlled path.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenAiLocalShellSkill {
     pub name: String,
     pub description: String,
     pub path: String,
+}
+
+impl fmt::Debug for OpenAiLocalShellSkill {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiLocalShellSkill")
+            .field("name", &self.name)
+            .field("description", &self.description)
+            .field("path", &"<redacted>")
+            .finish()
+    }
 }
 
 impl fmt::Debug for OpenAiShellSkill {
@@ -1276,9 +1646,23 @@ impl fmt::Debug for OpenAiShellSkill {
 #[serde(deny_unknown_fields)]
 pub struct OpenAiInlineSkillSource {
     #[serde(rename = "type")]
-    pub r#type: String,
-    pub media_type: String,
-    pub data: String,
+    r#type: String,
+    media_type: String,
+    data: String,
+}
+
+impl OpenAiInlineSkillSource {
+    pub fn zip_base64(data: impl Into<String>) -> Self {
+        Self {
+            r#type: "base64".to_string(),
+            media_type: "application/zip".to_string(),
+            data: data.into(),
+        }
+    }
+
+    pub fn data(&self) -> &str {
+        &self.data
+    }
 }
 
 impl fmt::Debug for OpenAiInlineSkillSource {
@@ -1300,7 +1684,22 @@ impl OpenAiShellTool {
         if let Some(environment) = &self.environment {
             validate_shell_environment(environment)?;
         }
+        validate_callers(&self.allowed_callers)?;
         Ok(())
+    }
+}
+
+/// Apply-patch hosted tool controls.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenAiApplyPatchTool {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_callers: Vec<OpenAiToolCaller>,
+}
+
+impl OpenAiApplyPatchTool {
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        validate_callers(&self.allowed_callers)
     }
 }
 
@@ -1361,23 +1760,35 @@ fn validate_file_filter(
         | OpenAiFileSearchFilter::Lt { key, value }
         | OpenAiFileSearchFilter::Lte { key, value } => {
             validate_text("tools.filters.key", key, 256)?;
-            if !matches!(value, Value::String(_) | Value::Number(_) | Value::Bool(_)) {
-                return Err(rejected(
-                    "tools.filters.value",
-                    "comparison filter values must be strings, numbers, or booleans",
-                ));
+            match value {
+                OpenAiFileSearchFilterScalar::String(value) => {
+                    validate_text("tools.filters.value", value, 1024)?;
+                }
+                OpenAiFileSearchFilterScalar::Number(_)
+                | OpenAiFileSearchFilterScalar::Boolean(_) => {}
             }
         }
         OpenAiFileSearchFilter::In { key, value } | OpenAiFileSearchFilter::Nin { key, value } => {
             validate_text("tools.filters.key", key, 256)?;
-            if value.is_empty() {
-                return Err(rejected(
-                    "tools.filters.value",
-                    "filter value list cannot be empty",
-                ));
-            }
-            for item in value {
-                validate_text("tools.filters.value", item, 1024)?;
+            match value {
+                OpenAiFileSearchFilterList::Strings(values) => {
+                    if values.is_empty() {
+                        return Err(rejected(
+                            "tools.filters.value",
+                            "filter value list cannot be empty",
+                        ));
+                    }
+                    for item in values {
+                        validate_text("tools.filters.value", item, 1024)?;
+                    }
+                }
+                OpenAiFileSearchFilterList::Numbers(values) if values.is_empty() => {
+                    return Err(rejected(
+                        "tools.filters.value",
+                        "filter value list cannot be empty",
+                    ));
+                }
+                OpenAiFileSearchFilterList::Numbers(_) => {}
             }
         }
         OpenAiFileSearchFilter::And { filters } | OpenAiFileSearchFilter::Or { filters } => {
@@ -1510,6 +1921,19 @@ fn validate_tool_names(names: &[String]) -> Result<(), ProviderOptionError> {
     Ok(())
 }
 
+fn validate_callers(callers: &[OpenAiToolCaller]) -> Result<(), ProviderOptionError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for caller in callers {
+        if !seen.insert(*caller) {
+            return Err(rejected(
+                "tools.allowed_callers",
+                "allowed callers must be unique",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_text(
     path: impl Into<String>,
     value: &str,
@@ -1574,12 +1998,21 @@ mod tests {
             }),
             search_context_size: Some(OpenAiWebSearchContextSize::High),
             return_token_budget: Some(OpenAiWebSearchReturnTokenBudget::Unlimited),
+            search_content_types: vec![
+                OpenAiWebSearchContentType::Text,
+                OpenAiWebSearchContentType::Image,
+            ],
+            image_settings: Some(OpenAiWebSearchImageSettings {
+                max_results: Some(4),
+                caption: Some(true),
+            }),
             user_location: Some(OpenAiApproximateLocation::new()),
         });
         let value = serde_json::to_value(&tool).unwrap();
         assert_eq!(value["type"], "web_search");
         assert_eq!(value["filters"]["allowed_domains"][0], "example.com");
         assert_eq!(value["return_token_budget"], "unlimited");
+        assert_eq!(value["image_settings"]["max_results"], 4);
         assert_eq!(
             serde_json::from_value::<OpenAiResponsesTool>(value).unwrap(),
             tool
@@ -1599,13 +2032,22 @@ mod tests {
 
     #[test]
     fn secret_tool_debug_is_redacted() {
-        let mcp = OpenAiMcpTool::new("calendar")
-            .with_server_url("https://mcp.example.test")
-            .with_authorization("oauth-secret")
-            .with_approval(OpenAiMcpApproval::Never);
+        let mcp = OpenAiMcpTool::server(
+            "calendar",
+            "https://mcp.example.test/connect?signature=url-secret",
+        )
+        .with_authorization("oauth-secret")
+        .with_approval(OpenAiMcpApproval::Never);
         let debug = format!("{mcp:?}");
         assert!(!debug.contains("oauth-secret"));
+        assert!(!debug.contains("url-secret"));
         assert!(debug.contains("redacted"));
+        let wire = serde_json::to_value(&mcp).unwrap();
+        assert_eq!(
+            wire["server_url"],
+            "https://mcp.example.test/connect?signature=url-secret"
+        );
+        assert_eq!(serde_json::from_value::<OpenAiMcpTool>(wire).unwrap(), mcp);
 
         let shell = OpenAiShellTool {
             environment: Some(OpenAiShellEnvironment::ContainerAuto {
@@ -1621,10 +2063,92 @@ mod tests {
                 }),
                 skills: Vec::new(),
             }),
+            allowed_callers: Vec::new(),
         };
         let debug = format!("{shell:?}");
         assert!(!debug.contains("shell-secret"));
         assert!(debug.contains("redacted"));
+
+        let mask = OpenAiImageInputMask {
+            file_id: None,
+            image_url: Some("data:image/png;base64,mask-secret".to_string()),
+        };
+        assert!(!format!("{mask:?}").contains("mask-secret"));
+
+        let skill = OpenAiLocalShellSkill {
+            name: "local".to_string(),
+            description: "Local skill".to_string(),
+            path: "/private/tenant/path-secret".to_string(),
+        };
+        assert!(!format!("{skill:?}").contains("path-secret"));
+    }
+
+    #[test]
+    fn current_hosted_tool_contracts_are_typed_and_fail_closed() {
+        let file_search = OpenAiResponsesTool::FileSearch(OpenAiFileSearchTool {
+            vector_store_ids: vec!["vs_123".to_string()],
+            max_num_results: Some(50),
+            ranking_options: Some(OpenAiFileSearchRankingOptions {
+                ranker: Some("auto".to_string()),
+                score_threshold: Some(0.25),
+                hybrid_search: Some(OpenAiFileSearchHybridSearch {
+                    embedding_weight: 0.7,
+                    text_weight: 0.3,
+                }),
+            }),
+            filters: Some(OpenAiFileSearchFilter::In {
+                key: "year".to_string(),
+                value: OpenAiFileSearchFilterList::Numbers(vec![Number::from(2026)]),
+            }),
+        })
+        .into_value()
+        .unwrap();
+        assert_eq!(file_search["max_num_results"], 50);
+        assert_eq!(
+            file_search["ranking_options"]["hybrid_search"]["text_weight"],
+            0.3
+        );
+
+        let image = OpenAiResponsesTool::ImageGeneration(OpenAiImageGenerationTool {
+            action: Some(OpenAiImageAction::Edit),
+            moderation: Some(OpenAiImageModeration::Low),
+            size: Some(OpenAiImageSize::new("2048x1024").unwrap()),
+            ..OpenAiImageGenerationTool::default()
+        })
+        .into_value()
+        .unwrap();
+        assert_eq!(image["action"], "edit");
+        assert_eq!(image["size"], "2048x1024");
+
+        let combined = [
+            OpenAiResponsesTool::ApplyPatch(OpenAiApplyPatchTool {
+                allowed_callers: vec![OpenAiToolCaller::Programmatic],
+            }),
+            OpenAiResponsesTool::ToolSearch(OpenAiToolSearchTool::client(
+                "Search tools",
+                json!({"type": "object"}),
+            )),
+            OpenAiResponsesTool::Custom(OpenAiCustomTool {
+                name: "command".to_string(),
+                description: None,
+                format: Some(OpenAiCustomToolFormat::Text),
+                allowed_callers: vec![OpenAiToolCaller::Direct],
+                defer_loading: Some(true),
+            }),
+        ];
+        for tool in combined {
+            tool.into_value().unwrap();
+        }
+
+        let error = OpenAiResponsesTool::FileSearch(OpenAiFileSearchTool {
+            vector_store_ids: vec!["vs_123".to_string()],
+            max_num_results: Some(51),
+            ranking_options: None,
+            filters: None,
+        })
+        .into_value()
+        .unwrap_err();
+        assert!(error.to_string().contains("between 1 and 50"));
     }
 
     #[test]

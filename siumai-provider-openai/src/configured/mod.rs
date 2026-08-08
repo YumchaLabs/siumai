@@ -30,8 +30,7 @@ pub use options::{
     OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
     OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext,
     OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
-    OpenAiResponsesOptions, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller,
-    OpenAiTruncation,
+    OpenAiResponsesOptions, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiTruncation,
 };
 pub use profile::OpenAiProfile;
 pub use provider::{OpenAiConfigError, OpenAiProvider, OpenAiProviderBuilder};
@@ -58,33 +57,37 @@ pub use responses_resource::{
     OpenAiResponsesInputTokenCountRequest, OpenAiResponsesResource, OpenAiResponsesRetrieveOptions,
 };
 pub use tools::{
-    NeverApprovalFilter, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
+    OpenAiApplyPatchTool, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
     OpenAiCodeInterpreterContainer, OpenAiCodeInterpreterTool, OpenAiContainerMemoryLimit,
     OpenAiContainerNetworkPolicy, OpenAiCustomTool, OpenAiCustomToolFormat, OpenAiDomainSecret,
-    OpenAiFileSearchFilter, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
-    OpenAiGrammarSyntax, OpenAiImageBackground, OpenAiImageGenerationTool,
+    OpenAiFileSearchFilter, OpenAiFileSearchFilterList, OpenAiFileSearchFilterScalar,
+    OpenAiFileSearchHybridSearch, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
+    OpenAiGrammarSyntax, OpenAiImageAction, OpenAiImageBackground, OpenAiImageGenerationTool,
     OpenAiImageInputFidelity, OpenAiImageInputMask, OpenAiImageModeration, OpenAiImageOutputFormat,
     OpenAiImageQuality, OpenAiImageSize, OpenAiInlineSkillSource, OpenAiLocalShellSkill,
-    OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpTool, OpenAiRawTool, OpenAiResponsesTool,
-    OpenAiShellEnvironment, OpenAiShellSkill, OpenAiShellTool, OpenAiToolSearchExecution,
-    OpenAiToolSearchTool, OpenAiWebSearchContextSize, OpenAiWebSearchFilters,
-    OpenAiWebSearchReturnTokenBudget, OpenAiWebSearchTool,
+    OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpApprovalFilter, OpenAiMcpEndpoint,
+    OpenAiMcpTool, OpenAiRawTool, OpenAiResponsesTool, OpenAiShellEnvironment, OpenAiShellSkill,
+    OpenAiShellTool, OpenAiToolCaller, OpenAiToolSearchExecution, OpenAiToolSearchTool,
+    OpenAiWebSearchContentType, OpenAiWebSearchContextSize, OpenAiWebSearchFilters,
+    OpenAiWebSearchImageSettings, OpenAiWebSearchReturnTokenBudget, OpenAiWebSearchTool,
 };
 
 /// Provider-faithful Responses models, options, resources, and native wire values.
 pub mod responses {
     pub use crate::configured::{
-        NeverApprovalFilter, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
+        OpenAiApplyPatchTool, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
         OpenAiCodeInterpreterContainer, OpenAiCodeInterpreterTool, OpenAiContainerMemoryLimit,
         OpenAiContainerNetworkPolicy, OpenAiCustomTool, OpenAiCustomToolFormat, OpenAiDomainSecret,
-        OpenAiFileSearchFilter, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
-        OpenAiGrammarSyntax, OpenAiImageBackground, OpenAiImageGenerationTool,
+        OpenAiFileSearchFilter, OpenAiFileSearchFilterList, OpenAiFileSearchFilterScalar,
+        OpenAiFileSearchHybridSearch, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
+        OpenAiGrammarSyntax, OpenAiImageAction, OpenAiImageBackground, OpenAiImageGenerationTool,
         OpenAiImageInputFidelity, OpenAiImageInputMask, OpenAiImageModeration,
         OpenAiImageOutputFormat, OpenAiImageQuality, OpenAiImageSize, OpenAiInlineSkillSource,
-        OpenAiLocalShellSkill, OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpTool,
-        OpenAiRawTool, OpenAiResponsesTool, OpenAiShellEnvironment, OpenAiShellSkill,
-        OpenAiShellTool, OpenAiToolSearchExecution, OpenAiToolSearchTool,
-        OpenAiWebSearchContextSize, OpenAiWebSearchFilters, OpenAiWebSearchReturnTokenBudget,
+        OpenAiLocalShellSkill, OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpApprovalFilter,
+        OpenAiMcpEndpoint, OpenAiMcpTool, OpenAiRawTool, OpenAiResponsesTool,
+        OpenAiShellEnvironment, OpenAiShellSkill, OpenAiShellTool, OpenAiToolSearchExecution,
+        OpenAiToolSearchTool, OpenAiWebSearchContentType, OpenAiWebSearchContextSize,
+        OpenAiWebSearchFilters, OpenAiWebSearchImageSettings, OpenAiWebSearchReturnTokenBudget,
         OpenAiWebSearchTool,
     };
     pub use crate::configured::{

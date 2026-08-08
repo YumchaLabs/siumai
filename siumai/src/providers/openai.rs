@@ -20,17 +20,19 @@ pub mod chat_completions {
 
 pub mod responses {
     pub use siumai_provider_openai::configured::{
-        NeverApprovalFilter, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
+        OpenAiApplyPatchTool, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
         OpenAiCodeInterpreterContainer, OpenAiCodeInterpreterTool, OpenAiContainerMemoryLimit,
         OpenAiContainerNetworkPolicy, OpenAiCustomTool, OpenAiCustomToolFormat, OpenAiDomainSecret,
-        OpenAiFileSearchFilter, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
-        OpenAiGrammarSyntax, OpenAiImageBackground, OpenAiImageGenerationTool,
+        OpenAiFileSearchFilter, OpenAiFileSearchFilterList, OpenAiFileSearchFilterScalar,
+        OpenAiFileSearchHybridSearch, OpenAiFileSearchRankingOptions, OpenAiFileSearchTool,
+        OpenAiGrammarSyntax, OpenAiImageAction, OpenAiImageBackground, OpenAiImageGenerationTool,
         OpenAiImageInputFidelity, OpenAiImageInputMask, OpenAiImageModeration,
         OpenAiImageOutputFormat, OpenAiImageQuality, OpenAiImageSize, OpenAiInlineSkillSource,
-        OpenAiLocalShellSkill, OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpTool,
-        OpenAiRawTool, OpenAiResponsesTool, OpenAiShellEnvironment, OpenAiShellSkill,
-        OpenAiShellTool, OpenAiToolSearchExecution, OpenAiToolSearchTool,
-        OpenAiWebSearchContextSize, OpenAiWebSearchFilters, OpenAiWebSearchReturnTokenBudget,
+        OpenAiLocalShellSkill, OpenAiMcpAllowedTools, OpenAiMcpApproval, OpenAiMcpApprovalFilter,
+        OpenAiMcpEndpoint, OpenAiMcpTool, OpenAiRawTool, OpenAiResponsesTool,
+        OpenAiShellEnvironment, OpenAiShellSkill, OpenAiShellTool, OpenAiToolSearchExecution,
+        OpenAiToolSearchTool, OpenAiWebSearchContentType, OpenAiWebSearchContextSize,
+        OpenAiWebSearchFilters, OpenAiWebSearchImageSettings, OpenAiWebSearchReturnTokenBudget,
         OpenAiWebSearchTool,
     };
     pub use siumai_provider_openai::configured::{

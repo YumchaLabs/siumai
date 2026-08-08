@@ -7,7 +7,7 @@ use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
 use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
 use siumai_protocol_openai::responses::{FunctionToolCaller, FunctionToolEncodingOptions};
 
-use super::tools::OpenAiResponsesTool;
+use super::tools::{OpenAiResponsesTool, OpenAiToolCaller};
 
 const MAX_TOP_LOGPROBS: u8 = 20;
 const MAX_PROMPT_CACHE_MARKERS: usize = 80;
@@ -164,14 +164,6 @@ impl OpenAiPromptCacheBreakpoint {
             content_index,
         }
     }
-}
-
-/// OpenAI execution paths allowed to invoke a portable function tool.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OpenAiToolCaller {
-    Direct,
-    Programmatic,
 }
 
 /// Responses-only controls applied to one `LanguageRequest` function tool.
