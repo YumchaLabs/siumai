@@ -1,11 +1,15 @@
 //! Rust-first configured OpenAI provider surface.
 //!
-//! Responses and Chat Completions are explicit model types backed by one
-//! clone-cheap provider runtime. The default language-model path is Responses.
+//! Responses and Chat Completions are explicit language-model types backed by one
+//! clone-cheap provider runtime. The same provider owns portable embedding, image,
+//! buffered speech, and final-result transcription adapters plus typed native
+//! resources. The default language-model path is Responses.
 
 mod catalog;
 mod credential;
+mod embedding;
 mod http_error;
+mod image;
 mod mode;
 mod model;
 mod options;
@@ -16,15 +20,27 @@ mod provider;
 mod realtime;
 #[cfg(feature = "openai-realtime")]
 mod realtime_resource;
+mod resources;
 mod responses_native;
 mod responses_resource;
+mod speech;
 mod tools;
+mod transcription;
 
 pub use catalog::{
     GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,
     classify_model,
 };
 pub use credential::{OpenAiCredential, OpenAiCredentialError};
+pub use embedding::{
+    OpenAiEmbeddingModel, OpenAiEmbeddingOptions, TEXT_EMBEDDING_3_LARGE, TEXT_EMBEDDING_3_SMALL,
+    TEXT_EMBEDDING_ADA_002,
+};
+pub use image::{
+    CHATGPT_IMAGE_LATEST, DALL_E_2, DALL_E_3, GPT_IMAGE_1, GPT_IMAGE_1_5, GPT_IMAGE_1_MINI,
+    GPT_IMAGE_2, OpenAiImageGenerationQuality, OpenAiImageModel, OpenAiImageOptions,
+    OpenAiImageResponseFormat, OpenAiImageStyle,
+};
 pub use mode::OpenAiApiMode;
 pub use model::{OpenAiChatCompletionsModel, OpenAiResponsesModel};
 pub use options::{
@@ -52,6 +68,7 @@ pub use realtime::{
 };
 #[cfg(feature = "openai-realtime")]
 pub use realtime_resource::OpenAiRealtimeResource;
+pub use resources::*;
 pub use responses_native::{
     OpenAiResponsesResponse, OpenAiResponsesStream, OpenAiResponsesStreamFrame,
 };
@@ -60,6 +77,10 @@ pub use responses_resource::{
     OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions, OpenAiResponsesInputItemsOrder,
     OpenAiResponsesInputItemsPage, OpenAiResponsesInputTokenCount,
     OpenAiResponsesInputTokenCountRequest, OpenAiResponsesResource, OpenAiResponsesRetrieveOptions,
+};
+pub use speech::{
+    GPT_4O_MINI_TTS, GPT_4O_MINI_TTS_2025_03_20, GPT_4O_MINI_TTS_2025_12_15, OpenAiSpeechModel,
+    OpenAiSpeechOptions, TTS_1, TTS_1_1106, TTS_1_HD, TTS_1_HD_1106,
 };
 pub use tools::{
     OpenAiApplyPatchTool, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
@@ -75,6 +96,12 @@ pub use tools::{
     OpenAiShellTool, OpenAiToolCaller, OpenAiToolSearchExecution, OpenAiToolSearchTool,
     OpenAiWebSearchContentType, OpenAiWebSearchContextSize, OpenAiWebSearchFilters,
     OpenAiWebSearchImageSettings, OpenAiWebSearchReturnTokenBudget, OpenAiWebSearchTool,
+};
+pub use transcription::{
+    GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TRANSCRIBE_2025_03_20, GPT_4O_MINI_TRANSCRIBE_2025_12_15,
+    GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE, OpenAiTranscriptionModel,
+    OpenAiTranscriptionOptions, OpenAiTranscriptionResponseFormat,
+    OpenAiTranscriptionTimestampGranularity, WHISPER_1,
 };
 
 /// Provider-faithful Responses models, options, resources, and native wire values.

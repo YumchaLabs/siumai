@@ -8,12 +8,14 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use siumai_core::{
-    ApiStability, CallOptions, CatalogError, InvalidId, LanguageModel, LanguageModelProvider,
-    ModelFamily, ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    ApiStability, CallOptions, CatalogError, EmbeddingModel, EmbeddingModelProvider, ImageModel,
+    ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, ModelFamily, ModelId,
+    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderOptionContext,
     ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
     ProviderOptions, ProviderRegistration, ProviderScope, ProviderSupportManifest, ReplayDomain,
-    ReplayDomainId, SupportManifestError, VerificationDate, VerifiedFidelity,
+    ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError, TranscriptionModel,
+    TranscriptionModelProvider, TypedProviderOptions, VerificationDate, VerifiedFidelity,
     VerifiedNativeSupportClaim,
 };
 use siumai_protocol_openai::responses::FunctionToolEncodingOptions;
@@ -24,6 +26,8 @@ use siumai_transport::{
 use thiserror::Error;
 
 use super::credential::{OpenAiCredential, OpenAiCredentialError};
+use super::embedding::{OpenAiEmbeddingModel, OpenAiEmbeddingOptions};
+use super::image::{OpenAiImageModel, OpenAiImageOptions};
 use super::mode::OpenAiApiMode;
 use super::model::{OpenAiChatCompletionsModel, OpenAiResponsesModel};
 use super::options::{
@@ -39,15 +43,28 @@ use super::realtime::{
 };
 #[cfg(feature = "openai-realtime")]
 use super::realtime_resource::OpenAiRealtimeResource;
+use super::resources::{OpenAiConversations, OpenAiFiles, OpenAiSkills, OpenAiVectorStores};
 use super::responses_resource::OpenAiResponsesResource;
+use super::speech::{OpenAiSpeechModel, OpenAiSpeechOptions};
+use super::transcription::{OpenAiTranscriptionModel, OpenAiTranscriptionOptions};
 
 const OFFICIAL_ORIGIN: &str = "https://api.openai.com";
 const OFFICIAL_BASE_URL: &str = "https://api.openai.com/v1";
 const RESPONSES_RESOURCE_SOURCE: &str =
     "https://developers.openai.com/api/reference/resources/responses/methods/create";
-const SUPPORT_VERIFIED_ON: &str = "2026-08-06";
+const CONVERSATIONS_SOURCE: &str =
+    "https://developers.openai.com/api/reference/resources/conversations/methods/create";
+const FILES_SOURCE: &str =
+    "https://developers.openai.com/api/reference/resources/files/methods/create";
+const VECTOR_STORES_SOURCE: &str =
+    "https://developers.openai.com/api/reference/resources/vector-stores/methods/create";
+const SKILLS_SOURCE: &str =
+    "https://developers.openai.com/api/reference/resources/skills/methods/create";
+const RESPONSES_SUPPORT_VERIFIED_ON: &str = "2026-08-06";
+const REALTIME_SUPPORT_VERIFIED_ON: &str = "2026-08-06";
+const RESOURCE_SUPPORT_VERIFIED_ON: &str = "2026-08-08";
 
-/// One synchronously configured OpenAI provider with explicit language modes.
+/// One synchronously configured OpenAI provider with portable families and native resources.
 #[derive(Clone)]
 pub struct OpenAiProvider {
     pub(crate) runtime: Arc<OpenAiRuntime>,
@@ -79,9 +96,81 @@ impl OpenAiProvider {
         Ok(self.create_chat_completions_model(parse_model_id(model)?))
     }
 
+    /// Create a lightweight portable text embedding handle.
+    pub fn embedding_model(
+        &self,
+        model: ModelId,
+    ) -> Result<OpenAiEmbeddingModel, ModelLookupError> {
+        Ok(self.create_embedding_model(model))
+    }
+
+    /// Create a portable text embedding handle from an open model identifier.
+    pub fn embedding(
+        &self,
+        model: impl Into<String>,
+    ) -> Result<OpenAiEmbeddingModel, ModelLookupError> {
+        self.embedding_model(parse_model_id(model)?)
+    }
+
+    /// Create a lightweight portable image generation handle.
+    pub fn image_model(&self, model: ModelId) -> Result<OpenAiImageModel, ModelLookupError> {
+        Ok(self.create_image_model(model))
+    }
+
+    /// Create a portable image generation handle from an open model identifier.
+    pub fn image(&self, model: impl Into<String>) -> Result<OpenAiImageModel, ModelLookupError> {
+        self.image_model(parse_model_id(model)?)
+    }
+
+    /// Create a lightweight portable buffered speech handle.
+    pub fn speech_model(&self, model: ModelId) -> Result<OpenAiSpeechModel, ModelLookupError> {
+        Ok(self.create_speech_model(model))
+    }
+
+    /// Create a portable buffered speech handle from an open model identifier.
+    pub fn speech(&self, model: impl Into<String>) -> Result<OpenAiSpeechModel, ModelLookupError> {
+        self.speech_model(parse_model_id(model)?)
+    }
+
+    /// Create a lightweight portable final-result transcription handle.
+    pub fn transcription_model(
+        &self,
+        model: ModelId,
+    ) -> Result<OpenAiTranscriptionModel, ModelLookupError> {
+        Ok(self.create_transcription_model(model))
+    }
+
+    /// Create a portable final-result transcription handle from an open model identifier.
+    pub fn transcription(
+        &self,
+        model: impl Into<String>,
+    ) -> Result<OpenAiTranscriptionModel, ModelLookupError> {
+        self.transcription_model(parse_model_id(model)?)
+    }
+
     /// Access stored-response, background-response, and compaction operations.
     pub fn responses_resource(&self) -> OpenAiResponsesResource {
         OpenAiResponsesResource::new(self.runtime.clone())
+    }
+
+    /// Access the provider-owned Conversations lifecycle.
+    pub fn conversations(&self) -> OpenAiConversations {
+        OpenAiConversations::new(self.runtime.clone())
+    }
+
+    /// Access the provider-owned Files lifecycle.
+    pub fn files(&self) -> OpenAiFiles {
+        OpenAiFiles::new(self.runtime.clone())
+    }
+
+    /// Access the provider-owned Vector Stores lifecycle.
+    pub fn vector_stores(&self) -> OpenAiVectorStores {
+        OpenAiVectorStores::new(self.runtime.clone())
+    }
+
+    /// Access the provider-owned Skills lifecycle.
+    pub fn skills(&self) -> OpenAiSkills {
+        OpenAiSkills::new(self.runtime.clone())
     }
 
     /// Access provider-authenticated Realtime client-secret operations.
@@ -154,9 +243,57 @@ impl OpenAiProvider {
         Ok(config)
     }
 
-    /// Capture the recommended Responses route registration.
+    /// Capture the recommended Responses language route and all portable family bindings.
     pub fn registration(&self) -> ProviderRegistration {
-        self.registration_for(OpenAiApiMode::Responses)
+        let provider = self.clone();
+        let mut registration = self.responses_registration();
+        registration = registration
+            .bind_embedding(
+                self.runtime.family_scope_arc(ModelFamily::Embedding),
+                self.runtime.policy.clone(),
+                Arc::new({
+                    let provider = provider.clone();
+                    move |model| {
+                        Ok(Arc::new(provider.create_embedding_model(model))
+                            as Arc<dyn EmbeddingModel>)
+                    }
+                }),
+            )
+            .expect("OpenAI family scopes share one canonical provider identity");
+        registration = registration
+            .bind_image(
+                self.runtime.family_scope_arc(ModelFamily::Image),
+                self.runtime.policy.clone(),
+                Arc::new({
+                    let provider = provider.clone();
+                    move |model| {
+                        Ok(Arc::new(provider.create_image_model(model)) as Arc<dyn ImageModel>)
+                    }
+                }),
+            )
+            .expect("OpenAI family scopes share one canonical provider identity");
+        registration = registration
+            .bind_speech(
+                self.runtime.family_scope_arc(ModelFamily::Speech),
+                self.runtime.policy.clone(),
+                Arc::new({
+                    let provider = provider.clone();
+                    move |model| {
+                        Ok(Arc::new(provider.create_speech_model(model)) as Arc<dyn SpeechModel>)
+                    }
+                }),
+            )
+            .expect("OpenAI family scopes share one canonical provider identity");
+        registration
+            .bind_transcription(
+                self.runtime.family_scope_arc(ModelFamily::Transcription),
+                self.runtime.policy.clone(),
+                Arc::new(move |model| {
+                    Ok(Arc::new(provider.create_transcription_model(model))
+                        as Arc<dyn TranscriptionModel>)
+                }),
+            )
+            .expect("OpenAI family scopes share one canonical provider identity")
     }
 
     pub fn responses_registration(&self) -> ProviderRegistration {
@@ -206,6 +343,42 @@ impl OpenAiProvider {
     fn create_chat_completions_model(&self, model: ModelId) -> OpenAiChatCompletionsModel {
         OpenAiChatCompletionsModel::new(self.runtime.clone(), model)
     }
+
+    fn create_embedding_model(&self, model: ModelId) -> OpenAiEmbeddingModel {
+        OpenAiEmbeddingModel::new(
+            self.runtime.clone(),
+            self.runtime.family_scope_arc(ModelFamily::Embedding),
+            model,
+            self.runtime.embedding_options.clone(),
+        )
+    }
+
+    fn create_image_model(&self, model: ModelId) -> OpenAiImageModel {
+        OpenAiImageModel::new(
+            self.runtime.clone(),
+            self.runtime.family_scope_arc(ModelFamily::Image),
+            model,
+            self.runtime.image_options.clone(),
+        )
+    }
+
+    fn create_speech_model(&self, model: ModelId) -> OpenAiSpeechModel {
+        OpenAiSpeechModel::new(
+            self.runtime.clone(),
+            self.runtime.family_scope_arc(ModelFamily::Speech),
+            model,
+            self.runtime.speech_options.clone(),
+        )
+    }
+
+    fn create_transcription_model(&self, model: ModelId) -> OpenAiTranscriptionModel {
+        OpenAiTranscriptionModel::new(
+            self.runtime.clone(),
+            self.runtime.family_scope_arc(ModelFamily::Transcription),
+            model,
+            self.runtime.transcription_options.clone(),
+        )
+    }
 }
 
 impl Provider for OpenAiProvider {
@@ -219,6 +392,38 @@ impl LanguageModelProvider for OpenAiProvider {
 
     fn language_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
         Ok(self.create_responses_model(model))
+    }
+}
+
+impl EmbeddingModelProvider for OpenAiProvider {
+    type Model = OpenAiEmbeddingModel;
+
+    fn embedding_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
+        Ok(self.create_embedding_model(model))
+    }
+}
+
+impl ImageModelProvider for OpenAiProvider {
+    type Model = OpenAiImageModel;
+
+    fn image_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
+        Ok(self.create_image_model(model))
+    }
+}
+
+impl SpeechModelProvider for OpenAiProvider {
+    type Model = OpenAiSpeechModel;
+
+    fn speech_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
+        Ok(self.create_speech_model(model))
+    }
+}
+
+impl TranscriptionModelProvider for OpenAiProvider {
+    type Model = OpenAiTranscriptionModel;
+
+    fn transcription_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
+        Ok(self.create_transcription_model(model))
     }
 }
 
@@ -257,6 +462,10 @@ pub struct OpenAiProviderBuilder {
     realtime_io_timeout: Option<Duration>,
     responses_defaults: OpenAiResponsesOptions,
     chat_completions_defaults: OpenAiChatCompletionsOptions,
+    embedding_defaults: OpenAiEmbeddingOptions,
+    image_defaults: OpenAiImageOptions,
+    speech_defaults: OpenAiSpeechOptions,
+    transcription_defaults: OpenAiTranscriptionOptions,
 }
 
 impl OpenAiProviderBuilder {
@@ -286,6 +495,10 @@ impl OpenAiProviderBuilder {
             realtime_io_timeout: None,
             responses_defaults: OpenAiResponsesOptions::default(),
             chat_completions_defaults: OpenAiChatCompletionsOptions::default(),
+            embedding_defaults: OpenAiEmbeddingOptions::default(),
+            image_defaults: OpenAiImageOptions::default(),
+            speech_defaults: OpenAiSpeechOptions::default(),
+            transcription_defaults: OpenAiTranscriptionOptions::default(),
         }
     }
 
@@ -385,6 +598,26 @@ impl OpenAiProviderBuilder {
         self
     }
 
+    pub fn with_embedding_defaults(mut self, defaults: OpenAiEmbeddingOptions) -> Self {
+        self.embedding_defaults = defaults;
+        self
+    }
+
+    pub fn with_image_defaults(mut self, defaults: OpenAiImageOptions) -> Self {
+        self.image_defaults = defaults;
+        self
+    }
+
+    pub fn with_speech_defaults(mut self, defaults: OpenAiSpeechOptions) -> Self {
+        self.speech_defaults = defaults;
+        self
+    }
+
+    pub fn with_transcription_defaults(mut self, defaults: OpenAiTranscriptionOptions) -> Self {
+        self.transcription_defaults = defaults;
+        self
+    }
+
     /// Validate static configuration and build one shared provider runtime.
     pub fn build(self) -> Result<OpenAiProvider, OpenAiConfigError> {
         self.credential.validate()?;
@@ -394,6 +627,18 @@ impl OpenAiProviderBuilder {
         self.chat_completions_defaults
             .validate_values()
             .map_err(OpenAiConfigError::InvalidChatCompletionsDefaults)?;
+        self.embedding_defaults
+            .validate()
+            .map_err(OpenAiConfigError::InvalidEmbeddingDefaults)?;
+        self.image_defaults
+            .validate()
+            .map_err(OpenAiConfigError::InvalidImageDefaults)?;
+        self.speech_defaults
+            .validate()
+            .map_err(OpenAiConfigError::InvalidSpeechDefaults)?;
+        self.transcription_defaults
+            .validate()
+            .map_err(OpenAiConfigError::InvalidTranscriptionDefaults)?;
         let endpoint = self.endpoint?;
         let provider_verified_endpoint = !self.custom_endpoint;
         let replay_domain = match (self.replay_domain.clone(), provider_verified_endpoint) {
@@ -441,12 +686,43 @@ impl OpenAiProviderBuilder {
             .or_else(|| (!self.custom_endpoint).then(OpenAiRealtimeEndpoint::official));
         let mut native_claims = Vec::new();
         if provider_verified_endpoint {
-            native_claims.push(native_support_claim(
-                "responses-resources",
-                NativeSurfaceKind::Resource,
-                ApiStability::Stable,
-                RESPONSES_RESOURCE_SOURCE,
-            )?);
+            native_claims.extend([
+                native_support_claim(
+                    "responses-resource-lifecycle",
+                    NativeSurfaceKind::Resource,
+                    ApiStability::Stable,
+                    RESPONSES_RESOURCE_SOURCE,
+                    RESPONSES_SUPPORT_VERIFIED_ON,
+                )?,
+                native_support_claim(
+                    "conversations-basic-items",
+                    NativeSurfaceKind::Resource,
+                    ApiStability::Stable,
+                    CONVERSATIONS_SOURCE,
+                    RESOURCE_SUPPORT_VERIFIED_ON,
+                )?,
+                native_support_claim(
+                    "files-basic-lifecycle",
+                    NativeSurfaceKind::Resource,
+                    ApiStability::Stable,
+                    FILES_SOURCE,
+                    RESOURCE_SUPPORT_VERIFIED_ON,
+                )?,
+                native_support_claim(
+                    "vector-stores-basic-files",
+                    NativeSurfaceKind::Resource,
+                    ApiStability::Stable,
+                    VECTOR_STORES_SOURCE,
+                    RESOURCE_SUPPORT_VERIFIED_ON,
+                )?,
+                native_support_claim(
+                    "skills-directory-lifecycle",
+                    NativeSurfaceKind::Resource,
+                    ApiStability::Experimental,
+                    SKILLS_SOURCE,
+                    RESOURCE_SUPPORT_VERIFIED_ON,
+                )?,
+            ]);
         }
         #[cfg(feature = "openai-realtime")]
         if realtime_endpoint
@@ -458,6 +734,7 @@ impl OpenAiProviderBuilder {
                 NativeSurfaceKind::Session,
                 ApiStability::Experimental,
                 OPENAI_REALTIME_WEBSOCKET_SOURCE_URL,
+                REALTIME_SUPPORT_VERIFIED_ON,
             )?);
         }
         #[cfg(feature = "openai-realtime")]
@@ -470,6 +747,7 @@ impl OpenAiProviderBuilder {
                 NativeSurfaceKind::Session,
                 ApiStability::Experimental,
                 OPENAI_REALTIME_TRANSLATION_SOURCE_URL,
+                REALTIME_SUPPORT_VERIFIED_ON,
             )?);
         }
         let support_manifest = Arc::new(ProviderSupportManifest::new(
@@ -506,6 +784,10 @@ impl OpenAiProviderBuilder {
                 chat_completions_options: OpenAiOptionMerger::chat_completions(
                     self.chat_completions_defaults,
                 )?,
+                embedding_options: self.embedding_defaults,
+                image_options: self.image_defaults,
+                speech_options: self.speech_defaults,
+                transcription_options: self.transcription_defaults,
                 replay_safety: ReplaySafety::Never,
                 #[cfg(feature = "openai-realtime")]
                 realtime_credential,
@@ -579,6 +861,10 @@ pub(crate) struct OpenAiRuntime {
     pub(crate) policy: Arc<OpenAiModelPolicy>,
     responses_options: OpenAiOptionMerger,
     chat_completions_options: OpenAiOptionMerger,
+    embedding_options: OpenAiEmbeddingOptions,
+    image_options: OpenAiImageOptions,
+    speech_options: OpenAiSpeechOptions,
+    transcription_options: OpenAiTranscriptionOptions,
     pub(crate) replay_safety: ReplaySafety,
     #[cfg(feature = "openai-realtime")]
     realtime_credential: OpenAiCredential,
@@ -605,6 +891,7 @@ fn native_support_claim(
     kind: NativeSurfaceKind,
     stability: ApiStability,
     source: &str,
+    verified_on: &str,
 ) -> Result<VerifiedNativeSupportClaim, OpenAiConfigError> {
     Ok(VerifiedNativeSupportClaim::new(
         NativeSupportScope::surface(
@@ -617,7 +904,7 @@ fn native_support_claim(
         stability,
         NativeVerificationEvidence::new(
             OfficialSource::new(source)?,
-            VerificationDate::new(NaiveDate::parse_from_str(SUPPORT_VERIFIED_ON, "%Y-%m-%d")?),
+            VerificationDate::new(NaiveDate::parse_from_str(verified_on, "%Y-%m-%d")?),
         ),
     ))
 }
@@ -629,6 +916,13 @@ impl OpenAiRuntime {
 
     pub(crate) fn scope_arc(&self, mode: OpenAiApiMode) -> Arc<ProviderScope> {
         self.profile.provider_scope(mode).clone()
+    }
+
+    pub(crate) fn family_scope_arc(&self, family: ModelFamily) -> Arc<ProviderScope> {
+        self.profile
+            .family_provider_scope(family)
+            .expect("OpenAI runtime contains every exposed portable family")
+            .clone()
     }
 
     pub(crate) fn merge_options(
@@ -991,6 +1285,14 @@ pub enum OpenAiConfigError {
     InvalidResponsesDefaults(ProviderOptionError),
     #[error("invalid default Chat Completions options: {0}")]
     InvalidChatCompletionsDefaults(ProviderOptionError),
+    #[error("invalid default embedding options: {0}")]
+    InvalidEmbeddingDefaults(ProviderOptionError),
+    #[error("invalid default image-generation options: {0}")]
+    InvalidImageDefaults(ProviderOptionError),
+    #[error("invalid default speech options: {0}")]
+    InvalidSpeechDefaults(ProviderOptionError),
+    #[error("invalid default transcription options: {0}")]
+    InvalidTranscriptionDefaults(ProviderOptionError),
 }
 
 #[cfg(test)]
@@ -998,7 +1300,10 @@ mod tests {
     use siumai_core::{ApiStability, Model, ModelAdvisory, ModelOperation, SupportState};
 
     use super::*;
-    use crate::configured::catalog::{GPT_5_6, GPT_5_6_SOL};
+    use crate::configured::{
+        TEXT_EMBEDDING_3_SMALL,
+        catalog::{GPT_5_6, GPT_5_6_SOL},
+    };
 
     fn provider() -> OpenAiProvider {
         OpenAiProvider::builder(OpenAiCredential::unauthenticated())
@@ -1037,6 +1342,44 @@ mod tests {
             .unwrap();
 
         assert_eq!(direct.descriptor(), erased.descriptor());
+    }
+
+    #[test]
+    fn default_registration_binds_all_portable_families_with_exact_scopes() {
+        let provider = provider();
+        let registration = provider.registration();
+
+        assert_eq!(
+            registration.families().collect::<Vec<_>>(),
+            vec![
+                ModelFamily::Language,
+                ModelFamily::Embedding,
+                ModelFamily::Image,
+                ModelFamily::Speech,
+                ModelFamily::Transcription,
+            ]
+        );
+
+        let direct = provider.embedding(TEXT_EMBEDDING_3_SMALL).unwrap();
+        let erased = registration
+            .embedding_model(ModelId::new(TEXT_EMBEDDING_3_SMALL).unwrap())
+            .unwrap();
+        assert_eq!(direct.descriptor(), erased.descriptor());
+        assert_eq!(direct.descriptor().protocol(), Some("openai.embeddings"));
+        assert_eq!(direct.descriptor().api_mode(), Some("embeddings"));
+
+        assert!(
+            provider
+                .responses_registration()
+                .scope(ModelFamily::Embedding)
+                .is_none()
+        );
+        assert!(
+            provider
+                .chat_completions_registration()
+                .scope(ModelFamily::Embedding)
+                .is_none()
+        );
     }
 
     #[test]
@@ -1126,13 +1469,28 @@ mod tests {
         let manifest = provider.support_manifest();
 
         assert_eq!(manifest.profiles().len(), 1);
+        for surface in [
+            "responses-resource-lifecycle",
+            "conversations-basic-items",
+            "files-basic-lifecycle",
+            "vector-stores-basic-files",
+        ] {
+            assert!(manifest.native_claims().iter().any(|claim| {
+                claim
+                    .scope()
+                    .binding()
+                    .surface_id()
+                    .is_some_and(|candidate| candidate.as_str() == surface)
+                    && claim.stability() == ApiStability::Stable
+            }));
+        }
         assert!(manifest.native_claims().iter().any(|claim| {
             claim
                 .scope()
                 .binding()
                 .surface_id()
-                .is_some_and(|surface| surface.as_str() == "responses-resources")
-                && claim.stability() == ApiStability::Stable
+                .is_some_and(|surface| surface.as_str() == "skills-directory-lifecycle")
+                && claim.stability() == ApiStability::Experimental
         }));
         #[cfg(feature = "openai-realtime")]
         assert!(manifest.native_claims().iter().any(|claim| {

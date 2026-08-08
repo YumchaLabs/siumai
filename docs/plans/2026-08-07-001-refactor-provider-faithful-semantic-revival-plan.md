@@ -1063,6 +1063,12 @@ sequenceDiagram
     families.
 - **Verification outcome:** OpenAI covers the modern Responses-centered agent and multimodal product
   path while keeping native resources typed and provider-owned.
+- **Implementation checkpoint (2026-08-08):** Complete. `OpenAiProvider` now owns portable
+  Language, Embedding, Image, Speech, and Transcription families, while explicit Responses and Chat
+  registrations remain language-only. Typed provider-owned Conversations, Files, Vector Stores,
+  and directory-Skills lifecycle clients reuse the shared transport and protocol boundaries.
+  Representative offline protocol, provider HTTP, facade, no-default-feature, and Clippy lanes
+  pass; unimplemented resource operations remain unclaimed.
 
 ### U8 — Deepen Chinese-Provider Product Surfaces
 

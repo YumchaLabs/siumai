@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added portable embedding, image-generation, buffered-speech, and final-result transcription
+  model handles backed by the configured OpenAI provider.
+- Added typed provider-owned Conversations, Files, Vector Stores, and Skills lifecycle clients,
+  including bounded multipart uploads and redacted binary-content diagnostics.
+- Added per-family typed defaults, exact family support claims, model advisories, facade exports,
+  and a combined five-family Registry registration.
+
+### Changed
+
+- `OpenAiProvider::registration()` now binds Language, Embedding, Image, Speech, and
+  Transcription. Use `responses_registration()` or `chat_completions_registration()` when a
+  language-only registration is required.
+- Buffered speech requires an explicit voice instead of silently choosing one. Embedding
+  dimensions are accepted only for model families whose official contract exposes them.
+- Renamed the broad native support claim to the narrower `responses-resource-lifecycle` claim and
+  added separate claims for each implemented resource slice.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-v0.11.0-beta.8...siumai-provider-openai-v0.11.0-beta.9) - 2026-05-27
 
 ### Other

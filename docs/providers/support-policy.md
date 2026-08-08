@@ -58,7 +58,7 @@ of compiled public scope, not a promise that every account can use every model o
 
 | Facade feature | Public scope | Deliberately not claimed |
 |---|---|---|
-| `openai` | Native Chat Completions, Responses, and Responses resources | Legacy universal client and unrelated media/resource APIs |
+| `openai` | Native Chat Completions and Responses; portable text embedding, image generation, buffered speech, and final-result transcription; provider-owned Responses, Conversations, Files, Vector Stores, and Skills slices | Image edits/streaming, realtime transcription, vector search/batches, zip skill upload, or a universal resource client |
 | `openai-realtime` | Experimental native Realtime bootstrap and session transport | A stable provider-neutral realtime family |
 | `anthropic` | Native Messages plus Anthropic-owned files, message batches, token counting, and skills | OpenAI-shaped language modes |
 | `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, buffered speech, Files metadata, and Veo submit/status | Stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
@@ -87,6 +87,10 @@ names the exact execution surface; it is not provider-wide identity.
 |---|---|---|---|---|---|---|---|
 | `openai` / OpenAI | `openai` / `openai-api` | Language | `openai.responses` / `responses` | `native` | `stable` | https://developers.openai.com/api/docs/guides/latest-model | 2026-08-04 |
 | `openai` / OpenAI | `openai` / `openai-api` | Language | `openai` / `chat-completions` | `native` | `stable` | https://developers.openai.com/api/docs/guides/latest-model | 2026-08-04 |
+| `openai` / OpenAI | `openai` / `openai-api` | Embedding | `openai.embeddings` / `embeddings` | `native` | `stable` | https://developers.openai.com/api/docs/guides/embeddings | 2026-08-08 |
+| `openai` / OpenAI | `openai` / `openai-api` | Image | `openai.images` / `image-generations` | `native` | `stable` | https://developers.openai.com/api/docs/guides/image-generation | 2026-08-08 |
+| `openai` / OpenAI | `openai` / `openai-api` | Speech | `openai.audio` / `audio-speech` | `native` | `stable` | https://developers.openai.com/api/docs/guides/text-to-speech | 2026-08-08 |
+| `openai` / OpenAI | `openai` / `openai-api` | Transcription | `openai.audio` / `audio-transcriptions` | `native` | `stable` | https://developers.openai.com/api/docs/guides/speech-to-text | 2026-08-08 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Language | `anthropic-messages` / `messages` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages | 2026-08-06 |
 | `google` / Google Gemini | `google` / `gemini-api` | Language | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/api/interactions-api | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Image | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/image-generation | 2026-08-08 |
@@ -127,7 +131,11 @@ portable model families.
 
 | Facade feature / provider | Provider / platform | Kind / surface | Fidelity | Stability | Official source | Verified |
 |---|---|---|---|---|---|---|
-| `openai` / OpenAI | `openai` / `openai-api` | Resource / `responses-resources` | `native` | `stable` | https://developers.openai.com/api/reference/resources/responses/methods/create | 2026-08-06 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `responses-resource-lifecycle` | `native` | `stable` | https://developers.openai.com/api/reference/resources/responses/methods/create | 2026-08-06 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `conversations-basic-items` | `native` | `stable` | https://developers.openai.com/api/reference/resources/conversations/methods/create | 2026-08-08 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `files-basic-lifecycle` | `native` | `stable` | https://developers.openai.com/api/reference/resources/files/methods/create | 2026-08-08 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `vector-stores-basic-files` | `native` | `stable` | https://developers.openai.com/api/reference/resources/vector-stores/methods/create | 2026-08-08 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `skills-directory-lifecycle` | `native` | `experimental` | https://developers.openai.com/api/reference/resources/skills/methods/create | 2026-08-08 |
 | `openai-realtime` / OpenAI | `openai` / `openai-api` | Session / `realtime` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/realtime-websocket | 2026-08-06 |
 | `openai-realtime` / OpenAI | `openai` / `openai-api` | Session / `realtime-translation` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/realtime-translation | 2026-08-06 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `files` | `native` | `experimental` | https://platform.claude.com/docs/en/api/files-create | 2026-08-06 |

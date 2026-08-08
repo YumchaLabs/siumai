@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added bounded typed codecs for OpenAI embeddings, image generations, speech synthesis, and
+  final-result transcriptions.
+- Added reusable wire codecs for the implemented Conversations, Files, Vector Stores, and Skills
+  lifecycle operations.
+
+### Changed
+
+- Portable media and resource codecs now share the protocol crate's bounded request, response,
+  multipart, usage, and provider-error contracts instead of requiring provider-local wire types.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.8...siumai-protocol-openai-v0.11.0-beta.9) - 2026-05-27
 
 ### Added

@@ -337,6 +337,62 @@ fn facade_registration_sources_cover_all_six_stable_families() {
     assert_registration_source::<elevenlabs::ElevenLabsProvider>();
 }
 
+#[cfg(feature = "openai")]
+#[test]
+fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
+    use siumai::core::{ModelFamily, ReplayDomain, ReplayDomainId};
+    use siumai::providers::openai::audio::speech::{GPT_4O_MINI_TTS, OpenAiSpeechOptions};
+    use siumai::providers::openai::audio::transcription::{
+        GPT_4O_TRANSCRIBE, OpenAiTranscriptionOptions,
+    };
+    use siumai::providers::openai::embeddings::{OpenAiEmbeddingOptions, TEXT_EMBEDDING_3_SMALL};
+    use siumai::providers::openai::images::{GPT_IMAGE_1, OpenAiImageOptions};
+    use siumai::providers::openai::resources::conversations::OpenAiConversationCreateRequest;
+    use siumai::providers::openai::resources::files::OpenAiBinaryContent;
+    use siumai::providers::openai::resources::skills::OpenAiSkillUpload;
+    use siumai::providers::openai::resources::vector_stores::OpenAiVectorStoreCreateRequest;
+    use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+    use siumai_transport::EndpointConfig;
+
+    let provider = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+        .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("facade-openai-surfaces").unwrap(),
+        ))
+        .build()
+        .unwrap();
+    let registration = provider.registration();
+
+    assert_eq!(
+        registration.families().collect::<Vec<_>>(),
+        vec![
+            ModelFamily::Language,
+            ModelFamily::Embedding,
+            ModelFamily::Image,
+            ModelFamily::Speech,
+            ModelFamily::Transcription,
+        ]
+    );
+    assert!(provider.embedding(TEXT_EMBEDDING_3_SMALL).is_ok());
+    assert!(provider.image(GPT_IMAGE_1).is_ok());
+    assert!(provider.speech(GPT_4O_MINI_TTS).is_ok());
+    assert!(provider.transcription(GPT_4O_TRANSCRIBE).is_ok());
+
+    let _ = OpenAiEmbeddingOptions::default();
+    let _ = OpenAiImageOptions::default();
+    let _ = OpenAiSpeechOptions::default();
+    let _ = OpenAiTranscriptionOptions::default();
+    let _ = OpenAiConversationCreateRequest::new();
+    let _ = OpenAiVectorStoreCreateRequest::new();
+    let _: Option<OpenAiSkillUpload> = None;
+    let _: Option<OpenAiBinaryContent> = None;
+
+    assert!(!format!("{:?}", provider.conversations()).contains("credential"));
+    assert!(!format!("{:?}", provider.files()).contains("credential"));
+    assert!(!format!("{:?}", provider.vector_stores()).contains("credential"));
+    assert!(!format!("{:?}", provider.skills()).contains("credential"));
+}
+
 #[cfg(feature = "google")]
 #[test]
 fn facade_exposes_the_current_google_multi_family_and_native_slices() {

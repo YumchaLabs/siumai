@@ -12,6 +12,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Added dated native support profiles for Cohere v2 embedding/rerank and Deepgram prerecorded transcription, including current Embed v4, Rerank v4/v3, and Nova-3/Nova-2 model hints.
 - Added provider-owned support manifests for composite portable and native surfaces, including an exact Groq transcription claim and a dated facade support matrix.
 - Added `siumai-protocol-gemini` as the wire owner for stable-v1 Gemini Interactions.
+- Added OpenAI portable embedding, image-generation, buffered-speech, and final-result
+  transcription families, plus typed provider-owned Conversations, Files, Vector Stores, and
+  Skills lifecycle clients.
 
 ### Changed
 
@@ -25,6 +28,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Replaced the image-shaped `GoogleImage*` public surface with product-level `Gemini*` types, moved
   Interactions image encoding and decoding into the protocol crate, and made caller-controlled
   endpoints require a custom replay audience.
+- Made `OpenAiProvider::registration()` bind its five portable families while keeping explicit
+  Responses and Chat Completions registrations language-only. OpenAI speech now requires an
+  explicit voice, and unsupported embedding-dimension overrides fail before transport.
 
 ### Removed
 

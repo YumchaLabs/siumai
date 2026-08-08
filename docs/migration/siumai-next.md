@@ -38,6 +38,54 @@ The temporary `siumai_protocol_openai::responses_next` module was renamed to
 `siumai_protocol_openai::responses`. The old module is not retained as an alias. Update protocol
 imports directly; the `openai-responses` Cargo feature and all wire identifiers remain unchanged.
 
+## OpenAI provider families and resources
+
+`OpenAiProvider` is now the long-lived owner of five portable model families. Its default
+`registration()` binds Language through Responses plus Embedding, Image, Speech, and
+Transcription. Code that needs only one language protocol should use the explicit registration:
+
+```rust,ignore
+let all_portable_families = provider.registration()?;
+let responses_only = provider.responses_registration()?;
+let chat_only = provider.chat_completions_registration()?;
+```
+
+Model acquisition remains synchronous and network-free:
+
+```rust,ignore
+let embedding = provider.embedding("text-embedding-3-small")?;
+let image = provider.image("gpt-image-2")?;
+let speech = provider.speech("gpt-4o-mini-tts")?;
+let transcription = provider.transcription("gpt-4o-transcribe")?;
+```
+
+The provider builder accepts typed defaults independently for each family through
+`with_embedding_defaults`, `with_image_defaults`, `with_speech_defaults`, and
+`with_transcription_defaults`. Buffered speech requires an explicit voice; Siumai no longer
+chooses one implicitly. Explicit embedding dimensions are rejected for model families whose
+official request contract does not support that override, including unknown future IDs, rather
+than being silently omitted.
+
+Provider-native lifecycle APIs remain separate from the portable families:
+
+```rust,ignore
+let conversations = provider.conversations();
+let files = provider.files();
+let vector_stores = provider.vector_stores();
+let skills = provider.skills();
+```
+
+Each operation has a normal method using default `CallOptions` and a matching `_with_options`
+variant. Binary file and skill content is returned as `OpenAiBinaryContent`, whose `Debug` output
+redacts the payload. The implemented slices are deliberately narrow: basic conversation item,
+file, vector-store file, and directory-skill lifecycles are present; conversation item lookup,
+vector search and file batches, zip-skill upload, and a universal resource client are not claimed.
+
+The former broad native support ID `responses-resources` is replaced by
+`responses-resource-lifecycle`, with separate support claims for Conversations, Files, Vector
+Stores, and Skills. Applications that persist or inspect support manifests should migrate those
+IDs directly.
+
 ## MiniMax construction
 
 The compatibility-era `MinimaxConfig` and `MinimaxClient` path is replaced by one long-lived,

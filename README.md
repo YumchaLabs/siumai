@@ -42,7 +42,7 @@ Provider features describe the exact retained slice, not every product sold unde
 
 | Feature | Current public scope |
 |---|---|
-| `openai` | Chat Completions, Responses, and Responses resources |
+| `openai` | Responses and Chat language, embeddings, image generation, buffered speech, final-result transcription, and typed Conversations/Files/Vector Stores/Skills resources |
 | `openai-realtime` | Experimental OpenAI Realtime support |
 | `anthropic` | Messages and Anthropic-native resources |
 | `google` | Gemini Interactions/GenerateContent language, embedding, image, speech, Files, and Veo |
