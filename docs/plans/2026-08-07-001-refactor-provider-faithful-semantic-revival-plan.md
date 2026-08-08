@@ -210,7 +210,8 @@ compatibility engine.
   container/skills, and MCP servers have typed provider-owned entry points.
 - **AE10 (R10, R12):** Gemini Interactions selects stable `v1` explicitly, encodes the current
   polymorphic `response_format` contract, and never sends deprecated `outputs` or
-  `response_mime_type` fields. GenerateContent is an explicit legacy mode, not the hidden default.
+  `response_mime_type` fields. GenerateContent remains an explicit stable secondary mode, not the
+  hidden default and not an invented upstream legacy claim.
 - **AE11 (R10, R17):** Current Alibaba Qwen requests use the verified token-limit field; DeepSeek
   strict tools or prefix completion reject the stable endpoint and require explicit beta mode; ARK
   Remote MCP sends its required beta header.
@@ -292,7 +293,7 @@ cannot be silently counted as delivered.
 | OpenAI | Conversations, Files, Vector Stores, Skills | Provider-native resources | Must land | U7 | one bounded lifecycle fixture each |
 | OpenAI | image edits/partial images, custom voices, Uploads, WebRTC, SIP/call control | Provider-native | Deferred | — | support matrix names the omitted surface |
 | Anthropic | current Messages options, tier split, automatic cache, cache prewarm | Provider-native options/operation | Must land | U12 | one combined wire/policy fixture and redaction check |
-| Gemini | stable Interactions language/image and explicit GenerateContent legacy mode | Portable + native modes | Must land | U6 | direct/SSE terminal fixtures and legacy-mode assertion |
+| Gemini | stable Interactions language/image and explicit stable GenerateContent secondary mode | Portable + native modes | Must land | U6 | direct/SSE terminal fixtures and explicit-mode assertion |
 | Gemini | text embedding, buffered speech, Files, Veo submit/status | Portable + native resources | Must land | U6 | one family/resource lifecycle fixture per slice |
 | Gemini | stored/background Interactions, Live sessions, and ephemeral tokens | Provider-native session/resource | Deferred | — | support matrix names the omitted surface |
 | Alibaba | current Chat token field and Anthropic-compatible Messages | Portable language modes | Must land | U8 | Chat field assertion plus Messages direct/stream fixture |
@@ -995,8 +996,9 @@ sequenceDiagram
     `response_format` contract before adding other families. Reject deprecated `outputs` and
     `response_mime_type` fields at the typed boundary.
   - Add Interactions `LanguageModel` as the primary current mode with explicit storage policy; keep
-    GenerateContent as an explicit legacy-but-supported mode for capabilities not yet available in
-    Interactions.
+    GenerateContent as an explicit stable secondary mode for capabilities not yet available in
+    Interactions. Do not label it upstream Legacy while Google's stable `v1` discovery continues to
+    publish the operation.
   - Complete checkpoint A after U0/U2: protocol extraction, `GeminiProvider` rename, stable-v1
     correction, and the existing image regression with no added family.
   - Complete checkpoint B only after U4: add Interactions language, text embedding, buffered speech,
@@ -1009,8 +1011,8 @@ sequenceDiagram
 - **Test scenarios:**
   - Stable Interactions direct and SSE fixtures use `v1`, current `response_format` variants,
     canonical terminal settlement, and no deprecated `outputs` or `response_mime_type` fields.
-  - GenerateContent is selected only through an explicit API mode and carries an upstream Legacy
-    claim.
+  - GenerateContent is selected only through an explicit API mode and carries an honest stable
+    support claim distinct from the primary Interactions registration.
   - Language, embedding, image, and speech each have one representative portable fixture; Files and
     Veo each have one typed lifecycle fixture.
   - Custom endpoints do not inherit Google's official fidelity or model lifecycle.
