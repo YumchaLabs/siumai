@@ -1826,6 +1826,55 @@ fn repository_response_fixtures_round_trip_native_items_losslessly() {
     }
 }
 
+#[test]
+fn native_response_debug_redacts_provider_payloads() {
+    let sentinel = "response-debug-sentinel";
+    let body = serde_json::to_vec(&json!({
+        "id": "resp_debug",
+        "created_at": 1,
+        "model": "gpt-5.6",
+        "status": "completed",
+        "output": [
+            {
+                "id": "msg_debug",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{
+                    "type": "output_text",
+                    "text": sentinel,
+                    "annotations": []
+                }]
+            },
+            {
+                "id": "future_debug",
+                "type": "future_provider_tool_call",
+                "private_payload": sentinel
+            }
+        ],
+        "usage": null,
+        "error": null,
+        "incomplete_details": null,
+        "reasoning": null,
+        "private_top_level": sentinel
+    }))
+    .unwrap();
+
+    let decoded = decode_response(&body, &scope(), &model()).unwrap();
+    assert!(!format!("{decoded:?}").contains(sentinel));
+    assert!(!format!("{:?}", decoded.native()).contains(sentinel));
+    for item in &decoded.native().output {
+        assert!(!format!("{item:?}").contains(sentinel));
+    }
+
+    let wire = StreamEventWire {
+        kind: "response.future".to_string(),
+        sequence_number: Some(1),
+        fields: BTreeMap::from([("private_payload".to_string(), json!(sentinel))]),
+    };
+    assert!(!format!("{wire:?}").contains(sentinel));
+}
+
 fn terminal_frame(
     event_type: &str,
     status: &str,

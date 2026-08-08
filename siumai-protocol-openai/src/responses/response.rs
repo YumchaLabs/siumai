@@ -1,6 +1,7 @@
 //! Non-streaming Responses decoding and canonical projection.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde_json::{Value, json};
 use siumai_core::{
@@ -19,10 +20,22 @@ use super::wire::{
 use super::{OPENAI_RESPONSES_OPAQUE_KIND, OPENAI_RESPONSES_PROTOCOL};
 
 /// A lossless native response paired with its portable canonical projection.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct DecodedResponse {
     native: ResponseWire,
     canonical: LanguageResponse,
+}
+
+impl fmt::Debug for DecodedResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DecodedResponse")
+            .field("native_status", &self.native.status)
+            .field("native_output_items", &self.native.output.len())
+            .field("portable_status", &self.canonical.status())
+            .field("portable_content_parts", &self.canonical.content().len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl DecodedResponse {

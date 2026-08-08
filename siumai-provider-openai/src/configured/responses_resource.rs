@@ -17,17 +17,31 @@ use siumai_transport::{
 
 use super::http_error;
 use super::mode::OpenAiApiMode;
-use super::options::{OpenAiReasoning, OpenAiResponseInclude, OpenAiTruncation};
+use super::options::{
+    OpenAiPromptCacheOptions, OpenAiPromptCacheRetention, OpenAiReasoning, OpenAiResponseInclude,
+    OpenAiResponsesOptions, OpenAiServiceTier, OpenAiTruncation,
+};
 use super::provider::OpenAiRuntime;
 use super::tools::OpenAiResponsesTool;
 
 const MAX_RESOURCE_ID_BYTES: usize = 512;
 
 /// A newly created background response plus provider-policy advisories.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct OpenAiBackgroundResponse {
     resource: ResponseWire,
     warnings: Vec<Warning>,
+}
+
+impl fmt::Debug for OpenAiBackgroundResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiBackgroundResponse")
+            .field("status", &self.resource.status)
+            .field("output_items", &self.resource.output.len())
+            .field("warnings", &self.warnings.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl OpenAiBackgroundResponse {
@@ -338,10 +352,8 @@ impl OpenAiResponsesInputItemsOptions {
     }
 
     fn validate(&self) -> Result<(), Error> {
-        if self.limit == Some(0) {
-            return Err(invalid_input(
-                "Responses input item limit must be greater than zero",
-            ));
+        if self.limit.is_some_and(|limit| !(1..=100).contains(&limit)) {
+            return Err(invalid_input("Responses input item limit must be 1..=100"));
         }
         if let Some(after) = &self.after {
             validate_resource_id("after", after)?;
@@ -351,7 +363,7 @@ impl OpenAiResponsesInputItemsOptions {
 }
 
 /// One lossless page returned by `responses/{id}/input_items`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiResponsesInputItemsPage {
     pub object: String,
     #[serde(default)]
@@ -366,26 +378,57 @@ pub struct OpenAiResponsesInputItemsPage {
     pub extra: BTreeMap<String, Value>,
 }
 
+impl fmt::Debug for OpenAiResponsesInputItemsPage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesInputItemsPage")
+            .field("items", &self.data.len())
+            .field("has_more", &self.has_more)
+            .field("has_first_id", &self.first_id.is_some())
+            .field("has_last_id", &self.last_id.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Request body for provider-native Responses compaction.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, Default, PartialEq, Serialize)]
 pub struct OpenAiResponsesCompactRequest {
-    pub model: ModelId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_options: Option<OpenAiPromptCacheOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<OpenAiPromptCacheRetention>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<OpenAiServiceTier>,
 }
 
 impl OpenAiResponsesCompactRequest {
-    pub fn new(model: ModelId) -> Self {
+    pub const fn new() -> Self {
         Self {
-            model,
+            model: None,
             input: None,
             previous_response_id: None,
             instructions: None,
+            prompt_cache_key: None,
+            prompt_cache_options: None,
+            prompt_cache_retention: None,
+            service_tier: None,
         }
+    }
+
+    pub fn with_model(mut self, model: ModelId) -> Self {
+        self.model = Some(model);
+        self
     }
 
     pub fn with_input(mut self, input: Value) -> Self {
@@ -400,6 +443,26 @@ impl OpenAiResponsesCompactRequest {
 
     pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
+        self
+    }
+
+    pub fn with_prompt_cache_key(mut self, key: impl Into<String>) -> Self {
+        self.prompt_cache_key = Some(key.into());
+        self
+    }
+
+    pub fn with_prompt_cache_options(mut self, options: OpenAiPromptCacheOptions) -> Self {
+        self.prompt_cache_options = Some(options);
+        self
+    }
+
+    pub fn with_prompt_cache_retention(mut self, retention: OpenAiPromptCacheRetention) -> Self {
+        self.prompt_cache_retention = Some(retention);
+        self
+    }
+
+    pub fn with_service_tier(mut self, service_tier: OpenAiServiceTier) -> Self {
+        self.service_tier = Some(service_tier);
         self
     }
 
@@ -421,12 +484,52 @@ impl OpenAiResponsesCompactRequest {
                 "Responses compaction requires input or previous_response_id",
             ));
         }
+        OpenAiResponsesOptions {
+            prompt_cache_key: self.prompt_cache_key.clone(),
+            prompt_cache_options: self.prompt_cache_options.clone(),
+            prompt_cache_retention: self.prompt_cache_retention,
+            service_tier: self.service_tier,
+            ..OpenAiResponsesOptions::default()
+        }
+        .validate_values()
+        .map_err(|source| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "Responses compaction options are invalid",
+            )
+            .with_source(source)
+        })?;
         Ok(())
     }
 }
 
+impl fmt::Debug for OpenAiResponsesCompactRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesCompactRequest")
+            .field("has_model", &self.model.is_some())
+            .field("has_input", &self.input.is_some())
+            .field(
+                "has_previous_response_id",
+                &self.previous_response_id.is_some(),
+            )
+            .field("has_instructions", &self.instructions.is_some())
+            .field("has_prompt_cache_key", &self.prompt_cache_key.is_some())
+            .field(
+                "has_prompt_cache_options",
+                &self.prompt_cache_options.is_some(),
+            )
+            .field(
+                "has_prompt_cache_retention",
+                &self.prompt_cache_retention.is_some(),
+            )
+            .field("has_service_tier", &self.service_tier.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Lossless provider-native compaction resource.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiResponsesCompaction {
     pub id: String,
     pub object: String,
@@ -440,8 +543,20 @@ pub struct OpenAiResponsesCompaction {
     pub extra: BTreeMap<String, Value>,
 }
 
+impl fmt::Debug for OpenAiResponsesCompaction {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesCompaction")
+            .field("output_items", &self.output.len())
+            .field("has_created_at", &self.created_at.is_some())
+            .field("has_usage", &self.usage.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Provider-native request accepted by `POST /responses/input_tokens`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Clone, Default, PartialEq, Serialize)]
 pub struct OpenAiResponsesInputTokenCountRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
@@ -467,6 +582,32 @@ pub struct OpenAiResponsesInputTokenCountRequest {
     pub tools: Vec<OpenAiResponsesTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncation: Option<OpenAiTruncation>,
+}
+
+impl fmt::Debug for OpenAiResponsesInputTokenCountRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesInputTokenCountRequest")
+            .field("has_conversation", &self.conversation.is_some())
+            .field("has_input", &self.input.is_some())
+            .field("has_instructions", &self.instructions.is_some())
+            .field("has_model", &self.model.is_some())
+            .field(
+                "has_parallel_tool_calls",
+                &self.parallel_tool_calls.is_some(),
+            )
+            .field("has_personality", &self.personality.is_some())
+            .field(
+                "has_previous_response_id",
+                &self.previous_response_id.is_some(),
+            )
+            .field("has_reasoning", &self.reasoning.is_some())
+            .field("has_text", &self.text.is_some())
+            .field("has_tool_choice", &self.tool_choice.is_some())
+            .field("tools", &self.tools.len())
+            .field("has_truncation", &self.truncation.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl OpenAiResponsesInputTokenCountRequest {
@@ -606,7 +747,7 @@ impl OpenAiResponsesInputTokenCountRequest {
 }
 
 /// Exact input-token count returned by OpenAI Responses.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiResponsesInputTokenCount {
     pub object: String,
     pub input_tokens: u64,
@@ -614,14 +755,34 @@ pub struct OpenAiResponsesInputTokenCount {
     pub extra: BTreeMap<String, Value>,
 }
 
+impl fmt::Debug for OpenAiResponsesInputTokenCount {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesInputTokenCount")
+            .field("input_tokens", &self.input_tokens)
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Typed deletion acknowledgement for a stored response.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiDeletedResponse {
     pub id: String,
     pub object: String,
     pub deleted: bool,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for OpenAiDeletedResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiDeletedResponse")
+            .field("deleted", &self.deleted)
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
 }
 
 fn request_plan(
@@ -776,6 +937,75 @@ mod tests {
         assert_eq!(response.extra["future_field"], json!({"kept": true}));
     }
 
+    #[test]
+    fn resource_debug_and_input_item_limits_fail_closed() {
+        let sentinel = "responses-resource-debug-sentinel";
+        let resource: ResponseWire = serde_json::from_value(json!({
+            "id": "resp_debug",
+            "model": "gpt-5.6-sol",
+            "status": "completed",
+            "output": [{
+                "id": "future_debug",
+                "type": "future_provider_tool_call",
+                "private_payload": sentinel
+            }]
+        }))
+        .unwrap();
+        let background = OpenAiBackgroundResponse::new(resource, Vec::new());
+        assert!(!format!("{background:?}").contains(sentinel));
+
+        let page: OpenAiResponsesInputItemsPage = serde_json::from_value(json!({
+            "object": "list",
+            "data": [{"type": "message", "private_payload": sentinel}],
+            "has_more": false,
+            "private_page": sentinel
+        }))
+        .unwrap();
+        assert!(!format!("{page:?}").contains(sentinel));
+
+        let compaction: OpenAiResponsesCompaction = serde_json::from_value(json!({
+            "id": "cmp_debug",
+            "object": "response.compaction",
+            "output": [{"type": "reasoning", "encrypted_content": sentinel}],
+            "private_compaction": sentinel
+        }))
+        .unwrap();
+        assert!(!format!("{compaction:?}").contains(sentinel));
+
+        assert!(
+            OpenAiResponsesInputItemsOptions::default()
+                .with_limit(0)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OpenAiResponsesInputItemsOptions::default()
+                .with_limit(101)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OpenAiResponsesInputItemsOptions::default()
+                .with_limit(100)
+                .validate()
+                .is_ok()
+        );
+
+        let compact = OpenAiResponsesCompactRequest::new()
+            .with_previous_response_id("resp_debug")
+            .with_service_tier(OpenAiServiceTier::Scale);
+        compact.validate().unwrap();
+        let compact = serde_json::to_value(compact).unwrap();
+        assert!(compact.get("model").is_none());
+        assert_eq!(compact["service_tier"], "scale");
+
+        let conflicting_cache = OpenAiResponsesCompactRequest::new()
+            .with_previous_response_id("resp_debug")
+            .with_prompt_cache_options(OpenAiPromptCacheOptions::explicit_30_minutes())
+            .with_prompt_cache_retention(OpenAiPromptCacheRetention::TwentyFourHours);
+        assert!(conflicting_cache.validate().is_err());
+    }
+
     #[tokio::test]
     async fn cancel_and_compact_use_native_resource_shapes_without_replay() {
         let server = MockServer::start().await;
@@ -821,7 +1051,8 @@ mod tests {
 
         let compacted = resource
             .compact(
-                OpenAiResponsesCompactRequest::new(ModelId::new("gpt-5.6-sol").unwrap())
+                OpenAiResponsesCompactRequest::new()
+                    .with_model(ModelId::new("gpt-5.6-sol").unwrap())
                     .with_previous_response_id("resp_123"),
                 CallOptions::default(),
             )

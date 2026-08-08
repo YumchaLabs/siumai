@@ -1,12 +1,13 @@
 //! Lossless OpenAI Responses wire types.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 /// A full Responses resource returned by HTTP or a terminal stream event.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseWire {
     pub id: String,
     #[serde(default)]
@@ -27,8 +28,23 @@ pub struct ResponseWire {
     pub extra: BTreeMap<String, Value>,
 }
 
+impl fmt::Debug for ResponseWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResponseWire")
+            .field("status", &self.status)
+            .field("output_items", &self.output.len())
+            .field("has_usage", &self.usage.is_some())
+            .field("has_error", &self.error.is_some())
+            .field("has_incomplete_details", &self.incomplete_details.is_some())
+            .field("has_reasoning", &self.reasoning.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// The lifecycle status carried by a Responses resource.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResponseStatus {
     Queued,
@@ -38,6 +54,20 @@ pub enum ResponseStatus {
     Cancelled,
     Failed,
     Other(String),
+}
+
+impl fmt::Debug for ResponseStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Queued => "Queued",
+            Self::InProgress => "InProgress",
+            Self::Completed => "Completed",
+            Self::Incomplete => "Incomplete",
+            Self::Cancelled => "Cancelled",
+            Self::Failed => "Failed",
+            Self::Other(_) => "Other(<redacted>)",
+        })
+    }
 }
 
 impl ResponseStatus {
@@ -82,7 +112,7 @@ impl<'de> Deserialize<'de> for ResponseStatus {
 }
 
 /// The lifecycle status carried by an individual output item.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ItemStatus {
     InProgress,
@@ -90,6 +120,18 @@ pub enum ItemStatus {
     Incomplete,
     Failed,
     Other(String),
+}
+
+impl fmt::Debug for ItemStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::InProgress => "InProgress",
+            Self::Completed => "Completed",
+            Self::Incomplete => "Incomplete",
+            Self::Failed => "Failed",
+            Self::Other(_) => "Other(<redacted>)",
+        })
+    }
 }
 
 impl ItemStatus {
@@ -131,7 +173,7 @@ impl<'de> Deserialize<'de> for ItemStatus {
 
 /// One Responses output item. Unknown and provider-hosted tool items retain their
 /// complete JSON object so future wire additions remain replayable.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[non_exhaustive]
 pub enum OutputItem {
     Message(MessageItemWire),
@@ -142,6 +184,28 @@ pub enum OutputItem {
     ProgramOutput(ProgramOutputItemWire),
     ProviderTool(ProviderToolItemWire),
     Unknown(UnknownOutputItemWire),
+}
+
+impl fmt::Debug for OutputItem {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let variant = match self {
+            Self::Message(_) => "Message",
+            Self::Reasoning(_) => "Reasoning",
+            Self::FunctionCall(_) => "FunctionCall",
+            Self::CustomToolCall(_) => "CustomToolCall",
+            Self::Program(_) => "Program",
+            Self::ProgramOutput(_) => "ProgramOutput",
+            Self::ProviderTool(_) => "ProviderTool",
+            Self::Unknown(_) => "Unknown",
+        };
+        formatter
+            .debug_struct("OutputItem")
+            .field("variant", &variant)
+            .field("has_id", &self.id().is_some())
+            .field("has_call_id", &self.call_id().is_some())
+            .field("has_status", &self.status().is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl OutputItem {
@@ -306,7 +370,7 @@ where
         .ok_or_else(|| E::custom("Responses output item must be a JSON object"))
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageItemWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -324,12 +388,35 @@ pub struct MessageItemWire {
     pub raw: Option<Map<String, Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl fmt::Debug for MessageItemWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessageItemWire")
+            .field("has_status", &self.status.is_some())
+            .field("content_parts", &self.content.len())
+            .field("has_phase", &self.phase.is_some())
+            .field("extra_fields", &self.extra.len())
+            .field("has_raw", &self.raw.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 #[non_exhaustive]
 pub enum OutputContentPart {
     Text(OutputTextWire),
     Refusal(OutputRefusalWire),
     Unknown(UnknownContentPartWire),
+}
+
+impl fmt::Debug for OutputContentPart {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Text(_) => "OutputContentPart::Text(<redacted>)",
+            Self::Refusal(_) => "OutputContentPart::Refusal(<redacted>)",
+            Self::Unknown(_) => "OutputContentPart::Unknown(<redacted>)",
+        })
+    }
 }
 
 impl Serialize for OutputContentPart {
@@ -368,7 +455,7 @@ impl<'de> Deserialize<'de> for OutputContentPart {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutputTextWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -381,7 +468,19 @@ pub struct OutputTextWire {
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for OutputTextWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OutputTextWire")
+            .field("text_bytes", &self.text.len())
+            .field("annotations", &self.annotations.len())
+            .field("has_logprobs", &self.logprobs.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutputRefusalWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -390,12 +489,31 @@ pub struct OutputRefusalWire {
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl fmt::Debug for OutputRefusalWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OutputRefusalWire")
+            .field("refusal_bytes", &self.refusal.len())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct UnknownContentPartWire {
     pub raw: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for UnknownContentPartWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("UnknownContentPartWire")
+            .field("fields", &self.raw.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnnotationWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -403,7 +521,16 @@ pub struct AnnotationWire {
     pub fields: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for AnnotationWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AnnotationWire")
+            .field("fields", &self.fields.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReasoningItemWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -423,7 +550,21 @@ pub struct ReasoningItemWire {
     pub raw: Option<Map<String, Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for ReasoningItemWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReasoningItemWire")
+            .field("summary_parts", &self.summary.len())
+            .field("content_parts", &self.content.len())
+            .field("has_encrypted_content", &self.encrypted_content.is_some())
+            .field("has_status", &self.status.is_some())
+            .field("extra_fields", &self.extra.len())
+            .field("has_raw", &self.raw.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReasoningTextWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -432,7 +573,17 @@ pub struct ReasoningTextWire {
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for ReasoningTextWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReasoningTextWire")
+            .field("text_bytes", &self.text.len())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolCallerWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -442,7 +593,17 @@ pub struct ToolCallerWire {
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for ToolCallerWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ToolCallerWire")
+            .field("has_caller_id", &self.caller_id.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct FunctionCallItemWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -463,7 +624,23 @@ pub struct FunctionCallItemWire {
     pub raw: Option<Map<String, Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for FunctionCallItemWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FunctionCallItemWire")
+            .field("has_id", &self.id.is_some())
+            .field("name_bytes", &self.name.len())
+            .field("argument_bytes", &self.arguments.len())
+            .field("has_namespace", &self.namespace.is_some())
+            .field("has_caller", &self.caller.is_some())
+            .field("has_status", &self.status.is_some())
+            .field("extra_fields", &self.extra.len())
+            .field("has_raw", &self.raw.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CustomToolCallItemWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -484,7 +661,23 @@ pub struct CustomToolCallItemWire {
     pub raw: Option<Map<String, Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for CustomToolCallItemWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CustomToolCallItemWire")
+            .field("has_id", &self.id.is_some())
+            .field("name_bytes", &self.name.len())
+            .field("input_bytes", &self.input.len())
+            .field("has_namespace", &self.namespace.is_some())
+            .field("has_caller", &self.caller.is_some())
+            .field("has_status", &self.status.is_some())
+            .field("extra_fields", &self.extra.len())
+            .field("has_raw", &self.raw.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProgramItemWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -498,7 +691,19 @@ pub struct ProgramItemWire {
     pub raw: Option<Map<String, Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for ProgramItemWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProgramItemWire")
+            .field("code_bytes", &self.code.len())
+            .field("fingerprint_bytes", &self.fingerprint.len())
+            .field("extra_fields", &self.extra.len())
+            .field("has_raw", &self.raw.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProgramOutputItemWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -512,11 +717,35 @@ pub struct ProgramOutputItemWire {
     pub raw: Option<Map<String, Value>>,
 }
 
+impl fmt::Debug for ProgramOutputItemWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProgramOutputItemWire")
+            .field("result_bytes", &self.result.len())
+            .field("status", &self.status)
+            .field("extra_fields", &self.extra.len())
+            .field("has_raw", &self.raw.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Provider-hosted tool items are intentionally represented by their complete
 /// object. Their schemas evolve independently and are not portable core data.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ProviderToolItemWire {
     pub raw: Map<String, Value>,
+}
+
+impl fmt::Debug for ProviderToolItemWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderToolItemWire")
+            .field("fields", &self.raw.len())
+            .field("has_id", &self.id().is_some())
+            .field("has_call_id", &self.call_id().is_some())
+            .field("has_status", &self.status().is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderToolItemWire {
@@ -544,9 +773,21 @@ impl ProviderToolItemWire {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnknownOutputItemWire {
     pub raw: Map<String, Value>,
+}
+
+impl fmt::Debug for UnknownOutputItemWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("UnknownOutputItemWire")
+            .field("fields", &self.raw.len())
+            .field("has_id", &self.id().is_some())
+            .field("has_call_id", &self.call_id().is_some())
+            .field("has_status", &self.status().is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl UnknownOutputItemWire {
@@ -574,14 +815,24 @@ impl UnknownOutputItemWire {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IncompleteDetailsWire {
     pub reason: String,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for IncompleteDetailsWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("IncompleteDetailsWire")
+            .field("reason_bytes", &self.reason.len())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseReasoningConfigWire {
     #[serde(default)]
     pub effort: Option<String>,
@@ -595,7 +846,20 @@ pub struct ResponseReasoningConfigWire {
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl fmt::Debug for ResponseReasoningConfigWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResponseReasoningConfigWire")
+            .field("has_effort", &self.effort.is_some())
+            .field("has_summary", &self.summary.is_some())
+            .field("has_context", &self.context.is_some())
+            .field("has_mode", &self.mode.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResponseErrorWire {
     #[serde(default)]
     pub code: Option<String>,
@@ -608,7 +872,20 @@ pub struct ResponseErrorWire {
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl fmt::Debug for ResponseErrorWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResponseErrorWire")
+            .field("has_code", &self.code.is_some())
+            .field("message_bytes", &self.message.len())
+            .field("has_param", &self.param.is_some())
+            .field("has_type", &self.kind.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResponseUsageWire {
     pub input_tokens: u64,
     #[serde(default)]
@@ -621,7 +898,21 @@ pub struct ResponseUsageWire {
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl fmt::Debug for ResponseUsageWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResponseUsageWire")
+            .field("input_tokens", &self.input_tokens)
+            .field("output_tokens", &self.output_tokens)
+            .field("total_tokens", &self.total_tokens)
+            .field("has_input_details", &self.input_tokens_details.is_some())
+            .field("has_output_details", &self.output_tokens_details.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputTokenDetailsWire {
     #[serde(default)]
     pub cached_tokens: Option<u64>,
@@ -635,7 +926,26 @@ pub struct InputTokenDetailsWire {
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl fmt::Debug for InputTokenDetailsWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("InputTokenDetailsWire")
+            .field("has_cached_tokens", &self.cached_tokens.is_some())
+            .field("has_cache_write_tokens", &self.cache_write_tokens.is_some())
+            .field(
+                "has_orchestration_input_tokens",
+                &self.orchestration_input_tokens.is_some(),
+            )
+            .field(
+                "has_orchestration_input_cached_tokens",
+                &self.orchestration_input_cached_tokens.is_some(),
+            )
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputTokenDetailsWire {
     #[serde(default)]
     pub reasoning_tokens: Option<u64>,
@@ -645,9 +955,23 @@ pub struct OutputTokenDetailsWire {
     pub extra: BTreeMap<String, Value>,
 }
 
+impl fmt::Debug for OutputTokenDetailsWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OutputTokenDetailsWire")
+            .field("has_reasoning_tokens", &self.reasoning_tokens.is_some())
+            .field(
+                "has_orchestration_output_tokens",
+                &self.orchestration_output_tokens.is_some(),
+            )
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// One decoded SSE JSON event. Event-specific payloads remain available through
 /// typed accessors in the stream decoder and the original JSON value.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct StreamEventWire {
     #[serde(rename = "type")]
     pub kind: String,
@@ -655,6 +979,17 @@ pub struct StreamEventWire {
     pub sequence_number: Option<u64>,
     #[serde(flatten)]
     pub fields: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for StreamEventWire {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("StreamEventWire")
+            .field("kind_bytes", &self.kind.len())
+            .field("sequence_number", &self.sequence_number)
+            .field("fields", &self.fields.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl StreamEventWire {

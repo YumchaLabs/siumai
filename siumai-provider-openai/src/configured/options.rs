@@ -276,12 +276,17 @@ impl OpenAiContextManagement {
     fn validate(&self) -> Result<(), ProviderOptionError> {
         match self {
             Self::Compaction {
-                compact_threshold: Some(0),
-            } => Err(rejected(
+                compact_threshold: Some(compact_threshold),
+            } if *compact_threshold < 1_000 => Err(rejected(
                 "context_management.compact_threshold",
-                "compaction threshold must be greater than zero",
+                "compaction threshold must be at least 1000 tokens",
             )),
-            Self::Compaction { .. } => Ok(()),
+            Self::Compaction {
+                compact_threshold: None,
+            } => Ok(()),
+            Self::Compaction {
+                compact_threshold: Some(_),
+            } => Ok(()),
         }
     }
 }
@@ -295,6 +300,8 @@ pub enum OpenAiResponseInclude {
     FileSearchResults,
     #[serde(rename = "web_search_call.action.sources")]
     WebSearchActionSources,
+    #[serde(rename = "web_search_call.results")]
+    WebSearchResults,
     #[serde(rename = "code_interpreter_call.outputs")]
     CodeInterpreterOutputs,
     #[serde(rename = "computer_call_output.output.image_url")]
@@ -311,6 +318,7 @@ impl OpenAiResponseInclude {
             Self::ReasoningEncryptedContent => "reasoning.encrypted_content",
             Self::FileSearchResults => "file_search_call.results",
             Self::WebSearchActionSources => "web_search_call.action.sources",
+            Self::WebSearchResults => "web_search_call.results",
             Self::CodeInterpreterOutputs => "code_interpreter_call.outputs",
             Self::ComputerOutputImageUrl => "computer_call_output.output.image_url",
             Self::InputImageUrl => "message.input_image.image_url",
@@ -326,6 +334,7 @@ pub enum OpenAiServiceTier {
     Auto,
     Default,
     Flex,
+    Scale,
     Fast,
     Priority,
 }
@@ -907,10 +916,30 @@ mod tests {
     }
 
     #[test]
-    fn fast_service_tier_uses_current_wire_value() {
+    fn current_response_include_service_tier_and_compaction_bounds_are_typed() {
         assert_eq!(
             serde_json::to_value(OpenAiServiceTier::Fast).unwrap(),
             serde_json::json!("fast")
         );
+        assert_eq!(
+            serde_json::to_value(OpenAiServiceTier::Scale).unwrap(),
+            serde_json::json!("scale")
+        );
+        assert_eq!(
+            serde_json::to_value(OpenAiResponseInclude::WebSearchResults).unwrap(),
+            serde_json::json!("web_search_call.results")
+        );
+
+        let too_small = OpenAiResponsesOptions {
+            context_management: vec![OpenAiContextManagement::compaction(999)],
+            ..OpenAiResponsesOptions::default()
+        };
+        assert!(too_small.validate_values().is_err());
+
+        let minimum = OpenAiResponsesOptions {
+            context_management: vec![OpenAiContextManagement::compaction(1_000)],
+            ..OpenAiResponsesOptions::default()
+        };
+        assert!(minimum.validate_values().is_ok());
     }
 }
