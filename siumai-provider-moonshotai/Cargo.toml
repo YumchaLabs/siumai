@@ -24,6 +24,7 @@ siumai-transport = { workspace = true, default-features = false }
 
 async-trait.workspace = true
 chrono.workspace = true
+http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

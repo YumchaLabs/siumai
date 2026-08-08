@@ -4,7 +4,8 @@ use siumai_core::{
     MessageRole, ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal, UsageValue,
 };
 use siumai_provider_moonshotai::{
-    KIMI_K3, KimiLanguageOptions, KimiReasoningEffort, MoonshotCredential, MoonshotProvider,
+    KIMI_K3, KimiAssistantPartial, KimiFileUpload, KimiFileUploadPurpose, KimiLanguageOptions,
+    KimiReasoningEffort, MoonshotCredential, MoonshotProvider,
 };
 use siumai_transport::EndpointConfig;
 
@@ -140,4 +141,104 @@ async fn provider_error_keeps_typed_sanitized_diagnostics() {
         Some(std::time::Duration::from_secs(2))
     );
     mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn partial_mode_projects_from_the_final_assistant_annotation() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/chat/completions")
+        .match_body(mockito::Matcher::AllOf(vec![
+            mockito::Matcher::Regex(r#"\"role\":\"assistant\""#.to_string()),
+            mockito::Matcher::Regex(r#"\"content\":\"The answer is\""#.to_string()),
+            mockito::Matcher::Regex(r#"\"partial\":true"#.to_string()),
+        ]))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"id":"chat-partial","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":" 42"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"#,
+        )
+        .create_async()
+        .await;
+    let partial = Message::assistant("The answer is")
+        .with_provider_annotation(&KimiAssistantPartial::new())
+        .expect("partial annotation");
+    let model = provider(format!("{}/v1", server.url()))
+        .language(KIMI_K3)
+        .expect("model");
+
+    model
+        .generate(
+            LanguageRequest::new(vec![Message::user("continue"), partial]),
+            CallOptions::default(),
+        )
+        .await
+        .expect("partial response");
+
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn partial_mode_rejects_non_final_or_non_text_annotations_before_transport() {
+    let server = mockito::Server::new_async().await;
+    let model = provider(format!("{}/v1", server.url()))
+        .language("kimi-k4-future")
+        .expect("future model");
+    let partial = Message::assistant("prefix")
+        .with_provider_annotation(&KimiAssistantPartial::new())
+        .expect("partial annotation");
+
+    let error = model
+        .generate(
+            LanguageRequest::new(vec![partial, Message::user("not final")]),
+            CallOptions::default(),
+        )
+        .await
+        .expect_err("non-final partial must fail");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+}
+
+#[tokio::test]
+async fn files_use_the_provider_owned_lifecycle_and_sanitize_errors() {
+    let mut server = mockito::Server::new_async().await;
+    let upload = server
+        .mock("POST", "/v1/files")
+        .match_header("authorization", "Bearer test-key")
+        .match_body(mockito::Matcher::Regex(
+            "file-extract".to_string(),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"id":"file-1","object":"file","bytes":5,"created_at":1,"filename":"notes.txt","purpose":"file-extract","status":"ok","status_details":null,"future":true}"#,
+        )
+        .create_async()
+        .await;
+    let content = server
+        .mock("GET", "/v1/files/file-1/content")
+        .with_status(200)
+        .with_header("content-type", "text/plain")
+        .with_body("hello")
+        .create_async()
+        .await;
+    let provider = provider(format!("{}/v1", server.url()));
+    let file = provider
+        .files()
+        .upload(
+            KimiFileUpload::new(
+                "notes.txt",
+                "text/plain",
+                b"hello".to_vec(),
+                KimiFileUploadPurpose::FileExtract,
+            )
+            .expect("upload"),
+        )
+        .await
+        .expect("file");
+
+    assert_eq!(file.id, "file-1");
+    assert_eq!(provider.files().content("file-1").await.unwrap(), "hello");
+    upload.assert_async().await;
+    content.assert_async().await;
 }

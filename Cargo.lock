@@ -2386,6 +2386,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures-util",
+ "http",
  "mockito",
  "serde",
  "serde_json",
@@ -2425,6 +2426,8 @@ name = "siumai-provider-volcengine"
 version = "0.11.0-beta.9"
 dependencies = [
  "async-trait",
+ "base64",
+ "bytes",
  "chrono",
  "futures-util",
  "http",
@@ -2437,6 +2440,7 @@ dependencies = [
  "siumai-transport",
  "thiserror 2.0.18",
  "tokio",
+ "url",
 ]
 
 [[package]]

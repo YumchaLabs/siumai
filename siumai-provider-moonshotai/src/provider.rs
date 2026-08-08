@@ -5,27 +5,37 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
-    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
-    ProviderOptionError, ProviderRegistration, ReplayDomain, ReplayDomainId, TypedProviderOptions,
+    ApiStability, CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider,
+    LanguageRequest, LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId,
+    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderOptionError,
+    ProviderRegistration, ProviderSupportManifest, ReplayDomain, ReplayDomainId,
+    SupportManifestError, TypedProviderOptions, VerificationDate, VerifiedFidelity,
+    VerifiedNativeSupportClaim,
 };
 use siumai_openai_compatible::{
-    DynamicCredentialSource, OpenAiCompatibleApiMode, OpenAiCompatibleConfigError,
-    OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel, OpenAiCompatibleProvider,
+    CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
+    OpenAiCompatibleConfigError, OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel,
+    OpenAiCompatibleProvider,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, OfficialOrigin, RetryPolicy, TransportLimits,
+    EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, RetryPolicy,
+    TransportConfigError, TransportLimits,
 };
 use thiserror::Error as ThisError;
 
+use crate::files::{KimiFiles, MoonshotNativeRuntime};
 use crate::language::{DEFAULT_BASE_URL, PROVIDER_ID, profile};
 use crate::options::KimiLanguageOptions;
 
 const OFFICIAL_ORIGIN: &str = "https://api.moonshot.ai";
 const OFFICIAL_REPLAY_DOMAIN: &str = "moonshotai-kimi-public-api";
+const FILES_SOURCE: &str = "https://platform.kimi.ai/docs/api/files";
+const FILES_VERIFIED_ON: &str = "2026-08-08";
 
 /// Moonshot AI credential source.
 #[derive(Clone)]
@@ -58,7 +68,9 @@ impl fmt::Debug for MoonshotCredential {
 #[derive(Clone)]
 pub struct MoonshotProvider {
     language: OpenAiCompatibleProvider,
+    native: Arc<MoonshotNativeRuntime>,
     registration: ProviderRegistration,
+    support_manifest: Arc<ProviderSupportManifest>,
 }
 
 impl MoonshotProvider {
@@ -92,6 +104,15 @@ impl MoonshotProvider {
         self.registration.clone()
     }
 
+    /// Provider-owned Kimi Files lifecycle.
+    pub fn files(&self) -> KimiFiles {
+        KimiFiles::new(self.native.clone())
+    }
+
+    pub fn support_manifest(&self) -> &ProviderSupportManifest {
+        &self.support_manifest
+    }
+
     /// Inspect the exact support evidence for this configured endpoint.
     ///
     /// The official endpoint exposes verified Kimi evidence. Caller-controlled endpoints retain
@@ -103,7 +124,7 @@ impl MoonshotProvider {
 
 impl Provider for MoonshotProvider {
     fn provider_id(&self) -> &siumai_core::ProviderId {
-        self.language.provider_id()
+        self.support_manifest.provider_id()
     }
 }
 
@@ -222,18 +243,37 @@ impl MoonshotProviderBuilder {
             return Err(MoonshotConfigError::ReplayAudienceMismatch);
         }
 
-        let profile = profile(endpoint, replay_domain, verified_endpoint)?;
-        let mut builder = OpenAiCompatibleProvider::builder(profile, self.credential.0)
+        self.credential.0.validate_static()?;
+        let auth = self.credential.0.into_auth();
+        let profile = profile(endpoint.clone(), replay_domain, verified_endpoint)?;
+        let native_claims = if verified_endpoint {
+            vec![files_support_claim()?]
+        } else {
+            Vec::new()
+        };
+        let support_manifest = Arc::new(ProviderSupportManifest::new(
+            siumai_core::ProviderId::new(PROVIDER_ID)?,
+            [profile.provider_profile().clone()],
+            native_claims,
+        )?);
+        let mut builder = OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
+            .with_limits(self.limits.clone())
+            .with_retry_policy(self.retry_policy);
+        let mut native_builder = ProviderTransport::builder(endpoint)
+            .with_auth(auth)
             .with_limits(self.limits)
             .with_retry_policy(self.retry_policy);
         if let Some(timeout) = self.connect_timeout {
             builder = builder.with_connect_timeout(timeout);
+            native_builder = native_builder.with_connect_timeout(timeout);
         }
         if let Some(timeout) = self.call_timeout {
             builder = builder.with_call_timeout(timeout);
+            native_builder = native_builder.with_call_timeout(timeout);
         }
         if let Some(timeout) = self.read_timeout {
             builder = builder.with_read_timeout(timeout);
+            native_builder = native_builder.with_read_timeout(timeout);
         }
         for (name, value) in option_map(&self.language_defaults)? {
             builder =
@@ -241,12 +281,15 @@ impl MoonshotProviderBuilder {
         }
 
         let language = builder.build()?;
+        let native = Arc::new(MoonshotNativeRuntime::new(native_builder.build()?));
         let registration = language
             .chat_completions_registration()
             .ok_or(MoonshotConfigError::MissingChatMode)?;
         Ok(MoonshotProvider {
             language,
+            native,
             registration,
+            support_manifest,
         })
     }
 }
@@ -295,6 +338,23 @@ fn official_endpoint() -> Result<EndpointConfig, EndpointError> {
     EndpointConfig::official(DEFAULT_BASE_URL, OfficialOrigin::new(OFFICIAL_ORIGIN)?)
 }
 
+fn files_support_claim() -> Result<VerifiedNativeSupportClaim, MoonshotConfigError> {
+    Ok(VerifiedNativeSupportClaim::new(
+        NativeSupportScope::surface(
+            siumai_core::ProviderId::new(PROVIDER_ID)?,
+            siumai_core::PlatformId::new("kimi-public-api")?,
+            NativeSurfaceKind::Resource,
+            NativeSurfaceId::new("files-basic-lifecycle")?,
+        ),
+        VerifiedFidelity::Native,
+        ApiStability::Stable,
+        NativeVerificationEvidence::new(
+            OfficialSource::new(FILES_SOURCE)?,
+            VerificationDate::new(NaiveDate::parse_from_str(FILES_VERIFIED_ON, "%Y-%m-%d")?),
+        ),
+    ))
+}
+
 fn option_map(options: &impl Serialize) -> Result<Map<String, Value>, MoonshotConfigError> {
     match serde_json::to_value(options)? {
         Value::Object(values) => Ok(values),
@@ -311,6 +371,16 @@ pub enum MoonshotConfigError {
     Endpoint(#[from] EndpointError),
     #[error("invalid Moonshot AI compatible profile or runtime: {0}")]
     Compatible(#[from] OpenAiCompatibleConfigError),
+    #[error("invalid Moonshot AI credential: {0}")]
+    Credential(#[from] CredentialSourceError),
+    #[error("invalid Moonshot AI native transport: {0}")]
+    Transport(#[from] TransportConfigError),
+    #[error("invalid Moonshot AI support evidence: {0}")]
+    SupportEvidence(#[from] ProfileError),
+    #[error("invalid Moonshot AI support verification date: {0}")]
+    SupportDate(#[from] chrono::ParseError),
+    #[error("invalid Moonshot AI support manifest: {0}")]
+    SupportManifest(#[from] SupportManifestError),
     #[error("invalid Kimi default options: {0}")]
     Options(#[from] ProviderOptionError),
     #[error("Kimi default options could not be serialized: {0}")]

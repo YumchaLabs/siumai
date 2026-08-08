@@ -26,3 +26,30 @@ pub const DOUBAO_SEED_EVOLVING: &str = "doubao-seed-evolving";
 
 /// Recommended general-purpose model hint for this verification snapshot.
 pub const DEFAULT_MODEL: &str = DOUBAO_SEED_2_1_PRO_260628;
+
+/// Current Seedream 5.0 Pro image snapshot.
+pub const DOLA_SEEDREAM_5_0_PRO_260628: &str = "dola-seedream-5-0-pro-260628";
+
+/// Current Seedream 5.0 image snapshot.
+pub const SEEDREAM_5_0_260128: &str = "seedream-5-0-260128";
+
+/// Explicit Seedream 5.0 Lite alias.
+pub const SEEDREAM_5_0_LITE_260128: &str = "seedream-5-0-lite-260128";
+
+/// Seedream 4.5 image snapshot.
+pub const SEEDREAM_4_5_251128: &str = "seedream-4-5-251128";
+
+/// Seedream 4.0 image snapshot.
+pub const SEEDREAM_4_0_250828: &str = "seedream-4-0-250828";
+
+/// Current Seedance 2.0 video snapshot.
+pub const DREAMINA_SEEDANCE_2_0_260128: &str = "dreamina-seedance-2-0-260128";
+
+/// Current low-latency Seedance 2.0 snapshot.
+pub const DREAMINA_SEEDANCE_2_0_FAST_260128: &str = "dreamina-seedance-2-0-fast-260128";
+
+/// Seedance 1.5 Pro video snapshot.
+pub const SEEDANCE_1_5_PRO_251215: &str = "seedance-1-5-pro-251215";
+
+/// Seedance 1.0 Pro video snapshot.
+pub const SEEDANCE_1_0_PRO_250528: &str = "seedance-1-0-pro-250528";

@@ -64,8 +64,8 @@ of compiled public scope, not a promise that every account can use every model o
 | `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, buffered speech, Files metadata, and Veo submit/status | Stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
 | `alibaba` | Verified Chat Completions, Responses, and Anthropic-compatible Messages modes, native embeddings, and experimental Wan video jobs | Complete Anthropic parity, a separate DashScope provider identity, or business-region routing |
-| `moonshotai` | Verified Moonshot AI Kimi Chat Completions dialect with typed Kimi options and dated model advisories | Kimi resources or API modes not implemented by the branded provider |
-| `volcengine` | Verified Volcengine ARK Chat Completions and Responses dialects with typed ARK options | ARK media, MCP, or other native resources not implemented by the branded provider |
+| `moonshotai` | Verified Moonshot AI Kimi Chat Completions dialect with typed Kimi options, Partial Mode, and Files lifecycle | Kimi Batch, token-estimate, Formula, or other resources not implemented by the branded provider |
+| `volcengine` | Verified Volcengine ARK Chat Completions/Responses dialects, portable Image, Remote MCP, and typed Video task lifecycle | Account-specific ARK deployments and media features outside the implemented Image/Video slices |
 | `openai-compatible` | Explicit generic-compatible configuration for caller-owned endpoints | Named-provider fidelity, model advice, or native-provider resources |
 | `groq` | Verified Chat Completions and Responses dialects plus final-result transcription | A universal OpenAI clone or unrelated Groq products |
 | `xai` | Verified Responses and Chat Completions language modes with typed xAI tools/options | Files, image, speech, video, or a generic native-resource client |
@@ -105,6 +105,8 @@ names the exact execution surface; it is not provider-wide identity.
 | `moonshotai` / Kimi | `moonshotai` / `kimi-public-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://platform.kimi.ai/docs/api/chat | 2026-08-08 |
 | `volcengine` / ARK | `volcengine` / `ark-cn-beijing` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1330626 | 2026-08-08 |
 | `volcengine` / ARK | `volcengine` / `ark-cn-beijing` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.volcengine.com/docs/82379/1585128 | 2026-08-08 |
+| `volcengine` / ARK | `volcengine` / `ark-cn-beijing` | Image | `ark-images` / `images-generations` | `native` | `stable` | https://api.volcengine.com/api-docs/view?action=ImageGenerations&serviceCode=ark&version=2024-01-01 | 2026-08-08 |
+| `volcengine` / ARK | `volcengine` / `ark-cn-beijing` | Video task | `ark-native` / `video-generation-tasks` | `native` | `stable` | https://api.volcengine.com/api-docs/view?action=CreateContentsGenerationsTasks&serviceCode=ark&version=2024-01-01 | 2026-08-08 |
 | `groq` / Groq | `groq` / `groq-cloud` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://console.groq.com/docs/openai | 2026-08-05 |
 | `groq` / Groq | `groq` / `groq-cloud` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://console.groq.com/docs/responses-api | 2026-08-05 |
 | `groq` / Groq | `groq` / `groq-cloud` | Transcription | `groq-audio-transcriptions` / `audio-transcriptions` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-06 |

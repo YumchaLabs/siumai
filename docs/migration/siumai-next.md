@@ -437,6 +437,10 @@ or a temporary hidden feature:
   `siumai-provider-volcengine`. Their typed options, model advisories, and support evidence no
   longer appear below the compatibility-engine namespace. Unverified GLM, Qianfan, Hunyuan,
   SiliconFlow, DeepInfra, and other named presets are not shipped as support claims.
+- Moonshot AI now exposes Kimi Partial Mode through a final-assistant message annotation and a
+  typed Files lifecycle (`files()`). Volcengine ARK now exposes `images()` and `video_tasks()` as
+  provider-owned native surfaces, while `image(model)` implements the portable `ImageModel`
+  contract. No generic Video job trait was reintroduced.
 
 The old `siumai-spec` and `siumai-provider-utils` packages are removed. Legacy universal client
 traits, provider capability switches, provider-specific feature flags in core, compatibility

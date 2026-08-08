@@ -7,7 +7,7 @@ use chrono::NaiveDate;
 use serde_json::Value;
 use siumai_core::{
     ApiModeId, ApiStability, ContentPart, Error, ErrorKind, LanguageRequest, MediaData,
-    ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile,
+    MessageRole, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile,
     OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId, ProviderId,
     ProviderProfile, ReplayDomain, SupportScope, ToolChoice, ToolSpec, TypedProviderOptions,
     VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning,
@@ -20,6 +20,7 @@ use siumai_transport::EndpointConfig;
 use siumai_openai_compatible::extension::v1::{ChatCodecPolicy, PreparedChatCall};
 use siumai_openai_compatible::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};
 
+use crate::annotations::KimiAssistantPartial;
 use crate::options::{KimiLanguageOptions, KimiThinking, KimiThinkingMode};
 
 pub const PROVIDER_ID: &str = "moonshotai";
@@ -205,6 +206,7 @@ impl ChatCodecPolicy for KimiChatCodecPolicy {
     ) -> Result<PreparedChatCall, Error> {
         validate_api_limits(&request)?;
         validate_media_sources(&request)?;
+        kimi_partial_index(&request)?;
 
         let mut warnings = Vec::new();
         let Some(policy) = model_policy(model) else {
@@ -251,6 +253,82 @@ impl ChatCodecPolicy for KimiChatCodecPolicy {
             warnings,
         })
     }
+
+    fn encode_request(
+        &self,
+        scope: &siumai_core::ProviderScope,
+        model: &ModelId,
+        prepared: &PreparedChatCall,
+        stream: bool,
+    ) -> Result<Value, Error> {
+        let mut body = prepared.encode(scope, model, stream)?;
+        if kimi_partial_index(&prepared.request)?.is_some() {
+            mark_kimi_partial(&mut body)?;
+        }
+        Ok(body)
+    }
+}
+
+fn kimi_partial_index(request: &LanguageRequest) -> Result<Option<usize>, Error> {
+    let mut partial_index = None;
+    for (index, message) in request.messages.iter().enumerate() {
+        let annotation = message
+            .annotations()
+            .decode::<KimiAssistantPartial>()
+            .map_err(|source| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "Kimi Partial Mode annotation is invalid",
+                )
+                .with_source(source)
+            })?;
+        if annotation.is_none() {
+            continue;
+        }
+        if partial_index.replace(index).is_some() {
+            return Err(invalid(
+                "Kimi Partial Mode accepts exactly one annotated assistant message",
+            ));
+        }
+        if message.role() != MessageRole::Assistant {
+            return Err(invalid(
+                "Kimi Partial Mode must annotate an assistant message",
+            ));
+        }
+        if message.content().len() != 1
+            || !matches!(message.content()[0].content(), ContentPart::Text { text } if !text.is_empty())
+        {
+            return Err(invalid(
+                "Kimi Partial Mode requires one non-empty assistant text prefix",
+            ));
+        }
+    }
+    if partial_index.is_some_and(|index| index + 1 != request.messages.len()) {
+        return Err(invalid("Kimi Partial Mode must annotate the final message"));
+    }
+    Ok(partial_index)
+}
+
+fn mark_kimi_partial(body: &mut Value) -> Result<(), Error> {
+    let message = body
+        .get_mut("messages")
+        .and_then(Value::as_array_mut)
+        .and_then(|messages| messages.last_mut())
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| {
+            Error::new(
+                ErrorKind::Internal,
+                "Kimi Chat encoding omitted the final Partial Mode message",
+            )
+        })?;
+    if message.get("role").and_then(Value::as_str) != Some("assistant") {
+        return Err(Error::new(
+            ErrorKind::Internal,
+            "Kimi Chat encoding changed the Partial Mode message role",
+        ));
+    }
+    message.insert("partial".to_string(), Value::Bool(true));
+    Ok(())
 }
 
 fn parse_options(extra: &BTreeMap<String, Value>) -> Result<KimiLanguageOptions, Error> {

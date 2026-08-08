@@ -2,8 +2,9 @@
 
 pub use siumai_provider_moonshotai::{
     BearerCredential, CredentialRequest, CredentialSourceError, DynamicCredentialSource,
-    MoonshotConfigError, MoonshotCredential, MoonshotLanguageModel, MoonshotProvider,
-    MoonshotProviderBuilder,
+    KimiAssistantPartial, KimiFile, KimiFileDeleteResult, KimiFileList, KimiFileUpload,
+    KimiFileUploadPurpose, KimiFiles, MoonshotConfigError, MoonshotCredential,
+    MoonshotLanguageModel, MoonshotProvider, MoonshotProviderBuilder,
 };
 
 pub mod models {

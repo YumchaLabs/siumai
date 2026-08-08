@@ -7,6 +7,8 @@
 
 #![deny(unsafe_code)]
 
+mod annotations;
+mod files;
 mod language;
 pub mod options;
 mod provider;
@@ -28,3 +30,7 @@ pub use siumai_openai_compatible::{
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub use annotations::KimiAssistantPartial;
+pub use files::{
+    KimiFile, KimiFileDeleteResult, KimiFileList, KimiFileUpload, KimiFileUploadPurpose, KimiFiles,
+};

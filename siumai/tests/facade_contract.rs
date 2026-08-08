@@ -550,7 +550,7 @@ fn facade_exposes_the_current_google_multi_family_and_native_slices() {
 #[cfg(all(feature = "registry", feature = "deepseek"))]
 #[test]
 fn facade_exposes_deepseek_as_a_curated_registration_source() {
-    use siumai::core::ProviderOptions;
+    use siumai::core::{ModelFamily, ProviderOptions};
     use siumai::providers::deepseek::options::{
         DeepSeekChatOptions, DeepSeekReasoningEffort, DeepSeekResponsesOptions,
     };
@@ -908,7 +908,9 @@ fn facade_exposes_moonshotai_provider_and_typed_kimi_options() {
     use siumai::core::ProviderOptions;
     use siumai::providers::moonshotai::models;
     use siumai::providers::moonshotai::options::{KimiLanguageOptions, KimiReasoningEffort};
-    use siumai::providers::moonshotai::{MoonshotCredential, MoonshotProvider};
+    use siumai::providers::moonshotai::{
+        KimiAssistantPartial, KimiFileUploadPurpose, MoonshotCredential, MoonshotProvider,
+    };
 
     let provider = MoonshotProvider::builder(MoonshotCredential::unauthenticated())
         .build()
@@ -942,6 +944,9 @@ fn facade_exposes_moonshotai_provider_and_typed_kimi_options() {
     .unwrap();
     assert_eq!(options.namespace().as_str(), "moonshotai");
     assert_eq!(options.value()["reasoning_effort"], "high");
+    let _partial = KimiAssistantPartial::new();
+    assert_eq!(KimiFileUploadPurpose::FileExtract.as_str(), "file-extract");
+    assert_eq!(provider.support_manifest().native_claims().len(), 1);
 }
 
 #[cfg(all(feature = "moonshotai", feature = "registry"))]
@@ -1082,7 +1087,10 @@ fn facade_rejects_provider_registration_without_a_portable_family() {
 #[test]
 fn facade_exposes_volcengine_provider_and_typed_ark_options() {
     use siumai::core::ProviderOptions;
-    use siumai::providers::volcengine::options::{ArkCaching, ArkResponsesOptions};
+    use siumai::providers::volcengine::options::{
+        ArkCaching, ArkImageOptions, ArkMcpApproval, ArkMcpTool, ArkResponsesOptions,
+        ArkResponsesTool,
+    };
     use siumai::providers::volcengine::{VolcengineCredential, VolcengineProvider};
 
     let provider = VolcengineProvider::builder(VolcengineCredential::unauthenticated())
@@ -1100,6 +1108,12 @@ fn facade_exposes_volcengine_provider_and_typed_ark_options() {
     );
     ProviderOptions::typed(&ArkResponsesOptions::new().with_caching(ArkCaching::disabled()))
         .unwrap();
+    ProviderOptions::typed(&ArkImageOptions::new().with_watermark(false)).unwrap();
+    let _mcp = ArkResponsesTool::remote_mcp(
+        ArkMcpTool::new("docs", "https://mcp.example.test").with_approval(ArkMcpApproval::Always),
+    );
+    assert!(provider.registration().supports_family(ModelFamily::Image));
+    assert_eq!(provider.support_manifest().native_claims().len(), 2);
 }
 
 #[cfg(all(feature = "volcengine", feature = "registry"))]

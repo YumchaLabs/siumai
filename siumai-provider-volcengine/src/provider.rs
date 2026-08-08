@@ -5,27 +5,46 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
-    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
-    ProviderOptionError, ProviderRegistration, ReplayDomain, ReplayDomainId, TypedProviderOptions,
+    ApiModeId, ApiStability, CallOptions, Error, GenericSupportClaim, ImageModel,
+    ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
+    LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor, ModelFamily, ModelId,
+    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProfileId,
+    ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderOptionError, ProviderOptions,
+    ProviderProfile, ProviderRegistration, ProviderRegistrationError, ProviderScope,
+    ProviderSupportManifest, ReplayDomain, ReplayDomainId, SupportManifestError, SupportScope,
+    TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    VerifiedNativeSupportClaim, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
-    DynamicCredentialSource, OpenAiCompatibleApiMode, OpenAiCompatibleConfigError,
-    OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel, OpenAiCompatibleProvider,
+    CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
+    OpenAiCompatibleConfigError, OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel,
+    OpenAiCompatibleProvider,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, OfficialOrigin, RetryPolicy, TransportLimits,
+    EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, RetryPolicy,
+    TransportConfigError, TransportLimits,
 };
 use thiserror::Error as ThisError;
 
-use crate::language::{DEFAULT_BASE_URL, PROVIDER_ID, VolcengineProfileError, profile};
+use crate::image::{ARK_IMAGE_API_MODE, ArkImageModel, ArkImageOptions, ArkImagePolicy, ArkImages};
+use crate::language::{
+    DEFAULT_BASE_URL, PLATFORM_ID, PROVIDER_ID, VolcengineProfileError, profile,
+};
+use crate::native::{ArkNativeRuntime, SharedArkNativeRuntime};
 use crate::options::{ArkChatOptions, ArkResponsesOptions};
+use crate::video::ArkVideoTasks;
 
 const OFFICIAL_ORIGIN: &str = "https://ark.cn-beijing.volces.com";
 const OFFICIAL_REPLAY_DOMAIN: &str = "volcengine-ark-cn-beijing";
+const ARK_IMAGE_PROTOCOL: &str = "ark-images";
+const IMAGE_SOURCE: &str = "https://api.volcengine.com/api-docs/view?action=ImageGenerations&serviceCode=ark&version=2024-01-01";
+const VIDEO_SOURCE: &str = "https://api.volcengine.com/api-docs/view?action=CreateContentsGenerationsTasks&serviceCode=ark&version=2024-01-01";
+const MEDIA_VERIFIED_ON: &str = "2026-08-08";
 
 /// Public Volcengine ARK language API selection.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -76,8 +95,13 @@ impl fmt::Debug for VolcengineCredential {
 #[derive(Clone)]
 pub struct VolcengineProvider {
     language: OpenAiCompatibleProvider,
+    native: SharedArkNativeRuntime,
+    image_scope: Arc<ProviderScope>,
+    image_policy: Arc<dyn siumai_core::ModelPolicy>,
+    image_defaults: ArkImageOptions,
     chat_registration: ProviderRegistration,
     responses_registration: ProviderRegistration,
+    support_manifest: Arc<ProviderSupportManifest>,
 }
 
 impl VolcengineProvider {
@@ -121,6 +145,22 @@ impl VolcengineProvider {
             .map(|inner| VolcengineLanguageModel { inner, api })
     }
 
+    /// Create a lightweight provider-neutral image handle over ARK Images.
+    pub fn image(&self, model: impl Into<String>) -> Result<ArkImageModel, ModelLookupError> {
+        let model = ModelId::new(model.into())?;
+        Ok(self.create_image_model(model))
+    }
+
+    /// Provider-owned ARK image-generation surface.
+    pub fn images(&self) -> ArkImages {
+        ArkImages::new(self.native.clone())
+    }
+
+    /// Provider-owned ARK asynchronous video task lifecycle.
+    pub fn video_tasks(&self) -> ArkVideoTasks {
+        ArkVideoTasks::new(self.native.clone())
+    }
+
     /// Registration for the recommended Responses mode.
     pub fn registration(&self) -> ProviderRegistration {
         self.responses_registration.clone()
@@ -148,11 +188,32 @@ impl VolcengineProvider {
     pub fn profile(&self) -> &siumai_core::ProviderProfile {
         self.language.profile().provider_profile()
     }
+
+    pub fn support_manifest(&self) -> &ProviderSupportManifest {
+        &self.support_manifest
+    }
+
+    fn create_image_model(&self, model: ModelId) -> ArkImageModel {
+        ArkImageModel::new(
+            self.native.clone(),
+            ModelDescriptor::from_scope(self.image_scope.clone(), model, ModelFamily::Image),
+            self.image_policy.clone(),
+            self.image_defaults.clone(),
+        )
+    }
 }
 
 impl Provider for VolcengineProvider {
     fn provider_id(&self) -> &siumai_core::ProviderId {
-        self.language.provider_id()
+        self.support_manifest.provider_id()
+    }
+}
+
+impl ImageModelProvider for VolcengineProvider {
+    type Model = ArkImageModel;
+
+    fn image_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
+        Ok(self.create_image_model(model))
     }
 }
 
@@ -186,6 +247,7 @@ pub struct VolcengineProviderBuilder {
     read_timeout: Option<Duration>,
     chat_defaults: ArkChatOptions,
     responses_defaults: ArkResponsesOptions,
+    image_defaults: ArkImageOptions,
 }
 
 impl VolcengineProviderBuilder {
@@ -202,6 +264,7 @@ impl VolcengineProviderBuilder {
             read_timeout: None,
             chat_defaults: ArkChatOptions::default(),
             responses_defaults: ArkResponsesOptions::default(),
+            image_defaults: ArkImageOptions::default(),
         }
     }
 
@@ -265,9 +328,15 @@ impl VolcengineProviderBuilder {
         self
     }
 
+    pub fn with_image_defaults(mut self, defaults: ArkImageOptions) -> Self {
+        self.image_defaults = defaults;
+        self
+    }
+
     pub fn build(self) -> Result<VolcengineProvider, VolcengineConfigError> {
         self.chat_defaults.validate()?;
         self.responses_defaults.validate()?;
+        ProviderOptions::typed(&self.image_defaults)?;
         let endpoint = self.endpoint?;
         let verified_endpoint = self.provider_selected_endpoint;
         let replay_domain = match (self.replay_domain, verified_endpoint) {
@@ -281,18 +350,41 @@ impl VolcengineProviderBuilder {
             return Err(VolcengineConfigError::ReplayAudienceMismatch);
         }
 
-        let profile = profile(endpoint, replay_domain, verified_endpoint)?;
-        let mut builder = OpenAiCompatibleProvider::builder(profile, self.credential.0)
+        self.credential.0.validate_static()?;
+        let auth = self.credential.0.into_auth();
+        let profile = profile(endpoint.clone(), replay_domain.clone(), verified_endpoint)?;
+        let image_scope = Arc::new(image_provider_scope(replay_domain.clone())?);
+        let image_policy: Arc<dyn siumai_core::ModelPolicy> =
+            Arc::new(ArkImagePolicy { verified_endpoint });
+        let image_profile = image_support_profile(verified_endpoint)?;
+        let native_claims = if verified_endpoint {
+            native_media_claims()?
+        } else {
+            Vec::new()
+        };
+        let support_manifest = Arc::new(ProviderSupportManifest::new(
+            ProviderId::new(PROVIDER_ID)?,
+            [profile.provider_profile().clone(), image_profile],
+            native_claims,
+        )?);
+        let mut builder = OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
+            .with_limits(self.limits.clone())
+            .with_retry_policy(self.retry_policy);
+        let mut native_builder = ProviderTransport::builder(endpoint)
+            .with_auth(auth)
             .with_limits(self.limits)
             .with_retry_policy(self.retry_policy);
         if let Some(timeout) = self.connect_timeout {
             builder = builder.with_connect_timeout(timeout);
+            native_builder = native_builder.with_connect_timeout(timeout);
         }
         if let Some(timeout) = self.call_timeout {
             builder = builder.with_call_timeout(timeout);
+            native_builder = native_builder.with_call_timeout(timeout);
         }
         if let Some(timeout) = self.read_timeout {
             builder = builder.with_read_timeout(timeout);
+            native_builder = native_builder.with_read_timeout(timeout);
         }
         for (name, value) in option_map(&self.chat_defaults)? {
             builder =
@@ -303,16 +395,42 @@ impl VolcengineProviderBuilder {
         }
 
         let language = builder.build()?;
+        let native = Arc::new(ArkNativeRuntime::new(native_builder.build()?));
+        let image_registration = ProviderRegistration::from_image(
+            image_scope.clone(),
+            image_policy.clone(),
+            Arc::new({
+                let native = native.clone();
+                let image_scope = image_scope.clone();
+                let image_policy = image_policy.clone();
+                let image_defaults = self.image_defaults.clone();
+                move |model| {
+                    Ok(Arc::new(ArkImageModel::new(
+                        native.clone(),
+                        ModelDescriptor::from_scope(image_scope.clone(), model, ModelFamily::Image),
+                        image_policy.clone(),
+                        image_defaults.clone(),
+                    )) as Arc<dyn ImageModel>)
+                }
+            }),
+        );
         let chat_registration = language
             .chat_completions_registration()
-            .ok_or(VolcengineConfigError::MissingChatMode)?;
+            .ok_or(VolcengineConfigError::MissingChatMode)?
+            .merge(image_registration.clone())?;
         let responses_registration = language
             .responses_registration()
-            .ok_or(VolcengineConfigError::MissingResponsesMode)?;
+            .ok_or(VolcengineConfigError::MissingResponsesMode)?
+            .merge(image_registration)?;
         Ok(VolcengineProvider {
             language,
+            native,
+            image_scope,
+            image_policy,
+            image_defaults: self.image_defaults,
             chat_registration,
             responses_registration,
+            support_manifest,
         })
     }
 }
@@ -369,6 +487,88 @@ fn official_endpoint() -> Result<EndpointConfig, EndpointError> {
     EndpointConfig::official(DEFAULT_BASE_URL, OfficialOrigin::new(OFFICIAL_ORIGIN)?)
 }
 
+fn image_provider_scope(replay_domain: ReplayDomain) -> Result<ProviderScope, InvalidId> {
+    Ok(ProviderScope::new(ProviderId::new(PROVIDER_ID)?)
+        .with_platform(PlatformId::new(PLATFORM_ID)?)
+        .with_protocol(ProtocolId::new(ARK_IMAGE_PROTOCOL)?)
+        .with_api_mode(ApiModeId::new(ARK_IMAGE_API_MODE)?)
+        .with_replay_domain(replay_domain))
+}
+
+fn image_support_profile(
+    verified_endpoint: bool,
+) -> Result<ProviderProfile, VolcengineConfigError> {
+    let scope = SupportScope::new(
+        ProviderId::new(PROVIDER_ID)?,
+        PlatformId::new(PLATFORM_ID)?,
+        ModelFamily::Image,
+        ProtocolId::new(ARK_IMAGE_PROTOCOL)?,
+        ApiModeId::new(ARK_IMAGE_API_MODE)?,
+    );
+    if !verified_endpoint {
+        return Ok(ProviderProfile::generic(
+            ProfileId::new("volcengine-ark-images-custom")?,
+            GenericSupportClaim::new(scope, ApiStability::Experimental),
+        ));
+    }
+    Ok(ProviderProfile::verified(
+        ProfileId::new("volcengine-ark-images")?,
+        vec![VerifiedSupportClaim::new(
+            scope,
+            VerifiedFidelity::Native,
+            ApiStability::Stable,
+            VerificationEvidence::new(
+                OfficialSource::new(IMAGE_SOURCE)?,
+                media_verification_date(),
+                ProtocolContractId::new("ark-image-generations-2026-08")?,
+            ),
+        )],
+        ModelCatalog::default(),
+    )?)
+}
+
+fn native_media_claims() -> Result<Vec<VerifiedNativeSupportClaim>, VolcengineConfigError> {
+    let provider = ProviderId::new(PROVIDER_ID)?;
+    let platform = PlatformId::new(PLATFORM_ID)?;
+    Ok(vec![
+        VerifiedNativeSupportClaim::new(
+            NativeSupportScope::surface(
+                provider.clone(),
+                platform.clone(),
+                NativeSurfaceKind::Resource,
+                NativeSurfaceId::new("image-generation")?,
+            ),
+            VerifiedFidelity::Native,
+            ApiStability::Stable,
+            NativeVerificationEvidence::new(
+                OfficialSource::new(IMAGE_SOURCE)?,
+                media_verification_date(),
+            ),
+        ),
+        VerifiedNativeSupportClaim::new(
+            NativeSupportScope::surface(
+                provider,
+                platform,
+                NativeSurfaceKind::Job,
+                NativeSurfaceId::new("video-generation-tasks")?,
+            ),
+            VerifiedFidelity::Native,
+            ApiStability::Stable,
+            NativeVerificationEvidence::new(
+                OfficialSource::new(VIDEO_SOURCE)?,
+                media_verification_date(),
+            ),
+        ),
+    ])
+}
+
+fn media_verification_date() -> VerificationDate {
+    VerificationDate::new(
+        NaiveDate::parse_from_str(MEDIA_VERIFIED_ON, "%Y-%m-%d")
+            .expect("ARK media verification date is valid"),
+    )
+}
+
 fn option_map(options: &impl Serialize) -> Result<Map<String, Value>, VolcengineConfigError> {
     match serde_json::to_value(options)? {
         Value::Object(values) => Ok(values),
@@ -387,6 +587,16 @@ pub enum VolcengineConfigError {
     Profile(#[from] VolcengineProfileError),
     #[error("invalid Volcengine credential or compatible runtime: {0}")]
     Compatible(#[from] OpenAiCompatibleConfigError),
+    #[error("invalid Volcengine credential: {0}")]
+    Credential(#[from] CredentialSourceError),
+    #[error("invalid Volcengine native transport: {0}")]
+    Transport(#[from] TransportConfigError),
+    #[error("invalid Volcengine support profile: {0}")]
+    SupportProfile(#[from] ProfileError),
+    #[error("invalid Volcengine support manifest: {0}")]
+    SupportManifest(#[from] SupportManifestError),
+    #[error("invalid Volcengine registration: {0}")]
+    Registration(#[from] ProviderRegistrationError),
     #[error("invalid ARK default options: {0}")]
     Options(#[from] ProviderOptionError),
     #[error("ARK default options could not be serialized: {0}")]

@@ -176,10 +176,100 @@ pub enum ArkResponsesTool {
         #[serde(skip_serializing_if = "Option::is_none")]
         ranking_options: Option<Value>,
     },
-    Mcp {
-        server_label: String,
-        server_url: String,
-    },
+    Mcp(ArkMcpTool),
+}
+
+/// Remote MCP approval policy for ARK Responses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ArkMcpApproval {
+    Always,
+    Never,
+}
+
+/// Typed ARK Remote MCP server declaration.
+///
+/// Provider-controlled authorization headers are intentionally excluded. Callers should use an
+/// MCP endpoint whose own authentication policy is appropriate for the remote service.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArkMcpTool {
+    server_label: String,
+    server_url: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    allowed_tools: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    require_approval: Option<ArkMcpApproval>,
+}
+
+impl ArkMcpTool {
+    pub fn new(label: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            server_label: label.into(),
+            server_url: url.into(),
+            allowed_tools: Vec::new(),
+            require_approval: None,
+        }
+    }
+
+    pub fn with_allowed_tool(mut self, tool_name: impl Into<String>) -> Self {
+        let tool_name = tool_name.into();
+        if !self.allowed_tools.contains(&tool_name) {
+            self.allowed_tools.push(tool_name);
+        }
+        self
+    }
+
+    pub const fn with_approval(mut self, approval: ArkMcpApproval) -> Self {
+        self.require_approval = Some(approval);
+        self
+    }
+
+    pub fn server_label(&self) -> &str {
+        &self.server_label
+    }
+
+    pub fn server_url(&self) -> &str {
+        &self.server_url
+    }
+
+    pub fn allowed_tools(&self) -> &[String] {
+        &self.allowed_tools
+    }
+
+    pub const fn approval(&self) -> Option<ArkMcpApproval> {
+        self.require_approval
+    }
+
+    fn validate(&self, index: usize) -> Result<(), ProviderOptionError> {
+        let uri = self.server_url.parse::<http::Uri>().ok();
+        if self.server_label.trim().is_empty()
+            || self.server_label != self.server_label.trim()
+            || self.server_label.len() > 128
+            || self.server_label.chars().any(char::is_control)
+            || uri.as_ref().and_then(http::Uri::scheme_str) != Some("https")
+            || uri.as_ref().and_then(http::Uri::host).is_none()
+        {
+            return Err(ProviderOptionError::Rejected {
+                path: format!("native_tools[{index}]"),
+                reason: "ARK MCP requires a bounded label and an absolute HTTPS URL".to_string(),
+            });
+        }
+        if self.allowed_tools.len() > 128
+            || self.allowed_tools.iter().any(|tool| {
+                tool.trim().is_empty()
+                    || tool != tool.trim()
+                    || tool.len() > 128
+                    || tool.chars().any(char::is_control)
+            })
+        {
+            return Err(ProviderOptionError::Rejected {
+                path: format!("native_tools[{index}].allowed_tools"),
+                reason: "ARK MCP allowed tool names are invalid or excessive".to_string(),
+            });
+        }
+        Ok(())
+    }
 }
 
 impl ArkResponsesTool {
@@ -202,11 +292,11 @@ impl ArkResponsesTool {
     }
 
     pub fn mcp(label: impl Into<String>, url: impl Into<String>) -> Self {
-        // Authenticated MCP headers are deliberately not modeled as untyped request options.
-        Self::Mcp {
-            server_label: label.into(),
-            server_url: url.into(),
-        }
+        Self::Mcp(ArkMcpTool::new(label, url))
+    }
+
+    pub fn remote_mcp(tool: ArkMcpTool) -> Self {
+        Self::Mcp(tool)
     }
 
     pub fn as_value(&self) -> Result<Value, ProviderOptionError> {
@@ -244,17 +334,7 @@ impl ArkResponsesTool {
                     });
                 }
             }
-            Self::Mcp {
-                server_label,
-                server_url,
-            } => {
-                if server_label.trim().is_empty() || server_url.trim().is_empty() {
-                    return Err(ProviderOptionError::Rejected {
-                        path: format!("native_tools[{index}]"),
-                        reason: "ARK MCP requires a label and URL".to_string(),
-                    });
-                }
-            }
+            Self::Mcp(tool) => tool.validate(index)?,
             Self::ImageProcess => {}
         }
         Ok(())
@@ -376,3 +456,4 @@ impl TypedProviderOptions for ArkResponsesOptions {
 
 pub const ARK_BETA_IMAGE_PROCESS_HEADER: &str = "ark-beta-image-process";
 pub const ARK_BETA_KNOWLEDGE_SEARCH_HEADER: &str = "ark-beta-knowledge-search";
+pub const ARK_BETA_MCP_HEADER: &str = "ark-beta-mcp";

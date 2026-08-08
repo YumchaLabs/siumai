@@ -37,8 +37,8 @@ use crate::models::{
     DOUBAO_SEED_EVOLVING,
 };
 use crate::options::{
-    ARK_BETA_IMAGE_PROCESS_HEADER, ARK_BETA_KNOWLEDGE_SEARCH_HEADER, ArkCachingType,
-    ArkChatOptions, ArkResponsesOptions, ArkResponsesTool,
+    ARK_BETA_IMAGE_PROCESS_HEADER, ARK_BETA_KNOWLEDGE_SEARCH_HEADER, ARK_BETA_MCP_HEADER,
+    ArkCachingType, ArkChatOptions, ArkResponsesOptions, ArkResponsesTool,
 };
 
 pub const PROVIDER_ID: &str = "volcengine";
@@ -256,15 +256,21 @@ impl ResponsesCodecPolicy for ArkResponsesCodecPolicy {
         let uses_knowledge_search = native_tools
             .iter()
             .any(|tool| tool.get("type").and_then(Value::as_str) == Some("knowledge_search"));
+        let uses_mcp = native_tools
+            .iter()
+            .any(|tool| tool.get("type").and_then(Value::as_str) == Some("mcp"));
         if uses_image_process {
             headers = beta_header(headers, ARK_BETA_IMAGE_PROCESS_HEADER)?;
         }
         if uses_knowledge_search {
             headers = beta_header(headers, ARK_BETA_KNOWLEDGE_SEARCH_HEADER)?;
         }
+        if uses_mcp {
+            headers = beta_header(headers, ARK_BETA_MCP_HEADER)?;
+        }
         extra.remove("native_tools");
         let mut warnings = Vec::new();
-        if uses_image_process || uses_knowledge_search {
+        if uses_image_process || uses_knowledge_search || uses_mcp {
             warnings.push(Warning::provider(
                 "experimental_provider_tool",
                 "ARK beta provider tool behavior may change",

@@ -6,8 +6,9 @@ use siumai_core::{
 use siumai_protocol_openai::responses::OPENAI_RESPONSES_PROTOCOL;
 use siumai_provider_volcengine::models::DOUBAO_SEED_2_1_PRO_260628;
 use siumai_provider_volcengine::{
-    ARK_BETA_KNOWLEDGE_SEARCH_HEADER, ArkChatOptions, ArkResponsesOptions, ArkResponsesTool,
-    ArkThinking, VolcengineCredential, VolcengineProvider,
+    ARK_BETA_KNOWLEDGE_SEARCH_HEADER, ARK_BETA_MCP_HEADER, ArkChatOptions, ArkMcpApproval,
+    ArkMcpTool, ArkResponsesOptions, ArkResponsesTool, ArkThinking, VolcengineCredential,
+    VolcengineProvider,
 };
 use siumai_transport::EndpointConfig;
 
@@ -231,5 +232,45 @@ async fn responses_preserves_sanitized_http_error_diagnostics() {
     assert_eq!(diagnostics.provider_code(), Some("invalid_parameter"));
     assert_eq!(diagnostics.provider_param(), Some("tools.0"));
     assert_eq!(diagnostics.request_id(), Some("ark-request-42"));
+    mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn responses_remote_mcp_adds_the_required_beta_header_and_typed_controls() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("POST", "/v1/responses")
+        .match_header(ARK_BETA_MCP_HEADER, "true")
+        .match_body(mockito::Matcher::AllOf(vec![
+            mockito::Matcher::Regex(r#"\"type\":\"mcp\""#.to_string()),
+            mockito::Matcher::Regex(r#"\"server_label\":\"docs\""#.to_string()),
+            mockito::Matcher::Regex(r#"\"allowed_tools\":\[\"search\"\]"#.to_string()),
+            mockito::Matcher::Regex(r#"\"require_approval\":\"always\""#.to_string()),
+        ]))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(format!(
+            r#"{{"id":"resp-mcp","created_at":1785811200,"model":"{TEST_MODEL}","status":"completed","output":[{{"id":"msg-1","type":"message","role":"assistant","status":"completed","content":[{{"type":"output_text","text":"ok","annotations":[]}}]}}],"usage":{{"input_tokens":1,"input_tokens_details":{{"cached_tokens":0}},"output_tokens":1,"output_tokens_details":{{"reasoning_tokens":0}},"total_tokens":2}},"error":null,"incomplete_details":null,"reasoning":null}}"#
+        ))
+        .expect(1)
+        .create_async()
+        .await;
+    let provider = test_provider(&format!("{}/v1", server.url()));
+    let mcp = ArkMcpTool::new("docs", "https://mcp.example.test/sse")
+        .with_allowed_tool("search")
+        .with_approval(ArkMcpApproval::Always);
+    let options = ArkResponsesOptions::new().with_native_tool(ArkResponsesTool::remote_mcp(mcp));
+
+    provider
+        .responses(TEST_MODEL)
+        .expect("model")
+        .generate(
+            user_request("search"),
+            CallOptions::default()
+                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
+        )
+        .await
+        .expect("response");
+
     mock.assert_async().await;
 }
