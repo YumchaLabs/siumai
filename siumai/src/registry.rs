@@ -90,7 +90,7 @@ impl RegistryBuilderExt for RegistryBuilder {
 }
 
 #[cfg(feature = "openai")]
-impl ProviderRegistrationSource for siumai_provider_openai::configured::OpenAiProvider {
+impl ProviderRegistrationSource for siumai_provider_openai::OpenAiProvider {
     fn provider_registration(&self) -> Result<ProviderRegistration, RegisterProviderError> {
         Ok(self.registration())
     }

@@ -1,28 +1,26 @@
 //! Curated OpenAI provider facade.
 
-pub use siumai_provider_openai::configured::{
+pub use siumai_provider_openai::{
     OpenAiApiMode, OpenAiConfigError, OpenAiCredential, OpenAiCredentialError, OpenAiProfile,
     OpenAiProvider, OpenAiProviderBuilder,
 };
 
 pub mod models {
-    pub use siumai_provider_openai::configured::{
+    pub use siumai_provider_openai::{
         GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,
         classify_model,
     };
 }
 
 pub mod chat_completions {
-    pub use siumai_provider_openai::configured::{
-        OpenAiChatCompletionsModel, OpenAiChatCompletionsOptions,
-    };
+    pub use siumai_provider_openai::{OpenAiChatCompletionsModel, OpenAiChatCompletionsOptions};
 }
 
 pub mod responses {
-    pub use siumai_provider_openai::configured::responses::{
+    pub use siumai_provider_openai::responses::{
         ResponsesStreamEvent, ResponsesStreamEventKind, StreamEventWire,
     };
-    pub use siumai_provider_openai::configured::{
+    pub use siumai_provider_openai::{
         OpenAiApplyPatchTool, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
         OpenAiCodeInterpreterContainer, OpenAiCodeInterpreterTool, OpenAiContainerMemoryLimit,
         OpenAiContainerNetworkPolicy, OpenAiCustomTool, OpenAiCustomToolFormat, OpenAiDomainSecret,
@@ -38,7 +36,7 @@ pub mod responses {
         OpenAiWebSearchFilters, OpenAiWebSearchImageSettings, OpenAiWebSearchReturnTokenBudget,
         OpenAiWebSearchTool,
     };
-    pub use siumai_provider_openai::configured::{
+    pub use siumai_provider_openai::{
         OpenAiBackgroundResponse, OpenAiDeletedResponse, OpenAiFunctionToolOptions,
         OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
         OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext,
@@ -56,7 +54,7 @@ pub mod responses {
 #[cfg(feature = "openai-realtime")]
 pub mod experimental {
     pub mod realtime {
-        pub use siumai_provider_openai::configured::experimental::realtime::{
+        pub use siumai_provider_openai::experimental::realtime::{
             DecodedRealtimeEvent, FunctionCallArgumentsDeltaEvent, FunctionCallArgumentsDoneEvent,
             IncompleteFunctionCall, OPENAI_REALTIME_CLIENT_SECRETS_URL, OPENAI_REALTIME_MODEL,
             OPENAI_REALTIME_TRANSLATION_CLIENT_SECRETS_URL, OPENAI_REALTIME_TRANSLATION_MODEL,
@@ -77,7 +75,7 @@ pub mod experimental {
         };
 
         pub mod advanced {
-            pub use siumai_provider_openai::configured::experimental::realtime::advanced::{
+            pub use siumai_provider_openai::experimental::realtime::advanced::{
                 OpenAiRealtimeConnectRequest, OpenAiRealtimeConnector, OpenAiRealtimeSocket,
                 OpenAiRealtimeSocketReceiver, OpenAiRealtimeSocketSender, OpenAiWebSocketConnector,
             };

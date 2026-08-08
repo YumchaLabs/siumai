@@ -11,8 +11,8 @@ use siumai_transport::{
     ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget, TransportResponse,
 };
 
+use super::http_error;
 use super::mode::OpenAiApiMode;
-use super::model::response_error_with_message;
 use super::provider::OpenAiRuntime;
 use super::realtime::{
     OpenAiRealtimeClientSecretRequest, OpenAiRealtimeClientSecretResource, OpenAiRealtimeRoute,
@@ -79,7 +79,7 @@ impl OpenAiRealtimeResource {
         if response.status().is_success() {
             Ok(response)
         } else {
-            Err(self.contextualize(response_error_with_message(
+            Err(self.contextualize(http_error::response_error(
                 "OpenAI rejected the Realtime client-secret request",
                 response,
             )))

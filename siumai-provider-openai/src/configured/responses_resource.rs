@@ -15,8 +15,8 @@ use siumai_transport::{
     ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget, TransportResponse,
 };
 
+use super::http_error;
 use super::mode::OpenAiApiMode;
-use super::model::{request_build_error, response_error};
 use super::options::{OpenAiReasoning, OpenAiResponseInclude, OpenAiTruncation};
 use super::provider::OpenAiRuntime;
 use super::tools::OpenAiResponsesTool;
@@ -228,7 +228,10 @@ impl OpenAiResponsesResource {
         if response.status().is_success() {
             Ok(response)
         } else {
-            Err(self.contextualize(response_error(OpenAiApiMode::Responses, response)))
+            Err(self.contextualize(http_error::response_error(
+                "OpenAI rejected the Responses resource request",
+                response,
+            )))
         }
     }
 
@@ -628,11 +631,21 @@ fn request_plan(
 ) -> Result<RequestPlan, Error> {
     let headers = RequestHeaders::new()
         .try_insert(ACCEPT, HeaderValue::from_static("application/json"))
-        .map_err(|source| request_build_error(OpenAiApiMode::Responses, source))?;
+        .map_err(|source| {
+            http_error::request_build_error(
+                "OpenAI Responses resource request violates the transport contract",
+                source,
+            )
+        })?;
     RequestPlan::new(method, target)
         .with_headers(headers)
         .with_replay_safety(replay_safety)
-        .map_err(|source| request_build_error(OpenAiApiMode::Responses, source))
+        .map_err(|source| {
+            http_error::request_build_error(
+                "OpenAI Responses resource request violates the transport contract",
+                source,
+            )
+        })
 }
 
 fn json_request_plan<T: Serialize>(
@@ -642,15 +655,21 @@ fn json_request_plan<T: Serialize>(
     replay_safety: ReplaySafety,
 ) -> Result<RequestPlan, Error> {
     let plan = request_plan(method, target, replay_safety)?;
-    Ok(plan.with_body(
-        RequestBody::json(body)
-            .map_err(|source| request_build_error(OpenAiApiMode::Responses, source))?,
-    ))
+    Ok(plan.with_body(RequestBody::json(body).map_err(|source| {
+        http_error::request_build_error(
+            "OpenAI Responses resource request violates the transport contract",
+            source,
+        )
+    })?))
 }
 
 fn target(value: &str) -> Result<RequestTarget, Error> {
-    RequestTarget::new(value)
-        .map_err(|source| request_build_error(OpenAiApiMode::Responses, source))
+    RequestTarget::new(value).map_err(|source| {
+        http_error::request_build_error(
+            "OpenAI Responses resource request violates the transport contract",
+            source,
+        )
+    })
 }
 
 fn target_with_query(

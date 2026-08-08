@@ -5,6 +5,7 @@
 
 mod catalog;
 mod credential;
+mod http_error;
 mod mode;
 mod model;
 mod options;
