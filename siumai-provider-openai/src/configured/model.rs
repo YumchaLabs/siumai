@@ -638,14 +638,17 @@ fn validate_prompt_cache_model_policy(
     model_class: super::catalog::OpenAiModelClass,
     merged: &OpenAiMergedOptions,
 ) -> Result<(), Error> {
-    let retention = merged
-        .wire
-        .get("prompt_cache_retention")
-        .and_then(Value::as_str);
-    if (model_class.is_gpt_5_5() || model_class.is_gpt_5_6()) && retention == Some("in_memory") {
+    let retention = merged.wire.get("prompt_cache_retention");
+    if model_class.is_gpt_5_6() && retention.is_some() {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            "GPT-5.5 and later models only support 24h prompt-cache retention",
+            "GPT-5.6 uses prompt_cache_options.ttl instead of prompt_cache_retention",
+        ));
+    }
+    if model_class.is_gpt_5_5() && retention.and_then(Value::as_str) == Some("in_memory") {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "GPT-5.5 only supports 24h prompt-cache retention",
         ));
     }
     if model_class.is_gpt_5_5()
@@ -1183,7 +1186,7 @@ mod tests {
                 mode: Some(OpenAiPromptCacheMode::Explicit),
                 ttl: None,
             }),
-            prompt_cache_write_candidates: vec![OpenAiPromptCacheBreakpoint::new(0, 0)],
+            prompt_cache_breakpoints: vec![OpenAiPromptCacheBreakpoint::new(0, 0)],
             top_logprobs: Some(5),
             reasoning: Some(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::None)),
             text_verbosity: Some(OpenAiTextVerbosity::High),
@@ -1227,7 +1230,7 @@ mod tests {
         let model = provider.chat_completions(GPT_5_6_SOL).unwrap();
         let typed = OpenAiChatCompletionsOptions::default()
             .with_prompt_cache(OpenAiPromptCacheOptions::explicit_30_minutes())
-            .with_prompt_cache_write_candidate(OpenAiPromptCacheBreakpoint::new(0, 0));
+            .with_prompt_cache_breakpoint(OpenAiPromptCacheBreakpoint::new(0, 0));
         let call_options =
             CallOptions::default().with_provider_options(ProviderOptions::typed(&typed).unwrap());
         let merged = model
@@ -1341,7 +1344,6 @@ mod tests {
         let provider = provider();
         let model = provider.responses(GPT_5_6_SOL).unwrap();
         let typed = OpenAiResponsesOptions {
-            prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit_30_minutes()),
             prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
             ..OpenAiResponsesOptions::default()
         };
@@ -1352,24 +1354,6 @@ mod tests {
             .merge_options(OpenAiApiMode::Responses, &call_options)
             .unwrap();
 
-        normalize_request(
-            OpenAiApiMode::Responses,
-            model.model_id(),
-            request(),
-            &mut merged,
-        )
-        .unwrap();
-
-        let invalid_retention = OpenAiResponsesOptions {
-            prompt_cache_retention: Some(OpenAiPromptCacheRetention::InMemory),
-            ..OpenAiResponsesOptions::default()
-        };
-        let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&invalid_retention).unwrap());
-        let mut merged = model
-            .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
-            .unwrap();
         let error = normalize_request(
             OpenAiApiMode::Responses,
             model.model_id(),
@@ -1380,9 +1364,27 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
         let gpt_5_5 = provider.responses(GPT_5_5).unwrap();
+        let valid_legacy_retention = OpenAiResponsesOptions {
+            prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
+            ..OpenAiResponsesOptions::default()
+        };
+        let call_options = CallOptions::default()
+            .with_provider_options(ProviderOptions::typed(&valid_legacy_retention).unwrap());
+        let mut merged = gpt_5_5
+            .runtime
+            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .unwrap();
+        normalize_request(
+            OpenAiApiMode::Responses,
+            gpt_5_5.model_id(),
+            request(),
+            &mut merged,
+        )
+        .unwrap();
+
         let unsupported = OpenAiResponsesOptions {
             prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit()),
-            prompt_cache_write_candidates: vec![OpenAiPromptCacheBreakpoint::new(0, 0)],
+            prompt_cache_breakpoints: vec![OpenAiPromptCacheBreakpoint::new(0, 0)],
             ..OpenAiResponsesOptions::default()
         };
         let call_options = CallOptions::default()

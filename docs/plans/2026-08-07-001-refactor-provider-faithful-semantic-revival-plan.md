@@ -200,10 +200,11 @@ compatibility engine.
   provider-native replay remain representable through explicit constructors.
 - **AE7 (R8, R23):** Unsupported prompt content is rejected or handled by an explicitly documented
   provider replay rule. No default request codec branch silently drops content.
-- **AE8 (R10):** OpenAI models the GPT-5.6 cache-write budget separately from retained breakpoint
-  history: implicit mode reserves one of four new-write slots, explicit mode can use four, and cache
-  reads can consider the latest 50 markers. `prompt_cache_options.ttl` controls GPT-5.6 breakpoint
-  lifetime independently from the deprecated pre-GPT-5.6 `prompt_cache_retention` policy.
+- **AE8 (R10):** OpenAI models explicit breakpoint coordinates without inventing client-owned cache
+  state: the SDK retains the latest 50 markers for reads, while the service selects at most the
+  latest three explicit writes plus its implicit latest-message write, or four explicit writes in
+  explicit mode. `prompt_cache_options.ttl` controls GPT-5.6 breakpoint lifetime and is mutually
+  exclusive with the deprecated pre-GPT-5.6 `prompt_cache_retention` policy.
 - **AE9 (R10):** Anthropic request options cannot construct response-only assigned service-tier
   values. Automatic cache control, speed, inference geography, task budget, context management,
   container/skills, and MCP servers have typed provider-owned entry points.
@@ -822,11 +823,12 @@ sequenceDiagram
   - `siumai-provider-openai/src/configured/responses_resource.rs`
   - new OpenAI native tool/item/event modules under `siumai-provider-openai/src/`
 - **Approach:**
-  - Model OpenAI prompt-cache history and write eligibility separately. Retain a bounded latest-80
-    marker history for reads, budget no more than four new writes per request, reserve one write slot
-    for the implicit latest-message breakpoint, and permit four explicit writes only in explicit
-    mode. Add typed GPT-5.6 `prompt_cache_options.ttl` independently from the deprecated
-    pre-GPT-5.6 `prompt_cache_retention` policy, and correct metadata/safety-identifier validation.
+  - Model OpenAI prompt-cache breakpoint coordinates directly; history and write eligibility are
+    not distinct wire properties and must not become caller-authored cache state. Retain the latest
+    50 markers for reads and document that OpenAI selects at most three explicit writes plus the
+    implicit latest-message write, or four explicit writes in explicit mode. Add typed GPT-5.6
+    `prompt_cache_options.ttl`, make it mutually exclusive with the deprecated pre-GPT-5.6
+    `prompt_cache_retention` policy, and correct metadata/safety-identifier validation.
   - Prevent ordinary family `generate`/`stream` calls from injecting lifecycle-only options such as
     background execution; those belong to the explicit Responses resource/native operation.
   - Preserve full Chat direct/stream usage and terminal metadata, including nested cached and
@@ -840,11 +842,10 @@ sequenceDiagram
   - Add Responses input-token counting now; leave Files, Vector Stores, Skills, and Conversations
     lifecycle implementation to U7.
 - **Test scenarios:**
-  - Explicit mode lets the service select four new writes; implicit mode lets it select three
-    explicit writes plus its implicit write. Older read-only markers and additional candidates remain
-    encodable in the bounded 80-marker window, while an actual fifth new write is not selected by the
-    service. GPT-5.6 TTL and legacy retention encode only for their supported model policies and never
-    overwrite one another.
+  - More than four explicit marker coordinates remain representable while the encoded read window
+    contains only the latest 50. Fixtures assert marker placement and implicit/explicit request mode;
+    service-owned 3+1 or four-write selection is documented rather than simulated by the client.
+    GPT-5.6 TTL and legacy retention encode only for their supported model policies and never coexist.
   - A future/private model with explicit maximum reasoning effort retains it on the final wire or
     returns a typed incompatibility error.
   - Ordinary generation rejects lifecycle-only background options before transport.

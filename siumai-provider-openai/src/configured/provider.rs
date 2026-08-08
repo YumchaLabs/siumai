@@ -817,8 +817,7 @@ const RESPONSES_OPTION_FIELDS: &[&str] = &[
     "prompt_cache_key",
     "prompt_cache_options",
     "prompt_cache_retention",
-    "prompt_cache_history",
-    "prompt_cache_write_candidates",
+    "prompt_cache_breakpoints",
     "reasoning",
     "safety_identifier",
     "service_tier",
@@ -845,8 +844,7 @@ const CHAT_COMPLETIONS_OPTION_FIELDS: &[&str] = &[
     "prompt_cache_key",
     "prompt_cache_options",
     "prompt_cache_retention",
-    "prompt_cache_history",
-    "prompt_cache_write_candidates",
+    "prompt_cache_breakpoints",
     "safety_identifier",
 ];
 
@@ -918,8 +916,7 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
                 "input"
                     | "text"
                     | "background"
-                    | "prompt_cache_history"
-                    | "prompt_cache_write_candidates"
+                    | "prompt_cache_breakpoints"
                     | "tools"
                     | "function_tool_options"
             ),
@@ -930,8 +927,7 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
                     | "stream_options"
                     | "max_tokens"
                     | "max_completion_tokens"
-                    | "prompt_cache_history"
-                    | "prompt_cache_write_candidates"
+                    | "prompt_cache_breakpoints"
             ),
         }
 }
