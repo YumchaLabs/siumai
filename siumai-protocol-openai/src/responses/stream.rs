@@ -21,6 +21,297 @@ use super::wire::{
     StreamEventWire,
 };
 
+/// Typed classification for one native Responses streaming event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ResponsesStreamEventKind {
+    ResponseCreated,
+    ResponseQueued,
+    ResponseInProgress,
+    OutputItemAdded,
+    OutputItemDone,
+    OutputTextDelta,
+    OutputTextDone,
+    RefusalDelta,
+    RefusalDone,
+    OutputTextAnnotationAdded,
+    ReasoningSummaryTextDelta,
+    ReasoningSummaryTextDone,
+    ReasoningTextDelta,
+    ReasoningTextDone,
+    FunctionCallArgumentsDelta,
+    FunctionCallArgumentsDone,
+    CustomToolCallInputDelta,
+    CustomToolCallInputDone,
+    ResponseCompleted,
+    ResponseIncomplete,
+    ResponseCancelled,
+    ResponseFailed,
+    Error,
+    Unknown(String),
+}
+
+impl ResponsesStreamEventKind {
+    fn from_wire(kind: &str) -> Self {
+        match kind {
+            "response.created" => Self::ResponseCreated,
+            "response.queued" => Self::ResponseQueued,
+            "response.in_progress" => Self::ResponseInProgress,
+            "response.output_item.added" => Self::OutputItemAdded,
+            "response.output_item.done" => Self::OutputItemDone,
+            "response.output_text.delta" => Self::OutputTextDelta,
+            "response.output_text.done" => Self::OutputTextDone,
+            "response.refusal.delta" => Self::RefusalDelta,
+            "response.refusal.done" => Self::RefusalDone,
+            "response.output_text.annotation.added" => Self::OutputTextAnnotationAdded,
+            "response.reasoning_summary_text.delta" => Self::ReasoningSummaryTextDelta,
+            "response.reasoning_summary_text.done" => Self::ReasoningSummaryTextDone,
+            "response.reasoning_text.delta" => Self::ReasoningTextDelta,
+            "response.reasoning_text.done" => Self::ReasoningTextDone,
+            "response.function_call_arguments.delta" => Self::FunctionCallArgumentsDelta,
+            "response.function_call_arguments.done" => Self::FunctionCallArgumentsDone,
+            "response.custom_tool_call_input.delta" => Self::CustomToolCallInputDelta,
+            "response.custom_tool_call_input.done" => Self::CustomToolCallInputDone,
+            "response.completed" => Self::ResponseCompleted,
+            "response.incomplete" => Self::ResponseIncomplete,
+            "response.cancelled" => Self::ResponseCancelled,
+            "response.failed" => Self::ResponseFailed,
+            "error" => Self::Error,
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::ResponseCompleted
+                | Self::ResponseIncomplete
+                | Self::ResponseCancelled
+                | Self::ResponseFailed
+                | Self::Error
+        )
+    }
+}
+
+/// One lossless native Responses event with a typed event kind.
+#[derive(Clone, PartialEq)]
+pub struct ResponsesStreamEvent {
+    kind: ResponsesStreamEventKind,
+    wire: StreamEventWire,
+    payload: ResponsesStreamEventPayload,
+}
+
+#[derive(Clone, PartialEq)]
+enum ResponsesStreamEventPayload {
+    None,
+    Response(Box<ResponseWire>),
+    Item(Box<OutputItem>),
+    Error(ResponseErrorWire),
+    Annotation(AnnotationWire),
+}
+
+impl std::fmt::Debug for ResponsesStreamEvent {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResponsesStreamEvent")
+            .field("kind", &self.kind)
+            .field("sequence_number", &self.wire.sequence_number)
+            .field("field_names", &self.wire.fields.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+impl ResponsesStreamEvent {
+    fn decode(wire: StreamEventWire) -> Result<Self, Error> {
+        let kind = ResponsesStreamEventKind::from_wire(&wire.kind);
+        let payload = match &kind {
+            ResponsesStreamEventKind::ResponseCreated
+            | ResponsesStreamEventKind::ResponseQueued
+            | ResponsesStreamEventKind::ResponseInProgress
+            | ResponsesStreamEventKind::ResponseCompleted
+            | ResponsesStreamEventKind::ResponseIncomplete
+            | ResponsesStreamEventKind::ResponseCancelled
+            | ResponsesStreamEventKind::ResponseFailed => wire
+                .response()
+                .map_err(|source| {
+                    Error::new(
+                        ErrorKind::Protocol,
+                        "OpenAI Responses stream event contained a malformed response resource",
+                    )
+                    .with_source(source)
+                })?
+                .map(Box::new)
+                .map(ResponsesStreamEventPayload::Response)
+                .unwrap_or(ResponsesStreamEventPayload::None),
+            ResponsesStreamEventKind::OutputItemAdded
+            | ResponsesStreamEventKind::OutputItemDone => wire
+                .item()
+                .map_err(|source| {
+                    Error::new(
+                        ErrorKind::Protocol,
+                        "OpenAI Responses stream event contained a malformed output item",
+                    )
+                    .with_source(source)
+                })?
+                .map(Box::new)
+                .map(ResponsesStreamEventPayload::Item)
+                .unwrap_or(ResponsesStreamEventPayload::None),
+            ResponsesStreamEventKind::OutputTextAnnotationAdded => wire
+                .field("annotation")
+                .cloned()
+                .map(serde_json::from_value::<AnnotationWire>)
+                .transpose()
+                .map_err(|source| {
+                    Error::new(
+                        ErrorKind::Protocol,
+                        "OpenAI citation event contained a malformed annotation",
+                    )
+                    .with_source(source)
+                })?
+                .map(ResponsesStreamEventPayload::Annotation)
+                .unwrap_or(ResponsesStreamEventPayload::None),
+            ResponsesStreamEventKind::Error => {
+                let envelope = wire.to_value().map_err(|source| {
+                    Error::new(
+                        ErrorKind::Protocol,
+                        "failed to preserve an OpenAI Responses stream event",
+                    )
+                    .with_source(source)
+                })?;
+                let error = wire.field("error").cloned().unwrap_or(envelope);
+                ResponsesStreamEventPayload::Error(serde_json::from_value(error).map_err(
+                    |source| {
+                        Error::new(
+                            ErrorKind::Protocol,
+                            "OpenAI Responses error event was malformed",
+                        )
+                        .with_source(source)
+                    },
+                )?)
+            }
+            _ => ResponsesStreamEventPayload::None,
+        };
+        Ok(Self {
+            kind,
+            wire,
+            payload,
+        })
+    }
+
+    pub fn kind(&self) -> &ResponsesStreamEventKind {
+        &self.kind
+    }
+
+    pub fn kind_str(&self) -> &str {
+        &self.wire.kind
+    }
+
+    pub fn sequence_number(&self) -> Option<u64> {
+        self.wire.sequence_number
+    }
+
+    pub fn response(&self) -> Option<&ResponseWire> {
+        match &self.payload {
+            ResponsesStreamEventPayload::Response(response) => Some(response.as_ref()),
+            _ => None,
+        }
+    }
+
+    pub fn item(&self) -> Option<&OutputItem> {
+        match &self.payload {
+            ResponsesStreamEventPayload::Item(item) => Some(item.as_ref()),
+            _ => None,
+        }
+    }
+
+    pub fn error(&self) -> Option<&ResponseErrorWire> {
+        match &self.payload {
+            ResponsesStreamEventPayload::Error(error) => Some(error),
+            _ => None,
+        }
+    }
+
+    pub fn annotation(&self) -> Option<&AnnotationWire> {
+        match &self.payload {
+            ResponsesStreamEventPayload::Annotation(annotation) => Some(annotation),
+            _ => None,
+        }
+    }
+
+    pub fn field(&self, name: &str) -> Option<&Value> {
+        self.wire.field(name)
+    }
+
+    pub fn item_id(&self) -> Option<&str> {
+        self.field("item_id").and_then(Value::as_str)
+    }
+
+    pub fn output_index(&self) -> Option<u64> {
+        self.field("output_index").and_then(Value::as_u64)
+    }
+
+    pub fn content_index(&self) -> Option<u64> {
+        self.field("content_index").and_then(Value::as_u64)
+    }
+
+    pub fn delta(&self) -> Option<&str> {
+        self.field("delta").and_then(Value::as_str)
+    }
+
+    /// Explicit access to the complete provider wire event.
+    pub fn wire(&self) -> &StreamEventWire {
+        &self.wire
+    }
+
+    pub fn into_wire(self) -> StreamEventWire {
+        self.wire
+    }
+}
+
+/// A single decoded provider event and every portable event projected from it.
+pub struct DecodedResponsesStreamFrame {
+    native: ResponsesStreamEvent,
+    portable_events: Vec<LanguageStreamEvent>,
+}
+
+impl std::fmt::Debug for DecodedResponsesStreamFrame {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DecodedResponsesStreamFrame")
+            .field("native", &self.native)
+            .field("portable_event_count", &self.portable_events.len())
+            .finish()
+    }
+}
+
+impl DecodedResponsesStreamFrame {
+    pub fn native(&self) -> &ResponsesStreamEvent {
+        &self.native
+    }
+
+    pub fn portable_events(&self) -> &[LanguageStreamEvent] {
+        &self.portable_events
+    }
+
+    pub fn terminal(&self) -> Option<&StreamTerminal> {
+        self.portable_events
+            .iter()
+            .find_map(LanguageStreamEvent::terminal)
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        self.terminal().is_some()
+    }
+
+    pub fn into_portable_events(self) -> Vec<LanguageStreamEvent> {
+        self.portable_events
+    }
+
+    pub fn into_parts(self) -> (ResponsesStreamEvent, Vec<LanguageStreamEvent>) {
+        (self.native, self.portable_events)
+    }
+}
+
 /// Stateful, native Responses stream decoder.
 ///
 /// SSE framing is transport-owned. This type consumes one `data` value at a
@@ -105,6 +396,33 @@ impl ResponsesStreamDecoder {
         <Self as LanguageStreamDecoder>::decode(self, data)
     }
 
+    /// Decode one SSE data value once and retain both its native and portable views.
+    pub fn decode_native(&mut self, data: &str) -> Result<DecodedResponsesStreamFrame, Error> {
+        self.lifecycle
+            .ensure_decode_allowed()
+            .map_err(Error::from)?;
+        if data.trim() == "[DONE]" {
+            return Err(Error::unexpected_eof());
+        }
+        let wire = serde_json::from_str::<StreamEventWire>(data).map_err(|source| {
+            Error::new(
+                ErrorKind::Protocol,
+                "provider returned malformed OpenAI Responses stream JSON",
+            )
+            .with_source(source)
+        })?;
+        let event = ResponsesStreamEvent::decode(wire)?;
+        self.observe_sequence(event.sequence_number())?;
+        let portable_events = self.decode_event(&event)?;
+        self.lifecycle
+            .record(&portable_events)
+            .map_err(Error::from)?;
+        Ok(DecodedResponsesStreamFrame {
+            native: event,
+            portable_events,
+        })
+    }
+
     pub fn finish(&mut self) -> Result<Vec<LanguageStreamEvent>, Error> {
         <Self as LanguageStreamDecoder>::finish(self)
     }
@@ -117,45 +435,37 @@ impl ResponsesStreamDecoder {
         self.terminal_native.as_ref()
     }
 
-    fn decode_frame(&mut self, data: &str) -> Result<Vec<LanguageStreamEvent>, Error> {
-        if data.trim() == "[DONE]" {
-            return Err(Error::unexpected_eof());
-        }
-        let event = serde_json::from_str::<StreamEventWire>(data).map_err(|source| {
-            Error::new(
-                ErrorKind::Protocol,
-                "provider returned malformed OpenAI Responses stream JSON",
-            )
-            .with_source(source)
-        })?;
-        self.observe_sequence(event.sequence_number)?;
-        match event.kind.as_str() {
+    fn decode_event(
+        &mut self,
+        event: &ResponsesStreamEvent,
+    ) -> Result<Vec<LanguageStreamEvent>, Error> {
+        match event.kind_str() {
             "response.created" | "response.queued" | "response.in_progress" => {
-                self.observe_progress_response(&event)
+                self.observe_progress_response(event)
             }
-            "response.output_item.added" => self.output_item_added(&event),
-            "response.output_item.done" => self.output_item_done(&event),
-            "response.output_text.delta" => self.text_delta(&event),
-            "response.output_text.done" => self.text_done(&event),
-            "response.refusal.delta" => self.refusal_delta(&event),
-            "response.refusal.done" => self.refusal_done(&event),
-            "response.output_text.annotation.added" => self.annotation_added(&event),
+            "response.output_item.added" => self.output_item_added(event),
+            "response.output_item.done" => self.output_item_done(event),
+            "response.output_text.delta" => self.text_delta(event.wire()),
+            "response.output_text.done" => self.text_done(event.wire()),
+            "response.refusal.delta" => self.refusal_delta(event.wire()),
+            "response.refusal.done" => self.refusal_done(event.wire()),
+            "response.output_text.annotation.added" => self.annotation_added(event),
             "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
-                self.reasoning_delta(&event)
+                self.reasoning_delta(event.wire())
             }
             "response.reasoning_summary_text.done" | "response.reasoning_text.done" => {
-                self.reasoning_done(&event)
+                self.reasoning_done(event.wire())
             }
-            "response.function_call_arguments.delta" => self.tool_input_delta(&event, false),
-            "response.function_call_arguments.done" => self.tool_input_done(&event, false),
-            "response.custom_tool_call_input.delta" => self.tool_input_delta(&event, true),
-            "response.custom_tool_call_input.done" => self.tool_input_done(&event, true),
+            "response.function_call_arguments.delta" => self.tool_input_delta(event.wire(), false),
+            "response.function_call_arguments.done" => self.tool_input_done(event.wire(), false),
+            "response.custom_tool_call_input.delta" => self.tool_input_delta(event.wire(), true),
+            "response.custom_tool_call_input.done" => self.tool_input_done(event.wire(), true),
             "response.completed"
             | "response.incomplete"
             | "response.cancelled"
-            | "response.failed" => self.terminal_event(&event),
-            "error" => self.error_event(&event),
-            _ => self.opaque_stream_event(&event),
+            | "response.failed" => self.terminal_event(event),
+            "error" => self.error_event(event),
+            _ => self.opaque_stream_event(event.wire()),
         }
     }
 
@@ -177,9 +487,9 @@ impl ResponsesStreamDecoder {
 
     fn observe_progress_response(
         &mut self,
-        event: &StreamEventWire,
+        event: &ResponsesStreamEvent,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let response = decode_event_response(event)?.ok_or_else(|| {
+        let response = event.response().ok_or_else(|| {
             protocol_error("OpenAI Responses lifecycle event omitted its response")
         })?;
         if matches!(
@@ -193,7 +503,7 @@ impl ResponsesStreamDecoder {
                 "OpenAI Responses progress event carried a terminal response status",
             ));
         }
-        self.observe_identity(&response)
+        self.observe_identity(response)
     }
 
     fn observe_identity(
@@ -244,15 +554,17 @@ impl ResponsesStreamDecoder {
 
     fn output_item_added(
         &mut self,
-        event: &StreamEventWire,
+        event: &ResponsesStreamEvent,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let output_index = required_u64(event, "output_index")?;
+        let output_index = required_u64(event.wire(), "output_index")?;
         if self.items.contains_key(&output_index) {
             return Err(protocol_error(
                 "OpenAI Responses stream reused an output index",
             ));
         }
-        let item = decode_event_item(event)?
+        let item = event
+            .item()
+            .cloned()
             .ok_or_else(|| protocol_error("OpenAI Responses output-item event omitted its item"))?;
         let item_id = item
             .id()
@@ -294,15 +606,17 @@ impl ResponsesStreamDecoder {
 
     fn output_item_done(
         &mut self,
-        event: &StreamEventWire,
+        event: &ResponsesStreamEvent,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let output_index = required_u64(event, "output_index")?;
+        let output_index = required_u64(event.wire(), "output_index")?;
         if self.completed_items.contains(&output_index) {
             return Err(protocol_error(
                 "OpenAI Responses stream completed an output item more than once",
             ));
         }
-        let item = decode_event_item(event)?
+        let item = event
+            .item()
+            .cloned()
             .ok_or_else(|| protocol_error("OpenAI Responses output-item event omitted its item"))?;
         let item_id = item
             .id()
@@ -519,26 +833,17 @@ impl ResponsesStreamDecoder {
 
     fn annotation_added(
         &mut self,
-        event: &StreamEventWire,
+        event: &ResponsesStreamEvent,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let item_id = required_str(event, "item_id")?;
+        let item_id = required_str(event.wire(), "item_id")?;
         self.ensure_known_item(item_id)?;
-        let annotation_index = required_u64(event, "annotation_index")?;
+        let annotation_index = required_u64(event.wire(), "annotation_index")?;
         let annotation_position = usize::try_from(annotation_index).map_err(|_| {
             protocol_error("OpenAI Responses annotation index exceeded the platform limit")
         })?;
         let annotation = event
-            .field("annotation")
-            .cloned()
+            .annotation()
             .ok_or_else(|| protocol_error("OpenAI citation event omitted its annotation"))?;
-        let annotation =
-            serde_json::from_value::<AnnotationWire>(annotation).map_err(|source| {
-                Error::new(
-                    ErrorKind::Protocol,
-                    "OpenAI citation event contained a malformed annotation",
-                )
-                .with_source(source)
-            })?;
         let key = format!("{item_id}:{annotation_index}");
         if !self.emitted_citations.insert(key) {
             return Ok(Vec::new());
@@ -546,7 +851,7 @@ impl ResponsesStreamDecoder {
         Ok(vec![LanguageStreamEvent::Citation(project_citation(
             item_id,
             annotation_position,
-            &annotation,
+            annotation,
         ))])
     }
 
@@ -736,12 +1041,12 @@ impl ResponsesStreamDecoder {
 
     fn terminal_event(
         &mut self,
-        event: &StreamEventWire,
+        event: &ResponsesStreamEvent,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let mut native = decode_event_response(event)?.ok_or_else(|| {
+        let native = event.response().cloned().ok_or_else(|| {
             protocol_error("OpenAI Responses terminal event omitted its response")
         })?;
-        let expected = match event.kind.as_str() {
+        let expected = match event.kind_str() {
             "response.completed" => "completed",
             "response.incomplete" => "incomplete",
             "response.cancelled" => "cancelled",
@@ -753,9 +1058,10 @@ impl ResponsesStreamDecoder {
                 "OpenAI Responses terminal event disagreed with response status",
             ));
         }
-        self.reconcile_terminal_items(&mut native)?;
+        let mut projected = native.clone();
+        self.reconcile_terminal_items(&mut projected)?;
         let mut events = self.observe_identity(&native)?;
-        let decoded = decode_response_wire(native.clone(), &self.scope, &self.requested_model)?;
+        let decoded = decode_response_wire(projected, &self.scope, &self.requested_model)?;
         if let Some(usage) = &native.usage {
             events.push(LanguageStreamEvent::Usage(decode_usage(usage)));
         }
@@ -788,20 +1094,14 @@ impl ResponsesStreamDecoder {
         Ok(events)
     }
 
-    fn error_event(&mut self, event: &StreamEventWire) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let envelope = encode_event_value(event)?;
-        let error = if let Some(error) = event.field("error") {
-            error.clone()
-        } else {
-            envelope.clone()
-        };
-        serde_json::from_value::<ResponseErrorWire>(error).map_err(|source| {
-            Error::new(
-                ErrorKind::Protocol,
-                "OpenAI Responses error event was malformed",
-            )
-            .with_source(source)
-        })?;
+    fn error_event(
+        &mut self,
+        event: &ResponsesStreamEvent,
+    ) -> Result<Vec<LanguageStreamEvent>, Error> {
+        let envelope = encode_event_value(event.wire())?;
+        event
+            .error()
+            .ok_or_else(|| protocol_error("OpenAI Responses error event omitted its error"))?;
         let error = classify_stream_error(
             &envelope,
             self.response_diagnostics.clone(),
@@ -1049,12 +1349,7 @@ impl LanguageStreamDecoder for ResponsesStreamDecoder {
     }
 
     fn decode(&mut self, frame: &Self::ProtocolFrame) -> Result<Vec<LanguageStreamEvent>, Error> {
-        self.lifecycle
-            .ensure_decode_allowed()
-            .map_err(Error::from)?;
-        let events = self.decode_frame(frame)?;
-        self.lifecycle.record(&events).map_err(Error::from)?;
-        Ok(events)
+        Ok(self.decode_native(frame)?.into_portable_events())
     }
 
     fn finish(&mut self) -> Result<Vec<LanguageStreamEvent>, Error> {
@@ -1087,26 +1382,6 @@ fn required_u64(event: &StreamEventWire, field: &str) -> Result<u64, Error> {
 
 fn optional_u64(event: &StreamEventWire, field: &str) -> Option<u64> {
     event.field(field).and_then(Value::as_u64)
-}
-
-fn decode_event_response(event: &StreamEventWire) -> Result<Option<ResponseWire>, Error> {
-    event.response().map_err(|source| {
-        Error::new(
-            ErrorKind::Protocol,
-            "OpenAI Responses stream event contained a malformed response resource",
-        )
-        .with_source(source)
-    })
-}
-
-fn decode_event_item(event: &StreamEventWire) -> Result<Option<OutputItem>, Error> {
-    event.item().map_err(|source| {
-        Error::new(
-            ErrorKind::Protocol,
-            "OpenAI Responses stream event contained a malformed output item",
-        )
-        .with_source(source)
-    })
 }
 
 fn encode_event_value(event: &StreamEventWire) -> Result<Value, Error> {

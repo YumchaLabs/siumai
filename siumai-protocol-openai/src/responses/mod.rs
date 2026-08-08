@@ -16,7 +16,10 @@ pub use request::{
     is_protected_option_field,
 };
 pub use response::{DecodedResponse, decode_response, decode_response_resource};
-pub use stream::ResponsesStreamDecoder;
+pub use stream::{
+    DecodedResponsesStreamFrame, ResponsesStreamDecoder, ResponsesStreamEvent,
+    ResponsesStreamEventKind,
+};
 pub use wire::{
     AnnotationWire, CustomToolCallItemWire, FunctionCallItemWire, IncompleteDetailsWire,
     InputTokenDetailsWire, ItemStatus, MessageItemWire, OutputContentPart, OutputItem,

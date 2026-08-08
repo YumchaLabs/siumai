@@ -15,6 +15,7 @@ mod provider;
 mod realtime;
 #[cfg(feature = "openai-realtime")]
 mod realtime_resource;
+mod responses_native;
 mod responses_resource;
 mod tools;
 
@@ -50,6 +51,9 @@ pub use realtime::{
 };
 #[cfg(feature = "openai-realtime")]
 pub use realtime_resource::OpenAiRealtimeResource;
+pub use responses_native::{
+    OpenAiResponsesResponse, OpenAiResponsesStream, OpenAiResponsesStreamFrame,
+};
 pub use responses_resource::{
     OpenAiBackgroundResponse, OpenAiDeletedResponse, OpenAiResponsesCompactRequest,
     OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions, OpenAiResponsesInputItemsOrder,
@@ -99,7 +103,8 @@ pub mod responses {
         OpenAiResponsesInputItemsOrder, OpenAiResponsesInputItemsPage,
         OpenAiResponsesInputTokenCount, OpenAiResponsesInputTokenCountRequest,
         OpenAiResponsesModel, OpenAiResponsesOptions, OpenAiResponsesResource,
-        OpenAiResponsesRetrieveOptions, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller,
+        OpenAiResponsesResponse, OpenAiResponsesRetrieveOptions, OpenAiResponsesStream,
+        OpenAiResponsesStreamFrame, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller,
         OpenAiTruncation,
     };
     pub use siumai_protocol_openai::responses::{
@@ -108,7 +113,8 @@ pub mod responses {
         OutputRefusalWire, OutputTextWire, OutputTokenDetailsWire, ProgramItemWire,
         ProgramOutputItemWire, ProviderToolItemWire, ReasoningItemWire, ReasoningTextWire,
         ResponseErrorWire, ResponseReasoningConfigWire, ResponseStatus, ResponseUsageWire,
-        ResponseWire, ToolCallerWire, UnknownContentPartWire, UnknownOutputItemWire,
+        ResponseWire, ResponsesStreamEvent, ResponsesStreamEventKind, StreamEventWire,
+        ToolCallerWire, UnknownContentPartWire, UnknownOutputItemWire,
     };
 }
 

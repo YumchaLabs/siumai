@@ -19,6 +19,9 @@ pub mod chat_completions {
 }
 
 pub mod responses {
+    pub use siumai_provider_openai::configured::responses::{
+        ResponsesStreamEvent, ResponsesStreamEventKind, StreamEventWire,
+    };
     pub use siumai_provider_openai::configured::{
         OpenAiApplyPatchTool, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,
         OpenAiCodeInterpreterContainer, OpenAiCodeInterpreterTool, OpenAiContainerMemoryLimit,
@@ -44,7 +47,8 @@ pub mod responses {
         OpenAiResponsesInputItemsOrder, OpenAiResponsesInputItemsPage,
         OpenAiResponsesInputTokenCount, OpenAiResponsesInputTokenCountRequest,
         OpenAiResponsesModel, OpenAiResponsesOptions, OpenAiResponsesResource,
-        OpenAiResponsesRetrieveOptions, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller,
+        OpenAiResponsesResponse, OpenAiResponsesRetrieveOptions, OpenAiResponsesStream,
+        OpenAiResponsesStreamFrame, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller,
         OpenAiTruncation,
     };
 }

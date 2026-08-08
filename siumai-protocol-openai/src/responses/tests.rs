@@ -817,7 +817,7 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
         )
         .unwrap();
     let done = decoder
-        .decode(
+        .decode_native(
             &json!({
                 "type": "response.output_item.done",
                 "sequence_number": 5,
@@ -834,12 +834,20 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
             .to_string(),
         )
         .unwrap();
-    assert!(done.iter().any(|event| matches!(
+    assert_eq!(
+        done.native().kind(),
+        &ResponsesStreamEventKind::OutputItemDone
+    );
+    assert!(
+        matches!(done.native().item(), Some(OutputItem::FunctionCall(call))
+        if call.call_id == "call_stream")
+    );
+    assert!(done.portable_events().iter().any(|event| matches!(
         event,
         LanguageStreamEvent::ToolCall(call)
             if call.id() == "call_stream" && call.arguments() == &json!({"q": "tea"})
     )));
-    assert!(done.iter().any(|event| matches!(
+    assert!(done.portable_events().iter().any(|event| matches!(
         event,
         LanguageStreamEvent::ProviderOpaque(item) if item.item_id() == Some("fc_stream")
     )));
@@ -1198,8 +1206,8 @@ fn early_error_and_eof_are_terminal_failures_not_success() {
             .with_status(200)
             .with_retry_after(Duration::from_secs(2)),
     );
-    let events = early_error
-        .decode(
+    let frame = early_error
+        .decode_native(
             &json!({
                 "type": "error",
                 "sequence_number": 0,
@@ -1210,12 +1218,20 @@ fn early_error_and_eof_are_terminal_failures_not_success() {
             .to_string(),
         )
         .unwrap();
+    assert_eq!(frame.native().kind(), &ResponsesStreamEventKind::Error);
+    assert_eq!(
+        frame
+            .native()
+            .error()
+            .and_then(|error| error.code.as_deref()),
+        Some("rate_limit_exceeded")
+    );
     let [
         LanguageStreamEvent::Terminal(StreamTerminal::Failed {
             error,
             response: None,
         }),
-    ] = events.as_slice()
+    ] = frame.portable_events()
     else {
         panic!("expected one canonical failed terminal");
     };
@@ -1354,17 +1370,24 @@ fn terminal_reconciliation_rejects_executable_identity_mutations() {
 #[test]
 fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot() {
     let mut decoder = completed_function_decoder("{\"q\":\"tea\"}");
-    let events = decoder
-        .decode(&completed_function_response(3, json!([])))
+    let frame = decoder
+        .decode_native(&completed_function_response(3, json!([])))
         .unwrap();
+    assert!(frame.is_terminal());
+    assert_eq!(
+        frame.native().kind(),
+        &ResponsesStreamEventKind::ResponseCompleted
+    );
+    assert!(frame.native().response().unwrap().output.is_empty());
     assert!(matches!(
-        events.last(),
+        frame.portable_events().last(),
         Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
             if response.content().iter().any(|part| matches!(
                 part,
                 ContentPart::ToolCall(call) if call.id() == "call_reconcile"
             ))
     ));
+    assert!(decoder.terminal_native().unwrap().output.is_empty());
 
     let mut terminal_only = ResponsesStreamDecoder::new(scope(), model());
     terminal_only

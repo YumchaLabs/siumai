@@ -34,6 +34,9 @@ use siumai_transport::{
 use super::catalog::classify_model;
 use super::mode::OpenAiApiMode;
 use super::provider::{OpenAiMergedOptions, OpenAiRuntime};
+use super::responses_native::{
+    OpenAiResponsesResponse, OpenAiResponsesStream, OpenAiResponsesStreamFrame,
+};
 use super::responses_resource::OpenAiBackgroundResponse;
 
 const RESPONSES_TARGET: &str = "responses";
@@ -176,30 +179,13 @@ impl OpenAiResponsesModel {
             .map_err(|error| self.contextualize(operation, error))?;
         Ok(OpenAiBackgroundResponse::new(resource, warnings))
     }
-}
 
-impl std::fmt::Debug for OpenAiResponsesModel {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("OpenAiResponsesModel")
-            .field("descriptor", &self.descriptor)
-            .finish()
-    }
-}
-
-impl Model for OpenAiResponsesModel {
-    fn descriptor(&self) -> &ModelDescriptor {
-        &self.descriptor
-    }
-}
-
-#[async_trait]
-impl LanguageModel for OpenAiResponsesModel {
-    async fn generate(
+    /// Generate one Responses result while retaining the provider-native resource.
+    pub async fn generate_native(
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<OpenAiResponsesResponse, Error> {
         let operation = ModelOperation::Generate;
         let mut warnings = policy_warnings(
             &self.runtime,
@@ -243,15 +229,22 @@ impl LanguageModel for OpenAiResponsesModel {
             self.model_id(),
         )
         .map_err(|error| self.contextualize(operation, error))?;
-        let (_, response) = decoded.into_parts();
-        Ok(with_policy_warnings(response, &warnings))
+        let (native, portable) = decoded.into_parts();
+        Ok(OpenAiResponsesResponse::new(
+            native,
+            with_policy_warnings(portable, &warnings),
+        ))
     }
 
-    async fn stream(
+    /// Establish one native Responses stream.
+    ///
+    /// Converting the returned carrier with [`OpenAiResponsesStream::into_portable`] projects the
+    /// same HTTP response and decoder state; it never issues a second provider request.
+    pub async fn stream_native(
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageStream, Error> {
+    ) -> Result<OpenAiResponsesStream, Error> {
         let operation = ModelOperation::Stream;
         let mut warnings = policy_warnings(
             &self.runtime,
@@ -290,20 +283,58 @@ impl LanguageModel for OpenAiResponsesModel {
         }
         let (status, headers, body) = response.into_parts();
         let diagnostics = headers.diagnostics().with_status(status.as_u16());
+        let context = model_error_context(self, operation);
+        let decoder = ResponsesStreamDecoder::new(
+            self.runtime.scope(OpenAiApiMode::Responses).clone(),
+            self.model_id().clone(),
+        )
+        .with_response_diagnostics(diagnostics);
 
-        Ok(decode_sse_stream(
+        Ok(decode_responses_sse_stream(
             cancellation,
             body,
             self.runtime.transport.limits().clone(),
-            ResponsesStreamDecoder::new(
-                self.runtime.scope(OpenAiApiMode::Responses).clone(),
-                self.model_id().clone(),
-            )
-            .with_response_diagnostics(diagnostics),
+            decoder,
             warnings,
-            OpenAiApiMode::Responses,
-            model_error_context(self, operation),
+            context,
         ))
+    }
+}
+
+impl std::fmt::Debug for OpenAiResponsesModel {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesModel")
+            .field("descriptor", &self.descriptor)
+            .finish()
+    }
+}
+
+impl Model for OpenAiResponsesModel {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[async_trait]
+impl LanguageModel for OpenAiResponsesModel {
+    async fn generate(
+        &self,
+        request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageResponse, Error> {
+        Ok(self
+            .generate_native(request, options)
+            .await?
+            .into_portable())
+    }
+
+    async fn stream(
+        &self,
+        request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        Ok(self.stream_native(request, options).await?.into_portable())
     }
 }
 
@@ -774,6 +805,62 @@ fn replace_response_warnings(response: &mut Box<LanguageResponse>, warnings: &[W
     **response = updated;
 }
 
+fn decode_responses_sse_stream(
+    cancellation: siumai_core::Cancellation,
+    body: TransportByteStream,
+    limits: TransportLimits,
+    mut protocol: ResponsesStreamDecoder,
+    warnings: Vec<Warning>,
+    context: ErrorContext,
+) -> OpenAiResponsesStream {
+    let cancellation_error =
+        Error::cancelled("OpenAI Responses stream was cancelled").with_context(context.clone());
+    let source = async_stream::try_stream! {
+        let mut body = body;
+        let mut framing = SseDecoder::new(&limits);
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.map_err(|error| error.with_context(context.clone()))?;
+            let frames = framing
+                .push(&chunk)
+                .map_err(|source| {
+                    sse_error(OpenAiApiMode::Responses, source).with_context(context.clone())
+                })?;
+            for frame in frames {
+                let decoded = protocol
+                    .decode_native(frame.data())
+                    .map_err(|error| error.with_context(context.clone()))?;
+                let (native, mut portable_events) = decoded.into_parts();
+                for event in &mut portable_events {
+                    contextualize_terminal_error(event, &context);
+                    attach_policy_warnings(event, &warnings);
+                }
+                let frame = OpenAiResponsesStreamFrame::new(native, portable_events);
+                let terminal = frame.is_terminal();
+                yield frame;
+                if terminal {
+                    return;
+                }
+            }
+        }
+        framing
+            .finish()
+            .map_err(|source| {
+                sse_error(OpenAiApiMode::Responses, source).with_context(context.clone())
+            })?;
+        let trailing = protocol
+            .finish()
+            .map_err(|error| error.with_context(context.clone()))?;
+        if !trailing.is_empty() {
+            Err(Error::new(
+                ErrorKind::Protocol,
+                "OpenAI Responses decoder produced portable events without a native frame",
+            )
+            .with_context(context.clone()))?;
+        }
+    };
+    OpenAiResponsesStream::established(cancellation, cancellation_error, source)
+}
+
 fn decode_sse_stream<D>(
     cancellation: siumai_core::Cancellation,
     body: TransportByteStream,
@@ -1014,7 +1101,7 @@ fn public_provider_identifier(value: &str) -> Option<PublicDiagnosticText> {
 mod tests {
     use serde_json::json;
     use siumai_core::{
-        Message, MessageRole, ProviderOptions, ReplayDomain, ReplayDomainId, ToolSpec,
+        ContentPart, Message, MessageRole, ProviderOptions, ReplayDomain, ReplayDomainId, ToolSpec,
     };
     use siumai_transport::EndpointConfig;
     use wiremock::matchers::{method, path};
@@ -1389,6 +1476,137 @@ mod tests {
         let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
         assert_eq!(body["background"], true);
         assert_eq!(body["model"], GPT_5_6_SOL);
+    }
+
+    #[tokio::test]
+    async fn native_generation_pairs_lossless_and_portable_views_from_one_request() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "resp_native",
+                "created_at": 1,
+                "model": "gpt-5.6-sol",
+                "status": "completed",
+                "output": [
+                    {
+                        "id": "msg_native",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{
+                            "type": "output_text",
+                            "text": "hello from native",
+                            "annotations": []
+                        }]
+                    },
+                    {
+                        "id": "future_native",
+                        "type": "future_provider_tool_call",
+                        "status": "completed",
+                        "private_payload": "native-secret"
+                    }
+                ],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server).await.responses(GPT_5_6_SOL).unwrap();
+        let response = model
+            .generate_native(request(), CallOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(response.native().output.len(), 2);
+        assert!(
+            response.portable().content().iter().any(
+                |part| matches!(part, ContentPart::Text { text } if text == "hello from native")
+            )
+        );
+        assert!(!format!("{response:?}").contains("native-secret"));
+    }
+
+    #[tokio::test]
+    async fn native_stream_projects_to_portable_without_a_second_request() {
+        let server = MockServer::start().await;
+        let created = json!({
+            "type": "response.created",
+            "sequence_number": 0,
+            "response": {
+                "id": "resp_stream_native",
+                "created_at": 1,
+                "model": "gpt-5.6-sol",
+                "status": "in_progress",
+                "output": [],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            }
+        });
+        let completed = json!({
+            "type": "response.completed",
+            "sequence_number": 1,
+            "response": {
+                "id": "resp_stream_native",
+                "created_at": 1,
+                "model": "gpt-5.6-sol",
+                "status": "completed",
+                "output": [{
+                    "id": "msg_stream_native",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "one request",
+                        "annotations": []
+                    }]
+                }],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            }
+        });
+        let body = format!("data: {created}\n\ndata: {completed}\n\n");
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(body),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server).await.responses(GPT_5_6_SOL).unwrap();
+        let events = model
+            .stream_native(request(), CallOptions::default())
+            .await
+            .unwrap()
+            .into_portable()
+            .collect::<Vec<_>>()
+            .await;
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.terminal().is_some())
+                .count(),
+            1
+        );
+        assert!(matches!(
+            events.last(),
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+                if response.content().iter().any(
+                    |part| matches!(part, ContentPart::Text { text } if text == "one request")
+                )
+        ));
     }
 
     #[test]
