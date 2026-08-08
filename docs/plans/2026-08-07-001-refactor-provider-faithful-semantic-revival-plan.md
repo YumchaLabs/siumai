@@ -822,7 +822,7 @@ sequenceDiagram
   - `siumai-provider-openai/src/configured/responses_resource.rs`
   - new OpenAI native tool/item/event modules under `siumai-provider-openai/src/`
 - **Approach:**
-  - Model OpenAI prompt-cache history and write eligibility separately. Retain a bounded latest-50
+  - Model OpenAI prompt-cache history and write eligibility separately. Retain a bounded latest-80
     marker history for reads, budget no more than four new writes per request, reserve one write slot
     for the implicit latest-message breakpoint, and permit four explicit writes only in explicit
     mode. Add typed GPT-5.6 `prompt_cache_options.ttl` independently from the deprecated
@@ -840,10 +840,11 @@ sequenceDiagram
   - Add Responses input-token counting now; leave Files, Vector Stores, Skills, and Conversations
     lifecycle implementation to U7.
 - **Test scenarios:**
-  - Explicit mode can select four new writes; implicit mode can select three explicit writes plus
-    its implicit write. Older read-only markers remain encodable up to the bounded 50-marker history,
-    while an actual fifth new write is not selected. GPT-5.6 TTL and legacy retention encode only for
-    their supported model policies and never overwrite one another.
+  - Explicit mode lets the service select four new writes; implicit mode lets it select three
+    explicit writes plus its implicit write. Older read-only markers and additional candidates remain
+    encodable in the bounded 80-marker window, while an actual fifth new write is not selected by the
+    service. GPT-5.6 TTL and legacy retention encode only for their supported model policies and never
+    overwrite one another.
   - A future/private model with explicit maximum reasoning effort retains it on the final wire or
     returns a typed incompatibility error.
   - Ordinary generation rejects lifecycle-only background options before transport.

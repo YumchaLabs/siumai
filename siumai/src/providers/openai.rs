@@ -7,7 +7,8 @@ pub use siumai_provider_openai::configured::{
 
 pub mod models {
     pub use siumai_provider_openai::configured::{
-        GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass, classify_model,
+        GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,
+        classify_model,
     };
 }
 
@@ -21,12 +22,14 @@ pub mod responses {
     pub use siumai_provider_openai::configured::{
         OpenAiBackgroundResponse, OpenAiDeletedResponse, OpenAiFunctionToolOptions,
         OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-        OpenAiPromptCacheTtl, OpenAiProviderTool, OpenAiReasoning, OpenAiReasoningContext,
-        OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
-        OpenAiResponsesCompactRequest, OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
-        OpenAiResponsesInputItemsOrder, OpenAiResponsesInputItemsPage, OpenAiResponsesModel,
-        OpenAiResponsesOptions, OpenAiResponsesResource, OpenAiResponsesRetrieveOptions,
-        OpenAiServiceTier, OpenAiTextVerbosity, OpenAiToolCaller, OpenAiTruncation,
+        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiProviderTool, OpenAiReasoning,
+        OpenAiReasoningContext, OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary,
+        OpenAiResponseInclude, OpenAiResponsesCompactRequest, OpenAiResponsesCompaction,
+        OpenAiResponsesInputItemsOptions, OpenAiResponsesInputItemsOrder,
+        OpenAiResponsesInputItemsPage, OpenAiResponsesInputTokenCount,
+        OpenAiResponsesInputTokenCountRequest, OpenAiResponsesModel, OpenAiResponsesOptions,
+        OpenAiResponsesResource, OpenAiResponsesRetrieveOptions, OpenAiServiceTier,
+        OpenAiTextVerbosity, OpenAiToolCaller, OpenAiTruncation,
     };
 }
 

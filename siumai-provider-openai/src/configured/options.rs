@@ -8,13 +8,11 @@ use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
 use siumai_protocol_openai::responses::{FunctionToolCaller, FunctionToolEncodingOptions};
 
 const MAX_TOP_LOGPROBS: u8 = 20;
-const MAX_PROMPT_CACHE_MARKERS: usize = 50;
-const MAX_EXPLICIT_CACHE_WRITES: usize = 4;
-const MAX_IMPLICIT_CACHE_WRITES: usize = 3;
+const MAX_PROMPT_CACHE_MARKERS: usize = 80;
 const MAX_METADATA_ENTRIES: usize = 16;
 const MAX_METADATA_KEY_CHARS: usize = 64;
 const MAX_METADATA_VALUE_CHARS: usize = 512;
-const MAX_SAFETY_IDENTIFIER_BYTES: usize = 512;
+const MAX_SAFETY_IDENTIFIER_CHARS: usize = 64;
 
 /// GPT-5.6 reasoning effort.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -477,6 +475,10 @@ impl OpenAiResponsesOptions {
     }
 
     /// Add a breakpoint eligible for one of this request's bounded cache writes.
+    ///
+    /// All candidates remain on the wire for cache reads. OpenAI selects only
+    /// the latest three candidates in implicit mode or four in explicit mode
+    /// when deciding which previously unseen prefixes to write.
     pub fn with_prompt_cache_write_candidate(
         mut self,
         breakpoint: OpenAiPromptCacheBreakpoint,
@@ -529,8 +531,6 @@ impl OpenAiResponsesOptions {
             entry.validate()?;
         }
         validate_prompt_cache(
-            self.prompt_cache_options.as_ref(),
-            self.prompt_cache_retention,
             &self.prompt_cache_history,
             &self.prompt_cache_write_candidates,
         )?;
@@ -550,8 +550,6 @@ impl OpenAiResponsesOptions {
         mut self,
     ) -> Result<OpenAiResponsesRequestOptions, ProviderOptionError> {
         let prompt_cache_breakpoints = select_prompt_cache_breakpoints(
-            self.prompt_cache_options.as_ref(),
-            self.prompt_cache_retention,
             &self.prompt_cache_history,
             &self.prompt_cache_write_candidates,
         )?;
@@ -660,6 +658,10 @@ impl OpenAiChatCompletionsOptions {
         self
     }
 
+    /// Add a breakpoint that OpenAI may select for a new write.
+    ///
+    /// The marker remains available for reads even when it falls outside the
+    /// service's latest-three or latest-four write budget.
     pub fn with_prompt_cache_write_candidate(
         mut self,
         breakpoint: OpenAiPromptCacheBreakpoint,
@@ -696,8 +698,6 @@ impl OpenAiChatCompletionsOptions {
             ));
         }
         validate_prompt_cache(
-            self.prompt_cache_options.as_ref(),
-            self.prompt_cache_retention,
             &self.prompt_cache_history,
             &self.prompt_cache_write_candidates,
         )?;
@@ -708,8 +708,6 @@ impl OpenAiChatCompletionsOptions {
         mut self,
     ) -> Result<OpenAiChatCompletionsRequestOptions, ProviderOptionError> {
         let prompt_cache_breakpoints = select_prompt_cache_breakpoints(
-            self.prompt_cache_options.as_ref(),
-            self.prompt_cache_retention,
             &self.prompt_cache_history,
             &self.prompt_cache_write_candidates,
         )?;
@@ -744,27 +742,19 @@ impl TypedProviderOptions for OpenAiChatCompletionsOptions {
 }
 
 fn validate_prompt_cache(
-    options: Option<&OpenAiPromptCacheOptions>,
-    retention: Option<OpenAiPromptCacheRetention>,
     history: &[OpenAiPromptCacheBreakpoint],
     write_candidates: &[OpenAiPromptCacheBreakpoint],
 ) -> Result<(), ProviderOptionError> {
-    if options.is_some() && retention.is_some() {
-        return Err(rejected(
-            "prompt_cache_retention",
-            "prompt_cache_options and prompt_cache_retention are mutually exclusive",
-        ));
-    }
     if history.len() > MAX_PROMPT_CACHE_MARKERS {
         return Err(rejected(
             "prompt_cache_history",
-            "prompt-cache history must not exceed 50 markers",
+            "prompt-cache history must not exceed 80 markers",
         ));
     }
     if write_candidates.len() > MAX_PROMPT_CACHE_MARKERS {
         return Err(rejected(
             "prompt_cache_write_candidates",
-            "prompt-cache write candidates must not exceed 50 markers",
+            "prompt-cache write candidates must not exceed 80 markers",
         ));
     }
     let unique = history
@@ -782,22 +772,12 @@ fn validate_prompt_cache(
 }
 
 fn select_prompt_cache_breakpoints(
-    options: Option<&OpenAiPromptCacheOptions>,
-    retention: Option<OpenAiPromptCacheRetention>,
     history: &[OpenAiPromptCacheBreakpoint],
     write_candidates: &[OpenAiPromptCacheBreakpoint],
 ) -> Result<Vec<OpenAiPromptCacheBreakpoint>, ProviderOptionError> {
-    validate_prompt_cache(options, retention, history, write_candidates)?;
-    let write_budget = match options.and_then(|options| options.mode) {
-        Some(OpenAiPromptCacheMode::Explicit) => MAX_EXPLICIT_CACHE_WRITES,
-        Some(OpenAiPromptCacheMode::Implicit) | None => MAX_IMPLICIT_CACHE_WRITES,
-    };
-    let mut candidates = write_candidates.to_vec();
-    candidates.sort_unstable();
-    let selected_from = candidates.len().saturating_sub(write_budget);
-
+    validate_prompt_cache(history, write_candidates)?;
     let mut selected = history.to_vec();
-    selected.extend_from_slice(&candidates[selected_from..]);
+    selected.extend_from_slice(write_candidates);
     selected.sort_unstable();
     let retained_from = selected.len().saturating_sub(MAX_PROMPT_CACHE_MARKERS);
     Ok(selected.split_off(retained_from))
@@ -832,11 +812,11 @@ fn validate_metadata(
 fn validate_safety_identifier(value: Option<&str>) -> Result<(), ProviderOptionError> {
     validate_optional_text("safety_identifier", value)?;
     if value.is_some_and(|value| {
-        value.len() > MAX_SAFETY_IDENTIFIER_BYTES || value.chars().any(char::is_control)
+        value.chars().count() > MAX_SAFETY_IDENTIFIER_CHARS || value.chars().any(char::is_control)
     }) {
         return Err(rejected(
             "safety_identifier",
-            "safety_identifier must not contain control characters or exceed 512 bytes",
+            "safety_identifier must not contain control characters or exceed 64 characters",
         ));
     }
     Ok(())
@@ -1003,7 +983,7 @@ mod tests {
 
         let excessive = OpenAiChatCompletionsOptions {
             prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit()),
-            prompt_cache_history: (0..51)
+            prompt_cache_history: (0..81)
                 .map(|content_index| OpenAiPromptCacheBreakpoint::new(0, content_index))
                 .collect(),
             ..OpenAiChatCompletionsOptions::default()
@@ -1012,52 +992,35 @@ mod tests {
     }
 
     #[test]
-    fn cache_write_selection_reserves_the_implicit_slot_and_keeps_latest_history() {
-        let history = (0..50)
+    fn cache_marker_projection_preserves_candidates_and_keeps_latest_history() {
+        let history = (0..80)
             .map(|content_index| OpenAiPromptCacheBreakpoint::new(0, content_index))
             .collect::<Vec<_>>();
-        let candidates = (50..55)
+        let candidates = (80..85)
             .map(|content_index| OpenAiPromptCacheBreakpoint::new(0, content_index))
             .collect::<Vec<_>>();
 
-        let implicit = select_prompt_cache_breakpoints(None, None, &history, &candidates).unwrap();
-        assert_eq!(implicit.len(), 50);
-        assert_eq!(implicit.first().unwrap().content_index, 3);
+        let projected = select_prompt_cache_breakpoints(&history, &candidates).unwrap();
+        assert_eq!(projected.len(), 80);
+        assert_eq!(projected.first().unwrap().content_index, 5);
         assert_eq!(
-            implicit
+            projected
                 .iter()
-                .filter(|breakpoint| breakpoint.content_index >= 50)
+                .filter(|breakpoint| breakpoint.content_index >= 80)
                 .count(),
-            3
+            5
         );
-
-        let explicit = select_prompt_cache_breakpoints(
-            Some(&OpenAiPromptCacheOptions::explicit()),
-            None,
-            &history,
-            &candidates,
-        )
-        .unwrap();
-        assert_eq!(explicit.len(), 50);
-        assert_eq!(explicit.first().unwrap().content_index, 4);
-        assert_eq!(
-            explicit
-                .iter()
-                .filter(|breakpoint| breakpoint.content_index >= 50)
-                .count(),
-            4
-        );
-        assert!(!explicit.contains(&OpenAiPromptCacheBreakpoint::new(0, 50)));
+        assert!(projected.contains(&OpenAiPromptCacheBreakpoint::new(0, 80)));
     }
 
     #[test]
     fn cache_lifetime_metadata_and_safety_values_fail_closed() {
-        let conflicting_cache = OpenAiResponsesOptions {
+        let independent_cache_controls = OpenAiResponsesOptions {
             prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit_30_minutes()),
-            prompt_cache_retention: Some(OpenAiPromptCacheRetention::InMemory),
+            prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
             ..OpenAiResponsesOptions::default()
         };
-        assert!(conflicting_cache.validate_values().is_err());
+        assert!(independent_cache_controls.validate_values().is_ok());
 
         let excessive_metadata = OpenAiChatCompletionsOptions {
             metadata: Some(
@@ -1074,6 +1037,12 @@ mod tests {
             ..OpenAiResponsesOptions::default()
         };
         assert!(invalid_safety.validate_values().is_err());
+
+        let oversized_safety = OpenAiResponsesOptions {
+            safety_identifier: Some("x".repeat(65)),
+            ..OpenAiResponsesOptions::default()
+        };
+        assert!(oversized_safety.validate_values().is_err());
     }
 
     #[test]

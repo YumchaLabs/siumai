@@ -17,7 +17,7 @@ use siumai_transport::{
 
 use super::mode::OpenAiApiMode;
 use super::model::{request_build_error, response_error};
-use super::options::OpenAiResponseInclude;
+use super::options::{OpenAiReasoning, OpenAiResponseInclude, OpenAiTruncation};
 use super::provider::OpenAiRuntime;
 
 const MAX_RESOURCE_ID_BYTES: usize = 512;
@@ -437,28 +437,86 @@ pub struct OpenAiResponsesCompaction {
 }
 
 /// Provider-native request accepted by `POST /responses/input_tokens`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct OpenAiResponsesInputTokenCountRequest {
-    pub model: ModelId,
-    pub input: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_response_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<OpenAiReasoning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncation: Option<OpenAiTruncation>,
 }
 
 impl OpenAiResponsesInputTokenCountRequest {
-    pub fn new(model: ModelId, input: Value) -> Self {
-        Self {
-            model,
-            input,
-            instructions: None,
-            tools: Vec::new(),
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_conversation(mut self, conversation: impl Into<String>) -> Self {
+        self.conversation = Some(conversation.into());
+        self
+    }
+
+    pub fn with_input(mut self, input: Value) -> Self {
+        self.input = Some(input);
+        self
     }
 
     pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
+        self
+    }
+
+    pub fn with_model(mut self, model: ModelId) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    pub fn with_parallel_tool_calls(mut self, parallel_tool_calls: bool) -> Self {
+        self.parallel_tool_calls = Some(parallel_tool_calls);
+        self
+    }
+
+    pub fn with_personality(mut self, personality: impl Into<String>) -> Self {
+        self.personality = Some(personality.into());
+        self
+    }
+
+    pub fn with_previous_response_id(mut self, previous_response_id: impl Into<String>) -> Self {
+        self.previous_response_id = Some(previous_response_id.into());
+        self
+    }
+
+    pub fn with_reasoning(mut self, reasoning: OpenAiReasoning) -> Self {
+        self.reasoning = Some(reasoning);
+        self
+    }
+
+    pub fn with_text(mut self, text: Value) -> Self {
+        self.text = Some(text);
+        self
+    }
+
+    pub fn with_tool_choice(mut self, tool_choice: Value) -> Self {
+        self.tool_choice = Some(tool_choice);
         self
     }
 
@@ -467,8 +525,36 @@ impl OpenAiResponsesInputTokenCountRequest {
         self
     }
 
+    pub fn with_truncation(mut self, truncation: OpenAiTruncation) -> Self {
+        self.truncation = Some(truncation);
+        self
+    }
+
     fn validate(&self) -> Result<(), Error> {
-        if !matches!(self.input, Value::String(_) | Value::Array(_)) {
+        if self.conversation.is_some() && self.previous_response_id.is_some() {
+            return Err(invalid_input(
+                "Responses input-token count conversation and previous_response_id are mutually exclusive",
+            ));
+        }
+        if let Some(conversation) = &self.conversation {
+            validate_resource_id("conversation", conversation)?;
+        }
+        if let Some(previous_response_id) = &self.previous_response_id {
+            validate_resource_id("previous_response_id", previous_response_id)?;
+        }
+        if self.input.is_none()
+            && self.conversation.is_none()
+            && self.previous_response_id.is_none()
+        {
+            return Err(invalid_input(
+                "Responses input-token count requires input, conversation, or previous_response_id",
+            ));
+        }
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| !matches!(input, Value::String(_) | Value::Array(_)))
+        {
             return Err(invalid_input(
                 "Responses input-token count input must be a string or item array",
             ));
@@ -480,6 +566,29 @@ impl OpenAiResponsesInputTokenCountRequest {
         {
             return Err(invalid_input(
                 "Responses input-token count instructions cannot be empty",
+            ));
+        }
+        if self.personality.as_deref().is_some_and(|personality| {
+            personality.trim().is_empty()
+                || personality != personality.trim()
+                || personality.chars().count() > 64
+        }) {
+            return Err(invalid_input(
+                "Responses input-token count personality must contain 1..=64 trimmed characters",
+            ));
+        }
+        if self.text.as_ref().is_some_and(|text| !text.is_object()) {
+            return Err(invalid_input(
+                "Responses input-token count text configuration must be a JSON object",
+            ));
+        }
+        if self
+            .tool_choice
+            .as_ref()
+            .is_some_and(|choice| !matches!(choice, Value::String(_) | Value::Object(_)))
+        {
+            return Err(invalid_input(
+                "Responses input-token count tool choice must be a string or JSON object",
             ));
         }
         if self.tools.iter().any(|tool| !tool.is_object()) {
@@ -594,7 +703,9 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
-    use crate::configured::{OpenAiCredential, OpenAiProvider};
+    use crate::configured::{
+        OpenAiCredential, OpenAiProvider, OpenAiReasoningEffort, OpenAiTruncation,
+    };
 
     async fn resource(server: &MockServer) -> OpenAiResponsesResource {
         OpenAiProvider::builder(OpenAiCredential::unauthenticated())
@@ -708,7 +819,12 @@ mod tests {
                 "model": "gpt-5.6-sol",
                 "input": "hello",
                 "instructions": "Be concise",
-                "tools": [{"type": "web_search"}]
+                "parallel_tool_calls": true,
+                "personality": "pragmatic",
+                "reasoning": {"effort": "low"},
+                "tool_choice": "auto",
+                "tools": [{"type": "web_search"}],
+                "truncation": "disabled"
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "object": "response.input_tokens",
@@ -722,12 +838,18 @@ mod tests {
         let counted = resource(&server)
             .await
             .count_input_tokens(
-                OpenAiResponsesInputTokenCountRequest::new(
-                    ModelId::new("gpt-5.6-sol").unwrap(),
-                    json!("hello"),
-                )
-                .with_instructions("Be concise")
-                .with_tool(json!({"type": "web_search"})),
+                OpenAiResponsesInputTokenCountRequest::new()
+                    .with_model(ModelId::new("gpt-5.6-sol").unwrap())
+                    .with_input(json!("hello"))
+                    .with_instructions("Be concise")
+                    .with_parallel_tool_calls(true)
+                    .with_personality("pragmatic")
+                    .with_reasoning(
+                        OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::Low),
+                    )
+                    .with_tool_choice(json!("auto"))
+                    .with_truncation(OpenAiTruncation::Disabled)
+                    .with_tool(json!({"type": "web_search"})),
                 CallOptions::default(),
             )
             .await
@@ -755,10 +877,9 @@ mod tests {
         let error = resource(&server)
             .await
             .count_input_tokens(
-                OpenAiResponsesInputTokenCountRequest::new(
-                    ModelId::new("gpt-5.6-sol").unwrap(),
-                    json!("hello"),
-                ),
+                OpenAiResponsesInputTokenCountRequest::new()
+                    .with_model(ModelId::new("gpt-5.6-sol").unwrap())
+                    .with_input(json!("hello")),
                 CallOptions::default(),
             )
             .await
